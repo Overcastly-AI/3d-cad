@@ -115,6 +115,46 @@ def profile_sketch(
     }
 
 
+def half_profile_sketch(
+    feature_id: uuid.UUID,
+    radius: float,
+    height: float,
+    *,
+    axis_gap: float = 0.0,
+) -> dict[str, Any]:
+    """A HALF-profile OPEN along the axis + a construction centerline on it.
+
+    Three REAL edges of a rectangle r in [0, radius], y in [0, height] — the
+    on-axis (x=0) edge is OMITTED — plus a ``construction`` centerline 'axis'
+    along x=0 that closes the loop. This is the SolidWorks/Fusion idiom: marking
+    the on-axis edge construction opens the profile wire, and the revolve closes
+    it about the centerline.
+
+    ``axis_gap > 0`` shifts the whole real profile to x in [axis_gap, radius],
+    leaving it open along x=axis_gap (NOT the axis) — a genuinely open profile
+    the centerline cannot close (over-acceptance guard).
+    """
+    x0 = axis_gap
+    entities: list[dict[str, Any]] = [
+        _line("e1", (x0, 0.0), (radius, 0.0)),
+        _line("e2", (radius, 0.0), (radius, height)),
+        _line("e3", (radius, height), (x0, height)),
+        _line("axis", (0.0, height), (0.0, 0.0), construction=True),
+    ]
+    return {
+        "id": str(feature_id),
+        "feature": {
+            "type": "sketch",
+            "version": 1,
+            "params": {
+                "plane": dict(XY_PLANE),
+                "entities": entities,
+                "constraints": [],
+            },
+        },
+    }
+
+
 def revolve_input(
     feature_id: uuid.UUID,
     profile_id: uuid.UUID,
@@ -248,6 +288,281 @@ def test_revolve_cut_removes_a_revolved_pocket() -> None:
     assert result.properties is not None
     assert result.properties.volume == pytest.approx(
         math.pi * (400.0 - 100.0) * 15.0, abs=REVOLVE_TOL
+    )
+
+
+# --- Construction-centerline axis closes a half-profile (BACKLOG P2) ------------------
+
+
+def test_construction_centerline_closes_open_half_profile() -> None:
+    """The SolidWorks/Fusion idiom: a half-profile OPEN along the axis (its
+    on-axis edge is a construction centerline, excluded from the wire) revolves
+    360 deg about that centerline into a solid cylinder, V = pi*r^2*h — the
+    centerline closes the open profile (was 422 profile_not_closed before)."""
+    result = _post(
+        _request(
+            [
+                half_profile_sketch(SKETCH_ID, 12.0, 20.0),
+                revolve_input(REVOLVE_ID, SKETCH_ID),
+            ]
+        )
+    )
+
+    assert [r.status for r in result.features] == ["ok", "ok"]
+    assert result.properties is not None
+    assert result.properties.volume == pytest.approx(
+        math.pi * 144.0 * 20.0, abs=REVOLVE_TOL
+    )
+
+
+def test_construction_centerline_partial_angle() -> None:
+    """A 90 deg revolve of the same open half-profile about its construction
+    centerline sweeps a quarter of the full solid: V = 0.25 * pi*r^2*h."""
+    result = _post(
+        _request(
+            [
+                half_profile_sketch(SKETCH_ID, 12.0, 20.0),
+                revolve_input(REVOLVE_ID, SKETCH_ID, angle_deg=90.0),
+            ]
+        )
+    )
+
+    assert [r.status for r in result.features] == ["ok", "ok"]
+    assert result.properties is not None
+    assert result.properties.volume == pytest.approx(
+        0.25 * math.pi * 144.0 * 20.0, abs=REVOLVE_TOL
+    )
+
+
+def test_profile_open_away_from_axis_still_profile_not_closed() -> None:
+    """Over-acceptance guard: a profile open along x=5 (NOT the axis) is a
+    GENUINELY open profile — the construction centerline at x=0 cannot close it,
+    so it stays profile_not_closed (the fallback supplies only the axis edge)."""
+    result = _post(
+        _request(
+            [
+                half_profile_sketch(SKETCH_ID, 12.0, 20.0, axis_gap=5.0),
+                revolve_input(REVOLVE_ID, SKETCH_ID),
+            ]
+        )
+    )
+
+    assert result.features[1].status == "error"
+    error = result.features[1].error
+    assert error is not None
+    assert error.code == "profile_not_closed"
+    assert error.upstream_feature_id == SKETCH_ID
+
+
+# --- Adversarial centerline-closure guards (geometry-qa, 1605a11) ---------------------
+#
+# The construction-centerline retry (build_revolve_profile_face) promotes ONLY the
+# axis line to a closing edge. These guards pin the boundary between "the axis
+# legitimately closes a half-profile open exactly along it" and every neighbouring
+# case that must instead error — a silently-bridged WRONG solid is the failure the
+# green-suite/wrong-volume bar exists to catch. Analytic values are hand-derived.
+
+
+def _custom_sketch(
+    feature_id: uuid.UUID, entities: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """A sketch feature from an explicit entity list (bespoke geometries)."""
+    return {
+        "id": str(feature_id),
+        "feature": {
+            "type": "sketch",
+            "version": 1,
+            "params": {
+                "plane": dict(XY_PLANE),
+                "entities": entities,
+                "constraints": [],
+            },
+        },
+    }
+
+
+def test_axis_shorter_than_open_span_is_profile_not_closed() -> None:
+    """Silent-bridge guard: the half-profile is open along x=0 for y in [0,20],
+    but the construction centerline only spans y in [0,10]. Promoting that short
+    axis edge leaves the profile's (0,20) endpoint dangling (a 10 mm gap, far
+    beyond the 1e-4 wire tolerance), so it MUST stay profile_not_closed — the
+    retry cannot bridge an axis that fails to reach both open endpoints."""
+    result = _post(
+        _request(
+            [
+                _custom_sketch(
+                    SKETCH_ID,
+                    [
+                        _line("e1", (0.0, 0.0), (12.0, 0.0)),
+                        _line("e2", (12.0, 0.0), (12.0, 20.0)),
+                        _line("e3", (12.0, 20.0), (0.0, 20.0)),
+                        _line("axis", (0.0, 0.0), (0.0, 10.0), construction=True),
+                    ],
+                ),
+                revolve_input(REVOLVE_ID, SKETCH_ID),
+            ]
+        )
+    )
+
+    assert result.features[1].status == "error"
+    error = result.features[1].error
+    assert error is not None
+    assert error.code == "profile_not_closed"
+    assert error.upstream_feature_id == SKETCH_ID
+    assert result.mesh_glb_id is None
+
+
+def test_profile_open_at_axis_and_elsewhere_is_profile_not_closed() -> None:
+    """Partial-close guard: a profile open BOTH along the axis (missing left
+    edge) AND at the top (missing top edge). The centerline can supply only the
+    axis edge, so the top stays open — profile_not_closed, never a partially
+    closed / wrong solid."""
+    result = _post(
+        _request(
+            [
+                _custom_sketch(
+                    SKETCH_ID,
+                    [
+                        _line("e1", (0.0, 0.0), (12.0, 0.0)),
+                        _line("e2", (12.0, 0.0), (12.0, 20.0)),
+                        # top edge (12,20)->(0,20) omitted: open at the top too
+                        _line("axis", (0.0, 0.0), (0.0, 20.0), construction=True),
+                    ],
+                ),
+                revolve_input(REVOLVE_ID, SKETCH_ID),
+            ]
+        )
+    )
+
+    assert result.features[1].status == "error"
+    error = result.features[1].error
+    assert error is not None
+    assert error.code == "profile_not_closed"
+    assert result.mesh_glb_id is None
+
+
+def test_real_on_axis_edge_and_centerline_close_yield_identical_body() -> None:
+    """Anti-double-count / seam guard (design intent: the fallback closes exactly
+    the face a real on-axis edge would give). A rectangle [0,12]x[0,20] closed by
+    a REAL on-axis edge, and the same rectangle left OPEN and closed by a
+    construction centerline of the SAME direction, must produce the SAME disc:
+    identical volume AND byte-identical mesh (content-addressed GLB) — no seam,
+    no doubled edge. Axis line (0,0)->(0,20) is shared so the revolution axis
+    direction (hence seam placement) is identical between the two."""
+    axis_edge = _line("axis", (0.0, 0.0), (0.0, 20.0), construction=True)
+    real_closed = _custom_sketch(
+        SKETCH_ID,
+        [
+            _line("e1", (0.0, 0.0), (12.0, 0.0)),
+            _line("e2", (12.0, 0.0), (12.0, 20.0)),
+            _line("e3", (12.0, 20.0), (0.0, 20.0)),
+            _line("e4", (0.0, 20.0), (0.0, 0.0)),  # REAL on-axis closing edge
+            axis_edge,
+        ],
+    )
+    open_centerline = _custom_sketch(
+        SKETCH_ID,
+        [
+            _line("e1", (0.0, 0.0), (12.0, 0.0)),
+            _line("e2", (12.0, 0.0), (12.0, 20.0)),
+            _line("e3", (12.0, 20.0), (0.0, 20.0)),
+            axis_edge,  # closes the open wire via the retry
+        ],
+    )
+
+    revolve = revolve_input(REVOLVE_ID, SKETCH_ID)
+    result_real = _post(_request([real_closed, revolve]))
+    result_open = _post(_request([open_centerline, revolve]))
+
+    for result in (result_real, result_open):
+        assert [r.status for r in result.features] == ["ok", "ok"]
+        assert result.properties is not None
+        assert result.properties.volume == pytest.approx(
+            math.pi * 144.0 * 20.0, abs=REVOLVE_TOL
+        )
+    # Byte-identical body: same GLB content hash proves no doubled edge / extra seam.
+    assert result_real.mesh_glb_id is not None
+    assert result_real.mesh_glb_id == result_open.mesh_glb_id
+
+
+def test_tilted_construction_centerline_revolves_about_the_tilted_axis() -> None:
+    """A non-axis-aligned construction centerline (the 45 deg line y=x through the
+    origin) is a valid axis: a closed square [3,5]x[0,1] strictly on one side
+    revolves into the correct solid of revolution about that tilted line. Pappus:
+    V = 2*pi*d*A, d = perpendicular distance of the centroid (4, 0.5) to y=x =
+    |4-0.5|/sqrt(2), A = 2. The kernel is not restricted to principal axes."""
+    centroid_distance = abs(4.0 - 0.5) / math.sqrt(2.0)
+    expected = 2.0 * math.pi * centroid_distance * 2.0
+    result = _post(
+        _request(
+            [
+                _custom_sketch(
+                    SKETCH_ID,
+                    [
+                        _line("e1", (3.0, 0.0), (5.0, 0.0)),
+                        _line("e2", (5.0, 0.0), (5.0, 1.0)),
+                        _line("e3", (5.0, 1.0), (3.0, 1.0)),
+                        _line("e4", (3.0, 1.0), (3.0, 0.0)),
+                        _line("axis", (0.0, 0.0), (10.0, 10.0), construction=True),
+                    ],
+                ),
+                revolve_input(REVOLVE_ID, SKETCH_ID),
+            ]
+        )
+    )
+
+    assert [r.status for r in result.features] == ["ok", "ok"]
+    assert result.properties is not None
+    assert result.properties.volume == pytest.approx(expected, abs=REVOLVE_TOL)
+
+
+def test_straddling_profile_closable_by_centerline_still_axis_intersects() -> None:
+    """Ordering guard (the fix builds the face BEFORE the clearance check): an
+    OPEN profile whose two ends both sit on the axis but whose body crosses to
+    both sides of it (x in [-6,6]) — so the centerline CAN close it into a face —
+    must still be rejected as axis_intersects_profile, never a self-intersecting
+    swept solid. Build-then-check must not let a closable straddle through."""
+    result = _post(
+        _request(
+            [
+                _custom_sketch(
+                    SKETCH_ID,
+                    [
+                        _line("e1", (0.0, 0.0), (-6.0, 10.0)),
+                        _line("e2", (-6.0, 10.0), (6.0, 10.0)),  # crosses x=0
+                        _line("e3", (6.0, 10.0), (0.0, 20.0)),
+                        _line("axis", (0.0, 0.0), (0.0, 20.0), construction=True),
+                    ],
+                ),
+                revolve_input(REVOLVE_ID, SKETCH_ID),
+            ]
+        )
+    )
+
+    assert result.features[1].status == "error"
+    error = result.features[1].error
+    assert error is not None
+    assert error.code == "axis_intersects_profile"
+    assert result.mesh_glb_id is None
+
+
+def test_construction_centerline_partial_angle_120_is_exact_third() -> None:
+    """A 120 deg revolve of the open half-profile about its centerline sweeps
+    exactly one third of the full solid: V = (120/360) * pi*r^2*h (an exact,
+    non-quarter fraction — complements the 90 deg guard)."""
+    result = _post(
+        _request(
+            [
+                half_profile_sketch(SKETCH_ID, 12.0, 20.0),
+                revolve_input(REVOLVE_ID, SKETCH_ID, angle_deg=120.0),
+            ]
+        )
+    )
+
+    assert [r.status for r in result.features] == ["ok", "ok"]
+    assert result.properties is not None
+    assert result.properties.volume == pytest.approx(
+        (120.0 / 360.0) * math.pi * 144.0 * 20.0, abs=REVOLVE_TOL
     )
 
 

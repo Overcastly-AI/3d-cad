@@ -30,6 +30,8 @@ from pydantic import (
 from py_kit.schemas.geometry import (
     DEFAULT_ANGULAR_DEFLECTION,
     DEFAULT_LINEAR_DEFLECTION,
+    MIN_ANGULAR_DEFLECTION,
+    MIN_LINEAR_DEFLECTION,
     ExportFormat,
     ShapeProperties,
     Vec3,
@@ -52,6 +54,46 @@ FEATURE_NAME_MAX_LENGTH = 200
 #: parts fit inline" against "JSONB / request-size / parse-time DoS"; the
 #: content-addressed blob-ref successor (§2a) removes this ceiling from the tree.
 MAX_INLINE_STEP_CHARS = 16 * 1024 * 1024
+
+# --- Per-request work bounds (engineering audit 2026-07-24 G2) -------------------
+#
+# The rate limiter caps request FREQUENCY; these constants cap the WORK a single
+# authenticated compute request can demand. Sized like the kernel-tolerance
+# floors: an order of magnitude beyond any real model in the golden suite /
+# a working engineer's part, so a user never feels them, while an attacker
+# cannot OOM or monopolize a geometry worker with one request. Over-bound is a
+# typed 422 at parse (contract-visible), never a kernel blow-up.
+
+#: Ceiling on the features of ONE evaluate/export/measure/overlay/drawing tree
+#: request. Every feature is at least one kernel operation (usually a boolean);
+#: real parts run tens-to-low-hundreds of features, so 1000 is far above
+#: legitimate use while bounding the per-request kernel work + the buffered
+#: JSON body (audit G2 hole 4).
+MAX_TREE_FEATURES = 1000
+
+#: Ceiling on a pattern's TOTAL instance count (seed included). Every instance
+#: past the seed is a rigid kernel copy feeding one variadic boolean fuse/cut —
+#: unbounded ``count`` loops the kernel millions of times in one feature (audit
+#: G2 hole 2). 500 matches the MAX_IMPORT_ASSEMBLY_PRODUCTS scale (one bounded
+#: "instances per request" posture across the service) and dwarfs any real
+#: bolt-circle / perforation array. v1 patterns are SINGLE-direction (no grid
+#: variant), so the request total == ``count``; a future grid variant must cap
+#: the PRODUCT of its per-direction counts at this same ceiling, not each
+#: factor. The lower bound (count >= 1) deliberately stays a rebuild-time
+#: ``pattern_bad_count`` (see the pattern module note); only the DoS ceiling is
+#: parse-time.
+MAX_PATTERN_COUNT = 500
+
+#: Ceiling on loft sections. Each section is a profile-face build + a skin
+#: constraint in ONE OCCT loft; real lofts use a handful of sections, so 100 is
+#: generous while keeping a single loft feature bounded.
+MAX_LOFT_SECTIONS = 100
+
+#: Ceiling on picked-subshape refs in one edge/face selector. Each ref is one
+#: signature resolution against the current body plus one edge/face fed to a
+#: single fillet/chamfer/shell — 500 picked edges is beyond any real selection
+#: while bounding the resolve + kernel-op fan-out of one feature.
+MAX_SELECTOR_REFS = 500
 
 #: Non-empty (post-strip), bounded feature name.
 FeatureName = Annotated[
@@ -370,7 +412,9 @@ class PickedEdgesSelector(BaseModel):
     kind: Literal["edges"]
     refs: list[EdgeSubshapeRef] = Field(
         min_length=1,
-        description="The specific picked edges (>= 1), each a stage-1 "
+        max_length=MAX_SELECTOR_REFS,
+        description="The specific picked edges (>= 1, bounded by "
+        "MAX_SELECTOR_REFS — work bound, audit G2), each a stage-1 "
         "EdgeSignature reference resolved against the current body",
     )
 
@@ -421,8 +465,10 @@ class FaceSelector(BaseModel):
     kind: Literal["faces"]
     refs: list[SubshapeRef] = Field(
         default_factory=list[SubshapeRef],
+        max_length=MAX_SELECTOR_REFS,
         description="The planar faces to leave OPEN (each a stage-1 face "
-        "SubshapeRef resolved against the current body). EMPTY = a fully-enclosed "
+        "SubshapeRef resolved against the current body), bounded by "
+        "MAX_SELECTOR_REFS (work bound, audit G2). EMPTY = a fully-enclosed "
         "hollow (no opening) — a valid selection, not a 422 (design decision).",
     )
 
@@ -827,7 +873,9 @@ class LoftParamsV1(BaseModel):
 
     profiles: list[FeatureRef] = Field(
         min_length=2,
-        description="Ordered earlier sketch features (>= 2) to blend through; "
+        max_length=MAX_LOFT_SECTIONS,
+        description="Ordered earlier sketch features (>= 2, bounded by "
+        "MAX_LOFT_SECTIONS — work bound, audit G2) to blend through; "
         "each forms a single closed profile wire or a single apex point "
         "(design §2.2). Fewer than 2 is a request-validation 422.",
     )
@@ -1033,6 +1081,202 @@ class DraftParamsV1(BaseModel):
     )
 
 
+# --- Hole params — a first-class face-placed drill (slice 1: the simple hole) ----
+#
+# A dedicated HOLE feature, NOT a hand-sketched circle cut: pick a planar face,
+# a point on it, a diameter, and a depth (through-all or blind), and the geometry
+# service drills a cylinder INTO the material (opposite the face's outward normal
+# — the correct cut direction, automatically). This erases the highest-frequency
+# everyday-modeling friction (sketch a circle → constrain → extrude-cut, every
+# time) and later seeds drawing hole callouts.
+#
+# The placement REUSES the existing face-reference grammar, not a new taxonomy:
+# `face` is the SAME stage-1 planar-face :class:`SubshapeRef` the `on_face` datum,
+# the shell openings, and the sketch-on-a-face path already resolve (topo-naming
+# §4) — a pick UI echoes a `/overlay` face signature straight in. So a hole is
+# body-MODIFYING off the implicit single body chain (design §7.6, like fillet/
+# shell/draft) AND names a face reference that materialises into
+# feature_dependencies (deleting the placement-face's feature is a write-time
+# 409-with-dependents; a reorder re-checks strict-backward).
+#
+# SCOPE: a SIMPLE straight drilled hole — through-all OR a blind depth (slice 1)
+# — PLUS an optional coaxial RECESS at the placement face (slice 2): a larger
+# cylindrical `counterbore` (seats a socket-head cap screw) or a `countersink`
+# cone (seats a flat-head screw). The recess is a `HoleType`-discriminated member
+# (:data:`HoleType`) added to `HoleParamsV1` ADDITIVELY — the base bore is
+# unchanged and a legacy hole with no `type` reads `simple`, so NO `param_version`
+# bump (the RevolveAxis / DatumParams / PatternGeometry idiom). Tapped holes (a
+# thread callout, not v1 geometry) and standard drill-size tables remain future
+# additive members.
+
+
+class HoleThroughAll(BaseModel):
+    """A hole that cuts fully THROUGH the body (``kind: "through_all"``).
+
+    No depth to specify — the drill clears the body on both sides regardless of
+    the local wall thickness (the geometry service spans the bounding box). The
+    default ``kind`` makes ``{"kind": "through_all"}`` explicit while a future
+    additive depth mode joins the discriminated union without a bump.
+    """
+
+    kind: Literal["through_all"] = "through_all"
+
+
+class HoleBlindDepth(BaseModel):
+    """A blind hole drilled ``depth_mm`` into the material (``kind: "blind"``).
+
+    ``depth_mm`` is measured from the placement face INTO the solid along the
+    (inward) drill axis. A depth that exceeds the available material — the drill
+    would break through the far side — is a per-feature ``hole_too_deep`` rebuild
+    error (use a through-all hole instead), never a silently wrong body.
+    """
+
+    kind: Literal["blind"]
+    depth_mm: float = Field(
+        gt=0,
+        description="Depth of the blind hole from the face into the material (mm)",
+    )
+
+
+#: A hole's depth mode — cut fully through, or a blind pocket — discriminated on
+#: ``kind``. The ``counterbore`` / ``countersink`` shape is a SEPARATE param
+#: (the hole TYPE — :data:`HoleType`), not a depth mode; this union stays
+#: through-all|blind (a recess is measured from the face independently of it).
+HoleDepth = Annotated[HoleThroughAll | HoleBlindDepth, Field(discriminator="kind")]
+
+
+class HoleSimple(BaseModel):
+    """A plain straight drilled hole — no recess (``kind: "simple"``, the default).
+
+    The slice-1 shape: the bore alone (``diameter_mm`` + the through-all|blind
+    ``depth``), with no counterbore/countersink recess at the face. ``kind``
+    DEFAULTS to ``"simple"`` so a legacy :class:`HoleParamsV1` that carries NO
+    ``type`` validates unchanged — the discriminated :data:`HoleType` is a purely
+    ADDITIVE member (NO ``param_version`` bump; the RevolveAxis / DatumParams
+    idiom).
+    """
+
+    kind: Literal["simple"] = "simple"
+
+
+class HoleCounterbore(BaseModel):
+    """A larger coaxial CYLINDRICAL recess at the face (``kind: "counterbore"``).
+
+    Seats a socket-head cap screw: a flat-bottomed cylinder of
+    ``cbore_diameter_mm`` sunk ``cbore_depth_mm`` from the placement face, coaxial
+    with the bore, subtracted ALONGSIDE the bore. The recess diameter must exceed
+    the bore ``diameter_mm`` and its depth must fit within the body's thickness —
+    an invalid recess degrades to a typed ``hole_cbore_invalid`` (diameter) /
+    ``hole_too_deep`` (depth) rebuild error, never a raise or a silently wrong
+    body (the never-500 posture the simple hole already holds).
+    """
+
+    kind: Literal["counterbore"]
+    cbore_diameter_mm: float = Field(
+        gt=0,
+        description="Counterbore recess diameter (mm); must EXCEED the bore "
+        "`diameter_mm` (a `hole_cbore_invalid` rebuild error otherwise)",
+    )
+    cbore_depth_mm: float = Field(
+        gt=0,
+        description="Depth of the counterbore recess from the face into the "
+        "material (mm); must fit the body thickness (a `hole_too_deep` otherwise)",
+    )
+
+
+class HoleCountersink(BaseModel):
+    """A coaxial CONICAL recess at the face (``kind: "countersink"``).
+
+    Seats a flat-head screw: a truncated cone — ``csink_diameter_mm`` wide at the
+    surface, tapering at the ``csink_angle_deg`` INCLUDED angle (82° and 90° are
+    the fastener standards) down to the bore diameter — subtracted alongside the
+    bore. The mouth diameter must exceed the bore ``diameter_mm`` and the cone
+    depth the angle implies must fit the body — an invalid recess degrades to a
+    typed ``hole_csink_invalid`` (diameter) / ``hole_too_deep`` (depth) rebuild
+    error, never a raise.
+    """
+
+    kind: Literal["countersink"]
+    csink_diameter_mm: float = Field(
+        gt=0,
+        description="Countersink mouth diameter at the face surface (mm); must "
+        "EXCEED the bore `diameter_mm` (a `hole_csink_invalid` otherwise)",
+    )
+    csink_angle_deg: float = Field(
+        gt=0.0,
+        lt=180.0,
+        description="INCLUDED cone angle (degrees); 82 and 90 are the flat-head "
+        "fastener standards. The cone tapers from the mouth diameter down to the "
+        "bore diameter over a depth the angle implies.",
+    )
+
+
+#: A hole's TYPE — a plain bore, or a bore PLUS a coaxial recess at the face —
+#: discriminated on ``kind``. ADDITIVE to :class:`HoleParamsV1` (the base bore is
+#: unchanged; the type only ADDS the recess): a legacy hole with no ``type`` reads
+#: ``simple``, so NO ``param_version`` bump (the RevolveAxis / DatumParams /
+#: PatternGeometry idiom). A future ``tapped`` member (a thread callout, not v1
+#: geometry) joins here additively.
+HoleType = Annotated[
+    HoleSimple | HoleCounterbore | HoleCountersink, Field(discriminator="kind")
+]
+
+
+class HoleParamsV1(BaseModel):
+    """A face-placed cylindrical hole — through-all or blind, plain or recessed.
+
+    The dedicated Hole feature (BACKLOG P2): drill a straight cylinder of
+    ``diameter_mm`` into the current body at ``position`` on the planar ``face``,
+    cutting INTO the material (opposite the face's outward normal — the correct
+    direction, chosen automatically, no direction knob to get wrong). Like a
+    fillet/shell/draft it modifies the implicit single body chain (design §7.6),
+    so it carries no whole-feature ``FeatureRef`` — its dependency on the prior
+    body-affecting feature is tree order. The placement face IS a named reference,
+    though: ``face`` is the SAME stage-1 planar-face :class:`SubshapeRef` the
+    ``on_face`` datum / shell openings resolve, so it materialises into
+    ``feature_dependencies`` (deleting that body feature is a 409-with-dependents;
+    a reorder re-checks strict-backward).
+
+    ``position`` is a WORLD-space point; the geometry service projects it onto the
+    resolved face plane to fix the drill axis (a pick that lands a hair off-plane
+    still drills clean and perpendicular). A point that projects OUTSIDE the body
+    — or a resolved direction into empty space — removes no material and is a
+    ``hole_off_body`` rebuild error, never a silent no-op.
+
+    ``depth`` is a :data:`HoleDepth`: ``through_all`` cuts fully through;
+    ``blind`` drills a ``depth_mm`` pocket. A blind depth that exceeds the
+    available material is ``hole_too_deep``. A non-planar / missing / congruent
+    face reference degrades exactly as the ``on_face`` datum does
+    (``subshape_unresolved`` / ``subshape_ambiguous``) — planar faces only carry a
+    signature, so a non-planar pick cannot be authored.
+
+    ``type`` is a :data:`HoleType`: ``simple`` (the default when omitted — the
+    slice-1 plain bore) or a bore PLUS a coaxial recess at the face —
+    ``counterbore`` (a larger cylinder) or ``countersink`` (a cone). A recess
+    whose diameter does not exceed the bore is ``hole_cbore_invalid`` /
+    ``hole_csink_invalid``; a recess deeper than the material is ``hole_too_deep``.
+    """
+
+    face: SubshapeRef = Field(
+        description="Planar face of an earlier body-affecting feature to drill "
+        "into (the SAME stage-1 signature reference the on_face datum uses)"
+    )
+    position: Vec3 = Field(
+        description="World-space placement point, projected onto the face plane "
+        "to fix the drill axis (mm)"
+    )
+    diameter_mm: float = Field(gt=0, description="Hole diameter (mm)")
+    depth: HoleDepth = Field(
+        description="Through-all, or a blind pocket depth (:data:`HoleDepth`)"
+    )
+    type: HoleType = Field(
+        default_factory=HoleSimple,
+        description="Hole type: a plain bore (`simple`, the default when omitted "
+        "— slice-1 behaviour) or a bore plus a coaxial counterbore / countersink "
+        "recess at the face (:data:`HoleType`)",
+    )
+
+
 # --- Pattern params (linear / circular) -----------------------------------------
 #
 # DESIGN DECISION (v1, BACKLOG #7 — recorded in docs/GEOMETRY-QA.md 2026-07-12):
@@ -1077,6 +1321,14 @@ class DraftParamsV1(BaseModel):
 # one uniform, legible per-feature error surface rather than splitting
 # single-field checks to 422s and cross-field checks to rebuild errors. (A
 # non-integer count is still a parse-time type error — `count` is typed ``int``.)
+#
+# ONE carve-out (engineering audit 2026-07-24 G2): the `count` DoS CEILING
+# (`le=MAX_PATTERN_COUNT`) IS a parse-time 422. It is not a semantic validity
+# check but a per-request work bound — an attacker's count=10_000_000 must be
+# rejected before the kernel loops, exactly like the deflection floors — and it
+# is single-field, so the cross-field rationale above does not apply. The
+# kernel's `_check_count` re-checks the same ceiling as defense-in-depth for
+# direct kernel callers.
 
 
 class LinearPatternParamsV1(BaseModel):
@@ -1101,9 +1353,12 @@ class LinearPatternParamsV1(BaseModel):
         "otherwise). Validated at rebuild, not at parse (see module note)."
     )
     count: int = Field(
+        le=MAX_PATTERN_COUNT,
         description="TOTAL instances INCLUDING the seed (instance 0); an "
-        "integer >= 1. `count < 1` is a `pattern_bad_count` rebuild error; "
-        "`count = 1` is a no-op (the body is unchanged)."
+        "integer >= 1, at most MAX_PATTERN_COUNT (work bound, audit G2 — over "
+        "the ceiling is a parse-time 422). `count < 1` is a "
+        "`pattern_bad_count` rebuild error; `count = 1` is a no-op (the body "
+        "is unchanged).",
     )
 
 
@@ -1135,9 +1390,11 @@ class CircularPatternParamsV1(BaseModel):
         "> 1 (a `pattern_bad_angle` rebuild error otherwise)."
     )
     count: int = Field(
-        description="TOTAL instances INCLUDING the seed; an integer >= 1. "
-        "`count < 1` is a `pattern_bad_count` rebuild error; `count = 1` is a "
-        "no-op."
+        le=MAX_PATTERN_COUNT,
+        description="TOTAL instances INCLUDING the seed; an integer >= 1, at "
+        "most MAX_PATTERN_COUNT (work bound, audit G2 — over the ceiling is a "
+        "parse-time 422). `count < 1` is a `pattern_bad_count` rebuild error; "
+        "`count = 1` is a no-op.",
     )
 
 
@@ -1163,6 +1420,70 @@ class PatternParamsV1(BaseModel):
 
     pattern: PatternGeometry = Field(
         description="Linear or circular pattern geometry (discriminated on `kind`)"
+    )
+
+
+# --- Mirror params — reflect the current body about a plane + union it -----------
+#
+# The reflective sibling of the pattern feature (a daily verb in every incumbent):
+# where a pattern REPLICATES the current body along world-space vectors, a mirror
+# REFLECTS it about a plane and BOOLEAN-UNIONS the reflection into the single body
+# chain (design §7.6, option B — the SAME "replicate the current body + union"
+# semantics). Like a pattern it carries NO source `FeatureRef`: it mirrors the
+# implicit body chain that exists at its point in the tree, so its dependency on
+# the prior body-affecting feature is tree order.
+#
+# The mirror PLANE reuses the EXISTING :data:`GeomRef` plane vocabulary (CLAUDE.md
+# DRY rule — no new plane taxonomy): a :class:`DatumPlaneRef` names one of the
+# three origin datums (XY/XZ/YZ), or a :class:`FeatureRef` points at an earlier
+# `datum` feature (an offset / on-face / midplane plane). That is EXACTLY the
+# `plane` a sketch resolves, so the geometry service reuses `resolve_sketch_plane`
+# unchanged. A `DatumPlaneRef` names a world plane (no reference edge — like a
+# pattern's world vectors, independent of topological naming #1); a `FeatureRef`
+# to a `datum` DOES materialise into feature_dependencies (deleting that datum is a
+# 409-with-dependents), the SAME reference a sketch-plane FeatureRef creates.
+#
+# UNLIKE a pattern, a mirror does NOT force one connected lump: the reflection of a
+# body that CLEARS the plane is a legitimately DISJOINT second lump (a 2V two-lump
+# body — multi-body parts are supported, §MB-0); an OVERLAPPING reflection merges
+# to one solid; a SYMMETRIC body's reflection coincides and leaves the body
+# unchanged. All mirror geometry validity lives at rebuild in
+# `geometry.kernel.mirror`, surfacing as `mirror_failed` (a degenerate/failed
+# reflection) or `no_target_body` (no prior body) / `reference_unresolved` (the
+# plane names a missing/later/non-datum feature) under the strict-prefix rule.
+
+
+class MirrorParamsV1(BaseModel):
+    """Reflect the current body about a plane and union the reflection in.
+
+    The mirror feature (BACKLOG P2): a whole-body reflection about ``plane``,
+    boolean-unioned into the single body chain (design §7.6) — the reflective
+    sibling of the ADD pattern (see the module note for the shared "replicate the
+    current body + union" semantics). Like a fillet/chamfer/pattern it carries NO
+    source ``FeatureRef``: it mirrors the implicit body chain that exists at its
+    point in the tree, so its dependency on the prior body-affecting feature is
+    tree order.
+
+    ``plane`` is a :data:`GeomRef` — the SAME plane reference a sketch uses (no
+    new plane taxonomy, DRY): a :class:`DatumPlaneRef` (an origin datum XY/XZ/YZ)
+    or a :class:`FeatureRef` to an earlier ``datum`` feature (an offset / on-face
+    / midplane plane). A ``FeatureRef`` that does not resolve to a ``datum`` of
+    this prefix is a write-time 422 (the eval-time backstop is
+    ``reference_unresolved``, pinned to the referenced feature).
+
+    The reflection is a true handedness-reversing isometry, NOT a translation
+    (proven by the ``mirror-triangle-prism-2x`` golden). It handles every case
+    sanely: a body that CLEARS the plane mirrors to a disjoint TWO-lump body
+    (volume ``2V``); an OVERLAPPING reflection merges to one solid; a SYMMETRIC
+    body is unchanged. A degenerate/failed reflection is a per-feature
+    ``mirror_failed`` rebuild error; a mirror with no prior body is
+    ``no_target_body`` — never a silently wrong body.
+    """
+
+    plane: GeomRef = Field(
+        description="Mirror plane — an origin datum (XY/XZ/YZ `DatumPlaneRef`) or "
+        "an earlier `datum` feature (`FeatureRef`); the SAME plane vocabulary a "
+        "sketch uses (discriminated on `kind`)"
     )
 
 
@@ -1479,12 +1800,284 @@ class SheetMetalEdgeFlangeParamsV1(BaseModel):
         "(§1). Omitted (None) inherits the part's base-flange default `k_factor` "
         "(0.44 v1 baseline); a value overrides it per-bend.",
     )
+    # WIDTH EXTENTS (design §4.5, WF-1 layer 2) — additive, no param_version bump.
+    # Absent (None width, 0 offset) = full edge width, byte-identical legacy build.
+    width_mm: float | None = Field(
+        default=None,
+        gt=0,
+        description="Flange WIDTH (mm) along the picked edge (design §4.5.1). "
+        "Omitted (None) spans the full edge (or the remainder past `offset_mm`). "
+        "The span [offset, offset + width] is measured from the edge's CANONICAL "
+        "start (the lexicographically smaller endpoint — the stored EdgeSignature's "
+        "`end_a`). `offset + width` must fit the resolved edge length (a typed "
+        "feature error otherwise). Each span end INTERIOR to the edge gets an "
+        "automatic rectangular bend-end relief notch, size = 1 x gauge (§4.5.2).",
+    )
+    offset_mm: float | None = Field(
+        default=None,
+        ge=0.0,
+        description="Span OFFSET (mm) from the picked edge's canonical start "
+        "(its EdgeSignature `end_a`, design §4.5.1). Omitted (None) reads 0 — "
+        "the span starts at `end_a`. With `width_mm` omitted the flange spans "
+        "[offset, edge_length]. Nullable-optional (like `width_mm`) so existing "
+        "clients that never send it stay valid — the additive-field rule.",
+    )
+
+
+# --- Sheet-metal hem — a ~180 deg fold-back of an edge (v1: CLOSED) ---------------
+#
+# A HEM folds the sheet's edge ~180 deg back onto itself, forming a doubled, safe
+# edge (the incumbents' Hem tool — SolidWorks/Fusion). It is the near-trivial win
+# of the parity roadmap (docs/design/sheet-metal-parity.md §2 Hem row / Parity
+# roadmap #3): a CLOSED hem is mechanically a SPECIALIZATION of the shipped edge
+# flange — a fixed 180 deg fold with a small inner radius, folding the return flat
+# back over the parent face. Verified geometrically (kernel-architect, 2026-07-19):
+# `build_edge_flange` at `bend_angle_deg = 180` with a small radius produces ONE
+# clean valid solid (the return sits 2*radius above the base with an air gap, so
+# it CANNOT self-intersect — proven down to radius 1e-6), and the shipped
+# `unfold_sheet_metal` develops it correctly as a bend at pi (BA = pi * (radius +
+# K * thickness)). So a closed hem REUSES `build_edge_flange`'s bend machinery
+# verbatim (bend_angle fixed at 180) — no new kernel geometry code, no new unfold.
+#
+# It is a DISTINCT feature type (not a `hem_type` flag on the edge flange) for the
+# same reasons the edge flange is distinct from a raw sweep (§4.2), plus one more:
+# a hem's authoring gesture NEVER sets a fold angle (it is always ~180) — the user
+# picks an edge + a return length, exactly the incumbent Hem tool. `hem_type`
+# forward-declares the four incumbent hem shapes; v1 ships `"closed"` only (open /
+# teardrop / rolled each need a NEW curved cross-section profile the exact-
+# cross-section extrude does not build, so they are separate fast-follow slices —
+# parity §2). Additive: a new `hem_type` Literal member lands with NO param_version
+# bump.
+
+
+class SheetMetalHemParamsV1(BaseModel):
+    """A hem folded off a straight edge of the sheet — v1 CLOSED hem (parity §2).
+
+    A closed hem folds the picked edge ~180 deg back FLAT against the parent face,
+    with a small inner ``bend_radius_mm`` giving the doubled edge its tight,
+    near-zero air gap (the gap between the two layers is ~2 * bend_radius). It is a
+    specialization of the edge flange: the geometry side reuses ``build_edge_flange``
+    with the fold angle FIXED at 180 deg, so the fused body is one clean solid and
+    the flat pattern develops it as any bend (``BA = pi * (radius + K * thickness)``,
+    §1) — its bend-table row reads angle 180 deg.
+
+    ``edge`` is an :class:`EdgeSubshapeRef` naming the base-flange edge to hem — the
+    SAME stage-1 :class:`EdgeSignature` machinery a fillet/chamfer or edge-flange
+    pick uses (topological-naming §10); its ``feature_id`` materialises the
+    dependency on the base-flange feature. ``length_mm`` is the developed flat
+    length of the folded-back return (to the bend tangent line, §9 golden #1's
+    convention). ``bend_radius_mm`` / ``k_factor`` default from the part's base
+    flange (:class:`SheetMetalBaseFlangeParamsV1`) when omitted (``None``) and may
+    be OVERRIDDEN per-hem — a tight closed hem sets a SMALL radius (e.g. ~0.5 *
+    thickness) rather than the part's general bend radius.
+
+    A ZERO ``bend_radius_mm`` (a truly zero-gap / zero-radius closed hem) is a
+    degenerate fold; the ``gt=0`` bound rejects it as a typed validation error
+    rather than admitting a degenerate solid (honest degradation — parity §3).
+
+    Like a fillet/shell it MODIFIES the implicit single body chain (design §7.6) —
+    it carries no ``merge`` (it always fuses into the sheet body the edge belongs
+    to) — so its only whole-feature dependency is the named-edge ref + tree order.
+    """
+
+    edge: EdgeSubshapeRef = Field(
+        description="The base-flange STRAIGHT edge to hem (a stage-1 EdgeSignature "
+        "reference resolved against the current sheet body). The return folds ~180 "
+        "deg back over this edge's adjacent flat face."
+    )
+    hem_type: Literal["closed"] = Field(
+        default="closed",
+        description="Hem shape. v1 ships 'closed' only (the return folds flat back "
+        "against the parent — parity §2). Open / teardrop / rolled hems each need a "
+        "curved cross-section profile and are deferred (additive Literal members, "
+        "no param_version bump). Absent reads 'closed'.",
+    )
+    length_mm: float = Field(
+        gt=0,
+        description="Developed flat length of the folded-back return (mm), measured "
+        "to the bend tangent line (§9 golden #1 convention).",
+    )
+    bend_radius_mm: float | None = Field(
+        default=None,
+        gt=0,
+        description="INNER bend radius (mm) of the hem fold; the layers' air gap is "
+        "~2 * this. Omitted (None) inherits the part's base-flange default "
+        "`bend_radius_mm`; a value overrides it per-hem. A tight closed hem uses a "
+        "SMALL radius (~0.5 * thickness). A zero radius (zero-gap degenerate fold) "
+        "is rejected by the `gt=0` bound.",
+    )
+    k_factor: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Neutral-axis fraction K in [0, 1] for the hem's bend allowance "
+        "(§1). Omitted (None) inherits the part's base-flange default `k_factor` "
+        "(0.44 v1 baseline); a value overrides it per-hem.",
+    )
+
+
+# --- Sheet-metal corner relief — a RECTANGULAR notch at a bend intersection -------
+#
+# A CORNER RELIEF cuts a small material notch at the shared corner of two adjacent
+# edge flanges so the folded sheet does not tear/interfere and — the point for the
+# flat pattern — so the corner develops into a single non-overlapping blank
+# (docs/design/sheet-metal.md §4.4). The 3D notch geometry + the relieved flat-
+# pattern unfold already ship (`geometry.sheet_metal.apply_corner_relief` /
+# `unfold_sheet_metal(reliefs=...)`); this is the FEATURE that lets a user AUTHOR
+# one so both halves fire end-to-end.
+#
+# AUTO vs EXPLICIT — v1 is EXPLICIT (sheet-metal.md §4.4.2). A relief is an explicit
+# per-corner feature: the user names the two bends whose intersection it relieves
+# and a size. Auto relief (a part-level default applied at every corner that needs
+# it) is the incumbent default and the natural follow-on, but it is a POLICY LAYER
+# over this primitive (walk the bend graph, synthesise an explicit relief per
+# colliding corner) — no new geometry, so it is a clean fast-follow. Shipping the
+# explicit primitive first keeps the determinism/golden story tight (the relief set
+# is an explicit input, not a graph-walk output that could drift, §4.4.2).
+#
+# The two bends are named by `FeatureRef` — each points at the earlier
+# `sheet_metal_edge_flange` feature that CREATED that bend. The evaluator maps each
+# ref to that feature's recorded bend provenance (its `CylindricalFaceSignature`,
+# §5) and builds the geometry-side `CornerRelief` from the two signatures, so the
+# feature never has to persist a kernel cylindrical signature on the wire — the
+# provenance lives where it is computed (the edge flange), exactly like a fillet's
+# picked edge materialises the base-flange dependency. This is why corner relief is
+# a BODY-AFFECTING feature that MODIFIES the sheet body (it cuts the notch) yet its
+# only whole-feature dependencies are the two edge-flange features + tree order.
+
+
+class SheetMetalCornerReliefParamsV1(BaseModel):
+    """An explicit RECTANGULAR corner relief at two adjacent flanges' corner (§4.4).
+
+    Names the two bends whose shared corner it relieves — ``bend_a`` / ``bend_b``,
+    each a :class:`FeatureRef` at the earlier ``sheet_metal_edge_flange`` feature
+    that created that bend. The evaluator resolves each ref to that feature's
+    recorded :class:`CylindricalFaceSignature` (§5) and drives BOTH halves of the
+    relief from the two signatures: the 3D notch boolean
+    (:func:`geometry.sheet_metal.apply_corner_relief`) and the relieved flat-pattern
+    unfold (:func:`unfold_sheet_metal` with ``reliefs=...``) — consistent by
+    construction (the fold-back guarantee, §4.4.4).
+
+    SIZING (§4.4.3): the notch is ``size = relief_ratio * thickness`` by default
+    (``relief_ratio = 1.0`` — one gauge thickness, the tear-safe SolidWorks Relief
+    Ratio default), with the part's gauge taken from the base flange. An absolute
+    ``size_mm`` OVERRIDES the ratio when set (the authoring/UI convenience the golden
+    pins to an exact number). The manufacturing floor ``size >= bend_radius`` (the
+    notch should clear the bend arc) is a recommendation, not a hard bound — an
+    undersized relief is a manufacturing warning, still a fold-back-consistent body.
+
+    v1 ships ``relief_type = "rectangular"`` only (the sole purely-rectilinear
+    developable notch; obround / round / tear are §4.4.1 follow-ons). It MODIFIES the
+    implicit single sheet body chain (design §7.6) — it carries no ``merge`` — so its
+    only whole-feature dependencies are the two edge-flange refs + tree order.
+    """
+
+    bend_a: FeatureRef = Field(
+        description="The FIRST bend of the relieved corner — a FeatureRef at the "
+        "earlier sheet_metal_edge_flange feature that created it. Resolved to that "
+        "feature's recorded CylindricalFaceSignature (§5)."
+    )
+    bend_b: FeatureRef = Field(
+        description="The SECOND bend of the relieved corner — a FeatureRef at the "
+        "other sheet_metal_edge_flange feature. Its shared corner with bend_a is the "
+        "corner the notch relieves; the two bends must be PERPENDICULAR (a real "
+        "tray corner) or the relief is a typed error (§4.4)."
+    )
+    relief_type: Literal["rectangular"] = Field(
+        default="rectangular",
+        description="Relief geometry. v1 ships 'rectangular' only (the sole purely-"
+        "rectilinear developable notch — §4.4.1). Obround / round / tear each need a "
+        "curved / degenerate cut and are deferred (additive Literal members, no "
+        "param_version bump). Absent reads 'rectangular'.",
+    )
+    relief_ratio: float = Field(
+        default=1.0,
+        gt=0.0,
+        allow_inf_nan=False,
+        description="Notch size as a multiple of gauge thickness (size = "
+        "relief_ratio * thickness) — the SolidWorks Relief Ratio family. Default 1.0 "
+        "(one thickness, tear-safe). IGNORED when size_mm is set.",
+    )
+    size_mm: float | None = Field(
+        default=None,
+        gt=0.0,
+        allow_inf_nan=False,
+        description="Absolute notch size (mm). When set, OVERRIDES relief_ratio (the "
+        "authoring/UI convenience that resolves the ratio to an exact value the "
+        "golden pins). Omitted (None) uses relief_ratio * the part's gauge thickness.",
+    )
 
 
 # --- §1.3 Versioned envelopes ----------------------------------------------------
 
 
-class DatumFeature(BaseModel):
+def _drop_schema_default(schema: dict[str, Any]) -> None:
+    """Strip the ``default`` key from a field's generated JSON schema.
+
+    ``openapi-typescript`` (default ``default-non-nullable``) makes any property
+    that advertises a ``default`` NON-optional in the generated TS type — so a
+    defaulted envelope field would force EVERY existing feature literal in the
+    web app to supply it, defeating the "additive-optional, backward-compatible"
+    contract. Dropping the schema ``default`` (the python default still applies
+    on validation) makes ``suppressed`` an OPTIONAL ``suppressed?: boolean`` in
+    the client, so existing callers that omit it keep compiling and the server
+    fills in ``False``. The ``description`` still documents the absent-reads-False
+    behaviour.
+    """
+    schema.pop("default", None)
+
+
+class FeatureEnvelopeBase(BaseModel):
+    """Envelope fields EVERY feature type carries besides its typed ``params``.
+
+    ``suppressed`` is the persisted feature-suppress flag (BACKLOG "Feature
+    suppress"; docs/design/feature-tree.md §4.3a): when ``True`` a tree rebuild
+    SKIPS this feature — the body is built from the non-suppressed prefix and
+    each later non-suppressed feature evaluates off the last non-suppressed
+    body. It lives on the ENVELOPE, not inside ``params``, because it is
+    orthogonal to every feature type (a rebuild flag, not a modeling parameter):
+    it does NOT change ``BODY_AFFECTING_FEATURE_TYPES`` (a suppressed extrude is
+    still an extrude), never forces a ``param_version`` bump, and defaults
+    ``False`` so every existing tree/golden validates and evaluates
+    byte-identically — the additive-optional ``merge``/``flip`` idiom, applied
+    once at the envelope level (CLAUDE.md DRY rule) so a new feature type
+    inherits it for free.
+
+    NOTE (documents persistence — slice-1 scope): documents stores a feature by
+    DECOMPOSING the envelope into ``(type, param_version, params)`` columns, so
+    an envelope-level flag is NOT persisted automatically today (unlike a new
+    ``params`` field). The documents slice must add a ``suppressed`` column, read
+    it back in the CRUD/response and the evaluation-request builder, and expose a
+    toggle endpoint (see the return report).
+
+    ``suppressed`` is a normal, always-serialized field (a dumped envelope
+    carries ``"suppressed": false`` exactly as it carries ``merge`` /
+    ``version``). It is NOT hidden behind a model serializer — a
+    ``@model_serializer`` on this base perturbs pydantic's schema generation for
+    the per-type discriminated ``params`` unions (``DatumParams``/``HoleDepth``/…
+    collapse to an untyped ``Params``), which would break the generated
+    ts-client. The generated CLIENT type is kept OPTIONAL
+    (``suppressed?: boolean``) purely by dropping the JSON-schema ``default``
+    (:func:`_drop_schema_default`), so existing web callers that omit it still
+    compile. The geometry goldens are unaffected: each ``model.json`` is
+    hand-authored input JSON (no ``suppressed`` key) that validates with the
+    default, and goldens assert evaluated mass-properties output — not a dumped
+    tree — so an input-field addition churns none of them.
+    """
+
+    suppressed: bool = Field(
+        default=False,
+        description=(
+            "Feature suppress flag: when True a tree rebuild SKIPS this feature "
+            "and downstream features rebuild off the last non-suppressed body "
+            "(BACKLOG feature suppress). Additive-optional — absent reads False, "
+            "no param_version bump."
+        ),
+        json_schema_extra=_drop_schema_default,
+    )
+
+
+class DatumFeature(FeatureEnvelopeBase):
     """``{"type": "datum", "version": 1, "params": {...}}`` envelope.
 
     A non-body-affecting feature that produces a plane a later sketch sits on
@@ -1530,7 +2123,7 @@ class DatumFeature(BaseModel):
         return new_fields
 
 
-class SketchFeature(BaseModel):
+class SketchFeature(FeatureEnvelopeBase):
     """``{"type": "sketch", "version": 1, "params": {...}}`` envelope."""
 
     type: Literal["sketch"]
@@ -1538,7 +2131,7 @@ class SketchFeature(BaseModel):
     params: SketchParamsV1
 
 
-class ExtrudeFeature(BaseModel):
+class ExtrudeFeature(FeatureEnvelopeBase):
     """``{"type": "extrude", "version": 1, "params": {...}}`` envelope."""
 
     type: Literal["extrude"]
@@ -1546,7 +2139,7 @@ class ExtrudeFeature(BaseModel):
     params: ExtrudeParamsV1
 
 
-class RevolveFeature(BaseModel):
+class RevolveFeature(FeatureEnvelopeBase):
     """``{"type": "revolve", "version": 1, "params": {...}}`` envelope."""
 
     type: Literal["revolve"]
@@ -1554,7 +2147,7 @@ class RevolveFeature(BaseModel):
     params: RevolveParamsV1
 
 
-class SweepFeature(BaseModel):
+class SweepFeature(FeatureEnvelopeBase):
     """``{"type": "sweep", "version": 1, "params": {...}}`` envelope."""
 
     type: Literal["sweep"]
@@ -1562,7 +2155,7 @@ class SweepFeature(BaseModel):
     params: SweepParamsV1
 
 
-class LoftFeature(BaseModel):
+class LoftFeature(FeatureEnvelopeBase):
     """``{"type": "loft", "version": 1, "params": {...}}`` envelope."""
 
     type: Literal["loft"]
@@ -1570,7 +2163,7 @@ class LoftFeature(BaseModel):
     params: LoftParamsV1
 
 
-class FilletFeature(BaseModel):
+class FilletFeature(FeatureEnvelopeBase):
     """``{"type": "fillet", "version": 1, "params": {...}}`` envelope."""
 
     type: Literal["fillet"]
@@ -1578,7 +2171,7 @@ class FilletFeature(BaseModel):
     params: FilletParamsV1
 
 
-class ChamferFeature(BaseModel):
+class ChamferFeature(FeatureEnvelopeBase):
     """``{"type": "chamfer", "version": 1, "params": {...}}`` envelope."""
 
     type: Literal["chamfer"]
@@ -1586,7 +2179,7 @@ class ChamferFeature(BaseModel):
     params: ChamferParamsV1
 
 
-class ShellFeature(BaseModel):
+class ShellFeature(FeatureEnvelopeBase):
     """``{"type": "shell", "version": 1, "params": {...}}`` envelope."""
 
     type: Literal["shell"]
@@ -1594,7 +2187,7 @@ class ShellFeature(BaseModel):
     params: ShellParamsV1
 
 
-class DraftFeature(BaseModel):
+class DraftFeature(FeatureEnvelopeBase):
     """``{"type": "draft", "version": 1, "params": {...}}`` envelope."""
 
     type: Literal["draft"]
@@ -1602,7 +2195,20 @@ class DraftFeature(BaseModel):
     params: DraftParamsV1
 
 
-class PatternFeature(BaseModel):
+class HoleFeature(FeatureEnvelopeBase):
+    """``{"type": "hole", "version": 1, "params": {...}}`` envelope.
+
+    A body-MODIFYING feature (design §7.6): it drills a cylinder into the current
+    body at a point on a picked planar face (through-all or blind). ``params`` is
+    :class:`HoleParamsV1`.
+    """
+
+    type: Literal["hole"]
+    version: Literal[1]
+    params: HoleParamsV1
+
+
+class PatternFeature(FeatureEnvelopeBase):
     """``{"type": "pattern", "version": 1, "params": {...}}`` envelope."""
 
     type: Literal["pattern"]
@@ -1610,7 +2216,21 @@ class PatternFeature(BaseModel):
     params: PatternParamsV1
 
 
-class ImportFeature(BaseModel):
+class MirrorFeature(FeatureEnvelopeBase):
+    """``{"type": "mirror", "version": 1, "params": {...}}`` envelope.
+
+    A body-affecting feature (design §7.6): it reflects the current body about a
+    plane and boolean-unions the reflection into the single body chain — the
+    reflective sibling of :class:`PatternFeature`. ``params`` is
+    :class:`MirrorParamsV1`.
+    """
+
+    type: Literal["mirror"]
+    version: Literal[1]
+    params: MirrorParamsV1
+
+
+class ImportFeature(FeatureEnvelopeBase):
     """``{"type": "import", "version": 1, "params": {...}}`` envelope.
 
     A body-affecting BASE feature (docs/design/step-import.md §1): it produces
@@ -1623,7 +2243,7 @@ class ImportFeature(BaseModel):
     params: ImportParamsV1
 
 
-class SheetMetalBaseFlangeFeature(BaseModel):
+class SheetMetalBaseFlangeFeature(FeatureEnvelopeBase):
     """``{"type": "sheet_metal_base_flange", "version": 1, "params": {...}}`` envelope.
 
     A body-CREATING base feature (docs/design/sheet-metal.md §4.1): it thickens a
@@ -1637,7 +2257,7 @@ class SheetMetalBaseFlangeFeature(BaseModel):
     params: SheetMetalBaseFlangeParamsV1
 
 
-class SheetMetalEdgeFlangeFeature(BaseModel):
+class SheetMetalEdgeFlangeFeature(FeatureEnvelopeBase):
     """``{"type": "sheet_metal_edge_flange", "version": 1, "params": {...}}`` envelope.
 
     A body-MODIFYING feature (docs/design/sheet-metal.md §4.2): it folds a flange
@@ -1651,7 +2271,39 @@ class SheetMetalEdgeFlangeFeature(BaseModel):
     params: SheetMetalEdgeFlangeParamsV1
 
 
-class BooleanFeature(BaseModel):
+class SheetMetalHemFeature(FeatureEnvelopeBase):
+    """``{"type": "sheet_metal_hem", "version": 1, "params": {...}}`` envelope.
+
+    A body-MODIFYING feature (parity §2, closed hem): it folds the picked edge ~180
+    deg back onto the sheet (reusing the edge flange's bend machinery at a fixed 180
+    deg fold), fusing one clean solid, and tags the bend face with a
+    :class:`CylindricalFaceSignature` (§5) for the unfold's provenance — exactly as
+    an edge flange does. ``params`` is :class:`SheetMetalHemParamsV1`.
+    """
+
+    type: Literal["sheet_metal_hem"]
+    version: Literal[1]
+    params: SheetMetalHemParamsV1
+
+
+class SheetMetalCornerReliefFeature(FeatureEnvelopeBase):
+    """``{"type": "sheet_metal_corner_relief", "version": 1, "params": {...}}``.
+
+    A body-affecting feature (sheet-metal.md §4.4) that cuts a rectangular notch at
+    the shared corner of two adjacent edge flanges and — via the analytic relieved
+    unfold — makes that corner develop into a single non-overlapping flat blank. It
+    names the two bends by :class:`FeatureRef` (the edge-flange features that created
+    them); the evaluator resolves each to its recorded
+    :class:`CylindricalFaceSignature` (§5) to drive both relief halves. ``params`` is
+    :class:`SheetMetalCornerReliefParamsV1`.
+    """
+
+    type: Literal["sheet_metal_corner_relief"]
+    version: Literal[1]
+    params: SheetMetalCornerReliefParamsV1
+
+
+class BooleanFeature(FeatureEnvelopeBase):
     """``{"type": "boolean", "version": 1, "params": {...}}`` envelope.
 
     A body-affecting feature that fuses two independently-built bodies
@@ -1681,10 +2333,14 @@ Feature = Annotated[
     | ChamferFeature
     | ShellFeature
     | DraftFeature
+    | HoleFeature
     | PatternFeature
+    | MirrorFeature
     | ImportFeature
     | SheetMetalBaseFlangeFeature
     | SheetMetalEdgeFlangeFeature
+    | SheetMetalHemFeature
+    | SheetMetalCornerReliefFeature
     | BooleanFeature,
     Field(discriminator="type"),
 ]
@@ -1701,10 +2357,14 @@ FeatureEnvelope = (
     | ChamferFeature
     | ShellFeature
     | DraftFeature
+    | HoleFeature
     | PatternFeature
+    | MirrorFeature
     | ImportFeature
     | SheetMetalBaseFlangeFeature
     | SheetMetalEdgeFlangeFeature
+    | SheetMetalHemFeature
+    | SheetMetalCornerReliefFeature
     | BooleanFeature
 )
 
@@ -1832,17 +2492,37 @@ class FeatureTypeRegistry[ModelT: BaseModel]:
             version += 1
         return params
 
-    def load(self, feature_type: str, version: int, params: JsonObject) -> ModelT:
+    def load(
+        self,
+        feature_type: str,
+        version: int,
+        params: JsonObject,
+        *,
+        suppressed: bool = False,
+    ) -> ModelT:
         """Stored columns → current-version validated envelope (read path).
 
         Design §1.4 mapping-to-JSONB rule: columns → envelope dict → upcast if
         needed → validate. The rest of the system only ever sees
         current-version params.
+
+        ``suppressed`` is the ENVELOPE-level suppress flag
+        (:class:`FeatureEnvelopeBase`, feature-tree.md §4.3a). It lives beside
+        ``params`` (not inside it), so documents persists it in its own column
+        and must pass the stored value BACK through here on every read path —
+        both the CRUD response and the evaluation-request the geometry service
+        consumes. Absent (the default) reads ``False``, so callers that do not
+        persist suppress (goldens, tests) are unaffected.
         """
         current = self.current_version(feature_type)
         upcast = self.upcast_params(feature_type, version, params)
         return self._models[feature_type].model_validate(
-            {"type": feature_type, "version": current, "params": upcast}
+            {
+                "type": feature_type,
+                "version": current,
+                "params": upcast,
+                "suppressed": suppressed,
+            }
         )
 
 
@@ -1858,10 +2538,14 @@ FEATURE_REGISTRY.register(FilletFeature)
 FEATURE_REGISTRY.register(ChamferFeature)
 FEATURE_REGISTRY.register(ShellFeature)
 FEATURE_REGISTRY.register(DraftFeature)
+FEATURE_REGISTRY.register(HoleFeature)
 FEATURE_REGISTRY.register(PatternFeature)
+FEATURE_REGISTRY.register(MirrorFeature)
 FEATURE_REGISTRY.register(ImportFeature)
 FEATURE_REGISTRY.register(SheetMetalBaseFlangeFeature)
 FEATURE_REGISTRY.register(SheetMetalEdgeFlangeFeature)
+FEATURE_REGISTRY.register(SheetMetalHemFeature)
+FEATURE_REGISTRY.register(SheetMetalCornerReliefFeature)
 FEATURE_REGISTRY.register(BooleanFeature)
 FEATURE_REGISTRY.validate_chains()
 
@@ -1882,7 +2566,16 @@ BODY_AFFECTING_FEATURE_TYPES = frozenset(
         "chamfer",
         "shell",
         "draft",
+        # `hole` drills a cylinder into the body (a body-affecting modifier like
+        # fillet/shell/draft), so its result faces/edges are nameable by a later
+        # SubshapeRef (a datum on the new bore face, a hole near an earlier hole).
+        "hole",
         "pattern",
+        # `mirror` reflects the current body about a plane and unions the
+        # reflection in (a body-affecting modifier like pattern), so its result
+        # faces/edges are nameable by a later SubshapeRef (a hole on a mirrored
+        # boss, a sketch on the reflected face).
+        "mirror",
         # `import` produces the base body (step-import.md §1), so its faces/edges
         # are nameable by a later SubshapeRef — "sketch on an imported part's face".
         "import",
@@ -1896,6 +2589,16 @@ BODY_AFFECTING_FEATURE_TYPES = frozenset(
         # hole on a formed flange face, or a second edge flange off a NEW edge the
         # first created (still a depth-1 star off the base, §4.3).
         "sheet_metal_edge_flange",
+        # `sheet_metal_hem` folds a ~180 deg return onto the sheet body (parity §2,
+        # closed hem) — the SAME body-affecting result as an edge flange (it reuses
+        # `build_edge_flange`), so its faces/edges are nameable by a later
+        # SubshapeRef (a hole on the hemmed return, a bend off a new edge).
+        "sheet_metal_hem",
+        # `sheet_metal_corner_relief` cuts a notch into the sheet body (sheet-metal
+        # §4.4) — a body-affecting modifier like fillet/shell — so its result
+        # faces/edges are nameable by a later SubshapeRef (a hole near a relieved
+        # corner). It never keys a standalone body (no `merge`).
+        "sheet_metal_corner_relief",
         # `boolean` produces a combined body (multi-body §Decisions-3), so its
         # result faces/edges are nameable by a later SubshapeRef (a fillet on a
         # boolean seam — MB-3, the honest stage-1-degrade-under-edit case).
@@ -2111,11 +2814,38 @@ def feature_references(feature: FeatureEnvelope) -> tuple[FeatureReference, ...]
                         f"faces[{index}]", ref, BODY_AFFECTING_FEATURE_TYPES
                     )
                 )
+        case HoleFeature():
+            # A hole drills the implicit single body chain (design §7.6) at a point
+            # on a picked planar FACE. That face is a stage-1 SubshapeRef (the SAME
+            # signature the on_face datum / shell openings resolve): its feature_id
+            # materialises into feature_dependencies, so deleting the placement
+            # face's body feature is a 409-with-dependents and a reorder re-checks
+            # strict-backward. diameter/position/depth are scalars, not refs.
+            references.append(
+                FeatureReference(
+                    "face", feature.params.face, BODY_AFFECTING_FEATURE_TYPES
+                )
+            )
         case PatternFeature():
             # A pattern replicates the implicit body about world-space direction/
             # axis vectors (no picked sub-geometry — independent of #1); its
             # dependency on the prior body-affecting feature is tree order.
             pass
+        case MirrorFeature():
+            # A mirror reflects the implicit body about a plane and unions it
+            # (design §7.6) — no source FeatureRef, tree order is its dependency
+            # on the prior body-affecting feature. Its `plane` is the SAME GeomRef
+            # a sketch uses: a `datum_plane` origin ref carries no feature_id (a
+            # world plane — no dependency edge, like a pattern's vectors), but a
+            # `datum` FeatureRef DOES materialise into feature_dependencies with
+            # the same `datum`-only rule the sketch plane enforces (deleting that
+            # datum is a 409-with-dependents; a reorder re-checks strict-backward).
+            if isinstance(feature.params.plane, FeatureRef):
+                references.append(
+                    FeatureReference(
+                        "plane", feature.params.plane, frozenset({"datum"})
+                    )
+                )
         case ImportFeature():
             # An import PRODUCES the base body from its own inline STEP params
             # (step-import.md §1) — no picked geometry, no FeatureRef, so it
@@ -2143,6 +2873,42 @@ def feature_references(feature: FeatureEnvelope) -> tuple[FeatureReference, ...]
             references.append(
                 FeatureReference(
                     "edge", feature.params.edge, BODY_AFFECTING_FEATURE_TYPES
+                )
+            )
+        case SheetMetalHemFeature():
+            # A hem names the base-flange EDGE it folds ~180 deg back over (parity
+            # §2) — an EdgeSubshapeRef resolved against the current sheet body,
+            # exactly like an edge flange / picked fillet edge. Its feature_id
+            # materialises into feature_dependencies (the named base-flange feature),
+            # so deleting the base flange is a 409-with-dependents and a reorder
+            # re-checks strict-backward. length/radius/K/hem_type are scalars, not
+            # refs. The edge is named on a body-affecting feature's result.
+            references.append(
+                FeatureReference(
+                    "edge", feature.params.edge, BODY_AFFECTING_FEATURE_TYPES
+                )
+            )
+        case SheetMetalCornerReliefFeature():
+            # A corner relief names the TWO edge-flange features whose bends meet at
+            # the relieved corner (sheet-metal.md §4.4) — each a FeatureRef the
+            # evaluator maps to that flange's recorded CylindricalFaceSignature (§5).
+            # Both slots accept `sheet_metal_edge_flange` ONLY (a hem is a 180 deg
+            # fold-back, not a corner-forming bend; base/other features have no bend
+            # provenance). Each feature_id materialises into feature_dependencies, so
+            # deleting a referenced edge flange is a 409-with-dependents and a reorder
+            # re-checks strict-backward. relief_type/relief_ratio/size_mm are scalars.
+            references.append(
+                FeatureReference(
+                    "bend_a",
+                    feature.params.bend_a,
+                    frozenset({"sheet_metal_edge_flange"}),
+                )
+            )
+            references.append(
+                FeatureReference(
+                    "bend_b",
+                    feature.params.bend_b,
+                    frozenset({"sheet_metal_edge_flange"}),
                 )
             )
         case BooleanFeature():
@@ -2209,6 +2975,29 @@ class FeatureUpdate(BaseModel):
         if self.name is None and self.feature is None:
             raise ValueError("provide at least one of 'name' or 'feature'")
         return self
+
+
+class FeatureSuppressRequest(BaseModel):
+    """Toggle ONLY a feature's suppress flag (feature-tree.md §4.3a).
+
+    A DEDICATED, minimal mutation — distinct from :class:`FeatureUpdate` — so
+    suppressing/un-suppressing never touches ``params`` (no re-validation of
+    the payload, no dependency-edge rewrite): it flips the envelope-level
+    ``suppressed`` flag and bumps ``tree_version`` under the same
+    optimistic-concurrency guard as every other write (stale value → 422). A
+    suppressed feature is SKIPPED at rebuild (the body is built from the
+    non-suppressed prefix), so this changes what an evaluation of the part
+    means and is a normal history-recording tree edit (undoable)."""
+
+    expected_tree_version: int = Field(
+        ge=0,
+        description="Optimistic-concurrency guard: the tree_version the client "
+        "last saw; a stale value is rejected 422 (design §1.2)",
+    )
+    suppressed: bool = Field(
+        description="New suppress state: True skips the feature at rebuild, "
+        "False re-includes it (feature-tree.md §4.3a)."
+    )
 
 
 class FeatureResponse(BaseModel):
@@ -2313,13 +3102,15 @@ class EvaluateTreeRequest(BaseModel):
     part_id: uuid.UUID
     tree_version: int = Field(description="Echoed back; cache/correlation key")
     features: list[EvaluatedFeatureInput] = Field(
-        description="Ordered prefix (rollback already applied)"
+        max_length=MAX_TREE_FEATURES,
+        description="Ordered prefix (rollback already applied), bounded by "
+        "MAX_TREE_FEATURES (work bound, audit G2)",
     )
     linear_deflection: float = Field(
         default=DEFAULT_LINEAR_DEFLECTION,
-        gt=0,
+        ge=MIN_LINEAR_DEFLECTION,
         description="Presentation parameter (mm), NEVER persisted per feature "
-        "(design §8.3)",
+        "(design §8.3). Floored at MIN_LINEAR_DEFLECTION (work bound, audit G2).",
     )
 
 
@@ -2348,10 +3139,11 @@ class ExportTreeRequest(EvaluateTreeRequest):
     )
     angular_deflection: float = Field(
         default=DEFAULT_ANGULAR_DEFLECTION,
-        gt=0,
+        ge=MIN_ANGULAR_DEFLECTION,
         description=(
             "STL facet angular deflection (rad) between adjacent segments; "
-            "ignored for STEP (exact B-rep)"
+            "ignored for STEP (exact B-rep). Floored at MIN_ANGULAR_DEFLECTION "
+            "(work bound, audit G2)."
         ),
     )
 
@@ -2413,16 +3205,45 @@ FeatureData = SolvedSketchData
 
 class FeatureResult(BaseModel):
     """Per-feature evaluation status. Strict-prefix rule (§4.3): the first
-    failure is ``error``, every subsequent feature ``skipped``."""
+    failure is ``error``, every subsequent feature ``skipped``. A feature marked
+    ``suppressed`` (§4.3a) is neither: it is deliberately skipped from the
+    rebuild — distinct from a downstream ``skipped`` (which means an earlier
+    feature failed) — so the tree UI can show it dimmed rather than red."""
 
     feature_id: uuid.UUID
-    status: Literal["ok", "error", "skipped"]
+    status: Literal["ok", "error", "skipped", "suppressed"]
     error: FeatureError | None = None
     data: FeatureData | None = Field(
         default=None,
         description="Typed per-feature payload for ok features that produce "
         "one (§7.10): solved sketch geometry today; future feature types add "
         "kind-tagged variants additively.",
+    )
+
+
+class BodyLumpInfo(BaseModel):
+    """Per-body lump count of an evaluated tree (docs/design/multi-body.md §MB-4).
+
+    The whole-part aggregate ``properties.topology.shells`` cannot tell a
+    disjoint-union / multi-solid-import body (one body, several disjoint LUMPS)
+    from a single-lump body: a sealed hollow inflates the shell count, and the
+    aggregate sums across every body. This per-body entry carries the honest
+    lump count so a consumer (the Bodies panel) can flag a multi-lump body.
+
+    ``base_feature_id`` is the body's identity — the id of the feature that
+    CREATED it (§MB-0 Decision 1), the same key ``EvaluationState.bodies`` uses —
+    so a caller maps the count back to the body/row it names. ``lumps`` is the
+    number of disjoint connected solids (``>= 1``; a single-lump body reports
+    ``1``), counted by ``geometry.kernel.lumps.lump_count``.
+    """
+
+    base_feature_id: uuid.UUID = Field(
+        description="Id of the feature that created this body (its §MB-0 identity)"
+    )
+    lumps: int = Field(
+        ge=1,
+        description="Number of disjoint connected solids (lumps) of this body; "
+        "1 for a single-lump body, >1 for a disjoint union / multi-solid import.",
     )
 
 
@@ -2434,6 +3255,14 @@ class EvaluateTreeResult(BaseModel):
     part_id: uuid.UUID
     tree_version: int
     features: list[FeatureResult] = Field(description="Same order as the request")
+    bodies: list[BodyLumpInfo] = Field(
+        default_factory=list[BodyLumpInfo],
+        description="Per-body lump count of the last-good body set (§MB-4), "
+        "tree-ordered by the feature that created each body. Lets a consumer flag "
+        "a multi-lump (disjoint-union / multi-solid-import) body the whole-part "
+        "`properties.topology.shells` aggregate cannot distinguish. Additive: "
+        "absent/empty for a tree with no body-affecting feature.",
+    )
     mesh_glb_id: str | None = Field(
         description="Content-addressed artifact key (sha256:<hex>) of the "
         "LAST-GOOD body mesh; fetch via the geometry service's "

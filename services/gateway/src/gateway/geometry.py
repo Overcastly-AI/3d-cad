@@ -13,7 +13,12 @@ from typing import Annotated, Any, NoReturn
 
 import httpx2 as httpx
 from fastapi import APIRouter, Path, Request, Response
-from py_kit.schemas.assemblies import EvaluateAssemblyRequest, EvaluateAssemblyResult
+from py_kit.schemas.assemblies import (
+    EvaluateAssemblyRequest,
+    EvaluateAssemblyResult,
+    ExportAssemblyRequest,
+    InterferenceResult,
+)
 from py_kit.schemas.drawings import (
     EvaluateDrawingViewsRequest,
     EvaluateDrawingViewsResult,
@@ -223,6 +228,49 @@ async def export(
     )
 
 
+_ASSEMBLY_EXPORT_RESPONSES = export_responses(
+    "The exported assembly CAD file, proxied byte-exact from the geometry "
+    "service: STEP AP214 part 21 (`model/step`, exact B-rep with product "
+    "structure — each instance a named PRODUCT at its solved placement) or "
+    "binary STL (`model/stl`, faceted mesh). `Content-Disposition` carries the "
+    "suggested download filename. Byte-deterministic: identical requests "
+    "produce identical files."
+)
+
+
+# Auth-protected (same rationale + posture as ``/export`` above — audit F7).
+@router.post(
+    "/assembly/export",
+    response_class=Response,
+    responses=_ASSEMBLY_EXPORT_RESPONSES,
+    dependencies=[COMPUTE_RATE_LIMIT],
+)
+async def assembly_export(
+    request: ExportAssemblyRequest, user: CurrentUser, http_request: Request
+) -> Response:
+    """Proxy an assembly export to the geometry service; pass the file through.
+
+    Auth-protected (an assembly graph belongs to a signed-in user); the geometry
+    hop stays identity-free, so the principal never travels upstream (same
+    posture as ``/export`` + ``/assembly/evaluate``, RESEARCH §3). The shared
+    :class:`ExportAssemblyRequest` DTO validates at the gateway before anything
+    goes upstream. Geometry solves the assembly and composes it into ONE
+    multi-instance STEP (AP214 product structure) or STL; a body-less assembly is
+    a 422 ``assembly_export_no_body`` envelope, re-surfaced verbatim.
+    """
+    upstream = await _forward(http_request, "/api/v1/assembly/export", request)
+    if upstream.status_code != 200:
+        _raise_upstream_error(upstream)
+    headers: dict[str, str] = {}
+    if "content-disposition" in upstream.headers:
+        headers["Content-Disposition"] = upstream.headers["content-disposition"]
+    return Response(
+        content=upstream.content,
+        media_type=EXPORT_MEDIA_TYPES[request.format],
+        headers=headers,
+    )
+
+
 @router.post("/assembly/evaluate", dependencies=[COMPUTE_RATE_LIMIT])
 async def assembly_evaluate(
     request: EvaluateAssemblyRequest, user: CurrentUser, http_request: Request
@@ -244,6 +292,31 @@ async def assembly_evaluate(
     if upstream.status_code != 200:
         _raise_upstream_error(upstream)
     return EvaluateAssemblyResult.model_validate_json(upstream.content)
+
+
+@router.post("/assembly/interference", dependencies=[COMPUTE_RATE_LIMIT])
+async def assembly_interference(
+    request: EvaluateAssemblyRequest, user: CurrentUser, http_request: Request
+) -> InterferenceResult:
+    """Proxy an assembly interference check to the geometry service (assemblies §4).
+
+    Auth-protected (an assembly graph belongs to a signed-in user); the geometry
+    hop stays identity-free, so the principal never travels upstream (same posture
+    as ``/assembly/evaluate`` + measure/overlay, RESEARCH §3). The shared
+    :class:`EvaluateAssemblyRequest` DTO validates at the gateway before anything
+    goes upstream. Geometry solves the assembly and runs a pairwise
+    ``BRepAlgoAPI_Common`` over the solved world-placed instance bodies, returning
+    the clash list ``[{instance_a, instance_b, overlap_volume_mm3}]`` (each pair
+    once, a merely-touching pair is NO clash) plus the solve status/diagnosis. A
+    non-overlapping assembly is ``clashes: []``; a bad part/mate/solve is a 200
+    with a typed status and a (possibly empty) clash list (design §4), never a
+    4xx/5xx from the check itself. The envelope stays reserved for
+    transport/validation failures of this call.
+    """
+    upstream = await _forward(http_request, "/api/v1/assembly/interference", request)
+    if upstream.status_code != 200:
+        _raise_upstream_error(upstream)
+    return InterferenceResult.model_validate_json(upstream.content)
 
 
 @router.post("/drawing/evaluate", dependencies=[COMPUTE_RATE_LIMIT])

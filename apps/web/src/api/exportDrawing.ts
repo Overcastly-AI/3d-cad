@@ -22,19 +22,26 @@ export type DrawingExportFormat = NonNullable<
 
 /**
  * Export a laid-out drawing via the gateway
- * (`POST /api/v1/drawings/{id}/export?format=`). The server composes the sheet
- * from the SAME persisted placement the on-screen sheet shows — byte-deterministic
- * — and streams the artifact (PDF/SVG/DXF) back. `client` is injectable for tests.
+ * (`POST /api/v1/drawings/{id}/export?format=&sheet=`). The server composes the
+ * sheet from the SAME persisted placement the on-screen sheet shows —
+ * byte-deterministic — and streams the artifact (PDF/SVG/DXF) back. `sheetId`
+ * picks WHICH sheet to export (the active sheet of a multi-sheet drawing);
+ * omitting it exports the first sheet (back-compat). `client` is injectable for
+ * tests.
  */
 export async function exportDrawing(
   drawingId: string,
   format: DrawingExportFormat,
+  sheetId?: string | null,
   client: GatewayClient = gatewayClient,
 ): Promise<ExportedFile> {
   const { data, error, response } = await client.POST(
     "/api/v1/drawings/{drawing_id}/export",
     {
-      params: { path: { drawing_id: drawingId }, query: { format } },
+      params: {
+        path: { drawing_id: drawingId },
+        query: sheetId ? { format, sheet: sheetId } : { format },
+      },
       parseAs: "blob",
     },
   );

@@ -61,6 +61,7 @@ from dataclasses import dataclass, field
 from build123d import Compound, Face, Plane, Solid, Vertex, Wire
 from py_kit.errors import ValidationApiError
 from py_kit.schemas.features import (
+    BodyLumpInfo,
     BooleanFeature,
     ChamferFeature,
     CircularPatternParamsV1,
@@ -71,6 +72,7 @@ from py_kit.schemas.features import (
     DatumOnFaceParams,
     DatumPlaneRef,
     DraftFeature,
+    EdgeSubshapeRef,
     EvaluatedFeatureInput,
     EvaluateTreeRequest,
     EvaluateTreeResult,
@@ -82,19 +84,27 @@ from py_kit.schemas.features import (
     FeatureRef,
     FeatureResult,
     FilletFeature,
+    HoleBlindDepth,
+    HoleCounterbore,
+    HoleCountersink,
+    HoleFeature,
     ImportFeature,
     LinearPatternParamsV1,
     LoftFeature,
+    MirrorFeature,
     PatternFeature,
     PatternGeometry,
     RevolveFeature,
     SheetMetalBaseFlangeFeature,
+    SheetMetalCornerReliefFeature,
     SheetMetalEdgeFlangeFeature,
+    SheetMetalHemFeature,
     ShellFeature,
     SketchFeature,
     SolvedSketchData,
     SubshapeRef,
     SweepFeature,
+    iter_feature_refs,
 )
 from py_kit.schemas.geometry import MeshStats, ShapeProperties
 from py_kit.schemas.sketch import classify_overconstraint
@@ -108,10 +118,15 @@ from geometry.kernel import (
     ChamferError,
     DraftError,
     FilletError,
+    HoleInvalidDiameterError,
+    HoleOffBodyError,
+    HoleRecessInvalidError,
+    HoleTooDeepError,
     ImportNoSolidError,
     ImportParseError,
     ImportParseTimeoutError,
     LoftError,
+    MirrorError,
     NoAxisError,
     NoEdgesSelectedError,
     PathClosedError,
@@ -133,17 +148,24 @@ from geometry.kernel import (
     SubshapeUnresolvedError,
     SweepError,
     boolean_bodies,
+    bore_hole,
+    bore_tool,
     build_datum_plane,
     build_loft_section,
     build_path_wire,
     build_profile_face,
     build_profile_faces,
+    build_revolve_profile_face,
     chamfer_body,
     check_axis_clears_profile,
     circular_pattern,
     circular_pattern_cut,
     combine_body,
     combine_properties,
+    counterbore_tool,
+    countersink_tool,
+    cut_counterbore,
+    cut_countersink,
     draft_body,
     extrude_face,
     fillet_body,
@@ -152,6 +174,8 @@ from geometry.kernel import (
     loft_sections,
     measure_shape,
     midplane_between,
+    mirror_cut,
+    mirror_union,
     offset_plane,
     resolve_axis_line,
     resolve_edge,
@@ -163,14 +187,19 @@ from geometry.kernel import (
     sweep_profile,
     tessellate_glb,
 )
+from geometry.kernel.lumps import lump_count
 from geometry.kernel.types import BodyShape
 from geometry.mesh_store import store_mesh_glb
 from geometry.sheet_metal import (
     BendProvenance,
+    CornerRelief,
+    CornerReliefError,
     EdgeFlangeEdgeError,
     EdgeFlangeError,
     SheetMetalDefaults,
     build_edge_flange,
+    corner_relief_tools,
+    cut_relief_tools,
 )
 from geometry.sketch import (
     PlanegcsSketchSolver,
@@ -184,6 +213,23 @@ from geometry.step_cache import import_step_solid_cached
 #: never import a solver package). ``PlanegcsSketchSolver`` is stateless —
 #: every solve builds a fresh system — so one shared instance is safe.
 _SOLVER: SketchSolver = PlanegcsSketchSolver()
+
+
+def _snapshot_shape(bodies: dict[uuid.UUID, BodyShape]) -> BodyShape:
+    """The current body set as ONE shape — a bare :class:`~build123d.Solid` (a
+    single body) or a FLATTENED :class:`~build123d.Compound` of every body's lumps
+    (multi-body §MB-4).
+
+    The single construction (CLAUDE.md DRY) shared by the final tessellated shape
+    and the per-feature provenance snapshots (:attr:`EvaluationState.body_history`),
+    so a face has byte-identical geometry between a mid-tree snapshot and the final
+    body — the invariant :func:`geometry.kernel.attribute_faces` matches on.
+    Callers guard a non-empty ``bodies`` (a body-less tree tessellates nothing).
+    """
+    body_list = list(bodies.values())
+    if len(body_list) == 1:
+        return body_list[0]
+    return Compound([solid for body in body_list for solid in body.solids()])
 
 
 def _step_import_bounds() -> tuple[float, float]:
@@ -245,6 +291,18 @@ class EvaluationState:
     bodies: dict[uuid.UUID, BodyShape] = field(
         default_factory=dict[uuid.UUID, BodyShape]
     )
+    #: Snapshot of the WHOLE body set after each ok BODY-AFFECTING feature, in
+    #: evaluation order (earliest first): ``(feature id, shape)``. Per-face feature
+    #: provenance (FINDINGS #9, :func:`geometry.kernel.attribute_faces`) walks these
+    #: earliest-first to attribute each final face to the feature that created or
+    #: last modified it, so the frontend can highlight one feature's faces instead
+    #: of clay-swapping the whole body. Each snapshot is built exactly like the
+    #: final tessellated shape (:func:`_snapshot_shape` — bare solid or flattened
+    #: Compound), so a face matches across snapshots by geometry. Service-internal
+    #: kernel shapes, never serialized — exactly like ``bodies``.
+    body_history: list[tuple[uuid.UUID, BodyShape]] = field(
+        default_factory=list[tuple[uuid.UUID, BodyShape]]
+    )
     #: The part's sheet-metal defaults (gauge/K/bend-radius) keyed by the
     #: base-flange feature id that created the sheet body (docs/design/
     #: sheet-metal.md §4.1/§5). Recorded only on an ok base flange; the
@@ -260,13 +318,42 @@ class EvaluationState:
     bend_provenance: dict[uuid.UUID, BendProvenance] = field(
         default_factory=dict[uuid.UUID, BendProvenance]
     )
+    #: The explicit corner reliefs (§4.4) authored by each ok corner-relief feature,
+    #: keyed by that feature id and insertion-ordered by evaluation order
+    #: (deterministic). The flat-pattern unfold reads them to develop the relieved
+    #: blank; the 3D notch is already cut into the active body. Service-internal.
+    corner_reliefs: dict[uuid.UUID, CornerRelief] = field(
+        default_factory=dict[uuid.UUID, CornerRelief]
+    )
+    #: The CLEAN sheet body the flat-pattern unfold AND every corner relief resolve
+    #: their bend signatures against (§4.4.4): every bend applied, NO relief notches,
+    #: maintained by each fold (:func:`_fold_flange_off_edge`) and NEVER mutated by a
+    #: relief cut. A relief notch shortens a bend cylindrical face, shifting its
+    #: centroid past the signature match tolerance, so resolving against the live
+    #: (notched) body would miss a shared/earlier bend — resolving against this
+    #: un-notched body sidesteps that regardless of feature order (a relief that
+    #: shares a flange with an earlier relief, or a flange authored AFTER a relief,
+    #: both resolve). ``None`` until the first fold sets it; for an unrelieved part it
+    #: equals the live body (same bends, no notches). Service-internal, like ``bodies``.
+    sheet_metal_unfold_body: BodyShape | None = None
     active_body_id: uuid.UUID | None = None
     #: The immediately-preceding BODY-AFFECTING feature (tree order), updated
-    #: after each ok body-affecting feature by :func:`evaluate_tree`. A pattern
-    #: reads it to infer whether it should array a CUT (source = a preceding
-    #: extrude-cut, BACKLOG #3) or union whole-body copies (the default). Holds a
-    #: validated feature envelope — never serialized, exactly like ``bodies``.
+    #: after each ok body-affecting feature by :func:`evaluate_tree`. A pattern or
+    #: mirror reads it to infer whether it should array/reflect a CUT (source = a
+    #: preceding extrude-cut or Hole, BACKLOG #3 / FINDINGS #1) or replicate
+    #: whole-body copies (the default). Holds a validated feature envelope — never
+    #: serialized, exactly like ``bodies``.
     prev_body_feature: FeatureEnvelope | None = None
+    #: The removal TOOL solid(s) the most-recent ok Hole feature cut (bore + any
+    #: counterbore/countersink recess), captured at hole-eval time from the SAME
+    #: pre-cut body so they reproduce the drilled geometry exactly (FINDINGS #1).
+    #: A pattern / mirror whose immediately-preceding feature is that Hole
+    #: (``prev_body_feature`` is a :class:`HoleFeature`) reflects/arrays THESE tools
+    #: — never re-resolving the placement face against the post-cut body (which the
+    #: seed hole would have perturbed, FINDINGS #3). Service-internal, like
+    #: ``bodies``; ``None`` until the first Hole and never read once a NON-Hole
+    #: body-affecting feature follows (the ``prev_body_feature`` type gate).
+    last_hole_tools: list[Solid] | None = None
 
     @property
     def active_body(self) -> BodyShape | None:
@@ -809,34 +896,44 @@ def _evaluate_sheet_metal_base_flange(
     return None
 
 
-def _evaluate_sheet_metal_edge_flange(
-    item: EvaluatedFeatureInput, state: EvaluationState
+def _fold_flange_off_edge(
+    item: EvaluatedFeatureInput,
+    state: EvaluationState,
+    edge_ref: EdgeSubshapeRef,
+    *,
+    flange_length_mm: float,
+    bend_angle_deg: float,
+    override_radius_mm: float | None,
+    override_k_factor: float | None,
+    subject: str,
+    width_mm: float | None = None,
+    offset_mm: float = 0.0,
 ) -> FeatureError | None:
-    """Fold a flange off a base-flange edge and fuse it across a bend (§4.2).
+    """Shared bend machinery for the edge-flange (§4.2) and hem (parity §2) folds.
 
-    Body-modifying (design §7.6): it needs a prior sheet body with recorded
-    sheet-metal defaults (``no_base_flange`` otherwise — a bend allowance needs the
-    part gauge/K). The base-flange edge is resolved by the picked
-    :class:`EdgeSignature` (:func:`resolve_edge` — the SAME stage-1 machinery a
-    fillet uses); a ref that no longer resolves is ``subshape_unresolved`` / a
-    congruent twin ``subshape_ambiguous``. ``bend_radius_mm`` / ``k_factor`` inherit
-    the part defaults when omitted (§4.2). The bend geometry is built + fused
-    (:func:`build_edge_flange`); on success the active body becomes the fused sheet
-    and the bend's provenance (§5) is recorded for the unfold. The active body is
-    only replaced on success (strict-prefix tessellates the last-good body, §4.3).
+    Both features fold a flange off a resolved base-flange edge via the SAME
+    :func:`build_edge_flange` (a hem is an edge flange at a fixed 180 deg fold —
+    parity §2 / DRY): resolve the picked edge (stage-1 :class:`EdgeSignature`,
+    :func:`resolve_edge`), inherit the part's gauge/K/radius defaults where the
+    per-feature value is omitted, build + fuse the bend, and record the bend
+    provenance (§5) keyed by this feature id. Every failure is a TYPED per-feature
+    error (never a raw kernel exception or an invalid solid — parity §3): no prior
+    body (``no_prior_body``), no recorded sheet-metal defaults (``no_base_flange``),
+    an unresolvable / ambiguous edge (``subshape_unresolved`` /
+    ``subshape_ambiguous``), an unsuitable edge (``edge_flange_bad_edge``), or a
+    degenerate/self-intersecting fold the kernel rejects (``edge_flange_failed`` —
+    :func:`build_edge_flange` validates the fused solid count). ``subject`` names
+    the feature in the no-body messages. The active body is only replaced on
+    success (strict-prefix tessellates the last-good body, §4.3); ``set_active_body``
+    keeps the body's identity (its base-flange id) so the defaults stay reachable
+    for a later fold (a depth-1 star, §4.3).
     """
-    feature = item.feature
-    assert isinstance(feature, SheetMetalEdgeFlangeFeature), (
-        "registry dispatches on type='sheet_metal_edge_flange'"
-    )
-    params = feature.params
-
     active = state.active_body
     if active is None or state.active_body_id is None:
         return FeatureError(
             code="no_prior_body",
             message=(
-                "An edge flange requires an existing sheet body, but no "
+                f"{subject} requires an existing sheet body, but no "
                 "body-affecting feature precedes it; add a base flange first."
             ),
         )
@@ -845,45 +942,289 @@ def _evaluate_sheet_metal_edge_flange(
         return FeatureError(
             code="no_base_flange",
             message=(
-                "An edge flange needs the part's sheet-metal gauge/K (from a base "
+                f"{subject} needs the part's sheet-metal gauge/K (from a base "
                 "flange) to compute its bend allowance, but the active body is not "
                 "a sheet-metal base flange."
             ),
         )
 
     try:
-        edge = resolve_edge(active, params.edge.selector.signature)
+        edge = resolve_edge(active, edge_ref.selector.signature)
     except SubshapeUnresolvedError as exc:
         return FeatureError(code="subshape_unresolved", message=str(exc))
     except SubshapeAmbiguousError as exc:
         return FeatureError(code="subshape_ambiguous", message=str(exc))
 
-    radius = params.bend_radius_mm or defaults.bend_radius_mm
-    k_factor = params.k_factor if params.k_factor is not None else defaults.k_factor
+    radius = override_radius_mm or defaults.bend_radius_mm
+    k_factor = override_k_factor if override_k_factor is not None else defaults.k_factor
 
     try:
         result = build_edge_flange(
             active,
             edge,
-            flange_length_mm=params.flange_length_mm,
-            bend_angle_deg=params.bend_angle_deg,
+            flange_length_mm=flange_length_mm,
+            bend_angle_deg=bend_angle_deg,
             bend_radius_mm=radius,
             thickness_mm=defaults.thickness_mm,
+            width_mm=width_mm,
+            offset_mm=offset_mm,
         )
     except EdgeFlangeEdgeError as exc:
         return FeatureError(code="edge_flange_bad_edge", message=str(exc))
     except EdgeFlangeError as exc:
         return FeatureError(code="edge_flange_failed", message=str(exc))
 
-    # set_active_body keeps the body's identity (its base-flange id), so the
-    # sheet-metal defaults stay reachable for a SECOND edge flange (a depth-1
-    # star, §4.3 — the U-channel case) without re-keying.
     state.set_active_body(result.body)
+
+    # Maintain the CLEAN (un-notched) sheet body — every bend applied, NO relief
+    # notches (§4.4.4). Both the flat-pattern unfold AND each corner relief resolve
+    # their bend signatures against THIS body, never the live (possibly notched) one:
+    # a relief notch shortens a bend cylinder and shifts its centroid past the
+    # signature match tolerance, so resolving against the live body would miss a
+    # shared/earlier bend. Until the first relief the clean body tracks the live body
+    # verbatim (same object). AFTER a relief has notched the live body the two have
+    # diverged, so re-fold THIS same flange off the clean body (identical edge + fold
+    # params → an identical bend, so the provenance recorded below still resolves
+    # against it). The provenance is taken from whichever build the clean body carries.
+    clean_result = result
+    prior_clean = state.sheet_metal_unfold_body
+    if prior_clean is None or prior_clean is active:
+        state.sheet_metal_unfold_body = result.body
+    else:
+        try:
+            clean_edge = resolve_edge(prior_clean, edge_ref.selector.signature)
+            clean_result = build_edge_flange(
+                prior_clean,
+                clean_edge,
+                flange_length_mm=flange_length_mm,
+                bend_angle_deg=bend_angle_deg,
+                bend_radius_mm=radius,
+                thickness_mm=defaults.thickness_mm,
+                width_mm=width_mm,
+                offset_mm=offset_mm,
+            )
+            state.sheet_metal_unfold_body = clean_result.body
+        except (
+            SubshapeUnresolvedError,
+            SubshapeAmbiguousError,
+            EdgeFlangeError,
+        ):
+            # The live fold succeeded, so this re-fold on a strictly-simpler
+            # (un-notched) body is essentially unreachable; if it ever fails we leave
+            # the clean reference WITHOUT this bend (provenance from the live build)
+            # rather than crash — the unfold then reports an honest
+            # ``subshape_unresolved`` for this bend, never a 500 (§5 degradation).
+            clean_result = result
     state.bend_provenance[item.id] = BendProvenance(
-        cyl_signature=result.cyl_signature,
-        base_face_signature=result.base_face_signature,
+        cyl_signature=clean_result.cyl_signature,
+        base_face_signature=clean_result.base_face_signature,
         k_factor=k_factor,
     )
+    return None
+
+
+def _evaluate_sheet_metal_edge_flange(
+    item: EvaluatedFeatureInput, state: EvaluationState
+) -> FeatureError | None:
+    """Fold a flange off a base-flange edge and fuse it across a bend (§4.2).
+
+    Body-modifying (design §7.6): it needs a prior sheet body with recorded
+    sheet-metal defaults. Delegates the resolve/build/record steps to
+    :func:`_fold_flange_off_edge` (shared with the hem), passing the picked edge +
+    the per-feature ``flange_length_mm`` / ``bend_angle_deg`` and the inherited
+    radius/K overrides. See that helper for the typed error contract.
+    """
+    feature = item.feature
+    assert isinstance(feature, SheetMetalEdgeFlangeFeature), (
+        "registry dispatches on type='sheet_metal_edge_flange'"
+    )
+    params = feature.params
+    return _fold_flange_off_edge(
+        item,
+        state,
+        params.edge,
+        flange_length_mm=params.flange_length_mm,
+        bend_angle_deg=params.bend_angle_deg,
+        override_radius_mm=params.bend_radius_mm,
+        override_k_factor=params.k_factor,
+        subject="An edge flange",
+        width_mm=params.width_mm,
+        offset_mm=params.offset_mm if params.offset_mm is not None else 0.0,
+    )
+
+
+def _evaluate_sheet_metal_hem(
+    item: EvaluatedFeatureInput, state: EvaluationState
+) -> FeatureError | None:
+    """Fold a ~180 deg CLOSED hem off a base-flange edge (parity §2).
+
+    A closed hem is an edge flange at a FIXED 180 deg fold (parity §2 / §1): the
+    picked edge folds flat back onto the sheet with a small inner radius, forming a
+    doubled, safe edge. Delegates to :func:`_fold_flange_off_edge` with
+    ``bend_angle_deg = 180`` and the hem's ``length_mm`` as the developed return
+    length — no new kernel geometry code (the return sits ~2*radius above the base,
+    so the fold cannot self-intersect; verified down to radius 1e-6). The bend is
+    tagged with a :class:`CylindricalFaceSignature` (§5) so the unfold develops it
+    as any bend (BA = pi * (radius + K * thickness)); its bend-table row reads angle
+    180 deg. v1 handles ``hem_type = "closed"`` only (the schema forbids the rest);
+    open / teardrop / rolled are deferred (curved cross-section, parity §2).
+    """
+    feature = item.feature
+    assert isinstance(feature, SheetMetalHemFeature), (
+        "registry dispatches on type='sheet_metal_hem'"
+    )
+    params = feature.params
+    return _fold_flange_off_edge(
+        item,
+        state,
+        params.edge,
+        flange_length_mm=params.length_mm,
+        bend_angle_deg=180.0,
+        override_radius_mm=params.bend_radius_mm,
+        override_k_factor=params.k_factor,
+        subject="A hem",
+    )
+
+
+def _resolve_relief_bend(
+    ref: FeatureRef, state: EvaluationState, *, slot: str
+) -> BendProvenance | FeatureError:
+    """Resolve a corner-relief bend FeatureRef to its recorded bend provenance (§5).
+
+    A corner relief names each bend by the earlier edge-flange feature that CREATED
+    it (documents enforces the ``sheet_metal_edge_flange`` slot rule at write time;
+    geometry re-checks because it must not trust callers). The provenance dict holds
+    only edge flanges evaluated ``ok`` in this prefix, so a self / forward / rolled-
+    back / non-edge-flange ref all MISS the same way — one honest
+    ``reference_unresolved`` pinned to the referenced id (§4.3). *slot* names the
+    failing bend in the message.
+    """
+    prov = state.bend_provenance.get(ref.feature_id)
+    if prov is None:
+        return FeatureError(
+            code="reference_unresolved",
+            message=(
+                f"Corner-relief {slot} must reference an earlier edge-flange feature "
+                "of this tree whose bend was built successfully; the referenced "
+                "feature is not a resolved sheet-metal bend."
+            ),
+            upstream_feature_id=ref.feature_id,
+        )
+    return prov
+
+
+def _evaluate_sheet_metal_corner_relief(
+    item: EvaluatedFeatureInput, state: EvaluationState
+) -> FeatureError | None:
+    """Cut a rectangular corner relief at two adjacent flanges' corner (§4.4).
+
+    Body-modifying (design §7.6): it needs a prior sheet body with recorded
+    sheet-metal defaults (gauge, for the ratio sizing) and the two named bends'
+    provenance. Resolves each bend FeatureRef to its recorded
+    :class:`CylindricalFaceSignature` (:func:`_resolve_relief_bend`), sizes the notch
+    (``size_mm`` override, else ``relief_ratio * thickness`` — §4.4.3), builds the
+    geometry-side :class:`CornerRelief`, and cuts the 3D notch.
+
+    **Resolution vs. cut are decoupled (§4.4.4) — this is what lets ALL FOUR corners
+    of a pan relieve.** Every bend signature is resolved against the CLEAN,
+    un-notched reference body (:attr:`EvaluationState.sheet_metal_unfold_body`,
+    maintained by the folds — all bends, no notches) via
+    :func:`corner_relief_tools`, then the notch tool is cut from the LIVE active body
+    via :func:`cut_relief_tools`. A relief that SHARES a flange with an earlier relief
+    therefore still resolves: an earlier notch shortens the shared flange's bend
+    cylinder and shifts its centroid past the signature match tolerance, so resolving
+    against the live (already-notched) body would miss that shared bend — resolving
+    against the un-notched reference sidesteps it, and the cuts stack on the live
+    body (disjoint corner bites at opposite ends of the shared flange). The SAME relief
+    spec is recorded on ``state`` so the flat-pattern unfold — which also resolves
+    against that clean reference — develops the matching relieved blank; the fold-back
+    guarantee (§4.4.4) holds through the real pipeline, not just the unit test. The
+    clean reference is NOT mutated here (the relief cuts only the live body), so it
+    keeps serving every later relief and the unfold regardless of feature ordering.
+
+    Every failure is a TYPED per-feature error (never a raw kernel exception or a
+    wrong body — §4.4/§5): no prior body (``no_prior_body``), no sheet-metal defaults
+    (``no_base_flange``), a bend ref that no longer resolves
+    (``reference_unresolved``), a bend signature that no longer matches the reference
+    (``subshape_unresolved`` / ``subshape_ambiguous``), or a relief that cannot apply
+    — parallel/non-perpendicular bends, an axis-unaligned corner, or a cut that
+    severs the sheet (``corner_relief_failed``). The active body + the recorded
+    relief set are mutated only on success (last-good semantics, §4.3).
+    """
+    feature = item.feature
+    assert isinstance(feature, SheetMetalCornerReliefFeature), (
+        "registry dispatches on type='sheet_metal_corner_relief'"
+    )
+    params = feature.params
+
+    active = state.active_body
+    if active is None or state.active_body_id is None:
+        return FeatureError(
+            code="no_prior_body",
+            message=(
+                "A corner relief requires an existing sheet body, but no "
+                "body-affecting feature precedes it; add a base flange and edge "
+                "flanges first."
+            ),
+        )
+    defaults = state.sheet_metal_defaults.get(state.active_body_id)
+    if defaults is None:
+        return FeatureError(
+            code="no_base_flange",
+            message=(
+                "A corner relief needs the part's sheet-metal gauge (from a base "
+                "flange) to size its notch, but the active body is not a sheet-metal "
+                "base flange."
+            ),
+        )
+
+    prov_a = _resolve_relief_bend(params.bend_a, state, slot="bend_a")
+    if isinstance(prov_a, FeatureError):
+        return prov_a
+    prov_b = _resolve_relief_bend(params.bend_b, state, slot="bend_b")
+    if isinstance(prov_b, FeatureError):
+        return prov_b
+
+    size = (
+        params.size_mm
+        if params.size_mm is not None
+        else params.relief_ratio * defaults.thickness_mm
+    )
+    relief = CornerRelief(
+        bend_a=prov_a.cyl_signature,
+        bend_b=prov_b.cyl_signature,
+        size_mm=size,
+        relief_type=params.relief_type,
+    )
+
+    # Resolve the notch tools against the CLEAN un-notched reference (all bends, no
+    # notches — maintained by the folds), then cut them from the LIVE body. A resolved
+    # bend implies a fold ran, which set the clean reference, so it is non-None here;
+    # guard it as a typed error rather than assume (never a crash).
+    reference = state.sheet_metal_unfold_body
+    if reference is None:
+        return FeatureError(
+            code="no_prior_body",
+            message=(
+                "A corner relief needs the sheet body's bends (from edge flanges) to "
+                "resolve its named corner, but no bend has been folded yet; add edge "
+                "flanges first."
+            ),
+        )
+    try:
+        tools = corner_relief_tools(reference, relief)
+        relieved = cut_relief_tools(active, [tools])
+    except SubshapeUnresolvedError as exc:
+        return FeatureError(code="subshape_unresolved", message=str(exc))
+    except SubshapeAmbiguousError as exc:
+        return FeatureError(code="subshape_ambiguous", message=str(exc))
+    except CornerReliefError as exc:
+        return FeatureError(code="corner_relief_failed", message=str(exc))
+
+    # The clean reference is NOT mutated — the relief cuts only the LIVE body, so the
+    # reference keeps ALL bends and NO notches for every later relief + the unfold.
+    state.set_active_body(relieved)
+    state.corner_reliefs[item.id] = relief
     return None
 
 
@@ -908,20 +1249,32 @@ def _evaluate_revolve(
     assert isinstance(feature, RevolveFeature), "registry dispatches on type='revolve'"
     params = feature.params
 
-    resolved = _resolve_profile_face(params.profile, state)
+    # Resolve the solved sketch, then the axis, THEN build the profile face:
+    # the axis is resolved first so a construction centerline can close a
+    # half-profile open only along the axis (build_revolve_profile_face), the
+    # natural SolidWorks/Fusion idiom. A profile already closed by real edges
+    # (offset washer, real on-axis edge) builds byte-identically.
+    resolved = _resolve_solved_profile(params.profile, state)
     if isinstance(resolved, FeatureError):
         return resolved
-    face, plane, solved = resolved
+    plane, solved = resolved
 
     try:
         axis_line = resolve_axis_line(solved.entities, params.axis.entity)
-        check_axis_clears_profile(axis_line, solved.entities)
     except NoAxisError as exc:
         return FeatureError(
             code="no_axis",
             message=str(exc),
             upstream_feature_id=params.profile.feature_id,
         )
+
+    try:
+        face = build_revolve_profile_face(plane, solved.entities, axis_line)
+    except (ProfileNotClosedError, ProfileUnsupportedError) as exc:
+        return _profile_build_error(exc, params.profile.feature_id)
+
+    try:
+        check_axis_clears_profile(axis_line, solved.entities)
     except AxisIntersectsProfileError as exc:
         return FeatureError(
             code="axis_intersects_profile",
@@ -1326,25 +1679,173 @@ def _evaluate_draft(
     return None
 
 
-def _pattern_cut_tools(state: EvaluationState) -> list[Solid] | None:
-    """The removal tools to array-cut, or ``None`` to array-union (BACKLOG #3).
+def _evaluate_hole(
+    item: EvaluatedFeatureInput, state: EvaluationState
+) -> FeatureError | None:
+    """Drill a cylindrical hole into the current body at a point on a face (§4.3).
 
-    Option (a): a pattern infers its combine mode from the IMMEDIATELY-preceding
-    body-affecting feature (``state.prev_body_feature``, tree order — no new
-    schema field, no picked reference, so independent of topological naming #1).
-    When that source is an extrude-CUT, its removal tool(s) are RECONSTRUCTED
-    from the source's already-solved profile — a pure, deterministic function of
-    the same solved sketch + params the cut itself used (:func:`_resolve_profile_faces`
-    + :func:`extrude_face`), so the seed hole (placement 0) and the patterned
-    copies (placements 1..count-1) are the identical tool. Any other source (an
-    add, a fillet, an intervening feature) returns ``None`` — the pattern unions
-    whole-body copies exactly as before (the add-pattern path is unchanged).
+    The dedicated Hole feature (BACKLOG P2, slice 1 — the simple bore; slice 2 —
+    the optional coaxial counterbore / countersink recess). Like fillet/shell/draft
+    it modifies the implicit single body chain (design §7.6), so it needs a prior
+    body-affecting feature (``no_prior_body`` otherwise). The placement FACE is
+    resolved by the SAME stage-1 planar-face signature the ``on_face`` datum /
+    shell openings use (:func:`resolve_face_plane`, via
+    :func:`_resolve_face_datum_plane` — offset 0): a ref that no longer resolves
+    is ``subshape_unresolved``, a congruent twin ``subshape_ambiguous``, a
+    non-planar / missing face likewise (planar faces only carry a signature). The
+    drill cuts INTO the material (opposite the face's outward normal — the correct
+    direction, automatically) through the shared cut boolean; a counterbore /
+    countersink then sinks a larger coaxial recess at the face. Failures degrade to
+    typed per-feature errors, never a 500 or a silently wrong body:
+    ``hole_off_body`` (the point is off the face / the direction is wrong — no
+    material removed), ``hole_too_deep`` (a blind depth OR a recess depth exceeds
+    the available material / overhangs the face edge), ``hole_cbore_invalid`` /
+    ``hole_csink_invalid`` (a recess no wider than the bore), or ``boolean_failed``
+    (a kernel cut failure / lump-count change). The active body is only replaced on
+    success (strict-prefix rule tessellates the last-good body, §4.3).
+    """
+    feature = item.feature
+    assert isinstance(feature, HoleFeature), "registry dispatches on type='hole'"
+    params = feature.params
+
+    active = state.active_body
+    if active is None:
+        return FeatureError(
+            code="no_prior_body",
+            message=(
+                "Hole requires an existing body, but no body-affecting feature "
+                "precedes this one; add a feature that creates a body first."
+            ),
+        )
+
+    plane = _resolve_face_datum_plane(params.face, 0.0, state)
+    if isinstance(plane, FeatureError):
+        return plane
+
+    blind = isinstance(params.depth, HoleBlindDepth)
+    depth_mm = (
+        params.depth.depth_mm if isinstance(params.depth, HoleBlindDepth) else None
+    )
+    point = (params.position.x, params.position.y, params.position.z)
+    try:
+        drilled = bore_hole(
+            active,
+            plane,
+            point,
+            params.diameter_mm,
+            through_all=not blind,
+            depth_mm=depth_mm,
+        )
+        # Slice 2: sink the optional coaxial recess (counterbore / countersink) at
+        # the face, cut ALONGSIDE the bore (design: HoleType additive member).
+        hole_type = params.type
+        if isinstance(hole_type, HoleCounterbore):
+            drilled = cut_counterbore(
+                drilled,
+                plane,
+                point,
+                bore_diameter_mm=params.diameter_mm,
+                cbore_diameter_mm=hole_type.cbore_diameter_mm,
+                cbore_depth_mm=hole_type.cbore_depth_mm,
+            )
+        elif isinstance(hole_type, HoleCountersink):
+            drilled = cut_countersink(
+                drilled,
+                plane,
+                point,
+                bore_diameter_mm=params.diameter_mm,
+                csink_diameter_mm=hole_type.csink_diameter_mm,
+                csink_angle_deg=hole_type.csink_angle_deg,
+            )
+    except HoleInvalidDiameterError as exc:
+        # Unreachable from the API (HoleParamsV1.diameter_mm is Field(gt=0)); the
+        # typed guard keeps a script/pattern path from surfacing a raw OCCT raise
+        # as a 500 (FINDINGS #23).
+        return FeatureError(code="hole_invalid_diameter", message=str(exc))
+    except HoleRecessInvalidError as exc:
+        code = (
+            "hole_cbore_invalid"
+            if isinstance(params.type, HoleCounterbore)
+            else "hole_csink_invalid"
+        )
+        return FeatureError(code=code, message=str(exc))
+    except HoleOffBodyError as exc:
+        return FeatureError(code="hole_off_body", message=str(exc))
+    except HoleTooDeepError as exc:
+        return FeatureError(code="hole_too_deep", message=str(exc))
+    except BooleanError as exc:
+        return FeatureError(code="boolean_failed", message=str(exc))
+    state.set_active_body(drilled)
+    # Capture the removal tool(s) for a following pattern / mirror of this hole
+    # (FINDINGS #1). Rebuilt from the SAME pre-cut ``active`` body the cuts used, so
+    # every tool is byte-identical to what was removed; the recess builders reuse the
+    # already-validated params (a bore diagonal is invariant to the seed bore, so the
+    # recess span matches). Pure geometry — the cut already succeeded above.
+    tools: list[Solid] = [
+        bore_tool(
+            active,
+            plane,
+            point,
+            params.diameter_mm,
+            through_all=not blind,
+            depth_mm=depth_mm,
+        )
+    ]
+    if isinstance(hole_type, HoleCounterbore):
+        tools.append(
+            counterbore_tool(
+                active,
+                plane,
+                point,
+                bore_diameter_mm=params.diameter_mm,
+                cbore_diameter_mm=hole_type.cbore_diameter_mm,
+                cbore_depth_mm=hole_type.cbore_depth_mm,
+            )
+        )
+    elif isinstance(hole_type, HoleCountersink):
+        tools.append(
+            countersink_tool(
+                active,
+                plane,
+                point,
+                bore_diameter_mm=params.diameter_mm,
+                csink_diameter_mm=hole_type.csink_diameter_mm,
+                csink_angle_deg=hole_type.csink_angle_deg,
+            )
+        )
+    state.last_hole_tools = tools
+    return None
+
+
+def _prev_cut_tools(state: EvaluationState) -> list[Solid] | None:
+    """The removal tools to array/reflect-cut, or ``None`` for whole-body (BACKLOG #3).
+
+    Option (a): a pattern OR mirror infers its combine mode from the
+    IMMEDIATELY-preceding body-affecting feature (``state.prev_body_feature``, tree
+    order — no new schema field, no picked reference, so independent of topological
+    naming #1). Two cut sources produce removal tools (FINDINGS #1 — both verbs
+    reasoned about the body chain without cut-awareness):
+
+    * an extrude-CUT: its removal tool(s) are RECONSTRUCTED from the source's
+      already-solved profile — a pure, deterministic function of the same solved
+      sketch + params the cut itself used (:func:`_resolve_profile_faces` +
+      :func:`extrude_face`);
+    * a Hole: the exact bore (+ any counterbore/countersink recess) tool(s)
+      CAPTURED at hole-eval time (``state.last_hole_tools``), so the seed hole
+      (placement 0 / the source side) and the copies are the identical tool without
+      re-resolving the placement face against the post-cut body.
+
+    Any other source (an add, a fillet, an intervening feature) returns ``None`` —
+    the caller replicates whole-body copies exactly as before (the add-pattern /
+    reflect-and-union mirror path is unchanged).
 
     The source cut already succeeded in this prefix (strict-prefix rule), so
     reconstruction cannot fail; a defensive ``FeatureError`` from the resolver
     (which must not happen) falls back to ``None`` rather than crash.
     """
     source = state.prev_body_feature
+    if isinstance(source, HoleFeature):
+        return state.last_hole_tools
     if not isinstance(source, ExtrudeFeature) or source.params.operation != "cut":
         return None
     resolved = _resolve_profile_faces(source.params.profile, state)
@@ -1401,11 +1902,12 @@ def _evaluate_pattern(
     vectors (no picked sub-geometry — independent of topological naming, #1), so
     like fillet/chamfer it needs a prior body-affecting feature
     (``no_target_body`` otherwise). Two combine modes, inferred (option a) from
-    the IMMEDIATELY-preceding body-affecting feature (:func:`_pattern_cut_tools`):
+    the IMMEDIATELY-preceding body-affecting feature (:func:`_prev_cut_tools`):
 
-    * when it is an extrude-CUT (a bolt-circle hole, a lightening hole —
-      BACKLOG #3 / showcase F1), the copies of that cut's tool are REMOVED at
-      each placement, so one hole-cut + pattern makes N holes, not N bodies;
+    * when it is an extrude-CUT or a Hole (a bolt-circle hole, a lightening hole —
+      BACKLOG #3 / FINDINGS #1 / showcase F1), the copies of that cut's tool are
+      REMOVED at each placement, so one hole-cut + pattern makes N holes, not N
+      bodies;
     * otherwise the copies of the WHOLE current body are UNIONED into the chain
       (the original add-pattern, unchanged — BACKLOG #7).
 
@@ -1430,7 +1932,7 @@ def _evaluate_pattern(
             ),
         )
 
-    tools = _pattern_cut_tools(state)
+    tools = _prev_cut_tools(state)
     try:
         state.set_active_body(_apply_pattern(active, feature.params.pattern, tools))
     except PatternCountError as exc:
@@ -1447,6 +1949,69 @@ def _evaluate_pattern(
         return FeatureError(code="pattern_disjoint", message=str(exc))
     except PatternError as exc:
         return FeatureError(code="pattern_failed", message=str(exc))
+    return None
+
+
+def _evaluate_mirror(
+    item: EvaluatedFeatureInput, state: EvaluationState
+) -> FeatureError | None:
+    """Reflect the current body about a plane — cut-aware or reflect-and-union (§4.3).
+
+    v1 DESIGN DECISION (docs/GEOMETRY-QA.md): a mirror reflects the CURRENT
+    evaluated body about ``plane``. Like fillet/chamfer/pattern it needs a prior
+    body-affecting feature (``no_target_body`` otherwise). The mirror plane is
+    resolved through the SAME :func:`resolve_sketch_plane` funnel a sketch uses (an
+    origin datum name or an earlier ``datum`` feature — no new plane taxonomy), so
+    a plane that names a missing / later / non-datum feature is a
+    ``reference_unresolved`` pinned to the referenced feature (documents rejects it
+    at write time; geometry re-checks because it must not trust its callers).
+
+    Two combine modes, inferred (option a) from the IMMEDIATELY-preceding
+    body-affecting feature (:func:`_prev_cut_tools`) — the SAME cut-awareness the
+    pattern uses, because mirror and pattern share the root defect (FINDINGS #1:
+    both reasoned about the body chain without it):
+
+    * when it is an extrude-CUT or a Hole, the mirror reflects THAT CUT's tool(s)
+      about ``plane`` and removes them (:func:`mirror_cut`), so a plate with a hole
+      on one side mirrors to a plate with a hole on BOTH sides — the #1 mirror use
+      case. Reflecting the whole filled body and unioning would instead FILL the
+      original hole (the featureless-brick bug);
+    * otherwise the mirror reflects the WHOLE current body and BOOLEAN-UNIONS the
+      reflection into the body chain (:func:`mirror_union` — option B, the
+      reflective sibling of the ADD pattern, unchanged). UNLIKE a pattern this union
+      may be a DISJOINT two-lump body (the reflection of a body that clears the
+      plane — a valid ``2V`` multi-body, §MB-0), an OVERLAPPING merge, or the
+      unchanged body (a symmetric source).
+
+    A degenerate reflection / failed union or cut is a per-feature ``mirror_failed``
+    error; the active body is only replaced on success (strict-prefix rule
+    tessellates the last-good body, §4.3).
+    """
+    feature = item.feature
+    assert isinstance(feature, MirrorFeature), "registry dispatches on type='mirror'"
+
+    active = state.active_body
+    if active is None:
+        return FeatureError(
+            code="no_target_body",
+            message=(
+                "Mirror requires an existing body, but no body-affecting feature "
+                "precedes this one; add a feature that creates a body first."
+            ),
+        )
+
+    plane = resolve_sketch_plane(feature.params.plane, state)
+    if isinstance(plane, FeatureError):
+        return plane
+
+    tools = _prev_cut_tools(state)
+    try:
+        if tools is not None:
+            state.set_active_body(mirror_cut(active, tools, plane))
+        else:
+            state.set_active_body(mirror_union(active, plane))
+    except MirrorError as exc:
+        return FeatureError(code="mirror_failed", message=str(exc))
     return None
 
 
@@ -1618,10 +2183,14 @@ _BODY_AFFECTING_TYPES: frozenset[str] = frozenset(
         "chamfer",
         "shell",
         "draft",
+        "hole",
         "pattern",
+        "mirror",
         "import",
         "sheet_metal_base_flange",
         "sheet_metal_edge_flange",
+        "sheet_metal_hem",
+        "sheet_metal_corner_relief",
         "boolean",
     }
 )
@@ -1641,10 +2210,14 @@ FEATURE_HANDLERS: dict[str, FeatureHandler] = {
     "chamfer": _evaluate_chamfer,
     "shell": _evaluate_shell,
     "draft": _evaluate_draft,
+    "hole": _evaluate_hole,
     "pattern": _evaluate_pattern,
+    "mirror": _evaluate_mirror,
     "import": _evaluate_import,
     "sheet_metal_base_flange": _evaluate_sheet_metal_base_flange,
     "sheet_metal_edge_flange": _evaluate_sheet_metal_edge_flange,
+    "sheet_metal_hem": _evaluate_sheet_metal_hem,
+    "sheet_metal_corner_relief": _evaluate_sheet_metal_corner_relief,
     "boolean": _evaluate_boolean,
 }
 
@@ -1721,6 +2294,31 @@ class TreeEvaluation:
     #: provenance against ``body``. Empty / ``None`` for a non-sheet-metal part.
     bend_provenance: list[BendProvenance] = field(default_factory=list[BendProvenance])
     sheet_metal_defaults: SheetMetalDefaults | None = None
+    #: Explicit corner reliefs (§4.4) authored in the tree, evaluation order — passed
+    #: to :func:`unfold_sheet_metal` so the flat pattern develops the relieved blank.
+    #: Empty for a part with no corner-relief feature.
+    corner_reliefs: list[CornerRelief] = field(default_factory=list[CornerRelief])
+    #: The CLEAN sheet body the flat-pattern unfold resolves its bends against
+    #: (§4.4.4) — every bend applied, NO relief notches, maintained by the folds
+    #: regardless of feature order (so a flange authored AFTER a relief still unfolds).
+    #: ``None`` for a non-sheet-metal part; for an unrelieved sheet part it equals
+    #: ``body`` (same bends, no notches), so the unfold uses ``unfold_body or body``.
+    unfold_body: BodyShape | None = None
+    #: The resolved plane of every ``ok`` datum feature in this prefix, by feature id
+    #: (service-internal like ``body``). A drawing SECTION view whose cutting plane is
+    #: a ``FeatureRef`` (an axis-aligned offset/midplane datum, drawings-section.md §1)
+    #: resolves it here — the SAME plane the sketch/extrude path resolved during this
+    #: evaluation, never a re-resolution. Empty for a part with no datum feature.
+    datum_planes: dict[uuid.UUID, Plane] = field(default_factory=dict[uuid.UUID, Plane])
+    #: Snapshot of the body set after each ok body-affecting feature (evaluation
+    #: order): ``(feature id, shape)``. Service-internal like ``body``. Per-face
+    #: feature provenance (FINDINGS #9) — the overlay service threads
+    #: :func:`geometry.kernel.attribute_faces` over ``(body, body_history)`` onto
+    #: ``OverlayFace.feature_id`` for feature-localized selection. Empty for a
+    #: body-less tree.
+    body_history: list[tuple[uuid.UUID, BodyShape]] = field(
+        default_factory=list[tuple[uuid.UUID, BodyShape]]
+    )
 
 
 def tree_no_body_error(
@@ -1757,8 +2355,46 @@ def tree_no_body_error(
     )
 
 
+def _suppressed_reference_error(
+    feature: FeatureEnvelope, suppressed_ids: set[uuid.UUID]
+) -> FeatureError | None:
+    """A ``references_suppressed`` error if *feature* names a suppressed feature.
+
+    Feature suppress (§4.3a): a suppressed feature is skipped, so a later
+    NON-suppressed feature that DIRECTLY references its output — a profile /
+    plane / operand :class:`FeatureRef`, or a picked face/edge
+    :class:`SubshapeRef`/:class:`EdgeSubshapeRef` anchored on it — can no longer
+    rebuild off a body that omits that feature's contribution. That is a
+    distinct, honest failure from a plain ``reference_unresolved`` (the target
+    exists; it is deliberately suppressed), so it gets its own typed code pinned
+    to the suppressed upstream feature and, like any per-feature error, is a 200
+    with the strict-prefix rule downstream (never a raise). Walks EVERY ref kind
+    the schema carries (:func:`iter_feature_refs`), so a new ref-bearing field is
+    covered without touching this check; the first suppressed ref in deterministic
+    model-field order wins (RESEARCH §9).
+    """
+    for ref in iter_feature_refs(feature):
+        if ref.feature_id in suppressed_ids:
+            return FeatureError(
+                code="references_suppressed",
+                message=(
+                    "This feature references a suppressed feature, so it cannot "
+                    "rebuild off the current body; un-suppress that feature or "
+                    "repoint the reference."
+                ),
+                upstream_feature_id=ref.feature_id,
+            )
+    return None
+
+
 def evaluate_tree(request: EvaluateTreeRequest) -> TreeEvaluation:
     """Evaluate an ordered feature prefix under the strict-prefix rule (§4.3).
+
+    Suppressed features (§4.3a) are SKIPPED: the body is built from the
+    non-suppressed prefix and each subsequent non-suppressed feature evaluates
+    off the last non-suppressed body. A non-suppressed feature that references a
+    suppressed one is a typed ``references_suppressed`` error
+    (:func:`_suppressed_reference_error`), never a raise.
 
     Deterministic: same request → identical statuses, identical solved
     positions, byte-identical GLB and therefore identical ``mesh_glb_id``
@@ -1767,11 +2403,26 @@ def evaluate_tree(request: EvaluateTreeRequest) -> TreeEvaluation:
     state = EvaluationState(linear_deflection=request.linear_deflection)
     results: list[FeatureResult] = []
     last_good_feature_id: uuid.UUID | None = None
+    suppressed_ids: set[uuid.UUID] = set()
     failed = False
 
     for item in request.features:
         if failed:
             results.append(FeatureResult(feature_id=item.id, status="skipped"))
+            continue
+        if item.feature.suppressed:
+            # Skip a suppressed feature entirely: no dispatch, no body mutation,
+            # no last-good/prev-body advance — the running body state carries
+            # forward as the last non-suppressed body (§4.3a).
+            suppressed_ids.add(item.id)
+            results.append(FeatureResult(feature_id=item.id, status="suppressed"))
+            continue
+        ref_error = _suppressed_reference_error(item.feature, suppressed_ids)
+        if ref_error is not None:
+            results.append(
+                FeatureResult(feature_id=item.id, status="error", error=ref_error)
+            )
+            failed = True
             continue
         error = _dispatch(item, state)
         if error is None:
@@ -1789,6 +2440,11 @@ def evaluate_tree(request: EvaluateTreeRequest) -> TreeEvaluation:
             # pattern itself.
             if item.feature.type in _BODY_AFFECTING_TYPES:
                 state.prev_body_feature = item.feature
+                # Snapshot the body set for per-face feature provenance
+                # (FINDINGS #9): each final face is attributed to the earliest
+                # feature after which it exists in its final form.
+                if state.bodies:
+                    state.body_history.append((item.id, _snapshot_shape(state.bodies)))
         else:
             results.append(
                 FeatureResult(feature_id=item.id, status="error", error=error)
@@ -1813,29 +2469,42 @@ def evaluate_tree(request: EvaluateTreeRequest) -> TreeEvaluation:
         # tessellates a COMPOUND of all bodies in the fixed base-order, which
         # ``glb_stats`` sums over. Both are deterministic (RESEARCH §9).
         body_list = list(state.bodies.values())
+        # The tessellated shape — a bare solid (one body) or a FLATTENED Compound
+        # of every body's lumps (§MB-4). Same construction the provenance
+        # snapshots use (:func:`_snapshot_shape`), so the final faces match the
+        # last snapshot exactly (CLAUDE.md DRY).
+        shape = _snapshot_shape(state.bodies)
         if len(body_list) == 1:
             # ONE body — which may itself be a multi-lump Compound (a disjoint
             # boolean / multi-solid import, §MB-4): measure it directly (GProp +
             # .shells() count across its lumps), byte-identical to the single-solid
             # path when it is a bare Solid.
-            shape = body_list[0]
             properties = measure_shape(body_list[0])
         else:
-            # >1 body: roll up mass properties ANALYTICALLY per body, and tessellate
-            # a FLATTENED Compound of every body's lumps (§MB-4) — flattening avoids
-            # a nested Compound (a body that is itself a Compound), which would give
-            # ``glb_stats`` a nondeterministic traversal. Each body's lumps are
-            # already in explicit lump order; bodies stay tree-ordered.
-            shape = Compound([s for b in body_list for s in b.solids()])
+            # >1 body: roll up mass properties ANALYTICALLY per body (no re-mesh/
+            # boolean — the assembly pattern). Flattening the Compound avoids a
+            # nested Compound (a body that is itself a Compound), which would give
+            # ``glb_stats`` a nondeterministic traversal.
             properties = combine_properties([measure_shape(b) for b in body_list])
         glb, mesh = tessellate_glb(shape, request.linear_deflection)
         mesh_glb_id = store_mesh_glb(glb)
+
+    # Per-body lump count (§MB-4): tree/insertion-ordered over the last-good body
+    # set, each entry keyed by the feature that created that body (§MB-0 identity).
+    # The whole-part ``properties.topology.shells`` aggregate cannot distinguish a
+    # disjoint-union / multi-solid-import body (one body, several lumps) from a
+    # single-lump one, so this carries the honest per-body count for the consumer.
+    bodies = [
+        BodyLumpInfo(base_feature_id=base_id, lumps=lump_count(body))
+        for base_id, body in state.bodies.items()
+    ]
 
     return TreeEvaluation(
         result=EvaluateTreeResult(
             part_id=request.part_id,
             tree_version=request.tree_version,
             features=results,
+            bodies=bodies,
             mesh_glb_id=mesh_glb_id,
             properties=properties,
             last_good_feature_id=last_good_feature_id,
@@ -1846,4 +2515,8 @@ def evaluate_tree(request: EvaluateTreeRequest) -> TreeEvaluation:
         mesh=mesh,
         bend_provenance=list(state.bend_provenance.values()),
         sheet_metal_defaults=next(iter(state.sheet_metal_defaults.values()), None),
+        corner_reliefs=list(state.corner_reliefs.values()),
+        unfold_body=state.sheet_metal_unfold_body,
+        datum_planes=dict(state.datum_planes),
+        body_history=list(state.body_history),
     )

@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from py_kit import BaseServiceSettings, create_app
 
 from geometry.api import router
+from geometry.drawing_store import configure_drawing_artifact_store
 from geometry.mesh_store import assert_single_worker_mesh_store, configure_mesh_store
 
 TITLE = "Loft Geometry"
@@ -87,6 +88,18 @@ def build_app(settings: GeometrySettings | None = None) -> FastAPI:
     )
     if not mesh_store.is_shared:
         assert_single_worker_mesh_store(settings.web_concurrency)
+
+    # DE-4 (drawing-export.md §8.3): install the content-addressed drawing-artifact
+    # store on the SAME object-storage seam — shared S3 when configured, else the
+    # in-process LRU. No single-worker guard: it is a compose cache, so a
+    # cross-worker miss just recomposes (never a 404), unlike the mesh store.
+    configure_drawing_artifact_store(
+        settings.s3_url,
+        settings.s3_bucket,
+        s3_access_key_id=settings.s3_access_key_id,
+        s3_secret_access_key=settings.s3_secret_access_key,
+        s3_region=settings.s3_region,
+    )
 
     async def redis() -> str:
         """Redis/queue readiness.

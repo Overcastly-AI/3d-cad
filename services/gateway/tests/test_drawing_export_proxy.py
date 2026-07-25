@@ -24,23 +24,34 @@ from fastapi.testclient import TestClient
 from gateway.db import Base
 from gateway.main import GatewaySettings, build_app
 from py_kit.db import async_dsn
+from py_kit.schemas.assemblies import (
+    EvaluateAssemblyRequest,
+    EvaluatedInstance,
+    EvaluatedMate,
+    LockMate,
+)
 from py_kit.schemas.drawings import (
     ARTIFACT_MEDIA_TYPES,
+    ComposedLineEdge,
+    ComposedPoint,
     ComposeDrawingRequest,
     ComposedSheet,
     ComposedTitleBlock,
+    ComposedView,
     DimensionEndpointRef,
     DimensionResponse,
     DrawingResponse,
     DrawingTreeResponse,
     LinearDimensionParams,
     PointToPointMeasurement,
+    SectionViewParams,
     SheetContent,
     SheetResponse,
     ViewResponse,
     ViewScale,
 )
 from py_kit.schemas.features import (
+    DatumPlaneRef,
     EdgeSignature,
     EvaluatedFeatureInput,
     EvaluateTreeRequest,
@@ -55,9 +66,12 @@ Handler = Callable[[httpx.Request], httpx.Response]
 
 DRAWING = uuid.UUID("00000000-0000-0000-0000-0000000000d0")
 PART = uuid.UUID("00000000-0000-0000-0000-0000000000fa")
+ASSEMBLY = uuid.UUID("00000000-0000-0000-0000-0000000000ea")
+INSTANCE = uuid.UUID("00000000-0000-0000-0000-0000000000e1")
 SHEET = uuid.UUID("00000000-0000-0000-0000-0000000000a0")
 FRONT_VIEW = uuid.UUID("00000000-0000-0000-0000-0000000000b0")
 TOP_VIEW = uuid.UUID("00000000-0000-0000-0000-0000000000b1")
+SECTION_VIEW = uuid.UUID("00000000-0000-0000-0000-0000000000b2")
 DIM = uuid.UUID("00000000-0000-0000-0000-0000000000c0")
 SKETCH = uuid.UUID("00000000-0000-0000-0000-0000000000a1")
 
@@ -163,6 +177,118 @@ def _drawing_tree() -> DrawingTreeResponse:
     )
 
 
+def _assembly_drawing_tree() -> DrawingTreeResponse:
+    """A one-sheet, two-view (front/top) drawing whose views reference an ASSEMBLY
+    (design §7). Same sheet/layout as the part tree — only the source document kind
+    differs — so the assembly compose folds into the SAME sheet as the part view."""
+    tree = _drawing_tree()
+    for view in tree.sheets[0].views:
+        view.ref_document_id = ASSEMBLY
+        view.ref_document_kind = "assembly"
+    # Dimensions reference model edges of an assembly instance's body — out of the
+    # assembly-view v1 scope; drop them so the sheet is a pure assembly projection.
+    tree.sheets[0].dimensions = []
+    return tree
+
+
+def _assembly_evaluation_request(instances: int = 1) -> EvaluateAssemblyRequest:
+    """The resolved assembly graph documents serves at
+    ``/assemblies/{id}/evaluation-request`` — `instances` copies of PART, each a
+    grounded instance sharing one part_key (dedup). A single-instance assembly
+    projects identically to the equivalent PART (slice-1 geometry guarantee)."""
+    feature = EvaluatedFeatureInput(
+        id=SKETCH, feature=SketchFeature.model_validate(SKETCH_ENVELOPE)
+    )
+    evaluated = [
+        EvaluatedInstance(
+            instance_id=uuid.UUID(int=INSTANCE.int + i),
+            part_key=f"{PART}@tip",
+            features=[feature],
+            grounded=(i == 0),
+        )
+        for i in range(instances)
+    ]
+    mates = (
+        []
+        if instances < 2
+        else [
+            EvaluatedMate(
+                mate_id=uuid.uuid4(),
+                order_index=0,
+                mate=LockMate(
+                    a_instance_id=evaluated[0].instance_id,
+                    b_instance_id=evaluated[1].instance_id,
+                ),
+            )
+        ]
+    )
+    return EvaluateAssemblyRequest(
+        assembly_id=ASSEMBLY, version=7, instances=evaluated, mates=mates
+    )
+
+
+def _documents_assembly_ok(seen: list[httpx.Request], instances: int = 1) -> Handler:
+    """Documents that serves the assembly drawing tree then the assembly
+    evaluation-request (the §7 twin of the part `_documents_ok`)."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if request.url.path == f"/api/v1/drawings/{DRAWING}":
+            return httpx.Response(
+                200, content=_assembly_drawing_tree().model_dump_json()
+            )
+        if request.url.path == f"/api/v1/assemblies/{ASSEMBLY}/evaluation-request":
+            return httpx.Response(
+                200, content=_assembly_evaluation_request(instances).model_dump_json()
+            )
+        raise AssertionError(f"unexpected documents path {request.url.path}")
+
+    return handler
+
+
+def _section_drawing_tree() -> DrawingTreeResponse:
+    """A one-sheet drawing: a plain FRONT view + a SECTION view whose cutting datum is
+    persisted PER-VIEW on the view (`ViewResponse.section_params`), exactly as documents
+    stores it. The gateway must thread the section view's params into the relayed
+    compose request; the front view carries none (audit E1a)."""
+    tree = _drawing_tree()
+
+    def view(
+        view_id: uuid.UUID,
+        projection: str,
+        order: int,
+        section_params: SectionViewParams | None = None,
+    ) -> ViewResponse:
+        return ViewResponse(
+            id=view_id,
+            sheet_id=SHEET,
+            ref_document_id=PART,
+            ref_document_kind="part",
+            ref_pinned_version=None,
+            projection=projection,  # type: ignore[arg-type]
+            scale=ViewScale(numerator=1, denominator=1),
+            position={"x_mm": 50.0 + order * 120.0, "y_mm": 105.0},  # type: ignore[arg-type]
+            section_params=section_params,
+            order_index=order,
+            created_at=NOW,  # type: ignore[arg-type]
+            updated_at=NOW,  # type: ignore[arg-type]
+        )
+
+    tree.sheets[0].views = [
+        view(FRONT_VIEW, "front", 0),
+        view(
+            SECTION_VIEW,
+            "section",
+            1,
+            SectionViewParams(
+                plane=DatumPlaneRef(kind="datum_plane", plane="XY"), flip=False
+            ),
+        ),
+    ]
+    tree.sheets[0].dimensions = []
+    return tree
+
+
 def _empty_drawing_tree() -> DrawingTreeResponse:
     """A drawing with no sheet/views — nothing to compose."""
     drawing = DrawingResponse(
@@ -214,6 +340,27 @@ def _composed_sheet() -> ComposedSheet:
     )
 
 
+def _assembly_composed_sheet() -> ComposedSheet:
+    """The sheet the geometry compose hop returns for the ASSEMBLY drawing: the
+    front view carries the assembly's placed HLR silhouette edges (a visible outline
+    stroke + a hidden one where one instance occludes another)."""
+    sheet = _composed_sheet()
+    sheet.views = [
+        ComposedView(
+            projection="front",
+            failed=False,
+            anchor=ComposedPoint(x_mm=80.0, y_mm=100.0),
+            label="FRONT",
+            label_pos=ComposedPoint(x_mm=80.0, y_mm=130.0),
+            edges=[
+                ComposedLineEdge(visible=True, x1=60.0, y1=80.0, x2=100.0, y2=80.0),
+                ComposedLineEdge(visible=False, x1=70.0, y1=90.0, x2=90.0, y2=90.0),
+            ],
+        )
+    ]
+    return sheet
+
+
 async def _create_schema(url: str) -> None:
     engine = create_async_engine(async_dsn(url))
     async with engine.begin() as connection:
@@ -246,10 +393,12 @@ def make_client(
     return TestClient(app, raise_server_exceptions=False)
 
 
-def _register(client: TestClient) -> tuple[str, dict[str, str]]:
+def _register(
+    client: TestClient, email: str = "alice@example.com"
+) -> tuple[str, dict[str, str]]:
     response = client.post(
         "/api/v1/auth/register",
-        json={"email": "alice@example.com", "password": "hunter2-passphrase"},
+        json={"email": email, "password": "hunter2-passphrase"},
     )
     assert response.status_code == 201, response.text
     body = response.json()
@@ -485,6 +634,193 @@ def test_drawing_without_views_is_422(db_url: str) -> None:
     assert geometry_seen == []
 
 
+def test_assembly_view_export_composes_the_assembly(db_url: str) -> None:
+    """§7 (Drawings #4 slice 2): a view referencing an ASSEMBLY now composes. The
+    gateway resolves the assembly's instance+mate graph via documents
+    (`/assemblies/{id}/evaluation-request`), threads it as
+    `ComposeDrawingRequest.assembly`, and relays to the geometry compose hop so the
+    assembly's HLR edges fold into the sheet — NOT the old `assembly_views_unsupported`
+    fast-reject (which is gone)."""
+    documents_seen: list[httpx.Request] = []
+    geometry_seen: list[httpx.Request] = []
+    with make_client(
+        db_url, _documents_assembly_ok(documents_seen), _geometry_pdf(geometry_seen)
+    ) as client:
+        user_id, bearer = _register(client)
+        response = client.post(
+            f"/api/v1/drawings/{DRAWING}/export?format=pdf", headers=bearer
+        )
+
+    assert response.status_code == 200, response.text
+    assert response.content == PDF_BYTES
+
+    # Documents was hit twice (drawing tree, then the ASSEMBLY evaluation-request —
+    # NOT a part one), each carrying the principal; geometry never sees it.
+    drawing_req, assembly_req = documents_seen
+    assert drawing_req.url.path == f"/api/v1/drawings/{DRAWING}"
+    assert assembly_req.url.path == f"/api/v1/assemblies/{ASSEMBLY}/evaluation-request"
+    assert assembly_req.headers[PRINCIPAL_HEADER] == user_id
+
+    [geometry_req] = geometry_seen
+    assert geometry_req.url.path == "/api/v1/drawing/compose"
+    assert PRINCIPAL_HEADER not in geometry_req.headers
+    relayed = ComposeDrawingRequest.model_validate_json(geometry_req.content)
+    # The assembly graph is threaded as the compose source (the silhouette source);
+    # the part fields echo the assembly's id/version + an empty feature list.
+    assert relayed.assembly is not None
+    assert relayed.assembly.assembly_id == ASSEMBLY
+    assert [i.instance_id for i in relayed.assembly.instances] == [INSTANCE]
+    assert relayed.part_id == ASSEMBLY
+    assert relayed.features == []
+    # The sheet layout mirrors the persisted sheet — folded exactly as a part view.
+    assert relayed.views == ["front", "top"]
+    assert [v.projection for v in relayed.layout.views] == ["front", "top"]
+
+
+def test_assembly_view_sheet_composes_the_assembly(db_url: str) -> None:
+    """The JSON `/sheet` proxy runs the SAME aggregation, so an assembly-kind view
+    composes to a `ComposedSheet` too (via `/drawing/compose/sheet`) — and the
+    assembly's placed HLR silhouette edges (visible + occlusion-hidden) come back on
+    the composed view, never `assembly_views_unsupported`."""
+    documents_seen: list[httpx.Request] = []
+    geometry_seen: list[httpx.Request] = []
+
+    def geometry_assembly_sheet(request: httpx.Request) -> httpx.Response:
+        geometry_seen.append(request)
+        return httpx.Response(
+            200,
+            content=_assembly_composed_sheet().model_dump_json(),
+            headers={"content-type": "application/json"},
+        )
+
+    with make_client(
+        db_url, _documents_assembly_ok(documents_seen), geometry_assembly_sheet
+    ) as client:
+        _, bearer = _register(client)
+        response = client.post(f"/api/v1/drawings/{DRAWING}/sheet", headers=bearer)
+
+    assert response.status_code == 200, response.text
+    sheet = ComposedSheet.model_validate_json(response.content)
+    # The assembly silhouette folds into the composed view exactly as a part view's:
+    # placed edges ride the same ComposedView shape, hidden edge dashed.
+    (front,) = sheet.views
+    assert front.projection == "front" and front.failed is False
+    assert [e.visible for e in front.edges] == [True, False]
+    assert sheet == _assembly_composed_sheet()
+    [geometry_req] = geometry_seen
+    assert geometry_req.url.path == "/api/v1/drawing/compose/sheet"
+    relayed = ComposeDrawingRequest.model_validate_json(geometry_req.content)
+    assert relayed.assembly is not None
+    assert relayed.assembly.assembly_id == ASSEMBLY
+
+
+def test_single_instance_assembly_relays_the_same_sheet_as_the_part(
+    db_url: str,
+) -> None:
+    """Consistency: a single-instance assembly view and the equivalent PART view relay
+    an IDENTICAL sheet layout (views + scale + placements) — only the compose SOURCE
+    differs (`assembly` set vs the part fields). The byte-identical PROJECTION of a
+    single-instance assembly is the slice-1 geometry guarantee; here we prove the
+    gateway hands geometry the same sheet either way."""
+    part_geometry: list[httpx.Request] = []
+    assembly_geometry: list[httpx.Request] = []
+    with make_client(
+        db_url, _documents_ok([]), _geometry_sheet(part_geometry)
+    ) as client:
+        _, bearer = _register(client)
+        client.post(f"/api/v1/drawings/{DRAWING}/sheet", headers=bearer)
+    with make_client(
+        db_url, _documents_assembly_ok([]), _geometry_sheet(assembly_geometry)
+    ) as client:
+        # Second client shares the SQLite auth db — register a distinct user.
+        _, bearer = _register(client, email="bob@example.com")
+        client.post(f"/api/v1/drawings/{DRAWING}/sheet", headers=bearer)
+
+    part_relayed = _relayed_compose(part_geometry)
+    assembly_relayed = _relayed_compose(assembly_geometry)
+    assert part_relayed.assembly is None and assembly_relayed.assembly is not None
+    # Same sheet: identical views, scale, and placed-view layout.
+    assert part_relayed.views == assembly_relayed.views
+    assert part_relayed.scale == assembly_relayed.scale
+    assert part_relayed.layout == assembly_relayed.layout
+
+
+def test_assembly_evaluation_request_404_resurfaces(db_url: str) -> None:
+    """Typed degradation: the referenced assembly deleted since the view was laid out
+    (documents' uniform 404 on its evaluation-request) re-surfaces verbatim — never a
+    500, and no compose hop."""
+    documents_seen: list[httpx.Request] = []
+    geometry_seen: list[httpx.Request] = []
+
+    def documents_assembly_404(request: httpx.Request) -> httpx.Response:
+        documents_seen.append(request)
+        if request.url.path == f"/api/v1/drawings/{DRAWING}":
+            return httpx.Response(
+                200, content=_assembly_drawing_tree().model_dump_json()
+            )
+        return httpx.Response(
+            404,
+            json={
+                "error": {
+                    "code": "assembly_not_found",
+                    "message": "Assembly not found.",
+                    "details": None,
+                    "request_id": "upstream-id",
+                }
+            },
+        )
+
+    with make_client(
+        db_url, documents_assembly_404, _geometry_sheet(geometry_seen)
+    ) as client:
+        _, bearer = _register(client)
+        response = client.post(f"/api/v1/drawings/{DRAWING}/sheet", headers=bearer)
+
+    assert response.status_code == 404
+    assert _envelope(response.json())["code"] == "assembly_not_found"
+    assert geometry_seen == []
+
+
+def test_assembly_solve_failure_is_a_typed_failed_view_not_a_500(db_url: str) -> None:
+    """Typed degradation, compose half: an assembly that fails to solve/project is a
+    geometry-side 200 whose composed view is `failed: true` (the VIEW FAILED
+    placeholder posture) — the gateway relays it verbatim, never a 500."""
+    documents_seen: list[httpx.Request] = []
+
+    def geometry_failed_sheet(request: httpx.Request) -> httpx.Response:
+        sheet = _composed_sheet()
+        sheet.views = [
+            ComposedView(
+                projection="front",
+                failed=True,
+                anchor=ComposedPoint(x_mm=80.0, y_mm=100.0),
+                label="FRONT",
+                label_pos=ComposedPoint(x_mm=80.0, y_mm=130.0),
+            )
+        ]
+        return httpx.Response(
+            200,
+            content=sheet.model_dump_json(),
+            headers={"content-type": "application/json"},
+        )
+
+    with make_client(
+        db_url, _documents_assembly_ok(documents_seen), geometry_failed_sheet
+    ) as client:
+        _, bearer = _register(client)
+        response = client.post(f"/api/v1/drawings/{DRAWING}/sheet", headers=bearer)
+
+    assert response.status_code == 200, response.text
+    (front,) = ComposedSheet.model_validate_json(response.content).views
+    assert front.failed is True
+
+
+def _relayed_compose(seen: list[httpx.Request]) -> ComposeDrawingRequest:
+    compose_reqs = [r for r in seen if r.url.path.startswith("/api/v1/drawing/compose")]
+    [geometry_req] = compose_reqs
+    return ComposeDrawingRequest.model_validate_json(geometry_req.content)
+
+
 # --- JSON sheet proxy (DE-1b — the model the DE-1c client renders from) ---------
 def _geometry_sheet(seen: list[httpx.Request]) -> Handler:
     """Geometry's identity-free `/drawing/compose/sheet` hop, returning the model."""
@@ -555,6 +891,66 @@ def test_sheet_aggregates_and_returns_composed_sheet_model(db_url: str) -> None:
     assert relayed.layout.title == "Bracket — Detail"
 
 
+def test_section_view_threads_persisted_params_into_compose(db_url: str) -> None:
+    """E1a (the gateway half of the end-to-end section guard): a stored SECTION view's
+    per-view ``ViewResponse.section_params`` is threaded into the relayed
+    ``ComposeDrawingRequest.section_params`` map, keyed by the section view's INDEX in
+    ``views`` — so a stored section actually cuts + hatches downstream instead of
+    composing empty with ``section_params_missing`` (the dead-capability audit E1). The
+    plain front view (index 0) contributes NO entry. The render half — that this
+    threaded map produces a real hatched section SVG — is guarded geometry-side by
+    ``services/geometry/tests/test_drawings_section.py::
+    test_stored_section_view_composes_a_hatched_section_end_to_end``."""
+    documents_seen: list[httpx.Request] = []
+    geometry_seen: list[httpx.Request] = []
+
+    def documents_section(request: httpx.Request) -> httpx.Response:
+        documents_seen.append(request)
+        if request.url.path == f"/api/v1/drawings/{DRAWING}":
+            return httpx.Response(
+                200, content=_section_drawing_tree().model_dump_json()
+            )
+        if request.url.path == f"/api/v1/parts/{PART}/evaluation-request":
+            return httpx.Response(200, content=_evaluation_request().model_dump_json())
+        raise AssertionError(f"unexpected documents path {request.url.path}")
+
+    with make_client(
+        db_url, documents_section, _geometry_sheet(geometry_seen)
+    ) as client:
+        _, bearer = _register(client)
+        response = client.post(f"/api/v1/drawings/{DRAWING}/sheet", headers=bearer)
+
+    assert response.status_code == 200, response.text
+    [geometry_req] = geometry_seen
+    relayed = ComposeDrawingRequest.model_validate_json(geometry_req.content)
+    assert relayed.views == ["front", "section"]
+    # The section view is index 1; its persisted datum is threaded there and nowhere
+    # else — the front view (index 0) has no entry.
+    assert set(relayed.section_params) == {1}
+    assert relayed.section_params[1] == SectionViewParams(
+        plane=DatumPlaneRef(kind="datum_plane", plane="XY"), flip=False
+    )
+    assert [v.projection for v in relayed.layout.views] == ["front", "section"]
+
+
+def test_non_section_sheet_relays_an_empty_section_params_map(db_url: str) -> None:
+    """Backward-compat: a sheet with no section view threads an EMPTY per-view
+    ``section_params`` map, so a non-section drawing composes byte-for-byte as before
+    the per-view wire landed."""
+    documents_seen: list[httpx.Request] = []
+    geometry_seen: list[httpx.Request] = []
+    with make_client(
+        db_url, _documents_ok(documents_seen), _geometry_sheet(geometry_seen)
+    ) as client:
+        _, bearer = _register(client)
+        response = client.post(f"/api/v1/drawings/{DRAWING}/sheet", headers=bearer)
+
+    assert response.status_code == 200, response.text
+    [geometry_req] = geometry_seen
+    relayed = ComposeDrawingRequest.model_validate_json(geometry_req.content)
+    assert relayed.section_params == {}
+
+
 def test_sheet_missing_or_foreign_drawing_is_404(db_url: str) -> None:
     """Documents' uniform 404 re-surfaces verbatim; the part hop + geometry are never
     reached (owner isolation), same as `/export`."""
@@ -598,4 +994,242 @@ def test_sheet_drawing_without_views_is_422(db_url: str) -> None:
 
     assert response.status_code == 422
     assert _envelope(response.json())["code"] == "drawing_not_composable"
+    assert geometry_seen == []
+
+
+# --- per-sheet compose/export (Drawings #21 backend: multi-sheet) ----------------
+
+SHEET_TWO = uuid.UUID("00000000-0000-0000-0000-0000000000a2")
+RIGHT_VIEW = uuid.UUID("00000000-0000-0000-0000-0000000000b3")
+
+
+def _two_sheet_drawing_tree() -> DrawingTreeResponse:
+    """A drawing with TWO sheets, each of PART: sheet 0 (front/top) + sheet 1 (a
+    single `right` view) — so composing sheet 1 renders `right`, not sheet 0's views."""
+    tree = _drawing_tree()
+    second = SheetResponse(
+        id=SHEET_TWO,
+        drawing_id=DRAWING,
+        name="Sheet 2",
+        size="A3",
+        orientation="portrait",
+        projection="third_angle",
+        title_block=None,
+        order_index=1,
+        created_at=NOW,  # type: ignore[arg-type]
+        updated_at=NOW,  # type: ignore[arg-type]
+    )
+    right = ViewResponse(
+        id=RIGHT_VIEW,
+        sheet_id=SHEET_TWO,
+        ref_document_id=PART,
+        ref_document_kind="part",
+        ref_pinned_version=None,
+        projection="right",
+        scale=ViewScale(numerator=1, denominator=1),
+        position={"x_mm": 90.0, "y_mm": 70.0},  # type: ignore[arg-type]
+        order_index=0,
+        created_at=NOW,  # type: ignore[arg-type]
+        updated_at=NOW,  # type: ignore[arg-type]
+    )
+    tree.sheets.append(
+        SheetContent(sheet=second, views=[right], dimensions=[], annotations=[])
+    )
+    return tree
+
+
+def _documents_two_sheet(seen: list[httpx.Request]) -> Handler:
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if request.url.path == f"/api/v1/drawings/{DRAWING}":
+            return httpx.Response(
+                200, content=_two_sheet_drawing_tree().model_dump_json()
+            )
+        if request.url.path == f"/api/v1/parts/{PART}/evaluation-request":
+            return httpx.Response(200, content=_evaluation_request().model_dump_json())
+        raise AssertionError(f"unexpected documents path {request.url.path}")
+
+    return handler
+
+
+def test_sheet_query_selects_the_requested_sheet(db_url: str) -> None:
+    """`?sheet=<second sheet id>` composes SHEET TWO's views (`right`) — not the first
+    sheet's (front/top). The regression the multi-sheet switcher needs."""
+    documents_seen: list[httpx.Request] = []
+    geometry_seen: list[httpx.Request] = []
+    with make_client(
+        db_url, _documents_two_sheet(documents_seen), _geometry_sheet(geometry_seen)
+    ) as client:
+        _, bearer = _register(client)
+        response = client.post(
+            f"/api/v1/drawings/{DRAWING}/sheet?sheet={SHEET_TWO}", headers=bearer
+        )
+
+    assert response.status_code == 200, response.text
+    [geometry_req] = geometry_seen
+    relayed = ComposeDrawingRequest.model_validate_json(geometry_req.content)
+    assert relayed.views == ["right"]
+    assert [v.projection for v in relayed.layout.views] == ["right"]
+    assert relayed.layout.size == "A3"
+    assert relayed.layout.orientation == "portrait"
+
+
+def test_sheet_omitted_defaults_to_first_sheet(db_url: str) -> None:
+    """Back-compat: omitting `sheet` composes the FIRST sheet (front/top), unchanged."""
+    documents_seen: list[httpx.Request] = []
+    geometry_seen: list[httpx.Request] = []
+    with make_client(
+        db_url, _documents_two_sheet(documents_seen), _geometry_sheet(geometry_seen)
+    ) as client:
+        _, bearer = _register(client)
+        response = client.post(f"/api/v1/drawings/{DRAWING}/sheet", headers=bearer)
+
+    assert response.status_code == 200, response.text
+    [geometry_req] = geometry_seen
+    relayed = ComposeDrawingRequest.model_validate_json(geometry_req.content)
+    assert relayed.views == ["front", "top"]
+
+
+def test_export_sheet_query_selects_the_requested_sheet(db_url: str) -> None:
+    """The bytes `/export` route honors `?sheet=` the same way as `/sheet`."""
+    documents_seen: list[httpx.Request] = []
+    geometry_seen: list[httpx.Request] = []
+    with make_client(
+        db_url, _documents_two_sheet(documents_seen), _geometry_pdf(geometry_seen)
+    ) as client:
+        _, bearer = _register(client)
+        response = client.post(
+            f"/api/v1/drawings/{DRAWING}/export?format=pdf&sheet={SHEET_TWO}",
+            headers=bearer,
+        )
+
+    assert response.status_code == 200, response.text
+    [geometry_req] = geometry_seen
+    relayed = ComposeDrawingRequest.model_validate_json(geometry_req.content)
+    assert relayed.views == ["right"]
+
+
+def test_unknown_sheet_id_is_404(db_url: str) -> None:
+    """A `sheet` id that is not part of the drawing is a gateway-side `sheet_not_found`
+    404 — no part/compose hop."""
+    documents_seen: list[httpx.Request] = []
+    geometry_seen: list[httpx.Request] = []
+    stray = uuid.UUID("00000000-0000-0000-0000-0000000000ff")
+    with make_client(
+        db_url, _documents_two_sheet(documents_seen), _geometry_sheet(geometry_seen)
+    ) as client:
+        _, bearer = _register(client)
+        response = client.post(
+            f"/api/v1/drawings/{DRAWING}/sheet?sheet={stray}", headers=bearer
+        )
+
+    assert response.status_code == 404
+    assert _envelope(response.json())["code"] == "sheet_not_found"
+    # Only the drawing GET happened; no part hop, no compose.
+    assert [r.url.path for r in documents_seen] == [f"/api/v1/drawings/{DRAWING}"]
+    assert geometry_seen == []
+
+
+def test_auto_place_flag_threaded_into_placement(db_url: str) -> None:
+    """A persisted drag-to-place view (`auto_place=False`) threads that flag into the
+    relayed `SheetViewPlacement`, so the composer honors the authored position verbatim
+    instead of auto-placing. The default `True` stays auto-layout."""
+    documents_seen: list[httpx.Request] = []
+    geometry_seen: list[httpx.Request] = []
+
+    tree = _drawing_tree()
+    tree.sheets[0].views[0].auto_place = False  # front view hand-placed
+    tree.sheets[0].views[1].auto_place = True  # top view auto
+
+    def documents_handler(request: httpx.Request) -> httpx.Response:
+        documents_seen.append(request)
+        if request.url.path == f"/api/v1/drawings/{DRAWING}":
+            return httpx.Response(200, content=tree.model_dump_json())
+        if request.url.path == f"/api/v1/parts/{PART}/evaluation-request":
+            return httpx.Response(200, content=_evaluation_request().model_dump_json())
+        raise AssertionError(f"unexpected documents path {request.url.path}")
+
+    with make_client(
+        db_url, documents_handler, _geometry_sheet(geometry_seen)
+    ) as client:
+        _, bearer = _register(client)
+        response = client.post(f"/api/v1/drawings/{DRAWING}/sheet", headers=bearer)
+
+    assert response.status_code == 200, response.text
+    [geometry_req] = geometry_seen
+    relayed = ComposeDrawingRequest.model_validate_json(geometry_req.content)
+    placements = {v.projection: v for v in relayed.layout.views}
+    assert placements["front"].auto_place is False
+    assert placements["front"].position.x_mm == 50.0  # honored authored position
+    assert placements["top"].auto_place is True
+
+
+# --- one sheet, one source document, one scale (engineering audit H2) -------------
+
+
+def _mixed_source_tree() -> DrawingTreeResponse:
+    """A sheet whose second view references a DIFFERENT part — the shape documents
+    now refuses to write, kept here as the legacy/foreign-writer row."""
+    tree = _drawing_tree()
+    tree.sheets[0].views[1].ref_document_id = uuid.UUID(int=PART.int + 1)
+    return tree
+
+
+def _mixed_scale_tree() -> DrawingTreeResponse:
+    """A sheet whose second view carries a different scale (1:1 vs 1:2)."""
+    tree = _drawing_tree()
+    tree.sheets[0].views[1].scale = ViewScale(numerator=1, denominator=1)
+    return tree
+
+
+@pytest.mark.parametrize(
+    ("tree_factory", "code"),
+    [
+        (_mixed_source_tree, "sheet_source_document_mismatch"),
+        (_mixed_scale_tree, "sheet_view_scale_mismatch"),
+    ],
+)
+def test_mixed_sheet_is_refused_before_any_part_or_compose_hop(
+    db_url: str,
+    tree_factory: Callable[[], DrawingTreeResponse],
+    code: str,
+) -> None:
+    """A sheet mixing source documents / scales composed EVERY view from `views[0]`'s
+    part at `views[0]`'s scale — a silently wrong print (audit H2). It is now a typed
+    422 taken on the drawing GET alone: no part evaluation-request, no compose."""
+    documents_seen: list[httpx.Request] = []
+    geometry_seen: list[httpx.Request] = []
+
+    def documents_mixed(request: httpx.Request) -> httpx.Response:
+        documents_seen.append(request)
+        return httpx.Response(200, content=tree_factory().model_dump_json())
+
+    with make_client(db_url, documents_mixed, _geometry_pdf(geometry_seen)) as client:
+        _, bearer = _register(client)
+        response = client.post(
+            f"/api/v1/drawings/{DRAWING}/export?format=pdf", headers=bearer
+        )
+
+    assert response.status_code == 422, response.text
+    error = _envelope(response.json())
+    assert error["code"] == code
+    assert error["details"]["view_id"] == str(TOP_VIEW)
+    assert [r.url.path for r in documents_seen] == [f"/api/v1/drawings/{DRAWING}"]
+    assert geometry_seen == []
+
+
+def test_mixed_sheet_is_refused_on_the_sheet_route_too(db_url: str) -> None:
+    """The JSON `/sheet` twin shares `_select_sheet`, so the on-screen sheet refuses
+    the same inconsistent state instead of rendering the wrong part."""
+    geometry_seen: list[httpx.Request] = []
+
+    def documents_mixed(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=_mixed_source_tree().model_dump_json())
+
+    with make_client(db_url, documents_mixed, _geometry_sheet(geometry_seen)) as client:
+        _, bearer = _register(client)
+        response = client.post(f"/api/v1/drawings/{DRAWING}/sheet", headers=bearer)
+
+    assert response.status_code == 422, response.text
+    assert _envelope(response.json())["code"] == "sheet_source_document_mismatch"
     assert geometry_seen == []

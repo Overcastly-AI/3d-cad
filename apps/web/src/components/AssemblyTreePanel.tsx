@@ -25,6 +25,8 @@ export interface AssemblyTreePanelProps {
   graphError: Error | null;
   evaluation: EvaluateAssemblyResult | undefined;
   selectedInstanceId: string | null;
+  /** Instances flagged by the last interference check — badged red inline. */
+  clashingInstanceIds: ReadonlySet<string>;
   onSelectInstance: (instanceId: string) => void;
   onToggleGrounded: (instance: InstanceResponse) => void;
   onDeleteInstance: (instance: InstanceResponse) => void;
@@ -37,6 +39,7 @@ export function AssemblyTreePanel({
   graphError,
   evaluation,
   selectedInstanceId,
+  clashingInstanceIds,
   onSelectInstance,
   onToggleGrounded,
   onDeleteInstance,
@@ -88,6 +91,7 @@ export function AssemblyTreePanel({
             <ul className="py-1" data-testid="instance-list">
               {instances.map((instance) => {
                 const selected = selectedInstanceId === instance.id;
+                const clashing = clashingInstanceIds.has(instance.id);
                 const balloon = balloonById.get(instance.id) ?? 0;
                 return (
                   <li
@@ -120,6 +124,15 @@ export function AssemblyTreePanel({
                         {instance.name}
                       </span>
                     </button>
+                    {clashing ? (
+                      <span
+                        data-testid={`instance-clash-${instance.id}`}
+                        title="Interferes with another part"
+                        className="shrink-0 rounded-sm border border-flag px-1 font-display text-2xs uppercase tracking-[0.14em] text-flag"
+                      >
+                        Clash
+                      </span>
+                    ) : null}
                     <button
                       type="button"
                       onClick={() => onToggleGrounded(instance)}

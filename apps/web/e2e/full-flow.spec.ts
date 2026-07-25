@@ -181,7 +181,12 @@ async function sketchDimensionedRectangle(
 
   // Finish the sketch; the tree solves.
   await page.getByTestId("sketch-save").click();
-  await expect(page.getByTestId("sketch-strip")).toHaveCount(0);
+  // The strip closes only after the sketch solve round-trips back — 30s (matches
+  // the sibling eval-status wait) so a slow solve under CPU load isn't read as a
+  // stuck transition.
+  await expect(page.getByTestId("sketch-strip")).toHaveCount(0, {
+    timeout: 30_000,
+  });
   await expect(page.getByTestId("eval-status")).toHaveText("Solved", {
     timeout: 30_000,
   });
@@ -210,11 +215,8 @@ async function runFullFlow(
   await expect(page.getByTestId("session-email")).toHaveText(email);
   await page.getByTestId("create-part-name").fill("Baseplate");
   await page.getByTestId("create-part-name").press("Enter");
-  const row = page.getByTestId("part-row").filter({ hasText: "Baseplate" });
-  await expect(row).toBeVisible();
-
-  // Before a body exists the EXPORT strip is absent (no tree yet).
-  await row.getByTestId("part-open").click();
+  // #22 — creating a part now opens its workspace directly (no manual list-open
+  // step; the parts-list row is gone because we've navigated into the part).
   await expect(page).toHaveURL(/\/parts\/[0-9a-f-]+$/);
   await expect(page.getByTestId("part-name")).toHaveText("Baseplate");
 
@@ -229,7 +231,10 @@ async function runFullFlow(
 
   // 4) Extrude the profile from the workspace (keyboard-first: 10 mm, Enter).
   const extrudeAction = page.getByTestId("new-extrude");
-  await expect(extrudeAction).toBeEnabled();
+  // Extrude enables only once the sketch solve round-trips back (canExtrude =
+  // hasSolvedSketch) — 30s so a slow solve under load isn't misread as a broken
+  // button; a genuinely never-enabling button still fails at 30s.
+  await expect(extrudeAction).toBeEnabled({ timeout: 30_000 });
   await extrudeAction.click();
   await expect(page.getByTestId("extrude-editor")).toBeVisible();
   await expect(page.getByTestId("extrude-distance")).toHaveValue("10");
@@ -237,8 +242,16 @@ async function runFullFlow(
 
   // 5) The body renders and its mass properties reach the inspector: a
   //    40 × 25 × 10 = 10,000 mm³ solid, exactly what was modeled.
-  await expect(page.getByTestId("feature-row")).toHaveCount(2);
-  await expect(page.getByTestId("body-inspector")).toBeVisible();
+  // The extrude feature + evaluated body arrive via a geometry eval round-trip
+  // (POST feature → tree refetch → evaluation) — 30s under contention.
+  await expect(page.getByTestId("feature-row")).toHaveCount(2, {
+    timeout: 30_000,
+  });
+  // The inspector mounts only once bodyProperties land (mass-props eval
+  // round-trip) — 30s, matching the sketch-on-face body-inspector waits.
+  await expect(page.getByTestId("body-inspector")).toBeVisible({
+    timeout: 30_000,
+  });
   await expectRenderedBody(page);
   await expect(page.getByTestId("prop-volume")).toContainText("10,000");
   await expect(page.getByTestId("prop-extents")).toContainText("40 × 25 × 10");

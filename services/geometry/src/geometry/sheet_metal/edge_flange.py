@@ -47,7 +47,24 @@ from geometry.sheet_metal.resolve import (
     SheetMetalUnfoldError,
     cylindrical_face_signature,
     find_cylindrical_face,
+    shares_edge_with,
 )
+
+#: Span-extent tolerance class (documented, not ad-hoc — §9): relative linear
+#: tolerance against the resolved edge length, the same ``1e-6 * max(L, 1)`` rule
+#: :func:`_adjacent_faces` already applies to edge-length matching. Used to (a)
+#: accept ``offset + width == edge_length`` up to FP, and (b) classify a span end
+#: as INTERIOR (needing an auto bend-end relief, design §4.5.2) vs. a blank-corner
+#: end at the edge's own endpoint (no relief).
+_SPAN_TOL_REL = 1e-6
+#: Post-notch base-face relocation tolerances (design §4.5.2): the notched base
+#: flat is found on the FINAL body by (same-orientation normal, in-plane seam,
+#: tangent-seam adjacency). Normal dot within 1e-9 (the resolve module's
+#: ``_PERP_TOL`` class) and plane distance within 1e-7 mm (its
+#: ``_TANGENT_DIST_TOL_MM`` class) — authored sheets are axis-aligned, residuals
+#: are ulp-scale.
+_BASE_NORMAL_TOL = 1e-9
+_BASE_PLANE_TOL_MM = 1e-7
 
 
 class EdgeFlangeError(SheetMetalUnfoldError):
@@ -101,6 +118,8 @@ def build_edge_flange(
     bend_angle_deg: float,
     bend_radius_mm: float,
     thickness_mm: float,
+    width_mm: float | None = None,
+    offset_mm: float = 0.0,
 ) -> EdgeFlangeResult:
     """Fold a flange off *edge* of the sheet *body* and fuse it across a bend.
 
@@ -111,11 +130,22 @@ def build_edge_flange(
     ``thickness_mm`` is the part's sheet thickness. Returns the fused single sheet
     body + the bend provenance signatures (§5).
 
+    WIDTH EXTENTS (design §4.5): ``width_mm``/``offset_mm`` restrict the flange to
+    the span ``[offset, offset + width]`` of the edge, measured from its CANONICAL
+    start (the lexicographically smaller endpoint — the stored ``EdgeSignature``'s
+    ``end_a``, so the offset's meaning never depends on kernel edge orientation).
+    ``width_mm = None`` spans to the edge's end. Both absent (``None``/``0``) is
+    the verbatim legacy full-width build — byte-identical geometry. Each span end
+    INTERIOR to the edge gets an automatic rectangular bend-end relief notch cut
+    into the base flat (size = 1 x gauge along the edge, 1 x gauge deep beyond the
+    bend tangent line, through-thickness — §4.5.2); a blank-corner end gets none.
+
     Raises:
         EdgeFlangeEdgeError: *edge* is not a straight edge, or lacks a clean plate
             reference face to fold from.
-        EdgeFlangeError: the fold geometry is degenerate or the fuse produced other
-            than one solid (e.g. a radius/length that self-intersects the sheet).
+        EdgeFlangeError: the width/offset span exceeds the resolved edge, the fold
+            geometry is degenerate, or the fuse/relief produced other than one
+            solid (e.g. a radius/length that self-intersects the sheet).
     """
     if edge.geom_type != GeomType.LINE:
         raise EdgeFlangeEdgeError(
@@ -124,8 +154,33 @@ def build_edge_flange(
 
     p0 = edge @ 0.0
     p1 = edge @ 1.0
-    width = float(edge.length)
+    edge_len = float(edge.length)
     v = (p1 - p0).normalized()  # bend axis direction (along the edge)
+
+    # Resolve the span [span0, span1] in the edge's NATIVE parameterisation. The
+    # legacy full-width call keeps the exact legacy values (span0 = 0.0, width =
+    # edge.length) so absent width params produce bitwise-identical geometry.
+    span_tol = _SPAN_TOL_REL * max(edge_len, 1.0)
+    if width_mm is None and offset_mm == 0.0:
+        span0, span1 = 0.0, edge_len
+    else:
+        span_width = width_mm if width_mm is not None else edge_len - offset_mm
+        if span_width <= span_tol or offset_mm + span_width > edge_len + span_tol:
+            raise EdgeFlangeError(
+                f"The flange width extents do not fit the picked edge: offset "
+                f"{offset_mm:g} mm + width {span_width:g} mm exceeds the edge "
+                f"length {edge_len:g} mm (design §4.5.1)."
+            )
+        # Canonical start = lexicographically smaller endpoint (EdgeSignature's
+        # end_a convention); convert to native coordinates if the edge runs the
+        # other way.
+        if (p0.X, p0.Y, p0.Z) <= (p1.X, p1.Y, p1.Z):
+            span0, span1 = offset_mm, offset_mm + span_width
+        else:
+            span0, span1 = edge_len - (offset_mm + span_width), edge_len - offset_mm
+        span0 = max(span0, 0.0)
+        span1 = min(span1, edge_len)
+    width = span1 - span0
 
     faces = _adjacent_faces(body, edge)
     if len(faces) < 1:
@@ -178,8 +233,13 @@ def build_edge_flange(
     inner_mid = (r * math.sin(half), r - r * math.cos(half))
     outer_mid = (outer * math.sin(half), r - outer * math.cos(half))
 
+    # Cross-section origin: the span's native start on the edge line. The legacy
+    # full-width path keeps `p0` itself (no `+ v * 0.0` arithmetic — byte-identity
+    # of the committed goldens, §4.5.1).
+    origin = p0 if span0 == 0.0 else p0 + v * span0
+
     def to3d(ab: tuple[float, float]) -> Vector:
-        return p0 + d * ab[0] + n * ab[1]
+        return origin + d * ab[0] + n * ab[1]
 
     try:
         edges = [
@@ -214,21 +274,174 @@ def build_edge_flange(
         )
     result_body = solids[0]
 
+    # AUTO BEND-END RELIEF (design §4.5.2): a span end INTERIOR to the edge tears
+    # the adjacent base flat when the fold is formed, so each interior end gets a
+    # rectangular notch cut into the BASE beside the bend end — `size` wide along
+    # the edge on the blank side of the end, `size` deep into the base beyond the
+    # bend tangent line, through the full gauge, with size = 1 x thickness (the
+    # corner-relief §4.4.3 gauge-multiple family at its tear-safe default ratio
+    # 1.0). The notch never crosses the bend, so the live bend width stays the
+    # authored span (fold-back invariant trivially intact) and the flat notch IS
+    # the 3D notch. A blank-corner end (at the edge's own endpoint) needs none.
+    relief_spans: list[tuple[float, float]] = []
+    size = thickness_mm
+    if span0 > span_tol:
+        relief_spans.append((span0 - size, span0))
+    if span1 < edge_len - span_tol:
+        relief_spans.append((span1, span1 + size))
+    if relief_spans:
+        result_body = _cut_end_reliefs(result_body, relief_spans, p0, v, d, n, t)
+
     # Provenance (§5): the bend axis is the edge line lifted r along n; the inner
     # cylindrical face carries the bend signature. The base reference face is the
     # flat the flange folded from (its plane is intact — the arc starts at the
     # tangent edge and curves away, never covering it).
     axis_origin = (p0.X + n.X * r, p0.Y + n.Y * r, p0.Z + n.Z * r)
     axis_dir = (v.X, v.Y, v.Z)
-    inner_face = find_cylindrical_face(result_body, axis_origin, axis_dir, r)
-    cyl_signature = cylindrical_face_signature(inner_face)
-    base_sig = face_signature_dto(reference)
-    assert base_sig is not None, "reference face is planar"
+    # Resolving the bend face is part of the kernel fold: a physically-degenerate
+    # bend (e.g. a radius far below gauge, ~<1e-6 mm) can fuse into one solid yet
+    # leave no findable cylindrical arc, so `find_cylindrical_face` raises
+    # `NoBendFoundError` (a `SheetMetalUnfoldError`, NOT an `EdgeFlangeError`). Map
+    # it — and any other resolution failure — to the typed `EdgeFlangeError` so the
+    # feature degrades to `edge_flange_failed`, never the generic `evaluation_failed`
+    # bucket (the honest-degradation contract; the try/except above only covers
+    # construction+fuse, this covers provenance resolution).
+    # The bend face's along-axis extent is the flange span projected onto the edge
+    # line (v is unit, so a point p0 + v*s projects to p0·v + s). Passing it lets
+    # `find_cylindrical_face` disambiguate a SECOND flange on a COLLINEAR segment of
+    # the same edge — same axis line + radius as the first flange's bend — by its
+    # own span, not just the axis line (§4.5.3 / WF-1 code-review 2026-07-22).
+    p0_axis = p0.dot(v)
+    axis_span = (p0_axis + span0, p0_axis + span1)
+    try:
+        inner_face = find_cylindrical_face(
+            result_body, axis_origin, axis_dir, r, axis_span=axis_span
+        )
+        cyl_signature = cylindrical_face_signature(inner_face)
+    except EdgeFlangeError:
+        raise
+    except Exception as exc:
+        raise EdgeFlangeError(
+            f"Edge-flange bend face could not be resolved ({type(exc).__name__}); "
+            "the bend radius may be too small to form a valid bend arc for this gauge."
+        ) from exc
+    if relief_spans:
+        # The end-relief notches changed the base flat's area/centroid, so the
+        # legacy pre-fuse signature would no longer match at unfold time (§4.5.2).
+        # Emit the signature from the FINAL body's base face, located by the bend's
+        # tangent-seam adjacency + the reference plane (same orientation normal,
+        # in-plane with the fold line) — never a guess.
+        base_sig = _post_relief_base_signature(result_body, inner_face, n, p0)
+    else:
+        base_sig = face_signature_dto(reference)
+        assert base_sig is not None, "reference face is planar"
     return EdgeFlangeResult(
         body=result_body,
         cyl_signature=cyl_signature,
         base_face_signature=base_sig,
     )
+
+
+def _cut_end_reliefs(
+    body: Solid,
+    relief_spans: list[tuple[float, float]],
+    p0: Vector,
+    v: Vector,
+    d: Vector,
+    n: Vector,
+    t: float,
+) -> Solid:
+    """Cut the auto bend-end relief notches into the base flat (design §4.5.2).
+
+    Each *relief_spans* entry ``(s0, s1)`` is a native along-edge range (already
+    ``size`` wide, on the blank side of an interior span end). The tool is the
+    exact box spanning ``[s0, s1]`` along the edge axis *v*, ``[-size, 0]`` along
+    the outward direction *d* (i.e. ``size`` INTO the base beyond the bend tangent
+    line at the edge), and the full gauge ``[-t, 0]`` along the reference normal
+    *n* — built as a rectangle in the (d, n) cross-section plane extruded along
+    *v*, the same primitive the flange itself uses (no new kernel geometry). Exact
+    (not oversized) so it can only ever remove base material: the flange/bend live
+    at ``d > 0`` over the flange span, disjoint from the notch's along-edge range.
+
+    Raises:
+        EdgeFlangeError: the boolean failed, or a notch severed the sheet (other
+            than exactly one solid — honest degradation, §5).
+    """
+    size = relief_spans[0][1] - relief_spans[0][0]
+    try:
+        cut = body
+        for s0, _s1 in relief_spans:
+            base_pt = p0 + v * s0
+            corners = [
+                base_pt,
+                base_pt + d * -size,
+                base_pt + d * -size + n * -t,
+                base_pt + n * -t,
+            ]
+            tool_edges = [
+                Edge.make_line(corners[0], corners[1]),
+                Edge.make_line(corners[1], corners[2]),
+                Edge.make_line(corners[2], corners[3]),
+                Edge.make_line(corners[3], corners[0]),
+            ]
+            tool_wires = Wire.combine(tool_edges)
+            if len(tool_wires) != 1 or not tool_wires[0].is_closed:
+                raise EdgeFlangeError(
+                    "The bend-end relief tool section did not close into one wire."
+                )
+            tool = Solid.extrude(Face(tool_wires[0]), v * size)
+            cut = cut - tool
+        cleaned = cut.clean()
+    except EdgeFlangeError:
+        raise
+    except Exception as exc:  # OCCT failure modes are not a stable taxonomy
+        raise EdgeFlangeError(
+            f"Bend-end relief boolean failed in the kernel ({type(exc).__name__})."
+        ) from exc
+    solids = cleaned.solids()
+    if len(solids) != 1:
+        raise EdgeFlangeError(
+            f"Bend-end relief produced {len(solids)} solids; the notch must not "
+            "sever the sheet (design §4.5.2)."
+        )
+    return solids[0]
+
+
+def _post_relief_base_signature(
+    body: Solid, inner_face: Face, n: Vector, p0: Vector
+) -> PlanarFaceSignature:
+    """The NOTCHED base flat's signature, located on the final body (§4.5.2).
+
+    The base face is the unique planar face that (a) has the reference orientation
+    (normal within ``_BASE_NORMAL_TOL`` of *n*, same sign), (b) lies in the
+    reference plane (the plane through *p0* with normal *n* — the bend tangent
+    plane, within ``_BASE_PLANE_TOL_MM``), and (c) shares a topological edge with
+    the bend's inner cylindrical face (the tangent seam,
+    :func:`geometry.sheet_metal.resolve.shares_edge_with`). Exactly one match or a
+    typed error — the refuse-to-guess rule (§5)."""
+    bend_edges = inner_face.edges()
+    matches: list[Face] = []
+    for face in body.faces():
+        if face.geom_type != GeomType.PLANE:
+            continue
+        centroid = face.center(CenterOf.MASS)
+        normal = face.normal_at(centroid)
+        if normal.dot(n) < 1.0 - _BASE_NORMAL_TOL:
+            continue
+        point = Vector(centroid.X, centroid.Y, centroid.Z)
+        if abs((point - p0).dot(n)) > _BASE_PLANE_TOL_MM:
+            continue
+        if not shares_edge_with(face, bend_edges):
+            continue
+        matches.append(face)
+    if len(matches) != 1:
+        raise EdgeFlangeError(
+            f"Expected exactly one notched base flat adjacent to the bend, found "
+            f"{len(matches)}; the bend-end relief left an unresolvable base face."
+        )
+    sig = face_signature_dto(matches[0])
+    assert sig is not None, "the notched base flat is planar"
+    return sig
 
 
 def _sig_key(face: Face) -> tuple[float, float, float]:

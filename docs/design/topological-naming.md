@@ -189,9 +189,18 @@ those within tolerance on every field, and require **exactly one** match
   honest-failing, not impossible; only provenance (2c) forecloses it
   structurally.
 - **Hole-on-face:** signature of the `+Z` top face = `{surface: plane, normal:
-  [0,0,1], area, centroid}`. Survives upstream edits that keep a single planar
-  top face; fails / goes ambiguous if the upstream feature splits the top face
-  into two coplanar faces (both share the normal).
+  [0,0,1], area, centroid}`. Matching is **two-tier** (FINDINGS #3): tier 1 is the
+  strict signature (normal + centroid + area, exact on a clean rebuild); tier 2,
+  reached only when tier 1 finds nothing, re-matches on the **strongest planar
+  invariant alone** — same-sense normal + the coincident supporting plane
+  (`centroid · normal`, invariant under any *in-plane* boundary change). This is
+  what makes the reference actually survive the most common parametric edit:
+  resizing **one** hole on a shared face shifts that face's area **and**
+  area-centroid, which under strict-only matching orphaned every *sibling*
+  reference to the same face (`subshape_unresolved`). Still honest — two distinct
+  coplanar faces both match tier 2 → `subshape_ambiguous`, never a guess; fails /
+  goes ambiguous if the upstream feature splits the top face into two coplanar
+  faces (both share the normal).
 - **Storage:** a structured blob (type + curve/surface kind + canonical point +
   metric + sorted neighbor descriptors), or a hash of its canonical form.
   Moderate.

@@ -1399,3 +1399,387 @@ Views legend ✅ (dash tokenized 2026-07-19) · Flat-pattern action + F shortcut
 flat_pattern_not_sheet_metal error ✅ · **Bend-table export fidelity (PDF/DXF) ✅
 (P2 fixed 2026-07-19)** · Bend-table SR access ✅ (P3 BendSchedulePanel 2026-07-19) ·
 BendTable column de-magic ✅ (P3 2026-07-19). All three P3 nits from this pass closed.
+
+---
+
+## 2026-07-19 — Spot-check: sheet-metal HemEditor + CornerReliefEditor — commit `0c10265`
+
+**Scope.** The two new sheet-metal authoring editors, judged as tool-grade
+modeling chrome against the shipped `BaseFlangeEditor`/`EdgeFlangeEditor` (the
+bar) and vs. how SolidWorks/Fusion author these. Read-only: source of both
+editors + the `sheetMetal.ts` view logic + the `@loft/design` primitives they
+compose + `CreateStrip` gating + the error-envelope path, plus founder shots
+`sheet-metal-hem-{body,flat,edit}-*` and `sheet-metal-corner-relief-{body,flat}-1440`.
+
+### Executive verdict — SHIP IT
+
+Both editors clear the tool-grade bar. They compose **only** `@loft/design`
+primitives (Panel / NumberField / SelectField / Checkbox / PanelActionCell) —
+zero restyled raw inputs, zero hex literals, the "180° (closed)" readout and
+the live notch preview both token-inked (`text-mist` / `text-gauge` /
+`font-data`). The `HemEditor` chrome is **byte-consistent** with
+`EdgeFlangeEditor` — identical title-block strip, eyebrow, single-select
+edge-pick block (reuses the shared overlay + store), brass length handle,
+inherited radius/K overrides revealed per-toggle, 2-col Cancel/Create action
+grid, flag-inked `role="alert"` error tail — it reads as the edge flange
+minus the fold-angle field, exactly as intended. Founder shot
+`sheet-metal-hem-edit-1280` confirms it: the brass/white edge diamonds, the
+"1 edge picked" readout, the "180° (closed)" caption, the two override rows
+all land clean. The corner-relief feature-select is an **acceptable v1** (see
+P2 below for the one real follow-up). A11y floor met in both. Findings are
+nits + one fast-follow; nothing blocks.
+
+### Findings
+
+- **P2 — CornerReliefEditor — the Bend A / Bend B selects are "blind": no
+  viewport feedback ties a dropdown option to a physical flange/corner.**
+  Feature-select is a legitimate tool-grade v1 — SolidWorks/Fusion do let you
+  pick the corner/edges in the 3D view, but they *also* expose corner
+  treatments off feature lists, and two ruled selects captioned "The two edge
+  flanges whose bends meet at the corner to relieve" are discoverable and —
+  critically — **fully keyboard-reachable, which a viewport pick is not yet**.
+  So the deferred direct-pick call is VALIDATED. The gap that bites *now*: with
+  3+ edge flanges the user must guess which two named "Edge flange3 / Edge
+  flange4" meet at the corner they want, with nothing highlighting the chosen
+  bend in the scene. The full viewport bend-face pick is the right long-term
+  fix (roadmap-tracked) — but the **cheap interim that closes most of the gap
+  without new pick infrastructure** is to flash/highlight the selected flange's
+  bend in the viewport when Bend A/B changes, reusing machinery that already
+  exists (selecting the feature already tints the body brass; the edge-pick
+  overlay already highlights edges). Suggested system-level fix: on
+  `bendAId`/`bendBId` change, drive the existing feature/edge highlight for that
+  flange. Ref: no editor-open corner-relief shot exists yet (see last P3).
+- **P3 — CornerReliefEditor — autofocus lands on "Relief ratio", not "Bend A".**
+  In create mode the two bends are seeded to the first two edge flanges in tree
+  order, which are frequently *not* the corner the user means; the first thing
+  a user typically retargets is the bend selection, yet keyboard focus starts
+  two fields below it (must shift-tab up). The hem/edge-flange autofocus-the-
+  handle idiom doesn't transfer cleanly here because the "handle" (ratio) has a
+  safe default while the *references* are the risky guess. Suggested fix:
+  autofocus Bend A. Ref: `CornerReliefEditor.tsx:143` (`autoFocus` on ratio).
+- **P3 — CornerReliefEditor — no placeholder option and no guard for an
+  unresolvable stored bend ref.** `edgeFlangeOptions` filters out rolled-back
+  flanges, so in *edit* mode a `bendAId`/`bendBId` pointing at a since-rolled-
+  back/deleted flange yields a `value` absent from `options`; the native
+  `<select>` then displays its FIRST option while form state holds the stale id
+  → the panel silently shows the *wrong* flange. The server catches the write
+  as `reference_unresolved` so no wrong model ships, but the editor is
+  misleading in the interim. Rare, but a placeholder "— select bend —" option
+  (or a resolved-ref guard) would make the mismatch legible. Ref:
+  `CornerReliefEditor.tsx:91,115-133`.
+- **P3 — CornerReliefEditor — the live notch preview updates silently (no
+  `aria-live`).** `corner-relief-size-preview` recomputes on every ratio
+  keystroke but is a plain `<p>`, whereas the sibling readout pattern
+  (`hem-pick-count` / `edge-flange-pick-count`) carries `aria-live="polite"`. A
+  screen-reader user typing the ratio never hears the resolved notch mm.
+  Suggested fix: add `aria-live="polite"` to the preview for parity. Ref:
+  `CornerReliefEditor.tsx:150-157`.
+- **P3 — corner-relief tool gate copy over-promises adjacency.**
+  `canAuthorCornerRelief` arms the tool at ≥2 edge flanges (`sheetMetal.ts:545`),
+  but the enabled aria-label promises "two edge flanges that **meet at a
+  corner**". Two flanges on parallel/non-touching edges arm the tool; the kernel
+  then rejects the pair as `corner_relief_failed`. The gate is honest about the
+  *count*; the copy describes a stricter *adjacency* condition the gate doesn't
+  check. Acceptable (kernel validates, typed error surfaces as guided text —
+  see PASS), purely cosmetic. Ref: `CreateStrip.tsx:612-617`.
+- **P3 — evidence gap (process, not product).** The hem set includes an
+  open-editor shot (`sheet-metal-hem-edit-1280`); corner relief has only
+  `body`/`flat`. The design-mandate surface should ship an **editor-open** shot
+  of the `CornerReliefEditor` panel (the two selects + ratio + notch preview)
+  too. Refresh with `UPDATE_SCREENSHOTS=1`.
+
+### Verified PASS (no action)
+
+- **Design-system adherence** — both editors compose only `@loft/design`
+  primitives; no restyled raw `<input>`/`<select>`; no hex literals; the
+  "180° (closed)" fold readout and the `≈ … mm (ratio × gauge)` notch preview
+  are token-inked, not hardcoded. `HemEditor` chrome is byte-identical to
+  `EdgeFlangeEditor` (strip, eyebrow, pick block, override-toggle reveal,
+  action grid, error tail).
+- **A11y floor (light + dark)** — on `bg-anvil`: mist 13.2:1, gauge 7.2:1,
+  flag 6.5:1 all clear AA (incl. the 10px `text-2xs` gauge notch preview +
+  checkbox descriptions). Visible brass focus on the pick-clear button, both
+  `SelectField`s (`focus-within` ring via the primitive), checkboxes, and the
+  action cells. The "180°" readout is real DOM text (exposed to AT, **not**
+  `aria-hidden`/decorative). Pick errors + the same-bend error carry
+  `role="alert"`; `hem-pick-count` carries `aria-live`. `SelectField` gives
+  proper `label htmlFor`, `aria-invalid` + `aria-describedby` on error.
+- **Disabled-affordance honesty** — the disabled submit `PanelActionCell` uses
+  `disabled:pointer-events-none` but carries **no** tooltip, so it is not a
+  pointer-events tooltip trap; the reason is reachable by mouse and keyboard via
+  the always-visible inline field errors / pick guidance, and the in-command
+  band's OK cell *does* self-explain (`caption="Finish the form"` when the
+  form's submit gate is false — `CreateStrip.tsx:322`).
+- **Consistency + states** — hem mirrors edge-flange interaction language
+  exactly (single-select pick, Enter commits / Escape cancels, per-toggle
+  override reveal). Disabled corner-relief reason "Needs two edge flanges" is
+  honest about the gate; the same-bend inline error guides
+  ("Pick two different edge flanges…"). Typed `corner_relief_failed` /
+  `reference_unresolved` surface as the server's **human** message via
+  `envelopeMessage` (not raw codes) in the flag-inked `role="alert"` panel —
+  guided inline state, never a silent wrong model.
+- **Test hooks** — `hem-*` (editor, pick-clear, pick-count, pick-error, length,
+  fold-readout, override-radius/k, bend-radius, k-factor, cancel, submit, error)
+  and `corner-relief-*` (editor, bend-a, bend-b, ratio, size-preview,
+  override-size, size, cancel, submit, error) are complete and mirror the
+  `edge-flange-*` conventions; `SelectField` forwards `data-testid` onto the
+  native `<select>`.
+
+Running checklist: `HemEditor` ✅ (edge-flange twin, byte-consistent) ·
+`CornerReliefEditor` ✅ ship — **P2 viewport-highlight-on-select fast-follow**
++ 3× P3 (autofocus Bend A · unresolvable-ref placeholder · notch-preview
+`aria-live`) + P3 gate copy + P3 editor-open screenshot · SHEET METAL group
+Hem/Corner-relief buttons ✅ (honest gating, engraved shortcuts) · full
+viewport corner/bend pick = validated deferred follow-up (roadmap).
+
+---
+
+## 2026-07-23 — SPOT-CHECK: assembly export + clash inspector (`49f01ba`) · section-view author (`06fc019`)
+
+**Method.** Audited the **committed** source (working tree held by concurrent
+agents) + the founder shots `assembly-{export,clash-found,clash-empty}-*`,
+`assembly-clash-found-laptop` (1280), `drawings-section-{before,author,after}-*`
+(1280 + 1440). Cross-referenced `packages/design/tokens.ts` (`assembly.clash`
+/`clashTint`, `drawing.hatch`), `FloatingPanel` (overflow), `ToolButton`
+(`active`→`aria-pressed`).
+
+### Executive verdict — both surfaces are TOOL-GRADE. Ship.
+
+Both new surfaces read as the app's existing quiet precision instruments, not
+bolted-on. **Design-system adherence is clean:** zero raw hex in either
+component; both alarm/hatch inks come from named shared tokens
+(`assembly.clash`=`color.flag`, `clashTint` #F2C9C9, `drawing.hatch` #7A8695)
+consumed by both renderers — the clash flag is one language across DOM tree
+badge + WebGL edge/tint + balloon, and the on-screen hatch reads from the same
+token the server serializer emits. Composed entirely from `Panel`/
+`PanelSection`/`SegmentedControl`/`ToolButton`/`ToolGroup` primitives. **A11y
+floor holds:** `text-flag` (6.5:1 on anvil) clears AA even at `text-2xs`; hatch
+4.0:1 clears the 3:1 graphical-object floor and is `aria-hidden` (decorative
+fill, meaning carried by the "SECTION A-A" caption); async states carry
+`aria-live`/`role="alert"`; visible brass focus on every control; `active`→
+`aria-pressed` on the plane picker; `prefers-reduced-motion` snaps the
+snap-on-solve lerp. **Every chrome element is functional** (rule 3c): the
+clash schedule, export strip, plane picker, and Near/Far toggle all drive real
+state — no decorative readouts. **Empty/error/loading complete:** clash has
+distinct idle ("Run Check interference…"), busy ("Scanning for overlaps…"),
+empty ("No interferences found…"), and error branches; section has
+loading-datums, the client-side not-principal precondition alert (before
+persist), and typed server `failed-view` guidance (`section_plane_not_*`).
+**Responsive:** FloatingPanel caps height + `overflow-y-auto`, so the clash
+schedule and BOM scroll rather than overflow; laptop 1280 shot shows the
+inspector + schedule non-overflowing; the section author is `w-editor
+max-w-full` and clears the 1280 sheet.
+
+### Findings (all polish — none block)
+
+- **P3 — assembly clash schedule — `AssemblyClashPanel.tsx` — pair rows are
+  static, don't navigate.** A machinist reading an interference report expects
+  to click a pair and have the viewport isolate/frame it; today all clashing
+  bodies flush red at once and rows are read-only. Fine for the shipped 2-body
+  case, but with many pairs you can't map a schedule row to its bodies. Not a
+  rule-3c defect (rows reflect real state). *System fix:* make a clash row a
+  selectable control that sets a "focused clash pair" (frame + solo-tint that
+  pair), mirroring the tree's `onSelectInstance` idiom. Screenshot ref:
+  `assembly-clash-found-desktop.png`.
+- **P3 — clash + mate rows — `AssemblyClashPanel.tsx` / `AssemblyTreePanel.tsx`
+  — the `①{n} ✕ ②{n}` glyph double-encodes.** Renders literally as "①1 ✕ ②2":
+  the circled-digit `①`/`②` is used as an A/B slot marker, then the real
+  balloon number follows, so when slot and balloon coincide it reads as a
+  duplicated "①1". First-time-legible only once you know `①`=slot-A. It is
+  *consistent* with the existing mate-row idiom (so not new), but the fix is
+  system-level: extract a shared balloon token/`<Balloon>` element (the same
+  drawn circle the tree/viewport use) instead of the unicode circled-digit as a
+  slot prefix. Screenshot ref: `assembly-clash-found-desktop.png`.
+- **P3 — assembly clash — `AssemblyClashPanel.tsx` comment vs. render.** The
+  panel doc says "flag red is spent on the count + each row's balloons," but
+  the `Interference · N` count sits in the `PanelSection` eyebrow (gauge gray)
+  — only the row balloons are red. Cosmetic/comment drift; either redden the
+  count or fix the comment. Screenshot ref: `assembly-clash-found-desktop.png`.
+- **P3 — assembly export strip — `AssemblyInspectorPanel.tsx` — strip scrolls
+  with a long schedule.** The always-present EXPORT strip sits below the view
+  inside the FloatingPanel scroll area, so a long clash/BOM list scrolls the
+  strip out of the fold. Acceptable (it's reachable), but a sticky-footer strip
+  would keep "the whole solved assembly writes to STEP/STL" always in reach.
+
+Running checklist: `AssemblyClashPanel` ✅ · `AssemblyInspectorPanel`
+(Solve/Parts/Clash toggle + export strip) ✅ · `AssemblyCommandBand`
+(Check-interference, honest `I` gating + "Scanning…" busy caption) ✅ ·
+`AssemblyTreePanel` CLASH badge ✅ · `AssemblyScene`/`InstanceMesh` clash
+edge+tint (shared token, reduced-motion snap) ✅ · `SectionAuthorPanel`
+(plane picker reuses sketch vocabulary, Near/Far, pre-checked precondition,
+`aria-pressed`) ✅ · `DrawingCommandBand` Section action ✅ · `DrawingSheet`
+`SectionHatch` (token-matched ink, `aria-hidden`, typed failed-view guidance)
+✅. 4× P3 polish, zero blockers.
+
+## 2026-07-24 — HARD AUDIT (founder-directed): "a competitor of Fusion 360 and Plasticity"
+
+**Trigger (founder, verbatim):** "Also audit the ui hard. It should be a
+competitor of fusion 360 and plasticity." This is design-mandate 3a applied
+to the WHOLE product: tool-grade viewport, judged side-by-side, every chrome
+element functional, "premium dashboard" explicitly not the bar.
+
+**Method.** Real native stack on isolated ports (gateway :8030, documents
+:8031, geometry :8032, Vite :5193), driven in real Chromium at 1440×900 and
+1280×800. Every surface exercised: sign-in, three registers, part workspace
+(empty / bracket / deep 16-feature tree / broken rebuild), sketch mode
+(plane pick, rubber band, snap, dimension input), feature editors, measure,
+assembly (2-instance mate flow, 8-instance dense, 6-instance clash stress),
+drawings (setup, sheet). 45 evidence shots in `docs/screenshots/audit-ui/`
+(01–40 from the first pass of this audit, 41–45 regenerated/extended this
+relaunch). Source cross-referenced for every finding; no app code touched.
+
+### Executive verdict
+
+**The 2026-07-16 P0s are genuinely fixed and it shows.** The grid reads to
+the horizon, bodies carry the studio matcap ("machined aluminum"), the
+ViewCube + view rail are persistent, panels float over a full-bleed canvas,
+and the instrument chrome is honest — every tile on the part inspector
+(mass, bbox, topology, status, export) is live data; the old decorative
+badges are gone. The part workspace at rest (`11-bracket-default-1440.png`)
+now reads Plasticity-adjacent at a glance, and the failure surfaces (broken
+rebuild `24`, clash inspector `43`) are *ahead* of the hobby-tool bar —
+typed errors, per-pair interference volumes, honest SKIP chips.
+
+**What still breaks the peer-tool claim is one regression and a depth gap.**
+The regression: the command band has outgrown its width-tier arithmetic and
+silently hides whole tool groups (SHEET METAL, INSPECT/MEASURE) at 1440 and
+even 1600 wide — and hovering a hidden tool horizontally scrolls the entire
+app. A Fusion user at 1440×900 would conclude the tools don't exist. The
+depth gap: no live preview while editing, no feature-localized selection
+(everything tints whole-body clay), no context menu, pre-pick affordances
+rendered as blankets of DOM squares. Fusion/Plasticity feel comes from the
+scene *responding* — ours still mostly responds after commit.
+
+### Findings (P0 breaks the peer-tool claim · P1 clearly behind · P2 parity polish · P3 nit)
+
+- **P0 — command band — labeled tier overflows the frame at 1440–1600;
+  hidden groups + root horizontal scroll.** At 1440 the band cuts off at
+  COMBINE (`11-bracket-default-1440.png`, right edge); at 1600 SHEET METAL
+  is half-clipped and INSPECT is gone (`29-band-1600.png`); hovering the
+  off-frame MEASURE scrolls the whole app sideways leaving half the frame
+  black (`19-bracket-measure-armed-1440.png`). At 1280 the icon-only tier
+  fits perfectly (`25-bracket-default-1280.png`) — the bug lives only in the
+  labeled tier. Root cause: `ToolButton.tsx:51-57` sheds labels below 1360px
+  on arithmetic ("labeled band ≈ 1315px natural") written before the SHEET
+  METAL + INSPECT groups landed; `TopToolbar.tsx` is `overflow-visible` flex
+  with no overflow management. **Fix (primitive):** recompute the label tier
+  (labels only ≥ ~1800px, or shed per-group), and clamp the band so it can
+  NEVER widen the root (`overflow-x-clip` + assert no horizontal scroll).
+  Backlog-sized; add a Playwright guard: `top-toolbar` scrollWidth ==
+  clientWidth at 1280/1440/1600 and INSPECT visible at all three.
+- **P1 — tool tooltips (incl. disabled reasons) occluded by floating
+  panels.** The gate-reason tooltip work (aria-describedby, hover+focus on
+  `aria-disabled`) is right, but visually the tooltip loses to the feature
+  tree: `TopToolbar` `relative z-10` creates a stacking context, so its
+  tooltips' `z-30` can never beat the panels' `z-30` outside it — the CREATE
+  group's tooltips render *behind* the tree panel
+  (`27-disabled-tooltip-occlusion-1440.png`; the orphan "Import" sliver
+  visible across `21`–`24`). Screen readers get the reason; sighted mice
+  don't. **Fix (primitive):** lift the band's stacking context above panels
+  (band z-40) or portal ToolButton tooltips to the root.
+- **P1 — selection language: whole-body clay swap, never feature-localized.**
+  Selecting ANY feature or body replaces the studio matcap with a flat warm
+  tan across the entire body (`14`, `15`, `18`); selecting `Sketch1` gives
+  no sketch-specific feedback at all (same whole-body tint). The tint reads
+  as a material change (clay render), kills the machined look, and persists
+  in every later glance; tree and geometry still never point at each other
+  at feature granularity. Fusion tints the *feature's faces*; Plasticity
+  outlines. **Fix (primitive, `ModelMesh` + face maps):** keep matcap
+  luminance and mark selection with brass edge emphasis + a subtle overlay
+  on the selected feature's faces only; distinct body-select vs
+  feature-select states.
+- **P1 — feature editors still commit blind (no live preview).** Open since
+  2026-07-16: distance 30 typed in Edit Extrude, viewport still shows the
+  12 mm body, no ghost (`20-bracket-extrude-editing-no-preview-1440.png`).
+  Extrude ghost first, then datum/fillet. This is the single biggest
+  "responds while you work" gap vs both benchmarks.
+- **P1 — right-click is dead everywhere.** No context menu on body, canvas,
+  tree, or anywhere (`17-bracket-rightclick-1440.png`; `grep onContextMenu
+  apps/web/src` → zero hits). Fusion's marking menu is its speed backbone.
+  **Fix:** one small token-styled viewport context menu (fit, view snaps,
+  sketch-on-face, measure, suppress/delete selected) + tree-row menu.
+- **P2 — pre-pick affordances are DOM-square blankets, not topology
+  highlights.** Mate face-pick scatters white squares over every candidate
+  face (`34-assembly-mate-hud-1440.png`); measure does the same for every
+  vertex (`19`). Functional and test-friendly, but it reads as debug
+  markers — the benchmarks highlight the face/edge *under the cursor*.
+  **Fix:** raycast hover highlight on real topology; keep the DOM nodes as
+  invisible test hooks (`measure-vertex-N` stays).
+- **P2 — body hover is imperceptible.** Hover only brightens edges
+  (`ModelMesh.tsx:82` "hover only brightens the edges") — `12` vs `11` are
+  pixel-identical at a glance. Pre-selection glow should be unmistakable.
+- **P2 — orbit/pan/zoom have zero discoverability.** ViewCube + view rail
+  are good (`18-bracket-top-view-1440.png` — snaps work, tooltips name
+  them), but nothing anywhere teaches drag/pan/zoom bindings — no status
+  legend (Fusion), no first-run hint. A quiet mouse-legend chip near the
+  view rail would close it.
+- **P2 — registers (parts/assemblies/drawings homes) are consistent but
+  templated.** Plain centered web tables on a faint grid
+  (`02-parts-home-1440.png`) — none of the machine-shop identity the
+  workspaces carry (frontend-design calibration: "generic but consistent"
+  is still a finding). Low priority vs the modeling surfaces, but a
+  thumbnail strip or engraved register treatment would make the first
+  screen after sign-in feel like the same product.
+- **P2 — assembly framing/read is the flattest of the three scenes.** Same
+  matcap, but top-down default fit + small-in-frame parts + balloon squares
+  (`41-assembly-dense-8-1440.png`) read flatter than the part studio; the
+  2-instance mate flow frames both parts but low in-frame (`34`). A
+  slightly lower default orbit + fit padding would let the studio shading
+  actually model the faces.
+- **P3 — solve readout shows a bare "—" in a fresh sketch**
+  (`44-sketch-mode-1280.png` SOLVE panel) — an em-dash with no meaning
+  attached; say "No constraints yet."
+- **P3 — top/ortho views show rectangular shading bands** (ground-shadow
+  plane seams visible from directly above, `18`); clamp the shadow plane or
+  fade it in ortho top.
+- **P3 — sketch-mode 1280 icon strip** (`44`): fits and works; MODIFY's 9
+  unlabeled glyphs are scannable only via tooltips — acceptable, revisit
+  with the band-tier fix.
+
+### Side-by-side verdicts (would a Fusion/Plasticity user read it as a peer at a glance?)
+
+| Surface | Verdict | Top visual reason where not |
+| --- | --- | --- |
+| Part workspace (rest) | **Yes** — `11` vs Plasticity holds up | band-hidden tool groups at 1440 (P0) |
+| Part workspace (interacting) | **Not yet** | no preview / clay selection / dead right-click |
+| Sketch mode | **Yes** — grid, DRO, snap chip, mode strip are instrument-grade (`05`, `08`, `44`) | — |
+| Assembly | **Mostly** — solve-state + clash inspector (`43`) are ahead of the bar | pick-square blankets, flat framing |
+| Drawings | **Yes (scoped)** — sheet, title block, hidden lines read real (`40`) | sparse sheet interactions (no zoom/pan evident) |
+| Registers / sign-in | Sign-in distinctive (`01`); registers templated (`02`) | web-table look |
+
+**States under stress:** deep 16-feature tree stays legible with honest
+ERR→SKIP cascade (`23`); broken rebuild is exemplary — typed error, message,
+rollback, last-good body preserved (`24`); clash stress with 14 interfering
+pairs renders red tint + per-pair mm³ without layout strain (`43`). Busy
+states exist in code (Solving…/Projecting…/aria-busy) — not visually
+audited this pass.
+
+**Consistency & tokens:** zero hex literals in `apps/web/src`; the viewport
+imports `@loft/design/tokens` (one palette, two renderers holds); primitives
+carry the surfaces. Signature element (brass scribe + engraved data panels)
+is present on every workspace. Discipline: intact.
+
+### The five changes that most move "reads as a Fusion/Plasticity competitor"
+
+1. **Fix the command-band width tiers + overflow clamp** (P0) — tools must
+   never vanish or scroll the app; add the e2e width guard.
+2. **Selection that keeps the studio look and localizes to the feature** —
+   kill the whole-body clay swap; brass edges + feature-face overlay.
+3. **Live extrude ghost while editing** — the first surface where Loft
+   *responds before commit*; template for fillet/datum/draft.
+4. **Cursor-driven topology highlight** replacing candidate-square blankets
+   (mate + measure), plus a visible body hover glow.
+5. **A viewport right-click menu** (fit, snaps, sketch-on-face, measure,
+   suppress) — the cheapest large step toward incumbent muscle memory.
+
+Running checklist (this pass): `TopToolbar`/`ToolButton` width tiers 🔴 (P0)
+· tooltip stacking 🔴 · `ModelMesh` selection/hover 🔴 · feature editors
+(preview) 🔴 · context menus 🔴 · viewport atmosphere/grid/ViewCube ✅ ·
+chrome honesty (part+assembly inspectors, view rail, units, export) ✅ ·
+error/stress states (`23`/`24`/`43`) ✅ · sketch mode ✅ · drawings sheet ✅
+· registers 🟡 (templated) · token discipline ✅.
+
+**Process note (relaunch):** predecessor's evidence 01–40 reviewed and kept;
+41–45 (dense assembly, clash stress, 1280 sketch/editor) regenerated this
+session. Stack :8030–:8032 + Vite :5193 booted and torn down; other
+auditors' stacks untouched.

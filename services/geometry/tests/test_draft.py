@@ -299,7 +299,9 @@ def test_empty_faces_is_no_draft_faces() -> None:
 def test_picked_face_that_no_longer_exists_is_subshape_unresolved() -> None:
     """A picked face signature that matches no current face is an honest
     per-feature ``subshape_unresolved`` (topo-naming §5), never a 500 and never a
-    silent wrong-face retarget: the centroid is at z=99, where no face lives."""
+    silent wrong-face retarget. The +X plane is shifted to x=999 (``centroid.x``,
+    the component ALONG the normal), so no face lives on it — neither the strict
+    signature nor the resilient coplanar re-match (FINDINGS #3) resolves it."""
     result = _post(
         _request(
             [
@@ -308,7 +310,7 @@ def test_picked_face_that_no_longer_exists_is_subshape_unresolved() -> None:
                 draft_input(
                     DRAFT_ID,
                     5.0,
-                    [_face_ref(EXTRUDE_ID, (1.0, 0.0, 0.0), (40.0, 20.0, 99.0), 800.0)],
+                    [_face_ref(EXTRUDE_ID, (1.0, 0.0, 0.0), (999.0, 20.0, 0.0), 800.0)],
                 ),
             ]
         )

@@ -259,6 +259,43 @@ def test_0007_offline_downgrade_drops_everything(
     assert "DROP TABLE assembly_snapshots" in sql
 
 
+def test_0009_offline_sql_adds_suppressed_with_false_default(
+    alembic_ini: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sql = _offline_sql(alembic_ini, monkeypatch, "0008:0009")
+    # feature-tree.md §4.3a — NOT NULL suppress flag, server-default false so
+    # every pre-existing feature backfills to unsuppressed in one statement.
+    assert (
+        "ALTER TABLE features ADD COLUMN suppressed BOOLEAN DEFAULT false NOT NULL"
+        in sql
+    )
+
+
+def test_0009_offline_downgrade_drops_suppressed(
+    alembic_ini: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sql = _offline_sql(alembic_ini, monkeypatch, "0009:0008", downgrade=True)
+    assert "ALTER TABLE features DROP COLUMN suppressed" in sql
+
+
+def test_0010_offline_sql_adds_auto_place_with_true_default(
+    alembic_ini: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sql = _offline_sql(alembic_ini, monkeypatch, "0009:0010")
+    # drawing-export.md §4.2 — NOT NULL drag-to-place flag, server-default true so
+    # every pre-existing view backfills to bounds-aware auto-layout in one statement.
+    assert (
+        "ALTER TABLE views ADD COLUMN auto_place BOOLEAN DEFAULT true NOT NULL" in sql
+    )
+
+
+def test_0010_offline_downgrade_drops_auto_place(
+    alembic_ini: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sql = _offline_sql(alembic_ini, monkeypatch, "0010:0009", downgrade=True)
+    assert "ALTER TABLE views DROP COLUMN auto_place" in sql
+
+
 async def _table_names(url: str) -> set[str]:
     engine = create_async_engine(async_dsn(url))
     try:

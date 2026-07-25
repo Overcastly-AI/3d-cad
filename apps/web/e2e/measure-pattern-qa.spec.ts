@@ -243,11 +243,14 @@ test.describe("measure — edges & guards", () => {
     await nodeB.focus();
     await page.keyboard.press("Enter");
 
+    // √1400 mm via `formatLength` (units convention: doc unit + 4 max fraction
+    // digits, trailing zeros trimmed) → exactly "37.4166 mm"; whole-mm deltas
+    // render without fraction digits. Exact match, tied to the geometry golden.
     await expect(page.getByTestId("measure-readout-distance")).toHaveText(
-      "37.42",
+      "37.4166 mm",
     );
-    await expect(page.getByTestId("measure-readout-dx")).toHaveText("+10.00");
-    await expect(page.getByTestId("measure-readout-dz")).toHaveText("+30.00");
+    await expect(page.getByTestId("measure-readout-dx")).toHaveText("10 mm");
+    await expect(page.getByTestId("measure-readout-dz")).toHaveText("30 mm");
   });
 
   test("edge-edge measure shows an angle for two straight edges", async ({
@@ -329,8 +332,9 @@ test.describe("measure — real pointer picking (P1 regression)", () => {
         "Pick the second point or edge",
       );
       await page.getByTestId(`measure-vertex-${b}`).tap({ timeout: 8000 });
+      // √1400 mm → "37.4166 mm" (formatLength, units convention). Exact match.
       await expect(page.getByTestId("measure-readout-distance")).toHaveText(
-        "37.42",
+        "37.4166 mm",
       );
     });
   });

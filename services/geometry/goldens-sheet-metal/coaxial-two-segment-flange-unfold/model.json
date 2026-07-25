@@ -1,0 +1,165 @@
+{
+  "part_id": "00000000-0000-0000-0000-0000000c0001",
+  "tree_version": 1,
+  "features": [
+    {
+      "id": "00000000-0000-0000-0000-0000000c0a01",
+      "feature": {
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "plane": { "kind": "datum_plane", "plane": "XY" },
+          "entities": [
+            {
+              "id": "e1",
+              "kind": "line",
+              "start": { "x": 0.0, "y": 0.0 },
+              "end": { "x": 200.0, "y": 0.0 }
+            },
+            {
+              "id": "e2",
+              "kind": "line",
+              "start": { "x": 200.0, "y": 0.0 },
+              "end": { "x": 200.0, "y": 100.0 }
+            },
+            {
+              "id": "e3",
+              "kind": "line",
+              "start": { "x": 200.0, "y": 100.0 },
+              "end": { "x": 0.0, "y": 100.0 }
+            },
+            {
+              "id": "e4",
+              "kind": "line",
+              "start": { "x": 0.0, "y": 100.0 },
+              "end": { "x": 0.0, "y": 0.0 }
+            }
+          ],
+          "constraints": []
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-0000000c0b01",
+      "feature": {
+        "type": "sheet_metal_base_flange",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "00000000-0000-0000-0000-0000000c0a01"
+          },
+          "thickness_mm": 1.5,
+          "bend_radius_mm": 2.0,
+          "k_factor": 0.44
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-0000000c0c01",
+      "feature": {
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "plane": { "kind": "datum_plane", "plane": "XY" },
+          "entities": [
+            {
+              "id": "e1",
+              "kind": "line",
+              "start": { "x": 80.0, "y": -5.0 },
+              "end": { "x": 120.0, "y": -5.0 }
+            },
+            {
+              "id": "e2",
+              "kind": "line",
+              "start": { "x": 120.0, "y": -5.0 },
+              "end": { "x": 120.0, "y": 10.0 }
+            },
+            {
+              "id": "e3",
+              "kind": "line",
+              "start": { "x": 120.0, "y": 10.0 },
+              "end": { "x": 80.0, "y": 10.0 }
+            },
+            {
+              "id": "e4",
+              "kind": "line",
+              "start": { "x": 80.0, "y": 10.0 },
+              "end": { "x": 80.0, "y": -5.0 }
+            }
+          ],
+          "constraints": []
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-0000000c0d01",
+      "feature": {
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "00000000-0000-0000-0000-0000000c0c01"
+          },
+          "distance_mm": 60.0,
+          "operation": "cut"
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-0000000c0e01",
+      "feature": {
+        "type": "sheet_metal_edge_flange",
+        "version": 1,
+        "params": {
+          "edge": {
+            "kind": "subshape",
+            "feature_id": "00000000-0000-0000-0000-0000000c0b01",
+            "subshape_type": "edge",
+            "selector": {
+              "selector_version": 1,
+              "signature": {
+                "subshape_type": "edge",
+                "curve": "line",
+                "end_a": { "x": 0.0, "y": 0.0, "z": 1.5 },
+                "end_b": { "x": 80.0, "y": 0.0, "z": 1.5 },
+                "midpoint": { "x": 40.0, "y": 0.0, "z": 1.5 },
+                "length_mm": 80.0
+              }
+            }
+          },
+          "flange_length_mm": 40.0,
+          "bend_angle_deg": 90.0
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-0000000c0f01",
+      "feature": {
+        "type": "sheet_metal_edge_flange",
+        "version": 1,
+        "params": {
+          "edge": {
+            "kind": "subshape",
+            "feature_id": "00000000-0000-0000-0000-0000000c0b01",
+            "subshape_type": "edge",
+            "selector": {
+              "selector_version": 1,
+              "signature": {
+                "subshape_type": "edge",
+                "curve": "line",
+                "end_a": { "x": 120.0, "y": 0.0, "z": 1.5 },
+                "end_b": { "x": 200.0, "y": 0.0, "z": 1.5 },
+                "midpoint": { "x": 160.0, "y": 0.0, "z": 1.5 },
+                "length_mm": 80.0
+              }
+            }
+          },
+          "flange_length_mm": 40.0,
+          "bend_angle_deg": 90.0
+        }
+      }
+    }
+  ]
+}

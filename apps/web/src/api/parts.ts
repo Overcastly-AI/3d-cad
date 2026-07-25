@@ -79,6 +79,11 @@ export type PickedEdgesSelector = components["schemas"]["PickedEdgesSelector"];
 export type EdgeSubshapeRef = components["schemas"]["EdgeSubshapeRef"];
 /** The stage-1 geometric fingerprint an overlay edge carries and a ref echoes. */
 export type EdgeSignature = components["schemas"]["EdgeSignature"];
+export type HoleFeature = components["schemas"]["HoleFeature"];
+/** A face-placed cylindrical hole — through-all or blind (slice 1). */
+export type HoleParams = components["schemas"]["HoleParamsV1"];
+/** The hole `depth` slot on the wire: through-all, or a blind pocket depth. */
+export type HoleDepth = HoleParams["depth"];
 export type ShellFeature = components["schemas"]["ShellFeature"];
 export type ShellParams = components["schemas"]["ShellParamsV1"];
 /** The shell's picked-face selector: the faces to leave OPEN (empty = sealed). */
@@ -91,6 +96,31 @@ export type BooleanFeature = components["schemas"]["BooleanFeature"];
 /** Union/subtract/intersect between two independently-built bodies (§MB-1). */
 export type BooleanParams = components["schemas"]["BooleanParamsV1"];
 export type BooleanOperation = BooleanParams["operation"];
+export type SheetMetalBaseFlangeFeature =
+  components["schemas"]["SheetMetalBaseFlangeFeature"];
+export type SheetMetalBaseFlangeParams =
+  components["schemas"]["SheetMetalBaseFlangeParamsV1"];
+export type SheetMetalEdgeFlangeFeature =
+  components["schemas"]["SheetMetalEdgeFlangeFeature"];
+export type SheetMetalEdgeFlangeParams =
+  components["schemas"]["SheetMetalEdgeFlangeParamsV1"];
+export type SheetMetalHemFeature =
+  components["schemas"]["SheetMetalHemFeature"];
+export type SheetMetalHemParams =
+  components["schemas"]["SheetMetalHemParamsV1"];
+export type SheetMetalCornerReliefFeature =
+  components["schemas"]["SheetMetalCornerReliefFeature"];
+export type SheetMetalCornerReliefParams =
+  components["schemas"]["SheetMetalCornerReliefParamsV1"];
+export type MirrorFeature = components["schemas"]["MirrorFeature"];
+/** Reflect the current body about a plane and union the reflection in (§7.6). */
+export type MirrorParams = components["schemas"]["MirrorParamsV1"];
+/**
+ * The mirror `plane` slot on the wire: an origin `DatumPlaneRef` (XY/XZ/YZ) or a
+ * `FeatureRef` to an earlier datum feature — the SAME `GeomRef` union a sketch's
+ * plane uses (CLAUDE.md DRY rule), so the mirror reuses the plane vocabulary.
+ */
+export type MirrorPlaneRef = MirrorParams["plane"];
 export type PatternFeature = components["schemas"]["PatternFeature"];
 export type PatternParams = components["schemas"]["PatternParamsV1"];
 export type LinearPatternParams =
@@ -600,6 +630,42 @@ export function shellFeatureUpdate(
   };
 }
 
+/** The `{type, version, params}` envelope shared by hole create and update. */
+function holeFeatureEnvelope(params: HoleParams): HoleFeature {
+  return { type: "hole", version: 1, params };
+}
+
+/**
+ * The create payload for a hole feature: drill a cylinder of `diameter_mm` into
+ * the current body at a point on a picked planar face, through-all or blind
+ * (design §7.6, the shell/draft sibling — no whole-feature `FeatureRef`, it acts
+ * on the implicit body chain at its point in the tree; the placement face IS a
+ * named stage-1 `SubshapeRef`, the SAME the on_face datum / shell openings use).
+ * Pure — unit-tested against the generated types.
+ */
+export function holeFeatureCreate(
+  name: string,
+  params: HoleParams,
+  expectedTreeVersion: number,
+): FeatureCreate {
+  return {
+    name,
+    expected_tree_version: expectedTreeVersion,
+    feature: holeFeatureEnvelope(params),
+  };
+}
+
+/** The PATCH payload that re-parametrizes an existing hole (no rename). */
+export function holeFeatureUpdate(
+  params: HoleParams,
+  expectedTreeVersion: number,
+): FeatureUpdate {
+  return {
+    expected_tree_version: expectedTreeVersion,
+    feature: holeFeatureEnvelope(params),
+  };
+}
+
 /** The `{type, version, params}` envelope shared by draft create and update. */
 function draftFeatureEnvelope(params: DraftParams): DraftFeature {
   return { type: "draft", version: 1, params };
@@ -633,6 +699,185 @@ export function draftFeatureUpdate(
   return {
     expected_tree_version: expectedTreeVersion,
     feature: draftFeatureEnvelope(params),
+  };
+}
+
+/** The `{type, version, params}` envelope shared by base-flange create/update. */
+function baseFlangeFeatureEnvelope(
+  params: SheetMetalBaseFlangeParams,
+): SheetMetalBaseFlangeFeature {
+  return { type: "sheet_metal_base_flange", version: 1, params };
+}
+
+/**
+ * The create payload for a base-flange feature: the sheet-metal part's first
+ * body — an EARLIER sketch profile thickened to gauge (sheet-metal.md §4.1, the
+ * extrude sibling, but carrying the part's gauge / K / default bend radius).
+ * Pure — unit-tested against the generated types.
+ */
+export function baseFlangeFeatureCreate(
+  name: string,
+  params: SheetMetalBaseFlangeParams,
+  expectedTreeVersion: number,
+): FeatureCreate {
+  return {
+    name,
+    expected_tree_version: expectedTreeVersion,
+    feature: baseFlangeFeatureEnvelope(params),
+  };
+}
+
+/** The PATCH payload that re-parametrizes an existing base flange (no rename). */
+export function baseFlangeFeatureUpdate(
+  params: SheetMetalBaseFlangeParams,
+  expectedTreeVersion: number,
+): FeatureUpdate {
+  return {
+    expected_tree_version: expectedTreeVersion,
+    feature: baseFlangeFeatureEnvelope(params),
+  };
+}
+
+/** The `{type, version, params}` envelope shared by edge-flange create/update. */
+function edgeFlangeFeatureEnvelope(
+  params: SheetMetalEdgeFlangeParams,
+): SheetMetalEdgeFlangeFeature {
+  return { type: "sheet_metal_edge_flange", version: 1, params };
+}
+
+/**
+ * The create payload for an edge-flange feature: a leg folded off a straight
+ * edge of the sheet body (sheet-metal.md §4.2, the fillet sibling — a named
+ * `EdgeSubshapeRef` against the current sheet body, inheriting the part's gauge
+ * defaults). Pure — unit-tested against the generated types.
+ */
+export function edgeFlangeFeatureCreate(
+  name: string,
+  params: SheetMetalEdgeFlangeParams,
+  expectedTreeVersion: number,
+): FeatureCreate {
+  return {
+    name,
+    expected_tree_version: expectedTreeVersion,
+    feature: edgeFlangeFeatureEnvelope(params),
+  };
+}
+
+/** The PATCH payload that re-parametrizes an existing edge flange (no rename). */
+export function edgeFlangeFeatureUpdate(
+  params: SheetMetalEdgeFlangeParams,
+  expectedTreeVersion: number,
+): FeatureUpdate {
+  return {
+    expected_tree_version: expectedTreeVersion,
+    feature: edgeFlangeFeatureEnvelope(params),
+  };
+}
+
+/** The `{type, version, params}` envelope shared by hem create/update. */
+function hemFeatureEnvelope(params: SheetMetalHemParams): SheetMetalHemFeature {
+  return { type: "sheet_metal_hem", version: 1, params };
+}
+
+/**
+ * The create payload for a closed-hem feature: the picked straight edge of the
+ * sheet folded ~180° back flat onto the parent face (sheet-metal parity §2 —
+ * mechanically an edge flange with the fold angle FIXED at 180°, a named
+ * `EdgeSubshapeRef` against the current sheet body, inheriting the part's gauge
+ * defaults). Pure — unit-tested against the generated types.
+ */
+export function hemFeatureCreate(
+  name: string,
+  params: SheetMetalHemParams,
+  expectedTreeVersion: number,
+): FeatureCreate {
+  return {
+    name,
+    expected_tree_version: expectedTreeVersion,
+    feature: hemFeatureEnvelope(params),
+  };
+}
+
+/** The PATCH payload that re-parametrizes an existing hem (no rename). */
+export function hemFeatureUpdate(
+  params: SheetMetalHemParams,
+  expectedTreeVersion: number,
+): FeatureUpdate {
+  return {
+    expected_tree_version: expectedTreeVersion,
+    feature: hemFeatureEnvelope(params),
+  };
+}
+
+/** The `{type, version, params}` envelope shared by corner-relief create/update. */
+function cornerReliefFeatureEnvelope(
+  params: SheetMetalCornerReliefParams,
+): SheetMetalCornerReliefFeature {
+  return { type: "sheet_metal_corner_relief", version: 1, params };
+}
+
+/**
+ * The create payload for a corner-relief feature: a rectangular notch cut at the
+ * shared corner of TWO adjacent edge flanges so the corner develops into a
+ * single non-overlapping flat blank (sheet-metal parity §4.4). Unlike an edge
+ * pick it names the two bends by `FeatureRef` (the earlier edge-flange features
+ * that created them). Pure — unit-tested against the generated types.
+ */
+export function cornerReliefFeatureCreate(
+  name: string,
+  params: SheetMetalCornerReliefParams,
+  expectedTreeVersion: number,
+): FeatureCreate {
+  return {
+    name,
+    expected_tree_version: expectedTreeVersion,
+    feature: cornerReliefFeatureEnvelope(params),
+  };
+}
+
+/** The PATCH payload that re-parametrizes an existing corner relief (no rename). */
+export function cornerReliefFeatureUpdate(
+  params: SheetMetalCornerReliefParams,
+  expectedTreeVersion: number,
+): FeatureUpdate {
+  return {
+    expected_tree_version: expectedTreeVersion,
+    feature: cornerReliefFeatureEnvelope(params),
+  };
+}
+
+/** The `{type, version, params}` envelope shared by mirror create and update. */
+function mirrorFeatureEnvelope(params: MirrorParams): MirrorFeature {
+  return { type: "mirror", version: 1, params };
+}
+
+/**
+ * The create payload for a mirror feature: reflect the current body chain about
+ * `plane` and boolean-union the reflection back in — the reflective sibling of
+ * pattern (design §7.6, acting on the implicit body chain at its point in the
+ * tree, no whole-feature `FeatureRef`). `plane` is the SAME `GeomRef` a sketch's
+ * plane uses. Pure — unit-tested against the generated types.
+ */
+export function mirrorFeatureCreate(
+  name: string,
+  params: MirrorParams,
+  expectedTreeVersion: number,
+): FeatureCreate {
+  return {
+    name,
+    expected_tree_version: expectedTreeVersion,
+    feature: mirrorFeatureEnvelope(params),
+  };
+}
+
+/** The PATCH payload that re-parametrizes an existing mirror (no rename). */
+export function mirrorFeatureUpdate(
+  params: MirrorParams,
+  expectedTreeVersion: number,
+): FeatureUpdate {
+  return {
+    expected_tree_version: expectedTreeVersion,
+    feature: mirrorFeatureEnvelope(params),
   };
 }
 
@@ -764,6 +1009,111 @@ export async function updateFeature(
         "The sketch could not be saved — reload and try again.",
       ),
     );
+  }
+  return data;
+}
+
+/**
+ * Flip ONLY a feature's suppress flag (feature-tree.md §4.3a). A dedicated,
+ * minimal mutation — distinct from `updateFeature` — so suppressing never
+ * touches `params`: it sets the envelope-level `suppressed` flag and bumps
+ * `tree_version` under the SAME optimistic-concurrency guard as every write. A
+ * suppressed feature is SKIPPED at rebuild (the body is built from the
+ * non-suppressed prefix), so this changes what evaluating the part means and is
+ * an undoable, history-recording tree edit. The route + types are generated
+ * (`@loft/ts-client`, CLAUDE.md DRY rule). A stale `expected_tree_version`
+ * throws the typed `StaleTreeVersionError` so the caller can soft-resync and
+ * retry quietly; every other failure surfaces the server envelope's message.
+ */
+export async function suppressFeature(
+  partId: string,
+  featureId: string,
+  suppressed: boolean,
+  expectedTreeVersion: number,
+  client: GatewayClient = gatewayClient,
+): Promise<FeatureMutationResponse> {
+  const { data, error } = await client.PATCH(
+    "/api/v1/parts/{part_id}/features/{feature_id}/suppress",
+    {
+      params: { path: { part_id: partId, feature_id: featureId } },
+      body: { expected_tree_version: expectedTreeVersion, suppressed },
+    },
+  );
+  if (error !== undefined) {
+    const message = envelopeMessage(
+      error,
+      "The feature could not be suppressed — reload and try again.",
+    );
+    throw envelopeCode(error) === "stale_tree_version"
+      ? new StaleTreeVersionError(message)
+      : new Error(message);
+  }
+  return data;
+}
+
+/**
+ * Delete a feature from the tree (200; 422 on stale version). A history-
+ * recording, undoable tree edit under the SAME optimistic-concurrency guard as
+ * every write; downstream features rebuild off the shortened tree. The route +
+ * types are generated (`@loft/ts-client`, CLAUDE.md DRY rule). A stale
+ * `expected_tree_version` throws the typed `StaleTreeVersionError` so the caller
+ * can soft-resync and retry; every other failure surfaces the server envelope.
+ */
+export async function deleteFeature(
+  partId: string,
+  featureId: string,
+  expectedTreeVersion: number,
+  client: GatewayClient = gatewayClient,
+): Promise<FeatureTreeResponse> {
+  const { data, error } = await client.DELETE(
+    "/api/v1/parts/{part_id}/features/{feature_id}",
+    {
+      params: {
+        path: { part_id: partId, feature_id: featureId },
+        query: { expected_tree_version: expectedTreeVersion },
+      },
+    },
+  );
+  if (error !== undefined) {
+    const message = envelopeMessage(
+      error,
+      "The feature could not be deleted — reload and try again.",
+    );
+    throw envelopeCode(error) === "stale_tree_version"
+      ? new StaleTreeVersionError(message)
+      : new Error(message);
+  }
+  return data;
+}
+
+/**
+ * Rename a feature (200; 422 on stale version). A minimal PATCH that sends ONLY
+ * the new `name` — the feature `params` are untouched (the update envelope's
+ * `feature` is optional), so a rename never re-solves geometry. Same OCC guard
+ * and typed stale-version error as every tree edit.
+ */
+export async function renameFeature(
+  partId: string,
+  featureId: string,
+  name: string,
+  expectedTreeVersion: number,
+  client: GatewayClient = gatewayClient,
+): Promise<FeatureMutationResponse> {
+  const { data, error } = await client.PATCH(
+    "/api/v1/parts/{part_id}/features/{feature_id}",
+    {
+      params: { path: { part_id: partId, feature_id: featureId } },
+      body: { expected_tree_version: expectedTreeVersion, name },
+    },
+  );
+  if (error !== undefined) {
+    const message = envelopeMessage(
+      error,
+      "The feature could not be renamed — reload and try again.",
+    );
+    throw envelopeCode(error) === "stale_tree_version"
+      ? new StaleTreeVersionError(message)
+      : new Error(message);
   }
   return data;
 }

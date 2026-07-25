@@ -1,5 +1,11 @@
 import { viewport } from "@loft/design/tokens";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useState,
+} from "react";
 import {
   BufferGeometry,
   EdgesGeometry,
@@ -8,11 +14,15 @@ import {
 } from "three";
 import { useThree, type ThreeEvent } from "@react-three/fiber";
 
-import { loadGlbGeometry } from "./glbGeometry";
+import { loadGlbGeometry, subsetEdges } from "./glbGeometry";
 import { studioMatcap } from "./studioMatcap";
 
-/** How the body reads: neutral, pointer-hovered, or feature-selected. */
-export type BodyHighlight = "none" | "hover" | "selected";
+/**
+ * How the body reads: neutral, pointer-hovered, whole-body selected, or
+ * feature-localized (only the selected feature's faces lit; matcap preserved
+ * on the rest — FINDINGS #9).
+ */
+export type BodyHighlight = "none" | "hover" | "selected" | "feature";
 
 export interface ModelMeshProps {
   glb: ArrayBuffer;
@@ -35,8 +45,23 @@ export interface ModelMeshProps {
    * interactive (the tree→geometry link). Wins over hover.
    */
   selected?: boolean;
+  /**
+   * `body.faces()` ordinals owned by the selected feature (== the GLB primitive
+   * ordinals / merged draw groups). When these are a PROPER subset of the
+   * body's faces, the selection localizes to just them — brass face tint + brass
+   * boundary edges — and the studio matcap is preserved on every other face
+   * (FINDINGS #9). Covering every face (or `null`, e.g. an overlay not yet
+   * loaded / a body-less feature) falls back to the whole-body select state.
+   */
+  selectedFaceIndices?: readonly number[] | null;
   /** Report the current highlight so the viewport can stamp a QA hook. */
   onHighlightChange?: (highlight: BodyHighlight) => void;
+  /**
+   * Report the highlighted face count and the body's total face count, so QA
+   * can prove the highlight is a PROPER subset (matcap preserved on the rest)
+   * without reading pixels. `selected` is 0 when nothing is lit.
+   */
+  onFaceSelectionChange?: (selected: number, total: number) => void;
 }
 
 /** The tessellated model: token-driven surface + B-rep edge overlay. */
@@ -46,23 +71,50 @@ export function ModelMesh({
   onError,
   interactive = false,
   selected = false,
+  selectedFaceIndices = null,
   onHighlightChange,
+  onFaceSelectionChange,
 }: ModelMeshProps) {
   const invalidate = useThree((state) => state.invalidate);
   const [geometry, setGeometry] = useState<BufferGeometry | null>(null);
   const [hovered, setHovered] = useState(false);
-  // Selection wins over hover; hover only reads while the body is interactive.
-  const highlight: BodyHighlight = selected
-    ? "selected"
-    : interactive && hovered
-      ? "hover"
-      : "none";
 
-  // Materials are created once and shared across re-tessellations. The
-  // studio matcap ("machined aluminum under shop lights") carries the whole
-  // lighting rig — the scene needs no lights, and the body reads its
-  // curvature at every camera angle (Batch 1 makeover, P0-3).
-  const surfaceMaterial = useMemo(
+  // The selected feature's face set — null unless a non-empty ordinal list
+  // arrived (an unloaded overlay / a body-less feature leaves it null).
+  const faceSet = useMemo<ReadonlySet<number> | null>(
+    () =>
+      selectedFaceIndices && selectedFaceIndices.length > 0
+        ? new Set(selectedFaceIndices)
+        : null,
+    [selectedFaceIndices],
+  );
+  const totalFaces = geometry?.groups.length ?? 0;
+  // Localize only when the selected feature owns a PROPER subset of the faces
+  // (a feature that owns every face — the base extrude of a plain box — reads
+  // as the whole-body select state instead, so the two stay distinct).
+  const localized =
+    selected && faceSet !== null && totalFaces > 0 && faceSet.size < totalFaces;
+
+  // Selection wins over hover; hover only reads while the body is interactive.
+  const highlight: BodyHighlight = localized
+    ? "feature"
+    : selected
+      ? "selected"
+      : interactive && hovered
+        ? "hover"
+        : "none";
+
+  // Materials are created once and shared across re-tessellations. The studio
+  // matcap ("machined aluminum under shop lights") carries the whole lighting
+  // rig — the scene needs no lights, and the body reads its curvature at every
+  // camera angle (Batch 1 makeover, P0-3). `feature*` are the localized-select
+  // pair: the selected feature's faces multiply the matcap toward brass while
+  // the base material keeps it (FINDINGS #9).
+  const baseMaterial = useMemo(
+    () => new MeshMatcapMaterial({ matcap: studioMatcap() }),
+    [],
+  );
+  const featureMaterial = useMemo(
     () => new MeshMatcapMaterial({ matcap: studioMatcap() }),
     [],
   );
@@ -70,37 +122,75 @@ export function ModelMesh({
     () => new LineBasicMaterial({ color: viewport.modelEdge }),
     [],
   );
+  const featureEdgeMaterial = useMemo(
+    () => new LineBasicMaterial({ color: viewport.featureSelect.edge }),
+    [],
+  );
   useEffect(
     () => () => {
-      surfaceMaterial.dispose();
+      baseMaterial.dispose();
+      featureMaterial.dispose();
       edgeMaterial.dispose();
+      featureEdgeMaterial.dispose();
     },
-    [surfaceMaterial, edgeMaterial],
+    [baseMaterial, featureMaterial, edgeMaterial, featureEdgeMaterial],
   );
 
-  // Highlight cue (Batch 3, item 11): selection warms the surface + brasses the
-  // edges (the assembly selection language); hover only brightens the edges.
-  // Matcap tint multiplies the studio sphere — the machined read is preserved.
+  // Highlight cue (Batch 3, item 11; UI audit #19b; FINDINGS #9). Whole-body
+  // selection warms the surface + brasses the edges (the assembly selection
+  // language); FEATURE selection keeps the matcap on the base material and lets
+  // only the selected group carry the deeper brass tint; hover gives a QUIET
+  // warm-up. Matcap tint multiplies the studio sphere — the machined read is
+  // preserved in every state.
   useEffect(() => {
-    surfaceMaterial.color.set(
+    baseMaterial.color.set(
       highlight === "selected"
         ? viewport.selectedSurfaceTint
-        : viewport.restSurfaceTint,
+        : highlight === "hover"
+          ? viewport.hoverSurfaceTint
+          : // "feature" and "none" keep the matcap identity on the base faces.
+            viewport.restSurfaceTint,
     );
+    featureMaterial.color.set(viewport.featureSelect.faceTint);
     edgeMaterial.color.set(
       highlight === "selected"
         ? viewport.selection
         : highlight === "hover"
           ? viewport.hover
-          : viewport.modelEdge,
+          : // "feature" leaves the base edges quiet; the brass emphasis rides
+            // the separate subset lineSegments below.
+            viewport.modelEdge,
     );
     invalidate();
-  }, [highlight, surfaceMaterial, edgeMaterial, invalidate]);
+  }, [highlight, baseMaterial, featureMaterial, edgeMaterial, invalidate]);
 
-  // Report the highlight up so the viewport can stamp a QA hook on its DOM.
+  // Route each merged draw group to the base (0) or the selected (1) material
+  // for the localized state — group ordinal `i` is B-rep face `i`. Layout
+  // effect so the assignment lands before the demanded frame paints (a
+  // two-material mesh with a stale materialIndex would drop that group).
+  useLayoutEffect(() => {
+    if (geometry === null) return;
+    if (localized && faceSet !== null) {
+      geometry.groups.forEach((group, ordinal) => {
+        group.materialIndex = faceSet.has(ordinal) ? 1 : 0;
+      });
+    }
+    invalidate();
+  }, [geometry, localized, faceSet, invalidate]);
+
+  // Report the highlight + face selection up so the viewport can stamp QA hooks.
   useEffect(() => {
     onHighlightChange?.(highlight);
   }, [highlight, onHighlightChange]);
+  useEffect(() => {
+    const lit =
+      highlight === "feature"
+        ? (faceSet?.size ?? 0)
+        : highlight === "selected"
+          ? totalFaces
+          : 0;
+    onFaceSelectionChange?.(lit, totalFaces);
+  }, [highlight, faceSet, totalFaces, onFaceSelectionChange]);
 
   // Leaving interactive mode drops a stale hover (e.g. arming Measure while the
   // pointer rests on the body) so the body never sticks lit.
@@ -159,6 +249,17 @@ export function ModelMesh({
     [geometry, edges],
   );
 
+  // Brass boundary edges of ONLY the selected feature's faces (FINDINGS #9) —
+  // the localized emphasis that traces the feature over the preserved matcap.
+  const featureEdges = useMemo<EdgesGeometry | null>(
+    () =>
+      geometry !== null && localized && faceSet !== null
+        ? subsetEdges(geometry, faceSet)
+        : null,
+    [geometry, localized, faceSet],
+  );
+  useEffect(() => () => featureEdges?.dispose(), [featureEdges]);
+
   if (geometry === null || edges === null) {
     return null;
   }
@@ -166,11 +267,14 @@ export function ModelMesh({
     <group>
       <mesh
         geometry={geometry}
-        material={surfaceMaterial}
+        material={localized ? [baseMaterial, featureMaterial] : baseMaterial}
         onPointerOver={interactive ? onPointerOver : undefined}
         onPointerOut={interactive ? onPointerOut : undefined}
       />
       <lineSegments geometry={edges} material={edgeMaterial} />
+      {featureEdges !== null ? (
+        <lineSegments geometry={featureEdges} material={featureEdgeMaterial} />
+      ) : null}
     </group>
   );
 }

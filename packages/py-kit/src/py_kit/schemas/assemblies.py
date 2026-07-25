@@ -24,14 +24,19 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from py_kit.schemas.features import (
+    MAX_TREE_FEATURES,
     EdgeSignature,
     EvaluatedFeatureInput,
     FeatureError,
     PlanarFaceSignature,
 )
 from py_kit.schemas.geometry import (
+    DEFAULT_ANGULAR_DEFLECTION,
     DEFAULT_LINEAR_DEFLECTION,
+    MIN_ANGULAR_DEFLECTION,
+    MIN_LINEAR_DEFLECTION,
     BoundingBox,
+    ExportFormat,
     ShapeProperties,
     Vec3,
 )
@@ -39,6 +44,37 @@ from py_kit.schemas.units import DEFAULT_LENGTH_UNIT, LengthUnit
 
 #: Upper bound for a user-facing assembly name ("Gearbox", "Bracket Stack").
 ASSEMBLY_NAME_MAX_LENGTH = 200
+
+# --- Per-request work bounds (engineering audit 2026-07-24 G2) -------------------
+#
+# The rate limiter caps request FREQUENCY; these constants cap the WORK one
+# assembly compute request (evaluate / export / interference / drawing) can
+# demand. Over-bound is a typed 422 at parse or at the handler, never a worker
+# OOM/monopolization.
+
+#: Ceiling on instances in one assembly compute request. Each instance costs a
+#: part evaluation (deduped per unique part) + a tessellation + a mate-solve
+#: variable block. 500 matches ``MAX_IMPORT_ASSEMBLY_PRODUCTS`` (the STEP-import
+#: fan-out cap — one consistent "instances per request" scale across the
+#: service) and is an order of magnitude beyond the assemblies this v1 targets.
+MAX_ASSEMBLY_INSTANCES = 500
+
+#: Ceiling on mates in one assembly compute request — 4x the instance cap: a
+#: real mate graph carries a low single-digit number of mates per instance
+#: (each mate is 1-3 solver constraint rows), so 2000 covers a fully-mated
+#: 500-instance assembly while bounding the solve.
+MAX_ASSEMBLY_MATES = 2000
+
+#: TIGHTER instance ceiling for ``/assembly/interference`` specifically —
+#: enforced in the geometry route handler (cross-route: the field-level
+#: ``MAX_ASSEMBLY_INSTANCES`` still applies at parse). Interference is O(N^2)
+#: exact OCCT booleans over bodied instances — N(N-1)/2 pairs: 200 instances is
+#: ~19,900 pairwise booleans (the accepted worst case for one request), while
+#: the schema-level 500 would allow ~124,750 — an order of magnitude past the
+#: budget for a single call. The v2 AABB broad-phase pre-filter (module note in
+#: ``geometry.assembly.interference``) is the path to raising this, not an
+#: ad-hoc bump. Over the cap is a typed 422 ``interference_too_many_instances``.
+MAX_INTERFERENCE_INSTANCES = 200
 
 #: Upper bound for a per-instance name ("Bracket <1>", "Bolt <3>").
 INSTANCE_NAME_MAX_LENGTH = 200
@@ -668,8 +704,18 @@ class EvaluatedInstance(BaseModel):
         description="Dedup key f'{ref_document_id}@{version-or-tip}': instances "
         "sharing it evaluate once and share one content-addressed mesh (§4)"
     )
+    name: InstanceName | None = Field(
+        default=None,
+        description="Human-readable instance name ('Bracket <1>'), threaded into "
+        "the STEP export as the PRODUCT name so a Loft->STEP->Loft round trip "
+        "preserves part identity instead of writing the instance UUID (FINDINGS "
+        "#7). Optional: evaluate/interference ignore it; the export path falls "
+        "back to the instance id when absent (a nameless request stays valid).",
+    )
     features: list[EvaluatedFeatureInput] = Field(
-        description="The part's ordered feature prefix (feature-tree §4 contract)"
+        max_length=MAX_TREE_FEATURES,
+        description="The part's ordered feature prefix (feature-tree §4 "
+        "contract), bounded by MAX_TREE_FEATURES (work bound, audit G2)",
     )
     placement: Placement = Field(
         default=IDENTITY_PLACEMENT, description="Authored seed pose (§2.3)"
@@ -694,16 +740,21 @@ class EvaluateAssemblyRequest(BaseModel):
     assembly_id: uuid.UUID
     version: int = Field(description="Echoed back; cache/correlation key")
     instances: list[EvaluatedInstance] = Field(
-        description="The assembly's instances (result order preserved)"
+        max_length=MAX_ASSEMBLY_INSTANCES,
+        description="The assembly's instances (result order preserved), bounded "
+        "by MAX_ASSEMBLY_INSTANCES (work bound, audit G2)",
     )
     mates: list[EvaluatedMate] = Field(
         default_factory=list["EvaluatedMate"],
-        description="The mate graph; processed in order_index order (determinism)",
+        max_length=MAX_ASSEMBLY_MATES,
+        description="The mate graph; processed in order_index order "
+        "(determinism), bounded by MAX_ASSEMBLY_MATES (work bound, audit G2)",
     )
     linear_deflection: float = Field(
         default=DEFAULT_LINEAR_DEFLECTION,
-        gt=0,
-        description="Presentation tessellation parameter (mm), never persisted",
+        ge=MIN_LINEAR_DEFLECTION,
+        description="Presentation tessellation parameter (mm), never persisted. "
+        "Floored at MIN_LINEAR_DEFLECTION (work bound, audit G2).",
     )
 
 
@@ -751,6 +802,26 @@ class MateEvaluationError(BaseModel):
     error: FeatureError = Field(description="Typed per-mate failure (code + message)")
 
 
+class InstanceEvaluationError(BaseModel):
+    """A per-instance evaluation failure inside a 200, keyed by instance (design §4).
+
+    The instance analogue of :class:`MateEvaluationError`: an instance whose part
+    produced no body (its failing feature error, or an honest ``no_body``) is
+    reported here and DROPPED from the placed set, so the assembly still renders /
+    projects every instance it can (degrading rather than failing whole, design §4).
+    Distinct from :class:`InstancePlacementResult.error` (which folds the same
+    failure into a per-instance mesh+placement row): this is the lean {instance, error}
+    shape a consumer that carries no mesh — e.g. an assembly DRAWING projection — needs,
+    mirroring ``MateEvaluationError``'s lean {mate, error}.
+    """
+
+    instance_id: uuid.UUID
+    error: FeatureError = Field(
+        description="Typed per-instance failure (the part's failing feature error / "
+        "no_body)"
+    )
+
+
 class EvaluateAssemblyResult(BaseModel):
     """Per-instance shared-mesh + solved transform, plus the analytic roll-up (§4).
 
@@ -785,3 +856,138 @@ class EvaluateAssemblyResult(BaseModel):
     bounding_box: BoundingBox | None = Field(
         default=None, description="Combined assembly AABB (transformed-bbox union)"
     )
+
+
+# --- §interference contract (documents → geometry → gateway → web) --------------
+#
+# The clash-detection sibling of the evaluate contract: the SAME
+# ``EvaluateAssemblyRequest`` graph (so an assembly that evaluates can always be
+# checked — the ShapeRequest → derived-request discipline), run through the
+# identical solve, then a pairwise B-rep intersection over the solved
+# world-placed instance bodies. Pure pydantic — the clash list is plain
+# floats/uuids, no kernel type crosses the boundary (CLAUDE.md). Never-500: a
+# bad part/mate/solve is the same typed status/diagnosis as ``evaluate_assembly``
+# with an empty (or partial) clash list, never a 4xx/5xx (design §4).
+
+
+class ClashPair(BaseModel):
+    """One interfering instance pair + the volume of their B-rep overlap (§4).
+
+    ``instance_a`` / ``instance_b`` are the two clashing instances — reported as
+    an UNORDERED pair exactly once (``instance_a`` precedes ``instance_b`` in the
+    request's instance order, so the same physical clash is never double-listed).
+    ``overlap_volume_mm3`` is the exact volume of the solved-world intersection
+    solid (``BRepAlgoAPI_Common``), always positive and above the kernel-tolerance
+    floor (a merely-touching, coincident-face pair reports NO clash, §4).
+
+    ``unresolved`` distinguishes a MEASURED clash from one the kernel boolean
+    could not resolve. The exact intersection can *fail* on two deeply
+    interpenetrating solids (an OCCT robustness limit that shares an exception
+    surface with a harmless grazing degeneracy); reporting such a pair as "clear"
+    would be a dangerous false negative for a collision check, so when the boolean
+    fails but the two solved-world bounding boxes overlap, the pair is surfaced as
+    ``unresolved: true`` for the user to inspect. For an unresolved pair
+    ``overlap_volume_mm3`` is a COARSE magnitude hint (the overlapping-AABB volume,
+    which bounds the true overlap from above), NOT an exact clash volume. A normal
+    measured clash carries ``unresolved: false`` (the default) and an exact volume.
+    """
+
+    instance_a: uuid.UUID = Field(description="First clashing instance (request order)")
+    instance_b: uuid.UUID = Field(
+        description="Second clashing instance (later in request order)"
+    )
+    overlap_volume_mm3: float = Field(
+        ge=0.0,
+        description="Overlap magnitude (mm³): the EXACT intersection-solid volume "
+        "for a measured clash (above the kernel-tolerance floor), or — when "
+        "`unresolved` — the coarse overlapping-AABB volume as a hint",
+    )
+    unresolved: bool = Field(
+        default=False,
+        description="True when the exact B-rep boolean FAILED but the two "
+        "solved-world bounding boxes overlap, so a real interference is possible "
+        "but could not be measured — surfaced for inspection, never reported as "
+        "clear. False (default) for a normally-measured clash.",
+    )
+
+
+class InterferenceResult(BaseModel):
+    """Pairwise clash list over a solved assembly's instances (§4).
+
+    The output of ``POST /api/v1/assembly/interference``: the SAME solve as
+    ``evaluate_assembly`` (so ``status`` / ``diagnosis`` / ``mate_errors`` carry
+    the identical solve context — why the instances sit where they do), plus the
+    ``clashes`` — every unordered instance pair whose solved-world part bodies
+    interfere with non-trivial volume. A non-overlapping assembly is
+    ``clashes: []``. Deterministic (RESEARCH §9): the pairwise scan runs in a
+    fixed request-instance order over the BLAS-pinned solve, so identical graphs
+    yield an identical clash list. A bad part/mate/solve is a typed per-entry
+    error or a non-``well_constrained`` status inside a 200 (never a 4xx/5xx),
+    consistent with ``evaluate_assembly``; the envelope stays reserved for
+    transport/validation failures of the call itself.
+    """
+
+    assembly_id: uuid.UUID
+    version: int
+    clashes: list[ClashPair] = Field(
+        description="Interfering instance pairs (request-order, each pair once); "
+        "empty for a clash-free assembly. Includes any `unresolved` pairs whose "
+        "exact boolean failed but whose bounding boxes overlap (surfaced, not "
+        "hidden as clear)."
+    )
+    status: AssemblySolveStatus = Field(description="Assembly-level solve outcome")
+    diagnosis: AssemblySolveDiagnosis | None = Field(
+        default=None,
+        description="Remaining DOF + offending mate ids; None for a clean "
+        "well_constrained solve (design §2.4)",
+    )
+    mate_errors: list[MateEvaluationError] = Field(
+        default_factory=list["MateEvaluationError"],
+        description="Per-mate resolution failures (dropped from the solve, §4)",
+    )
+
+
+# --- assembly export contract (documents → geometry → gateway → web) ------------
+#
+# The interop sibling of the part-level ``ExportRequest`` (schemas.geometry): the
+# SAME evaluate-assembly graph, exported to ONE multi-instance CAD file instead of
+# per-instance meshes. Reuses ``EvaluateAssemblyRequest`` VERBATIM (the solver runs
+# the identical pipeline) and only adds the export ``format`` + the STL faceting
+# knob, so a request that evaluates can always be exported (the ShapeRequest →
+# ExportRequest discipline, applied to assemblies). STEP writes AP214 product
+# structure — each instance is a named PRODUCT at its SOLVED world placement
+# (RESEARCH §10/§11); STL bakes the placements into one faceted compound.
+
+
+class ExportAssemblyRequest(EvaluateAssemblyRequest):
+    """Evaluate an assembly graph and export it as one multi-instance CAD file.
+
+    Extends :class:`EvaluateAssemblyRequest` (the solver runs the identical
+    evaluate pipeline — same solved world placements), adding only the export
+    ``format`` and the STL faceting parameter. STEP exports the exact B-rep as
+    **AP214 product structure**: every instance that produced a body becomes a
+    named PRODUCT positioned at its SOLVED world placement, so a downstream tool
+    (or a re-import) recovers each part traceable to its instance. STL bakes the
+    solved placements into a single faceted compound (no product names — the
+    format carries none). Byte-deterministic for identical requests (RESEARCH
+    §9): the STEP creation timestamp is pinned kernel-side and the assembly's
+    per-occurrence ids are canonicalised, so the same graph in yields identical
+    bytes out, in-process and across an interpreter restart.
+    """
+
+    format: ExportFormat = Field(
+        description="Export file format: STEP (exact B-rep, AP214 product "
+        "structure) or STL (faceted mesh, placements baked into one compound)"
+    )
+    angular_deflection: float = Field(
+        default=DEFAULT_ANGULAR_DEFLECTION,
+        ge=MIN_ANGULAR_DEFLECTION,
+        description="STL facet angular deflection (rad) between adjacent "
+        "segments; ignored for STEP (exact B-rep). Floored at "
+        "MIN_ANGULAR_DEFLECTION (work bound, audit G2).",
+    )
+
+
+def assembly_export_filename(request: ExportAssemblyRequest) -> str:
+    """Deterministic download filename for an assembly export (Content-Disposition)."""
+    return f"assembly.{request.format}"

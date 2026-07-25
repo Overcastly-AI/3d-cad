@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
+import type { PlanarFaceSignature } from "../api/parts";
 import {
+  applyFacePick,
   buildDatumParams,
   buildOffsetParams,
   canSubmitDatum,
@@ -9,12 +11,26 @@ import {
   defaultDatumForm,
   defaultFormForKind,
   defaultOffsetForm,
+  EMPTY_MIDPLANE_SIDE,
   encodeMidplaneSide,
+  faceMidplaneSide,
   formFromDatumParams,
   midplaneSideOptions,
   offsetError,
   parseOffsetMm,
+  refMidplaneSide,
 } from "./datum";
+
+/** A minimal planar-face signature fixture (the fields the datum wire needs). */
+function faceSignatureFixture(): PlanarFaceSignature {
+  return {
+    subshape_type: "face",
+    surface: "plane",
+    normal: { x: 0, y: 0, z: 1 },
+    centroid: { x: 10, y: 20, z: 30 },
+    area_mm2: 100,
+  };
+}
 
 describe("parseOffsetMm", () => {
   it("accepts any finite value (0, negative, positive)", () => {
@@ -150,8 +166,8 @@ describe("buildDatumParams — the editor's union form", () => {
       buildDatumParams(
         {
           kind: "midplane",
-          a: "origin:XY",
-          b: "feature:d1",
+          a: refMidplaneSide("origin:XY"),
+          b: refMidplaneSide("feature:d1"),
           flip: false,
         },
         "mm",
@@ -164,16 +180,40 @@ describe("buildDatumParams — the editor's union form", () => {
     });
   });
 
+  it("builds a midplane with a picked FACE side (a SubshapeRef)", () => {
+    const sig = faceSignatureFixture();
+    expect(
+      buildDatumParams(
+        {
+          kind: "midplane",
+          a: refMidplaneSide("origin:XY"),
+          b: faceMidplaneSide({ signature: sig, anchorId: "b1" }),
+          flip: false,
+        },
+        "mm",
+      ),
+    ).toEqual({
+      kind: "midplane",
+      a: { kind: "datum_plane", plane: "XY" },
+      b: {
+        kind: "subshape",
+        feature_id: "b1",
+        subshape_type: "face",
+        selector: { selector_version: 1, signature: sig },
+      },
+      flip: false,
+    });
+  });
+
   it("blocks a midplane until both sides are chosen", () => {
     expect(
       canSubmitDatum(
-        { kind: "midplane", a: "origin:XY", b: "", flip: false },
-        "mm",
-      ),
-    ).toBe(false);
-    expect(
-      canSubmitDatum(
-        { kind: "midplane", a: "", b: "feature:d1", flip: false },
+        {
+          kind: "midplane",
+          a: refMidplaneSide("origin:XY"),
+          b: refMidplaneSide(""),
+          flip: false,
+        },
         "mm",
       ),
     ).toBe(false);
@@ -181,13 +221,103 @@ describe("buildDatumParams — the editor's union form", () => {
       canSubmitDatum(
         {
           kind: "midplane",
-          a: "origin:XY",
-          b: "origin:XZ",
+          a: refMidplaneSide(""),
+          b: refMidplaneSide("feature:d1"),
+          flip: false,
+        },
+        "mm",
+      ),
+    ).toBe(false);
+    expect(
+      canSubmitDatum(
+        {
+          kind: "midplane",
+          a: refMidplaneSide("origin:XY"),
+          b: refMidplaneSide("origin:XZ"),
           flip: true,
         },
         "mm",
       ),
     ).toBe(true);
+  });
+
+  it("builds an on_face datum from a picked face + offset", () => {
+    const sig = faceSignatureFixture();
+    expect(
+      buildDatumParams(
+        {
+          kind: "on_face",
+          face: { signature: sig, anchorId: "b1" },
+          offsetInput: "5",
+        },
+        "mm",
+      ),
+    ).toEqual({
+      kind: "on_face",
+      face: {
+        kind: "subshape",
+        feature_id: "b1",
+        subshape_type: "face",
+        selector: { selector_version: 1, signature: sig },
+      },
+      offset_mm: 5,
+    });
+  });
+
+  it("blocks an on_face datum until a face is picked", () => {
+    expect(
+      canSubmitDatum({ kind: "on_face", face: null, offsetInput: "0" }, "mm"),
+    ).toBe(false);
+    expect(
+      canSubmitDatum(
+        {
+          kind: "on_face",
+          face: { signature: faceSignatureFixture(), anchorId: "b1" },
+          offsetInput: "0",
+        },
+        "mm",
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("applyFacePick folds a picked face into its slot", () => {
+  const face = { signature: faceSignatureFixture(), anchorId: "b1" };
+
+  it("sets the on_face base", () => {
+    const next = applyFacePick(
+      { kind: "on_face", face: null, offsetInput: "0" },
+      "on_face",
+      face,
+    );
+    expect(next).toEqual({ kind: "on_face", face, offsetInput: "0" });
+  });
+
+  it("sets midplane side a / b", () => {
+    const seed = {
+      kind: "midplane" as const,
+      a: refMidplaneSide(""),
+      b: refMidplaneSide(""),
+      flip: false,
+    };
+    expect(applyFacePick(seed, "midplane-a", face)).toMatchObject({
+      a: { source: "face", face },
+      b: { source: "ref", value: "" },
+    });
+    expect(applyFacePick(seed, "midplane-b", face)).toMatchObject({
+      a: { source: "ref", value: "" },
+      b: { source: "face", face },
+    });
+  });
+
+  it("ignores a pick that doesn't match the current kind", () => {
+    const offset = {
+      kind: "offset" as const,
+      base: "XY" as const,
+      offsetInput: "30",
+      flip: false,
+    };
+    expect(applyFacePick(offset, "on_face", face)).toBe(offset);
   });
 });
 
@@ -227,8 +357,8 @@ describe("defaultFormForKind carries flip across the switch", () => {
   it("keeps flip when switching kinds", () => {
     expect(defaultFormForKind("midplane", true)).toEqual({
       kind: "midplane",
-      a: "",
-      b: "",
+      a: EMPTY_MIDPLANE_SIDE,
+      b: EMPTY_MIDPLANE_SIDE,
       flip: true,
     });
     expect(defaultFormForKind("offset_from", false)).toEqual({
@@ -271,6 +401,41 @@ describe("formFromDatumParams round-trips each kind", () => {
       a: { kind: "datum_plane", plane: "XY" },
       b: { kind: "feature", feature_id: "d2" },
       flip: true,
+    } as const;
+    expect(buildDatumParams(formFromDatumParams(params, "mm"), "mm")).toEqual(
+      params,
+    );
+  });
+
+  it("on_face (re-seeds the picked face + a non-zero offset from the SubshapeRef)", () => {
+    const sig = faceSignatureFixture();
+    const params = {
+      kind: "on_face",
+      face: {
+        kind: "subshape",
+        feature_id: "b1",
+        subshape_type: "face",
+        selector: { selector_version: 1, signature: sig },
+      },
+      offset_mm: 7.5,
+    } as const;
+    expect(buildDatumParams(formFromDatumParams(params, "mm"), "mm")).toEqual(
+      params,
+    );
+  });
+
+  it("midplane with a subshape (picked FACE) side re-seeds from its signature", () => {
+    const sig = faceSignatureFixture();
+    const params = {
+      kind: "midplane",
+      a: { kind: "datum_plane", plane: "XY" },
+      b: {
+        kind: "subshape",
+        feature_id: "b1",
+        subshape_type: "face",
+        selector: { selector_version: 1, signature: sig },
+      },
+      flip: false,
     } as const;
     expect(buildDatumParams(formFromDatumParams(params, "mm"), "mm")).toEqual(
       params,

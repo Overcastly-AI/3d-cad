@@ -1,25 +1,32 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { drawing } from "@loft/design";
+import { Button, TextField, drawing } from "@loft/design";
 
 import {
+  type AnnotationResponse,
   type BendTableRow,
   type DimensionResponse,
   type DrawingDimensionInput,
   type DrawingViewResult,
   type EvaluateDrawingViewsRequest,
   type MeasuredDimension,
+  type SectionViewParams,
+  type SheetContent,
+  type SheetSize,
   type ViewProjection,
   composeDrawingSheet,
+  createAnnotation,
   createDimension,
   createSheet,
   createView,
+  deleteAnnotation,
   deleteDimension,
   evaluateDrawingViews,
   fetchDrawing,
+  updateView,
 } from "../api/drawings";
-import { fetchFeatureTree, fetchParts } from "../api/parts";
+import { evaluatePart, fetchFeatureTree, fetchParts } from "../api/parts";
 import { Breadcrumb } from "../components/Breadcrumb";
 import { DimensionAuthorMenu } from "../components/DimensionAuthorMenu";
 import { DrawingCommandBand } from "../components/DrawingCommandBand";
@@ -31,6 +38,7 @@ import {
   vertexKey,
 } from "../components/DrawingSheet";
 import { FloatingPanel } from "../components/FloatingPanel";
+import { SectionAuthorPanel } from "../components/SectionAuthorPanel";
 import { TopBar } from "../components/TopBar";
 import { TopToolbar } from "../components/TopToolbar";
 import {
@@ -55,10 +63,12 @@ import {
   SCALE_OPTIONS,
   STANDARD_VIEWS,
   VIEW_LABEL,
+  fitScale,
   sheetDimensions,
   standardLayout,
 } from "../drawing/layout";
 import { isTypingTarget } from "../lib/isTypingTarget";
+import { resolveDatumPlaneOptions } from "../sketch/plane";
 import { drawingRoute } from "../router";
 
 /** The scale (num/den) for a picker value like "1:2", defaulting to 1:1. */
@@ -90,8 +100,29 @@ export function DrawingPage() {
   });
   const tree = drawingQuery.data;
   const docVersion = tree?.doc_version ?? 0;
-  const sheet = tree?.sheets[0]?.sheet ?? null;
-  const views = useMemo(() => tree?.sheets[0]?.views ?? [], [tree]);
+
+  // Multi-sheet: the drawing stores an ORDERED list of sheets (the API has always
+  // supported many; FINDINGS #18 was the missing UI). `activeSheetIndex` selects
+  // which one the page reads + acts on; the switcher below moves it. Clamped when
+  // the tree changes (a delete/refetch can shrink the list under a stale index).
+  const sheetCount = tree?.sheets.length ?? 0;
+  const [activeSheetIndex, setActiveSheetIndex] = useState(0);
+  useEffect(() => {
+    if (sheetCount > 0 && activeSheetIndex >= sheetCount) {
+      setActiveSheetIndex(sheetCount - 1);
+    }
+  }, [sheetCount, activeSheetIndex]);
+  const activeIndex = activeSheetIndex < sheetCount ? activeSheetIndex : 0;
+
+  const sheet = tree?.sheets[activeIndex]?.sheet ?? null;
+  // The active sheet's id threads through compose + export so BOTH render the
+  // sheet the switcher selects (not always sheet 0). Omitting it composes the
+  // first sheet (back-compat); the gateway now accepts `?sheet=<id>` on both.
+  const activeSheetId = sheet?.id ?? null;
+  const views = useMemo(
+    () => tree?.sheets[activeIndex]?.views ?? [],
+    [tree, activeIndex],
+  );
   // The projections actually persisted on the sheet — the SET we evaluate (so a
   // flat-pattern sheet evaluates `flat_pattern`, carrying its bend-table +
   // provenance + any typed failure). Falls back to the standard four before layout.
@@ -106,9 +137,31 @@ export function DrawingPage() {
     return ordered.length > 0 ? ordered : [...STANDARD_VIEWS];
   }, [views]);
   const isFlatPatternSheet = requestedViews.includes("flat_pattern");
+  // The persisted section view (v1: at most one) and its cutting-plane params.
+  const sectionView = useMemo(
+    () => views.find((view) => view.projection === "section") ?? null,
+    [views],
+  );
+  // The evaluate wire keys `section_params` by the INDEX into `views` of each
+  // section view (drawings-section.md §1); we send the persisted view's own
+  // params so the PICK provenance for the section resolves (compose reads the
+  // persisted params directly and needs no body). Empty for a non-section sheet.
+  const sectionParamsByIndex = useMemo(() => {
+    const map: Record<string, SectionViewParams> = {};
+    requestedViews.forEach((projection, index) => {
+      if (projection === "section" && sectionView?.section_params) {
+        map[String(index)] = sectionView.section_params;
+      }
+    });
+    return map;
+  }, [requestedViews, sectionView]);
   const dimensions = useMemo<readonly DimensionResponse[]>(
-    () => tree?.sheets[0]?.dimensions ?? [],
-    [tree],
+    () => tree?.sheets[activeIndex]?.dimensions ?? [],
+    [tree, activeIndex],
+  );
+  const annotations = useMemo<readonly AnnotationResponse[]>(
+    () => tree?.sheets[activeIndex]?.annotations ?? [],
+    [tree, activeIndex],
   );
   const hasLayout = sheet !== null && views.length > 0;
 
@@ -141,9 +194,10 @@ export function DrawingPage() {
   });
   const parts = useMemo(() => partsQuery.data ?? [], [partsQuery.data]);
 
-  // Pre-layout picker state (which part to draft, at what scale).
+  // Pre-layout picker state (which part to draft, on what sheet, at what scale).
   const [selectedPartId, setSelectedPartId] = useState<string | null>(null);
   const [scaleValue, setScaleValue] = useState("1:1");
+  const [sizeValue, setSizeValue] = useState<SheetSize>("A4");
   useEffect(() => {
     if (selectedPartId === null && parts.length > 0) {
       setSelectedPartId(parts[0]?.id ?? null);
@@ -155,6 +209,13 @@ export function DrawingPage() {
   const effectiveScaleValue = hasLayout
     ? `${views[0]?.scale.numerator ?? 1}:${views[0]?.scale.denominator ?? 1}`
     : scaleValue;
+  // Post-layout the sheet SIZE is read from the persisted sheet (mirroring how
+  // the scale readout derives from the stored view scale); pre-layout it is the
+  // user's pick. Changing it after layout is a re-layout, not a re-size in place
+  // (the backend has no re-flow-on-resize; matches how scale re-selection works).
+  const effectiveSize: SheetSize = hasLayout
+    ? (sheet?.size ?? "A4")
+    : sizeValue;
 
   // The drafted part's feature tree (the projection intent).
   const partTreeQuery = useQuery({
@@ -169,6 +230,15 @@ export function DrawingPage() {
   const evalQuery = useQuery({
     queryKey: [
       "drawing-eval",
+      // Sheet-scoped: the request body carries THIS sheet's section params
+      // (`sectionParamsByIndex`) and THIS sheet's dimensions
+      // (`dimensionInputs` ← `tree.sheets[activeIndex].dimensions`). Without
+      // the sheet id, two sheets of the same part at the same scale with the
+      // same projection list collide on one cache entry — sheet 2 would be
+      // served sheet 1's section cut while the composed paper (keyed
+      // correctly below) shows its own, and sheet 2's dimension ids would
+      // miss in `measuredById`. Audit H1.
+      activeSheetId,
       effectivePartId,
       partTree?.tree_version,
       effectiveScaleValue,
@@ -188,6 +258,7 @@ export function DrawingPage() {
           .filter((feature) => !feature.rolled_back)
           .map((feature) => ({ id: feature.id, feature: feature.feature })),
         dimensions: dimensionInputs,
+        section_params: sectionParamsByIndex,
       };
       return evaluateDrawingViews(request);
     },
@@ -217,13 +288,14 @@ export function DrawingPage() {
   const sheetQuery = useQuery({
     queryKey: [
       "drawing-sheet",
+      activeSheetId,
       effectivePartId,
       partTree?.tree_version,
       effectiveScaleValue,
       docVersion,
     ],
-    enabled: hasLayout && partTree !== undefined,
-    queryFn: () => composeDrawingSheet(drawingId),
+    enabled: hasLayout && partTree !== undefined && activeSheetId !== null,
+    queryFn: () => composeDrawingSheet(drawingId, activeSheetId),
     staleTime: Infinity,
   });
   const composed = sheetQuery.data;
@@ -234,6 +306,23 @@ export function DrawingPage() {
   // ---------------------------------------------------------------------
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+
+  // Section-view authoring: the panel's open state, its own create-time error,
+  // and the referenced part's reusable datums (fetched lazily when the panel
+  // opens). The datum options come from the SAME resolver the sketch plane
+  // picker reads, so a section's plane FeatureRef means the same plane there.
+  const [sectionOpen, setSectionOpen] = useState(false);
+  const [sectionError, setSectionError] = useState<string | null>(null);
+  const sectionPartTreeQuery = useQuery({
+    queryKey: ["drawing-section-part-tree", selectedPartId],
+    enabled: sectionOpen && selectedPartId !== null,
+    queryFn: () => fetchFeatureTree(selectedPartId as string),
+    staleTime: 30_000,
+  });
+  const sectionDatumOptions = useMemo(
+    () => resolveDatumPlaneOptions(sectionPartTreeQuery.data?.features ?? []),
+    [sectionPartTreeQuery.data],
+  );
 
   const handleLayout = useCallback(() => {
     if (hasLayout || selectedPartId === null || busy) return;
@@ -246,7 +335,7 @@ export function DrawingPage() {
         if (sheetId === null) {
           const created = await createSheet(drawingId, {
             name: "Sheet 1",
-            size: "A4",
+            size: sizeValue,
             orientation: "landscape",
             projection: "third_angle",
             expected_version: version,
@@ -254,9 +343,32 @@ export function DrawingPage() {
           version = created.doc_version;
           sheetId = created.sheet.id;
         }
-        const dims = sheetDimensions("A4", "landscape");
+        const dims = sheetDimensions(sizeValue, "landscape");
         const anchors = standardLayout(dims);
-        const scale = scaleFromValue(scaleValue);
+        // Fit-scale: never lay out views that overflow their cells — evaluate
+        // the part's bbox and reduce the scale until the four standard views
+        // fit (the user's picked scale is a ceiling; see fitScale). A part
+        // that fails to evaluate keeps the picked scale — the layout still
+        // lands, just unfitted, and the sheet surfaces the eval error.
+        let fittedValue = scaleValue;
+        try {
+          const evaluated = await evaluatePart(selectedPartId);
+          const box = evaluated.properties?.bounding_box;
+          if (box) {
+            fittedValue = fitScale(
+              {
+                x: box.max.x - box.min.x,
+                y: box.max.y - box.min.y,
+                z: box.max.z - box.min.z,
+              },
+              dims,
+              scaleValue,
+            ).value;
+          }
+        } catch {
+          // keep the picked scale
+        }
+        const scale = scaleFromValue(fittedValue);
         for (const projection of STANDARD_VIEWS) {
           const anchor = anchors[projection];
           const created = await createView(drawingId, sheetId, {
@@ -265,10 +377,18 @@ export function DrawingPage() {
             ref_document_kind: "part",
             scale,
             position: { x_mm: anchor.x, y_mm: anchor.y },
+            // Auto-layout lands each standard view (bounds-aware); a later drag
+            // flips this view to auto_place:false with a persisted position.
+            auto_place: true,
             expected_version: version,
           });
           version = created.doc_version;
         }
+        // Only after every view landed: reflect the substitution in the picker
+        // state (a FAILED layout must not mutate the user's pick — review
+        // 2026-07-22), and post-layout the band's scale readout derives from
+        // the stored views either way.
+        if (fittedValue !== scaleValue) setScaleValue(fittedValue);
         await queryClient.invalidateQueries({
           queryKey: ["drawing", drawingId],
         });
@@ -290,6 +410,7 @@ export function DrawingPage() {
     sheet,
     drawingId,
     scaleValue,
+    sizeValue,
     queryClient,
   ]);
 
@@ -308,7 +429,7 @@ export function DrawingPage() {
         if (sheetId === null) {
           const created = await createSheet(drawingId, {
             name: "Sheet 1",
-            size: "A4",
+            size: sizeValue,
             orientation: "landscape",
             projection: "third_angle",
             expected_version: version,
@@ -316,13 +437,19 @@ export function DrawingPage() {
           version = created.doc_version;
           sheetId = created.sheet.id;
         }
-        const dims = sheetDimensions("A4", "landscape");
+        // The chosen size flows to the flat-pattern sheet too, so the lone
+        // unfold blank is centred on (and composed against) the picked paper.
+        // NB: the lone flat view is not yet fit-scaled to the sheet the way the
+        // four standard views are — a flat-pattern fit needs the UNFOLDED
+        // extents (not the 3D bbox `fitScale` reads), a separate slice (BACKLOG).
+        const dims = sheetDimensions(sizeValue, "landscape");
         const created = await createView(drawingId, sheetId, {
           projection: "flat_pattern",
           ref_document_id: selectedPartId,
           ref_document_kind: "part",
           scale: scaleFromValue(scaleValue),
           position: { x_mm: dims.width / 2, y_mm: dims.height / 2 },
+          auto_place: true,
           expected_version: version,
         });
         version = created.doc_version;
@@ -347,6 +474,129 @@ export function DrawingPage() {
     sheet,
     drawingId,
     scaleValue,
+    sizeValue,
+    queryClient,
+  ]);
+
+  // The section action: create the sheet (if needed) + a single centred section
+  // view carrying its cutting plane + flip (drawings-section.md §1). The compose
+  // wire (E1a) then resolves the datum, cuts, and hatches automatically — no
+  // request body: the compose route reads the persisted `section_params`. A
+  // non-principal plane is caught in the panel before this runs; the server also
+  // guards it, and the sheet renders `section_plane_not_principal` readably.
+  const handleAuthorSection = useCallback(
+    (plane: SectionViewParams["plane"], flip: boolean) => {
+      if (hasLayout || selectedPartId === null || busy) return;
+      setBusy(true);
+      setSectionError(null);
+      void (async () => {
+        try {
+          let version = docVersion;
+          let sheetId = sheet?.id ?? null;
+          if (sheetId === null) {
+            const created = await createSheet(drawingId, {
+              name: "Sheet 1",
+              size: sizeValue,
+              orientation: "landscape",
+              projection: "third_angle",
+              expected_version: version,
+            });
+            version = created.doc_version;
+            sheetId = created.sheet.id;
+          }
+          const dims = sheetDimensions(sizeValue, "landscape");
+          await createView(drawingId, sheetId, {
+            projection: "section",
+            ref_document_id: selectedPartId,
+            ref_document_kind: "part",
+            scale: scaleFromValue(scaleValue),
+            position: { x_mm: dims.width / 2, y_mm: dims.height / 2 },
+            section_params: { plane, flip },
+            auto_place: true,
+            expected_version: version,
+          });
+          setSectionOpen(false);
+          await queryClient.invalidateQueries({
+            queryKey: ["drawing", drawingId],
+          });
+        } catch (error) {
+          setSectionError(
+            error instanceof Error
+              ? error.message
+              : "The section view could not be created.",
+          );
+        } finally {
+          setBusy(false);
+        }
+      })();
+    },
+    [
+      hasLayout,
+      selectedPartId,
+      busy,
+      docVersion,
+      sheet,
+      drawingId,
+      scaleValue,
+      sizeValue,
+      queryClient,
+    ],
+  );
+
+  const handleToggleSection = useCallback(() => {
+    setSectionError(null);
+    setSectionOpen((open) => !open);
+  }, []);
+
+  // Append a new (empty) sheet and switch to it (FINDINGS #18). The new sheet is
+  // laid out through the SAME flow the first sheet uses — selecting it makes the
+  // Set-up band + layout actions target its id (createView takes the sheet id, so
+  // no per-index guesswork). Appends at the tip → its index is the old count.
+  const [addingSheet, setAddingSheet] = useState(false);
+  // `Sheet ${count + 1}` collides after a delete: with Sheet 1/2/3, removing
+  // Sheet 2 leaves count 2, so the next add is another "Sheet 3" — two tabs
+  // with the same label (the tab renders `sheet.name`). Take the lowest free
+  // number instead, so names stay unique and stable across deletes.
+  const nextSheetName = useMemo(() => {
+    const taken = new Set((tree?.sheets ?? []).map((s) => s.sheet.name));
+    let n = 1;
+    while (taken.has(`Sheet ${n}`)) n += 1;
+    return `Sheet ${n}`;
+  }, [tree]);
+  const handleAddSheet = useCallback(() => {
+    if (addingSheet || sheetCount === 0) return;
+    setAddingSheet(true);
+    setActionError(null);
+    void (async () => {
+      try {
+        await createSheet(drawingId, {
+          name: nextSheetName,
+          size: sizeValue,
+          orientation: "landscape",
+          projection: "third_angle",
+          expected_version: docVersion,
+        });
+        await queryClient.invalidateQueries({
+          queryKey: ["drawing", drawingId],
+        });
+        setActiveSheetIndex(sheetCount);
+      } catch (error) {
+        setActionError(
+          error instanceof Error
+            ? error.message
+            : "The sheet could not be added.",
+        );
+      } finally {
+        setAddingSheet(false);
+      }
+    })();
+  }, [
+    addingSheet,
+    sheetCount,
+    nextSheetName,
+    drawingId,
+    sizeValue,
+    docVersion,
     queryClient,
   ]);
 
@@ -358,6 +608,71 @@ export function DrawingPage() {
     // Re-compose the placed sheet too (the VISUAL source) so a reproject repaints.
     void queryClient.invalidateQueries({ queryKey: ["drawing-sheet"] });
   }, [queryClient, effectivePartId]);
+
+  // ---------------------------------------------------------------------
+  // Drag-to-place: the sheet reports a dragged/nudged view centre (sheet mm,
+  // y-up); we persist it with `auto_place: false` so the composer honours it
+  // verbatim — the placement survives reload. "Reset" returns the view to
+  // bounds-aware auto-layout. One in-flight flag serialises the OCC writes.
+  // ---------------------------------------------------------------------
+  const [placingView, setPlacingView] = useState(false);
+  const handlePlaceView = useCallback(
+    (viewId: string, position: { x_mm: number; y_mm: number }) => {
+      if (placingView) return;
+      setPlacingView(true);
+      setActionError(null);
+      void (async () => {
+        try {
+          await updateView(drawingId, viewId, {
+            expected_version: docVersion,
+            position,
+            auto_place: false,
+          });
+          await queryClient.invalidateQueries({
+            queryKey: ["drawing", drawingId],
+          });
+          void queryClient.invalidateQueries({ queryKey: ["drawing-sheet"] });
+        } catch (error) {
+          setActionError(
+            error instanceof Error
+              ? error.message
+              : "The view could not be moved.",
+          );
+        } finally {
+          setPlacingView(false);
+        }
+      })();
+    },
+    [placingView, drawingId, docVersion, queryClient],
+  );
+  const handleResetView = useCallback(
+    (viewId: string) => {
+      if (placingView) return;
+      setPlacingView(true);
+      setActionError(null);
+      void (async () => {
+        try {
+          await updateView(drawingId, viewId, {
+            expected_version: docVersion,
+            auto_place: true,
+          });
+          await queryClient.invalidateQueries({
+            queryKey: ["drawing", drawingId],
+          });
+          void queryClient.invalidateQueries({ queryKey: ["drawing-sheet"] });
+        } catch (error) {
+          setActionError(
+            error instanceof Error
+              ? error.message
+              : "The view could not be returned to auto-layout.",
+          );
+        } finally {
+          setPlacingView(false);
+        }
+      })();
+    },
+    [placingView, drawingId, docVersion, queryClient],
+  );
 
   // ---------------------------------------------------------------------
   // Export SVG (#5): serialize the already-rendered sheet <svg> to a
@@ -396,7 +711,11 @@ export function DrawingPage() {
       setActionError(null);
       void (async () => {
         try {
-          const { blob, filename } = await exportDrawing(drawingId, format);
+          const { blob, filename } = await exportDrawing(
+            drawingId,
+            format,
+            activeSheetId,
+          );
           downloadBlob(blob, filename);
         } catch (error) {
           setActionError(
@@ -409,7 +728,7 @@ export function DrawingPage() {
         }
       })();
     },
-    [hasLayout, exporting, drawingId],
+    [hasLayout, exporting, drawingId, activeSheetId],
   );
   const handleExportPdf = useCallback(
     () => runServerExport("pdf"),
@@ -535,11 +854,95 @@ export function DrawingPage() {
     [dimBusy, drawingId, docVersion, queryClient],
   );
 
+  // ---------------------------------------------------------------------
+  // Note annotations: author a free-text note → persist it (CRUD) → the
+  // re-compose places it at its sheet point and the sheet draws it from
+  // `ComposedSheet.notes` (design §2.2). A note bumps `doc_version`, so the
+  // compose query (keyed on it) refetches with the note — one placement source.
+  // ---------------------------------------------------------------------
+  const [noteBusy, setNoteBusy] = useState(false);
+
+  const refetchDrawingAndSheet = useCallback(async () => {
+    await queryClient.invalidateQueries({ queryKey: ["drawing", drawingId] });
+    // The composed sheet is keyed on `doc_version` (bumped by the write) so it
+    // refetches on its own, but invalidate it too so the note appears at once.
+    void queryClient.invalidateQueries({ queryKey: ["drawing-sheet"] });
+  }, [queryClient, drawingId]);
+
+  const handleAddNote = useCallback(
+    (text: string) => {
+      const trimmed = text.trim();
+      if (trimmed.length === 0 || noteBusy || sheet === null) return;
+      setNoteBusy(true);
+      setActionError(null);
+      // A default anchor just inside the top-left border, each new note stacked
+      // below the last so they never land on top of one another (v1 has no
+      // drag-to-place yet — the note is placed verbatim in final sheet-mm space).
+      const margin = composed?.margin_mm ?? 10;
+      const x = margin + 6;
+      const y = margin + 12 + annotations.length * (drawing.noteTextMm + 3);
+      void (async () => {
+        try {
+          await createAnnotation(drawingId, sheet.id, {
+            annotation: {
+              type: "note",
+              text: trimmed,
+              position: { x_mm: x, y_mm: y },
+            },
+            expected_version: docVersion,
+          });
+          await refetchDrawingAndSheet();
+        } catch (error) {
+          setActionError(
+            error instanceof Error
+              ? error.message
+              : "The note could not be added.",
+          );
+        } finally {
+          setNoteBusy(false);
+        }
+      })();
+    },
+    [
+      noteBusy,
+      sheet,
+      composed,
+      annotations.length,
+      drawingId,
+      docVersion,
+      refetchDrawingAndSheet,
+    ],
+  );
+
+  const handleDeleteNote = useCallback(
+    (annotationId: string) => {
+      if (noteBusy) return;
+      setNoteBusy(true);
+      setActionError(null);
+      void (async () => {
+        try {
+          await deleteAnnotation(drawingId, annotationId, docVersion);
+          await refetchDrawingAndSheet();
+        } catch (error) {
+          setActionError(
+            error instanceof Error
+              ? error.message
+              : "The note could not be deleted.",
+          );
+        } finally {
+          setNoteBusy(false);
+        }
+      })();
+    },
+    [noteBusy, drawingId, docVersion, refetchDrawingAndSheet],
+  );
+
   // Keyboard-first: L lays out (or re-projects once laid out).
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         setAuthoring(IDLE);
+        setSectionOpen(false);
         return;
       }
       if (event.metaKey || event.ctrlKey || event.altKey) return;
@@ -554,6 +957,12 @@ export function DrawingPage() {
       if (event.key.toLowerCase() === "f" && !hasLayout) {
         event.preventDefault();
         handleFlatPattern();
+      }
+      // S opens the section-view author (pick a cutting plane + flip). Pre-layout
+      // only, mirroring the command band's Section action.
+      if (event.key.toLowerCase() === "s" && !hasLayout) {
+        event.preventDefault();
+        handleToggleSection();
       }
       // E exports the laid-out sheet to a .svg (keyboard-first, mirrors the
       // command band's Export SVG action). No-op before layout.
@@ -580,6 +989,7 @@ export function DrawingPage() {
     hasLayout,
     handleLayout,
     handleFlatPattern,
+    handleToggleSection,
     handleReproject,
     handleExportSvg,
     handleExportPdf,
@@ -612,11 +1022,15 @@ export function DrawingPage() {
             onSelectPart={setSelectedPartId}
             scaleValue={effectiveScaleValue}
             onSelectScale={setScaleValue}
+            sizeValue={effectiveSize}
+            onSelectSize={setSizeValue}
             hasLayout={hasLayout}
             isFlatPattern={isFlatPatternSheet}
             draftedPartName={draftedPartName}
             onLayout={handleLayout}
             onFlatPattern={handleFlatPattern}
+            onToggleSection={handleToggleSection}
+            sectionOpen={sectionOpen}
             onReproject={handleReproject}
             onExportSvg={handleExportSvg}
             onExportPdf={handleExportPdf}
@@ -624,6 +1038,22 @@ export function DrawingPage() {
             exporting={exporting}
             busy={busy || projecting}
           />
+        ) : null}
+
+        {/* The section-view author hangs from the band into the viewport (the
+            sketch strip's offset-plane idiom), so the Sheet actions stay one
+            row above. Pre-layout only — a section is a lone-view sheet in v1. */}
+        {sectionOpen && !hasLayout ? (
+          <div className="absolute left-3 top-full z-overlay mt-2">
+            <SectionAuthorPanel
+              datumPlanes={sectionDatumOptions}
+              loadingDatums={sectionPartTreeQuery.isFetching}
+              onCut={handleAuthorSection}
+              onClose={() => setSectionOpen(false)}
+              busy={busy}
+              error={sectionError}
+            />
+          </div>
         ) : null}
       </TopToolbar>
 
@@ -633,6 +1063,18 @@ export function DrawingPage() {
           className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_38%,theme(colors.anvil),theme(colors.carbide)_72%)]"
           aria-hidden="true"
         />
+
+        {/* The sheet switcher (FINDINGS #18) — move between the drawing's sheets,
+            add a new one. Appears once the drawing has a sheet (post-layout). */}
+        {tree && sheetCount > 0 ? (
+          <SheetTabs
+            sheets={tree.sheets}
+            activeIndex={activeIndex}
+            onSelect={setActiveSheetIndex}
+            onAdd={handleAddSheet}
+            adding={addingSheet}
+          />
+        ) : null}
 
         {drawingQuery.isError ? (
           <CenterNote
@@ -665,8 +1107,11 @@ export function DrawingPage() {
               armedEdgeKeys={armedEdgeKeys}
               selectedVertexKeys={selectedVertexKeys}
               endpointPickActive={endpointPickActive}
+              placementBusy={placingView}
               onPickEdge={handlePickEdge}
               onPickEndpoint={handlePickEndpoint}
+              onPlaceView={handlePlaceView}
+              onResetView={handleResetView}
             />
           </div>
         ) : hasLayout && sheet && sheetQuery.isError ? (
@@ -753,6 +1198,12 @@ export function DrawingPage() {
                 busy={dimBusy}
                 onDelete={handleDeleteDimension}
               />
+              <NotesPanel
+                annotations={annotations}
+                busy={noteBusy}
+                onAdd={handleAddNote}
+                onDelete={handleDeleteNote}
+              />
             </div>
           </FloatingPanel>
         ) : null}
@@ -782,7 +1233,10 @@ export function DrawingPage() {
         {anchor && menuActionList.length > 0 ? (
           <>
             <div
-              className="fixed inset-0 z-40"
+              // Same layer as the menu it dismisses (the menu is the later
+              // sibling, so it paints above) — the scrim must cover EVERY
+              // page-level surface, including the band.
+              className="fixed inset-0 z-menu"
               aria-hidden="true"
               onClick={() => setAuthoring(IDLE)}
             />
@@ -833,6 +1287,67 @@ function CenterNote({
   );
 }
 
+/**
+ * The sheet switcher (FINDINGS #18) — a compact tab strip that moves between the
+ * drawing's sheets and appends a new one. A quiet precision instrument in the
+ * top-left margin so the sheet stays the hero: brass underline on the active tab,
+ * keyboard-first (roving tablist), all wired to real state/actions (mandate 3a).
+ */
+function SheetTabs({
+  sheets,
+  activeIndex,
+  onSelect,
+  onAdd,
+  adding,
+}: {
+  sheets: readonly SheetContent[];
+  activeIndex: number;
+  onSelect: (index: number) => void;
+  onAdd: () => void;
+  adding: boolean;
+}) {
+  return (
+    <div
+      className="absolute left-3 top-3 z-overlay flex items-center gap-1 border border-hairline bg-anvil/95 px-1.5 py-1 shadow-float backdrop-blur-sm"
+      role="tablist"
+      aria-label="Drawing sheets"
+      data-testid="sheet-tabs"
+    >
+      {sheets.map((content, index) => {
+        const active = index === activeIndex;
+        return (
+          <button
+            key={content.sheet.id}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            data-testid={`sheet-tab-${index}`}
+            data-active={active || undefined}
+            onClick={() => onSelect(index)}
+            className={`border-b-2 px-2.5 py-1 font-display text-2xs uppercase tracking-[0.14em] transition-colors duration-fast focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass ${
+              active
+                ? "border-brass text-mist"
+                : "border-transparent text-gauge hover:text-mist"
+            }`}
+          >
+            {content.sheet.name}
+          </button>
+        );
+      })}
+      <button
+        type="button"
+        onClick={onAdd}
+        disabled={adding}
+        data-testid="sheet-tab-add"
+        aria-label="Add sheet"
+        className="ml-0.5 shrink-0 rounded-sm px-1.5 py-1 font-display text-xs leading-none text-gauge transition-colors duration-fast hover:text-brass focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass disabled:pointer-events-none disabled:opacity-40"
+      >
+        {adding ? "…" : "+"}
+      </button>
+    </div>
+  );
+}
+
 /** The empty-bench invitation before any views are laid out. */
 function SetupHint({ hasParts }: { hasParts: boolean }) {
   return (
@@ -850,7 +1365,7 @@ function SetupHint({ hasParts }: { hasParts: boolean }) {
         </h2>
         <p className="mt-1 font-body text-sm text-gauge">
           {hasParts
-            ? "Choose a part and scale above, then lay out the standard views — front, top, right and isometric — or unfold a sheet-metal part's flat pattern with its bend table."
+            ? "Choose a part, sheet size and scale above, then lay out the standard views — front, top, right and isometric — or unfold a sheet-metal part's flat pattern with its bend table."
             : "A drawing projects a part. Model a part, then return to draft it."}
         </p>
       </div>
@@ -1099,6 +1614,105 @@ function BendSchedulePanel({ rows }: { rows: readonly BendTableRow[] }) {
           })}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+/**
+ * The Notes panel — author a free-text note and manage the sheet's notes (design
+ * §2.2). Adding a note persists it (CRUD) and re-composes the sheet, which draws
+ * it at its authored point from `ComposedSheet.notes`; the list is the keyboard/
+ * touch path to removing one. A quiet precision instrument, sibling of the
+ * Dimensions panel — the sheet stays the hero.
+ */
+function NotesPanel({
+  annotations,
+  busy,
+  onAdd,
+  onDelete,
+}: {
+  annotations: readonly AnnotationResponse[];
+  busy: boolean;
+  onAdd: (text: string) => void;
+  onDelete: (annotationId: string) => void;
+}) {
+  const [text, setText] = useState("");
+  const canAdd = text.trim().length > 0 && !busy;
+  const submit = () => {
+    if (!canAdd) return;
+    onAdd(text);
+    setText("");
+  };
+  return (
+    <div className="border border-hairline bg-anvil" data-testid="notes-panel">
+      <header className="flex items-baseline gap-2 border-b border-hairline px-3 py-2">
+        <h2 className="font-display text-2xs uppercase tracking-[0.18em] text-gauge">
+          Notes
+        </h2>
+        <span className="grow" />
+        <span className="font-data text-2xs tabular-nums text-gauge">
+          {annotations.length}
+        </span>
+      </header>
+      <form
+        className="flex items-end gap-2 border-b border-hairline px-3 py-2.5"
+        onSubmit={(event) => {
+          event.preventDefault();
+          submit();
+        }}
+      >
+        <TextField
+          label="Add a note"
+          value={text}
+          onChange={(event) => setText(event.target.value)}
+          placeholder="e.g. Break all sharp edges"
+          className="grow"
+          data-testid="note-input"
+        />
+        <Button
+          type="submit"
+          variant="ghost"
+          disabled={!canAdd}
+          data-testid="note-add"
+          aria-label="Add note"
+        >
+          Add
+        </Button>
+      </form>
+      {annotations.length === 0 ? (
+        <p className="px-3 py-2.5 font-body text-2xs text-gauge">
+          Notes print on the sheet at the top-left — material callouts, finish,
+          or shop instructions.
+        </p>
+      ) : (
+        <ul className="divide-y divide-hairline">
+          {annotations.map((entry) => (
+            <li
+              key={entry.id}
+              className="flex items-center gap-2 px-3 py-1.5"
+              data-testid="note-row"
+            >
+              <span
+                data-testid="note-row-text"
+                className="grow truncate font-body text-2xs text-mist"
+                title={entry.annotation.text}
+              >
+                {entry.annotation.text}
+              </span>
+              <button
+                type="button"
+                disabled={busy}
+                data-testid="note-delete"
+                aria-label={`Delete note "${entry.annotation.text}"`}
+                onClick={() => onDelete(entry.id)}
+                className="shrink-0 rounded-sm px-1.5 py-0.5 font-display text-2xs uppercase tracking-[0.14em] text-gauge transition-colors duration-fast hover:text-flag focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass disabled:pointer-events-none disabled:opacity-40"
+              >
+                Delete
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

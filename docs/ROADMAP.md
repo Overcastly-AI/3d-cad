@@ -2,22 +2,268 @@
 
 Status legend: ✅ done · 🚧 in progress · ⬜ planned
 
-**Current focus: no single locked initiative — Phase 4b (Sheet metal v1)
-COMPLETE 2026-07-19, converging a run of six pillars** (Assemblies, Drawings
-+ server-composed export, Multi-body/booleans, Units, Undo/redo, Sheet
-metal), each independently reviewed + QA'd, each holding at ➖/✅ on the
-VISION.md scorecard with honest named residuals (full evidence:
-`CHANGELOG.md`, `docs/BACKLOG.md` Done archive). **No founder-directed
-initiative is currently in flight**; the autonomous loop pulls the top of
-`docs/BACKLOG.md` **Ready (top of queue)**, restocked 2026-07-19 by the
-backlog-groomer. Remaining VISION ❌ rows (Performance benchmarking,
-Collaboration/versioning, Extensibility/scripting+MCP) have no design doc yet.
-The Performance benchmark-suite INFRA step shipped 2026-07-19 (two-tier perf
-gate: generous asserted CI DoS/regression tripwires + an opt-in `-m benchmark`
-median/p95 baseline table; `just bench` / `docs/GEOMETRY-QA.md`) — this closes
-the benchmark-suite half of Performance ❌ but not the row (VISION also names
-"no real reference-part corpus yet"), so ❌ holds pending that corpus. See
-BACKLOG for the full ordering + rationale.
+**Current focus: FOUNDER-DIRECTED — the FINDINGS burn-down is COMPLETE
+(2026-07-25); next up is Drawings parity #4 (assembly views + BOM/balloons).**
+Founder directive 2026-07-24: *"pause all things and fix items in the findings
+report — we should not proceed until all the items are fixed or implemented."*
+All 25 items in `docs/FINDINGS.md` (the consolidated 4-lens hard audit: P0
+silent-wrong-geometry, UI, novice-UX, engineering) are now fixed or
+implemented, plus two enhancements the work surfaced (per-sheet compose/export
+and drag-to-place view positioning). Certified at each batch boundary; the
+last FULL sweep is `43d7eda` — `just lint` + `just test` + `just e2e` all
+green (geometry gates 188, Playwright 254). The two enhancement commits after
+it (`f6ae78c`, `b478100`) passed their own targeted gates; their full sweep is
+in flight and its result belongs here when it lands. Highlights: the three
+**silent-wrong-geometry**
+seams are gone with composed analytic goldens that fail on the old behaviour
+(cut-aware pattern/mirror `feb4318`, same-face reference resilience
+`2b6b72e`); **feature-localized selection** required a new geometry capability
+— per-face feature provenance (`406b89b`) consumed matcap-preserving in
+`43d7eda`; deploy integrity, assembly STEP identity, per-request work bounds,
+the command-band P0, and the full novice-UX + viewport-polish sweep all
+landed. See `docs/FINDINGS.md` (now a closed historical record) for per-item
+evidence.
+
+**Engineering-audit H burn-down (2026-07-25, in progress.)** The fresh
+`docs/AUDIT-ENGINEERING.md` pass (H1-H10) is being worked item-by-item.
+Landed so far: **H2** — a drawing sheet may no longer mix source documents or
+scales (documents refuses the write with typed 422s; the gateway re-checks the
+read before any compose hop), closing a silently-wrong-print seam reachable
+through the gateway API. **Code-review regression A (kernel, same batch):** the
+FINDINGS #3 resilient face re-match (`2b6b72e`) silently MOVED the resolved
+plane origin — a tier-2 match returned the matched face's CURRENT area centroid,
+so editing a neighbouring hole Ø6→Ø8 on a 40×40×10 plate translated every sketch/
+datum/mate seated on the shared top face by 0.1156 mm in x *and* y (measured), no
+error. Tier 2 now re-anchors at the STORED centroid projected onto the matched
+face; tier 1 is untouched (byte-stable goldens).
+
+**Prior focus — daily-driver depth (2026-07-23 product audit), still the
+standing direction beneath the burn-down.** The 2026-07-23 audit re-pointed
+the queue from the sheet-metal
+parity campaign (below, PAUSED — not abandoned) to closing the assembly
+"one-way street" plus the everyday modeling verbs a working engineer reaches
+for. Shipped this batch, each through the full implement→review→geometry-QA→
+in-app-authoring→batch-sweep loop and certified green (geometry gates 178 /
+Playwright 223): **assembly interop is now BIDIRECTIONAL** (STEP export ✅ +
+interference/clash ✅ + STEP import ✅, DoS-bounded upload), **section views**
+end-to-end ✅ (kernel + wire + web authoring), and four daily-driver features —
+**Hole** (simple + counterbore + countersink) ✅, **Mirror** ✅, **Feature
+suppress** ✅, **Revolve construction-centerline** ✅ — all with in-app
+authoring. **Next in the Ready queue: Drawings assembly views + BOM/balloons**
+(the drawings pillar's assembly gap), then the small tonight-follow-ups.
+
+**Sheet metal → full incumbent parity (PAUSED 2026-07-23, resumed on founder
+call).** The bar remains **full parity with SolidWorks/Fusion 360, not "good
+enough"**; `docs/design/sheet-metal-parity.md` (vision-steward, 2026-07-19) is
+the sourced 32-row yardstick — **do not flip the VISION Sheet-metal row until
+that matrix says so.** Sheet metal v1+v2 shipped a broad unfold (depth-1 stars,
+non-parallel trays/pans, depth-≥2 bend trees to box corners/returns) + in-app
+authoring UI + corner relief, each reviewed + geometry-QA'd. Remaining parity
+gaps (open/teardrop/rolled hems, miters, tabs, gauge tables) resume when the
+founder re-prioritizes sheet metal over the daily-driver depth above.
+
+**Groomer note (2026-07-23):** the sheet-metal campaign's WF-1/PB-1 layer +
+the drawings dead-capability drain (D1-D4) both converged this batch (see
+Phase 4/4b entries below). A fresh product-audit pass the same night named
+**assembly STEP export/interference/import** the next highest-value gap
+("the assembly is a one-way street") — export ✅ + interference ✅ + **import ✅
+(slices 1+2a+2b, all shipped 2026-07-23)** now close it: assembly interop is
+**BIDIRECTIONAL** (an uploaded multi-part assembly STEP becomes a real `assembly`
+document — deduped parts + named instances at their placements — via
+gateway `POST /api/v1/assemblies/import` → geometry XCAF read → documents
+`POST /api/v1/step-import`, DoS-bounded by a byte-size + product-count cap). The
+remaining sheet-metal extensions (open/teardrop/rolled hems, miters, tabs, gauge
+tables) lead the Ready queue, pending founder direction on sequencing.
+
+**In flight right now:** authoring UI ✅ (base + edge flange, **and now closed
+hem + corner relief editors 2026-07-19** — all four shipped sheet-metal features
+are click-drivable in-app, **hem + corner-relief editors frontend-qa spot-checked
+SHIP IT / tool-grade 2026-07-19**), corner relief ✅ (geometry **and** WIRED as an
+authorable `sheet_metal_corner_relief` feature end-to-end **and** the full
+4-corner pan relieving cleanly, 2026-07-19), and closed hem ✅ all landed
+(2026-07-19). `SM-relief-ui-1` ✅ **SHIPPED 2026-07-22** (frontend-builder): the
+corner-relief editor's Bend A/B selection now draws brass bend lines + "Bend A/B"
+callouts in-scene (interim for the still-deferred viewport bend-face pick), plus
+the bundled nits — autofocus on Bend A, an unresolvable-stored-ref guard, and an
+`aria-live` notch preview. **WF-1 cut-after-fold flat pattern is HONEST again ✅
+LAYER 1 SHIPPED 2026-07-22** (kernel-architect; the P0 from founder dogfooding —
+the only dishonest failure found in four passes): `unfold_sheet_metal` now runs
+the goldens' fold-back invariant AT RUNTIME against the LIVE evaluated body —
+every developed fold width must equal a live cylindrical bend-face width on that
+bend's axis (centroid-agnostic coaxial measurement, so a trimmed bend is
+measured, not lost) — mismatch → typed `flat_pattern_failed` naming the fold and
+both widths. The WF-1 repro (100-wide flange cut to 50) now typed-rejects
+instead of emitting the full-width blank; all existing goldens byte-unchanged
+(`test_sheet_metal_cut_after_fold.py`, 4 tests). **Code-review follow-up
+2026-07-22:** the fold-back check now measures each bend FACE once (dedup by
+identity, `resolve.live_bend_face_widths`) and `find_cylindrical_face`
+disambiguates coaxial bends by span, so two equal-radius flanges on collinear
+segments of one edge DEVELOP instead of false-rejecting (golden
+`coaxial-two-segment-flange-unfold`). **WF-1 LAYER 2 ✅ SHIPPED
+2026-07-22** (kernel-architect; founder-directed "fix everything" for narrow
+flanges — design §4.5 written first): `SheetMetalEdgeFlangeParamsV1` gains
+optional `width_mm`/`offset_mm` (offset from the edge's canonical `end_a`;
+absent = full width, all goldens byte-identical), `build_edge_flange` sweeps
+only the authored span and auto-cuts a **rectangular bend-end relief** notch at
+each interior span end (size = 1×gauge, the §4.4.3 sizing family; cut into the
+base flat so the flat notch IS the 3D notch — fold-back exact by construction),
+and a new partial-star emitter develops the base's TRUE outline + per-span
+[BA][leg] strips into one closed union loop. The founder case (100×100 t=1.5
+r=2 + a 50-wide × 50-tall flange on the full edge) is directly authorable and
+golden-gated (`partial-flange-founder-unfold` + `-centered-`, analytic
+volume/area to 1e-9/1e-6, hash + restart determinism pins), and **PB-1 fell
+out of the same machinery** (a flange on a notch-split edge segment now
+flat-patterns — golden-free test with exact closed-form asserts). Cut-after-fold
+stays typed-rejected by the layer-1 invariant — by design, the width extents
+make the cut hack unnecessary. Contracts + ts-client regenerated. **WIDTH-EXTENTS
+EDITOR UI ✅ SHIPPED 2026-07-22** (frontend-builder): the Edge Flange editor
+gains a Fusion-style Full / Centered / Offset extent choice (`SegmentedControl`)
++ width/offset fields wired to `width_mm`/`offset_mm` (absent ⇒ Full, legacy
+features round-trip absent), an in-scene brass span preview off the picked edge's
+`end_a` (`FlangeSpanOverlay`, reusing the `Segments`/`measure` machinery), a quiet
+bend-end relief caption, and client-side width/offset validation (kernel overflow
+surfaces via `envelopeMessage`). The founder case is authored by clicking (e2e +
+founder shots). Next down the corrected sequence: the auto-relief policy layer +
+open/teardrop/rolled hems + the full viewport bend-face pick for corner relief,
+then jogs.
+
+**Corrected campaign sequence** (parity doc's research corrected a few
+assumptions in the original founder-stated order — authoring UI → corner
+relief → hems → jogs → miters → tabs → gauge tables → DXF/nesting →
+convert-to-sheet-metal → forming tools; full rationale in
+`sheet-metal-parity.md` "Parity roadmap"):
+1. Authoring UI ✅ **SHIPPED 2026-07-19** (frontend-builder; reconciled from
+   the agent's stranded-but-complete work after a container restart —
+   typecheck + 696 web tests + design tests + lint green, founder screenshots
+   captured). Base Flange + Edge Flange toolbar actions in a dedicated SHEET
+   METAL create group; a user clicks to model a bracket → the flat pattern is
+   reachable. Independent code-review still owed (dead-agent work).
+2. Corner relief ✅ **SHIPPED 2026-07-19** (kernel-architect). v1 ships the
+   **rectangular** relief for a **depth-1 adjacent-flange tray corner**:
+   `apply_corner_relief` cuts the manufacturable 3D notch, and
+   `unfold_sheet_metal(..., reliefs=...)` develops the relieved blank (reentrant
+   notch, area conservation, single closed outline, byte-deterministic across an
+   interpreter restart). **Reconciled a P0 fold-back bug from code review (same
+   day):** the 3D box (centred on the bend-axis crossing) and the flat's
+   full-length flange inset modeled *different* reliefs — the flat blank did not
+   fold back to the 3D body. Both halves now model the SAME **local corner notch**
+   (width `size`, developed depth `BA+size`, wall full above it): the 3D cut is one
+   per-flange slot that reaches the folded wall (`_flange_notch_box`); a new
+   **fold-back cross-consistency gate** asserts the relieved body's bend-face widths
+   == flat `bend_widths_mm` AND removed volume == removed area×t + the bend
+   neutral-vs-mean-radius term. Golden `corner-tray-relieved-unfold` (valid
+   `size=3=bend_radius`) + 13 tests; the fully-welded depth-2 box corner stays a
+   TYPED reject (needs miter/closed-corner geometry, next). All depth-1/2 goldens
+   byte-unchanged (empty relief set → verbatim pre-existing paths).
+   **WIRED as an authorable feature ✅ 2026-07-19** (kernel-architect): the shipped
+   geometry was dead capability (relief called only from tests, no feature schema).
+   Now a `SheetMetalCornerReliefParamsV1` feature (`type="sheet_metal_corner_relief"`,
+   `bend_a`/`bend_b` FeatureRefs at the two edge flanges + `relief_ratio`/`size_mm`,
+   EXPLICIT per §4.4.2) registered in all 6 arms; its evaluator cuts the 3D notch
+   AND records the relief so the flat-pattern unfold (and the drawing flat_pattern
+   view) develop the matching relieved blank — the fold-back invariant now proven
+   at the **pipeline** level (new golden `corner-tray-relieved-feature` + 12 tests,
+   flat pattern byte-identical to the unit golden).
+   **FULL 4-CORNER PAN ✅ 2026-07-19** (kernel-architect): the canonical pan/box —
+   ALL FOUR corners relieved — now relieves cleanly, closing two blocker gaps found
+   in code review. (1) A relief that SHARES a flange with an earlier relief used to
+   fail `subshape_unresolved` (the earlier notch shifts the shared bend's centroid
+   past match tolerance on the LIVE body); now each relief resolves its bends against
+   a CLEAN un-notched reference (`corner_relief_tools`) and cuts the accumulated
+   notches from the live body (`cut_relief_tools`). (2) The un-notched reference is
+   maintained by the FOLDS (not snapshotted at the first relief), so a flange authored
+   AFTER a relief develops a correct flat pattern instead of a silently-ok body with a
+   broken flat. New flagship golden `pan-four-corner-relieved` (4 flanges + 4 reliefs,
+   one shell, fold-back over all 8 flange notches) + `test_sheet_metal_four_corner_pan.py`;
+   all existing goldens byte-unchanged. Follow-ons: obround/tear relief variants,
+   **auto-relief policy layer** (walk the bend graph, synthesise a relief per shared-
+   flange corner — now GENUINELY unblocked, it's exactly this resolution).
+   **Corner-Relief authoring UI ✅ SHIPPED 2026-07-19** (frontend-builder): a
+   `CornerReliefEditor` in the SHEET METAL toolbar group — references the two
+   edge-flange FEATURES via Bend A/Bend B selects (not an edge pick), ratio +
+   size-override fields, enabled only with ≥2 edge flanges, typed
+   `corner_relief_failed`/`reference_unresolved` surfaced in-editor; e2e clicks a
+   relieved tray, body + relieved flat pattern render (`sheet-metal-corner-relief-*.png`).
+   A direct viewport bend-face pick is a noted follow-up.
+3. **Hems** — **closed hem ✅ SHIPPED 2026-07-19** (kernel-architect). A
+   first-class `SheetMetalHemParamsV1` (`type="sheet_metal_hem"`, edge +
+   `length_mm` + optional radius/K, `hem_type="closed"`): a fixed 180° fold of
+   the return flat onto the parent, reusing `build_edge_flange` + the shipped
+   unfold verbatim (BA = π·(r+K·t)). **Kernel finding: even freer than
+   predicted** — the near-flat fold produces one clean valid solid and CANNOT
+   self-intersect (the return sits ~2·radius above the base with an air gap,
+   valid down to r=1e-6), so no guard/rescope was needed. Golden
+   `closed-hem-plate`; honest degradation (zero-radius → typed schema reject,
+   kernel fold failure → typed `edge_flange_failed`). All existing goldens
+   byte-unchanged. **Hem authoring UI ✅ SHIPPED 2026-07-19** (frontend-builder):
+   a `HemEditor` in the SHEET METAL toolbar group — single-select edge pick
+   (reuses the edge-flange overlay), brass `length_mm` handle, fixed "180°
+   (closed)" fold readout (no angle field), inherited radius/K overrides; e2e
+   clicks a plate with a closed hem, body + flat pattern render
+   (`sheet-metal-hem-*.png`). **Hem on a FLANGE rim flat-patterns ✅ FIXED
+   2026-07-22** (kernel-architect; TB-1 founder-dogfooding P2): bend flank
+   resolution is now TOPOLOGICAL (flanges must share an edge with the bend
+   cylinder — coplanar bystanders like a perpendicular wall's end face in the
+   return's tangent plane no longer inflate the flank count), and the relieved
+   unfold accepts axis-parallel returns off depth-1 arms by fold provenance
+   (`_partition_arm_returns` → arm extension `[BA][return leg]`). The full
+   TB-1 tray (4 walls + 2 hems + 4 reliefs) and the minimal wall+hem part now
+   produce correct blanks; new golden `hemmed-wall-tray-unfold` with the
+   fold-back invariant; perpendicular-axis depth-2 + reliefs stays a typed
+   reject; all existing goldens byte-unchanged (sheet-metal.md §4.4.4 update).
+   **Remaining:** open/teardrop/rolled (each a
+   genuinely new curved cross-section, separate fast-follows).
+4. **Jogs** — got EASIER since `sheet-metal.md` was written (it predates the
+   now-shipped depth-≥2 bend-tree unfold); a jog is a degenerate zero-length
+   two-bend chain. Verify the existing chain machinery handles that edge case
+   before assuming new kernel work.
+5. **Miters** — a corner-relief variant (zero-gap trim vs. cutout) at a
+   straight non-bent corner; shares machinery with #2.
+6. **Tabs** — not independent work: mechanically an edge flange with
+   `bend_angle_deg = 0`. Fast-follow of sketched-bend/fold, not its own slice.
+7. **Gauge/material bend TABLES** — re-framed: this is **documents-service
+   data modeling** (a reference-table schema + CRUD + lookup-override chain),
+   NOT kernel risk — the unfold already consumes a resolved K-factor
+   regardless of source. Can run **parallel** to the kernel items above
+   (independent territory), not strictly serial after miters.
+8. **Flat-pattern DXF / nesting** — re-scoped: **DXF export already ships at
+   genuine parity** (server-composed, byte-pinned, three formats); nesting is
+   correctly OUT of scope (neither incumbent ships it natively). What's
+   actually missing: bend-line-to-layer export options + grain direction —
+   small polish, not a DXF gap.
+9. **Convert-to-sheet-metal** — correctly last; a genuinely harder,
+   independent recognition problem needing its own design pass.
+10. **Forming tools** — split: countersink/counterbore-in-sheet (small, a
+    hole-feature variant, could land near gauge tables) vs. the general
+    forming-tool library (louvers/lances/dimples/gussets — large, correctly
+    last).
+
+**Explicitly deprioritized** (surfaced by the parity research, not in the
+founder's original campaign — flagged, not silently dropped): cross-breaks
+(cosmetic-only HVAC convention, low value outside that niche); lofted/swept
+flanges (real incumbent features, but the loft variant carries genuine new
+*kernel* risk — a developable-surface argument — and needs its own spike
+before commitment, same posture as the original unfold; slot late).
+
+Once the authoring UI + corner relief land (reviewed, QA'd against the
+incumbent bar per the design mandate), continue straight down the corrected
+sequence above — hems → jogs → miters → (tabs, gauge tables in parallel) →
+DXF/grain polish → convert-to-sheet-metal → forming tools — re-checking
+`sheet-metal-parity.md` after each slice, until the matrix supports ✅.
+
+**Prior state (superseded by the above, kept for continuity):** Phase 4b
+(Sheet metal v1) reached its v1 DoD 2026-07-19 ("one bracket → a flat blank
+a shop can cut"), converging alongside five other pillars (Assemblies,
+Drawings + server-composed export, Multi-body/booleans, Units, Undo/redo),
+each independently reviewed + QA'd. Remaining VISION ❌ rows (Performance
+benchmarking, Collaboration/versioning, Extensibility/scripting+MCP) have no
+design doc yet and are NOT the current focus — see BACKLOG for their
+ordering once the sheet-metal campaign converges. The Performance
+benchmark-suite INFRA step shipped 2026-07-19 (two-tier perf gate: generous
+asserted CI DoS/regression tripwires + an opt-in `-m benchmark` median/p95
+baseline table; `just bench` / `docs/GEOMETRY-QA.md`) — this closes the
+benchmark-suite half of Performance ❌ but not the row (VISION also names "no
+real reference-part corpus yet"), so ❌ holds pending that corpus.
 
 Phase 2 (parametric core)
 **converged 2026-07-15**: Sketching and Part modeling both flipped their
@@ -74,6 +320,34 @@ carry forward as blocked board items.
       has no docker daemon — images and stack runtime are unproven).
       **Environment-blocked**, does not gate phase advances; first
       Docker-capable session picks it up
+- ✅ Compose deploy-config audit fixes (2026-07-24 engineering audit G1/G3/G4,
+      platform-builder): geometry now receives `S3_ACCESS_KEY_ID`/
+      `S3_SECRET_ACCESS_KEY` anchor-sourced from the MinIO root credentials
+      (G1 — the active S3 mesh store 403'd on every put/get without them);
+      documents/geometry host ports REMOVED from the base compose (G3 —
+      documents trusts `X-Loft-User`; debug ports now loopback-bound in the
+      dev overlay only); stale "S3 not consumed yet / single-worker only"
+      comment rewritten to reality (G4). New stdlib-only
+      `scripts/check-compose.py` renders `docker compose config --format json`
+      and asserts all three invariants; wired into the CI `compose` job so
+      these regressions can't return unexercised
+- ✅ Per-request work bounds — G2 CLOSED (2026-07-24 engineering audit,
+      kernel-architect): the rate limiter caps request frequency, these cap
+      per-request COST. Documented constants (rationale comments, audit-G2
+      tagged) with pydantic Field constraints → typed 422s, never 500s:
+      deflection floors `MIN_LINEAR_DEFLECTION` 1e-3 mm /
+      `MIN_ANGULAR_DEFLECTION` 1e-2 rad on every tessellate/export/evaluate
+      path; pattern `count` ≤ `MAX_PATTERN_COUNT` 500 (+ kernel
+      defense-in-depth); tree `features` ≤ `MAX_TREE_FEATURES` 1000; assembly
+      `instances`/`mates` ≤ 500/2000 (import products cap now TIED to the
+      instance cap); interference handler-capped at
+      `MAX_INTERFERENCE_INSTANCES` 200 (N² documented) with typed
+      `interference_too_many_instances`; drawing views/dimensions/annotations
+      ≤ 32/500/500; sketch entities/constraints/spline points ≤ 2000/4000/500;
+      loft sections ≤ 100; selector refs ≤ 500. documents write-side twins
+      (typed `*_limit_exceeded` 422s on create) keep persisted docs
+      constructible into the bounded DTOs (no accumulated-rows 500). 42 new
+      reject/accept tests across py-kit + geometry + documents
 - ✅ Contract pipeline: OpenAPI generated from pydantic → committed to
       `packages/contracts` → `packages/ts-client` generated (`just gen`);
       drift check ready as `just gen-check` (CI wiring lands with the CI
@@ -145,7 +419,10 @@ item:
       (fit-point v1, then constrainable v1.1), dimension expressions +
       driving/driven, typed over-constraint diagnosis.
       **Sketching row flips ❌→➖→✅** (2026-07-12 → `a1c42be` 2026-07-15).
-- ✅ Feature breadth — revolve, sweep, loft, linear/circular pattern
+- ✅ Feature breadth — revolve (incl. **construction-centerline axis** closing
+      an open half-profile — the SolidWorks/Fusion idiom, in-app end-to-end +
+      regression e2e 2026-07-23), sweep,
+      loft, linear/circular pattern
       (incl. pattern-arrays-a-cut), offset/datum planes, multi-loop closed
       profiles → holes (incl. multi-disjoint-loop cut), shell, draft.
       **Part modeling row flips ❌→➖→✅** (`3c23c73`), held under a
@@ -155,6 +432,97 @@ item:
       intersect between independently-built bodies, multi-lump bodies, opt-in
       disjoint union, multi-solid STEP import — geometry-QA'd PASS twice;
       VISION Part modeling row Notes corrected same pass, score unchanged).
+- ✅ Feature suppress — FULLY END-TO-END (2026-07-23): schema + evaluator
+      (slice 1) + persistence + toggle endpoint (slice 2a) + web tree toggle
+      (slice 2b). SLICE 1 SHIPPED (2026-07-23, kernel-architect): the
+      persisted-flag + evaluator half of a daily incumbent verb (`grep suppress`
+      → empty before this). `suppressed: bool = False` lives once on a shared
+      `FeatureEnvelopeBase` every feature envelope inherits (no `param_version`
+      bump, additive-optional like `merge`/`flip`); `FeatureResult.status` gains a
+      fourth `suppressed` value; `evaluate_tree` SKIPS a suppressed feature so the
+      body is built from the non-suppressed prefix and each later non-suppressed
+      feature rebuilds off the last non-suppressed body, with a typed
+      `references_suppressed` per-feature error (200, strict prefix) for a feature
+      that DIRECTLY references a suppressed one. Proof (test_evaluate_tree.py):
+      `[sketch,extrude,fillet]` fillet-suppressed → analytic box volume (10000
+      mm³), un-suppressed → filleted (material actually removed); a suppressed
+      MIDDLE extrude rebuilds the trailing fillet off the reduced body (max z=10
+      not 20); ref-to-suppressed is a 200 typed error; default-false is a
+      byte-identical no-op (goldens unchanged). feature-tree.md §4.3a. SLICE 2a
+      SHIPPED (2026-07-23, backend-builder): documents now PERSISTS the flag — a
+      `features.suppressed` NOT NULL BOOLEAN column (migration `0009`,
+      `metadata.create_all` renders it for the native/e2e path), create/update
+      store it (create no longer silently drops `suppressed:true`), and both read
+      paths — `_to_response` and the evaluation-request builder — pass it back
+      through `FEATURE_REGISTRY.load(..., suppressed=…)` so a stored suppressed
+      feature reaches geometry marked (the load-bearing proof:
+      test_evaluation_request.py). A dedicated `PATCH .../features/{id}/suppress`
+      toggle (py-kit `FeatureSuppressRequest`) flips ONLY the flag — no param
+      replace — bumps `tree_version` under the OCC guard (stale → 422), records
+      history (undoable), and is gateway-proxied auth-gated. SLICE 2b SHIPPED
+      (2026-07-23, frontend-builder): the feature tree now carries a per-row
+      suppress toggle (`suppressFeature` consumes the generated
+      `FeatureSuppressRequest`; a stale 422 refetches the fresh tree_version and
+      retries once). A suppressed row reads QUIET — dimmed + struck-through name,
+      `SUPP` status, brass pressed toggle (`aria-pressed` + accessible name +
+      `data-suppressed`), distinct from a red error row. Proof
+      (feature-suppress.spec.ts, real isolated stack): seed cube+fillet
+      (6,879.79 mm³), suppress the fillet in the tree → body rebuilds a sharp
+      8,000 mm³ cube, row dimmed/SUPP, solve Solved, row stays (reversible);
+      un-suppress → fillet returns. Founder shots
+      docs/screenshots/feature-suppress-{before,on,off}-desktop.png +
+      feature-suppress-on-laptop.png (1440 + 1280×800). New `SuppressIcon`
+      design primitive (struck feature cell).
+- ✅ Dedicated Hole feature — SLICE 1 END-TO-END (2026-07-23): first-class
+      `HoleFeature` (face-placed point + diameter + through-all|blind, auto inward
+      cut direction), NOT a sketched circle. Analytic + sketch-cut-parity golden
+      (`hole-through-r5-40x25x10`); typed degradation (off-body / over-deep). WEB
+      authoring shipped (frontend-builder): a Hole command (band action + `O`)
+      hangs a `HoleEditor` like extrude/section — pick a face (the SAME
+      `FacePickOverlay` the on_face datum/sketch-on-face use), pick a point ON it
+      (the measure overlay's DOM-in-canvas point affordance; centre + face-corner
+      snaps via `HolePointOverlay`), set Ø + through-all|blind, drill; typed
+      rebuild errors read as guidance via `friendlyFeatureError`. e2e drills a
+      through-all + a blind hole in the UI on the real stack; 13 `hole.test.ts`
+      units. Erases the highest-frequency everyday modeling friction and
+      seeds Drawings hole callouts.
+- ✅ Dedicated Hole feature — SLICE 2 GEOMETRY CORE (counterbore + countersink,
+      2026-07-23): an additive `HoleType`-discriminated member on `HoleParamsV1`
+      (`simple` default reads byte-identical to slice 1 — no `param_version` bump,
+      the RevolveAxis/DatumParams idiom). Kernel `cut_counterbore` (a larger
+      coaxial cylindrical recess) + `cut_countersink` (a coaxial cone from the
+      mouth Ø to the bore Ø at the included angle, 82/90 std), cut alongside the
+      bore on the shared face-normal axis. Two analytic goldens
+      (`hole-counterbore-d18-r5-40x25x10` — π·r²·H+π·(R²-r²)·h, cross-checked vs an
+      independent 2-step extrude-cut; `hole-countersink-d18-90deg-r5-40x25x10` —
+      cone frustum); typed degradation `hole_cbore_invalid`/`hole_csink_invalid`/
+      `hole_too_deep` (never-500).
+- ✅ Dedicated Hole feature — SLICE 2 WEB authoring (counterbore + countersink,
+      2026-07-23): the `HoleEditor` grows a quiet `Type` SegmentedControl
+      (Simple | C'bore | C'sink) that reveals the recess fields — cbore Ø + depth,
+      csink Ø + included angle with 82°/90° fastener-standard preset chips. The
+      recess-Ø-exceeds-bore precondition is guarded client-side (inline field
+      error + disabled Create); `hole_cbore_invalid`/`hole_csink_invalid` are
+      humanised via `friendlyFeatureError`. Simple omits `type` on the wire so an
+      existing hole edits unchanged (backward-compatible). e2e drills a counterbore
+      AND a countersink in the UI on the real stack (Solved + a studio-shaded
+      recessed body); +11 `hole.test.ts` units. Hole slice 2 is END-TO-END in-app;
+      tapped hole type + drill-size tables remain (BACKLOG P2 tail).
+- ✅ Mirror feature — END-TO-END (geometry+DTO 2026-07-23; web authoring
+      2026-07-23): `MirrorFeature`/`MirrorParamsV1` reflect the current body about a
+      plane (origin datum XY/XZ/YZ or a `datum` feature — the SAME `GeomRef` a
+      sketch uses) and union the reflection into the chain (the reflective sibling
+      of the pattern feature; unlike a pattern, a disjoint reflection is a valid
+      2-lump body). Golden `mirror-triangle-prism-2x` (analytic 2V +
+      centroid-on-plane reflection proof); typed degradation (`no_target_body` /
+      `reference_unresolved` / `mirror_failed`) surfaced through the shared
+      `friendlyFeatureError`. WEB: a Modify-band Mirror command (shortcut I) hangs
+      a `MirrorEditor` in the extrude/hole editor seat, reusing the sketch-plane /
+      section-author plane picker (`resolveDatumPlaneOptions`) — origin radios +
+      datum FeatureRef choices, live readout, Enter/Esc; `mirror` added to the
+      frontend `BODY_AFFECTING_FEATURE_TYPES` set + drift-guard test. e2e
+      `mirror.spec.ts` mirrors a real body in the browser (Z-extent + volume
+      double about XY, `MirrorN` Solved in the tree).
 - ✅ STEP import v1 — kernel (`4964fab`) → gateway upload → UI file-picker,
       with a P1 security bound on the untrusted parse. **Interop row flips
       ❌→➖.** Parse bound hardened 2026-07-19: wall-clock → contention-invariant
@@ -201,10 +569,65 @@ coincident/concentric) + shared-mesh tessellation. Sequenced into 6 Ready
 items on `docs/BACKLOG.md` (document model → solver core → mate-geometry
 resolution → gateway endpoints → evaluation/tessellation DoD golden →
 frontend). Distance/angle mates landed as the fast-follow (2026-07-17,
-conventions pinned + goldens + frontend authoring UI). Still deferred past v1
-(design doc §5):
-interference detection, exploded views, BOM formatting, STEP-assembly
-export, flexible sub-assemblies, part-version pinning-as-default.
+conventions pinned + goldens + frontend authoring UI). **Assembly STEP export
+landed 2026-07-23** (P0 — `POST /api/v1/assembly/export`, AP214 product
+structure: each instance a named PRODUCT at its solved world placement via
+build123d's XCAF writer; byte-deterministic; worked export→re-import→placement
+round-trip over the bolted goldens). **Assembly interference/collision
+detection landed 2026-07-23** (P1 — `POST /api/v1/assembly/interference`,
+pairwise `BRepAlgoAPI_Common` over the solved world-placed bodies →
+`clashes: [{instance_a, instance_b, overlap_volume_mm3}]`; principled volume
+floor = one kernel-tolerance cube so a coincident-face touch is no clash; N²
+over bodied instances = accepted v1 bound; analytic 2500 mm³ overlap verified
+to 4.5e-13). **Interference robustness hardening landed 2026-07-23** (code-review
+🟡 on `e46db16` — the detector no longer swallows a `BRepAlgoAPI_Common` failure
+to a false "no clash": on the exception path a robust solved-world AABB-overlap
+fallback either confirms genuinely-clear (disjoint boxes) or surfaces the pair as
+`ClashPair.unresolved=true`, the safe direction for a collision check).
+**Gateway proxy boundary tests for both routes landed 2026-07-23**
+(E2 test-half — `test_assembly_export_proxy.py` + `test_assembly_interference_
+proxy.py`: auth/rate-limit/identity-free-upstream/pass-through/error-resurface).
+**E2 web consumers landed 2026-07-23** — the assembly page now exports the
+solved assembly to STEP/STL (shared `ExportRow`) and runs an in-app
+interference check surfaced as a "Clash" inspector view (per-pair overlap
+volumes + "No interferences found" empty state) with clashing instances
+flagged red across the tree + viewport; e2e `assembly-inspect.spec.ts` green
+on the real stack. This closes E2 (both halves). **Assembly STEP import SLICE 1
+(geometry XCAF reader) landed 2026-07-23** (P1 — `POST /api/v1/assembly/import`
++ `kernel/step_assembly.py`, the mirror of the export composer: `STEPCAFControl_
+Reader` walks the XDE product tree into `StepAssemblyImportResult{has_assembly_
+structure, products[{name, placement, mesh_glb_id, properties}]}`; export↔import
+round-trip recovers N products + world placements (centroid/vol within
+`roundtrip_tol`) + PRODUCT names, incl. off-axis rotation + repeated part; a
+flat/single-body STEP reports `has_assembly_structure=false`, MB-4b path intact.
+**SLICE 2a landed 2026-07-23 — reader hardened + editable-body field**: the
+untrusted XCAF `ReadFile`/`Transfer` + product-tree walk now run in the SAME
+killable subprocess (CPU-time `RLIMIT_CPU` + wall-clock backstop) the single-body
+reader uses — the DoS parse-bound is now WIRED, so slice-2b's gateway upload can
+land safely; the post-transfer walk/tessellate/measure/export phase is wrapped so
+any degenerate-but-transferable solid is a typed 422, never a raw 500; each
+product now carries an editable **LOCAL-frame B-rep** (`body_step`, a
+placement-stripped STEP fragment the single-body `import` feature ingests
+verbatim) content-addressed by `body_step_id` (repeated part → one stored B-rep,
+N instances). **SLICE 2b landed 2026-07-23 — assembly interop is now
+BIDIRECTIONAL**: documents `POST /api/v1/step-import` turns a
+`StepAssemblyImportResult` into a real graph — an `assembly` doc with one part
+per unique `body_step_id` (deduped) seeded with `ImportParamsV1(data=body_step)`
+(ZERO new ingest path) + one named instance per product at its placement
+(repeated part → ONE part / TWO instances), or the single-body MB-4b fallback —
+created ATOMICALLY (a rejected import leaves no orphan docs); gateway
+`POST /api/v1/assemblies/import` is the first untrusted-upload entry, auth +
+rate-limited with a streamed byte cap BEFORE forwarding and a product-count cap
+(`MAX_IMPORT_ASSEMBLY_PRODUCTS=500`) enforced on the read BEFORE documents (bounds
+the post-transfer fan-out a small STEP could encode). The "assembly is a one-way
+street" gap is CLOSED. **Response-amplification DoS hardened 2026-07-23**: the
+geometry read now bounds its OWN output — an occurrence-count cap aborts the walk
+inside the CPU-bounded child (`import_too_many_products`), and a total-`body_step`-
+byte cap (`MAX_IMPORT_RESPONSE_BYTES`=32 MiB) rejects a big body instanced many
+times before materialisation (`import_response_too_large`), so a small STEP can no
+longer make geometry emit a multi-GB response the gateway buffers whole; both typed
+422s. Still deferred past v1 (design doc §5): exploded views, BOM formatting,
+flexible sub-assemblies, part-version pinning-as-default.
 
 - ✅ Assemblies: instances, mates/joints — **v1 MVP complete 2026-07-15 (all 6
       items, backend→gateway→frontend); "bolt two parts together and see it" is
@@ -540,6 +963,205 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       geometry-service face→feature attribution — OverlayResult carries none
       today), live ghost previews (item 12), resting datum sheets / origin triad
       + parts-home thumbnails (item 13 remainder — snapshot pipeline).
+      **Hard-audit band fix ✅ 2026-07-24 (frontend-builder; UI-REVIEW
+      "2026-07-24 — HARD AUDIT" P0 + tooltip P1):** the command band's label
+      tier is now MEASURED, not breakpoint arithmetic — new `CommandBand`
+      primitive (packages/design) probes whether the fully labeled row fits
+      its own width (sync `data-band-tier` probe + Resize/MutationObserver,
+      re-run on resize + content change) and steps labeled→icon; `ToolButton`
+      labels collapse via ancestor-attribute CSS (the stale "≥1360px"
+      viewport arithmetic that hid SHEET METAL + INSPECT at 1440–1600 is
+      deleted); `overflow-x: clip` clamps the band so it can never widen the
+      root — no app-level horizontal scroll, hover/focus can't scroll the
+      frame. New `zLayer` token scale (overlay<panel<hud<band<menu, Tailwind
+      `z-*` names) makes page-level stacking one audited order and lifts band
+      tooltips (incl. disabled-gate reasons) above the floating panels.
+      Regression guard `e2e/toolbar-overflow.spec.ts` (7 tests: every group
+      reachable + root scrollWidth==clientWidth + hover/focus no-scroll +
+      tier-fits invariant at 1280/1440/1600 + labels return at 2400 + tooltip
+      z-order probe over the tree panel) — all green on the live stack, plus
+      band-adjacent suites (nav-chrome, undo-redo, full-flow, drawings,
+      assembly, measure: 35 specs) green; web unit 793 + design 37 pass.
+      Founder shots `toolbar-band-fix-{1440,1600}.png` +
+      `toolbar-tooltip-above-panel-1440.png` (befores = audit evidence
+      `audit-ui/19`/`29`). Remaining audit P1s (live preview,
+      feature-localized selection, right-click menus) queued in BACKLOG.
+      **Novice-flow UX P1 trio ✅ 2026-07-24 (frontend-builder; FINDINGS
+      #11–#13):** (#11) the "CANCEL ESC" promise is now real from any focus — a
+      single global window Esc handler in PartPage disarms any open feature
+      editor (was per-editor onKeyDown, dead outside the panel); the 17 feature
+      editors dropped their Escape branch so there is ONE cancel path (DRY), and
+      the hole/datum pick-armed cascade is preserved (Esc disarms the pick
+      first). (#12) select-then-D is discoverable — a quiet `[D] dimension`
+      status-bar affordance (`dimensionVerbHint`, reusing the real
+      `applyConstraintAction` acceptance so it never advertises a dead key).
+      (#13) `friendlyFeatureError` keys `profile_not_closed` on feature type, so
+      an open-profile extrude reads extrude advice, not revolve centerline text.
+      e2e: Esc-outside-panel + extrude-specific copy + hint-on-select; founder
+      shots `findings-{dimension-hint,extrude-error}-{desktop,laptop}.png`.
+      **Interaction-depth pair ✅ 2026-07-24 (frontend-builder; FINDINGS #8 +
+      #10):** (#8) the open extrude editor now paints a LIVE ghost of the swept
+      result that moves as the distance/direction change, before Save — the
+      viewport stops being "edit-blind." It is a client-side approximation
+      (`viewport/profileLoops.ts` stitches the solved profile into
+      outer/hole regions → `three.ExtrudeGeometry`), so there is no kernel
+      round-trip per keystroke; the ghost wears the studio matcap tinted toward
+      brass with brass B-rep edges (new `viewport.preview` tokens — one palette,
+      two renderers) and disposes its GPU resources on change/unmount. Datum +
+      fillet previews are the noted follow-ups. (#10) one reusable token-styled
+      `ContextMenu` design primitive now backs TWO right-click surfaces: the
+      viewport menu (fit / home / front·top·right·iso snaps + shortcuts /
+      new-sketch / sketch-on-face / measure + a selected-feature
+      suppress·delete section) and the feature-tree row menu (edit / inline
+      rename via a new `TextField hideLabel` seat / suppress / delete). Rename +
+      delete call the generated client's PATCH-name + DELETE-feature routes
+      (DRY, OCC + stale-retry like every tree write); every row is a wired action
+      (mandate 3a). Keyboard-navigable (roving focus, Home/End, Esc), focus-
+      visible, reduced-motion safe. web unit 810 + design 42 pass; e2e
+      `interaction-depth.spec.ts` (ghost-appears-pre-Save, view-snap-acts,
+      row-rename+delete, laptop width) green; founder shots
+      `extrude-ghost-{desktop,laptop}.png` +
+      `{viewport,tree}-context-menu-desktop.png`. **Feature-localized selection
+      ✅ 2026-07-24 (frontend-builder; FINDINGS #9):** the GLB merge keeps one
+      draw group per B-rep face (group ordinal == `OverlayFace.index`); the
+      `/overlay` per-face `feature_id` provenance (kernel enabler, same day) maps
+      a selected feature → its face set, which takes a deeper warm-brass matcap
+      multiply + brass boundary edges while the studio matcap is PRESERVED on the
+      rest — feature-select (proper subset) and whole-body select (a feature
+      owning every face) are distinct states. e2e `feature-selection.spec.ts` +
+      raster-independent QA hooks (`data-selected-faces`/`data-total-faces`);
+      founder shots `finding9-{feature-localized,whole-body}-{desktop,laptop}.png`.
+      This closes the interaction-depth trio (#8 preview, #9 selection, #10 menus).
+      **Interaction-polish + jargon clusters ✅ 2026-07-24 (frontend-builder;
+      FINDINGS #19 + #20):** #19 — (a) a face pick now reads as TOPOLOGY: the
+      face under the cursor (hover/armed) gets a translucent brass patch laid ON
+      its plane (built from the signature centroid/normal/area →
+      `viewport.facePick` tokens), not just a floating DOM square; (b) body hover
+      is perceptible — a quiet warm surface tint (`viewport.hoverSurfaceTint`) +
+      brass-hover edges, where the edge alone was invisible; (c) a discoverable,
+      dismissible NavCue teaches orbit/zoom/pan above the view rail (persisted,
+      gone after "Got it"); (d) the assembly scene gained depth — each instance
+      seats on its OWN contact pool (new Viewport `groundShadow` opt-out + per-
+      instance pools in AssemblyScene) instead of one flat blob. #20 — (a) the
+      most-hit gate drops solver jargon ("Solve a sketch first" → "Draw a
+      sketch…"); (b) the Hole editor slides to the right edge while a pick is
+      armed so it never covers its own pick target; (c) the dimension role
+      toggle is plain-language ("Sets size" / "Reference" + a gloss) not
+      DRIVING/DRIVEN; (d) icon-only ToolButtons (undo/redo) get a comfortable
+      ≥32px square target; (e) a just-saved feature's REBUILD error now mirrors
+      at the editor seat (`rebuild-notice`), not only across-screen in the tree.
+      web unit 815 + design 46 pass; lint/tsc green; e2e `findings-p2-shots`
+      (nav-cue, gate copy, body hover, assembly depth × 2 widths) + regression
+      of hole/datum-face-pick/dimension-expressions/makeover-batch3 green;
+      founder shots `findings-{nav-cue,extrude-gate-copy,body-hover,assembly-
+      depth}-{desktop,laptop}.png`. Deferred (noted): register de-templatizing
+      (#19, brief made optional).
+      **Cut-aware pattern + mirror ✅ 2026-07-24 (kernel-architect; FINDINGS
+      #1–#2, the silent-wrong-geometry pair):** patterning a **Hole** feature no
+      longer duplicates the whole body and mirroring a holed plate about its
+      midplane no longer fills the hole to a featureless brick. Root cause was
+      shared — both verbs inferred a cut source from the preceding feature but
+      recognized ONLY extrude-cut — so the fix is one seam: `_prev_cut_tools`
+      now also returns a Hole's captured bore(+recess) tools (`state.
+      last_hole_tools`, grabbed at hole-eval time from the pre-cut body so no
+      brittle post-cut face re-resolution), the pattern arrays those tools, and
+      `mirror_cut` reflects+removes them (vs `mirror_union`) when the source is a
+      cut. Volumes now analytically exact: pattern-of-hole 34492.04 (was 59497.3
+      whole-body union); mirror-of-holed-plate 29989.38 (was 32000.0 brick). Two
+      composed goldens (`pattern-cut-hole-feature-3x-60x60x10` tol 1e-9,
+      `mirror-hole-feature-plate-40x40x20` tol 1e-8) assert the analytic volume
+      + exact topology and fail on the old behavior; pattern/mirror/hole/golden/
+      step-roundtrip suites green, `hole.py` tool builders factored (DRY).
+      **Same-face reference resilience ✅ 2026-07-24 (kernel-architect; FINDINGS
+      #3):** editing one hole's diameter no longer orphans a sibling hole on the
+      SAME planar face (`subshape_unresolved`). Planar-face matching is now
+      two-tier: strict signature (normal+centroid+area) first, then — only when it
+      finds nothing — a resilient re-match on the strongest invariant alone
+      (same-sense normal + coincident supporting plane `centroid·normal`, invariant
+      under any in-plane boundary change), so a sibling reference survives the most
+      common parametric edit. Still honest: two distinct coplanar faces →
+      `subshape_ambiguous`, a genuinely-absent plane → `subshape_unresolved`. Shared
+      by every face resolver (`resolve_face_plane`/`resolve_faces` → hole/shell/
+      draft/on-face datum, one seam). Regression: the exact edit-A-then-B-resolves
+      scenario, at the resolver AND end-to-end through `/evaluate`. The frontend
+      keys its one-click re-pick affordance off the typed `subshape_unresolved`
+      FeatureError (code + `upstream_feature_id`), unchanged. **Bore
+      negative-diameter guard ✅ (FINDINGS #23):** `bore_tool`/`bore_hole` now reject
+      a non-positive diameter with a typed `HoleInvalidDiameterError` (mapped to
+      `hole_invalid_diameter`) instead of a raw OCCT `Standard_ConstructionError`;
+      xfail flipped to a real assertion (defence-in-depth past the API's `gt=0`).
+      **Undo cross-doc protection ✅ 2026-07-24 (backend-builder; FINDINGS #16):**
+      part undo/redo no longer bypasses the drawing-dependency guard. A section
+      view whose cutting plane is a FeatureRef into a datum feature now blocks
+      BOTH a direct feature delete (409 `feature_has_dependents`, the dependents
+      list now surfaces the drawing with `kind:"drawing"`) AND an undo/redo that
+      would remove that datum (409 `part_restore_conflict`, mirroring the assembly
+      restore guard) — one shared detection (`parts.section_view_feature_refs`)
+      both paths route through (DRY), so the view can no longer silently go
+      `failed: true` on the print. Regression test in `test_drawings.py`
+      (SQLite + Postgres); gateway resurfaces the new envelope verbatim (no change).
+      **Frontend polish wave 3 ✅ 2026-07-24 (frontend-builder; FINDINGS #17,
+      #18, #22, #3-fe):** (#17) part mass-props/bbox readouts now convert at the
+      display boundary through the SAME `@loft/design` units core the inputs use
+      (new `fromMmArea`/`fromMmVolume`/`areaUnitLabel`/`volumeUnitLabel`) — `in`
+      reads `0.61 in³`/`5.12 in²`, never raw mm; labels follow. (#18) a sheet
+      switcher (tabs + add) on the drawing page moves between sheets and appends
+      new ones (real `createSheet`/`createView` routes), each independently
+      set-up-able; per-sheet compose/export + drag-to-place backend SHIPPED
+      2026-07-25 (backend-builder): gateway `/{id}/export`+`/{id}/sheet` take an
+      optional `sheet` query param (sheet id; first when omitted; unknown →
+      `sheet_not_found` 404) threaded through `_aggregate_compose_request`, and a
+      new `views.auto_place` column (migration 0010) + `ViewUpdate.auto_place`
+      persists a dragged position (`auto_place=false`) that survives reload and is
+      honored in `SheetViewPlacement`. **Frontend follow-up B ✅ 2026-07-25
+      (frontend-builder):** the drawing page now (1) composes/exports the ACTIVE
+      sheet — `composeDrawingSheet`/`exportDrawing` thread the switcher's sheet id
+      as `?sheet=`, so sheet 2 renders its own paper (the old "managed secondary
+      sheet" placeholder is gone); and (2) authors a view's position by DRAGGING it
+      — an instrument-grade blueprint-blue view-frame + corner grip (drag or
+      arrow-key nudge) persists the dropped centre via `PATCH …/views/{id}`
+      (`auto_place:false`, y-flipped to the y-up SheetViewPlacement convention),
+      surviving reload, with an "AUTO" control returning the view to auto-layout.
+      New `updateView` client + `drawing.placement*` tokens; the SVG export strips
+      the placement chrome. web unit 820 + design 46 green; e2e
+      drawing-place-view (active-sheet compose + drag-persist-across-reload) +
+      drawing-sheets + drawings (10) green on the live stack; founder shots
+      `drawing-place-view-{before,after}-*` + `drawing-active-sheet-compose-1440`. (#22)
+      creating a part
+      from the register navigates straight into its workspace. (#3-fe) a
+      genuinely-unresolvable hole face shows a one-click "Re-pick face" in the
+      tree error row (keys off the typed `subshape_unresolved` FeatureError) that
+      opens the hole editor + re-arms its face pick. web unit 815 + design 46
+      pass; e2e: units-readout / drawing-sheets / repick-face / parts-home green
+      on the live stack; founder shots `units-readout-{mm,in}-*`,
+      `drawing-sheet-switcher-*`, `repick-face-*`.
+      **Drawings/HLR burn-down wave 3 ✅ 2026-07-24 (kernel-architect; FINDINGS
+      #6, #15, #21):** (#6) `place_sheet` resolves every view's anchor in one pass
+      — the standard quartet bounds-aware, the additive section/flat_pattern views
+      into a NON-OVERLAPPING free slot (never the old dead-centre collision onto
+      TOP/ISO), and any `SheetViewPlacement.auto_place=false` view honored at its
+      authored position (the drag-to-place seam; new `auto_place` field, additive).
+      (#15) `ComposedView` carries the source view's typed `FeatureError` through
+      compose, and SVG/PDF/DXF stamp the reason (+ `data-view-error-code`) so a
+      failed view prints WHY it is empty, not a bare "VIEW FAILED". (#21) `_canonicalize`
+      subtracts a visible line's collinear coverage from an overlapping hidden line, so
+      a partially-occluded segment is split at the overlap and never drawn both dashed
+      and solid. Regressions: 5-view zero-overlap sheet, honored-position, typed-error-
+      preserved, partial-occlusion split; flat-pattern-sheet goldens refreshed for the
+      additive `error` field; `just gen` clean.
+      **Assembly STEP name fidelity ✅ 2026-07-24 (kernel-architect; FINDINGS #7):**
+      the assembly STEP export wrote every PRODUCT name as the instance UUID, so a
+      Loft→STEP→Loft round trip recovered parts named `c8f8baa9-…` — positions
+      survived, identity did not. Fix threads the human-readable instance name on a
+      new optional `EvaluatedInstance.name` (populated at the documents
+      `build_evaluate_assembly_request` seam from `instance.name`) → `PlacedInstance`
+      → the STEP PRODUCT name, falling back to the id when absent (nameless requests
+      still valid). Import already preferred the stored PRODUCT name, so the round
+      trip now recovers `Base Plate`/`Top Plate` with placements intact. Regression
+      `test_step_assembly_export_preserves_human_readable_product_names_roundtrip`
+      (export names + full re-import fidelity) + a documents seam assertion; the
+      DTO is additive (`name?: string | null` in the regenerated ts-client), `just
+      gen-check` clean.
 - 🚧 **Datum-plane completeness (founder ask 2026-07-16).** **Backend slice ✅
       2026-07-16:** **midplane** (between two planes / picked faces / datums)
       + **offset CHAINING** (offset from another datum) as two additive
@@ -554,10 +1176,17 @@ export, flexible sub-assemblies, part-version pinning-as-default.
       resolves any datum kind to its sketch basis by the same math the kernel
       evaluates (`resolveDatumBasis`), so these datums are sketchable + preview
       in the plane picker; e2e authors a midplane + an offset_from through the
-      real stack and extrudes bodies at the resolved heights. Remaining:
-      midplane FACE-sides + `on_face` authoring in the editor (filed — needs
-      the FacePickOverlay wired into the standalone editor), and the angled /
-      3-point / tangent / normal-to-curve kinds.
+      real stack and extrudes bodies at the resolved heights. **Midplane
+      FACE-sides + `on_face` authoring ✅ 2026-07-23 (frontend-builder):** the
+      `FacePickOverlay` is wired into the standalone `DatumEditor` — an `on_face`
+      kind and either midplane side arm the same viewport face pick as
+      sketch-on-face, folding a clicked planar face in as a full-precision
+      `SubshapeRef` (reusing `faceSubshapeRef`/`onFaceDatumParams`, so kernel
+      resolution matches sketch-on-face); editing a face-datum re-seeds its
+      stored signature; e2e (`datum-face-pick.spec.ts`, 5 tests) proves each
+      authored face-datum evaluates "Solved" + survives reload; founder shots
+      `datum-on-face-*`. Remaining: the angled / 3-point / tangent /
+      normal-to-curve kinds.
 - ⬜ Document versioning: history, branch, merge-view (design doc first) —
       the assemblies design doc's `ref_pinned_version` field is schema-ready
       for this; v1 assemblies track tip (design doc §1.3).
@@ -568,8 +1197,9 @@ export, flexible sub-assemblies, part-version pinning-as-default.
 
 **Header corrected 2026-07-19** (was stale ⬜ "planned" though most of the
 phase shipped): STEP import v1 + multi-solid, Drawings v1 + server-composed
-export, and Sheet metal v1 (Phase 4b below) are all done; IGES, named
-assembly-structure import, and healing remain ⬜, keeping the phase 🚧.
+export, Sheet metal v1 (Phase 4b below), and **named assembly-structure STEP
+import (2026-07-23, slices 1+2a+2b — assembly interop now bidirectional)** are
+all done; IGES and healing remain ⬜, keeping the phase 🚧.
 
 - 🚧 STEP/IGES import with healing report — **STEP import v1 shipped
       end-to-end** (kernel `4964fab` → gateway upload → UI file-picker,
@@ -788,8 +1418,54 @@ assembly-structure import, and healing remain ⬜, keeping the phase 🚧.
       the real stack — lay out + dimension, click Export DXF, catch the download,
       assert a real `0\nSECTION`/`ENTITIES` R2000 DXF (7/7 drawings specs green).
       **The Drawings export loop SVG / PDF / DXF is now complete.** Remaining in the
-      pillar: section/detail/assembly views (DE-1c client-placement cutover DONE —
-      see below).
+      pillar: detail/assembly views (section-view now FULLY END-TO-END — E1a wire +
+      E1b web authoring both done 2026-07-23, see below; DE-1c
+      client-placement cutover DONE — see below).
+      **Drawings SECTION VIEWS v1 — FULLY END-TO-END (E1a wire + E1b web authoring,
+      SHIPPED 2026-07-23).** E1b adds the in-app authoring surface: a
+      `SectionAuthorPanel` (`drawing-section` command-band action + `S` shortcut)
+      picks the cutting plane — REUSING the sketch plane picker's exact GeomRef
+      vocabulary (origin datums OR an in-tree datum `FeatureRef`, via the shared
+      `resolveDatumPlaneOptions`) — and the removed half, then persists a `section`
+      view's `section_params`; the sheet composes + hatches it on-screen (new
+      `drawing-hatch` render + `drawing.hatch` token matching the server serializer).
+      The v1 axis-aligned precondition is pre-checked client-side and the server's
+      typed `section_plane_not_principal` renders as readable guidance. UI-authored
+      → hatched-section e2e (`section-view.spec.ts`). The section-view scorecard row
+      is now honestly ✅ (kernel + wire + web authoring, not just export). The
+      geometry op + wire below (E1a):
+      **Drawings SECTION VIEWS v1 — END-TO-END WIRE (E1a SHIPPED 2026-07-23).** The
+      kernel op below (shipped + adversarially geometry-QA-verified 2026-07-23,
+      `137a929`→`57dca7a`) is now a REAL capability: the geometry evaluate/compose
+      wire carries `section_params` PER-VIEW (a `dict[int, SectionViewParams]` keyed
+      by the section view's index into `views`, replacing the level-mismatched single
+      request field — non-section sheets stay byte-identical), geometry consumes each
+      section view's own params, and the gateway `_compose_request` threads each
+      persisted `ViewResponse.section_params` into that map (`grep section` in
+      `services/gateway/src/gateway/drawings.py` → hits, was 0). A geometry
+      end-to-end guard composes a stored section (multi-view front+section sheet) to a
+      real hatched-section SVG (never `section_params_missing`) + a gateway test guards
+      the threading. Remaining: **E1b (P2)** — a web surface to author a view's section
+      datum+offset (currently API-only). The scorecard section-view row can move toward
+      ✅ for export; the on-screen authoring surface is E1b. What is shipped + verified:
+      single planar full section of a single-body part by
+      principal / axis-aligned-offset datum reference — `drawings/section.py`
+      half-space cut (`boolean_bodies(allow_disjoint=True)`), exact coplanar
+      section-face loops (`BRepTools_WireExplorer` emitting exact wire vertices +
+      sampling only curved edges — replaced a 128-gon arc sampler that dropped
+      corners), behind-geometry HLR via the shipped `project_view`, and a
+      `ComposedHatch` (ANSI-45° even-odd scanline clip) rendered across all three
+      serializers (SVG/PDF/DXF); `views.section_params` jsonb (migration 0008,
+      nullable). Independent **code-review + geometry-QA both** caught a P0
+      wrong-half bug — a front (XZ) section removed the half keyed off
+      `plane.z_dir`'s sign instead of the standard-view EYE — fixed `57dca7a`:
+      `resolve_section_frame` single-sources the removed-half sign through
+      `view_normal(view)` and passes it verbatim to `_half_space_tool`. Adversarial
+      audit suite (`test_drawings_section_audit.py`, 14 tests, **0 xfail** after
+      the fix, incl. `..._four_exact_corners`) + full quiet-window sweep green:
+      `just lint`, full geometry pytest (exit 0), `just e2e` (geometry gates 153 +
+      Playwright **191** passed). Oblique cut planes + the `project_view` view-frame
+      refactor are deferred to v2 (design doc §11).
       **Drawing export DE-1b — JSON compose endpoint (`ComposedSheet` model) SHIPPED**
       (2026-07-18): the backend prerequisite for the DE-1c client cutover — the
       frontend must RENDER from the server's placement, so it needs the placed model
@@ -827,9 +1503,167 @@ assembly-structure import, and healing remain ⬜, keeping the phase 🚧.
       baselines (sheet region pixel-identical; only transient interaction chrome
       differs); `just lint` green. **ONE placement source; the time-boxed two-engine
       window is CLOSED — the drawing-export initiative (DE-0…DE-3) is complete.**
+      **Drawing export DE-4 — content-addressed stored artifact SHIPPED**
+      (2026-07-23): the deferred stored-artifact tail. `geometry.drawing_store`
+      caches composed SVG/PDF/DXF bytes on the SAME object-storage seam as the mesh
+      store, keyed on `drawing_artifact_key` = SHA-256 of the whole
+      `ComposeDrawingRequest` (feature prefix / views / scale / dimensions / sheet
+      layout + `format`), so a repeat export of an unchanged drawing is served
+      byte-identically from storage WITHOUT re-composing (`X-Loft-Artifact-Cache:
+      hit`) and any edit misses + recomposes — never a stale artifact. Shared
+      `S3DrawingArtifactStore` when `S3_URL` set, in-process LRU fallback otherwise
+      (no single-worker guard: a compose-cache miss just recomposes, unlike the
+      mesh store's fetch). No contract/schema change (internal seam); geometry
+      pytest + goldens byte-unchanged + `just lint` green. **Drawings v1 tail
+      closed.**
+      **Drawings auto-layout sheet-SIZE control SHIPPED** (2026-07-23,
+      frontend-builder): the WB-64 dogfooding tail after the fit-scale half —
+      a sheet-size picker (A4→A0 + ANSI, `SHEET_SIZE_OPTIONS`) in the drawing
+      command band (the same `SelectField` the scale picker uses), wired through
+      `handleLayout`/`handleFlatPattern` so the chosen size flows to
+      `createSheet` AND `sheetDimensions/standardLayout/fitScale` (was hardcoded
+      A4). Fit-scale now fits the four views to the CHOSEN sheet — a 200×140×30
+      part gets 1:5 on A4 but 1:2 on A3. 5 unit cases + a new drawings e2e (pick
+      A3 → viewBox 420×297, 1:2), founder shots `drawings-size-picker-1440.png`
+      + `drawings-sheet-size-a3-1440.png`. Residual (BACKLOG): flat-pattern
+      auto-fit (needs unfolded extents, not the 3D bbox).
+      **Drawings note annotations — EXPORT half SHIPPED** (2026-07-23): the WB-64
+      dead-capability fix — an authored `NoteAnnotationParams` (text + `SheetPoint`)
+      was stored yet NEVER drawn. `place_sheet` now threads the request's authored
+      `annotations` into a `ComposedNote` list (each placed verbatim at its
+      sheet-mm anchor, request order preserved) and all three server serializers
+      draw them: SVG/PDF left-anchored graphite `<text>` at the point, DXF a real
+      `TEXT` entity on an additive `NOTES` layer (CAD-editable, not a picture) —
+      consistent with the title-block stamped text. `annotations` added to
+      `ComposeDrawingRequest` (was absent → the DE-4 content-addressed cache key
+      picks it up automatically, so a note edit misses + recomposes). New
+      `compose_note_goldens/` byte-goldens prove the note lands at its `SheetPoint`
+      in all three formats + reproduces across a fresh interpreter; a note-FREE
+      sheet stays byte-identical (additive — empty `notes` emits nothing). Contracts
+      regenerated (`ComposedNote` + `ComposedSheet.notes[]` + request `annotations`).
+      Geometry pytest + all pre-existing goldens byte-unchanged + `just lint` green.
+      **Drawings note annotations — DOM-sheet half SHIPPED** (2026-07-23): the
+      paired follow-on. `DrawingSheet.tsx` draws `composed.notes` as `<text
+      data-testid="drawing-note">` verbatim at each final-sheet-mm point
+      (left-anchored graphite, new `drawing.noteTextMm` = 3.2 token matching the
+      server `_NOTE_TEXT_MM`). Built the authoring surface the export half assumed
+      but that did NOT exist in `apps/web`: a Notes panel (add/list/delete) +
+      `createAnnotation`/`deleteAnnotation` (`api/drawings.ts`), invalidating tree +
+      compose so a note appears live. Fixed a real gap the export half left: the
+      gateway `_compose_request` never threaded persisted `sheet.annotations`, so
+      `ComposedSheet.notes` was ALWAYS empty (export half non-functional from
+      persisted state) — now wired (1 line). New drawings e2e authors a note and
+      asserts `drawing-note` on the DOM sheet + delete; founder shot
+      `docs/screenshots/drawings-note-1440.png`. WB-64 note capability now COMPLETE
+      end-to-end (author → screen → SVG/PDF/DXF).
+      **Drawings title-block free-text (D1) — EXPORT half SHIPPED** (2026-07-23):
+      the same NOTES-class dead-capability, hit the founder directly (WB-64's GA
+      authored `title_block {author:"LOFT ENGINEERING", date, notes:"material…"}`
+      but the export dropped author/date/notes). `_title_block()` stamped only
+      title+scale+size; now it threads the authored `TitleBlock` free-text onto
+      `ComposedTitleBlock.author/date/notes` (whitespace-blank→None, truncated to
+      fit) and all three serializers stamp them as labeled left-cell rows
+      (DRAWN/DATE/NOTES, below the title, above the LOFT footer) — SVG `<text>` with
+      `data-testid="title-block-{author,date,notes}"`, PDF Courier runs, DXF real
+      `TEXT` on the `TITLE` layer. PROCESS-GUARD golden added
+      (`compose_title_block_goldens/`, all three fields set) — the "golden that
+      would have gone red"; an empty title block stays byte-identical (serialized
+      SVG/PDF/DXF unchanged; the 2 flat-pattern-sheet MODEL-hash goldens refresh
+      for the additive null fields, precedent b0cb16a). Contracts regenerated
+      (`ComposedTitleBlock` +author/date/notes). Geometry pytest + `just gen-check`
+      green. DOM half (on-screen `DrawingSheet.tsx`) split → BACKLOG D1b.
+      **Drawings D4 — assembly-view dead-cap GATED honestly SHIPPED** (2026-07-23):
+      `ref_document_kind="assembly"` is a persistable, pin-ready schema member, but
+      the part-only compose wire made an assembly-referencing view fetch a
+      non-existent `/parts/{id}/evaluation-request` → an opaque downstream 404. The
+      gateway compose aggregation (`_aggregate_compose_request`, both `/export` +
+      `/sheet`) now rejects an assembly-kind view FAST with a typed 422
+      `assembly_views_unsupported` ("reference a part") BEFORE any part/compose hop;
+      part views unaffected. Enum stays for the WIRE fast-follow (BACKLOG Drawings
+      parity #4 — assembly views + BOM/balloons). Gateway pytest + `just gen-check`
+      (no drift) green.
+      **Drawings parity #4 — SLICE 1 (assembly-view geometry core) SHIPPED**
+      (2026-07-23): `evaluate_assembly_drawing_views`
+      (`geometry/drawings/assembly_project.py`) projects a solved ASSEMBLY (not a
+      single part) — `solve_assembly` (reused verbatim) → `place_body` each
+      instance at its solved world pose → compose ONE `Compound` → the SAME exact
+      HLR `project_view` per view (occlusion resolved across instances, hidden
+      lines dashed). Sibling DTOs `EvaluateAssemblyDrawingViewsRequest`/`Result`
+      (reuse `EvaluateAssemblyRequest` verbatim; new lean `InstanceEvaluationError`)
+      + route `POST /drawing/assembly/evaluate`; `just gen` regenerated (no drift).
+      Golden `test_drawings_assembly_project`: a 2-cube assembly front = 4 visible
+      + 4 HIDDEN (small cube occluded behind the big cube), top/right = 8 visible
+      union of two disjoint silhouettes; rotated-instance silhouette; single-
+      instance == the part alone (byte-identical); typed degradation (bodyless
+      instance / all-bodyless / unsupported flat_pattern|section view kind);
+      in-process determinism. Geometry pytest + `just lint` + `just gen-check`
+      green. Gateway-gate-removal + documents-resolution + BOM/balloons + web
+      remain (BACKLOG D4 next slices).
+      **Drawings parity #4 — SLICE 2 (gateway gate-removal + documents
+      resolution) SHIPPED** (2026-07-24, backend-builder): the
+      `assembly_views_unsupported` fast-reject 422 is REMOVED from
+      `_aggregate_compose_request` (both `/export` + `/sheet`). documents grows
+      `GET /assemblies/{id}/evaluation-request` (`build_evaluate_assembly_request`
+      — the graph read `ordered_instances`/`ordered_mates` reused + each part
+      instance's rollback-applied prefix via the extracted shared
+      `documents.features.evaluation_prefix`, DRY); the gateway resolves an
+      assembly-kind view through it and threads the reused
+      `EvaluateAssemblyRequest` as the NEW additive
+      `ComposeDrawingRequest.assembly` field (part fields echo id/version +
+      empty features; `assembly=None` keeps part composes byte-identical).
+      Single-LEVEL assemblies fully resolve; NESTED sub-assembly instances
+      contribute an empty prefix (typed per-instance `no_body` downstream) —
+      flatten deferred. documents + gateway suites, `just lint`, `just gen`
+      (documents/geometry contracts + ts-client) green.
+      **Drawings parity #4 — SLICE (a) geometry compose branch SHIPPED**
+      (2026-07-24): `compose_drawing_route`/`compose_sheet_route` branch on
+      `request.assembly` → `evaluate_assembly_drawing_views` → mapped into the
+      `EvaluateDrawingViewsResult` `place_sheet` consumes (`assembly_error`→
+      `part_error`; dimensions empty, assembly-view dims out of v1). **Assembly
+      drawing views now compose REAL silhouettes (visible + hidden-dashed)
+      END-TO-END at the API**; `assembly=None` part composes byte-identical;
+      6 new compose gates + drawings regression suites green; stale
+      `project_view` docstring fixed. (Reconciled by the orchestrator after the
+      builder was killed by the session usage limit mid-regression; re-verified
+      green — format + contracts regen completed, gen-check + web typecheck
+      clean.) Remaining: BOM/balloons + web rendering + nested flatten
+      (BACKLOG D4).
+      **D1b (DOM half) SHIPPED** (2026-07-23): on-screen `TitleBlock` stamps the
+      same DRAWN/DATE/NOTES rows the SVG/PDF/DXF emit, shared `titleBlockFields`
+      helper. **D3 SHIPPED** (2026-07-23): `bounds_aware_layout` branches on
+      `layout.projection` — first-angle drops top below front + right to the left
+      (ISO 128), third-angle stays the byte-identical default; first-angle compose
+      golden doubles as the process-guard. **D2 SHIPPED** (2026-07-23):
+      `build_dimension_annotation` seeds the linear offset from a non-zero
+      `placement.offset_mm` and honors `placement.text_pos` verbatim; default
+      placement (every shipped dim) stays byte-identical. **D5/D6 remain open**
+      (orientation authoring, multi-sheet compose) — BACKLOG Ready.
+      **MB-4c tail (wire + frontend) SHIPPED** (2026-07-19/23): `EvaluateTreeResult.
+      bodies[{base_feature_id, lumps}]` (additive) + a Bodies-panel "N solids"
+      badge — a disjoint union / multi-solid import now reads as multi-solid at a
+      glance.
+      **Section views v1 — SHIPPED** (kernel-architect, 2026-07-23): a single
+      planar FULL section of a single-body part, cut by a principal / axis-aligned-
+      offset datum plane specified by DATUM REFERENCE (`SectionViewParams`, reused
+      `GeomRef`). Kernel `drawings/section.py` sizes/positions the half-space tool
+      from the projected bbox (no notch bug), cuts via `boolean_bodies(...,
+      allow_disjoint=True)` keeping all lumps, extracts + canonicalises the coplanar
+      cross-section loops, and HLR-projects the behind-geometry through the SHIPPED
+      `project_view` with the derived STANDARD direction (N is a principal axis → NO
+      frame refactor; oblique + the frame generalization are v2/§11). A `ComposedHatch`
+      primitive renders the ANSI-45° even-odd scanline crosshatch across SVG/PDF/DXF
+      (export-only; on-screen hatch deferred). `views.section_params jsonb` migration
+      (0008). Goldens: wrong-half correctness (asymmetric-along-N boss cut away on the
+      eye side), multi-loop hatch (bored face, holes carved), byte-determinism
+      in-proc + fresh interpreter; standard-view + flat-pattern EXPORT goldens
+      byte-identical (the model-dump content-hash pins regenerated additively, the
+      bend_table pattern). Honest degradation: `section_plane_not_principal` /
+      `section_plane_misses_body` / `section_empty` / `subshape_unresolved`, never a
+      crash. Spike de-collected on greenlight.
 - ⬜ 3MF/OBJ export; mesh quality controls
 
-## Phase 4b — Sheet metal ✅ (v1 complete 2026-07-19)
+## Phase 4b — Sheet metal 🚧 (v1 DoD met 2026-07-19; RE-OPENED same day for a
+founder-directed full-incumbent-parity campaign — see "Current focus" above)
 
 **v1 DoD MET, complete 2026-07-19** ("one bracket → a flat blank a shop can
 cut"; VISION scorecard ❌→➖, held short of ✅ on the depth-1-bend-star scope

@@ -73,6 +73,15 @@ export const FlatPatternIcon = (p: IconProps) => (
   </Icon>
 );
 
+/** Section view — a cut face filled with the ANSI 45° crosshatch, crossed by the
+ * cutting-plane line (the drawing convention: hatch the solid the plane slices). */
+export const SectionIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x={5} y={7} width={14} height={10} />
+    <path d="M7 17 L17 7 M11 17 L19 9 M5 15 L13 7" strokeWidth={1} />
+  </Icon>
+);
+
 export const CircleIcon = (p: IconProps) => (
   <Icon {...p}>
     <circle cx={12} cy={12} r={7} />
@@ -425,6 +434,83 @@ export const DraftIcon = (p: IconProps) => (
 );
 
 /**
+ * Hole = a drilled cylindrical bore into a face. An iso plate (the placement
+ * face) carries a round bore MOUTH (the ellipse — a circle seen at an angle),
+ * and the drill axis descends INTO the material with an arrowhead (the cut
+ * direction, opposite the outward face normal). The round mouth + downward axis
+ * is the thing no other feature glyph shows, so it reads as "drill a hole",
+ * never a pocket (extrude-cut) or a hollow (shell).
+ */
+export const HoleIcon = (p: IconProps) => (
+  <Icon {...p}>
+    {/* The placement face the hole is drilled into (iso top). */}
+    <path d="M4 7 L12 3 L20 7 L12 11 Z" />
+    {/* The bore mouth — a round opening seen at an angle. */}
+    <ellipse cx="12" cy="7" rx="2.6" ry="1.3" />
+    {/* The drill axis into the solid (down, with the cut-direction arrow). */}
+    <path d="M12 8.4 V19 M12 19 L10.6 17.3 M12 19 L13.4 17.3" />
+  </Icon>
+);
+
+// --- Sheet metal features ---------------------------------------------------
+
+/**
+ * Base flange = the sheet-metal part's first body — a flat plate at gauge. A
+ * thin iso slab (top face parallelogram + a visible front/side thickness): the
+ * gauge is the thing this glyph shows that a plain extrude solid does not, so it
+ * reads as "flat sheet at a fixed thickness", the anchor the bends fold off.
+ */
+export const BaseFlangeIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M3 12 L9 8 H21 L15 12 Z" />
+    <path d="M3 12 V15 L15 15 V12" />
+    <path d="M15 15 L21 11 V8" />
+  </Icon>
+);
+
+/**
+ * Edge flange = a leg folded up off a straight edge of the sheet. An L-section
+ * strip of CONSTANT gauge (two parallel outlines a wall-thickness apart) bent
+ * about a radius — the double outline + bend arc say "the sheet itself is
+ * folded", distinct from the fillet's solid rounded corner.
+ */
+export const EdgeFlangeIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M4 14 H13 A3 3 0 0 0 16 11 V4" />
+    <path d="M4 17 H14 A6 6 0 0 0 20 11 V4" />
+    <path d="M16 4 H20" />
+    <path d="M4 14 V17" />
+  </Icon>
+);
+
+/**
+ * Closed hem = a sheet edge folded ~180° back FLAT onto itself. The parent
+ * plate runs in, makes a tight U-turn at the edge, and the return layer folds
+ * back over it a gauge-gap above — the doubled edge that reads "hemmed", not
+ * "flanged" (the edge-flange icon folds a leg UP; this folds one BACK).
+ */
+export const HemIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M3 15 H18 A2 2 0 0 0 18 11 H8" />
+    <path d="M3 15 V12" />
+  </Icon>
+);
+
+/**
+ * Corner relief = the shared corner of two adjacent flanges with a small square
+ * notch removed so the blank develops flat. Two solid flange legs meet at the
+ * corner; the removed notch is drawn as a dashed square (the cut material) —
+ * an engineering-drawing "this is taken away" reading, not a generic cutout.
+ */
+export const CornerReliefIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M10 10 V20 H4 V10 Z" />
+    <path d="M10 10 H20 V4 H10 Z" />
+    <path d="M4 4 H10 V10 H4 Z" strokeDasharray="2 1.5" />
+  </Icon>
+);
+
+/**
  * Pattern = the seed body copied into an array — a 2×2 grid of square cells,
  * the top-left one punched to mark the seed (instance 0). Reads as "repeat",
  * and its square cells tie it to the title-block grid rather than a generic
@@ -590,6 +676,21 @@ export const SheetExportIcon = (p: IconProps) => (
     <path d="M14 14 V10 H20" />
     <path d="M12 15 V22" />
     <path d="M8.5 18.5 L12 22 L15.5 18.5" />
+  </Icon>
+);
+
+// --- Feature tree -----------------------------------------------------------
+//
+// The tree-row verbs, in the title-block idiom. Suppress = a feature struck
+// from the build sheet: the square feature cell scored through with a redline
+// — the inspection-sheet "deliberately excluded" mark, reversible, distinct
+// from a delete (nothing is removed, the line just stops being built).
+
+/** Suppress = a feature cell struck from the build (a redline through it). */
+export const SuppressIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x={5} y={7} width={14} height={10} />
+    <path d="M4 20 L20 4" />
   </Icon>
 );
 

@@ -24,6 +24,9 @@ from fastapi import APIRouter, Query, status
 from py_kit import ConflictError, NotFoundError, ValidationApiError, get_logger
 from py_kit.db import SessionDep
 from py_kit.schemas.drawings import (
+    MAX_DRAWING_ANNOTATIONS,
+    MAX_DRAWING_DIMENSIONS,
+    MAX_DRAWING_VIEWS,
     AngularDimensionParams,
     Annotation,
     AnnotationCreate,
@@ -41,6 +44,7 @@ from py_kit.schemas.drawings import (
     DrawingTreeResponse,
     DrawingUpdate,
     RadiusDimensionParams,
+    SectionViewParams,
     SheetContent,
     SheetCreate,
     SheetMutationResponse,
@@ -138,6 +142,22 @@ async def _renumber_dense(
             )
 
 
+async def _sheet_views(session: AsyncSession, sheet_id: uuid.UUID) -> list[db.View]:
+    """A sheet's views in ``order_index`` order, typed as :class:`db.View`.
+
+    The narrow twin of :func:`_ordered` (which returns the untyped row union):
+    the sheet-consistency guards below need the VIEW columns (``ref_document_id`` /
+    ``scale_*`` / ``projection``), and reading them once also supplies the append
+    position — one query where ``_count`` + a read would have been two.
+    """
+    result = await session.execute(
+        select(db.View)
+        .where(db.View.sheet_id == sheet_id)
+        .order_by(db.View.order_index)
+    )
+    return list(result.scalars())
+
+
 async def _ordered(
     session: AsyncSession,
     model: _OrderedModel,
@@ -203,6 +223,64 @@ async def _get_annotation_and_sheet(
     return annotation, sheet
 
 
+def _ensure_sheet_source(
+    siblings: list[db.View],
+    ref_document_id: uuid.UUID,
+    ref_document_kind: str,
+    scale: ViewScale,
+) -> None:
+    """One sheet, one source document, one scale (engineering audit **H2**) → 422.
+
+    **The design decision, stated once here.** A sheet composes from EXACTLY ONE
+    source document at EXACTLY ONE scale: ``ComposeDrawingRequest`` carries a single
+    ``part``/``assembly`` source and a single ``scale``, so the gateway necessarily
+    reduces a sheet to its FIRST view's document + scale
+    (``gateway.drawings._compose_request``). Before this guard the schema permitted
+    a sheet whose views named different parts or different scales, and the export
+    then projected EVERY view from view 0's part at view 0's scale — silently, with
+    the other views' captions intact. A wrong drawing that prints is worse than a
+    refused one, so documents REFUSES the inconsistent write (option (a) of the
+    audit's two): the invariant the whole stack already assumes is now enforced at
+    the only place that can create the violation.
+
+    Per-view sources / per-view scales are a real feature (multi-part detail
+    sheets), not a bug fix: threading them means per-view sources through
+    ``ComposeDrawingRequest`` + geometry, a separate slice (BACKLOG). Until then a
+    caller re-points a sheet by deleting its views (the same rule that already makes
+    re-pointing a view a delete + recreate) or drafts on another sheet.
+    """
+    if not siblings:
+        return
+    source = siblings[0]
+    if (
+        ref_document_id != source.ref_document_id
+        or ref_document_kind != source.ref_document_kind
+    ):
+        raise ValidationApiError(
+            "Every view on a sheet must reference the same document: this sheet "
+            f"already drafts {source.ref_document_kind} {source.ref_document_id}. "
+            "Use another sheet for a different part or assembly.",
+            code="sheet_source_document_mismatch",
+            details={
+                "sheet_ref_document_id": str(source.ref_document_id),
+                "sheet_ref_document_kind": source.ref_document_kind,
+                "ref_document_id": str(ref_document_id),
+                "ref_document_kind": ref_document_kind,
+            },
+        )
+    if (scale.numerator, scale.denominator) != (source.scale_num, source.scale_den):
+        raise ValidationApiError(
+            "Every view on a sheet must share one scale: this sheet drafts at "
+            f"{source.scale_num}:{source.scale_den}. Per-view scale is not "
+            "composed in v1.",
+            code="sheet_view_scale_mismatch",
+            details={
+                "sheet_scale": f"{source.scale_num}:{source.scale_den}",
+                "scale": f"{scale.numerator}:{scale.denominator}",
+            },
+        )
+
+
 def _validate_dimension(dimension: DimensionParams) -> None:
     """Write-time semantic checks a dimension can carry (design §3.1) → 422.
 
@@ -253,6 +331,12 @@ def _view_response(view: db.View) -> ViewResponse:
         projection=view.projection,  # type: ignore[arg-type]
         scale=ViewScale(numerator=view.scale_num, denominator=view.scale_den),
         position=SheetPointDTO(x_mm=view.pos_x_mm, y_mm=view.pos_y_mm),
+        auto_place=view.auto_place,
+        section_params=(
+            SectionViewParams.model_validate(view.section_params)
+            if view.section_params is not None
+            else None
+        ),
         order_index=view.order_index,
         created_at=view.created_at,
         updated_at=view.updated_at,
@@ -545,6 +629,14 @@ async def create_view(
     and belong to the caller (else ``ref_document_not_found`` 422). No acyclicity
     check — a drawing is a leaf consumer (§2.2). ``ref_pinned_version`` is stored
     NULL: v1 tracks the referenced document's tip (§2.3).
+
+    Also enforces the SHEET-consistency invariant (design §2.2 "one sheet, one
+    source"; engineering audit H2): every view of a sheet must reference the SAME
+    document at the SAME scale, because composition threads exactly one source +
+    one scale per sheet (``ComposeDrawingRequest``). A mismatch is a typed
+    ``sheet_source_document_mismatch`` / ``sheet_view_scale_mismatch`` 422 —
+    the alternative was silently projecting every view from the first view's part
+    at the first view's scale, i.e. a wrong drawing a shop would cut from.
     """
     drawing = await get_owned_drawing(session, owner_id, drawing_id, for_update=True)
     _ensure_fresh(drawing, request.expected_version)
@@ -563,7 +655,21 @@ async def create_view(
             },
         )
 
-    position = await _count(session, db.View, db.View.sheet_id, sheet.id)
+    siblings = await _sheet_views(session, sheet.id)
+    position = len(siblings)
+    # Write-side twin of the compose/evaluate `max_length=MAX_DRAWING_VIEWS`
+    # parse bound (audit G2): a sheet must never accumulate views the compose
+    # contract rejects, or every later export read would fail building the DTO.
+    if position >= MAX_DRAWING_VIEWS:
+        raise ValidationApiError(
+            f"A sheet holds at most {MAX_DRAWING_VIEWS} views (per-request "
+            "work bound); delete views before adding more.",
+            code="view_limit_exceeded",
+            details={"max_views": MAX_DRAWING_VIEWS},
+        )
+    _ensure_sheet_source(
+        siblings, request.ref_document_id, request.ref_document_kind, request.scale
+    )
     view = db.View(
         id=uuid.uuid4(),
         sheet_id=sheet.id,
@@ -575,6 +681,12 @@ async def create_view(
         scale_den=request.scale.denominator,
         pos_x_mm=request.position.x_mm,
         pos_y_mm=request.position.y_mm,
+        auto_place=request.auto_place,
+        section_params=(
+            request.section_params.model_dump(mode="json")
+            if request.section_params is not None
+            else None
+        ),
         order_index=position,
     )
     session.add(view)
@@ -602,6 +714,12 @@ async def update_view(
 ) -> ViewMutationResponse:
     """Re-frame / re-scale / re-place a view (bumps ``doc_version``).
 
+    The drag-to-place write path (drawing-export.md §4.2): a frontend PERSISTS a
+    dragged position by patching ``position`` + ``auto_place=false`` — the position
+    then survives reload and the compose/export path honors it verbatim (threaded
+    into ``SheetViewPlacement.auto_place``) instead of auto-placing. ``auto_place=true``
+    returns the view to bounds-aware auto-layout.
+
     Re-pointing the referenced document is deliberately NOT an update (it changes
     which body the view's dimensions resolve against) — delete + recreate.
     """
@@ -609,14 +727,33 @@ async def update_view(
         request.projection is None
         and request.scale is None
         and request.position is None
+        and request.auto_place is None
     ):
         raise ValidationApiError(
-            "Provide at least one of projection, scale, or position.",
+            "Provide at least one of projection, scale, position, or auto_place.",
             code="empty_view_update",
         )
     drawing = await get_owned_drawing(session, owner_id, drawing_id, for_update=True)
     _ensure_fresh(drawing, request.expected_version)
     view, _sheet = await _get_view_and_sheet(session, drawing, view_id)
+
+    if request.scale is not None and (
+        request.scale.numerator,
+        request.scale.denominator,
+    ) != (view.scale_num, view.scale_den):
+        # The H2 invariant on the UPDATE path: re-scaling ONE view of a
+        # multi-view sheet would compose every view at view 0's scale (see
+        # `_ensure_sheet_source`), so a divergent re-scale is refused. Re-scaling
+        # a single-view sheet, or a sheet re-scaled view-by-view to a value it
+        # already shares, stays legal.
+        siblings = [
+            other
+            for other in await _sheet_views(session, view.sheet_id)
+            if other.id != view.id
+        ]
+        _ensure_sheet_source(
+            siblings, view.ref_document_id, view.ref_document_kind, request.scale
+        )
 
     if request.projection is not None:
         view.projection = request.projection
@@ -626,6 +763,8 @@ async def update_view(
     if request.position is not None:
         view.pos_x_mm = request.position.x_mm
         view.pos_y_mm = request.position.y_mm
+    if request.auto_place is not None:
+        view.auto_place = request.auto_place
 
     drawing.doc_version += 1
     await session.commit()
@@ -700,6 +839,15 @@ async def create_dimension(
     _validate_dimension(request.dimension)
 
     position = await _count(session, db.Dimension, db.Dimension.sheet_id, sheet.id)
+    # Write-side twin of the `max_length=MAX_DRAWING_DIMENSIONS` parse bound
+    # (audit G2) — same rationale as the view cap above.
+    if position >= MAX_DRAWING_DIMENSIONS:
+        raise ValidationApiError(
+            f"A sheet holds at most {MAX_DRAWING_DIMENSIONS} dimensions "
+            "(per-request work bound); delete dimensions before adding more.",
+            code="dimension_limit_exceeded",
+            details={"max_dimensions": MAX_DRAWING_DIMENSIONS},
+        )
     dimension = db.Dimension(
         id=uuid.uuid4(),
         sheet_id=sheet.id,
@@ -772,6 +920,15 @@ async def create_annotation(
     sheet = await _get_sheet(session, drawing, sheet_id)
 
     position = await _count(session, db.Annotation, db.Annotation.sheet_id, sheet.id)
+    # Write-side twin of the `max_length=MAX_DRAWING_ANNOTATIONS` parse bound
+    # (audit G2) — same rationale as the view cap above.
+    if position >= MAX_DRAWING_ANNOTATIONS:
+        raise ValidationApiError(
+            f"A sheet holds at most {MAX_DRAWING_ANNOTATIONS} annotations "
+            "(per-request work bound); delete annotations before adding more.",
+            code="annotation_limit_exceeded",
+            details={"max_annotations": MAX_DRAWING_ANNOTATIONS},
+        )
     annotation = db.Annotation(
         id=uuid.uuid4(),
         sheet_id=sheet.id,

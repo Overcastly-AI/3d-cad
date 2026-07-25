@@ -1,12 +1,21 @@
-import { Panel, PanelRow, PanelSection } from "@loft/design";
+import {
+  areaUnitLabel,
+  lengthUnitLabel,
+  Panel,
+  PanelRow,
+  PanelSection,
+  volumeUnitLabel,
+} from "@loft/design";
 
 import type { ShapeProperties } from "../api/tessellate";
 import {
+  formatArea,
   formatCount,
   formatExtents,
-  formatQuantity,
   formatVec3,
+  formatVolume,
 } from "../lib/format";
+import { useDocumentLengthUnit } from "../units/documentUnit";
 import { PartExportControls } from "./PartExportControls";
 
 /** Solid-render status shown in the title-block footer's Status cell. */
@@ -40,6 +49,10 @@ export function BodyInspector({
 }: BodyInspectorProps) {
   const props = properties;
   const em = "—";
+  // Readouts honor the document unit (FINDINGS #17) — stored mm converts at the
+  // display boundary through the SAME units seam the input cells use.
+  const unit = useDocumentLengthUnit();
+  const lenLabel = lengthUnitLabel(unit);
   return (
     <aside
       className="flex w-full flex-col gap-3"
@@ -48,28 +61,44 @@ export function BodyInspector({
     >
       <Panel>
         <PanelSection eyebrow="Mass properties">
-          <PanelRow label="Volume" unit="mm³" data-testid="prop-volume">
-            {props ? formatQuantity(props.volume) : em}
+          <PanelRow
+            label="Volume"
+            unit={volumeUnitLabel(unit)}
+            data-testid="prop-volume"
+          >
+            {props ? formatVolume(props.volume, unit) : em}
           </PanelRow>
-          <PanelRow label="Area" unit="mm²" data-testid="prop-area">
-            {props ? formatQuantity(props.surface_area) : em}
+          <PanelRow
+            label="Area"
+            unit={areaUnitLabel(unit)}
+            data-testid="prop-area"
+          >
+            {props ? formatArea(props.surface_area, unit) : em}
           </PanelRow>
-          <PanelRow label="Centroid" unit="mm" data-testid="prop-centroid">
-            {props ? formatVec3(props.centroid) : em}
+          <PanelRow
+            label="Centroid"
+            unit={lenLabel}
+            data-testid="prop-centroid"
+          >
+            {props ? formatVec3(props.centroid, unit) : em}
           </PanelRow>
         </PanelSection>
 
         <PanelSection eyebrow="Bounding box">
-          <PanelRow label="Extents" unit="mm" data-testid="prop-extents">
+          <PanelRow label="Extents" unit={lenLabel} data-testid="prop-extents">
             {props
-              ? formatExtents(props.bounding_box.min, props.bounding_box.max)
+              ? formatExtents(
+                  props.bounding_box.min,
+                  props.bounding_box.max,
+                  unit,
+                )
               : em}
           </PanelRow>
-          <PanelRow label="Min" unit="mm" data-testid="prop-bbox-min">
-            {props ? formatVec3(props.bounding_box.min) : em}
+          <PanelRow label="Min" unit={lenLabel} data-testid="prop-bbox-min">
+            {props ? formatVec3(props.bounding_box.min, unit) : em}
           </PanelRow>
-          <PanelRow label="Max" unit="mm" data-testid="prop-bbox-max">
-            {props ? formatVec3(props.bounding_box.max) : em}
+          <PanelRow label="Max" unit={lenLabel} data-testid="prop-bbox-max">
+            {props ? formatVec3(props.bounding_box.max, unit) : em}
           </PanelRow>
         </PanelSection>
 

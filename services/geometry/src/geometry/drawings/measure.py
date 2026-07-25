@@ -311,7 +311,7 @@ def _as_direction(view: ViewProjection) -> ViewDirection:
     (dimensions attach to standard views); it falls back to the ``top`` normal purely
     as the §3.2 foreshortening reference, and the measured value stays model-true
     regardless (design §3.1)."""
-    if view == "flat_pattern":
+    if view in ("flat_pattern", "section"):
         return "top"
     return view
 

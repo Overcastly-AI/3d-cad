@@ -1,0 +1,28 @@
+{
+  "description": "CONSTRUCTION-CENTERLINE REVOLVE golden (the SolidWorks/Fusion idiom, BACKLOG P2): a HALF-profile that is OPEN along the axis — three real edges of a rectangle plus a CONSTRUCTION centerline on sketch x=0 — revolved 360 deg about that centerline into a solid right circular cylinder (r=12, h=20 mm). Locks the construction-centerline-closes-open-profile path (build_revolve_profile_face): marking the on-axis edge construction excludes it from the profile wire, so the SHARED build_profile_face raises profile_not_closed; the revolve fallback promotes the AXIS line to a real closing edge, closing exactly the face a real on-axis edge would give, then revolves it. Distinct from the offset-profile revolve-annulus golden (closed by real edges) and the primitive cylinder golden (build_cylinder, not a sketch->revolve tree): this is the FIRST golden whose profile is closed BY the axis of revolution. A two-feature TREE (sketch -> revolve) through the same evaluate-tree path as the other goldens.",
+  "derivation": [
+    "Expectations are HAND-DERIVED analytic values, not recorded harness output (geometry-gates skill: a golden recorded from buggy output enshrines the bug). The profile is drawn on the XY datum plane: three REAL edges e1 (0,0)->(12,0), e2 (12,0)->(12,20), e3 (12,20)->(0,20), plus a CONSTRUCTION centerline 'axis' along sketch x=0 from (0,20)->(0,0). The real edges alone form an OPEN chain (open ONLY along sketch x=0); the axis line closes it. Revolving 360 deg about the axis (sketch x=0 = the sketch Y axis, mapping to the world Y axis on the XY plane) sweeps the closed rectangle r in [0,12], y in [0,20] into a solid cylinder coaxial with world Y.",
+    "The sketch is constrained at its analytic solution with zero residual (4 corner coincidences that include the construction axis's two endpoints, horizontal e1 & e3, vertical e2 & axis, distance e1=12, distance e2=20). It is underconstrained (the profile's rigid-body DOF remain), so planegcs provably returns the input positions bitwise (solved == input; same solver posture as the revolve-annulus / extrude / fillet goldens). The construction axis is excluded from the profile wire but closes the revolution.",
+    "volume = pi*r^2*h = pi*12^2*20 = 2880*pi = 9047.786842338604 mm^3 (nearest double to 2880*pi; the half-profile revolves the full turn into a solid disc, r_inner = 0 because the open edge lies ON the axis).",
+    "surface_area = lateral 2*pi*r*h + two caps 2 * pi*r^2 = 2*pi*12*20 + 2*pi*144 = 480*pi + 288*pi = 768*pi = 2412.743157956961 mm^2.",
+    "centroid = (0, 10, 0) mm: the body is symmetric about the world Y axis (the axis of revolution, through the origin at x=z=0) and about the y=h/2 plane, so the centroid sits on the axis at mid-height. (GProp puts x,z at ulp scale ~1.2e-15, y exactly 10.)",
+    "bounding_box = [-12,0,-12]..[12,20,12]: radius r=12 about the world Y axis gives x,z in [-12,12]; the height spans y in [0,20]. The optimal (exact) AABB of a Y-axis cylinder is the square prism of half-width r.",
+    "topology: OCCT models the closed cylinder as 3 faces (1 cylindrical lateral + 2 planar caps), 3 edges (2 cap circles + 1 straight SEAM edge where the periodic cylindrical surface's parametrization closes), 1 closed shell — the same B-rep count the primitive cylinder golden exhibits; the on-axis construction edge is NOT a face (it collapsed onto the axis under revolution).",
+    "mesh (linear 0.1 mm / angular 0.1 rad, isRelative=False): each full circle discretizes to 126 segments (the same mesher output the cylinder / revolve-annulus goldens pin). Lateral cylinder = 2 rows * 127 nodes (seam column duplicated in the parametric unwrap) = 254 vertices, 126*2 = 252 triangles. Each cap triangulates its 126-gon boundary with no interior vertex = 126 boundary nodes and 126-2 = 124 triangles. Two caps = 252 vertices, 248 triangles.",
+    "mesh totals = 254 + 252 = 506 vertices and 252 + 248 = 500 triangles (per-face faceted normals, no vertex sharing across faces — same convention as the box, cylinder, and revolve-annulus goldens).",
+    "GLB byte size is deliberately NOT pinned here: it is asserted deterministic (byte-identical) by the runner within one kernel version, but pinning the absolute size would break on every glTF-writer upgrade without geometric meaning."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "CURVED-GEOMETRY tolerance, measured first, then set (geometry-gates skill: never copy a bound blindly). The cylindrical surface goes through OCCT's Gauss-quadrature surface/volume integration in GProp — converging to machine precision but not exact zero. Measured deviations vs the analytic values (2026-07-23, build123d 0.11.1 / OCCT 7.9, planegcs): volume 0.0, surface_area 0.0, centroid <= 1.21e-15 mm (x/z on the axis; y exactly 10), AABB exactly 0.0 on all six bounds. Documented ceiling 1e-9 = ~8e5x the observed worst case, headroom for libm/platform variation in the quadrature's transcendental evaluations across CI hosts — while staying 100x TIGHTER than the standing planar 1e-7 bound, matching the cylinder / revolve-annulus goldens' posture. The solver contributes zero error by construction (zero-residual start, solved == input bitwise). Loosening this bound requires a reviewed kernel-level justification recorded here and in docs/GEOMETRY-QA.md.",
+  "properties": {
+    "volume": 9047.786842338604,
+    "surface_area": 2412.743157956961,
+    "centroid": { "x": 0.0, "y": 10.0, "z": 0.0 },
+    "bounding_box": {
+      "min": { "x": -12.0, "y": 0.0, "z": -12.0 },
+      "max": { "x": 12.0, "y": 20.0, "z": 12.0 }
+    }
+  },
+  "topology": { "faces": 3, "edges": 3, "shells": 1 },
+  "mesh": { "vertices": 506, "triangles": 500 }
+}

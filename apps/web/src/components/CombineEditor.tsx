@@ -114,12 +114,9 @@ export function CombineEditor({
       if (event.key === "Enter") {
         event.preventDefault();
         if (!saving) submit();
-      } else if (event.key === "Escape") {
-        event.preventDefault();
-        onCancel();
       }
     },
-    [saving, submit, onCancel],
+    [saving, submit],
   );
 
   // Changing the target re-scopes the tool list; if the current tool is now the

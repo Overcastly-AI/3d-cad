@@ -28,8 +28,10 @@ import onto a part that already has a body) is re-surfaced verbatim.
 import uuid
 from typing import Annotated, Any
 
+import httpx2 as httpx
 from fastapi import APIRouter, Query, Request, status
 from py_kit import ValidationApiError
+from py_kit.schemas.assemblies import ASSEMBLY_NAME_MAX_LENGTH
 from py_kit.schemas.features import (
     FEATURE_NAME_MAX_LENGTH,
     MAX_INLINE_STEP_CHARS,
@@ -38,10 +40,19 @@ from py_kit.schemas.features import (
     ImportFeature,
     ImportParamsV1,
 )
+from py_kit.schemas.step_import import (
+    MAX_IMPORT_ASSEMBLY_PRODUCTS,
+    ImportAssemblyRequest,
+    StepAssemblyImportRequest,
+    StepAssemblyImportResult,
+    StepImportResponse,
+)
+from pydantic import TypeAdapter
 
 from gateway.auth import CurrentUser
 from gateway.parts import forward_documents
-from gateway.upstream import raise_upstream_error
+from gateway.ratelimit import COMPUTE_RATE_LIMIT
+from gateway.upstream import forward, raise_upstream_error
 
 #: Human-readable upstream name for shared error surfaces.
 _SERVICE = "Documents"
@@ -188,3 +199,114 @@ async def import_step(
     if upstream.status_code != status.HTTP_201_CREATED:
         raise_upstream_error(upstream, service=_SERVICE)
     return FeatureMutationResponse.model_validate_json(upstream.content)
+
+
+# --- assembly STEP upload (SLICE-2b) ---------------------------------------------
+
+#: Human-readable upstream name for the geometry hop's error surfaces.
+_GEOMETRY_SERVICE = "Geometry"
+
+#: Default name for an imported assembly / single-body part when none is given.
+_DEFAULT_ASSEMBLY_NAME = "Imported Assembly"
+
+#: Reconstruct documents' discriminated import response (assembly | single-body).
+_IMPORT_RESPONSE_ADAPTER: TypeAdapter[StepImportResponse] = TypeAdapter(
+    StepImportResponse
+)
+
+assembly_router = APIRouter(prefix="/api/v1/assemblies", tags=["step-import"])
+
+
+@assembly_router.post(
+    "/import",
+    status_code=status.HTTP_201_CREATED,
+    openapi_extra=_UPLOAD_BODY,
+    dependencies=[COMPUTE_RATE_LIMIT],
+)
+async def import_assembly_step(
+    user: CurrentUser,
+    http_request: Request,
+    name: Annotated[
+        str,
+        Query(
+            min_length=1,
+            max_length=ASSEMBLY_NAME_MAX_LENGTH,
+            description="Name for the created assembly (or single-body part when "
+            "the file carries no product structure)",
+        ),
+    ] = _DEFAULT_ASSEMBLY_NAME,
+) -> StepImportResponse:
+    """Upload an untrusted assembly STEP → a real Loft assembly (or single part).
+
+    THE first truly-untrusted entry into the XCAF reader, so it is defended in
+    depth: auth-gated (``CurrentUser``), rate-limited (``COMPUTE_RATE_LIMIT``),
+    and size-capped WHILE the raw body streams (oversize → 422 ``import_too_large``
+    before the body is fully read or anything goes upstream — the strongest DoS
+    guard, §6). The bytes then take an identity-free hop to the geometry service's
+    ``/assembly/import`` (the killable-subprocess parse bound lives there, slice
+    2a — no principal travels upstream, RESEARCH §3), whose structured read drives
+    the documents service to create the assembly (deduped parts + named instances
+    at placements) or fall back to a single-body part.
+
+    A second DoS guard beyond bytes: the geometry read's product count is capped
+    at :data:`MAX_IMPORT_ASSEMBLY_PRODUCTS` BEFORE documents is touched, so a
+    small STEP that encodes a pathological occurrence count cannot fan out into
+    unbounded documents-side part/instance creation (no partial assembly is ever
+    created). Geometry / documents error envelopes (``import_parse_failed`` /
+    ``import_no_solid`` / ``import_parse_timeout`` / ``assembly_name_taken`` …)
+    are re-surfaced verbatim.
+    """
+    raw = await _read_capped_body(http_request, max_bytes=MAX_STEP_UPLOAD_BYTES)
+    if not raw.strip():
+        raise ValidationApiError("STEP upload was empty.", code="import_empty")
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValidationApiError(
+            "STEP upload is not valid text — expected a UTF-8/ASCII STEP part-21 file.",
+            code="import_not_step",
+        ) from exc
+    if not text.lstrip().startswith(_STEP_MAGIC):
+        raise ValidationApiError(
+            "Uploaded file is not a STEP part-21 file (missing the "
+            "ISO-10303-21 header).",
+            code="import_not_step",
+        )
+
+    # Identity-free geometry hop: read the STEP into its structured product list.
+    geometry_client: httpx.AsyncClient = http_request.app.state.geometry_client
+    read = await forward(
+        geometry_client,
+        http_request,
+        "POST",
+        "/api/v1/assembly/import",
+        service=_GEOMETRY_SERVICE,
+        json_content=StepAssemblyImportRequest(data=text).model_dump_json(),
+    )
+    if read.status_code != status.HTTP_200_OK:
+        raise_upstream_error(read, service=_GEOMETRY_SERVICE)
+    result = StepAssemblyImportResult.model_validate_json(read.content)
+
+    # Count cap BEFORE documents so a pathological occurrence count cannot fan
+    # out into unbounded documents-side creation (nothing is persisted here).
+    if len(result.products) > MAX_IMPORT_ASSEMBLY_PRODUCTS:
+        raise ValidationApiError(
+            f"Imported assembly has {len(result.products)} products, over the "
+            f"{MAX_IMPORT_ASSEMBLY_PRODUCTS}-instance import ceiling.",
+            code="import_too_many_products",
+            details={
+                "products": len(result.products),
+                "max_products": MAX_IMPORT_ASSEMBLY_PRODUCTS,
+            },
+        )
+
+    created = await forward_documents(
+        http_request,
+        user,
+        "POST",
+        "/api/v1/step-import",
+        ImportAssemblyRequest(name=name, result=result).model_dump_json(),
+    )
+    if created.status_code != status.HTTP_201_CREATED:
+        raise_upstream_error(created, service=_SERVICE)
+    return _IMPORT_RESPONSE_ADAPTER.validate_json(created.content)

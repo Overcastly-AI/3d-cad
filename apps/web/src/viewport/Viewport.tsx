@@ -12,6 +12,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
 import { PerspectiveCamera, Vector3, type BufferGeometry } from "three";
@@ -19,6 +20,7 @@ import type { Box3 } from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 
 import { useReducedMotion } from "../lib/useReducedMotion";
+import { NavCue } from "../components/NavCue";
 import { ViewBar } from "../components/ViewBar";
 import { AdaptiveGrid } from "./AdaptiveGrid";
 import { groundShadowTexture } from "./groundShadow";
@@ -284,6 +286,26 @@ export interface ViewportProps {
   bodyInteractive?: boolean;
   /** The body's feature is selected in the tree (the tree→geometry link). */
   bodySelected?: boolean;
+  /**
+   * `body.faces()` ordinals owned by the selected feature (FINDINGS #9). A
+   * proper subset localizes the selection to just those faces — the studio
+   * matcap is preserved on the rest — distinguishing feature-select from the
+   * whole-body select. Null/every-face falls back to the whole-body state.
+   */
+  bodySelectedFaces?: readonly number[] | null;
+  /**
+   * Right-click on the scene (UI-REVIEW #10): the workspace opens its viewport
+   * context menu at the pointer. The container forwards the raw event so the
+   * caller can `preventDefault` and read `clientX`/`clientY`.
+   */
+  onContextMenu?: (event: ReactMouseEvent) => void;
+  /**
+   * Draw the single aggregate contact pool under `bounds`. The assembly turns
+   * this OFF and seats EACH instance on its own pool instead (UI audit #19d —
+   * one big blob under a multi-part scene reads flat; per-part shadows give the
+   * assembly the same grounded depth a lone part has).
+   */
+  groundShadow?: boolean;
 }
 
 /**
@@ -304,6 +326,9 @@ export function Viewport({
   fitKey,
   bodyInteractive = false,
   bodySelected = false,
+  bodySelectedFaces = null,
+  onContextMenu,
+  groundShadow = true,
 }: ViewportProps) {
   const reducedMotion = useReducedMotion();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -344,6 +369,18 @@ export function Viewport({
     if (node !== null) node.dataset["bodyHighlight"] = highlight;
   }, []);
 
+  /**
+   * QA hook: the highlighted face count vs the body's total face count. Proves
+   * a feature-localized selection lights a PROPER subset (matcap preserved on
+   * the rest) without reading WebGL pixels (FINDINGS #9).
+   */
+  const handleFaceSelection = useCallback((selected: number, total: number) => {
+    const node = containerRef.current;
+    if (node === null) return;
+    node.dataset["selectedFaces"] = String(selected);
+    node.dataset["totalFaces"] = String(total);
+  }, []);
+
   /** QA hook: the settled view + camera position, stamped on the container. */
   const handleSettle = useCallback((view: string, position: Vector3) => {
     const node = containerRef.current;
@@ -360,6 +397,7 @@ export function Viewport({
       className="relative h-full w-full min-h-0"
       data-testid="viewport"
       aria-label="3D viewport showing the tessellated model"
+      onContextMenu={onContextMenu}
       style={{
         // The scene's air — a skylight glow falling into the deep shop edge.
         // Painted behind the transparent canvas; tokens only.
@@ -382,7 +420,7 @@ export function Viewport({
             sectionColor={viewport.gridMajor}
           />
         ) : null}
-        {viewNav && shadow !== null ? (
+        {groundShadow && viewNav && shadow !== null ? (
           <mesh
             position={[
               shadow.position[0],
@@ -410,7 +448,9 @@ export function Viewport({
             onError={handleError}
             interactive={bodyInteractive}
             selected={bodySelected}
+            selectedFaceIndices={bodySelectedFaces}
             onHighlightChange={handleHighlight}
+            onFaceSelectionChange={handleFaceSelection}
           />
         ) : null}
         {children}
@@ -443,8 +483,9 @@ export function Viewport({
         zIndexRange [20, 0] in ConstraintGlyphs). The wrapper is inert;
         each strip re-enables its own pointer events.
       */}
-      <div className="pointer-events-none absolute inset-0 z-40 [&>*]:pointer-events-auto">
+      <div className="pointer-events-none absolute inset-0 z-hud [&>*]:pointer-events-auto">
         {viewNav ? <ViewBar /> : null}
+        {viewNav ? <NavCue /> : null}
         {hud}
       </div>
       {/*
@@ -457,7 +498,7 @@ export function Viewport({
         <div
           role="alert"
           data-testid="viewport-error"
-          className="absolute left-1/2 top-3 z-40 max-w-sm -translate-x-1/2 rounded-sm border border-flag bg-anvil px-3 py-2"
+          className="absolute left-1/2 top-3 z-hud max-w-sm -translate-x-1/2 rounded-sm border border-flag bg-anvil px-3 py-2"
         >
           <span className="block font-display text-2xs uppercase tracking-[0.18em] text-flag">
             Mesh rejected · {parseError.name}

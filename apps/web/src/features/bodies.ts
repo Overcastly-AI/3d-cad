@@ -14,6 +14,11 @@
  *   - a `cut` (extrude/revolve/…) modifies the active body — no new body.
  *   - a `boolean` union consumes the TOOL body and keeps the TARGET's identity
  *     slot (design §Decisions-3), so the set shrinks by one.
+ *   - a `sheet_metal_base_flange` starts the sheet body (§4.1), honouring
+ *     `merge` like an ADD; a `sheet_metal_edge_flange` folds onto the active
+ *     body (§4.2), a `sheet_metal_hem` folds an edge back (parity §2), and a
+ *     `sheet_metal_corner_relief` notches a corner (parity §4.4) — all MODIFY
+ *     the active sheet body, no new body.
  *   - every other feature (fillet/chamfer/shell/draft/pattern/datum/sketch)
  *     modifies the active body or is non-body — the set is unchanged.
  *
@@ -54,6 +59,16 @@ export function computeBodies(
     if (type === "import") {
       bodies.push({ baseFeatureId: f.id, name: f.name, featureType: type });
       activeId = f.id;
+    } else if (type === "sheet_metal_base_flange") {
+      // A base flange always CREATES material (the sheet's first body, §4.1) —
+      // it has no `operation`, only `merge` (default true): a merged base flange
+      // fuses into the active body, else it starts a new one.
+      const params = f.feature.params as { merge?: boolean };
+      const merge = params.merge ?? true;
+      if (!merge || activeId === null) {
+        bodies.push({ baseFeatureId: f.id, name: f.name, featureType: type });
+        activeId = f.id;
+      }
     } else if (BODY_CREATING.has(type)) {
       const params = f.feature.params as {
         operation: "add" | "cut";
@@ -82,4 +97,17 @@ export function computeBodies(
   }
 
   return bodies.map((b, i) => ({ ...b, ordinal: i + 1 }));
+}
+
+/**
+ * The Bodies-panel lump badge label for a body's disjoint-solid count (§MB-4c).
+ * A body is usually one connected solid; a `boolean` union kept as a multi-lump
+ * body (or a multi-solid STEP import) holds several disjoint LUMPS the whole-part
+ * `properties.topology.shells` aggregate cannot distinguish. When `lumps > 1` the
+ * panel flags it with a quiet count badge; a single-lump (or unknown) body shows
+ * none — so this returns the badge text only for a genuine multi-solid body.
+ * "solids" (not the kernel's "lumps") is the plain word an engineer recognises.
+ */
+export function lumpBadgeLabel(lumps: number | undefined): string | null {
+  return lumps !== undefined && lumps > 1 ? `${lumps} solids` : null;
 }

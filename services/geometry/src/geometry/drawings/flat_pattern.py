@@ -122,12 +122,24 @@ def flat_pattern_view_result(
                 ),
             ),
         )
+    # Resolve bends on the CLEAN un-notched body (all bends, no relief notches —
+    # maintained by the folds regardless of feature order, §4.4.4) while the reliefs
+    # are applied ANALYTICALLY: a relief notch shifts the bend-face centroid past the
+    # signature match tolerance, so the live (notched) body would miss a bend. For an
+    # unrelieved part ``unfold_body`` equals the evaluated body (no notches).
+    # ``live_body`` = the ACTUAL evaluated body: the unfold cross-checks its
+    # developed fold widths against the live bend faces (the runtime fold-back
+    # invariant, WF-1) so a post-fold cut that trimmed a bend is a typed
+    # ``flat_pattern_failed`` below — never a silently full-width blank (§5).
+    unfold_body = evaluation.unfold_body or evaluation.body
     try:
         pattern = unfold_sheet_metal(
-            evaluation.body,
+            unfold_body,
             evaluation.bend_provenance,
             defaults.thickness_mm,
             defaults.k_factor,
+            reliefs=evaluation.corner_reliefs or None,
+            live_body=evaluation.body,
         )
     except (SubshapeUnresolvedError, SubshapeAmbiguousError) as exc:
         code = (

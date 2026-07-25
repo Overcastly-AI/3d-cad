@@ -101,21 +101,19 @@ export function LoftEditor({
     onSubmit(params);
   }, [form, onSubmit]);
 
-  // Enter commits, Escape cancels — except when a row control (a button) has
-  // focus: Enter must fire that button's own action (reorder/remove/add), not
-  // the whole-form submit.
+  // Enter commits — except when a row control (a button) has focus: Enter must
+  // fire that button's own action (reorder/remove/add), not the whole-form
+  // submit. Escape (cancel) is the parent's window handler, the one cancel path
+  // for every editor (FINDINGS #11).
   const onKeyDown = useCallback(
     (event: KeyboardEvent) => {
       if (event.key === "Enter") {
         if (event.target instanceof HTMLButtonElement) return;
         event.preventDefault();
         if (!saving) submit();
-      } else if (event.key === "Escape") {
-        event.preventDefault();
-        onCancel();
       }
     },
-    [saving, submit, onCancel],
+    [saving, submit],
   );
 
   const canSubmit = canSubmitLoft(form) && !saving;

@@ -15,13 +15,19 @@ from py_kit.errors import NotFoundError, ValidationApiError
 # Media types, filename rule, and the shared OpenAPI responses blocks live in
 # py-kit (single source of truth, shared with the gateway proxy).
 from py_kit.schemas.assemblies import (
+    MAX_INTERFERENCE_INSTANCES,
     EvaluateAssemblyRequest,
     EvaluateAssemblyResult,
+    ExportAssemblyRequest,
+    InterferenceResult,
+    assembly_export_filename,
 )
 from py_kit.schemas.drawings import (
     ARTIFACT_MEDIA_TYPES,
     ComposeDrawingRequest,
     ComposedSheet,
+    EvaluateAssemblyDrawingViewsRequest,
+    EvaluateAssemblyDrawingViewsResult,
     EvaluateDrawingViewsRequest,
     EvaluateDrawingViewsResult,
     artifact_filename,
@@ -55,9 +61,26 @@ from py_kit.schemas.sketch import (
     SketchOffsetRequest,
     SketchOffsetResult,
 )
+from py_kit.schemas.step_import import (
+    StepAssemblyImportRequest,
+    StepAssemblyImportResult,
+)
 
-from geometry.assembly import evaluate_assembly
+from geometry.assembly import (
+    AssemblyExportError,
+    check_interference,
+    evaluate_assembly,
+    export_assembly,
+    import_step_assembly,
+)
+from geometry.drawing_store import (
+    drawing_artifact_key,
+    fetch_drawing_artifact,
+    store_drawing_artifact,
+)
 from geometry.drawings import (
+    compose_drawing_evaluation,
+    evaluate_assembly_drawing_views,
     evaluate_drawing_views,
     place_sheet,
     serialize_dxf,
@@ -66,7 +89,16 @@ from geometry.drawings import (
 )
 from geometry.faults import unexpected_query_failure
 from geometry.features import evaluate_tree, tree_no_body_error
-from geometry.kernel import evaluate_export, evaluate_tessellation, export_solid
+from geometry.kernel import (
+    ImportNoSolidError,
+    ImportParseError,
+    ImportParseTimeoutError,
+    ImportResponseTooLargeError,
+    ImportTooManyProductsError,
+    evaluate_export,
+    evaluate_tessellation,
+    export_solid,
+)
 from geometry.measure import evaluate_measure
 from geometry.mesh_store import fetch_mesh_glb
 from geometry.overlay import evaluate_overlay
@@ -95,6 +127,15 @@ _EXPORT_RESPONSES = export_responses(
     "or binary STL (`model/stl`, faceted mesh). `Content-Disposition` "
     "carries the suggested download filename. Byte-deterministic: identical "
     "requests produce identical files."
+)
+
+_ASSEMBLY_EXPORT_RESPONSES = export_responses(
+    "The exported assembly file: STEP AP214 part 21 (`model/step`, exact "
+    "B-rep) with product structure — each instance a named PRODUCT at its "
+    "solved world placement — or binary STL (`model/stl`, faceted mesh with "
+    "placements baked into one compound). `Content-Disposition` carries the "
+    "suggested download filename. Byte-deterministic: identical requests "
+    "produce identical files."
 )
 
 
@@ -153,6 +194,133 @@ def evaluate_assembly_route(
     return evaluate_assembly(request)
 
 
+@router.post("/assembly/interference")
+def assembly_interference_route(
+    request: EvaluateAssemblyRequest,
+) -> InterferenceResult:
+    """Detect interfering instance pairs in a solved assembly (design §4).
+
+    Stateless (CLAUDE.md): documents sends the SAME assembly graph the evaluate
+    route takes; geometry solves it through the identical pipeline
+    (``solve_assembly`` — each unique part evaluated once, the mate graph solved
+    to per-instance world placements), then runs a pairwise ``BRepAlgoAPI_Common``
+    over the solved world-placed instance bodies. The response is the clash list
+    ``[{instance_a, instance_b, overlap_volume_mm3}]`` (each unordered pair once,
+    a merely-touching pair reported as NO clash) plus the solve's own status /
+    diagnosis / per-mate errors. A non-overlapping assembly is ``clashes: []``.
+    O(N²) over bodied instances (accepted v1 bound; broad-phase AABB pre-filter is
+    the v2 follow-up).
+
+    **Per-request work bound (audit G2):** because the scan is quadratic, this
+    route enforces a TIGHTER instance ceiling than the parse-time
+    ``MAX_ASSEMBLY_INSTANCES`` — ``MAX_INTERFERENCE_INSTANCES`` (~19,900
+    pairwise exact booleans at the cap; the constant's rationale comment in
+    :mod:`py_kit.schemas.assemblies` documents the N² math). Over the cap is a
+    typed 422 ``interference_too_many_instances``, never an unbounded scan.
+    Cross-field (route-specific, not a property of the shared request model),
+    so it is a handler check rather than a Field constraint.
+
+    A bad part / mate / solve is a **200 with a typed status / diagnosis and a
+    (possibly empty) clash list** (mirroring ``/assembly/evaluate``'s never-500
+    posture, §4.3); the py-kit envelope stays reserved for transport/validation
+    failures of this call itself.
+    """
+    if len(request.instances) > MAX_INTERFERENCE_INSTANCES:
+        raise ValidationApiError(
+            f"Interference checking is limited to {MAX_INTERFERENCE_INSTANCES} "
+            f"instances per request (the pairwise clash scan is quadratic in "
+            f"instance count), got {len(request.instances)}.",
+            code="interference_too_many_instances",
+        )
+    return check_interference(request)
+
+
+@router.post(
+    "/assembly/export",
+    response_class=Response,
+    responses=_ASSEMBLY_EXPORT_RESPONSES,
+)
+def export_assembly_route(request: ExportAssemblyRequest) -> Response:
+    """Evaluate an assembly and export it as ONE multi-instance STEP/STL download.
+
+    Stateless (CLAUDE.md): documents sends the assembly graph (the SAME
+    ``EvaluateAssemblyRequest`` fields the evaluate route takes, plus the export
+    ``format``), geometry solves it through the identical pipeline
+    (``solve_assembly`` — each unique part evaluated once, the mate graph solved
+    to per-instance world placements), and composes every instance that produced
+    a body into a single file. STEP writes **AP214 product structure**: each
+    instance is a named PRODUCT at its solved placement, so a re-import recovers
+    each part traceable to its instance; STL bakes the placements into one
+    faceted compound. Deterministic (RESEARCH §9): the STEP timestamp is pinned
+    and the per-occurrence ids canonicalised, so identical requests produce
+    byte-identical files.
+
+    An assembly where NO instance produced a body is a clean 422
+    ``assembly_export_no_body`` envelope (never a zero-solid file or a 500,
+    mirroring ``/export/tree``'s no-body posture, §4.3); a bad part/mate/solve is
+    absorbed by the solve into a best-fit placement, not a failure. The py-kit
+    error envelope stays reserved for transport/validation failures of this call.
+    """
+    try:
+        data = export_assembly(request)
+    except AssemblyExportError as exc:
+        raise ValidationApiError(str(exc), code=exc.code) from exc
+    return Response(
+        content=data,
+        media_type=EXPORT_MEDIA_TYPES[request.format],
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="{assembly_export_filename(request)}"'
+            )
+        },
+    )
+
+
+@router.post("/assembly/import")
+def import_assembly_route(
+    request: StepAssemblyImportRequest,
+) -> StepAssemblyImportResult:
+    """Read an assembly STEP into its structured product list (BACKLOG P1, §4).
+
+    Stateless (CLAUDE.md): the inverse of ``/assembly/export`` — geometry walks
+    the file's AP214 XDE product tree (``STEPCAFControl_Reader`` →
+    ``XCAFDoc_ShapeTool``) into N positioned, NAMED products, each surfaced by
+    reference: a content-addressed shared presentation mesh + its own mass
+    properties (no B-rep / kernel type crosses the boundary). ``has_assembly_
+    structure`` is true when the file carried ``NEXT_ASSEMBLY_USAGE_OCCURRENCE``
+    product structure; a flat / single-body STEP returns false with one product
+    at identity, the backward-compatible signal to fall back to the single-body
+    MB-4b import (slice 2 wires that + the documents assembly-document creation).
+    Deterministic (RESEARCH §9): units pinned to mm, per-product meshes
+    content-addressed.
+
+    A malformed / bodyless / adversarial file is a clean 422
+    (``import_parse_failed`` / ``import_no_solid`` / ``import_parse_timeout`` — the
+    untrusted XCAF read runs under the SAME killable CPU/wall DoS bound as the
+    single-body import, design §6), never a 500 — the same typed taxonomy the
+    single-body import uses (design §5). The parse's OUTPUT is bounded too, against
+    response amplification (slice-2b security review): ``import_too_many_products``
+    (leaf-occurrence count over ``MAX_IMPORT_ASSEMBLY_PRODUCTS``, rejected inside
+    the CPU-bounded child) and ``import_response_too_large`` (total emitted
+    ``body_step`` bytes over ``MAX_IMPORT_RESPONSE_BYTES``, the absolute bound that
+    also catches one large body instanced many times) — both clean 422s. The
+    py-kit error envelope stays reserved for transport/validation failures of this
+    call itself.
+    """
+    try:
+        return import_step_assembly(request)
+    except ImportTooManyProductsError as exc:
+        raise ValidationApiError(str(exc), code="import_too_many_products") from exc
+    except ImportResponseTooLargeError as exc:
+        raise ValidationApiError(str(exc), code="import_response_too_large") from exc
+    except ImportParseTimeoutError as exc:
+        raise ValidationApiError(str(exc), code="import_parse_timeout") from exc
+    except ImportNoSolidError as exc:
+        raise ValidationApiError(str(exc), code="import_no_solid") from exc
+    except ImportParseError as exc:
+        raise ValidationApiError(str(exc), code="import_parse_failed") from exc
+
+
 @router.post("/drawing/evaluate")
 def evaluate_drawing_route(
     request: EvaluateDrawingViewsRequest,
@@ -179,13 +347,49 @@ def evaluate_drawing_route(
     return evaluate_drawing_views(request)
 
 
+@router.post("/drawing/assembly/evaluate")
+def evaluate_assembly_drawing_route(
+    request: EvaluateAssemblyDrawingViewsRequest,
+) -> EvaluateAssemblyDrawingViewsResult:
+    """Project a solved ASSEMBLY into its requested standard drawing views (§7).
+
+    Stateless (CLAUDE.md): documents sends INTENT — the assembly graph (the SAME
+    ``EvaluateAssemblyRequest`` the ``/assembly/evaluate`` route takes, reused
+    VERBATIM) plus the standard views (front/top/right/iso) + scale — and geometry is
+    the sole evaluator. The assembly is solved ONCE (``solve_assembly`` — each unique
+    part evaluated once, the mate graph solved to per-instance world placements),
+    every bodied instance is placed at its solved pose and composed into one compound,
+    then exact HLR (``HLRBRep_Algo``) runs per requested view. The projected edges are
+    the SAME neutral :class:`ProjectedViewEdge` shape a part view emits — hidden lines
+    dashed exactly where one instance occludes another. No kernel/OCCT type crosses
+    the boundary.
+
+    A body-less assembly (no instance produced a body) is a **200 with a whole-request
+    ``assembly_error``** (empty ``views``); a bodyless instance is a typed per-instance
+    error (dropped, the rest still project); a per-view HLR failure that view's typed
+    ``view_projection_failed``; a flat_pattern / section view kind a typed
+    ``assembly_view_unsupported_projection`` — mirroring ``/drawing/evaluate`` and
+    ``/assembly/evaluate``'s never-500 posture (§1.5/§4/§7). Identity-free: the gateway
+    owns auth. BOM / balloons + the gateway/documents/web wiring are follow-up slices.
+    """
+    return evaluate_assembly_drawing_views(request)
+
+
+#: Response header reporting whether the compose route served a stored artifact
+#: (``hit``) or composed it fresh (``miss``) — the DE-4 cache signal. An internal
+#: observability header (not part of the pydantic contract, not forwarded by the
+#: gateway pass-through), so adding it is not a schema change.
+ARTIFACT_CACHE_HEADER = "X-Loft-Artifact-Cache"
+
 _COMPOSE_RESPONSES: dict[int | str, dict[str, Any]] = {
     200: {
         "description": (
             "The composed drawing artifact bytes (`image/svg+xml`, "
             "`application/pdf`, or `image/vnd.dxf` per `format`). "
             "`Content-Disposition` carries the suggested download filename. "
-            "Byte-deterministic: identical requests produce identical bytes."
+            "Byte-deterministic: identical requests produce identical bytes. "
+            "`X-Loft-Artifact-Cache` reports `hit` (served from the "
+            "content-addressed store) or `miss` (composed fresh)."
         ),
         "content": {
             media: {"schema": {"type": "string", "format": "binary"}}
@@ -195,32 +399,71 @@ _COMPOSE_RESPONSES: dict[int | str, dict[str, Any]] = {
 }
 
 
+def _compose_sheet(request: ComposeDrawingRequest) -> ComposedSheet:
+    """The shared ``/drawing/compose`` + ``/drawing/compose/sheet`` pipeline.
+
+    ``compose_drawing_evaluation`` picks the projected-geometry source (design §7,
+    D4 slice a): a PART compose (``assembly is None``) delegates to
+    ``evaluate_drawing_views`` VERBATIM (byte-identical to the pre-assembly
+    contract); an ASSEMBLY compose projects the solved compound
+    (``evaluate_assembly_drawing_views``) and folds its per-view results into the
+    same envelope. Either way ``place_sheet`` consumes ONE result shape — an
+    assembly view is placed exactly as a part view. Assembly-view dimensioning is
+    out of v1, so an assembly compose places NO dimensions (the evaluation carries
+    none; passing the request's authored inputs would desynchronise the strict
+    input/measured pairing and 500 — never-500 posture instead: they are ignored).
+    """
+    evaluation = compose_drawing_evaluation(request)
+    dimensions = request.dimensions if request.assembly is None else []
+    return place_sheet(evaluation, dimensions, request.layout, request.annotations)
+
+
 @router.post("/drawing/compose", response_class=Response, responses=_COMPOSE_RESPONSES)
 def compose_drawing_route(request: ComposeDrawingRequest) -> Response:
     """Compose a drawing into a placed sheet + serialized artifact (design §4.2).
 
     Approach C's server-composed export: geometry OWNS drafting placement. Reuses
     ``evaluate_drawing_views`` VERBATIM for the projected geometry + measured values
-    (no re-projection), places the sheet (``place_sheet`` — bounds-aware view
+    (no re-projection; an ASSEMBLY compose — ``request.assembly`` set — projects the
+    solved compound via ``evaluate_assembly_drawing_views`` instead, design §7),
+    places the sheet (``place_sheet`` — bounds-aware view
     anchoring, dimension lines/arrowheads/angular arcs, sibling-collision flip),
     then serializes to the requested ``format``: ``svg`` (dependency-free),
     ``pdf`` (reportlab base-14) or ``dxf`` (ezdxf, real model-space entities) — all
     deterministic. Identity-free — the gateway owns auth (same posture as
     ``/export``). Deterministic (RESEARCH §9): same request ⇒ identical bytes.
+
+    **Content-addressed cache (DE-4, drawing-export.md §8.3).** The composed bytes
+    are stored keyed on a content address of the WHOLE request
+    (:func:`~geometry.drawing_store.drawing_artifact_key`), so a repeat export of an
+    unchanged drawing is served byte-identically from storage WITHOUT re-composing
+    (``X-Loft-Artifact-Cache: hit``). Any edit — views/dimensions/title-block/sheet
+    or the ``format`` — changes the key, misses (``miss``), and recomposes; a stale
+    artifact is never served. The store is a cache, not state: a miss just composes.
     """
-    evaluation = evaluate_drawing_views(request)
-    composed = place_sheet(evaluation, request.dimensions, request.layout)
-    if request.format == "pdf":
-        body = serialize_pdf(composed)
-    elif request.format == "dxf":
-        body = serialize_dxf(composed)
+    key = drawing_artifact_key(request)
+    cached = fetch_drawing_artifact(key)
+    if cached is not None:
+        body = cached
+        cache_status = "hit"
     else:
-        body = serialize_svg(composed).encode("utf-8")
+        composed = _compose_sheet(request)
+        if request.format == "pdf":
+            body = serialize_pdf(composed)
+        elif request.format == "dxf":
+            body = serialize_dxf(composed)
+        else:
+            body = serialize_svg(composed).encode("utf-8")
+        store_drawing_artifact(key, body)
+        cache_status = "miss"
     filename = artifact_filename(request.layout.title, request.format)
     return Response(
         content=body,
         media_type=ARTIFACT_MEDIA_TYPES[request.format],
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            ARTIFACT_CACHE_HEADER: cache_status,
+        },
     )
 
 
@@ -240,8 +483,7 @@ def compose_sheet_route(request: ComposeDrawingRequest) -> ComposedSheet:
     request's ``format`` field is inert here (no serialization). Identity-free — the
     gateway owns auth. Deterministic (RESEARCH §9): same request ⇒ identical sheet.
     """
-    evaluation = evaluate_drawing_views(request)
-    return place_sheet(evaluation, request.dimensions, request.layout)
+    return _compose_sheet(request)
 
 
 _MESH_RESPONSES: dict[int | str, dict[str, Any]] = {

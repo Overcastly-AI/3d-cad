@@ -1,6 +1,29 @@
-import { Panel } from "@loft/design";
+import {
+  CloseIcon,
+  ContextMenu,
+  type ContextMenuSection,
+  DatumIcon,
+  formatLength,
+  MeasureIcon,
+  Panel,
+  SketchIcon,
+  SuppressIcon,
+  ViewFitIcon,
+  ViewFrontIcon,
+  ViewHomeIcon,
+  ViewIsoIcon,
+  ViewRightIcon,
+  ViewTopIcon,
+} from "@loft/design";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type MouseEvent as ReactMouseEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { fetchBodyMesh, MeshNotFoundError } from "../api/mesh";
 import { fetchOverlay, measureTargets } from "../api/measure";
@@ -30,6 +53,8 @@ import {
   type DraftParams,
   draftFeatureCreate,
   draftFeatureUpdate,
+  deleteFeature,
+  renameFeature,
   type EdgeSignature,
   evaluatePart,
   type ExtrudeParams,
@@ -47,9 +72,16 @@ import {
   type FilletParams,
   filletFeatureCreate,
   filletFeatureUpdate,
+  type HoleParams,
+  holeFeatureCreate,
+  holeFeatureUpdate,
+  type Vec3,
   type LoftParams,
   loftFeatureCreate,
   loftFeatureUpdate,
+  type MirrorParams,
+  mirrorFeatureCreate,
+  mirrorFeatureUpdate,
   moveRollbackBar,
   redoPart,
   StaleTreeVersionError,
@@ -63,11 +95,24 @@ import {
   type ShellParams,
   shellFeatureCreate,
   shellFeatureUpdate,
+  type SheetMetalBaseFlangeParams,
+  baseFlangeFeatureCreate,
+  baseFlangeFeatureUpdate,
+  type SheetMetalEdgeFlangeParams,
+  edgeFlangeFeatureCreate,
+  edgeFlangeFeatureUpdate,
+  type SheetMetalHemParams,
+  hemFeatureCreate,
+  hemFeatureUpdate,
+  type SheetMetalCornerReliefParams,
+  cornerReliefFeatureCreate,
+  cornerReliefFeatureUpdate,
   type SweepParams,
   sweepFeatureCreate,
   sweepFeatureUpdate,
   sketchFeatureCreate,
   sketchFeatureUpdate,
+  suppressFeature,
   updateFeature,
   updatePartUnit,
   type LengthUnit,
@@ -84,9 +129,15 @@ import { FloatingPanel } from "../components/FloatingPanel";
 import { DatumEditor } from "../components/DatumEditor";
 import { DraftEditor } from "../components/DraftEditor";
 import { ExtrudeEditor } from "../components/ExtrudeEditor";
+import { HoleEditor } from "../components/HoleEditor";
+import { BaseFlangeEditor } from "../components/BaseFlangeEditor";
+import { EdgeFlangeEditor } from "../components/EdgeFlangeEditor";
+import { HemEditor } from "../components/HemEditor";
+import { CornerReliefEditor } from "../components/CornerReliefEditor";
 import { FeatureTreePanel } from "../components/FeatureTreePanel";
 import { FilletEditor } from "../components/FilletEditor";
 import { LoftEditor } from "../components/LoftEditor";
+import { MirrorEditor } from "../components/MirrorEditor";
 import { PartExportControls } from "../components/PartExportControls";
 import { PatternEditor } from "../components/PatternEditor";
 import { RevolveEditor } from "../components/RevolveEditor";
@@ -94,6 +145,8 @@ import { ShellEditor } from "../components/ShellEditor";
 import { SweepEditor } from "../components/SweepEditor";
 import {
   defaultDatumForm,
+  type DatumFacePick,
+  type DatumFaceSlot,
   type DatumForm,
   formFromDatumParams,
 } from "../features/datum";
@@ -101,6 +154,7 @@ import {
   defaultExtrudeForm,
   defaultProfileId,
   type ExtrudeForm,
+  type ExtrudePreviewState,
   formFromParams,
   profileOptions,
 } from "../features/extrude";
@@ -134,7 +188,36 @@ import {
   type LoftForm,
 } from "../features/loft";
 import { computeBodies } from "../features/bodies";
+import {
+  type BaseFlangeForm,
+  canAuthorCornerRelief,
+  type CornerReliefForm,
+  cornerReliefBendHighlights,
+  defaultBaseFlangeForm,
+  defaultCornerReliefForm,
+  defaultEdgeFlangeForm,
+  defaultHemForm,
+  type EdgeFlangeForm,
+  type EdgeFlangeSpanPreview,
+  edgeFlangeOptions,
+  formFromBaseFlangeParams,
+  formFromCornerReliefParams,
+  formFromEdgeFlangeParams,
+  formFromHemParams,
+  type HemForm,
+  isSheetMetalPart,
+  pickedFromEdgeFlangeParams,
+  pickedFromHemParams,
+  sheetMetalDefaults,
+} from "../features/sheetMetal";
+import { BendHighlightOverlay } from "../viewport/BendHighlightOverlay";
+import { FlangeSpanOverlay } from "../viewport/FlangeSpanOverlay";
 import { type CombineForm, defaultCombineForm } from "../features/boolean";
+import {
+  defaultMirrorForm,
+  formFromMirrorParams,
+  type MirrorForm,
+} from "../features/mirror";
 import {
   type ChamferForm,
   defaultChamferForm,
@@ -162,6 +245,16 @@ import {
 } from "../features/draft";
 import { useFacePickStore } from "../features/facePickStore";
 import { ShellFaceOverlay } from "../viewport/ShellFaceOverlay";
+import { HolePointOverlay } from "../viewport/HolePointOverlay";
+import {
+  defaultHoleForm,
+  formFromHoleParams,
+  type HoleFacePick,
+  type HoleForm,
+  type HolePickTarget,
+  type HolePointPick,
+  type HolePreview,
+} from "../features/hole";
 import { SketchDro } from "../components/SketchDro";
 import { SketchStrip } from "../components/SketchStrip";
 import { SolveDiagnostic } from "../components/SolveDiagnostic";
@@ -176,6 +269,7 @@ import {
   planeRefFromSpec,
   type PlaneBasis,
   resolveDatumBasis,
+  resolveDatumPlaneOptions,
 } from "../sketch/plane";
 import { lastBodyFeatureId, onFaceDatumParams } from "../features/face";
 import { isTypingTarget } from "../lib/isTypingTarget";
@@ -189,7 +283,17 @@ import { FacePickOverlay } from "../viewport/FacePickOverlay";
 import { useSketchStore } from "../sketch/store";
 import { escapeAction, TOOL_SHORTCUTS } from "../sketch/tools";
 import { partRoute } from "../router";
+import { useNavigate } from "@tanstack/react-router";
+import {
+  createDrawing,
+  createSheet,
+  createView,
+  DrawingNameTakenError,
+} from "../api/drawings";
+import { sheetDimensions } from "../drawing/layout";
 import { SketchScene, type SolvedSketchLayer } from "../viewport/SketchScene";
+import { ExtrudePreview } from "../viewport/ExtrudePreview";
+import { useViewCommandStore } from "../viewport/viewCommands";
 import { Viewport } from "../viewport/Viewport";
 
 /** Constraint/dimension edits persist after this quiet gap (the live loop). */
@@ -261,9 +365,47 @@ type OpenEditor =
       featureId?: string;
     }
   | {
+      kind: "hole";
+      mode: "create" | "edit";
+      initial: HoleForm;
+      featureId?: string;
+    }
+  | {
+      kind: "mirror";
+      mode: "create" | "edit";
+      initial: MirrorForm;
+      featureId?: string;
+    }
+  | {
       kind: "datum";
       mode: "create" | "edit";
       initial: DatumForm;
+      featureId?: string;
+    }
+  | {
+      kind: "baseFlange";
+      mode: "create" | "edit";
+      initial: BaseFlangeForm;
+      featureId?: string;
+    }
+  | {
+      kind: "edgeFlange";
+      mode: "create" | "edit";
+      initial: EdgeFlangeForm;
+      initialPicked: EdgeSignature[];
+      featureId?: string;
+    }
+  | {
+      kind: "hem";
+      mode: "create" | "edit";
+      initial: HemForm;
+      initialPicked: EdgeSignature[];
+      featureId?: string;
+    }
+  | {
+      kind: "cornerRelief";
+      mode: "create" | "edit";
+      initial: CornerReliefForm;
       featureId?: string;
     }
   | {
@@ -284,7 +426,13 @@ const COMMAND_LABEL: Record<OpenEditor["kind"], string> = {
   chamfer: "Chamfer",
   shell: "Shell",
   draft: "Draft",
+  hole: "Hole",
+  mirror: "Mirror",
   datum: "Datum plane",
+  baseFlange: "Base flange",
+  edgeFlange: "Edge flange",
+  hem: "Hem",
+  cornerRelief: "Corner relief",
   combine: "Combine",
 };
 
@@ -311,6 +459,7 @@ export function PartPage() {
   const begin = useSketchStore((state) => state.begin);
   const setTool = useSketchStore((state) => state.setTool);
   const toggleSnap = useSketchStore((state) => state.toggleSnap);
+  const navigate = useNavigate();
 
   const part = useQuery({
     queryKey: ["part", partId],
@@ -395,6 +544,37 @@ export function PartPage() {
   const [facePlaneBusy, setFacePlaneBusy] = useState(false);
   const [facePlaneError, setFacePlaneError] = useState<string | null>(null);
   const [pendingFaceIndex, setPendingFaceIndex] = useState<number | null>(null);
+
+  // Datum-editor face picking: the DatumEditor arms a pick for one slot (the
+  // on_face base, or either midplane side); a clicked face is folded into that
+  // slot's form field. Reuses the SAME FacePickOverlay + overlay fetch the
+  // sketch-on-face flow uses — one enumeration, pick side and resolve side.
+  const [datumFacePick, setDatumFacePick] = useState<DatumFaceSlot | null>(
+    null,
+  );
+  const [datumFacePicked, setDatumFacePicked] = useState<DatumFacePick | null>(
+    null,
+  );
+  const [datumFacePickError, setDatumFacePickError] = useState<string | null>(
+    null,
+  );
+  const datumFacePickNonce = useRef(0);
+
+  // Hole authoring pick session: the HoleEditor arms a FACE pick (the planar
+  // placement face) then a POINT pick (a point ON it). Both reuse the SAME
+  // overlay fetch + DOM-in-canvas pick affordances the datum/measure flows use
+  // — one enumeration, pick side and resolve side. `holePreview` mirrors the
+  // editor's live face + position up so the point overlay draws ON the face.
+  const [holePick, setHolePick] = useState<HolePickTarget | null>(null);
+  const [holeFacePicked, setHoleFacePicked] = useState<HoleFacePick | null>(
+    null,
+  );
+  const [holePointPicked, setHolePointPicked] = useState<HolePointPick | null>(
+    null,
+  );
+  const [holePickError, setHolePickError] = useState<string | null>(null);
+  const [holePreview, setHolePreview] = useState<HolePreview | null>(null);
+  const holePickNonce = useRef(0);
 
   // ---------------------------------------------------------------------
   // Measurement (inspect mode). The tool fetches the pickable overlay for the
@@ -1015,39 +1195,37 @@ export function PartPage() {
   // Bodies panel and the Combine tool's target/tool pickers. One body is the
   // common case; a `merge: false` add (or an import) starts a second.
   const bodies = useMemo(() => computeBodies(features), [features]);
+  // Per-body lump count from the evaluate wire (§MB-4c): a disjoint-union /
+  // multi-solid-import body reports `lumps > 1`, which the Bodies panel flags.
+  // Keyed by the body's base feature id (its §MB-0 identity) so a row maps to its
+  // count; absent for a tree with no body-affecting feature (the panel shows none).
+  const lumpsByFeature = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const entry of evaluation.data?.bodies ?? []) {
+      map.set(entry.base_feature_id, entry.lumps);
+    }
+    return map;
+  }, [evaluation.data?.bodies]);
+  // Sheet-metal state: the part is sheet metal once it has a base flange, and
+  // that base flange's gauge / bend-radius / K become the defaults every edge
+  // flange inherits (sheet-metal.md §4.2). Edge flange + Flat pattern light up
+  // from `isSheetMetal`; the edge-flange editor shows `smDefaults`.
+  const smDefaults = useMemo(() => sheetMetalDefaults(features), [features]);
+  const isSheetMetal = useMemo(() => isSheetMetalPart(features), [features]);
+  // Corner relief references TWO edge-flange FEATURES (not an edge pick), so it
+  // lights up only with ≥2 edge flanges, and the editor lists them by name.
+  const edgeFlangeOpts = useMemo(() => edgeFlangeOptions(features), [features]);
+  const canCornerRelief = useMemo(
+    () => canAuthorCornerRelief(features),
+    [features],
+  );
   // Datum features already in the tree, offered as reusable sketch planes in
-  // the plane picker (a standalone datum seats many sketches — DRY).
+  // the plane picker (a standalone datum seats many sketches — DRY). The SAME
+  // derivation the section-view author reads (`resolveDatumPlaneOptions`), so a
+  // datum FeatureRef means exactly the same plane in both flows (one source).
   const datumPlaneOptions = useMemo(
-    () =>
-      features.flatMap((f) => {
-        if (f.feature.type !== "datum") return [];
-        const params = f.feature.params;
-        // Offset datums carry a rich readout ("XY +30") via their spec; every
-        // other client-resolvable datum (offset-from-a-datum / midplane) is
-        // offered by its resolved basis. On-face datums resolve server-side
-        // only, so they are absent from `datumBasisById` and not offered here.
-        if (params.kind === "offset") {
-          return [
-            { id: f.id, name: f.name, spec: offsetSpecFromDatum(f.id, params) },
-          ];
-        }
-        const basis = datumBasisById.get(f.id);
-        return basis === undefined
-          ? []
-          : [
-              {
-                id: f.id,
-                name: f.name,
-                spec: {
-                  kind: "datum" as const,
-                  datumFeatureId: f.id,
-                  label: f.name,
-                  basis,
-                },
-              },
-            ];
-      }),
-    [features, datumBasisById],
+    () => resolveDatumPlaneOptions(features),
+    [features],
   );
   // Axis line-entity choices per profile sketch — the revolve editor scopes its
   // axis picker to the selected profile's own lines.
@@ -1076,7 +1254,21 @@ export function PartPage() {
   );
   const [editorSaving, setEditorSaving] = useState(false);
   const [editorError, setEditorError] = useState<string | null>(null);
+  // UX audit #20e — a feature can SAVE cleanly yet fail to REBUILD (the create
+  // 200s, then the tree re-evaluation flags the feature). That error lands in
+  // the tree while the eye is still on the editor seat, so we mirror it right
+  // there. Keyed to the last-saved feature so merely selecting an old broken
+  // feature never nags; dismissible, and re-armed by the next save.
+  const [lastSavedFeatureId, setLastSavedFeatureId] = useState<string | null>(
+    null,
+  );
+  const [rebuildNoticeDismissed, setRebuildNoticeDismissed] = useState(false);
   const [rollbackBusy, setRollbackBusy] = useState(false);
+  // Live extrude ghost (UI-REVIEW #8): the open extrude editor projects its
+  // form here on every keystroke; the viewport sweeps the profile at this
+  // distance before Save. Cleared the moment the editor closes.
+  const [extrudePreview, setExtrudePreview] =
+    useState<ExtrudePreviewState | null>(null);
 
   // Earlier datum features offered to the datum editor as references (the
   // offset-from base + the midplane sides). Create authors at the tip, so every
@@ -1097,6 +1289,11 @@ export function PartPage() {
   // envelope's own message on rejection, surfaced in the viewport HUD.
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
+  // Flat pattern (a discrete action, no editor panel): unfolding the sheet body
+  // creates a drawing + a lone flat-pattern view referencing this part, then
+  // navigates to it. Busy + the server envelope's own message on rejection.
+  const [flatPatternBusy, setFlatPatternBusy] = useState(false);
+  const [flatPatternError, setFlatPatternError] = useState<string | null>(null);
   // Inline offset-plane authoring (the plane-pick "+ Offset plane" path).
   const [offsetPlaneBusy, setOffsetPlaneBusy] = useState(false);
   const [offsetPlaneError, setOffsetPlaneError] = useState<string | null>(null);
@@ -1114,6 +1311,37 @@ export function PartPage() {
     retry: false,
   });
   const pickableFaces = facePicking ? (facesQuery.data?.faces ?? null) : null;
+
+  // The pickable face overlay while the datum editor is armed for a slot —
+  // same request/key (one cache entry, faces line up with the rendered body).
+  const datumFacesQuery = useQuery({
+    queryKey: ["overlay", partId, treeVersion, meshGlbId],
+    queryFn: () =>
+      fetchOverlay(buildEvaluateTree(tree.data as FeatureTreeResponse)),
+    enabled:
+      datumFacePick !== null && tree.data !== undefined && meshGlbId !== null,
+    staleTime: Infinity,
+    retry: false,
+  });
+  const datumPickableFaces =
+    datumFacePick !== null ? (datumFacesQuery.data?.faces ?? null) : null;
+
+  // The pickable overlay while the hole editor is armed for a face OR point —
+  // same request/key as every other overlay (one cache entry, faces + vertices
+  // line up with the rendered body). `.faces` feeds the face pick; `.vertices`
+  // feed the point pick's face-corner snaps.
+  const holePicking = editor?.kind === "hole" && holePick !== null;
+  const holeOverlayQuery = useQuery({
+    queryKey: ["overlay", partId, treeVersion, meshGlbId],
+    queryFn: () =>
+      fetchOverlay(buildEvaluateTree(tree.data as FeatureTreeResponse)),
+    enabled: holePicking && tree.data !== undefined && meshGlbId !== null,
+    staleTime: Infinity,
+    retry: false,
+  });
+  const holePickableFaces =
+    holePick === "face" ? (holeOverlayQuery.data?.faces ?? null) : null;
+  const holeOverlayVertices = holeOverlayQuery.data?.vertices ?? null;
 
   // ---------------------------------------------------------------------
   // Fillet/Chamfer edge picking. The anchor for a picked edge's `SubshapeRef`
@@ -1189,6 +1417,38 @@ export function PartPage() {
       );
     }
   }, [shellPicking, shellOverlayQuery.error, setShellOverlayError]);
+
+  // ---------------------------------------------------------------------
+  // Feature-localized selection (FINDINGS #9). Selecting a feature in the tree
+  // highlights ONLY the faces that feature owns — the studio matcap stays on
+  // the rest of the body (never a whole-body clay swap). The overlay carries
+  // per-face `feature_id` provenance; the selected feature's faces are every
+  // OverlayFace whose `feature_id` matches it, and each face's `index` is its
+  // GLB primitive ordinal — the mesh face set to tint. Fetched through the SAME
+  // request/key as every other overlay (one cache entry, faces line up with the
+  // rendered body). Mirrors `bodySelected` exactly (selecting a feature opens
+  // its editor, so it must NOT gate on `editor === null`) — it localizes the
+  // same warm the body already shows, refining whole-body → this feature's faces.
+  // ---------------------------------------------------------------------
+  const selectionActive =
+    mode === "off" && selectedFeatureId !== null && !measureActive;
+  const selectionOverlayQuery = useQuery({
+    queryKey: ["overlay", partId, treeVersion, meshGlbId],
+    queryFn: () =>
+      fetchOverlay(buildEvaluateTree(tree.data as FeatureTreeResponse)),
+    enabled: selectionActive && tree.data !== undefined && meshGlbId !== null,
+    staleTime: Infinity,
+    retry: false,
+  });
+  const selectedFaceIndices = useMemo<number[] | null>(() => {
+    if (!selectionActive || selectedFeatureId === null) return null;
+    const faces = selectionOverlayQuery.data?.faces;
+    if (faces === undefined) return null;
+    const owned = faces
+      .filter((face) => face.feature_id === selectedFeatureId)
+      .map((face) => face.index);
+    return owned.length > 0 ? owned : null;
+  }, [selectionActive, selectedFeatureId, selectionOverlayQuery.data]);
 
   /** Latest tree version, refetched if the query has none yet. */
   const freshTreeVersion = useCallback(async (): Promise<number> => {
@@ -1472,6 +1732,26 @@ export function PartPage() {
     });
   }, []);
 
+  // A hole, like fillet/shell/draft, modifies the current BODY (no sketch
+  // profile) — it only needs a solid to exist (canModify), so it mirrors their
+  // guard. It opens with no face/point chosen; the pick session authors both.
+  const openCreateHole = useCallback(() => {
+    useMeasureStore.getState().deactivate();
+    setEditorError(null);
+    setSelectedFeatureId(null);
+    setEditor({ kind: "hole", mode: "create", initial: defaultHoleForm() });
+  }, []);
+
+  // A mirror, like pattern/fillet/shell, reflects the current BODY about a
+  // plane (no sketch profile) — it only needs a solid to exist (canModify), so
+  // it mirrors those guards. v1 needs only a plane choice: no face/point pick.
+  const openCreateMirror = useCallback(() => {
+    useMeasureStore.getState().deactivate();
+    setEditorError(null);
+    setSelectedFeatureId(null);
+    setEditor({ kind: "mirror", mode: "create", initial: defaultMirrorForm() });
+  }, []);
+
   // A datum plane needs no sketch/body — it's a construction plane parallel to
   // an origin datum. Available as soon as the tree exists (its own feature row).
   const openCreateDatum = useCallback(() => {
@@ -1480,6 +1760,130 @@ export function PartPage() {
     setSelectedFeatureId(null);
     setEditor({ kind: "datum", mode: "create", initial: defaultDatumForm() });
   }, []);
+
+  // A base flange thickens a sketch profile to gauge — the sheet-metal part's
+  // first body (sheet-metal.md §4.1). Like extrude it needs a solved sketch to
+  // consume, so it mirrors openCreateExtrude's profile guard.
+  const openCreateBaseFlange = useCallback(() => {
+    const profileId = defaultProfileId(tree.data?.features ?? []);
+    if (profileId === "") return;
+    useMeasureStore.getState().deactivate();
+    setEditorError(null);
+    setSelectedFeatureId(null);
+    setEditor({
+      kind: "baseFlange",
+      mode: "create",
+      initial: defaultBaseFlangeForm(profileId),
+    });
+  }, [tree.data]);
+
+  // An edge flange folds a leg off ONE picked straight edge of the sheet body
+  // (sheet-metal.md §4.2). It picks like fillet/chamfer (single-select), so it
+  // only needs a sheet body to exist.
+  const openCreateEdgeFlange = useCallback(() => {
+    useMeasureStore.getState().deactivate();
+    setEditorError(null);
+    setSelectedFeatureId(null);
+    setEditor({
+      kind: "edgeFlange",
+      mode: "create",
+      initial: defaultEdgeFlangeForm(),
+      initialPicked: [],
+    });
+  }, []);
+
+  // A closed hem folds ONE picked straight edge 180° back onto the sheet
+  // (parity §2). It picks like an edge flange (single-select), so it only needs
+  // a sheet body to exist.
+  const openCreateHem = useCallback(() => {
+    useMeasureStore.getState().deactivate();
+    setEditorError(null);
+    setSelectedFeatureId(null);
+    setEditor({
+      kind: "hem",
+      mode: "create",
+      initial: defaultHemForm(),
+      initialPicked: [],
+    });
+  }, []);
+
+  // A corner relief notches the shared corner of two edge flanges (parity §4.4).
+  // It references two edge-flange FEATURES (not an edge pick), so it seeds the
+  // first two edge flanges in tree order; the user retargets either in the form.
+  const openCreateCornerRelief = useCallback(() => {
+    const opts = edgeFlangeOptions(tree.data?.features ?? []);
+    const a = opts[0]?.id ?? "";
+    const b = opts[1]?.id ?? "";
+    if (a === "" || b === "") return;
+    useMeasureStore.getState().deactivate();
+    setEditorError(null);
+    setSelectedFeatureId(null);
+    setEditor({
+      kind: "cornerRelief",
+      mode: "create",
+      initial: defaultCornerReliefForm(a, b),
+    });
+  }, [tree.data]);
+
+  // Flat pattern (sheet-metal.md §7): unfold the sheet body onto a lone drawing
+  // sheet, so the model → flatten loop is click-through from the part. It
+  // creates a drawing named after the part (a numeric suffix dodges a name
+  // clash), a sheet, and a single flat_pattern view, then opens the drawing —
+  // where the reused flat-pattern renderer draws the blank + bend table. A
+  // non-sheet-metal part composes an honest `flat_pattern_not_sheet_metal` view
+  // there, never a crash.
+  const openFlatPattern = useCallback(() => {
+    if (flatPatternBusy) return;
+    setFlatPatternBusy(true);
+    setFlatPatternError(null);
+    void (async () => {
+      try {
+        const baseName = `${part.data?.name ?? "Part"} — flat pattern`;
+        let drawing = null;
+        for (let attempt = 0; attempt < 6 && drawing === null; attempt += 1) {
+          const name = attempt === 0 ? baseName : `${baseName} ${attempt + 1}`;
+          try {
+            drawing = await createDrawing(name);
+          } catch (error) {
+            if (error instanceof DrawingNameTakenError) continue;
+            throw error;
+          }
+        }
+        if (drawing === null) {
+          throw new Error("A drawing for this flat pattern already exists.");
+        }
+        const sheet = await createSheet(drawing.id, {
+          name: "Sheet 1",
+          size: "A4",
+          orientation: "landscape",
+          projection: "third_angle",
+          expected_version: drawing.doc_version,
+        });
+        const dims = sheetDimensions("A4", "landscape");
+        await createView(drawing.id, sheet.sheet.id, {
+          projection: "flat_pattern",
+          ref_document_id: partId,
+          ref_document_kind: "part",
+          scale: { numerator: 1, denominator: 1 },
+          position: { x_mm: dims.width / 2, y_mm: dims.height / 2 },
+          auto_place: true,
+          expected_version: sheet.doc_version,
+        });
+        await navigate({
+          to: "/drawings/$drawingId",
+          params: { drawingId: drawing.id },
+        });
+      } catch (error) {
+        setFlatPatternError(
+          error instanceof Error
+            ? error.message
+            : "The flat pattern could not be opened.",
+        );
+      } finally {
+        setFlatPatternBusy(false);
+      }
+    })();
+  }, [flatPatternBusy, part.data, partId, navigate]);
 
   // Combine needs ≥2 bodies to fuse (a boolean union names two of them). It
   // seeds the first two bodies in tree order; the user retargets either.
@@ -1571,12 +1975,58 @@ export function PartPage() {
             feature.feature.params,
           ),
         });
-      } else if (
-        feature.feature.type === "datum" &&
-        feature.feature.params.kind !== "on_face"
-      ) {
-        // Offset / offset-from / midplane datums are editable here; an on_face
-        // datum is authored + retargeted through the sketch-on-face picker.
+      } else if (feature.feature.type === "hole") {
+        setEditor({
+          kind: "hole",
+          mode: "edit",
+          featureId: feature.id,
+          initial: formFromHoleParams(feature.feature.params, lengthUnit),
+        });
+      } else if (feature.feature.type === "mirror") {
+        setEditor({
+          kind: "mirror",
+          mode: "edit",
+          featureId: feature.id,
+          initial: formFromMirrorParams(feature.feature.params),
+        });
+      } else if (feature.feature.type === "sheet_metal_base_flange") {
+        setEditor({
+          kind: "baseFlange",
+          mode: "edit",
+          featureId: feature.id,
+          initial: formFromBaseFlangeParams(feature.feature.params, lengthUnit),
+        });
+      } else if (feature.feature.type === "sheet_metal_edge_flange") {
+        setEditor({
+          kind: "edgeFlange",
+          mode: "edit",
+          featureId: feature.id,
+          initial: formFromEdgeFlangeParams(feature.feature.params, lengthUnit),
+          initialPicked: pickedFromEdgeFlangeParams(feature.feature.params),
+        });
+      } else if (feature.feature.type === "sheet_metal_hem") {
+        setEditor({
+          kind: "hem",
+          mode: "edit",
+          featureId: feature.id,
+          initial: formFromHemParams(feature.feature.params, lengthUnit),
+          initialPicked: pickedFromHemParams(feature.feature.params),
+        });
+      } else if (feature.feature.type === "sheet_metal_corner_relief") {
+        setEditor({
+          kind: "cornerRelief",
+          mode: "edit",
+          featureId: feature.id,
+          initial: formFromCornerReliefParams(
+            feature.feature.params,
+            lengthUnit,
+          ),
+        });
+      } else if (feature.feature.type === "datum") {
+        // Every datum kind is editable here — offset / offset-from / midplane /
+        // on_face. A face-referencing datum (on_face or a midplane FACE-side)
+        // seeds its picked face(s) from the stored signature; the editor arms a
+        // re-pick through the same FacePickOverlay it authored them with.
         setEditor({
           kind: "datum",
           mode: "edit",
@@ -1590,10 +2040,52 @@ export function PartPage() {
     [lengthUnit],
   );
 
+  // Re-pick repair for a `subshape_unresolved` feature error (FINDINGS #3). The
+  // kernel re-matches a same-face reference resiliently, so this fires only for a
+  // GENUINELY lost face; the one-click fix opens the feature's editor and re-arms
+  // its FACE pick, so the user re-attaches the reference through the same overlay
+  // that authored it. Batched with selectFeature: the hole pick-session effect
+  // only clears `holePick` when the open editor is NOT a hole, and after this
+  // render the editor IS the hole, so the armed pick survives.
+  const repickFace = useCallback(
+    (feature: FeatureResponse) => {
+      selectFeature(feature);
+      if (feature.feature.type === "hole") {
+        setHolePickError(null);
+        setHolePick("face");
+      }
+    },
+    [selectFeature],
+  );
+
   const closeEditor = useCallback(() => {
     setEditor(null);
     setEditorError(null);
+    setExtrudePreview(null);
   }, []);
+
+  // Global cancel for an open feature editor (FINDINGS #11). The command band
+  // advertises "CANCEL ESC", so Escape MUST disarm the editor from any focus —
+  // the per-editor onKeyDown only fires when focus is inside the panel, so with
+  // focus in the viewport the band's own promise was dead and the toolbar stayed
+  // locked. This window-level handler is the ONE cancel path every editor's
+  // Cancel cell also routes through (`closeEditor`); the editors no longer carry
+  // their own Escape branch (DRY). It stands down while a hole/datum face pick is
+  // armed — those pick handlers own Escape then (first Escape disarms the pick,
+  // staying in the editor), exactly the cascade the Hole/Datum editors deferred
+  // to before. Not registered in sketch mode (the sketch cascade owns Escape).
+  useEffect(() => {
+    if (mode !== "off" || editor === null) return;
+    if (datumFacePick !== null || holePick !== null) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      event.preventDefault();
+      closeEditor();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [mode, editor, datumFacePick, holePick, closeEditor]);
 
   // Edge-pick session lifecycle: a fillet/chamfer editor opens a session
   // (seeded with its persisted picks + mode); anything else closes it. Keyed on
@@ -1606,12 +2098,63 @@ export function PartPage() {
       (editor.kind === "fillet" || editor.kind === "chamfer")
     ) {
       store.open(editor.initialPicked, editor.initial.mode === "pick");
+    } else if (
+      editor !== null &&
+      (editor.kind === "edgeFlange" || editor.kind === "hem")
+    ) {
+      // An edge flange / hem always picks (a lone straight edge to fold) —
+      // single-select: a click replaces the pick rather than accumulating a set.
+      store.open(editor.initialPicked, true, true);
     } else {
       store.close();
     }
   }, [editor]);
   // Leaving the workspace tears the edge-pick session down.
   useEffect(() => () => useEdgePickStore.getState().close(), []);
+
+  // Corner-relief bend highlight (SM-relief-ui-1): the editor mirrors its live
+  // Bend A / Bend B selection up, PartPage resolves each id to its flange's
+  // stored fold-edge signature, and the viewport draws the bend line + tag
+  // (`BendHighlightOverlay`) — the in-scene answer to which select option is
+  // which physical corner. Cleared whenever the corner-relief editor closes.
+  const [reliefBends, setReliefBends] = useState<{
+    a: string;
+    b: string;
+  } | null>(null);
+  const onReliefBendsChange = useCallback(
+    (a: string, b: string) => setReliefBends({ a, b }),
+    [],
+  );
+  useEffect(() => {
+    if (editor === null || editor.kind !== "cornerRelief") {
+      setReliefBends(null);
+    }
+  }, [editor]);
+  const reliefBendHighlights = useMemo(() => {
+    if (editor?.kind !== "cornerRelief" || reliefBends === null) return [];
+    return cornerReliefBendHighlights(features, reliefBends.a, reliefBends.b);
+  }, [editor, reliefBends, features]);
+
+  // Edge-flange width-extent preview (§4.5.1): the editor mirrors its live
+  // Full / Centered / Offset span up, and the viewport draws it ON the picked
+  // edge (`FlangeSpanOverlay`) — the in-scene answer to the chosen extent.
+  // Cleared whenever the edge-flange editor closes.
+  const [edgeFlangeSpan, setEdgeFlangeSpan] =
+    useState<EdgeFlangeSpanPreview | null>(null);
+  const onEdgeFlangeSpanChange = useCallback(
+    (span: EdgeFlangeSpanPreview | null) => setEdgeFlangeSpan(span),
+    [],
+  );
+  useEffect(() => {
+    if (editor?.kind !== "edgeFlange") setEdgeFlangeSpan(null);
+  }, [editor]);
+  const edgeFlangeSpanLabel = useMemo(
+    () =>
+      edgeFlangeSpan === null
+        ? ""
+        : formatLength(edgeFlangeSpan.spanMm, lengthUnit, { unitSuffix: true }),
+    [edgeFlangeSpan, lengthUnit],
+  );
 
   // Face-pick session lifecycle: a shell OR draft editor opens a session
   // (seeded with its persisted picked faces), anything else closes it. Keyed on
@@ -1663,6 +2206,8 @@ export function PartPage() {
             );
           }
           setSelectedFeatureId(response.feature.id);
+          setLastSavedFeatureId(response.feature.id);
+          setRebuildNoticeDismissed(false);
           setEditor(null);
           await refreshTreeAndBody();
         } catch (error) {
@@ -1765,6 +2310,23 @@ export function PartPage() {
     [editor, features, runFeatureSave],
   );
 
+  const submitMirror = useCallback(
+    (params: MirrorParams) => {
+      const current = editor;
+      if (current === null || current.kind !== "mirror") return;
+      const nextIndex =
+        features.filter((f) => f.feature.type === "mirror").length + 1;
+      runFeatureSave(
+        (version) => mirrorFeatureCreate(`Mirror${nextIndex}`, params, version),
+        (version) => mirrorFeatureUpdate(params, version),
+        current.mode === "create",
+        current.featureId,
+        "The mirror could not be saved.",
+      );
+    },
+    [editor, features, runFeatureSave],
+  );
+
   const submitFillet = useCallback(
     (params: FilletParams) => {
       const current = editor;
@@ -1834,6 +2396,23 @@ export function PartPage() {
     [editor, features, runFeatureSave],
   );
 
+  const submitHole = useCallback(
+    (params: HoleParams) => {
+      const current = editor;
+      if (current === null || current.kind !== "hole") return;
+      const nextIndex =
+        features.filter((f) => f.feature.type === "hole").length + 1;
+      runFeatureSave(
+        (version) => holeFeatureCreate(`Hole${nextIndex}`, params, version),
+        (version) => holeFeatureUpdate(params, version),
+        current.mode === "create",
+        current.featureId,
+        "The hole could not be saved.",
+      );
+    },
+    [editor, features, runFeatureSave],
+  );
+
   const submitDatum = useCallback(
     (params: DatumParams) => {
       const current = editor;
@@ -1846,6 +2425,84 @@ export function PartPage() {
         current.mode === "create",
         current.featureId,
         "The datum plane could not be saved.",
+      );
+    },
+    [editor, features, runFeatureSave],
+  );
+
+  const submitBaseFlange = useCallback(
+    (params: SheetMetalBaseFlangeParams) => {
+      const current = editor;
+      if (current === null || current.kind !== "baseFlange") return;
+      const nextIndex =
+        features.filter((f) => f.feature.type === "sheet_metal_base_flange")
+          .length + 1;
+      runFeatureSave(
+        (version) =>
+          baseFlangeFeatureCreate(`Base flange${nextIndex}`, params, version),
+        (version) => baseFlangeFeatureUpdate(params, version),
+        current.mode === "create",
+        current.featureId,
+        "The base flange could not be saved.",
+      );
+    },
+    [editor, features, runFeatureSave],
+  );
+
+  const submitEdgeFlange = useCallback(
+    (params: SheetMetalEdgeFlangeParams) => {
+      const current = editor;
+      if (current === null || current.kind !== "edgeFlange") return;
+      const nextIndex =
+        features.filter((f) => f.feature.type === "sheet_metal_edge_flange")
+          .length + 1;
+      runFeatureSave(
+        (version) =>
+          edgeFlangeFeatureCreate(`Edge flange${nextIndex}`, params, version),
+        (version) => edgeFlangeFeatureUpdate(params, version),
+        current.mode === "create",
+        current.featureId,
+        "The edge flange could not be saved.",
+      );
+    },
+    [editor, features, runFeatureSave],
+  );
+
+  const submitHem = useCallback(
+    (params: SheetMetalHemParams) => {
+      const current = editor;
+      if (current === null || current.kind !== "hem") return;
+      const nextIndex =
+        features.filter((f) => f.feature.type === "sheet_metal_hem").length + 1;
+      runFeatureSave(
+        (version) => hemFeatureCreate(`Hem${nextIndex}`, params, version),
+        (version) => hemFeatureUpdate(params, version),
+        current.mode === "create",
+        current.featureId,
+        "The hem could not be saved.",
+      );
+    },
+    [editor, features, runFeatureSave],
+  );
+
+  const submitCornerRelief = useCallback(
+    (params: SheetMetalCornerReliefParams) => {
+      const current = editor;
+      if (current === null || current.kind !== "cornerRelief") return;
+      const nextIndex =
+        features.filter((f) => f.feature.type === "sheet_metal_corner_relief")
+          .length + 1;
+      runFeatureSave(
+        (version) =>
+          cornerReliefFeatureCreate(
+            `Corner relief${nextIndex}`,
+            params,
+            version,
+          ),
+        (version) => cornerReliefFeatureUpdate(params, version),
+        current.mode === "create",
+        current.featureId,
+        "The corner relief could not be saved.",
       );
     },
     [editor, features, runFeatureSave],
@@ -1913,6 +2570,48 @@ export function PartPage() {
     [partId, freshTreeVersion, refreshTreeAndBody],
   );
 
+  // Suppress toggle (feature-tree.md §4.3a): flip a feature's suppress flag so a
+  // rebuild SKIPS it (the body builds off the non-suppressed prefix) — the row
+  // stays in the tree, just dimmed. A minimal, param-untouching mutation; like
+  // every tree write it takes the freshest tree version and refreshes the tree +
+  // body. On a stale-version race (422) it refetches the fresh version and
+  // retries once (OCC soft-resync, matching moveRollback / keepAsOneBody) so the
+  // toggle can never leave the UI out of sync.
+  const [suppressingId, setSuppressingId] = useState<string | null>(null);
+  const toggleSuppress = useCallback(
+    (feature: FeatureResponse) => {
+      if (suppressingId !== null) return;
+      const next = !(feature.feature.suppressed ?? false);
+      // Rebuilding the body invalidates a mid-measure pick index — disarm the
+      // tool, as every other tree-mutating path does.
+      useMeasureStore.getState().deactivate();
+      setSuppressingId(feature.id);
+      void (async () => {
+        try {
+          const attempt = (version: number) =>
+            suppressFeature(partId, feature.id, next, version);
+          try {
+            await attempt(await freshTreeVersion());
+          } catch (error) {
+            if (error instanceof StaleTreeVersionError) {
+              await attempt((await fetchFeatureTree(partId)).tree_version);
+            } else {
+              throw error;
+            }
+          }
+          setSelectedFeatureId(feature.id);
+          await refreshTreeAndBody();
+        } catch {
+          // A hard failure leaves the feature as it was; the toggle stays put so
+          // the user can retry. Nothing changed.
+        } finally {
+          setSuppressingId(null);
+        }
+      })();
+    },
+    [partId, suppressingId, freshTreeVersion, refreshTreeAndBody],
+  );
+
   // Select a body from the Bodies panel: select its base feature — lights the
   // brass rule in both panels and opens that feature's editor (the same select
   // a tree row does). Per-body viewport highlight is MB-4.
@@ -1923,6 +2622,139 @@ export function PartPage() {
     },
     [features, selectFeature],
   );
+
+  // ---------------------------------------------------------------------
+  // Right-click context menus (UI-REVIEW 2026-07-24 #10). Two surfaces, one
+  // reusable primitive: the viewport menu (view snaps, tools, selection) and
+  // the feature-tree row menu (edit / suppress / rename / delete). Both hold
+  // only WIRED actions — a decorative menu row is a defect (mandate 3a).
+  // ---------------------------------------------------------------------
+  const [viewportMenu, setViewportMenu] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
+  const [treeMenu, setTreeMenu] = useState<{
+    x: number;
+    y: number;
+    feature: FeatureResponse;
+  } | null>(null);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [treeActionError, setTreeActionError] = useState<string | null>(null);
+
+  // Delete a feature (OCC, stale-version retry once) — the same write grammar
+  // suppress uses; a hard failure surfaces the server's message, never silent.
+  const deleteFeatureAction = useCallback(
+    (feature: FeatureResponse) => {
+      if (deletingId !== null) return;
+      useMeasureStore.getState().deactivate();
+      setDeletingId(feature.id);
+      setTreeActionError(null);
+      void (async () => {
+        try {
+          const attempt = (version: number) =>
+            deleteFeature(partId, feature.id, version);
+          try {
+            await attempt(await freshTreeVersion());
+          } catch (error) {
+            if (error instanceof StaleTreeVersionError) {
+              await attempt((await fetchFeatureTree(partId)).tree_version);
+            } else {
+              throw error;
+            }
+          }
+          if (selectedFeatureId === feature.id) {
+            setSelectedFeatureId(null);
+            closeEditor();
+          }
+          if (renamingId === feature.id) setRenamingId(null);
+          await refreshTreeAndBody();
+        } catch (error) {
+          setTreeActionError(
+            error instanceof Error
+              ? error.message
+              : "The feature could not be deleted.",
+          );
+        } finally {
+          setDeletingId(null);
+        }
+      })();
+    },
+    [
+      partId,
+      deletingId,
+      selectedFeatureId,
+      renamingId,
+      freshTreeVersion,
+      refreshTreeAndBody,
+      closeEditor,
+    ],
+  );
+
+  // Commit an inline rename: a no-op when unchanged/blank (the field just
+  // closes); otherwise a minimal name-only PATCH (never touches params).
+  const commitRename = useCallback(
+    (feature: FeatureResponse, nextName: string) => {
+      const name = nextName.trim();
+      setRenamingId(null);
+      if (name === "" || name === feature.name) return;
+      setTreeActionError(null);
+      void (async () => {
+        try {
+          const attempt = (version: number) =>
+            renameFeature(partId, feature.id, name, version);
+          try {
+            await attempt(await freshTreeVersion());
+          } catch (error) {
+            if (error instanceof StaleTreeVersionError) {
+              await attempt((await fetchFeatureTree(partId)).tree_version);
+            } else {
+              throw error;
+            }
+          }
+          await queryClient.invalidateQueries({
+            queryKey: ["features", partId],
+          });
+        } catch (error) {
+          setTreeActionError(
+            error instanceof Error
+              ? error.message
+              : "The feature could not be renamed.",
+          );
+        }
+      })();
+    },
+    [partId, freshTreeVersion, queryClient],
+  );
+
+  // Viewport right-click: open the menu at the pointer, but only when the view
+  // rig owns the camera (mode off) — sketch/plane modes own their own gestures.
+  const openViewportMenu = useCallback(
+    (event: ReactMouseEvent) => {
+      if (mode !== "off") return;
+      event.preventDefault();
+      setTreeMenu(null);
+      setViewportMenu({ x: event.clientX, y: event.clientY });
+    },
+    [mode],
+  );
+
+  // Feature-row right-click: open the row menu at the pointer.
+  const openTreeMenu = useCallback(
+    (feature: FeatureResponse, x: number, y: number) => {
+      setViewportMenu(null);
+      setTreeMenu({ x, y, feature });
+    },
+    [],
+  );
+
+  // "Sketch on face" from the viewport menu: begin a sketch and arm the
+  // face-pick step (the same flow the sketch strip's "Pick face" button drives).
+  const startSketchOnFace = useCallback(() => {
+    handleNewSketch();
+    setFacePicking(true);
+    setFacePlaneError(null);
+  }, [handleNewSketch]);
 
   // The inline "sketch at a height" path: author a datum feature, then enter
   // the sketcher on it. One extra field, not a separate multi-step ritual —
@@ -2036,6 +2868,153 @@ export function PartPage() {
     setFacePicking((armed) => !armed);
   }, []);
 
+  // Datum-editor face picking. Arming a slot highlights the body's planar faces
+  // in the viewport (the shared FacePickOverlay); a click resolves to a
+  // full-precision signature the editor folds into that slot. The anchor is the
+  // last body-affecting feature — the same rule sketch-on-face uses.
+  const toggleDatumFacePick = useCallback(
+    (slot: DatumFaceSlot) => {
+      if (!hasBody) {
+        setDatumFacePickError(
+          "Add a feature that creates a body before picking a face.",
+        );
+        return;
+      }
+      setDatumFacePickError(null);
+      setDatumFacePick((current) => (current === slot ? null : slot));
+    },
+    [hasBody],
+  );
+
+  const pickDatumFace = useCallback(
+    (face: OverlayFace & { signature: PlanarFaceSignature }) => {
+      const slot = datumFacePick;
+      if (slot === null) return;
+      const anchorId = lastBodyFeatureId(tree.data?.features ?? []);
+      if (anchorId === null) {
+        setDatumFacePickError(
+          "Add a feature that creates a body before picking a face.",
+        );
+        setDatumFacePick(null);
+        return;
+      }
+      datumFacePickNonce.current += 1;
+      setDatumFacePicked({
+        nonce: datumFacePickNonce.current,
+        slot,
+        face: { signature: face.signature, anchorId },
+      });
+      setDatumFacePick(null);
+    },
+    [datumFacePick, tree.data],
+  );
+
+  // The datum face-pick session ends whenever the datum editor closes (or the
+  // seat holds a different editor) — drop the armed slot, the pending pick, and
+  // any pick error so a reopened editor starts clean (the nonce guard already
+  // stops a stale pick re-folding, but a cleared session is the honest state).
+  useEffect(() => {
+    if (editor?.kind !== "datum") {
+      setDatumFacePick(null);
+      setDatumFacePicked(null);
+      setDatumFacePickError(null);
+    }
+  }, [editor]);
+
+  // Escape disarms an armed datum face pick (staying in the editor) — the most
+  // local cancel, mirroring the sketch-on-face Escape. Registered only while a
+  // pick is armed; the editor's own Escape (cancel) stands down in that window.
+  useEffect(() => {
+    if (datumFacePick === null) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setDatumFacePick(null);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [datumFacePick]);
+
+  // Hole authoring picks. Arming a target highlights the body (faces for the
+  // placement face, points on the face for the drill point); a click resolves
+  // to a full-precision signature / world point the editor folds in. The face
+  // anchor is the last body-affecting feature — the same rule sketch-on-face and
+  // the datum picker use.
+  const toggleHolePick = useCallback(
+    (target: HolePickTarget) => {
+      if (!hasBody) {
+        setHolePickError(
+          "Add a feature that creates a body before drilling a hole.",
+        );
+        return;
+      }
+      setHolePickError(null);
+      setHolePick((current) => (current === target ? null : target));
+    },
+    [hasBody],
+  );
+
+  const pickHoleFace = useCallback(
+    (face: OverlayFace & { signature: PlanarFaceSignature }) => {
+      const anchorId = lastBodyFeatureId(tree.data?.features ?? []);
+      if (anchorId === null) {
+        setHolePickError(
+          "Add a feature that creates a body before drilling a hole.",
+        );
+        setHolePick(null);
+        return;
+      }
+      holePickNonce.current += 1;
+      setHoleFacePicked({
+        nonce: holePickNonce.current,
+        face: { signature: face.signature, anchorId },
+      });
+      // A face chosen → disarm (the editor seeds the point to the centre); the
+      // user arms the POINT pick next to refine the placement.
+      setHolePick(null);
+    },
+    [tree.data],
+  );
+
+  const pickHolePoint = useCallback((point: Vec3) => {
+    holePickNonce.current += 1;
+    setHolePointPicked({ nonce: holePickNonce.current, position: point });
+    setHolePick(null);
+  }, []);
+
+  const onHolePreviewChange = useCallback(
+    (preview: HolePreview | null) => setHolePreview(preview),
+    [],
+  );
+
+  // The hole pick session ends whenever the hole editor closes (or the seat
+  // holds a different editor) — drop the armed target, pending picks, preview,
+  // and any error so a reopened editor starts clean.
+  useEffect(() => {
+    if (editor?.kind !== "hole") {
+      setHolePick(null);
+      setHoleFacePicked(null);
+      setHolePointPicked(null);
+      setHolePickError(null);
+      setHolePreview(null);
+    }
+  }, [editor]);
+
+  // Escape disarms an armed hole pick (staying in the editor) — the most local
+  // cancel, mirroring the datum face pick. Registered only while a pick is armed.
+  useEffect(() => {
+    if (holePick === null) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setHolePick(null);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [holePick]);
+
   // ---------------------------------------------------------------------
   // Undo/redo (docs/design/undo-redo.md §UR2). History is SERVER-side snapshot
   // state: the tree GET's can_undo/can_redo gate the controls, and a step is a
@@ -2143,6 +3122,21 @@ export function PartPage() {
     [partId, rollbackBusy, freshTreeVersion, refreshTreeAndBody],
   );
 
+  // The last-saved feature's rebuild error (UX audit #20e), surfaced at the
+  // editor seat so it reads where the user just clicked Create/Save — not only
+  // in the tree across the screen. Dismissible; the next save re-arms it.
+  const rebuildNotice = useMemo<string | null>(() => {
+    if (lastSavedFeatureId === null || rebuildNoticeDismissed) return null;
+    const result = evaluation.data?.features.find(
+      (f) => f.feature_id === lastSavedFeatureId,
+    );
+    return result !== undefined &&
+      result.status === "error" &&
+      result.error != null
+      ? result.error.message
+      : null;
+  }, [lastSavedFeatureId, rebuildNoticeDismissed, evaluation.data]);
+
   // A solved sketch must exist before an extrude or revolve can consume one.
   const hasSolvedSketch =
     sketchProfiles.length > 0 &&
@@ -2200,6 +3194,12 @@ export function PartPage() {
       } else if (key === "d" && hasBody) {
         event.preventDefault();
         openCreateDraft();
+      } else if (key === "o" && hasBody) {
+        event.preventDefault();
+        openCreateHole();
+      } else if (key === "i" && hasBody) {
+        event.preventDefault();
+        openCreateMirror();
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -2215,6 +3215,8 @@ export function PartPage() {
     openCreateLoft,
     openCreateShell,
     openCreateDraft,
+    openCreateHole,
+    openCreateMirror,
   ]);
 
   // Undo/redo keyboard grammar: Ctrl/⌘+Z, Ctrl/⌘+Shift+Z, Ctrl+Y — model idle
@@ -2243,6 +3245,22 @@ export function PartPage() {
   // ink would only z-fight the solid). It returns, live, on sketch re-entry.
   const bodyPresent = body.data !== undefined;
   const solvedLayers = bodyPresent ? [] : solved;
+  // The extrude ghost's profile layer (UI-REVIEW #8): the SOLVED sketch the
+  // open extrude editor points at, resolved from the full `solved` set (not the
+  // body-gated `solvedLayers`) so the ghost shows whether or not a body already
+  // exists. Absent until the editor projects a valid form.
+  const extrudeGhostLayer = useMemo<SolvedSketchLayer | null>(() => {
+    if (extrudePreview === null) return null;
+    return (
+      solved.find((l) => l.featureId === extrudePreview.profileFeatureId) ??
+      null
+    );
+  }, [extrudePreview, solved]);
+  const showExtrudeGhost =
+    mode === "off" &&
+    editor?.kind === "extrude" &&
+    extrudePreview !== null &&
+    extrudeGhostLayer !== null;
   const bodyStatus: BodyStatus = regenFailed
     ? "error"
     : regenerating || (meshGlbId !== null && !bodyPresent && body.isFetching)
@@ -2274,6 +3292,178 @@ export function PartPage() {
   // No runtime fallback: COMMAND_LABEL is total over OpenEditor["kind"], so
   // an unmapped editor kind cannot compile, let alone unlock the band.
   const activeCommand = editor === null ? null : COMMAND_LABEL[editor.kind];
+
+  // Context-menu section builders (UI-REVIEW #10). Built on open (cheap), so
+  // every item reads the freshest state; each row is a WIRED action.
+  const requestView = (
+    kind: "fit" | "home" | "front" | "top" | "right" | "iso",
+  ) => useViewCommandStore.getState().request(kind);
+
+  const buildViewportSections = (): ContextMenuSection[] => {
+    const selected =
+      selectedFeatureId === null
+        ? undefined
+        : features.find((f) => f.id === selectedFeatureId);
+    const sections: ContextMenuSection[] = [
+      {
+        key: "view",
+        label: "View",
+        items: [
+          {
+            key: "fit",
+            label: "Fit to view",
+            icon: <ViewFitIcon />,
+            shortcut: "0",
+            onSelect: () => requestView("fit"),
+            "data-testid": "ctx-view-fit",
+          },
+          {
+            key: "home",
+            label: "Home",
+            icon: <ViewHomeIcon />,
+            shortcut: "Home",
+            onSelect: () => requestView("home"),
+            "data-testid": "ctx-view-home",
+          },
+          {
+            key: "front",
+            label: "Front",
+            icon: <ViewFrontIcon />,
+            shortcut: "1",
+            onSelect: () => requestView("front"),
+            "data-testid": "ctx-view-front",
+          },
+          {
+            key: "top",
+            label: "Top",
+            icon: <ViewTopIcon />,
+            shortcut: "2",
+            onSelect: () => requestView("top"),
+            "data-testid": "ctx-view-top",
+          },
+          {
+            key: "right",
+            label: "Right",
+            icon: <ViewRightIcon />,
+            shortcut: "3",
+            onSelect: () => requestView("right"),
+            "data-testid": "ctx-view-right",
+          },
+          {
+            key: "iso",
+            label: "Isometric",
+            icon: <ViewIsoIcon />,
+            shortcut: "4",
+            onSelect: () => requestView("iso"),
+            "data-testid": "ctx-view-iso",
+          },
+        ],
+      },
+      {
+        key: "tools",
+        label: "Tools",
+        items: [
+          {
+            key: "new-sketch",
+            label: "New sketch",
+            icon: <SketchIcon />,
+            onSelect: handleNewSketch,
+            "data-testid": "ctx-new-sketch",
+          },
+          {
+            key: "sketch-on-face",
+            label: "Sketch on face",
+            icon: <DatumIcon />,
+            disabled: !hasBody,
+            onSelect: startSketchOnFace,
+            "data-testid": "ctx-sketch-on-face",
+          },
+          {
+            key: "measure",
+            label: measureActive ? "Stop measuring" : "Measure",
+            icon: <MeasureIcon />,
+            shortcut: "M",
+            disabled: !hasBody,
+            onSelect: toggleMeasure,
+            "data-testid": "ctx-measure",
+          },
+        ],
+      },
+    ];
+    if (selected !== undefined) {
+      const suppressed = selected.feature.suppressed ?? false;
+      sections.push({
+        key: "selected",
+        label: selected.name,
+        items: [
+          {
+            key: "suppress",
+            label: suppressed ? "Unsuppress" : "Suppress",
+            icon: <SuppressIcon />,
+            onSelect: () => toggleSuppress(selected),
+            "data-testid": "ctx-selected-suppress",
+          },
+          {
+            key: "delete",
+            label: "Delete",
+            icon: <CloseIcon />,
+            danger: true,
+            disabled: deletingId === selected.id,
+            onSelect: () => deleteFeatureAction(selected),
+            "data-testid": "ctx-selected-delete",
+          },
+        ],
+      });
+    }
+    return sections;
+  };
+
+  const buildTreeSections = (
+    feature: FeatureResponse,
+  ): ContextMenuSection[] => {
+    const suppressed = feature.feature.suppressed ?? false;
+    return [
+      {
+        key: "feature",
+        label: feature.name,
+        items: [
+          {
+            key: "edit",
+            label: "Edit",
+            onSelect: () => selectFeature(feature),
+            "data-testid": "tree-ctx-edit",
+          },
+          {
+            key: "rename",
+            label: "Rename",
+            icon: <SketchIcon />,
+            onSelect: () => {
+              setSelectedFeatureId(feature.id);
+              setRenamingId(feature.id);
+            },
+            "data-testid": "tree-ctx-rename",
+          },
+          {
+            key: "suppress",
+            label: suppressed ? "Unsuppress" : "Suppress",
+            icon: <SuppressIcon />,
+            onSelect: () => toggleSuppress(feature),
+            "data-testid": "tree-ctx-suppress",
+          },
+          {
+            key: "delete",
+            label: "Delete",
+            icon: <CloseIcon />,
+            danger: true,
+            disabled: deletingId === feature.id,
+            onSelect: () => deleteFeatureAction(feature),
+            "data-testid": "tree-ctx-delete",
+          },
+        ],
+      },
+    ];
+  };
+
   // The breadcrumb's mode leaf: sketch step / measure / open command / model.
   const workspaceMode =
     mode === "draw"
@@ -2334,6 +3524,19 @@ export function PartPage() {
               onPattern={openCreatePattern}
               onShell={openCreateShell}
               onDraft={openCreateDraft}
+              onHole={openCreateHole}
+              onMirror={openCreateMirror}
+              canBaseFlange={hasSolvedSketch}
+              onNewBaseFlange={openCreateBaseFlange}
+              canEdgeFlange={isSheetMetal}
+              onNewEdgeFlange={openCreateEdgeFlange}
+              canHem={isSheetMetal}
+              onNewHem={openCreateHem}
+              canCornerRelief={canCornerRelief}
+              onNewCornerRelief={openCreateCornerRelief}
+              canFlatPattern={isSheetMetal}
+              flatteningPattern={flatPatternBusy}
+              onFlatPattern={openFlatPattern}
               canCombine={bodies.length >= 2}
               onCombine={openCreateCombine}
               canMeasure={hasBody}
@@ -2371,6 +3574,7 @@ export function PartPage() {
         <main className="relative min-h-0 grow">
           <Viewport
             glb={body.data}
+            onContextMenu={openViewportMenu}
             rotateEnabled={mode !== "draw"}
             groundGrid={mode !== "draw"}
             viewNav={mode === "off"}
@@ -2380,11 +3584,23 @@ export function PartPage() {
             bodySelected={
               mode === "off" && selectedFeatureId !== null && !measureActive
             }
+            bodySelectedFaces={selectedFaceIndices}
             hud={
               <>
                 <SketchDro solving={syncPending || evaluation.isFetching} />
                 <SolveDiagnostic />
                 <MeasureReadout />
+                {/* Inert DOM signal that the live extrude ghost is on screen
+                    (the ghost itself is WebGL) — a raster-independent hook QA
+                    drives the "preview responds before Save" assertion from. */}
+                {showExtrudeGhost && extrudePreview !== null ? (
+                  <span
+                    hidden
+                    data-testid="extrude-preview-active"
+                    data-distance-mm={extrudePreview.distanceMm}
+                    data-direction={extrudePreview.direction}
+                  />
+                ) : null}
                 {isEmptyPart ? (
                   <div
                     data-testid="empty-viewport-hint"
@@ -2412,6 +3628,7 @@ export function PartPage() {
                       onCancel={closeEditor}
                       saving={editorSaving}
                       error={editorError}
+                      onPreviewChange={setExtrudePreview}
                     />
                   ) : editor.kind === "revolve" ? (
                     <RevolveEditor
@@ -2494,6 +3711,77 @@ export function PartPage() {
                       saving={editorSaving}
                       error={editorError}
                     />
+                  ) : editor.kind === "hole" ? (
+                    <HoleEditor
+                      mode={editor.mode}
+                      initial={editor.initial}
+                      onSubmit={submitHole}
+                      onCancel={closeEditor}
+                      saving={editorSaving}
+                      error={editorError}
+                      canPickFace={hasBody}
+                      activePick={holePick}
+                      onTogglePick={toggleHolePick}
+                      facePick={holeFacePicked}
+                      pointPick={holePointPicked}
+                      pickError={holePickError}
+                      onPreviewChange={onHolePreviewChange}
+                    />
+                  ) : editor.kind === "baseFlange" ? (
+                    <BaseFlangeEditor
+                      mode={editor.mode}
+                      profiles={sketchProfiles}
+                      initial={editor.initial}
+                      onSubmit={submitBaseFlange}
+                      onCancel={closeEditor}
+                      saving={editorSaving}
+                      error={editorError}
+                    />
+                  ) : editor.kind === "edgeFlange" ? (
+                    <EdgeFlangeEditor
+                      mode={editor.mode}
+                      initial={editor.initial}
+                      bodyFeatureId={bodyFeatureId}
+                      defaults={smDefaults}
+                      onSubmit={submitEdgeFlange}
+                      onCancel={closeEditor}
+                      saving={editorSaving}
+                      error={editorError}
+                      onSpanChange={onEdgeFlangeSpanChange}
+                    />
+                  ) : editor.kind === "hem" ? (
+                    <HemEditor
+                      mode={editor.mode}
+                      initial={editor.initial}
+                      bodyFeatureId={bodyFeatureId}
+                      defaults={smDefaults}
+                      onSubmit={submitHem}
+                      onCancel={closeEditor}
+                      saving={editorSaving}
+                      error={editorError}
+                    />
+                  ) : editor.kind === "cornerRelief" ? (
+                    <CornerReliefEditor
+                      mode={editor.mode}
+                      initial={editor.initial}
+                      edgeFlanges={edgeFlangeOpts}
+                      defaults={smDefaults}
+                      onSubmit={submitCornerRelief}
+                      onCancel={closeEditor}
+                      saving={editorSaving}
+                      error={editorError}
+                      onBendsChange={onReliefBendsChange}
+                    />
+                  ) : editor.kind === "mirror" ? (
+                    <MirrorEditor
+                      mode={editor.mode}
+                      initial={editor.initial}
+                      datumPlanes={datumPlaneOptions}
+                      onSubmit={submitMirror}
+                      onCancel={closeEditor}
+                      saving={editorSaving}
+                      error={editorError}
+                    />
                   ) : editor.kind === "datum" ? (
                     <DatumEditor
                       mode={editor.mode}
@@ -2503,6 +3791,11 @@ export function PartPage() {
                       onCancel={closeEditor}
                       saving={editorSaving}
                       error={editorError}
+                      canPickFace={hasBody}
+                      activeFacePickSlot={datumFacePick}
+                      onToggleFacePick={toggleDatumFacePick}
+                      facePick={datumFacePicked}
+                      facePickError={datumFacePickError}
                     />
                   ) : (
                     <CombineEditor
@@ -2550,6 +3843,41 @@ export function PartPage() {
                     </button>
                   </div>
                 ) : null}
+                {flatPatternBusy ? (
+                  <div
+                    role="status"
+                    data-testid="flat-pattern-status"
+                    className="absolute bottom-3 left-3 rounded-sm border border-hairline bg-anvil px-3 py-2"
+                  >
+                    <span className="block font-display text-2xs uppercase tracking-[0.18em] text-gauge">
+                      Unfolding flat pattern
+                    </span>
+                    <span className="mt-1 block font-body text-xs text-mist">
+                      Laying the blank onto a drawing sheet.
+                    </span>
+                  </div>
+                ) : flatPatternError !== null ? (
+                  <div
+                    role="alert"
+                    data-testid="flat-pattern-error"
+                    className="absolute bottom-3 left-3 max-w-sm rounded-sm border border-flag bg-anvil px-3 py-2"
+                  >
+                    <span className="block font-display text-2xs uppercase tracking-[0.18em] text-flag">
+                      Flat pattern failed
+                    </span>
+                    <span className="mt-1 block font-body text-xs text-mist">
+                      {flatPatternError}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setFlatPatternError(null)}
+                      data-testid="flat-pattern-dismiss"
+                      className="mt-2 font-display text-2xs uppercase tracking-[0.14em] text-brass focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                ) : null}
                 <HistoryErrorAlert
                   error={historyError}
                   onDismiss={() => setHistoryError(null)}
@@ -2587,13 +3915,54 @@ export function PartPage() {
                       Re-evaluate
                     </button>
                   </div>
+                ) : editor === null && rebuildNotice !== null ? (
+                  <div
+                    role="alert"
+                    data-testid="rebuild-notice"
+                    className="absolute left-editor top-3 max-w-sm rounded-sm border border-flag bg-anvil px-3 py-2"
+                  >
+                    <span className="block font-display text-2xs uppercase tracking-[0.18em] text-flag">
+                      This feature couldn't build
+                    </span>
+                    <span className="mt-1 block font-body text-xs text-mist">
+                      {rebuildNotice}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setRebuildNoticeDismissed(true)}
+                      data-testid="rebuild-notice-dismiss"
+                      className="mt-2 font-display text-2xs uppercase tracking-[0.14em] text-brass focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
                 ) : null}
               </>
             }
           >
             <SketchScene solved={solvedLayers} facePicking={facePicking} />
+            {showExtrudeGhost &&
+            extrudeGhostLayer !== null &&
+            extrudePreview ? (
+              <ExtrudePreview
+                layer={extrudeGhostLayer}
+                distanceMm={extrudePreview.distanceMm}
+                direction={extrudePreview.direction}
+              />
+            ) : null}
             <MeasureOverlay />
             {mode === "off" && edgePicking ? <EdgePickOverlay /> : null}
+            {mode === "off" && reliefBendHighlights.length > 0 ? (
+              <BendHighlightOverlay bends={reliefBendHighlights} />
+            ) : null}
+            {mode === "off" &&
+            editor?.kind === "edgeFlange" &&
+            edgeFlangeSpan !== null ? (
+              <FlangeSpanOverlay
+                span={edgeFlangeSpan}
+                label={edgeFlangeSpanLabel}
+              />
+            ) : null}
             {mode === "off" && shellPicking ? (
               <ShellFaceOverlay
                 testIdPrefix={
@@ -2606,6 +3975,34 @@ export function PartPage() {
                 faces={pickableFaces}
                 onPick={authorFacePlane}
                 pendingIndex={pendingFaceIndex}
+              />
+            ) : null}
+            {mode === "off" &&
+            editor?.kind === "datum" &&
+            datumFacePick !== null ? (
+              <FacePickOverlay
+                faces={datumPickableFaces}
+                onPick={pickDatumFace}
+                pendingIndex={null}
+              />
+            ) : null}
+            {mode === "off" &&
+            editor?.kind === "hole" &&
+            holePick === "face" ? (
+              <FacePickOverlay
+                faces={holePickableFaces}
+                onPick={pickHoleFace}
+                pendingIndex={null}
+              />
+            ) : null}
+            {mode === "off" &&
+            editor?.kind === "hole" &&
+            holePick === "point" ? (
+              <HolePointOverlay
+                signature={holePreview?.signature ?? null}
+                vertices={holeOverlayVertices}
+                position={holePreview?.position ?? null}
+                onPick={pickHolePoint}
               />
             ) : null}
           </Viewport>
@@ -2624,10 +4021,18 @@ export function PartPage() {
                 rollbackBusy={rollbackBusy || historyStep !== null}
                 onKeepAsOneBody={keepAsOneBody}
                 recoveringDisjoint={disjointRecovering}
+                onRepickFace={repickFace}
+                onToggleSuppress={toggleSuppress}
+                suppressingId={suppressingId}
+                onRowContextMenu={openTreeMenu}
+                renamingId={renamingId}
+                onCommitRename={commitRename}
+                onCancelRename={() => setRenamingId(null)}
               />
               {bodies.length > 0 ? (
                 <BodiesPanel
                   bodies={bodies}
+                  lumpsByFeature={lumpsByFeature}
                   selectedFeatureId={selectedFeatureId}
                   onSelectBody={selectBody}
                 />
@@ -2658,8 +4063,54 @@ export function PartPage() {
               </aside>
             </FloatingPanel>
           ) : null}
+          {/* Tree-action failure (rename/delete) — honest, dismissible chrome. */}
+          {treeActionError !== null ? (
+            <div
+              role="alert"
+              data-testid="tree-action-error"
+              className="absolute bottom-3 left-3 z-hud max-w-sm rounded-sm border border-flag bg-anvil px-3 py-2"
+            >
+              <span className="block font-display text-2xs uppercase tracking-[0.18em] text-flag">
+                Action failed
+              </span>
+              <span className="mt-1 block font-body text-xs text-mist">
+                {treeActionError}
+              </span>
+              <button
+                type="button"
+                onClick={() => setTreeActionError(null)}
+                data-testid="tree-action-error-dismiss"
+                className="mt-2 font-display text-2xs uppercase tracking-[0.14em] text-brass focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
+              >
+                Dismiss
+              </button>
+            </div>
+          ) : null}
         </main>
       </div>
+      {/* Right-click menus (UI-REVIEW #10) — one primitive, two surfaces. */}
+      {viewportMenu !== null ? (
+        <ContextMenu
+          open
+          x={viewportMenu.x}
+          y={viewportMenu.y}
+          aria-label="Viewport actions"
+          data-testid="viewport-context-menu"
+          sections={buildViewportSections()}
+          onClose={() => setViewportMenu(null)}
+        />
+      ) : null}
+      {treeMenu !== null ? (
+        <ContextMenu
+          open
+          x={treeMenu.x}
+          y={treeMenu.y}
+          aria-label={`Actions for ${treeMenu.feature.name}`}
+          data-testid="tree-context-menu"
+          sections={buildTreeSections(treeMenu.feature)}
+          onClose={() => setTreeMenu(null)}
+        />
+      ) : null}
     </DocumentUnitProvider>
   );
 }

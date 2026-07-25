@@ -1,7 +1,10 @@
 export * from "./tokens";
 export {
+  areaUnitLabel,
   formatLength,
   fromMm,
+  fromMmArea,
+  fromMmVolume,
   LENGTH_UNITS,
   type FormatLengthOptions,
   type LengthUnit,
@@ -9,6 +12,7 @@ export {
   MM_PER_UNIT,
   parseLength,
   toMm,
+  volumeUnitLabel,
 } from "./units";
 export { loftPreset } from "./tailwind-preset";
 export { cx } from "./cx";
@@ -33,7 +37,18 @@ export {
   type ToolButtonProps,
   type ToolGroupProps,
 } from "./primitives/ToolButton";
+export {
+  CommandBand,
+  type CommandBandProps,
+  type CommandBandTier,
+} from "./primitives/CommandBand";
 export { Flyout, type FlyoutProps, type FlyoutItem } from "./primitives/Flyout";
+export {
+  ContextMenu,
+  type ContextMenuProps,
+  type ContextMenuItem,
+  type ContextMenuSection,
+} from "./primitives/ContextMenu";
 export {
   SegmentedControl,
   type SegmentedControlProps,

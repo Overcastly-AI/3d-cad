@@ -47,14 +47,15 @@ export interface ToolButtonProps extends Omit<
   /** Toggle/selected state — sets `aria-pressed` and the brass scribe. */
   active?: boolean;
   /**
-   * Show the `label` text beside the icon (the feature toolbar does) — on
-   * WIDE frames only. Labels are a width tier, not a constant: below 1360px
-   * the band sheds them (icon + eyebrow + tooltip carry the names) so the
-   * no-wrap command band never clips or ellipsizes at the 1280×800 floor.
-   * Every `showLabel` surface is a full-width top band, so a viewport query
-   * IS its container query. Arithmetic: the labeled band ≈ 1315px natural
-   * (12 labeled tools + icon-only History) → fits ≥1360 with margin; the
-   * label-shed band ≈ 580px → categorical fit at 1280.
+   * Show the `label` text beside the icon. Inside a `CommandBand`, labels are
+   * a MEASURED tier, not a constant: the band probes whether the fully
+   * labeled row fits its own width and stamps `data-band-tier` — when it
+   * steps to the icon tier this label collapses via ancestor-attribute CSS
+   * (icon + group eyebrow + tooltip carry the names), so the no-wrap band can
+   * never clip or hide a tool group at any width, including when future
+   * groups land. No viewport-breakpoint arithmetic to go stale (the
+   * 2026-07-24 audit P0 was exactly that staleness). Outside a band the
+   * label simply shows.
    */
   showLabel?: boolean;
   /** Quiet supplement (count / reason) — engraved in the tooltip, not stacked. */
@@ -136,8 +137,15 @@ export function ToolButton({
       onClick={handleClick}
       className={cx(
         "group/tt relative inline-flex select-none items-center rounded-sm py-1.5",
-        // Padding + gap follow the label tier: icon-only spacing below it.
-        showLabel ? "gap-2 px-2 min-[1360px]:px-3" : "px-2",
+        // Padding + gap follow the label tier: icon-only spacing when the
+        // enclosing CommandBand has measured itself into the icon tier. A
+        // pure icon-only tool (undo/redo, no `showLabel`) also gets a
+        // comfortable ≥32px square hit target — the 16px glyph alone left a
+        // cramped ~32×28 tap area (UX audit #20d); `min-h`/`min-w` grow the
+        // click surface without shifting the band's centered rows.
+        showLabel
+          ? "gap-2 px-3 [[data-band-tier=icon]_&]:px-2"
+          : "min-h-8 min-w-8 justify-center px-2",
         "transition-colors duration-fast",
         "focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass",
         isDisabled ? "cursor-not-allowed opacity-40" : "hover:bg-carbide",
@@ -148,7 +156,7 @@ export function ToolButton({
     >
       <span className="flex shrink-0 items-center">{icon}</span>
       {showLabel ? (
-        <span className="hidden min-w-0 truncate text-left font-display text-2xs uppercase tracking-[0.12em] min-[1360px]:block">
+        <span className="block min-w-0 truncate text-left font-display text-2xs uppercase tracking-[0.12em] [[data-band-tier=icon]_&]:hidden">
           {label}
         </span>
       ) : null}
@@ -163,9 +171,14 @@ export function ToolButton({
 
       {/* Tooltip: an anvil stamp with the accelerator engraved, and the quiet
           caption (count / reason) folded onto a second line so the resting
-          button stays a single icon-thin row. */}
+          button stays a single icon-thin row. The z-30 is LOCAL to the
+          enclosing stacking context; page-level ordering (band above panels,
+          so this stamp never hides behind the feature tree) comes from the
+          `zLayer` scale on the band itself. `data-tooltip` is the QA hook for
+          z-order/occlusion asserts. */}
       <span
         aria-hidden
+        data-tooltip
         className={cx(
           "pointer-events-none absolute left-1/2 z-30 -translate-x-1/2",
           tooltipSide === "bottom" ? "top-full mt-1.5" : "bottom-full mb-1.5",

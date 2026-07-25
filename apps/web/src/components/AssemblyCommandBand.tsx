@@ -14,6 +14,7 @@ import {
   ConcentricIcon,
   DistanceIcon,
   FixedIcon,
+  MeasureIcon,
   ToolButton,
   ToolGroup,
 } from "@loft/design";
@@ -45,6 +46,11 @@ export interface AssemblyCommandBandProps {
   canMate: boolean;
   activeTool: MateTool | null;
   onToggleTool: (tool: MateTool) => void;
+  /** Interference needs two parts; the check stays disabled until then. */
+  canCheckInterference: boolean;
+  /** A check is in flight (the tool holds with a "Scanning…" caption). */
+  interferenceBusy: boolean;
+  onCheckInterference: () => void;
 }
 
 export function AssemblyCommandBand({
@@ -61,6 +67,9 @@ export function AssemblyCommandBand({
   canMate,
   activeTool,
   onToggleTool,
+  canCheckInterference,
+  interferenceBusy,
+  onCheckInterference,
 }: AssemblyCommandBandProps) {
   const mateReason = canMate ? undefined : "Add two parts first";
   return (
@@ -140,6 +149,25 @@ export function AssemblyCommandBand({
           caption={mateReason}
           data-testid="mate-lock"
           onClick={() => onToggleTool("lock")}
+        />
+      </ToolGroup>
+      <ToolGroup eyebrow="Inspect">
+        <ToolButton
+          icon={<MeasureIcon />}
+          label="Check interference"
+          showLabel
+          shortcut="I"
+          disabled={!canCheckInterference}
+          aria-busy={interferenceBusy}
+          caption={
+            interferenceBusy
+              ? "Scanning…"
+              : canCheckInterference
+                ? undefined
+                : "Add two parts first"
+          }
+          data-testid="check-interference"
+          onClick={onCheckInterference}
         />
       </ToolGroup>
     </div>

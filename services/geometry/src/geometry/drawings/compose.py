@@ -46,6 +46,7 @@ from ezdxf.enums import TextEntityAlignment
 from ezdxf.layouts import Modelspace
 from py_kit.schemas.drawings import (
     AngularDimensionParams,
+    Annotation,
     BendTableRow,
     ComposedArrow,
     ComposedBendTable,
@@ -55,8 +56,11 @@ from py_kit.schemas.drawings import (
     ComposedDimLine,
     ComposedDimText,
     ComposedEdge,
+    ComposedHatch,
+    ComposedHatchLine,
     ComposedLineEdge,
     ComposedMeasuredDimension,
+    ComposedNote,
     ComposedPoint,
     ComposedPolylineEdge,
     ComposedSheet,
@@ -72,8 +76,10 @@ from py_kit.schemas.drawings import (
     PointToPointMeasurement,
     ProjectedPoint,
     ProjectedViewEdge,
+    SectionFaceLoop,
     SheetLayout,
     SheetOrientation,
+    SheetProjectionConvention,
     SheetSize,
     ViewProjection,
     ViewScale,
@@ -104,6 +110,7 @@ VIEW_LABEL: dict[ViewProjection, str] = {
     "right": "Right",
     "iso": "Isometric",
     "flat_pattern": "Flat Pattern",
+    "section": "Section A-A",
 }
 
 #: ISO / ANSI sheet dimensions in mm, given LANDSCAPE (w >= h) — layout.ts.
@@ -133,6 +140,20 @@ VIEW_GUTTER_MM = 24.0
 #: (which is front/top/right/iso specific). Kept distinct so a standard sheet composes
 #: byte-identically; only a layout that names a `flat_pattern` view takes the branch.
 FLAT_PATTERN_PROJECTION: ViewProjection = "flat_pattern"
+
+#: The section view projection kind (drawings-section.md v1). Placed by the ADDITIVE
+#: section branch of :func:`place_sheet` — a single centred cut view + a crosshatch
+#: over its cross-section faces — NEVER by the standard-4 `bounds_aware_layout`. A
+#: standard sheet composes byte-identically; only a layout naming a `section` view
+#: takes the branch.
+SECTION_PROJECTION: ViewProjection = "section"
+
+# --- crosshatch (drawings-section.md §5) — the ANSI 45° section fill --------------
+#: Hatch line angle (ANSI 45°) and spacing (sheet mm). Fixed (not ad-hoc) so the
+#: even-odd scanline clip is byte-deterministic (§6); spacing is a SHEET concern (it
+#: scales with the drawing, not the model), so the clip runs in final sheet-SVG space.
+_HATCH_ANGLE_DEG = 45.0
+_HATCH_SPACING_MM = 2.5
 
 #: Bend-table block layout (mm) — the quiet top-left annotation block on a flat-pattern
 #: sheet (sheet-metal.md §7): a header row plus one row per bend. Anchored at the sheet
@@ -290,13 +311,25 @@ def standard_layout(dims: Vec2) -> dict[ViewProjection, Vec2]:
 
 
 def bounds_aware_layout(
-    bounds_by_projection: dict[ViewProjection, ViewBounds | None], dims: Vec2
+    bounds_by_projection: dict[ViewProjection, ViewBounds | None],
+    dims: Vec2,
+    projection: SheetProjectionConvention = "third_angle",
 ) -> dict[ViewProjection, Vec2]:
-    """Bounds-aware third-angle placement (layout.ts boundsAwareLayout).
+    """Bounds-aware orthographic placement (layout.ts boundsAwareLayout).
 
     Spaces the four views by their OWN projected extents (+ a gutter) then centres
     the arrangement in the sheet; falls back to :func:`standard_layout` when no view
     has geometry. Returns view-CENTRE anchors (sheet mm, y-UP, bottom-left origin).
+
+    ``projection`` selects the drafting-standard placement of the orthographic
+    trio (ISO 128, drawings.md §1.2 — a SHEET convention, not a projection
+    difference: the projected edges are identical, only the placement swaps).
+    THIRD-angle (US default, unchanged) puts the top view ABOVE the front and the
+    right-side view to the RIGHT of it. FIRST-angle (ISO/European) mirrors that —
+    the top view goes BELOW the front and the right-side view to its LEFT ("as if
+    the object were projected through itself onto a plane behind it"). The iso
+    corner is conventionally unchanged (the free upper-right quadrant in both).
+    ``third_angle`` reproduces the pre-convention anchors byte-for-byte.
     """
 
     def half(v: ViewProjection) -> Vec2:
@@ -314,10 +347,16 @@ def bounds_aware_layout(
     if not any_geometry:
         return standard_layout(dims)
 
+    # y-UP, bottom-left origin: +y is up, +x is right. Third-angle places top at
+    # +y (above front) and right at +x (right of front); first-angle negates each
+    # of those two axes so top lands below and the right-side view to the left. The
+    # iso corner keeps the third-angle (+,+) slot in both conventions.
+    top_sy = 1.0 if projection == "third_angle" else -1.0
+    right_sx = 1.0 if projection == "third_angle" else -1.0
     rel: dict[ViewProjection, Vec2] = {
         "front": Vec2(0.0, 0.0),
-        "top": Vec2(0.0, f.y + g + t.y),
-        "right": Vec2(f.x + g + r.x, 0.0),
+        "top": Vec2(0.0, top_sy * (f.y + g + t.y)),
+        "right": Vec2(right_sx * (f.x + g + r.x), 0.0),
         "iso": Vec2(f.x + g + r.x, f.y + g + t.y),
     }
     half_of: dict[ViewProjection, Vec2] = {
@@ -338,6 +377,128 @@ def bounds_aware_layout(
     dx = dims.x / 2 - (min_x + max_x) / 2
     dy = dims.y / 2 - (min_y + max_y) / 2
     return {v: Vec2(rel[v].x + dx, rel[v].y + dy) for v in STANDARD_VIEWS}
+
+
+#: A view's y-UP axis-aligned bounding box on the sheet (min/max in sheet mm), used
+#: for the non-overlap free-slot search (FINDINGS #6). The SAME frame the auto
+#: anchors live in (y-up, bottom-left origin).
+class _YUpRect(NamedTuple):
+    min_x: float
+    min_y: float
+    max_x: float
+    max_y: float
+
+
+def _view_half(result: DrawingViewResult | None) -> Vec2:
+    """Half the view's projected extent (0 when it has no drawable geometry)."""
+    if result is None or result.error is not None:
+        return Vec2(0.0, 0.0)
+    b = view_bounds(result.edges)
+    if b is None:
+        return Vec2(0.0, 0.0)
+    return Vec2((b.max.x - b.min.x) / 2, (b.max.y - b.min.y) / 2)
+
+
+def _yup_rect(center: Vec2, half: Vec2) -> _YUpRect:
+    return _YUpRect(
+        center.x - half.x, center.y - half.y, center.x + half.x, center.y + half.y
+    )
+
+
+def _rects_overlap(a: _YUpRect, b: _YUpRect) -> bool:
+    """True iff two y-up boxes overlap by positive area (a shared edge does not)."""
+    return (
+        a.min_x < b.max_x
+        and b.min_x < a.max_x
+        and a.min_y < b.max_y
+        and b.min_y < a.max_y
+    )
+
+
+def _free_slot_anchor(half: Vec2, occupied: Sequence[_YUpRect], dims: Vec2) -> Vec2:
+    """A non-overlapping y-up CENTRE for an additive view (section / flat_pattern).
+
+    The standard-4 auto-layout and any honored views are already placed; an additive
+    view must land clear of them (FINDINGS #6 — previously dropped dead-centre onto the
+    quartet). With no other views it keeps the historical sheet centre (a section- or
+    flat-pattern-ONLY sheet composes byte-identically). Otherwise it tries, in a fixed
+    deterministic order, the right / below / left / above of the occupied block's
+    bounding box (a gutter clear), taking the first that both fits inside the margins
+    and overlaps nothing; if none fits it falls back to the right of the block (clamped
+    vertically), still clear of the block horizontally.
+    """
+    if not occupied:
+        return Vec2(dims.x / 2, dims.y / 2)
+    ux0 = min(r.min_x for r in occupied)
+    uy0 = min(r.min_y for r in occupied)
+    ux1 = max(r.max_x for r in occupied)
+    uy1 = max(r.max_y for r in occupied)
+    ucx = (ux0 + ux1) / 2
+    ucy = (uy0 + uy1) / 2
+    g = VIEW_GUTTER_MM
+    m = SHEET_MARGIN_MM
+    candidates = (
+        Vec2(ux1 + g + half.x, ucy),  # right
+        Vec2(ucx, uy0 - g - half.y),  # below
+        Vec2(ux0 - g - half.x, ucy),  # left
+        Vec2(ucx, uy1 + g + half.y),  # above
+    )
+    for c in candidates:
+        rect = _yup_rect(c, half)
+        fits = (
+            rect.min_x >= m
+            and rect.max_x <= dims.x - m
+            and rect.min_y >= m
+            and rect.max_y <= dims.y - m
+        )
+        if fits and not any(_rects_overlap(rect, o) for o in occupied):
+            return c
+    return Vec2(ux1 + g + half.x, ucy)
+
+
+def _resolve_view_anchors(
+    layout: SheetLayout,
+    result_by_proj: dict[ViewProjection, DrawingViewResult],
+    dims: Vec2,
+) -> dict[ViewProjection, Vec2]:
+    """Resolve every placed view's y-up CENTRE anchor (FINDINGS #6).
+
+    Three deterministic passes so an additive/honored view sees the block it must
+    avoid: (1) the standard front/top/right/iso quartet that is ``auto_place`` — laid
+    out as a group by :func:`bounds_aware_layout` (unchanged, byte-identical);
+    (2) any ``auto_place=False`` view — honored verbatim at its authored ``position``
+    (the drag-to-place seam); (3) the additive ``auto_place`` views (section /
+    flat_pattern) — each dropped into a non-overlapping :func:`_free_slot_anchor`.
+    """
+    bounds_by_proj: dict[ViewProjection, ViewBounds | None] = {}
+    for proj in STANDARD_VIEWS:
+        r = result_by_proj.get(proj)
+        ok = r is not None and r.error is None
+        bounds_by_proj[proj] = view_bounds(r.edges) if (ok and r is not None) else None
+    auto = bounds_aware_layout(bounds_by_proj, dims, layout.projection)
+
+    anchors: dict[ViewProjection, Vec2] = {}
+    occupied: list[_YUpRect] = []
+
+    def place(proj: ViewProjection, center: Vec2) -> None:
+        anchors[proj] = center
+        occupied.append(_yup_rect(center, _view_half(result_by_proj.get(proj))))
+
+    for vp in layout.views:
+        if vp.auto_place and vp.projection in STANDARD_VIEWS:
+            place(vp.projection, auto[vp.projection])
+    for vp in layout.views:
+        if not vp.auto_place:
+            place(vp.projection, Vec2(vp.position.x_mm, vp.position.y_mm))
+    for vp in layout.views:
+        if vp.auto_place and vp.projection not in STANDARD_VIEWS:
+            place(
+                vp.projection,
+                _free_slot_anchor(
+                    _view_half(result_by_proj.get(vp.projection)), occupied, dims
+                ),
+            )
+    return anchors
 
 
 def view_transform(
@@ -488,6 +649,81 @@ def view_to_svg_edges(
                 )
             )
     return out
+
+
+def _hatch_loops_svg(
+    faces: Sequence[SectionFaceLoop], to_svg: ToSvg
+) -> list[list[Vec2]]:
+    """Every section-face boundary (outer + holes) as SVG-space polylines.
+
+    The section loops are in the view plane (the SAME frame as the view's edges), so
+    the ONE ``to_svg`` transform maps them onto the placed geometry — the hatch lands
+    exactly on the drawn cut face. Holes are kept as their own loops for the even-odd
+    carve (drawings-section.md §5)."""
+    loops: list[list[Vec2]] = []
+    for face in faces:
+        loops.append([to_svg(_p2(p)) for p in face.outer])
+        for hole in face.holes:
+            loops.append([to_svg(_p2(p)) for p in hole])
+    return loops
+
+
+def build_section_hatch(
+    faces: Sequence[SectionFaceLoop], to_svg: ToSvg
+) -> ComposedHatch | None:
+    """Generate the ANSI 45° crosshatch of a section view (drawings-section.md §5/§6).
+
+    A faithful port of the spike's proven even-odd scanline clip
+    (spike_section_view.py ``_scanline_hatch``), run in FINAL sheet-SVG space so the
+    spacing is a true sheet-mm concern (§5): rotate every loop so the hatch lines are
+    horizontal, sweep scanlines at :data:`_HATCH_SPACING_MM` from a deterministic grid
+    origin (min rotated-v snapped to the spacing grid), intersect every loop edge, sort
+    the crossings, and pair them even-odd — so interior hole loops carve gaps. A
+    scanline that grazes a shared vertex is counted exactly once (half-open
+    ``[lo, hi)`` on each edge's v-extent). Each kept span is rotated back to SVG space.
+    Deterministic (§6): the loops, angle, spacing, and clip origin are pure functions of
+    the projected geometry. Returns ``None`` when there are no faces (nothing to hatch).
+    """
+    loops = _hatch_loops_svg(faces, to_svg)
+    if not loops:
+        return None
+
+    a = math.radians(_HATCH_ANGLE_DEG)
+    ca, sa = math.cos(a), math.sin(a)
+
+    def rot(p: Vec2) -> Vec2:  # rotate so hatch lines are horizontal
+        return Vec2(p.x * ca + p.y * sa, -p.x * sa + p.y * ca)
+
+    def unrot(p: Vec2) -> Vec2:  # inverse — back to SVG space
+        return Vec2(p.x * ca - p.y * sa, p.x * sa + p.y * ca)
+
+    redges: list[tuple[Vec2, Vec2]] = []
+    for loop in loops:
+        rl = [rot(p) for p in loop]
+        for i in range(len(rl)):
+            redges.append((rl[i], rl[(i + 1) % len(rl)]))
+    if not redges:
+        return None
+    vmin = min(min(e[0].y, e[1].y) for e in redges)
+    vmax = max(max(e[0].y, e[1].y) for e in redges)
+    spacing = _HATCH_SPACING_MM
+    v = math.ceil(vmin / spacing) * spacing  # snap to a deterministic grid
+    lines: list[ComposedHatchLine] = []
+    while v <= vmax + 1e-12:
+        xs: list[float] = []
+        for p0, p1 in redges:
+            y1, y2 = p0.y, p1.y
+            lo, hi = (y1, y2) if y1 <= y2 else (y2, y1)
+            if lo <= v < hi:  # half-open: a grazing vertex is counted once
+                t = (v - y1) / (y2 - y1)
+                xs.append(p0.x + t * (p1.x - p0.x))
+        xs.sort()
+        for i in range(0, len(xs) - 1, 2):  # even-odd → interior spans only
+            a0 = unrot(Vec2(xs[i], v))
+            b0 = unrot(Vec2(xs[i + 1], v))
+            lines.append(ComposedHatchLine(x1=a0.x, y1=a0.y, x2=b0.x, y2=b0.y))
+        v += spacing
+    return ComposedHatch(lines=lines)
 
 
 # ---------------------------------------------------------------------------------
@@ -711,8 +947,23 @@ def _place_linear_between(
     sheet: Vec2 | None,
     dim_type: str,
     dim_id: object,
+    authored_offset: float | None = None,
 ) -> ComposedMeasuredDimension | None:
-    """A straight linear dimension between two projected points (dimensions.ts)."""
+    """A straight linear dimension between two projected points (dimensions.ts).
+
+    ``authored_offset`` wires the authored :class:`DimensionPlacement.offset_mm`
+    (design §3.1) — the signed perpendicular distance of the dimension line from the
+    measured geometry. When ``None`` (the default — ``offset_mm == 0``, what every
+    shipped drawing carries) the auto engine runs UNCHANGED: the dimension is placed
+    at the token offset ``_O`` on the ``away`` side and the ``_neg(away)`` alternate,
+    and the cleaner-reading one wins by :func:`_choose_by_penalty` (byte-identical to
+    pre-wire). When authored (non-zero) the auto penalty is BYPASSED: the dimension
+    line sits at ``abs(authored_offset)`` mm on the ``away`` side for a positive
+    offset (the composer's canonical outward normal — the auto engine's preferred
+    side) and the opposite side for a negative one, placed VERBATIM (a value large
+    enough to fall off-sheet is placed as-authored and the viewer clips it — the same
+    honest posture the auto engine takes for its own extremes and notes take off-sheet).
+    """
     d = _unit(_sub(q, p))
     if _hyp(_sub(q, p)) < 1e-9:
         return None
@@ -720,14 +971,14 @@ def _place_linear_between(
     n0 = _perp(d)
     away = n0 if _dot(n0, _sub(mid, view_center)) >= 0 else _neg(n0)
 
-    def place(n: Vec2) -> ComposedMeasuredDimension:
-        dim_a = _add(p, _mul(n, _O))
-        dim_b = _add(q, _mul(n, _O))
+    def place(n: Vec2, o: float = _O) -> ComposedMeasuredDimension:
+        dim_a = _add(p, _mul(n, o))
+        dim_b = _add(q, _mul(n, o))
         ext_a = _svg_line(
-            _add(p, _mul(n, _GAP)), _add(p, _mul(n, _O + _OVER)), "extension", to_svg
+            _add(p, _mul(n, _GAP)), _add(p, _mul(n, o + _OVER)), "extension", to_svg
         )
         ext_b = _svg_line(
-            _add(q, _mul(n, _GAP)), _add(q, _mul(n, _O + _OVER)), "extension", to_svg
+            _add(q, _mul(n, _GAP)), _add(q, _mul(n, o + _OVER)), "extension", to_svg
         )
         lines = [ext_a, ext_b, _svg_line(dim_a, dim_b, "dimension", to_svg)]
         arrows = [_arrow(dim_a, _neg(d), to_svg), _arrow(dim_b, d, to_svg)]
@@ -743,6 +994,9 @@ def _place_linear_between(
             foreshortened,
         )
 
+    if authored_offset is not None:
+        n = away if authored_offset >= 0 else _neg(away)
+        return place(n, abs(authored_offset))
     return _choose_by_penalty(place(away), place(_neg(away)), obstacles, sheet)
 
 
@@ -830,7 +1084,7 @@ def _place_angular(
     )
 
 
-def build_dimension_annotation(
+def _build_dimension_annotation_auto(
     dimension: DimensionParams,
     measured: MeasuredDimension,
     edges: Sequence[ProjectedViewEdge],
@@ -844,8 +1098,20 @@ def build_dimension_annotation(
 
     Returns None when the dimension cannot be placed (an unmatched/mismatched edge,
     parallel angular edges) — the caller lists it, never mis-draws.
+
+    The auto-placement CORE. Honors the authored :class:`DimensionPlacement.offset_mm`
+    for a LINEAR dimension (its design-§3.1 meaning — the signed offset of the
+    dimension LINE from the geometry; a diameter/radius/angular has no such offset
+    line, so ``offset_mm`` is inapplicable there in v1). The authored ``text_pos`` is
+    applied by the public :func:`build_dimension_annotation` wrapper (it overrides the
+    text of ANY placed dimension type). A default placement (``offset_mm == 0``,
+    ``text_pos is None`` — what every shipped dimension carries) runs this core
+    unchanged and byte-identical.
     """
     dim_type = dimension.type
+    authored_offset = (
+        dimension.placement.offset_mm if dimension.placement.offset_mm != 0.0 else None
+    )
     primary_sig = dimension_edge_signature(dimension)
     primary_edge = find_matching_edge(edges, primary_sig) if primary_sig else None
     marker_at = (
@@ -887,6 +1153,7 @@ def build_dimension_annotation(
                 sheet,
                 dim_type,
                 dim_id,
+                authored_offset,
             )
         edge = primary_edge
         if edge is None or edge.primitive != "line":
@@ -902,6 +1169,7 @@ def build_dimension_annotation(
             sheet,
             dim_type,
             dim_id,
+            authored_offset,
         )
 
     if isinstance(dimension, AngularDimensionParams):
@@ -958,6 +1226,46 @@ def build_dimension_annotation(
     )
 
 
+def build_dimension_annotation(
+    dimension: DimensionParams,
+    measured: MeasuredDimension,
+    edges: Sequence[ProjectedViewEdge],
+    view_center: Vec2,
+    to_svg: ToSvg,
+    obstacles: Sequence[SvgRect],
+    sheet: Vec2 | None,
+    dim_id: object,
+) -> ComposedDimension | None:
+    """Build the drafting annotation for one measured dimension (dimensions.ts).
+
+    Wraps the auto-placement core (:func:`_build_dimension_annotation_auto`, which
+    also honors an authored ``offset_mm`` for linear dims) and applies the authored
+    :class:`DimensionPlacement.text_pos` (design §3.1): when present it OVERRIDES the
+    auto-computed text anchor of a placed dimension of ANY type, verbatim in FINAL
+    sheet-SVG space (mm, y-DOWN, top-left origin — the same space a note anchor uses,
+    so no view transform / y-flip is re-applied; a point off the sheet is placed
+    as-authored and the viewer clips it). ``None`` (the default every shipped
+    dimension carries) leaves the auto text position untouched — byte-identical. The
+    override touches only the text POSITION; the dimension/extension lines, arrows,
+    stamped value, and text angle are the auto-placed geometry. An unplaceable
+    dimension (``None``) or a typed :class:`ComposedDimensionError` is returned as-is
+    (no text to move).
+    """
+    anno = _build_dimension_annotation_auto(
+        dimension, measured, edges, view_center, to_svg, obstacles, sheet, dim_id
+    )
+    text_pos = dimension.placement.text_pos
+    if text_pos is not None and isinstance(anno, ComposedMeasuredDimension):
+        return anno.model_copy(
+            update={
+                "text": anno.text.model_copy(
+                    update={"x": text_pos.x_mm, "y": text_pos.y_mm}
+                )
+            }
+        )
+    return anno
+
+
 # ---------------------------------------------------------------------------------
 # place_sheet — the composition entry point (mirrors DrawingSheet.tsx placement).
 # ---------------------------------------------------------------------------------
@@ -1003,6 +1311,10 @@ def _compose_view(
     return ComposedView(
         projection=projection,
         failed=failed,
+        # Carry the TYPED per-view reason through composition (FINDINGS #15) — a
+        # failed view prints WHY it is empty, not a bare "VIEW FAILED". None when the
+        # result is absent entirely (no typed reason to carry).
+        error=result.error if result is not None else None,
         anchor=ComposedPoint(x_mm=anchor_svg_x, y_mm=anchor_svg_y),
         label=VIEW_LABEL[projection].upper(),
         label_pos=ComposedPoint(x_mm=anchor_svg_x, y_mm=label_y),
@@ -1011,18 +1323,55 @@ def _compose_view(
     )
 
 
+#: Char budget for the truncated free-text fields (author/date/notes) — sized to the
+#: left-cell value column (x+18 → split_x) at `_TB_FIELD_VAL_MM`. Mirrors the `title`
+#: truncation posture (a too-long value is elided with "…" rather than overflowing the
+#: adjacent cell — the same honest fit the drawing title has always used).
+_TB_FIELD_CHARS = 26
+
+
+def _fit(text: str, limit: int) -> str:
+    """Truncate ``text`` to ``limit`` chars, eliding the overflow with a single "…".
+
+    The title-block fit posture, factored out so the drawing ``title`` and the
+    free-text ``author``/``date``/``notes`` share ONE truncation rule. ``len(text) ==
+    limit`` is kept verbatim (no ellipsis); ``> limit`` keeps ``limit - 1`` chars + "…".
+    """
+    return f"{text[: limit - 1]}…" if len(text) > limit else text
+
+
+def _tb_field(value: str | None) -> str | None:
+    """Normalise an optional free-text title-block field for stamping.
+
+    ``TitleBlockField`` is whitespace-trimmed but MAY be empty ("empty allowed → treated
+    as unset by the caller", schemas/drawings.py) — so a blank field is coerced to
+    ``None`` (stamps nothing), and a set field is truncated to fit its cell. Keeps the
+    empty/absent case byte-identical to a title block with no free-text at all.
+    """
+    if value is None or not value.strip():
+        return None
+    return _fit(value.strip(), _TB_FIELD_CHARS)
+
+
 def _title_block(
     layout: SheetLayout, dims: Vec2, scale_label: str
 ) -> ComposedTitleBlock:
-    """Place the bottom-right title block — mirrors TitleBlock.tsx."""
+    """Place the bottom-right title block — mirrors TitleBlock.tsx.
+
+    The always-on ``title``/``scale``/``size`` are stamped as before; the OPTIONAL
+    :class:`TitleBlock` free-text (``author``/``date``/``notes``) is normalised through
+    :func:`_tb_field` — a blank/absent field becomes ``None`` and is stamped by NO
+    serializer, so a sheet with no free-text composes byte-identically (the additive
+    posture; the WB-64 title-block-drop fix, AUDIT-ENGINEERING D1).
+    """
     w = _TITLE_BLOCK_W
     h = _TITLE_BLOCK_H
     x = dims.x - SHEET_MARGIN_MM - w
     y = dims.y - SHEET_MARGIN_MM - h
     split_x = x + w * 0.6
     mid_y = y + h * 0.5
-    title = layout.title
-    display_title = f"{title[:21]}…" if len(title) > 22 else title
+    display_title = _fit(layout.title, 22)
+    tb = layout.title_block
     return ComposedTitleBlock(
         x=x,
         y=y,
@@ -1033,6 +1382,9 @@ def _title_block(
         title=display_title,
         scale=scale_label,
         size=layout.size.replace("_", " "),
+        author=_tb_field(tb.author) if tb is not None else None,
+        date=_tb_field(tb.date) if tb is not None else None,
+        notes=_tb_field(tb.notes) if tb is not None else None,
     )
 
 
@@ -1059,10 +1411,30 @@ def _bend_table_block(
     )
 
 
+def _place_notes(annotations: Sequence[Annotation]) -> list[ComposedNote]:
+    """Place each free-text note annotation onto the sheet (design §2.2 v1).
+
+    A note's authored ``position`` is already in FINAL sheet-SVG space (mm, y-down,
+    top-left origin — the same space the title block and view labels use), so it maps
+    to a :class:`ComposedNote` verbatim: no view transform, no y-flip (the serializers
+    apply the per-format axis convention, exactly as they do for the title block). The
+    request order is preserved, so the emitted primitives are deterministic; an empty
+    ``annotations`` yields ``[]`` and the sheet composes byte-identically to its
+    pre-notes golden. ``NoteText`` is validated non-empty (min_length=1) upstream, so a
+    blank note never reaches here; a note anchored off the sheet is placed verbatim
+    (the viewer clips it), the same honest posture as a title-block text run.
+    """
+    return [
+        ComposedNote(x=a.position.x_mm, y=a.position.y_mm, text=a.text)
+        for a in annotations
+    ]
+
+
 def place_sheet(
     evaluation: EvaluateDrawingViewsResult,
     dimensions: Sequence[DrawingDimensionInput],
     layout: SheetLayout,
+    annotations: Sequence[Annotation] = (),
 ) -> ComposedSheet:
     """Place the evaluated drawing on the sheet (drawing-export.md §4.2).
 
@@ -1073,9 +1445,15 @@ def place_sheet(
     ``evaluation.dimensions`` (measured values, same request order) so a dimension
     is placed with its params AND its model-true value. Pure + deterministic.
 
+    ``annotations`` are the request's authored sheet notes (design §2.2 v1): each is
+    placed verbatim at its sheet-mm anchor (:func:`_place_notes`) — no geometry needed,
+    so they are independent of the evaluated views. Defaulting to ``()`` keeps a
+    note-free compose byte-identical to its pre-notes golden.
+
     NB the two-argument ``place_sheet(evaluation, layout)`` of the design sketch is
-    widened to three: the measured-result envelope carries no dimension PARAMS, so
-    the authored inputs are threaded through explicitly.
+    widened: the measured-result envelope carries no dimension PARAMS (so the authored
+    dimension inputs are threaded through explicitly) and no sheet annotations (so the
+    authored notes are threaded through explicitly).
     """
     dims = sheet_dimensions(layout.size, layout.orientation)
     sheet_w, sheet_h = dims.x, dims.y
@@ -1084,18 +1462,16 @@ def place_sheet(
         v.view: v for v in evaluation.views
     }
 
-    bounds_by_proj: dict[ViewProjection, ViewBounds | None] = {}
-    for proj in STANDARD_VIEWS:
-        r = result_by_proj.get(proj)
-        ok = r is not None and r.error is None
-        bounds_by_proj[proj] = view_bounds(r.edges) if (ok and r is not None) else None
-
-    anchors = bounds_aware_layout(bounds_by_proj, dims)
+    # Resolve every placed view's anchor once (FINDINGS #6): the standard quartet
+    # bounds-aware as before, additive section/flat_pattern views into a NON-OVERLAPPING
+    # free slot (never the old dead-centre collision), and any auto_place=False view
+    # honored at its authored position.
+    anchors = _resolve_view_anchors(layout, result_by_proj, dims)
 
     svg_rect_by_proj: dict[ViewProjection, SvgRect] = {}
     for proj in STANDARD_VIEWS:
         r = result_by_proj.get(proj)
-        if r is None or r.error is not None:
+        if r is None or r.error is not None or proj not in anchors:
             continue
         rect = view_content_svg_rect(r.edges, anchors[proj], sheet_h)
         if rect is not None:
@@ -1138,13 +1514,14 @@ def place_sheet(
 
     # Flat-pattern branch (sheet-metal.md §7) — ADDITIVE to the standard-4 layout
     # above. A flat-pattern sheet holds a single flat blank (already 2D, no HLR): it is
-    # placed CENTRED on the sheet from its projected extents through the SAME extent-
+    # placed at its RESOLVED anchor (`_resolve_view_anchors`) — the historical sheet
+    # centre for a flat-pattern-only sheet (byte-identical), a NON-OVERLAPPING free slot
+    # when it shares a sheet with standard views (FINDINGS #6) — via the SAME extent-
     # driven `_compose_view`/`view_to_svg_edges`/`view_bounds` machinery every standard
     # view uses (the edge machinery is generic over ProjectedViewEdge — never a fork),
     # and its bend table rides along as a quiet-corner annotation block. Standard sheets
     # (no flat_pattern in the layout) skip this entirely and compose byte-identically.
     bend_table_block: ComposedBendTable | None = None
-    flat_center = Vec2(sheet_w / 2, sheet_h / 2)
     for vp in layout.views:
         if vp.projection != FLAT_PATTERN_PROJECTION:
             continue
@@ -1152,7 +1529,7 @@ def place_sheet(
         composed_views.append(
             _compose_view(
                 FLAT_PATTERN_PROJECTION,
-                flat_center,
+                anchors[FLAT_PATTERN_PROJECTION],
                 sheet_w,
                 sheet_h,
                 flat_result,
@@ -1165,6 +1542,36 @@ def place_sheet(
                 flat_result.bend_table, SHEET_MARGIN_MM
             )
 
+    # Section branch (drawings-section.md §5) — ADDITIVE to the standard-4 layout,
+    # exactly like flat_pattern: a section view is a single view placed at its RESOLVED
+    # anchor (`_resolve_view_anchors`) — the historical sheet centre for a section-only
+    # sheet (byte-identical), a NON-OVERLAPPING free slot when it shares a sheet with
+    # standard quartet (FINDINGS #6 — previously it collided dead-centre with TOP/ISO) —
+    # through the SAME `_compose_view` machinery, and its crosshatch rides along,
+    # generated from the projected cross-section faces and clipped in the SAME `to_svg`
+    # frame so it lands on the drawn cut face. Standard sheets (no `section` in the
+    # layout) skip this and compose byte-identically.
+    for vp in layout.views:
+        if vp.projection != SECTION_PROJECTION:
+            continue
+        section_center = anchors[SECTION_PROJECTION]
+        section_result = result_by_proj.get(SECTION_PROJECTION)
+        section_view = _compose_view(
+            SECTION_PROJECTION,
+            section_center,
+            sheet_w,
+            sheet_h,
+            section_result,
+            [],
+            [],
+        )
+        if section_result is not None and section_result.error is None:
+            to_svg = view_transform(section_result.edges, section_center, sheet_h)
+            section_view.hatch = build_section_hatch(
+                section_result.section_faces, to_svg
+            )
+        composed_views.append(section_view)
+
     scale_label = format_scale(layout.views[0].scale) if layout.views else "1:1"
     return ComposedSheet(
         width_mm=sheet_w,
@@ -1175,6 +1582,7 @@ def place_sheet(
         views=composed_views,
         title_block=_title_block(layout, dims, scale_label),
         bend_table=bend_table_block,
+        notes=_place_notes(annotations),
     )
 
 
@@ -1199,6 +1607,12 @@ _EDGE_HIDDEN = "#6E7A88"
 #: renderers all read; this constant is the byte-export twin (the cross-renderer token
 #: duplication the module header notes) — keep the two hexes in lock-step.
 _EDGE_BEND = "#2F6FEB"
+#: Section crosshatch stroke (drawings-section.md §5) — a quiet thin graphite, the
+#: conventional ANSI section-line ink, distinct from the body-edge and dimension inks.
+#: Export-only in v1 (§5); the paired DOM sheet hatch is a BACKLOG follow-on that adds
+#: the matching `drawing.hatch` design token (the cross-renderer token duplication the
+#: module header notes) so the on-screen and exported hatch stay one colour.
+_HATCH_INK = "#7A8695"
 _LABEL = "#48525E"
 _DIM_INK = "#2A3542"
 _DIM_TEXT = "#1B222B"
@@ -1214,10 +1628,67 @@ _PAPER_EDGE_W = 0.6
 _HIDDEN_DASH = "2 1.4"  # hiddenDashMm + hiddenGapMm
 _BEND_W = 0.4  # flat-pattern fold-line weight (sheet-metal.md §7)
 _BEND_DASH = "3 1.6"  # bend fold-line dash (distinct from the hidden-edge dash)
+_HATCH_W = 0.25  # section crosshatch stroke weight (drawings-section.md §5)
 
 #: Monospace stack (font.data) — the drafting vernacular. Emitted with escaped
 #: quotes so the attribute stays valid standalone XML.
 _FONT = "&quot;Fragment Mono&quot;, ui-monospace, monospace"
+
+#: Free-text note height (mm) — a sibling of the dimension/title-block value stamp
+#: (`drawing.dimensionTextMm`), so a note reads as ordinary sheet body text in graphite
+#: ink. The SINGLE size the SVG/PDF/DXF note serializers share; the paired DOM sheet
+#: half (BACKLOG follow-on) adds the matching `drawing.noteTextMm` design token so the
+#: on-screen note and the exported note are the SAME height (the cross-renderer token
+#: duplication the module header notes).
+_NOTE_TEXT_MM = 3.2
+
+# --- title-block free-text fields (author/date/notes) — AUDIT-ENGINEERING D1 -------
+# The optional TitleBlock free-text is stamped as three secondary labeled rows in the
+# left cell's mid-band (below the drawing title, above the "LOFT · PART DRAWING"
+# footer), a caption + value per row. Smaller than the primary title (a real block's
+# secondary fields are), sized to fit without touching the existing title/scale/size
+# placement — so a block with NO free-text emits none of these rows and stays
+# byte-identical (the additive posture). The SINGLE source of the captions, sizes, and
+# row offsets, shared by the SVG/PDF/DXF serializers via `_tb_fields` (the cross-
+# renderer parity the bend-table/notes fields carry). The paired on-screen DrawingSheet
+# .tsx block is the BACKLOG DOM follow-on; it mirrors these captions/rows.
+_TB_FIELD_CAP_MM = 2.1  # secondary-field caption height (mm)
+_TB_FIELD_VAL_MM = 2.4  # secondary-field value height (mm)
+_TB_FIELD_CAP_DX = 4.0  # caption x offset from the block left edge (mm)
+_TB_FIELD_VAL_DX = 18.0  # value x offset from the block left edge (mm)
+#: Per-row baseline y offsets from the block TOP edge (mm), in field order.
+_TB_FIELD_ROWS_DY: tuple[float, ...] = (20.5, 23.5, 26.5)
+#: Fixed captions, in field order (author, date, notes).
+_TB_FIELD_CAPTIONS: tuple[str, ...] = ("DRAWN", "DATE", "NOTES")
+#: Field keys (for the SVG/DOM ``data-testid``), in the SAME field order.
+_TB_FIELD_KEYS: tuple[str, ...] = ("author", "date", "notes")
+
+
+class TitleBlockFieldRow(NamedTuple):
+    caption: str  # the fixed label ("DRAWN" / "DATE" / "NOTES")
+    value: str  # the truncated free-text value (never None — Nones are skipped)
+    dy: float  # baseline y offset from the block top edge (mm)
+    key: str  # field key ("author" / "date" / "notes"), for the data-testid
+
+
+def _tb_fields(tb: ComposedTitleBlock) -> list[TitleBlockFieldRow]:
+    """The free-text rows to stamp for a title block, in field order.
+
+    The ONE place the "which free-text rows render" decision lives: a ``None`` field
+    (unset / blank) is skipped, so all three serializers stamp the SAME rows at the SAME
+    offsets and an empty title block yields ``[]`` (nothing emitted → byte-identical).
+    """
+    out: list[TitleBlockFieldRow] = []
+    for caption, value, dy, key in zip(
+        _TB_FIELD_CAPTIONS,
+        (tb.author, tb.date, tb.notes),
+        _TB_FIELD_ROWS_DY,
+        _TB_FIELD_KEYS,
+        strict=True,
+    ):
+        if value is not None:
+            out.append(TitleBlockFieldRow(caption, value, dy, key))
+    return out
 
 
 def _fmt(value: float) -> str:
@@ -1302,6 +1773,21 @@ def _emit_edge(edge: ComposedEdge, out: list[str]) -> None:
         )
 
 
+def _emit_hatch(hatch: ComposedHatch, out: list[str]) -> None:
+    """Render a section view's crosshatch (drawings-section.md §5) — thin 45° strokes.
+
+    One ``<line>`` per clipped span, in quiet graphite ink. Emitted BEFORE the view's
+    edges so the cut-face outline draws over the fill (the conventional reading)."""
+    out.append('      <g data-testid="drawing-hatch">')
+    for line in hatch.lines:
+        out.append(
+            f'        <line x1="{_fmt(line.x1)}" y1="{_fmt(line.y1)}" '
+            f'x2="{_fmt(line.x2)}" y2="{_fmt(line.y2)}" stroke="{_HATCH_INK}" '
+            f'stroke-width="{_fmt(_HATCH_W)}" stroke-linecap="round"/>'
+        )
+    out.append("      </g>")
+
+
 def _emit_dimension(dim: ComposedDimension, out: list[str]) -> None:
     if isinstance(dim, ComposedDimensionError):
         out.append(
@@ -1365,9 +1851,17 @@ def _emit_dimension(dim: ComposedDimension, out: list[str]) -> None:
 
 def _emit_view(view: ComposedView, out: list[str]) -> None:
     err = "true" if view.failed else "false"
+    # Surface the TYPED reason on the print (FINDINGS #15): the code as a data
+    # attribute (machine-readable, e.g. a Playwright/QA hook) and the human message
+    # stamped under the placeholder, so a failed view says WHY it is empty.
+    code_attr = (
+        f' data-view-error-code="{_esc(view.error.code)}"'
+        if view.error is not None
+        else ""
+    )
     out.append(
         f'    <g data-testid="drawing-view" data-view="{view.projection}" '
-        f'data-view-error="{err}">'
+        f'data-view-error="{err}"{code_attr}>'
     )
     if view.failed:
         ax = view.anchor.x_mm
@@ -1378,11 +1872,20 @@ def _emit_view(view: ComposedView, out: list[str]) -> None:
             f'stroke-width="{_fmt(_HIDDEN_W)}" stroke-dasharray="{_HIDDEN_DASH}"/>'
         )
         out.append(
-            f'      <text x="{_fmt(ax)}" y="{_fmt(ay + 1)}" text-anchor="middle" '
+            f'      <text x="{_fmt(ax)}" y="{_fmt(ay - 1)}" text-anchor="middle" '
             f'fill="{_LABEL}" font-family="{_FONT}" font-size="3" '
             f'letter-spacing="0.4">VIEW FAILED</text>'
         )
+        if view.error is not None:
+            out.append(
+                f'      <text data-testid="drawing-view-error" x="{_fmt(ax)}" '
+                f'y="{_fmt(ay + 4)}" text-anchor="middle" fill="{_LABEL}" '
+                f'font-family="{_FONT}" font-size="2.1" letter-spacing="0.2">'
+                f"{_esc(_fit(view.error.message, 40))}</text>"
+            )
     else:
+        if view.hatch is not None:
+            _emit_hatch(view.hatch, out)
         for edge in view.edges:
             _emit_edge(edge, out)
         for dim in view.dimensions:
@@ -1444,6 +1947,24 @@ def _emit_title_block(tb: ComposedTitleBlock, out: list[str]) -> None:
         f'      <text x="{_fmt(tb.split_x + 4)}" y="{_fmt(y + h - 4)}" {value}>'
         f"{_esc(tb.size)}</text>"
     )
+    # Optional free-text rows (author/date/notes) — stamped only when set, so an empty
+    # title block emits nothing here and stays byte-identical (AUDIT-ENGINEERING D1).
+    field_cap = (
+        f'fill="{_LABEL}" font-family="{_FONT}" font-size="{_TB_FIELD_CAP_MM}" '
+        f'letter-spacing="0.4"'
+    )
+    field_val = f'fill="{_INK}" font-family="{_FONT}" font-size="{_TB_FIELD_VAL_MM}"'
+    for row in _tb_fields(tb):
+        row_y = y + row.dy
+        out.append(
+            f'      <text x="{_fmt(x + _TB_FIELD_CAP_DX)}" y="{_fmt(row_y)}" '
+            f"{field_cap}>{row.caption}</text>"
+        )
+        out.append(
+            f'      <text data-testid="title-block-{row.key}" '
+            f'x="{_fmt(x + _TB_FIELD_VAL_DX)}" y="{_fmt(row_y)}" {field_val}>'
+            f"{_esc(row.value)}</text>"
+        )
     out.append("    </g>")
 
 
@@ -1487,6 +2008,20 @@ def _emit_bend_table(bt: ComposedBendTable, out: list[str]) -> None:
     out.append("    </g>")
 
 
+def _emit_note(note: ComposedNote, out: list[str]) -> None:
+    """Render a placed free-text note (design §2.2) — left-anchored graphite ink.
+
+    A single ``<text>`` stamped at the note's sheet anchor, in the same ink/font as the
+    title-block stamped values (consistent sheet text). ``dominant-baseline`` is the SVG
+    default (alphabetic), so the anchor is the text baseline — the DXF/PDF note
+    serializers place the baseline at the SAME anchor for a byte-consistent reading."""
+    out.append(
+        f'    <text data-testid="drawing-note" x="{_fmt(note.x)}" y="{_fmt(note.y)}" '
+        f'fill="{_INK}" font-family="{_FONT}" font-size="{_fmt(_NOTE_TEXT_MM)}" '
+        f'letter-spacing="0.1">{_esc(note.text)}</text>'
+    )
+
+
 def serialize_svg(composed: ComposedSheet) -> str:
     """Render a :class:`ComposedSheet` to a deterministic, byte-stable SVG string.
 
@@ -1522,6 +2057,8 @@ def serialize_svg(composed: ComposedSheet) -> str:
     _emit_title_block(composed.title_block, out)
     if composed.bend_table is not None:
         _emit_bend_table(composed.bend_table, out)
+    for note in composed.notes:
+        _emit_note(note, out)
     out.append("</svg>")
     return "\n".join(out) + "\n"
 
@@ -1667,6 +2204,15 @@ def _pdf_dimension(c: Canvas, dim: ComposedDimension) -> None:
     c.restoreState()
 
 
+def _pdf_hatch(c: Canvas, hatch: ComposedHatch) -> None:
+    """Draw a section view's crosshatch onto the PDF canvas (drawings-section.md §5)."""
+    c.setStrokeColor(_hex(_HATCH_INK))
+    c.setLineWidth(_HATCH_W * _MM)
+    c.setDash([])
+    for line in hatch.lines:
+        c.line(line.x1 * _MM, line.y1 * _MM, line.x2 * _MM, line.y2 * _MM)
+
+
 def _pdf_view(c: Canvas, view: ComposedView) -> None:
     if view.failed:
         ax = view.anchor.x_mm
@@ -1678,14 +2224,28 @@ def _pdf_view(c: Canvas, view: ComposedView) -> None:
         _pdf_text(
             c,
             ax,
-            ay + 1,
+            ay - 1,
             "VIEW FAILED",
             3.0,
             _LABEL,
             centred=True,
             central=False,
         )
+        # The typed reason on the print (FINDINGS #15).
+        if view.error is not None:
+            _pdf_text(
+                c,
+                ax,
+                ay + 4,
+                _fit(view.error.message, 40),
+                2.1,
+                _LABEL,
+                centred=True,
+                central=False,
+            )
     else:
+        if view.hatch is not None:
+            _pdf_hatch(c, view.hatch)
         for edge in view.edges:
             _pdf_edge(c, edge)
         for dim in view.dimensions:
@@ -1718,6 +2278,9 @@ def _pdf_title_block(c: Canvas, tb: ComposedTitleBlock) -> None:
     def value(cx: float, cy: float, text: str) -> None:
         _pdf_text(c, cx, cy, text, 3.4, _INK, centred=False, central=False)
 
+    def field(cx: float, cy: float, text: str, size: float, fill: str) -> None:
+        _pdf_text(c, cx, cy, text, size, fill, centred=False, central=False)
+
     caption(x + 4, y + 8, "TITLE")
     value(x + 4, y + 18, tb.title)
     caption(x + 4, y + h - 4, "LOFT · PART DRAWING")
@@ -1725,6 +2288,11 @@ def _pdf_title_block(c: Canvas, tb: ComposedTitleBlock) -> None:
     value(tb.split_x + 4, tb.mid_y - 3, tb.scale)
     caption(tb.split_x + 4, tb.mid_y + 8, "SIZE")
     value(tb.split_x + 4, y + h - 4, tb.size)
+    # Optional free-text rows — stamped only when set (AUDIT-ENGINEERING D1); an empty
+    # title block draws none, keeping the PDF byte-identical.
+    for row in _tb_fields(tb):
+        field(x + _TB_FIELD_CAP_DX, y + row.dy, row.caption, _TB_FIELD_CAP_MM, _LABEL)
+        field(x + _TB_FIELD_VAL_DX, y + row.dy, row.value, _TB_FIELD_VAL_MM, _INK)
 
 
 def _pdf_bend_table(c: Canvas, bt: ComposedBendTable) -> None:
@@ -1770,6 +2338,21 @@ def _pdf_bend_table(c: Canvas, bt: ComposedBendTable) -> None:
             )
 
 
+def _pdf_note(c: Canvas, note: ComposedNote) -> None:
+    """Stamp a placed free-text note onto the PDF canvas (design §2.2) — left-anchored
+    graphite ink at the note's sheet anchor (baseline-left, matching the SVG/DXF)."""
+    _pdf_text(
+        c,
+        note.x,
+        note.y,
+        note.text,
+        _NOTE_TEXT_MM,
+        _INK,
+        centred=False,
+        central=False,
+    )
+
+
 def serialize_pdf(composed: ComposedSheet) -> bytes:
     """Render a :class:`ComposedSheet` to a deterministic, byte-stable PDF (DE-2).
 
@@ -1813,6 +2396,8 @@ def serialize_pdf(composed: ComposedSheet) -> bytes:
     _pdf_title_block(c, composed.title_block)
     if composed.bend_table is not None:
         _pdf_bend_table(c, composed.bend_table)
+    for note in composed.notes:
+        _pdf_note(c, note)
     c.showPage()
     c.save()
     return buf.getvalue()
@@ -1851,6 +2436,14 @@ _LYR_TITLE = "TITLE"
 #: Flat-pattern fold lines (sheet-metal.md §7) — added ONLY for a flat-pattern sheet,
 #: so a standard sheet's TABLES section (and thus its DXF bytes) is byte-unchanged.
 _LYR_BEND = "BEND"
+#: Free-text notes (design §2.2) — added ONLY when the sheet carries notes, so a
+#: note-free sheet's TABLES section (and thus its DXF bytes) is byte-unchanged (the
+#: same additive-layer posture as `_LYR_BEND`).
+_LYR_NOTE = "NOTES"
+#: Section crosshatch (drawings-section.md §5) — REAL LINE entities on their own layer,
+#: added ONLY for a section sheet, so a non-section sheet's TABLES section (and DXF
+#: bytes) is byte-unchanged (the same additive-layer posture as `_LYR_BEND`).
+_LYR_HATCH = "HATCH"
 
 #: Mono text style — the consuming CAD supplies the Courier face (no embed).
 _DXF_STYLE = "LOFT_MONO"
@@ -1942,6 +2535,17 @@ def _dxf_dimension(
     )
 
 
+def _dxf_hatch(
+    msp: Modelspace, hatch: ComposedHatch, fy: Callable[[float], float]
+) -> None:
+    """Emit a section view's crosshatch as REAL LINE entities on the HATCH layer (§5).
+
+    Honest CAD-editable strokes (not a fill picture), so the section reopens with its
+    hatch as geometry. The ONE y-flip (DXF model space is y-up) applied via ``fy``."""
+    for line in hatch.lines:
+        _dxf_line(msp, line.x1, fy(line.y1), line.x2, fy(line.y2), _LYR_HATCH)
+
+
 def _dxf_view(
     msp: Modelspace, view: ComposedView, fy: Callable[[float], float]
 ) -> None:
@@ -1956,9 +2560,23 @@ def _dxf_view(
         ]
         msp.add_lwpolyline(corners, close=True, dxfattribs={"layer": _LYR_HIDDEN})
         _dxf_text_entity(
-            msp, "VIEW FAILED", ax, fy(ay + 1), 3.0, 0.0, _LYR_TITLE, centred=True
+            msp, "VIEW FAILED", ax, fy(ay - 1), 3.0, 0.0, _LYR_TITLE, centred=True
         )
+        # The typed reason on the print (FINDINGS #15).
+        if view.error is not None:
+            _dxf_text_entity(
+                msp,
+                _fit(view.error.message, 40),
+                ax,
+                fy(ay + 4),
+                2.1,
+                0.0,
+                _LYR_TITLE,
+                centred=True,
+            )
     else:
+        if view.hatch is not None:
+            _dxf_hatch(msp, view.hatch, fy)
         for edge in view.edges:
             _dxf_edge(msp, edge, fy)
         for dim in view.dimensions:
@@ -1995,6 +2613,9 @@ def _dxf_title_block(
     def value(cx: float, cy: float, text: str) -> None:
         _dxf_text_entity(msp, text, cx, fy(cy), 3.4, 0.0, _LYR_TITLE, centred=False)
 
+    def field(cx: float, cy: float, text: str, size: float) -> None:
+        _dxf_text_entity(msp, text, cx, fy(cy), size, 0.0, _LYR_TITLE, centred=False)
+
     caption(x + 4, y + 8, "TITLE")
     value(x + 4, y + 18, tb.title)
     caption(x + 4, y + h - 4, "LOFT · PART DRAWING")
@@ -2002,6 +2623,11 @@ def _dxf_title_block(
     value(tb.split_x + 4, tb.mid_y - 3, tb.scale)
     caption(tb.split_x + 4, tb.mid_y + 8, "SIZE")
     value(tb.split_x + 4, y + h - 4, tb.size)
+    # Optional free-text rows as real TEXT entities — stamped only when set (AUDIT-
+    # ENGINEERING D1); an empty title block emits none, keeping the DXF byte-identical.
+    for row in _tb_fields(tb):
+        field(x + _TB_FIELD_CAP_DX, y + row.dy, row.caption, _TB_FIELD_CAP_MM)
+        field(x + _TB_FIELD_VAL_DX, y + row.dy, row.value, _TB_FIELD_VAL_MM)
 
 
 def _dxf_bend_table(
@@ -2047,6 +2673,20 @@ def _dxf_bend_table(
             )
 
 
+def _dxf_note(
+    msp: Modelspace, note: ComposedNote, fy: Callable[[float], float]
+) -> None:
+    """Emit a placed free-text note as a DXF TEXT entity (design §2.2).
+
+    A single left-anchored TEXT on the NOTES layer at the note's sheet anchor (the ONE
+    y-flip applied via ``fy``, DXF model space being y-up), so the note reopens as real,
+    editable CAD text — not a picture. Left alignment (``centred=False``) matches the
+    SVG/PDF baseline-left placement."""
+    _dxf_text_entity(
+        msp, note.text, note.x, fy(note.y), _NOTE_TEXT_MM, 0.0, _LYR_NOTE, centred=False
+    )
+
+
 def serialize_dxf(composed: ComposedSheet) -> bytes:
     """Render a :class:`ComposedSheet` to a deterministic, byte-stable DXF (DE-3).
 
@@ -2080,6 +2720,15 @@ def serialize_dxf(composed: ComposedSheet) -> bytes:
         # TABLES section (and its DXF bytes) is byte-unchanged (sheet-metal.md §7).
         if composed.bend_table is not None:
             doc.layers.add(_LYR_BEND, color=5, linetype="DASHED")
+        # The NOTES layer is added ONLY when the sheet carries notes, so a note-free
+        # sheet's TABLES section (and its DXF bytes) is byte-unchanged (design §2.2).
+        if composed.notes:
+            doc.layers.add(_LYR_NOTE, color=7)
+        # The HATCH layer is added ONLY when a section view carries a crosshatch, so a
+        # non-section sheet's TABLES section (and its DXF bytes) is byte-unchanged
+        # (drawings-section.md §5, the same additive-layer posture as BEND/NOTES).
+        if any(v.hatch is not None for v in composed.views):
+            doc.layers.add(_LYR_HATCH, color=8)
         doc.styles.add(_DXF_STYLE, font="cour.ttf")
         msp = doc.modelspace()
 
@@ -2103,6 +2752,8 @@ def serialize_dxf(composed: ComposedSheet) -> bytes:
         _dxf_title_block(msp, composed.title_block, fy)
         if composed.bend_table is not None:
             _dxf_bend_table(msp, composed.bend_table, fy)
+        for note in composed.notes:
+            _dxf_note(msp, note, fy)
 
         stream = io.StringIO()
         doc.write(stream)

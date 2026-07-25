@@ -1,0 +1,193 @@
+{
+  "part_id": "00000000-0000-0000-0000-0000000000f2",
+  "tree_version": 1,
+  "features": [
+    {
+      "id": "00000000-0000-0000-0000-000000000201",
+      "feature": {
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "plane": {
+            "kind": "datum_plane",
+            "plane": "XY"
+          },
+          "entities": [
+            {
+              "id": "s0",
+              "kind": "line",
+              "start": {
+                "x": 0,
+                "y": 0
+              },
+              "end": {
+                "x": 40,
+                "y": 0
+              }
+            },
+            {
+              "id": "s1",
+              "kind": "line",
+              "start": {
+                "x": 40,
+                "y": 0
+              },
+              "end": {
+                "x": 40,
+                "y": 30
+              }
+            },
+            {
+              "id": "s2",
+              "kind": "line",
+              "start": {
+                "x": 40,
+                "y": 30
+              },
+              "end": {
+                "x": 0,
+                "y": 30
+              }
+            },
+            {
+              "id": "s3",
+              "kind": "line",
+              "start": {
+                "x": 0,
+                "y": 30
+              },
+              "end": {
+                "x": 0,
+                "y": 0
+              }
+            }
+          ],
+          "constraints": []
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000202",
+      "feature": {
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "00000000-0000-0000-0000-000000000201"
+          },
+          "distance_mm": 10.0,
+          "operation": "add",
+          "direction": "normal"
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000203",
+      "feature": {
+        "type": "datum",
+        "version": 1,
+        "params": {
+          "kind": "offset",
+          "base": "XY",
+          "offset_mm": 10.0,
+          "flip": false
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000204",
+      "feature": {
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "plane": {
+            "kind": "feature",
+            "feature_id": "00000000-0000-0000-0000-000000000203"
+          },
+          "entities": [
+            {
+              "id": "b0",
+              "kind": "line",
+              "start": {
+                "x": 15,
+                "y": 10
+              },
+              "end": {
+                "x": 25,
+                "y": 10
+              }
+            },
+            {
+              "id": "b1",
+              "kind": "line",
+              "start": {
+                "x": 25,
+                "y": 10
+              },
+              "end": {
+                "x": 25,
+                "y": 20
+              }
+            },
+            {
+              "id": "b2",
+              "kind": "line",
+              "start": {
+                "x": 25,
+                "y": 20
+              },
+              "end": {
+                "x": 15,
+                "y": 20
+              }
+            },
+            {
+              "id": "b3",
+              "kind": "line",
+              "start": {
+                "x": 15,
+                "y": 20
+              },
+              "end": {
+                "x": 15,
+                "y": 10
+              }
+            }
+          ],
+          "constraints": []
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000205",
+      "feature": {
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "00000000-0000-0000-0000-000000000204"
+          },
+          "distance_mm": 10.0,
+          "operation": "add",
+          "direction": "normal"
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000206",
+      "feature": {
+        "type": "datum",
+        "version": 1,
+        "params": {
+          "kind": "offset",
+          "base": "XY",
+          "offset_mm": 5.0,
+          "flip": false
+        }
+      }
+    }
+  ],
+  "linear_deflection": 0.1
+}

@@ -71,12 +71,9 @@ export function ChamferEditor({
       if (event.key === "Enter") {
         event.preventDefault();
         if (!saving) submit();
-      } else if (event.key === "Escape") {
-        event.preventDefault();
-        onCancel();
       }
     },
-    [saving, submit, onCancel],
+    [saving, submit],
   );
 
   const changeMode = useCallback(

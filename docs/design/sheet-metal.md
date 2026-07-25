@@ -96,6 +96,30 @@ below possible at all.
   **explicitly deferred past v1** (§7) — they are compositions of more bends
   and more corner-case geometry on top of the same primitive (a straight
   bend line + a bend allowance), not new kernel risk.
+
+  **Implementation note — CLOSED HEM SHIPPED (2026-07-19, kernel-architect,
+  parity §2).** The **closed hem** graduated from the deferred list as a
+  first-class feature `SheetMetalHemParamsV1` (`type="sheet_metal_hem"`): edge
+  ref + `length_mm` (developed return) + optional `bend_radius_mm`/`k_factor`
+  (inherit the base flange) + `hem_type="closed"` (open/teardrop/rolled
+  forward-declared, additive). It is a fixed **180°** fold of the return flat
+  back onto the parent, and the kernel finding is that it is even freer than
+  §1/§10 predicted: `build_edge_flange` at `bend_angle_deg=180` with a small
+  radius produces **one clean valid solid** (BRepCheck-valid, one shell) and
+  the shipped `unfold_sheet_metal` develops it verbatim (`BA = π·(r + K·t)`,
+  bend-table row angle 180°). The feared near-flat degeneracy **does not
+  occur** — the return sits ~2·radius above the base with an air gap, so the
+  fold-back structurally cannot self-intersect (verified valid down to
+  r=1e-6). So the closed hem needed **no new kernel geometry, no unfold fork,
+  and no guard** — the edge-flange and hem evaluators DRY-share
+  `_fold_flange_off_edge` (the hem passing a fixed 180° angle). Honest
+  degradation (parity §3): a zero-radius/zero-gap hem is a typed schema
+  rejection (`bend_radius_mm > 0`); a kernel fold failure inherits
+  `build_edge_flange`'s typed `EdgeFlangeError` → `edge_flange_failed`. Golden
+  `closed-hem-plate`. **Open / teardrop / rolled hems stay deferred** — each is
+  a genuinely different *curved cross-section profile* at the fold tip, not a
+  180° fold; and the **Hem authoring UI** is the next frontend slice (closed
+  hem is API-only today, exactly as the base/edge flange were).
 - **The deliverable is the flat pattern.** A sheet-metal part's actual
   manufacturing artifact is not the 3D formed shape — it's the **flat
   blank**: the 2D outline a laser/punch cuts, annotated with **bend lines**
@@ -393,6 +417,371 @@ by tests; the `UnfoldOverlapError` gate is the belt-and-suspenders backstop that
 guarantees a valid-tree development which *did* collide (e.g. from a future
 placement bug or unusual geometry) degrades typed, never emits a wrong blank.
 
+## 4.4 Corner relief — SHIPPED v1 (2026-07-19, kernel-architect)
+
+Corner relief is the secondary feature that lets a real box / tray / enclosure
+be manufactured: a small material cutout at a bend **intersection** so the sheet
+doesn't tear or interfere when folded, and — the point for this pillar — so the
+corner becomes **developable** into a single, non-overlapping flat blank. This
+section records the four decisions the brief asked for (relief type, auto-vs-
+explicit, sizing, the unfold interaction) and — most importantly — the honest
+finding on **which corner the notch can and cannot make developable in v1**.
+
+### 4.4.1 Relief type — RECTANGULAR for v1
+
+v1 ships **one** relief geometry: a **rectangular** notch (an axis-aligned
+square cut at the corner). Rationale: it is the simplest **developable** notch —
+its outline in the flat pattern is two straight cuts (a reentrant right-angle
+corner), so it composes with the existing rectilinear-union outline machinery
+(`_rectilinear_union_loop`, §4.3) with **no new curved-outline emitter and no
+`BRepBuilderAPI_MakeFace` wire-reconstruction risk** (§2.2). SolidWorks' *Corner
+Relief PropertyManager* offers Rectangular / Tear / Obround; Fusion drives it
+from the sheet-metal rule. **Follow-ons (deferred, each its own slice):**
+**obround / round** relief (a slot/circle at the corner — a curved cut needing
+arc outline edges + a circular boolean, the same curved-cut work a round *bend*
+relief needs); **tear / rip** relief (a zero-width slit — no material removed, a
+degenerate notch that needs a split/imprint, not a boolean cut). Rectangular is
+the incumbent default and the only one that is purely rectilinear, so it is the
+correct v1 atom.
+
+### 4.4.2 Auto vs. explicit — EXPLICIT spec in v1, auto as the layered follow-on
+
+The relief is an **explicit, per-corner spec** in v1: it names the two bends
+whose intersection it relieves (by their `CylindricalFaceSignature`, §5) and a
+size. **Recommendation for the pillar: auto-relief (a part-level default applied
+at every bend intersection that needs it) is the incumbent default (SolidWorks
+*Auto Reliefs*, Fusion's rule-driven relief) and is what makes a box "just
+unfold" — but it is a *policy layer* over this primitive, not new geometry.** The
+correct sequencing (matching `sheet-metal-parity.md`'s "Auto relief — blocked on
+corner relief landing first") is: ship the explicit primitive now (a corner the
+user/agent points at), then layer auto-detection on top (walk the bend graph,
+find every pair of bends whose developed regions would collide or whose flanges
+would tear at a shared corner, and synthesise an explicit relief for each). Auto
+is a pure function of the bend graph + a default size — no new kernel risk — so
+it is a clean follow-on, and shipping the explicit primitive first keeps the
+determinism/golden story tight (the relief set is an explicit input, not a
+graph-walk output that could drift).
+
+**Implementation note — EXPLICIT feature WIRED end-to-end (2026-07-19,
+kernel-architect).** The relief geometry (`apply_corner_relief` +
+`unfold_sheet_metal(reliefs=...)`) shipped earlier but was dead capability — called
+only from tests, with no feature schema and no evaluate-pipeline entry, so a user
+could not author it. It is now an authorable feature `SheetMetalCornerReliefParamsV1`
+(`type="sheet_metal_corner_relief"`): two `FeatureRef`s (`bend_a`/`bend_b`) at the
+edge-flange features whose bends meet at the corner, plus `relief_ratio` (default
+1.0) and an optional absolute `size_mm` override (§4.4.3), `relief_type="rectangular"`.
+Registered in all six feature arms (the `Feature`/`FeatureEnvelope` unions, the
+registry, `BODY_AFFECTING_FEATURE_TYPES`, `feature_references` — both bend slots
+accept `sheet_metal_edge_flange` only — and geometry's `_BODY_AFFECTING_TYPES` +
+`FEATURE_HANDLERS`). Its evaluator (`_evaluate_sheet_metal_corner_relief`) maps each
+`FeatureRef` to that edge flange's recorded `CylindricalFaceSignature` (§5, held in
+`EvaluationState.bend_provenance`), sizes the notch (`size_mm` else
+`relief_ratio × thickness`), builds the geometry-side `CornerRelief`, cuts the 3D
+notch, and RECORDS the relief so the flat-pattern unfold + the drawing `flat_pattern`
+view develop the matching relieved blank. Honest degradation is typed at the
+pipeline: a bend ref to a non-edge-flange feature → `reference_unresolved`,
+parallel/same bends → `corner_relief_failed`, no body → `no_prior_body`.
+
+**FULL 4-CORNER PAN — shared-flange resolution + flange-after-relief fixed
+(2026-07-19, kernel-architect).** The first cut of this feature had two usability
+gaps that blocked the canonical use case — relieving ALL FOUR corners of a pan/box —
+both now closed. The root cause of both: resolution and cut were coupled, and the
+"un-notched body" reference was a single snapshot captured lazily at the first relief.
+
+- **A relief resolves its bends against a CLEAN reference, not the live body.** A
+  second relief that SHARES a flange with an earlier relief (every adjacent corner of
+  a pan does — the north flange is shared by the NE and NW corners) used to fail
+  `subshape_unresolved`: the earlier notch shortens the shared flange's bend cylinder
+  and shifts its area centroid past the `_CENTROID_TOL_MM` (1e-6) signature match
+  tolerance, so the bend no longer resolved against the LIVE (already-notched) body.
+  Fix: `_evaluate_sheet_metal_corner_relief` splits resolution from the cut —
+  `corner_relief_tools(reference, relief)` resolves both bends + builds the notch
+  tools against the clean un-notched reference (`EvaluationState.sheet_metal_unfold_body`,
+  all bends / no notches), then `cut_relief_tools(active, tools)` subtracts them from
+  the LIVE body. Every relief resolves against the same un-notched geometry; the cuts
+  stack on the live body as disjoint corner bites at opposite ends of the shared
+  flange, staying one shell.
+- **The clean reference is maintained by the FOLDS, not snapshotted at the first
+  relief** — so a flange authored AFTER a relief still unfolds. `_fold_flange_off_edge`
+  keeps `sheet_metal_unfold_body` current (all bends, no notches): until the first
+  relief it tracks the live body verbatim; once a relief has notched the live body the
+  two have diverged, so the next fold re-folds that flange off the clean body (identical
+  edge + params → an identical bend, so the recorded provenance resolves). The old
+  snapshot-at-first-relief silently assumed all bend-creating features precede all
+  reliefs → a later flange's bend was in `bend_provenance` but not the snapshot → a
+  valid 3D body with a broken (`subshape_unresolved`) flat pattern, every feature
+  showing `ok`. That silent-green-body-broken-flat is gone: the flat pattern develops
+  correctly regardless of feature order (option (a), the reviewer's preferred fix).
+
+The fold-back invariant is proven at the **pipeline** level across two goldens: the
+single-relief `corner-tray-relieved-feature` (byte-identical content hash to the unit
+`corner-tray-relieved-unfold`), and the flagship `pan-four-corner-relieved`
+(`test_sheet_metal_four_corner_pan.py`) — base + 4 edge flanges + 4 corner reliefs, all
+ten features ok, ONE shell, a flat pattern with the four reentrant notches, `bend_widths_mm
+= [24, 24, 34, 34]` (each of the four flanges notched at BOTH ends), and removed volume
+== removed flat area × thickness + the per-notch bend term over all EIGHT flange notches.
+`test_flange_after_relief_develops_a_correct_flat_pattern` gates the ordering fix.
+
+**The AUTHORING UI is a separate frontend slice** — the wire shape it consumes is
+exactly this schema (two edge-flange FeatureRefs the user picks in the tree/viewport +
+a relief-ratio/size field). **Auto-relief is now a genuine fast-follow:** it synthesises
+a relief per colliding corner = adjacent corners that share flanges, which is precisely
+the shared-flange resolution this fix unblocked (a part-level default walking the bend
+graph — a pure function of the graph + a default size, no new kernel risk).
+
+### 4.4.3 Sizing — a multiple of thickness, defaulted, overridable
+
+The relief size is `size_mm = relief_ratio × thickness_mm`, default
+`relief_ratio = 1.0` (one gauge thickness — a conservative, tear-safe default in
+the SolidWorks *Relief Ratio* family, which sizes rectangular/obround relief as a
+multiple of thickness). The explicit spec carries an absolute `size_mm` (the
+resolved value) so the golden pins an exact number; the ratio is the authoring
+convenience the auto/UI layer applies. The sane manufacturing floor is
+`size ≥ bend_radius` (the notch should clear the bend arc), and the
+`corner-tray-relieved-unfold` golden honors it (`size = 3.0 = bend_radius`,
+`relief_ratio = 1.5` at `t = 2`). v1 does **not** hard-enforce the floor — an
+undersized relief is a manufacturing warning, not a geometry error: the flat
+pattern is still developable, and the 3D `_flange_notch_box` tool clears the arc
+for **any** size (each slot spans the full wall in the outboard direction, so it
+reaches the folded wall regardless of `size`), so an undersized relief still
+produces a fold-back-consistent body — it is simply below the tear-safe
+recommendation.
+
+### 4.4.4 The unfold interaction — the crux, and the honest scope finding
+
+**What relief does to the flat pattern — a LOCAL corner notch.** For a **depth-1
+tray corner** — two adjacent flanges folded off perpendicular edges of one base,
+meeting at a shared base corner — the relief cuts a **local** rectangular notch
+*at the corner*: (a) the base loses its `size × size` corner square, and (b) each
+adjacent flange loses a `size`-wide notch of **developed depth `BA + size`** at
+its corner root — through the bend-allowance strip and `size` into the leg. The
+flange leg **stays full width above the notch** — this is a corner bite, **NOT a
+full-length narrowing of the whole flange** (an earlier draft insetting the whole
+flange over its entire developed length was wrong: it removed material with no 3D
+counterpart, so the blank did not fold back to the modeled body — see §4.4.4's
+fold-back invariant). The fold line is shortened by `size` at the notched end, so
+`bend_widths_mm` is the reduced span (e.g. a 30 mm-wide flange → 27 for `size = 3`).
+In the developed frame this is a set of axis-aligned rectangles (base decomposed
+into the L that avoids the corner square + each arm's notched-near region + full-
+width far region), which `_rectilinear_union_loop` (§4.3) unions into ONE closed
+loop with a **reentrant L-shaped notch** reaching into both arms. Area is the §9
+invariant with the removed material subtracted:
+`flat_area = base + Σ(full flange dev areas) − Σ(size² corner squares) −
+Σ(size·(BA+size) per flange notch)` — the per-flange notch is **leg-length-
+independent** (local depth `BA + size`, not the full leg). The outline stays a
+single closed loop — the notch is a genuine cut in the blank outline, not a
+separate hole. This is the shipped `_unfold_nonparallel_relieved` path; it only
+runs when a relief is supplied, so **every existing depth-1/depth-2 golden is
+byte-unchanged** (an empty relief set takes the verbatim pre-existing paths).
+
+**Why this is the right v1 target — and what the notch does NOT lift.** The
+brief's headline target was "turn the currently-rejected closed box corner into a
+correct flat pattern." A spike (recorded here, not hidden) established the precise
+boundary:
+
+- The **fully-closed / welded box corner** (two adjacent walls off the base, then
+  a **return** folded off *each* wall reaching into the shared corner — the
+  `_build_corner_box_returns` body) is rejected today as a **cyclic** connectivity
+  (`UnfoldStarError`, §4.3's finding), **not** as a self-overlap. A rectangular
+  corner notch does **NOT** lift that rejection: each return folds **outward into
+  the plane of the adjacent wall** (its developed node is coplanar with, and
+  co-located at, the opposite wall — verified: return centroid `(43,20,17.5)` ==
+  wall-B centroid), so the tree is cyclic *by construction of the fold
+  directions*, and trimming the corner material does not change which plane a
+  return folds into. Making that corner developable needs **miter / closed-corner
+  geometry** (trim-and-join the adjoining bend faces, `sheet-metal-parity.md`'s
+  "Closed corners" / "Miter flange" rows), a genuinely different operation than a
+  material cutout — correctly sequenced *after* corner relief. **v1 keeps that
+  body a typed reject** (the honest-degradation contract holds — it is never a
+  wrong or overlapping blank, and never a raw kernel crash).
+- The **depth-1 open-corner tray** already develops today (its two adjacent
+  flanges lay out as **disjoint arms**, §6's non-parallel path — the corner region
+  between them is already empty). So relief is **not what "enables" that unfold**
+  in the trivial sense. What relief adds — and why a shop needs it — is the
+  **manufacturable relieved blank**: a full-width-to-corner tray tears at the
+  shared corner when folded (both flanges' bend zones fight for the corner
+  material); the relief cuts the tear-free notch and Loft now models it, so the
+  blank a laser cuts has the correct relief, not a sharp shared corner. The flat
+  pattern is computed **analytically from the relief spec** (the authoritative
+  source of the notch), decoupled from the 3D boolean — so the notch is exact and
+  byte-deterministic regardless of how the 3D cut's trimmed faces resolve.
+
+**Fold-back consistency — the real guarantee, asserted by test.** Both halves are
+driven by the SAME `CornerRelief` spec (same corner, same size), but "same spec"
+is not enough — the two halves must model the **same physical removal**, or
+folding the flat blank would not reproduce the modeled 3D body ("the model lies
+about the part", the failure sheet metal must never have). The guarantee is
+therefore concrete and testable: **the 3D cut is the folded image of the flat
+notch.** `apply_corner_relief` cuts, per flange, a slot of width `size` along that
+flange's bend axis running from the base corner THROUGH the full bend arc and
+`size` up the folded wall (`_flange_notch_box`) — the wall stays full width above
+it, matching the flat's local notch. Two witnesses tie the halves together (the
+`test_fold_back_cross_consistency_3d_matches_flat` gate): (1) the relieved body's
+inner **bend cylindrical-face widths equal the flat `bend_widths_mm`** (the fold
+line is shortened identically), and (2) the **removed 3D volume equals removed
+flat area × thickness** plus the bend's derivable neutral-vs-mean-radius term
+(`Σ size·angle·t²·(0.5−K)`) — the developed material folds to the cut material.
+An earlier version (a `2·size` box centred on the bend-axis crossing + a full-
+length flat inset) modeled two *different* reliefs and failed both witnesses; the
+gate now makes "consistent by construction" true and would catch any regression.
+
+**Net honest scope:** v1 corner relief ships (a) the **rectangular relief
+geometry** (`apply_corner_relief` — provenance-located per-flange slot booleans on
+the folded body, the manufacturable 3D notch) and (b) the **relieved flat-pattern
+unfold** (`_unfold_nonparallel_relieved` — the developable blank with the reentrant
+notch, area conservation, single closed loop, byte-deterministic), for the
+**depth-1 adjacent-flange tray corner**, reconciled by the fold-back gate above.
+The **fully-welded depth-2 box corner remains a typed reject** pending
+miter/closed-corner geometry — a clear, evidence-backed boundary, not a silent
+gap.
+
+**Update 2026-07-22 — hem on a FLANGE rim flat-patterns (TB-1 dogfooding fix,
+kernel-architect).** Two scope corrections, gated by the
+`hemmed-wall-tray-unfold` golden (base 300×180 t=1.5 + 4 walls + closed hems on
+both long-wall rims + 4 corner reliefs — the founder's TB-1 tray):
+
+1. **Flank resolution is topological, not merely metric.** A bend's two flat
+   flanges must **share a topological edge with the bend cylinder** (the tangent
+   seam — `resolve._shares_edge_with`, exact `TopoDS_Shape.IsSame`, no
+   tolerance) in addition to the tangency/perpendicularity tests. Root cause of
+   the filed `flat_pattern_failed`: with TB-1's numbers the hem's return
+   tangent plane (wall inner plane + `2·r_hem` = base-edge plane − `r_base` +
+   `2·r_hem`, and `2·1 = 2 = r_base`) lands exactly in the plane of the
+   perpendicular walls' END faces, so the metric-only flank scan counted 4
+   "flanges" and refused. Coplanar bystanders can never be adjacent to the bend
+   face, so the topological rule restores exactly-two everywhere a real fold
+   exists; all prior goldens are byte-unchanged (their flanges were always
+   adjacent).
+2. **Reliefs now compose with axis-parallel returns (hems/lips) off depth-1
+   arms.** `_partition_arm_returns` splits the resolved bends **by fold
+   provenance** (§5): a bend whose recorded `base_face_signature` names a
+   depth-1 arm's *moving* flange, folding about an axis **parallel** to that
+   arm's bend axis, is a return and develops as a pure arm extension
+   `[BA strip][return leg]` beyond the arm's rim (never interacting with the
+   root-corner notches; fold line + bend-table row emitted, area exactly
+   additive). Everything else at depth ≥ 2 with reliefs — a perpendicular
+   second axis (welded box corner) or a deeper chain — **stays a typed
+   reject** (the miter/closed-corner boundary above is unchanged). Without
+   reliefs a hemmed tray routes through the §4.3 bend-TREE path as before.
+
+## 4.5 Edge-flange WIDTH EXTENTS + auto bend-END relief + partial-width development — SHIPPED (2026-07-22, kernel-architect, WF-1 layer 2 / PB-1)
+
+Founder-directed layer 2 of WF-1 (BACKLOG P0 open half + the PB-1 P2): a flange
+narrower than its edge must be **directly authorable** (Fusion-style width
+extents), correct in 3D **including bend-end relief**, and correct in the flat
+pattern. Acceptance case: a 100×100 base (t=1.5, r=2) with a 90° flange 50 mm
+WIDE × 50 mm tall on the full 100 mm edge. Three coupled decisions, recorded
+before implementation:
+
+### 4.5.1 Schema — optional `width_mm` / `offset_mm`, additive, offset from the canonical edge start
+
+`SheetMetalEdgeFlangeParamsV1` gains OPTIONAL `width_mm` (> 0) and `offset_mm`
+(≥ 0) — both NULLABLE-optional on the wire (`None` = absent; a required-with-
+default field would generate as required in the TS client and break existing
+constructors, the recurring defaulted-field finding). **Absent ⇒ full width,
+and the build path is the verbatim
+legacy path — every committed golden stays byte-identical** (the additive-field
+rule; no `param_version` bump, no registration change — all six arms already
+exist). Semantics:
+
+- The span is `[offset, offset + width]` measured along the picked edge **from
+  its CANONICAL start** — the lexicographically smaller endpoint, i.e. exactly
+  the `end_a` the stored `EdgeSignature` already canonicalises
+  (`geometry.kernel.edges._canonical_endpoints`). This makes the offset's
+  meaning independent of kernel edge orientation (deterministic across rebuilds
+  AND stable for the authoring UI, which shows `end_a`).
+- `width_mm = None` with `offset_mm > 0` means "the remainder of the edge"
+  (`[offset, edge_length]`) — the natural Fusion-style gesture.
+- Validation: `width > 0` / `offset ≥ 0` are schema bounds (422);
+  `offset + width ≤ edge_length` can only be checked against the RESOLVED edge,
+  so it is a feature-side typed `edge_flange_failed` (tolerance
+  `1e-6 · max(L, 1)` — the module's existing subshape linear class, not a new
+  epsilon).
+- **The hem is deliberately NOT extended** (out of scope, recorded): a partial-
+  width hem is a real ask but a separate slice — the hem's schema stays
+  full-width-only, and the width-extent machinery below is hem-agnostic (a
+  future `width_mm` on the hem rides the same `_fold_flange_off_edge` seam).
+
+### 4.5.2 Auto bend-END relief — rectangular, `size = 1.0 × thickness`, cut into the BASE, part of the flange build
+
+Where a bend-line END is INTERIOR to the parent edge (`offset > 0`, or
+`offset + width < edge_length`), the fold physically tears the adjacent flat
+when formed; incumbents cut an **auto relief** notch there. A blank-corner end
+(the span reaching the edge's own end) needs NO relief. Decisions:
+
+- **Rectangular only** (v1), the §4.4.1 rationale verbatim: the only purely
+  rectilinear developable notch, composing with the rectilinear-union outline
+  machinery with no curved-outline emitter. Obround/tear stay deferred.
+- **Sizing: `size = 1.0 × thickness`** — the corner-relief §4.4.3 sizing family
+  (`relief_ratio × thickness`) at its tear-safe default ratio 1.0, so END and
+  CORNER relief share ONE gauge-multiple convention. No per-feature override in
+  v1 (a `relief_ratio`/`size_mm` param is an additive follow-on; auto relief is
+  a default policy, and defaulting is the whole point — §4.4.2's layering
+  argument in reverse: here the AUTO layer ships first because a partial flange
+  without end relief is not manufacturable at all).
+- **Geometry: the notch is cut into the BASE flat, beside the bend end** — a
+  box of width `size` along the edge axis on the far side of the interior end
+  (outside the flange span), depth `size` INTO the base beyond the bend tangent
+  line, through the full gauge. It is cut by `build_edge_flange` itself (auto —
+  the 3D body carries the notch exactly as incumbents' auto-relief does), after
+  the fuse, with the one-solid invariant re-checked (a notch that severs the
+  sheet is a typed `edge_flange_failed`).
+- **Fold-back consistency is trivial by construction**: the notch lies entirely
+  in the base flat and never crosses the bend, so the live bend cylindrical-face
+  width equals the developed fold width equals the authored `width_mm` — the
+  §4.4.4/WF-1 invariant holds with no correction term, and the flat notch IS
+  the 3D notch (same rectangle, no developed-depth term — contrast the corner
+  relief's `BA + size` notch, which must cross its bend).
+- Provenance nuance: the base-face `PlanarFaceSignature` is emitted from the
+  POST-notch body (located by the bend's tangent-seam adjacency + the reference
+  normal/plane), so the unfold's base matching sees the notched flat. Absent
+  width params keep the legacy pre-fuse emission verbatim (byte-identity).
+
+### 4.5.3 Partial-width development — the base's TRUE outline + per-span strips, one rectilinear union
+
+`unfold_sheet_metal`'s depth-1 dispatch gains a **full-width test**: every
+bend's moving-flange span along its own bend axis must cover the base's full
+extent on that axis (tolerance `_LOOP_TOL_MM`), AND the base's outer wire must
+be a plain rectangle (all outer-wire vertices on the 4 bbox corners). Full-width
+rectangular stars keep the verbatim pinned 1D-strip / 2D-plus layouts (goldens
+byte-identical). Anything else routes to the new **partial-star emitter**:
+
+1. The base develops as its TRUE rectilinear outline — the outer wire's line
+   segments in the deterministic base frame, decomposed into grid cells
+   (crossing-count containment; pure closed-form 2D, no kernel reconstruction —
+   §2.2's MakeFace risk stays sidestepped). Because the end-relief notches were
+   cut into the base flat in 3D, **they appear in the blank for free** — the
+   development never re-derives them from the spec.
+2. Each flange contributes `[BA strip][leg]` rectangles over ITS OWN span
+   `[offset, offset+width]`, with the fold coordinate taken from the bend's
+   projected tangent line (not the bbox side — so a flange on a RECESSED edge
+   segment also lands correctly). Fold line + bend-table row span exactly the
+   authored width.
+3. The rects union into ONE closed loop via the shipped `_snap_rects` /
+   `_rectilinear_union_loop` (§4.3); a development that does not tile a single
+   blank is the same typed reject as everywhere else.
+
+**PB-1 falls out of this machinery** (verified by test, not assumed): a
+full-width flange on a notch-split edge SEGMENT is simply a partial span of the
+base side — the base keeps its notch, the strip attaches over the segment, the
+union closes. The `_emit_plus_pattern` single-closed-loop guard now only ever
+fires for genuinely out-of-scope layouts. Typed rejects (honest degradation,
+§5): a partial flange on an angled / non-rectilinear-outline base, a base flat
+with interior HOLES (the partial path refuses; the legacy full-width path keeps
+today's behavior — the hole-in-blank gap rides the still-deferred runtime area
+invariant, BACKLOG), corner reliefs combined with a partial-width arm, and a
+depth-≥2 partial flange whose auto end-notches break the tree emitter's
+axis-rect guard. **Cut-after-fold stays typed-rejected** by the layer-1
+fold-back invariant (§5 note) — width extents are the correct authoring path
+that makes the cut hack unnecessary; the invariant remains the guard, not the
+feature.
+
+Goldens (§9 pattern, hand-derived analytics + byte-determinism pins):
+`partial-flange-founder-unfold` (the acceptance case — one interior end, one
+notch), `partial-flange-centered-unfold` (offset 25, width 50 — two notches),
+plus schema-reject and PB-1 notch-split tests
+(`test_sheet_metal_width_extents.py`).
+
 ## 5. Bend provenance — a NEW additive `CylindricalFaceSignature`, following topological naming's pattern
 
 **Correction from an earlier draft of this doc:** a bend region is a
@@ -462,6 +851,49 @@ already ships: an edit that moves/removes the bend face yields an honest
 never a wrong flat-pattern length), inheriting the same residual stage-1
 hole (`topological-naming.md` §7.3) every other consumer already carries,
 with no new mechanism beyond the one new signature type.
+
+**Implementation note (2026-07-22, WF-1 layer 1 — runtime fold-back
+invariant).** Founder dogfooding found the ONE dishonest gap in this posture:
+the clean-reference machinery (§4.4.4 — the unfold resolves its bends against
+the un-notched fold reference, maintained by the folds) means an ordinary
+extrude CUT after a fold never reaches the unfold at all — the signatures
+resolve fine against the pre-cut reference and the development silently emits
+the UNTRIMMED blank (WF-1: a flange cut to 50 wide flat-patterned full-width,
+no error). Fix: `unfold_sheet_metal` now takes the LIVE evaluated body
+(`live_body`, always passed by the flat-pattern pipeline) and applies the
+goldens' fold-back invariant at runtime — grouped by bend radius, the sorted
+live cylindrical bend-face widths must equal the sorted developed fold widths
+(`BendLine.width_mm`, tolerance 1e-6 mm, measured residuals ≤ 5.3e-10 across
+the golden set). Any count or width mismatch is a typed `UnfoldFoldBackError`
+→ `flat_pattern_failed` naming the fold and both widths.
+
+The invariant is **per bend FACE once, deduped by identity** — NOT per
+provenance. The live widths come from `resolve.live_bend_face_widths`, which
+collects the DISTINCT cylindrical bend faces lying on any bend's axis LINE at
+its radius (centroid deliberately ignored so a trimmed/shifted bend face is
+MEASURED rather than lost) and measures each exactly once (`TopoDS_Shape.IsSame`
+dedup). This correction (2026-07-22 code review) fixes an overclaim in the
+first cut, which called `coaxial_cylindrical_face_widths` once PER provenance
+and summed: two **coaxial equal-radius bends** — two edge flanges on collinear
+segments of one base edge (a notch-split edge, the natural PB-1 extension) share
+the same axis line and radius, so each per-provenance scan returned BOTH faces,
+yielding an N² live count (`[wA, wB, wA, wB]`) against the N developed widths
+(`[wA, wB]`) and FALSE-REJECTING a perfectly valid, correctly-developed body.
+Deduping by face identity (not by width value, so two genuinely-equal widths
+still count as two) makes N coaxial folds yield N live widths, so the coaxial
+depth-1 partial star (golden `coaxial-two-segment-flange-unfold`) passes. The
+same coaxial ambiguity is disambiguated at CONSTRUCTION too:
+`find_cylindrical_face` takes the flange's along-axis SPAN so the second
+collinear flange resolves to ITS bend, not the first's. With those two fixes
+**no in-scope development — depth-1 stars (including coaxial multi-flange
+partial stars), non-parallel trays, bend trees, hems, relieved + hemmed trays,
+whose notched developed widths equal the live notched faces BY DESIGN — trips
+the invariant**. WF-1 layer 2 SHIPPED as edge-flange WIDTH EXTENTS +
+partial-width development (§4.5, 2026-07-22): the narrow flange is now directly
+authorable, so the cut hack is unnecessary and cut-after-fold REMAINS a typed
+reject by this invariant (by design, not as a stopgap). A cut that misses every
+bend (a hole in a flat) still develops without the hole and awaits the deferred
+runtime area invariant (BACKLOG).
 
 ## 6. The unfold algorithm (v1 scope) and its output
 

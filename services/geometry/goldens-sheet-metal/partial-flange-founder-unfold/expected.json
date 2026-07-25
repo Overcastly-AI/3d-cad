@@ -1,0 +1,33 @@
+{
+  "description": "WF-1 LAYER 2 founder acceptance golden (docs/design/sheet-metal.md §4.5): a 100 x 100 mm base flange (t = 1.5, r = 2, K = 0.44) with a 90-deg edge flange 50 mm WIDE x 50 mm tall authored DIRECTLY on the full 100 mm y=0 edge via the new width extents (width_mm = 50, offset_mm = 0 — no cut hack). The span start sits at the edge's canonical end_a corner (a blank-corner end, NO relief); the span end at x = 50 is INTERIOR to the edge, so the build cuts ONE automatic rectangular bend-end relief notch into the base flat (§4.5.2: size = 1 x gauge = 1.5 mm along the edge on the blank side of the end, 1.5 mm deep beyond the bend tangent line, through-thickness). The flat pattern develops via the §4.5.3 partial-star emitter: the base's TRUE outline (carrying the notch) + the [BA][leg] strip over the authored 50 mm span, one closed rectilinear union.",
+  "tangent_line_convention": "Each leg is measured to its bend TANGENT LINE (§9 #1). The base develops to its 100 x 100 flat top face; the flange leg develops to 50 mm beyond a BA-length strip replacing the bend.",
+  "derivation": [
+    "HAND-DERIVED analytic values (geometry-gates skill). Dims: base 100 (X) x 100 (Y) mm, gauge t = 1.5 mm, inner bend radius r = 2 mm, K = 0.44 (v1 default), flange on the y=0 edge spanning x in [0, 50] (width 50), leg 50 mm, 90 deg. Relief size = 1 x t = 1.5 mm; one interior span end (x = 50) -> ONE notch at x in [50, 51.5], y in [0, 1.5], through-thickness.",
+    "Bend allowance (§1): BA = (pi/2) * (2 + 0.44 * 1.5) = 4.178318229274425 mm.",
+    "3D volume = base plate (100*100*1.5 = 15000) - relief notch (1.5^3 = 3.375) + bend quarter annulus ((pi/4)*((2+1.5)^2 - 2^2)*50 = 103.125*pi = 323.9767424...) + wall (50*1.5*50 = 3750) = 19070.60174240145 mm^3.",
+    "Developed area (§9 #2): flat_area = notched base area (100*100 - 1.5^2 = 9997.75) + BA strip (BA*50 = 208.9159...) + leg (50*50 = 2500) = 12706.66591146372 mm^2. The flat notch IS the 3D notch (it lies entirely in the base flat and never crosses the bend, §4.5.2) — no developed-depth term, unlike a corner relief.",
+    "Envelope: development axis extent = 100 + BA + 50 = 154.17831822927442 mm; along-edge extent = 100 mm. (Which frame axis is 'flat_length' vs 'bend_width' is the deterministic base-frame choice, not a correctness property — the corner-tray golden's caveat verbatim.)",
+    "Outline: ONE closed loop, 8 body edges (the notch adds a reentrant step whose bottom edge merges collinearly with the flange-side edge) + 1 fold line spanning exactly the authored 50 mm width at the strip midline (fold center = leg + BA/2 from the blank's far edge).",
+    "Fold-back invariant (§4.4.4 / WF-1 runtime check): the live body's ONE inner cylindrical bend face measures exactly 50 mm along its axis == the developed BendLine width == width_mm. The notch never touches the bend cylinder, so the invariant is exact by construction; the flat-pattern pipeline (which always passes the live body) succeeds with no error.",
+    "content_hash is the sha256 of FlatPattern.to_json_bytes() — a DETERMINISM PIN reproducible in-process AND across a fresh interpreter restart (§9 #4), version-pinned to OCCT/build123d (arc-fit FP). A change without a kernel-version bump is a determinism regression (P0), never a retry."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "Measured first, then set (2026-07-22, build123d 0.11.1 / OCCT 7.9): flat_area residual 2e-12, flat_length exact to the printed repr, BA residual 1 ulp (~9e-16, arc-fit radius FP noise), bend width exact. Ceiling 1e-9 gives ~3 orders of headroom while staying far tighter than the kernel linear tolerance (1e-7 m). Volume tolerance 1e-6 mm^3 (measured residual 2.2e-11) matches the sibling sheet-metal goldens.",
+  "bend_allowance_mm": 4.178318229274425,
+  "flat_area_mm2": 12706.66591146372,
+  "flat_length_mm": 154.17831822927442,
+  "bend_width_mm": 100.0,
+  "bend_count": 1,
+  "bend_angle_deg": 90.0,
+  "bend_radius_mm": 2.0,
+  "bend_direction": "up",
+  "bend_widths_mm": [50.0],
+  "relief_notch_size_mm": 1.5,
+  "relief_notch_count": 1,
+  "body_edge_count": 8,
+  "bend_edge_count": 1,
+  "volume_mm3": 19070.60174240145,
+  "volume_tolerance": 1e-6,
+  "topology": { "faces": 14, "edges": 36, "shells": 1 },
+  "content_hash": "a733e4d0725a6d32ccc6f952dc8630b13854ec16dd0a699b9a5351255034def2"
+}

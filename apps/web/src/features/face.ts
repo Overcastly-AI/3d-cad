@@ -37,8 +37,30 @@ export const BODY_AFFECTING_FEATURE_TYPES: ReadonlySet<string> = new Set([
   "chamfer",
   "shell",
   "draft",
+  // `hole` drills a cylinder into the body (a body-affecting modifier like
+  // fillet/shell/draft), so its result faces/edges anchor a later SubshapeRef —
+  // a datum on the new bore face, a hole near an earlier hole. Its ABSENCE would
+  // make `lastBodyFeatureId` skip a just-drilled hole and mis-anchor the next
+  // face/edge pick to the pre-hole body (subshape_unresolved / wrong dependency).
+  "hole",
   "pattern",
+  // `mirror` reflects the current body about a plane and boolean-unions the
+  // reflection back in (a body-affecting modifier like pattern/boolean), so its
+  // result faces/edges anchor a later SubshapeRef. Its ABSENCE would make
+  // `lastBodyFeatureId` skip a just-created mirror and mis-anchor the next
+  // face/edge pick to the pre-mirror body (subshape_unresolved / wrong dep).
+  "mirror",
   "import",
+  // Sheet metal: the base flange produces the sheet body; edge flange / hem /
+  // corner relief each MODIFY it (sheet-metal.md §4, parity §2/§4.4) — all
+  // anchor a later face/edge pick.
+  "sheet_metal_base_flange",
+  "sheet_metal_edge_flange",
+  "sheet_metal_hem",
+  "sheet_metal_corner_relief",
+  // `boolean` produces a combined body (multi-body §Decisions-3), so its result
+  // faces/edges are nameable by a later SubshapeRef (a fillet on a boolean seam).
+  "boolean",
 ]);
 
 /**

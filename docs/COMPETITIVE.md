@@ -24,13 +24,13 @@
 |---|---|---|---|---|
 | Constraints (coincident/H/V/dist/radius/fixed/tangent/perp/parallel/equal/symmetric/concentric) | Full constraint palette applied by selecting geometry then a toolbar/context verb (coincident, tangent, perpendicular, concentric, symmetric, etc.) — [Constraints in sketches](https://help.autodesk.com/view/fusion360/ENU/?guid=SKT-CONSTRAINTS) | — (not surfaced this pass) | ✅ 12 kinds (planegcs) | Shipped Phase 1–2 |
 | Construction geometry | — | — | ✅ | Shipped |
-| Trim / extend | Trim cuts sketch curves at the nearest intersection; Extend lengthens a curve to meet neighboring geometry — [Trim or extend sketch geometry](https://help.autodesk.com/view/fusion360/ENU/?guid=SKT-TRIM-EXTEND). Onshape's Trim removes a curve segment up to its first intersecting/bounding geometry (deletes the whole curve if none found) — [Onshape Trim](https://cad.onshape.com/help/Content/sketch-tools-trim.htm) | Dedicated Trim tool cuts/splits curves — [Plasticity Trim](https://doc.plasticity.xyz/sketch/trim) | ⬜ | Phase 2 — named scorecard gap; three independent tools converge on the same "cut at intersection" gesture, confirming it's table stakes, not a Fusion-specific idiom |
-| Offset (parallel curve) | Offset tool draws a parallel copy of a selected curve/chain at a set distance — [Design workspace tool list](https://help.autodesk.com/view/fusion360/ENU/?guid=LP-TOOL-LIST-DESIGN). Onshape drags an arrow inward/outward from the curve, value entered by double-clicking the resulting dimension — [Onshape Offset](https://cad.onshape.com/help/Content/sketch-tools-offset.htm) | Offset Face/curve tool offsets curves, edges, and faces directly — treated as one general-purpose offset gesture rather than a sketch-only op, consistent with Plasticity having no sketch/feature split — [Plasticity Offset Face](https://doc.plasticity.xyz/solid/offset-face) | ⬜ | Phase 2 — named scorecard gap |
-| Sketch mirror / pattern | Sketch-level Mirror/Pattern plus a separate feature-level Mirror/Pattern (rectangular, circular, on-path) that also works on faces/bodies/features/whole components — [Mirrors and patterns](https://help.autodesk.com/view/fusion360/ENU/?guid=SLD-PATTERNS), [in sketches](https://help.autodesk.com/view/fusion360/ENU/?guid=SKT-SKETCH-CREATE-MIRRORS-PATTERNS). Onshape Mirror reflects selected entities about a chosen line — [Onshape Mirror](https://cad.onshape.com/help/Content/sketch-tools-mirror.htm) | Mirror + Radial/Rectangular Array live under "Common" and apply uniformly to sketch curves and solid bodies alike (no separate sketch-vs-feature concept) — [Mirror](https://doc.plasticity.xyz/common/mirror), [Radial Array](https://doc.plasticity.xyz/common/radial-array), [Rectangular Array](https://doc.plasticity.xyz/common/rectangular-array) | ⬜ | Phase 2 — named scorecard gap |
-| Splines (free-form) | Two spline types: Fit Point (curve passes through placed points) and Control Point/CV (curve shaped by a control frame, doesn't pass through the points except the first/last, gives localized shape control) — [Splines in sketches](https://help.autodesk.com/view/fusion360/ENU/?contextId=SKT-SKETCH-CREATE-SPLINES). Onshape places click-points with draggable per-point tangent handles — [Onshape Spline](https://cad.onshape.com/help/Content/sketch-tools-spline.htm) | — (not surfaced this pass — flag for next pass; NURBS curves are presumably native to a Parasolid/xNURBS modeler, needs a direct citation) | ⬜ | Phase 2 — hard capability gap |
-| Sketch fillet / chamfer (corner-round) | Sketch Fillet drags/types a radius to round the corner between two curves, trimming and inserting a tangent arc in one operation — [Add fillets to sketch geometry](https://help.autodesk.com/view/fusion360/ENU/?guid=SKT-ADD-FILLETS) | Fillet is primarily a solid/edge operation (Fillet, Fillet Shell) with a documented "order of operations" governing how it interacts with later edits, since there's no parametric history to fall back on — [Fillet](https://doc.plasticity.xyz/solid/fillet), [Fillet order of operations](https://doc.plasticity.xyz/cad-essentials/fillet-order-of-operations). No distinct sketch-level fillet surfaced this pass | ⬜ | Phase 2 |
-| Redundant-vs-conflicting diagnosis | — (not verified this pass) | — | 🚧 index-only flag | Phase 2 — upgrade to classified |
-| Sketch dimension expressions / driving vs. driven | Dimensions accept a value, a reference to another dimension, or a full math expression; distinguished as **driving** (defines geometry) vs. **driven** (read-only/informational) — [Dimension sketch geometry](https://help.autodesk.com/view/fusion360/ENU/?guid=SKT-CREATE-DIMENSIONS) | — (not surfaced this pass) | ⬜ — grep of `apps/web/src` found no expression/driven-dimension handling in the sketch dimension UI | Phase 2 — new row this pass; a working engineer expects to type `width/2` in a dimension field on day one |
+| Trim / extend | Trim cuts sketch curves at the nearest intersection; Extend lengthens a curve to meet neighboring geometry — [Trim or extend sketch geometry](https://help.autodesk.com/view/fusion360/ENU/?guid=SKT-TRIM-EXTEND). Onshape's Trim removes a curve segment up to its first intersecting/bounding geometry (deletes the whole curve if none found) — [Onshape Trim](https://cad.onshape.com/help/Content/sketch-tools-trim.htm) | Dedicated Trim tool cuts/splits curves — [Plasticity Trim](https://doc.plasticity.xyz/sketch/trim) | ✅ | **Shipped** (`3710ee9`/`79fee47`, 2026-07-12) — updated 2026-07-24 |
+| Offset (parallel curve) | Offset tool draws a parallel copy of a selected curve/chain at a set distance — [Design workspace tool list](https://help.autodesk.com/view/fusion360/ENU/?guid=LP-TOOL-LIST-DESIGN). Onshape drags an arrow inward/outward from the curve, value entered by double-clicking the resulting dimension — [Onshape Offset](https://cad.onshape.com/help/Content/sketch-tools-offset.htm) | Offset Face/curve tool offsets curves, edges, and faces directly — treated as one general-purpose offset gesture rather than a sketch-only op, consistent with Plasticity having no sketch/feature split — [Plasticity Offset Face](https://doc.plasticity.xyz/solid/offset-face) | ✅ | **Shipped** (`6036200`/`fa97a14`, 2026-07-12) — updated 2026-07-24 |
+| Sketch mirror / pattern | Sketch-level Mirror/Pattern plus a separate feature-level Mirror/Pattern (rectangular, circular, on-path) that also works on faces/bodies/features/whole components — [Mirrors and patterns](https://help.autodesk.com/view/fusion360/ENU/?guid=SLD-PATTERNS), [in sketches](https://help.autodesk.com/view/fusion360/ENU/?guid=SKT-SKETCH-CREATE-MIRRORS-PATTERNS). Onshape Mirror reflects selected entities about a chosen line — [Onshape Mirror](https://cad.onshape.com/help/Content/sketch-tools-mirror.htm) | Mirror + Radial/Rectangular Array live under "Common" and apply uniformly to sketch curves and solid bodies alike (no separate sketch-vs-feature concept) — [Mirror](https://doc.plasticity.xyz/common/mirror), [Radial Array](https://doc.plasticity.xyz/common/radial-array), [Rectangular Array](https://doc.plasticity.xyz/common/rectangular-array) | 🚧 | **Sketch mirror shipped** (`7c7dbc5`, 2026-07-12, exact analytic reflection about an axis); no dedicated in-sketch rectangular/circular array — the feature-level Linear/circular pattern row below (shipped) covers the array need on already-extruded geometry — updated 2026-07-24 |
+| Splines (free-form) | Two spline types: Fit Point (curve passes through placed points) and Control Point/CV (curve shaped by a control frame, doesn't pass through the points except the first/last, gives localized shape control) — [Splines in sketches](https://help.autodesk.com/view/fusion360/ENU/?contextId=SKT-SKETCH-CREATE-SPLINES). Onshape places click-points with draggable per-point tangent handles — [Onshape Spline](https://cad.onshape.com/help/Content/sketch-tools-spline.htm) | — (not surfaced this pass — flag for next pass; NURBS curves are presumably native to a Parasolid/xNURBS modeler, needs a direct citation) | 🚧 | **Fit-point splines shipped, constrainable v1.1** (`18fe6a8`/`f88df01` draw+authoring, 2026-07-12/15; fit-point solver constraining `dda86eb`/`5e7311e`/`6dde1c9`, 2026-07-15 — RESEARCH §2). Residual: no tangency/curvature (needs a native planegcs spline primitive), no Control-Point/CV spline type — updated 2026-07-24 |
+| Sketch fillet / chamfer (corner-round) | Sketch Fillet drags/types a radius to round the corner between two curves, trimming and inserting a tangent arc in one operation — [Add fillets to sketch geometry](https://help.autodesk.com/view/fusion360/ENU/?guid=SKT-ADD-FILLETS) | Fillet is primarily a solid/edge operation (Fillet, Fillet Shell) with a documented "order of operations" governing how it interacts with later edits, since there's no parametric history to fall back on — [Fillet](https://doc.plasticity.xyz/solid/fillet), [Fillet order of operations](https://doc.plasticity.xyz/cad-essentials/fillet-order-of-operations). No distinct sketch-level fillet surfaced this pass | ✅ | **Shipped** (`a0302e4`/`7297e1b`, 2026-07-12) — updated 2026-07-24 |
+| Redundant-vs-conflicting diagnosis | — (not verified this pass) | — | ✅ | **Shipped, classified** (`b28dffc`→`c527063`→`c4527f6` backend, `4e6e429` frontend, 2026-07-15): typed `SketchConstraintDiagnosis` — classification (redundant vs. conflicting), removable, named offending ids, suggested fix — updated 2026-07-24 |
+| Sketch dimension expressions / driving vs. driven | Dimensions accept a value, a reference to another dimension, or a full math expression; distinguished as **driving** (defines geometry) vs. **driven** (read-only/informational) — [Dimension sketch geometry](https://help.autodesk.com/view/fusion360/ENU/?guid=SKT-CREATE-DIMENSIONS) | — (not surfaced this pass) | ✅ | **Shipped** (`72ad936` backend safe expression parser, `398fb12` hardening, `196c89c` frontend, 2026-07-15 — RESEARCH §2). Residual: arithmetic only, no trig/units/named functions — updated 2026-07-24 |
 
 ## Part modeling (features)
 
@@ -38,34 +38,51 @@
 |---|---|---|---|---|
 | Extrude (add/cut) | Extrudes a profile by distance/to-object/through-all with add/cut/intersect/new-body operation types — [Extrude a solid body](https://help.autodesk.com/view/fusion360/ENU/?contextId=SLD-EXTRUDE) | — | ✅ | Shipped |
 | Revolve | Revolves a profile around a selected axis by angle or full 360° — [Revolve a solid body](https://help.autodesk.com/view/fusion360/ENU/?contextId=SLD-REVOLVE-SOLID) | — | ✅ | Shipped (5a, commit cd7a3e5) |
-| Fillet / chamfer | Edge-specific selection with constant/variable/chordal fillet modes — [Fillet reference](https://help.autodesk.com/view/fusion360/ENU/?guid=SLD-REF-FILLET) | "Full" fillet mode is tangent to all three neighboring faces of an edge — [Fillet](https://doc.plasticity.xyz/solid/fillet) | ✅ predicate-only edges | Phase 2 — needs click-specific edge (topo naming); both competitors select a specific edge/face by clicking, confirming this is the real gap, not breadth of fillet math |
-| Click-specific edge/face selection | Direct click-pick in viewport, implicit in every feature above | Same — direct click-pick, and central to its whole direct-edit model | ⬜ | Phase 2 — gated on topological-naming doc |
-| Measurement / distance query | — (not verified this pass) | — | 🚧 backend + overlay; UI pending | Ready #6 |
-| Linear / circular pattern | Rectangular Pattern (rows/columns along linear axes), Circular Pattern (around an axis), Pattern-on-path (follows a curve) — all pattern faces, bodies, features, or components — [Mirrors and patterns](https://help.autodesk.com/view/fusion360/ENU/?guid=SLD-PATTERNS), [Circular pattern](https://help.autodesk.com/view/fusion360/ENU/?contextId=SLD-PATTERN-CIRCULAR), [Pattern on path](https://help.autodesk.com/view/fusion360/ENU/?contextId=MODEL-PATTERN-ON-PATH-CMD) | Radial Array (angle + count around a center), Rectangular Array (count along a direction) — same "Common" commands used for sketch curves and solid bodies — [Radial Array](https://doc.plasticity.xyz/common/radial-array), [Rectangular Array](https://doc.plasticity.xyz/common/rectangular-array) | ⬜ | Ready #7 |
-| Sweep | Sweeps a profile along a path, optionally with a guide rail; add/cut/new-body — [Sweep/extrude/revolve tutorial](https://help.autodesk.com/view/fusion360/ENU/?guid=SLD-TUT-2-SWEEP-EXTRUDE-REVOLVE-SKETCH) | — (not surfaced this pass — flag for next pass) | ⬜ | Phase 2 — named scorecard gap (shafts, ribs) |
-| Loft | Blends a transitional solid/surface between two or more profile sketches/faces, optionally guided by rails — [Loft a solid body](https://help.autodesk.com/view/fusion360/ENU/?contextId=SLD-LOFT-SOLID) | — (not surfaced this pass; marketing claims xNURBS surfacing strength but no doc.plasticity.xyz citation found yet — don't claim from the marketing site) | ⬜ | Phase 2 — named scorecard gap (lofted surfaces) |
-| Shell | Hollows a solid to a set wall thickness, with an option to leave specific faces open — per [Design workspace tool list](https://help.autodesk.com/view/fusion360/ENU/?guid=LP-TOOL-LIST-DESIGN) | Not confirmed this pass — Plasticity's "Fillet Shell" doc name is a *fillet* variant, not a hollow-body shell; don't conflate | ⬜ | Phase 2 |
-| Draft | Applies a fixed or parting-line draft angle to selected faces relative to a pull direction — per [Design workspace tool list](https://help.autodesk.com/view/fusion360/ENU/?guid=LP-TOOL-LIST-DESIGN) | — (not surfaced this pass) | ⬜ | Phase 2 |
-| Dedicated hole feature | Hole tool places simple/clearance/tapped/taper-tapped holes directly (not a sketch-circle extrude-cut), with counterbore/countersink recess options — [Hole reference](https://help.autodesk.com/view/fusion360/ENU/?guid=GUID-3A76B269-8C8D-437B-8F4A-85D0B2BBA492) | — (not surfaced this pass — plausible this doesn't exist given the non-history model; needs a direct citation to confirm absence) | ⬜ | Phase 2 |
-| Thread feature (new row) | Separate Thread tool adds either cosmetic threads (appearance only) or modeled threads (real cut 3D geometry) to a hole/cylinder, driven by a thread-standard library — [Thread reference](https://help.autodesk.com/view/fusion360/ENU/?contextId=MODEL-THREAD-CMD) | — (not surfaced this pass) | ⬜ | Phase 2/3 — pairs naturally with the hole feature above |
-| Multi-body / boolean between bodies | Boolean tool performs Join/Cut/Intersect between solid bodies — per [Design workspace tool list](https://help.autodesk.com/view/fusion360/ENU/?guid=LP-TOOL-LIST-DESIGN) | Boolean command performs Union/Difference/Intersect/**Slice** between any combination of Solids and Sheets — Slice is notable: it keeps *both* resulting pieces instead of just one — [Boolean](https://doc.plasticity.xyz/solid/boolean) | ⬜ | Phase 2 |
-| Datum planes / axes | — (not verified this pass) | Construction Planes are a first-class interface element for placing sketches/operations off the default axes — [Construction Planes](https://doc.plasticity.xyz/plasticity-essentials/plasticity-interface/construction-plane) | ⬜ | Phase 2 |
+| Fillet / chamfer | Edge-specific selection with constant/variable/chordal fillet modes — [Fillet reference](https://help.autodesk.com/view/fusion360/ENU/?guid=SLD-REF-FILLET) | "Full" fillet mode is tangent to all three neighboring faces of an edge — [Fillet](https://doc.plasticity.xyz/solid/fillet) | ✅ click-specific edges | Predicate-only closed: click-specific single-edge pick shipped (`71e771d`/`c18453c`, 2026-07-13, stage-1 `SubshapeRef`) — updated 2026-07-24 |
+| Click-specific edge/face selection | Direct click-pick in viewport, implicit in every feature above | Same — direct click-pick, and central to its whole direct-edit model | ✅ | **Shipped** (`71e771d`/`c18453c`, 2026-07-13; face-pick extended through shell/draft/sketch-on-face/mates) — updated 2026-07-24 |
+| Measurement / distance query | — (not verified this pass) | — | ✅ | **Shipped** (`0bdc434`/`ee8f89f` backend, `47a4188` UI, 2026-07-12) — updated 2026-07-24 |
+| Linear / circular pattern | Rectangular Pattern (rows/columns along linear axes), Circular Pattern (around an axis), Pattern-on-path (follows a curve) — all pattern faces, bodies, features, or components — [Mirrors and patterns](https://help.autodesk.com/view/fusion360/ENU/?guid=SLD-PATTERNS), [Circular pattern](https://help.autodesk.com/view/fusion360/ENU/?contextId=SLD-PATTERN-CIRCULAR), [Pattern on path](https://help.autodesk.com/view/fusion360/ENU/?contextId=MODEL-PATTERN-ON-PATH-CMD) | Radial Array (angle + count around a center), Rectangular Array (count along a direction) — same "Common" commands used for sketch curves and solid bodies — [Radial Array](https://doc.plasticity.xyz/common/radial-array), [Rectangular Array](https://doc.plasticity.xyz/common/rectangular-array) | ✅ | **Shipped** (`ec3f4f7` backend, `5777656` UI, cut-aware `4dbe93e`) — updated 2026-07-24. **Known defect**: patterning a Hole feature duplicates the whole body instead of the cut (FINDINGS.md #1, P0, fix queued) — pattern-of-extrude-cut is correct, pattern-of-hole is not; the row stays ✅ for the shipped capability, the defect is tracked separately, not hidden |
+| Sweep | Sweeps a profile along a path, optionally with a guide rail; add/cut/new-body — [Sweep/extrude/revolve tutorial](https://help.autodesk.com/view/fusion360/ENU/?guid=SLD-TUT-2-SWEEP-EXTRUDE-REVOLVE-SKETCH) | — (not surfaced this pass — flag for next pass) | ✅ | **Shipped** (`e1a8a1e` backend, `e2b8532` UI) — updated 2026-07-24 |
+| Loft | Blends a transitional solid/surface between two or more profile sketches/faces, optionally guided by rails — [Loft a solid body](https://help.autodesk.com/view/fusion360/ENU/?contextId=SLD-LOFT-SOLID) | — (not surfaced this pass; marketing claims xNURBS surfacing strength but no doc.plasticity.xyz citation found yet — don't claim from the marketing site) | ✅ | **Shipped** (`f287aa1` backend, `18d1eaa` UI, ordered section-stack) — updated 2026-07-24 |
+| Shell | Hollows a solid to a set wall thickness, with an option to leave specific faces open — per [Design workspace tool list](https://help.autodesk.com/view/fusion360/ENU/?guid=LP-TOOL-LIST-DESIGN) | Not confirmed this pass — Plasticity's "Fillet Shell" doc name is a *fillet* variant, not a hollow-body shell; don't conflate | ✅ | **Shipped** (`617fc7f` backend, `6cf7a75` UI, 2026-07-13; golden exact to 1e-9) — updated 2026-07-24 |
+| Draft | Applies a fixed or parting-line draft angle to selected faces relative to a pull direction — per [Design workspace tool list](https://help.autodesk.com/view/fusion360/ENU/?guid=LP-TOOL-LIST-DESIGN) | — (not surfaced this pass) | ✅ | **Shipped** (`caec623` backend, `a663db7` UI, 2026-07-13; golden exact to 1e-9) — updated 2026-07-24 |
+| Dedicated hole feature | Hole tool places simple/clearance/tapped/taper-tapped holes directly (not a sketch-circle extrude-cut), with counterbore/countersink recess options — [Hole reference](https://help.autodesk.com/view/fusion360/ENU/?guid=GUID-3A76B269-8C8D-437B-8F4A-85D0B2BBA492) | — (not surfaced this pass — plausible this doesn't exist given the non-history model; needs a direct citation to confirm absence) | ✅ | **Shipped**: simple hole (`352000a` backend, `29cda36` UI), counterbore/countersink (`d82cd27`). No tapped/taper-tapped thread-standard library — updated 2026-07-24 |
+| Thread feature (new row) | Separate Thread tool adds either cosmetic threads (appearance only) or modeled threads (real cut 3D geometry) to a hole/cylinder, driven by a thread-standard library — [Thread reference](https://help.autodesk.com/view/fusion360/ENU/?contextId=MODEL-THREAD-CMD) | — (not surfaced this pass) | ⬜ | Phase 2/3 — pairs naturally with the hole feature above. Re-verified ⬜ 2026-07-24 (grep for a modeled/cosmetic thread primitive found none; the only "thread" hits in git log are unrelated drawing-view section params) |
+| Multi-body / boolean between bodies | Boolean tool performs Join/Cut/Intersect between solid bodies — per [Design workspace tool list](https://help.autodesk.com/view/fusion360/ENU/?guid=LP-TOOL-LIST-DESIGN) | Boolean command performs Union/Difference/Intersect/**Slice** between any combination of Solids and Sheets — Slice is notable: it keeps *both* resulting pieces instead of just one — [Boolean](https://doc.plasticity.xyz/solid/boolean) | ✅ | **Shipped**: union/subtract/intersect between independently-built bodies (`396dbcd` MB-0 plumbing, `d148f4d`/`c9729aa` MB-1 union, `fa8a147`/`bb8d990` MB-2 subtract/intersect, `7ed2dd8` MB-3 downstream fillet). No Slice-style keep-both-pieces variant — updated 2026-07-24 |
+| Datum planes / axes | — (not verified this pass) | Construction Planes are a first-class interface element for placing sketches/operations off the default axes — [Construction Planes](https://doc.plasticity.xyz/plasticity-essentials/plasticity-interface/construction-plane) | ✅ | **Shipped**: offset datum (`df308e4`/`125672f`), on-face datum (`f3202c6`/`26f9bc1`), midplane + offset-chaining (`cc0736e`/`9495053`). Coordinate conventions now documented in RESEARCH.md §12 — updated 2026-07-24 |
 | Direct-modeling push/pull gestures | Hybrid: a design defaults to parametric Timeline mode but can switch the whole design — or just one "Base Feature" step — into Direct Modeling mode for fast face edits, at the cost of that geometry no longer being convertible back into timeline features — [Modeling modes in Fusion](https://help.autodesk.com/view/fusion360/ENU/?contextId=ASM-DESIGN-MODELING-MODES), [tutorial](https://help.autodesk.com/view/fusion360/ENU/?guid=GUID-6AAFC31D-707F-46B1-997F-83D25E9EA57B) | Direct-edit only, no history at all — Move/Rotate gizmos manipulate faces/edges/curves with axis-constrained or freestyle handles and precise numeric entry; Offset Face pushes/pulls a face along its normal — [Move](https://doc.plasticity.xyz/common/move), [Rotate](https://doc.plasticity.xyz/common/rotate), [Offset Face](https://doc.plasticity.xyz/solid/offset-face) | ⬜ | Plasticity's core wedge — investigate |
 | Parametric ⇄ direct-modeling mode toggle (new row) | Same as the row above: one tool, two modes, explicit user choice — [Modeling modes in Fusion](https://help.autodesk.com/view/fusion360/ENU/?contextId=ASM-DESIGN-MODELING-MODES) | Direct-modeling is the whole premise — no timeline to toggle away from (secondary source, not a primary doc citation: [garagefarm.net summary](https://garagefarm.net/blog/the-new-face-of-nurbs-modeling-plasticity-1-3)) | ⬜ — Loft has a parametric feature tree + rollback (shipped Phase 1) but no direct-edit mode | Phase 3/4 — forward-looking, not urgent: Loft's parametric core isn't done yet, direct-edit is additive breadth after |
-| Undo/redo across features | — | — | ⬜ | Phase 2 |
+| Undo/redo across features | — | — | ✅ | **Shipped** (`75c287f`/`6f33d94` part UR1/UR2, `548c915`/`f0c2525` assembly UR3) — updated 2026-07-24 |
 
 ## Assemblies, interop, drawings, collaboration
 
 | Capability | Fusion 360 | Plasticity | Loft status | Proposed phase / notes |
 |---|---|---|---|---|
-| Assemblies: instances, mates/joints, BOM | Joint / As-Built Joint define relationships and degrees of freedom between components; Rigid Group locks the relative position of 3+ components instead of pairwise rigid joints — [Assembly relationships](https://help.autodesk.com/view/fusion360/ENU/?guid=ASM-JOINTS), [Rigid groups](https://help.autodesk.com/view/fusion360/ENU/?guid=ASM-RIGID-GROUP), [Create a joint](https://help.autodesk.com/view/fusion360/ENU/?guid=ASM-CREATE-JOINT) | — (not verified this pass) | ⬜ | Phase 3 |
-| STEP/IGES import + healing | — | — | ⬜ | Phase 4 — flips Interop row to ➖ |
-| STEP/STL export | — | — | ✅ | Shipped |
-| 2D drawings (views, dims, PDF/DXF) | Dedicated Drawing workspace generates base/projected/detail orthographic views from a design, a Dimension panel adds drawing-level dimensions, and sheets export to native PDF or per-sheet DXF/DWG — [Drawing tutorial](https://help.autodesk.com/view/fusion360/ENU/?guid=GUID-73B3C46A-05B4-4F4A-BB07-239346556923), [Dimensions (Drawing workspace)](https://help.autodesk.com/view/fusion360/ENU/?contextId=DWG-DIMENSIONS) | Not found in the manual's nav this pass — tentatively out of scope for a pure direct-edit modeler, needs confirming next pass before treating as a real gap-closer | ⬜ | Phase 4 |
+| Assemblies: instances, mates/joints, BOM | Joint / As-Built Joint define relationships and degrees of freedom between components; Rigid Group locks the relative position of 3+ components instead of pairwise rigid joints — [Assembly relationships](https://help.autodesk.com/view/fusion360/ENU/?guid=ASM-JOINTS), [Rigid groups](https://help.autodesk.com/view/fusion360/ENU/?guid=ASM-RIGID-GROUP), [Create a joint](https://help.autodesk.com/view/fusion360/ENU/?guid=ASM-CREATE-JOINT) | — (not verified this pass) | 🚧 | **v1 shipped, ➖ per VISION.md scorecard** — document model (`fab5115`), our own deterministic mate solver (`c010ee1`), all 5 mate types (lock/coincident/concentric `c010ee1`, distance/angle `56d457d`), flat BOM (`901dad1`/`cf617c8`), interference/collision detection (`e46db16`, added THIS pass — see below), assembly STEP export+import (`b7408fd`/`f75fb26`/`7ca0df5`, added THIS pass). Residual: no exploded views, BOM is flat (no recursive sub-assembly rollup), rigid sub-assemblies only, no part-version pinning — updated 2026-07-24 |
+| STEP/IGES import + healing | — | — | 🚧 | **STEP import shipped** (single-body `4964fab`, multi-solid `919ebcf`, assembly product-structure `f75fb26`/`7ca0df5` — added THIS pass, closes the "assembly is a one-way street" gap). IGES and mesh healing remain unshipped — updated 2026-07-24 |
+| STEP/STL export | — | — | ✅ | Shipped (part-level); assembly-level STEP/STL export also shipped this pass (`b7408fd`, AP214 product structure) — updated 2026-07-24 |
+| Interference / collision detection (new row) | — (not verified this pass) | — | ✅ | **Shipped THIS pass** (`e46db16` pairwise `BRepAlgoAPI_Common` clash detection + `49f01ba` UI clash inspector, 2026-07-23) — new row, added 2026-07-24 |
+| 2D drawings (views, dims, PDF/DXF) | Dedicated Drawing workspace generates base/projected/detail orthographic views from a design, a Dimension panel adds drawing-level dimensions, and sheets export to native PDF or per-sheet DXF/DWG — [Drawing tutorial](https://help.autodesk.com/view/fusion360/ENU/?guid=GUID-73B3C46A-05B4-4F4A-BB07-239346556923), [Dimensions (Drawing workspace)](https://help.autodesk.com/view/fusion360/ENU/?contextId=DWG-DIMENSIONS) | Not found in the manual's nav this pass — tentatively out of scope for a pure direct-edit modeler, needs confirming next pass before treating as a real gap-closer | 🚧 | **v1 shipped, ➖ per VISION.md scorecard**: document model (`03f2319`), exact-HLR orthographic + iso views (`5c4b080`), linear/diameter/radius/angular dimension authoring, server-composed byte-deterministic SVG/PDF/DXF export, **section views now fully end-to-end** (`137a929` kernel, wrong-half P0 fixed `57dca7a`, `06fc019` UI authoring — added THIS pass). Residual: no assembly drawings, no detail/broken/auxiliary views, no GD&T, no auto-dimensioning — updated 2026-07-24 |
 | Realtime multi-user | — | — | ⬜ | Phase 3 |
 | Python scripting API / MCP | — | — | ⬜ | Phase 5 — structural advantage #4 |
 
 ## Sheet metal
+
+**Full incumbent-parity checklist: `docs/design/sheet-metal-parity.md`**
+(added 2026-07-19, founder ask — "driven to full parity, kept on par").
+That doc is the authoritative, evidence-first tracker (32 rows across
+flanges/bends/corners/bend-allowance/manufacturing-features/flat-pattern/
+convert-recognize/drawings, each sourced to a SolidWorks/Fusion/Onshape doc
+URL and verified against the repo at HEAD) — the summary table below is
+kept as a coarse index only and is **not** re-derived each pass; treat the
+parity doc as the source of truth for anything sheet-metal and update THIS
+table's status column to match it, not vice versa. Headline from that pass:
+still ➖ (per VISION.md), not ✅ — corner relief + the authoring UI are 🔨
+in flight; closed hem, gauge/material bend tables, miters, and tabs are the
+named needle-movers, in that order. **The rest of this file (Sketching,
+Part modeling, Assemblies/Interop/Drawings sections above) is untouched
+this pass and remains stale from the last groom** — flagged, not fixed,
+out of this pass's scope.
 
 | Capability | Fusion 360 | SolidWorks | Loft status | Proposed phase / notes |
 |---|---|---|---|---|
@@ -222,3 +239,84 @@ the groomer._
   question, this is filed at P2 (not promoted to Ready) — it doesn't flip a
   ❌ row on its own until built, and the design doc is explicitly
   unendorsed.
+
+- **2026-07-19 (sheet-metal INCUMBENT-PARITY checklist, founder ask —
+  "driven to full parity, kept on par").** New standalone doc
+  `docs/design/sheet-metal-parity.md`: a 32-row evidence-first matrix
+  (flanges/walls, bends, corners, the bend-allowance model, manufacturing
+  features, flat pattern, convert/recognize, drawings), each row sourced to
+  a SolidWorks/Fusion/Onshape doc URL via `WebSearch` (`WebFetch` against
+  `help.solidworks.com`/`help.autodesk.com` still 403s at the egress proxy,
+  same policy denial as the 2026-07-12 pass — `WebSearch` snippets against
+  these domains remain reachable and sufficed, cited per-URL, no pasted
+  text) and independently re-verified against the repo at HEAD (`a1c6a21`)
+  rather than trusted from the design doc's own claims. **What was newly
+  enumerated beyond the 07-17 pass's placeholder row:** the four hem shapes
+  (closed/open/teardrop/rolled) and their distinct material/use-case
+  fit; miter flange as a corner-relief variant, not an independent
+  primitive; swept flange and lofted bend as two DISTINCT flange types with
+  different risk profiles (loft carries new developable-surface kernel
+  risk, swept flange reuses shipped `sweep.py` primitives); sketched
+  bend/Fold as the mechanism tabs and jogs both depend on; cross-breaks as
+  a purely cosmetic HVAC convention (no geometry change — a real
+  deprioritization candidate); gauge/material bend TABLES confirmed as
+  interpolated, per-material, multi-type (K-factor/allowance/deduction)
+  lookup tables, not a single value — the single most-repeated gap named in
+  `sheet-metal.md` itself; forming tools as a library-part-stamped-onto-a-
+  face paradigm distinct from countersink/counterbore (which is closer to a
+  hole-feature variant); nesting and native grain-direction confirmed
+  correctly OUT of near-term scope (SolidWorks nesting is a third-party
+  add-in, not core; Fusion has neither natively). **Verdict:** still ➖, not
+  ✅ (matches VISION.md) — corner relief + the authoring UI are 🔨 in
+  flight; closed hem, gauge/material bend tables, miters, and tabs are the
+  3-5 named needle-movers. **Where Loft is at/ahead of parity, stated
+  plainly:** flat-pattern DXF/PDF/SVG export (deterministic, byte-pinned,
+  three formats, one shared bend-table source vs. SolidWorks' separately-
+  drawn outputs) and the depth-≥2 bend-tree unfold's goldened correctness
+  bar (area conservation, byte-determinism) — both real, not aspirational.
+  **Campaign corrections filed for the next groom** (not filed as BACKLOG
+  entries directly, per this pass's scope — the parity doc's own
+  §"Parity roadmap" is the input): jogs got EASIER since `sheet-metal.md`
+  was written (the now-shipped depth-≥2 bend-tree unfold covers the
+  zero-length-strip case, previously assumed to need new kernel work);
+  tabs are near-free once sketched-bend ships (mechanically an edge flange
+  with `bend_angle_deg = 0`); gauge/material bend tables are pure
+  documents-service data modeling, not kernel risk, and could parallelize
+  earlier than the campaign's serial ordering implied. `docs/COMPETITIVE.md`
+  itself gained only a pointer + index-table note in the Sheet metal
+  section (above) — the rest of this file (Sketching/Part
+  modeling/Assemblies/Interop/Drawings) is untouched and remains stale from
+  the last groom, flagged not fixed, out of this pass's scope.
+
+- **2026-07-24 (FINDINGS #25 truth-only reconciliation — no new WebSearch
+  pass).** The Sketching/Part modeling/Assemblies/Interop/Drawings status
+  column had been stale since 2026-07-12 (flagged explicitly in the two prior
+  entries above). Reconciled every ⬜/🚧 status cell in those three tables
+  against `git log`/`git show`, not re-derived from the competitor side (no
+  new URLs read this pass — the Fusion/Plasticity/SolidWorks description
+  columns are untouched). Flipped to ✅/🚧 with commit citations: sketch
+  trim/extend, offset, mirror, fillet/chamfer, constrainable fit-point
+  splines, classified redundant-vs-conflicting diagnosis, dimension
+  expressions/driving-vs-driven (Sketching); click-specific edge/face
+  selection, measurement, linear/circular pattern, sweep, loft, shell, draft,
+  dedicated hole feature, multi-body boolean, datum planes/axes, undo/redo
+  (Part modeling); assemblies v1 (mates/BOM), STEP import, assembly-level
+  STEP/STL export, 2D drawings v1 including section views (Assemblies/
+  Interop/Drawings). Two rows added new this pass reflecting capability that
+  shipped since the last competitive sweep and has no existing row:
+  **Interference/collision detection** (✅, `e46db16`/`49f01ba`) and implicitly
+  folded assembly-level STEP export into the existing STEP/STL export row.
+  Two rows confirmed still genuinely absent after re-checking git log
+  directly (not assumed): **Thread feature** (no modeled/cosmetic thread
+  primitive found) and **IGES import/export** (no commits). One row noted a
+  real, undismissed defect alongside its shipped status rather than hiding
+  it: Linear/circular pattern is ✅ shipped, but patterning a Hole feature
+  duplicates the whole body (FINDINGS.md #1, P0, fix queued) — the
+  capability and the defect are both true and both stated. Direct-modeling
+  push/pull and the parametric⇄direct toggle stay ⬜, unchanged (deliberately
+  deferred, not a discovery gap). No BACKLOG candidates filed this pass —
+  this was a status-column truth pass, not a new-capability discovery pass;
+  the next full WebSearch sweep should re-verify the Fusion/Plasticity
+  description columns are still current and look for capabilities genuinely
+  not yet enumerated (e.g. Fusion's Joint/Rigid-Group semantics vs. Loft's
+  mate vocabulary, now that Assemblies has real usage to compare against).

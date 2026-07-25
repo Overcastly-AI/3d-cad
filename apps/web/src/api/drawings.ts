@@ -17,7 +17,15 @@ export type SheetResponse = components["schemas"]["SheetResponse"];
 export type SheetCreate = components["schemas"]["SheetCreate"];
 export type ViewResponse = components["schemas"]["ViewResponse"];
 export type ViewCreate = components["schemas"]["ViewCreate"];
+/** Re-frame / re-scale / re-place a view (design §2.2). The drag-to-place seam
+ * sends `position` + `auto_place: false`; the reset-to-auto seam sends
+ * `auto_place: true`. Every field optional; `expected_version` guards the OCC. */
+export type ViewUpdate = components["schemas"]["ViewUpdate"];
 export type ViewScale = components["schemas"]["ViewScale"];
+/** A section view's cutting plane + half selection (drawings-section.md §1). The
+ * `plane` is the EXACT `GeomRef` union a sketch's plane uses (DatumPlaneRef |
+ * FeatureRef) — no parallel plane taxonomy (DRY). */
+export type SectionViewParams = components["schemas"]["SectionViewParams"];
 export type SheetPoint = components["schemas"]["SheetPoint"];
 export type SheetSize = SheetResponse["size"];
 export type ViewProjection = ViewResponse["projection"];
@@ -33,6 +41,11 @@ export type DimensionResponse = components["schemas"]["DimensionResponse"];
 /** The discriminated dimension params union (linear | diameter | radius | angular). */
 export type DimensionParams = DimensionResponse["dimension"];
 export type DimensionCreate = components["schemas"]["DimensionCreate"];
+export type AnnotationResponse = components["schemas"]["AnnotationResponse"];
+/** The v1 annotation params (a free-text note: text + sheet point). */
+export type NoteAnnotationParams =
+  components["schemas"]["NoteAnnotationParams"];
+export type AnnotationCreate = components["schemas"]["AnnotationCreate"];
 export type DrawingDimensionInput =
   components["schemas"]["DrawingDimensionInput"];
 export type MeasuredDimension = components["schemas"]["MeasuredDimension"];
@@ -58,6 +71,11 @@ export type ComposedEdge =
 /** A flat-pattern sheet's placed bend-table block — anchor rect + per-bend rows
  * (sheet-metal.md §7). Null for every standard (HLR) sheet. */
 export type ComposedBendTable = components["schemas"]["ComposedBendTable"];
+/** A placed free-text note annotation — text at a sheet point (design §2.2). */
+export type ComposedNote = components["schemas"]["ComposedNote"];
+/** A section view's placed crosshatch — the ANSI 45° cut-face fill
+ * (drawings-section.md §5); null for every non-section view. */
+export type ComposedHatch = components["schemas"]["ComposedHatch"];
 /** One bend-table fold row (bend id, angle, radius, direction, allowance). */
 export type BendTableRow = components["schemas"]["BendTableRow"];
 /** The typed per-view/-feature error envelope (code + human message). */
@@ -189,6 +207,32 @@ export async function createView(
 }
 
 /**
+ * Re-place / re-scale / re-frame a stored view (200 with the bumped
+ * `doc_version`; 422 on a stale version). The drag-to-place authoring path sends
+ * `{ position, auto_place: false }` (the composer then honours the dragged
+ * centre verbatim); the return-to-auto path sends `{ auto_place: true }`. The
+ * caller re-fetches the tree + re-composes so the moved view repaints.
+ */
+export async function updateView(
+  drawingId: string,
+  viewId: string,
+  body: ViewUpdate,
+  client: GatewayClient = gatewayClient,
+): Promise<components["schemas"]["ViewMutationResponse"]> {
+  const { data, error } = await client.PATCH(
+    "/api/v1/drawings/{drawing_id}/views/{view_id}",
+    {
+      params: { path: { drawing_id: drawingId, view_id: viewId } },
+      body,
+    },
+  );
+  if (error !== undefined) {
+    throw new Error(envelopeMessage(error, "The view could not be updated."));
+  }
+  return data;
+}
+
+/**
  * Author a dimension against a view (201; 422 on a stale version, on a wrong
  * edge/type combo the documents write-time check rejects — e.g. a diameter on a
  * line). Returns the new dimension + the bumped `doc_version`; the caller re-
@@ -244,6 +288,56 @@ export async function deleteDimension(
 }
 
 /**
+ * Add an annotation (v1: a free-text note) to a sheet (append at the tip; 201
+ * with the new note + bumped `doc_version`). `expected_version` guards the
+ * optimistic-concurrency counter. The note is placed at its authored sheet
+ * point by the composer and drawn on the DOM sheet from `ComposedSheet.notes`.
+ */
+export async function createAnnotation(
+  drawingId: string,
+  sheetId: string,
+  body: AnnotationCreate,
+  client: GatewayClient = gatewayClient,
+): Promise<components["schemas"]["AnnotationMutationResponse"]> {
+  const { data, error } = await client.POST(
+    "/api/v1/drawings/{drawing_id}/sheets/{sheet_id}/annotations",
+    {
+      params: { path: { drawing_id: drawingId, sheet_id: sheetId } },
+      body,
+    },
+  );
+  if (error !== undefined) {
+    throw new Error(envelopeMessage(error, "The note could not be added."));
+  }
+  return data;
+}
+
+/**
+ * Delete an annotation (200 with the updated tree; the delete bumps
+ * `doc_version`). `expectedVersion` guards the optimistic-concurrency counter.
+ */
+export async function deleteAnnotation(
+  drawingId: string,
+  annotationId: string,
+  expectedVersion: number,
+  client: GatewayClient = gatewayClient,
+): Promise<DrawingTreeResponse> {
+  const { data, error } = await client.DELETE(
+    "/api/v1/drawings/{drawing_id}/annotations/{annotation_id}",
+    {
+      params: {
+        path: { drawing_id: drawingId, annotation_id: annotationId },
+        query: { expected_version: expectedVersion },
+      },
+    },
+  );
+  if (error !== undefined) {
+    throw new Error(envelopeMessage(error, "The note could not be deleted."));
+  }
+  return data;
+}
+
+/**
  * Project a part into its requested standard drawing views: geometry evaluates
  * the part body ONCE then runs exact HLR per view, returning each view's
  * canonically-ordered visible+hidden 2D edges (or a typed per-view error). A
@@ -274,14 +368,25 @@ export async function evaluateDrawingViews(
  * in sheet-mm SVG space (y-flip applied). This is the SINGLE placement source the
  * sheet renders from (DE-1c) — the browser no longer computes any layout. The
  * route takes no body; it reads the drawing's persisted state server-side.
+ *
+ * `sheetId` picks WHICH sheet to compose (the active sheet of a multi-sheet
+ * drawing); omitting it composes the first sheet (back-compat). An unknown id is
+ * a `sheet_not_found` 404, a sheet with no views a `drawing_not_composable` 422 —
+ * both surface the server envelope's own message.
  */
 export async function composeDrawingSheet(
   drawingId: string,
+  sheetId?: string | null,
   client: GatewayClient = gatewayClient,
 ): Promise<ComposedSheet> {
   const { data, error } = await client.POST(
     "/api/v1/drawings/{drawing_id}/sheet",
-    { params: { path: { drawing_id: drawingId } } },
+    {
+      params: {
+        path: { drawing_id: drawingId },
+        query: sheetId ? { sheet: sheetId } : undefined,
+      },
+    },
   );
   if (error !== undefined) {
     throw new Error(

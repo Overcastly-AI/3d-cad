@@ -14,15 +14,22 @@
  * it lights up), matching how Extrude greys out until a sketch is solved.
  */
 import {
+  BaseFlangeIcon,
   ChamferIcon,
   CombineIcon,
+  CornerReliefIcon,
   DatumIcon,
   DraftIcon,
+  EdgeFlangeIcon,
   ExtrudeIcon,
   FilletIcon,
+  FlatPatternIcon,
+  HemIcon,
+  HoleIcon,
   ImportStepIcon,
   LoftIcon,
   MeasureIcon,
+  MirrorIcon,
   PatternIcon,
   RevolveIcon,
   ShellIcon,
@@ -108,6 +115,44 @@ export interface CreateStripProps {
   onShell?: () => void;
   /** Taper picked faces for mold release about a neutral plane (D). */
   onDraft?: () => void;
+  /** Drill a cylindrical hole into the current body at a point on a face (O). */
+  onHole?: () => void;
+  /** Reflect the current body about a plane and union the reflection in (I). */
+  onMirror?: () => void;
+  /**
+   * A solved sketch exists to thicken into a sheet-metal base flange (the same
+   * gate as Extrude — a base flange consumes a sketch profile).
+   */
+  canBaseFlange?: boolean;
+  /** Thicken a sketch profile to gauge — the sheet-metal part's first body. */
+  onNewBaseFlange?: () => void;
+  /**
+   * The part is sheet metal (a base flange exists), so an edge flange can fold
+   * off one of its straight edges, and the flat pattern can be unfolded.
+   */
+  canEdgeFlange?: boolean;
+  /** Fold a leg off a picked straight edge of the sheet body. */
+  onNewEdgeFlange?: () => void;
+  /**
+   * The part is sheet metal (a base flange exists), so a closed hem can fold a
+   * picked straight edge 180° back onto the sheet — the same gate as edge flange.
+   */
+  canHem?: boolean;
+  /** Fold a picked straight edge 180° back onto the sheet (a closed hem). */
+  onNewHem?: () => void;
+  /**
+   * The part has ≥2 edge flanges whose bends can meet at a corner, so a corner
+   * relief can notch that corner. Below two edge flanges the tool disables.
+   */
+  canCornerRelief?: boolean;
+  /** Notch the shared corner of two adjacent edge flanges (corner relief). */
+  onNewCornerRelief?: () => void;
+  /** The flat pattern can be unfolded (the part is sheet metal). */
+  canFlatPattern?: boolean;
+  /** A flat-pattern unfold is in flight (opening the drawing). */
+  flatteningPattern?: boolean;
+  /** Unfold the sheet body onto a flat-pattern drawing (the model→flatten loop). */
+  onFlatPattern?: () => void;
   /**
    * Two or more bodies exist to fuse (a `merge: false` add / an import started a
    * second body). Below two bodies the Combine tool disables with its reason.
@@ -164,6 +209,19 @@ export function CreateStrip({
   onPattern,
   onShell,
   onDraft,
+  onHole,
+  onMirror,
+  canBaseFlange = false,
+  onNewBaseFlange,
+  canEdgeFlange = false,
+  onNewEdgeFlange,
+  canHem = false,
+  onNewHem,
+  canCornerRelief = false,
+  onNewCornerRelief,
+  canFlatPattern = false,
+  flatteningPattern = false,
+  onFlatPattern,
   canCombine = false,
   onCombine,
   canMeasure = false,
@@ -185,7 +243,21 @@ export function CreateStrip({
   const patternReady = canModify && treeReady && onPattern !== undefined;
   const shellReady = canModify && treeReady && onShell !== undefined;
   const draftReady = canModify && treeReady && onDraft !== undefined;
+  const holeReady = canModify && treeReady && onHole !== undefined;
+  const mirrorReady = canModify && treeReady && onMirror !== undefined;
   const combineReady = canCombine && treeReady && onCombine !== undefined;
+  const baseFlangeReady =
+    canBaseFlange && treeReady && onNewBaseFlange !== undefined;
+  const edgeFlangeReady =
+    canEdgeFlange && treeReady && onNewEdgeFlange !== undefined;
+  const hemReady = canHem && treeReady && onNewHem !== undefined;
+  const cornerReliefReady =
+    canCornerRelief && treeReady && onNewCornerRelief !== undefined;
+  const flatPatternReady =
+    canFlatPattern &&
+    treeReady &&
+    !flatteningPattern &&
+    onFlatPattern !== undefined;
 
   // An open command scopes the whole band: every tool locks with one honest
   // reason, so no click can discard the open command's picks (Track C P1).
@@ -345,11 +417,11 @@ export function CreateStrip({
             aria-label={
               canExtrude
                 ? "Extrude — add or cut a sketch profile"
-                : "Extrude — solve a sketch first"
+                : "Extrude — draw a sketch first"
             }
             caption={captionFor(
               canExtrude && treeReady,
-              "Solve a sketch first",
+              "Draw a sketch to extrude",
             )}
             disabled={locked || !canExtrude || !treeReady}
             onClick={onNewExtrude}
@@ -362,11 +434,11 @@ export function CreateStrip({
             aria-label={
               canRevolve
                 ? "Revolve — sweep a sketch profile about an axis"
-                : "Revolve — solve a sketch first"
+                : "Revolve — draw a sketch first"
             }
             caption={captionFor(
               canRevolve && treeReady,
-              "Solve a sketch first",
+              "Draw a sketch to revolve",
             )}
             disabled={locked || !canRevolve || !treeReady}
             onClick={onNewRevolve}
@@ -484,6 +556,36 @@ export function CreateStrip({
             onClick={onDraft}
           />
           <ToolButton
+            icon={<HoleIcon />}
+            showLabel
+            label="Hole"
+            shortcut="O"
+            data-testid="new-hole"
+            aria-label={
+              holeReady
+                ? "Hole — drill a cylinder into the body at a point on a face (O)"
+                : "Hole — create a body first"
+            }
+            caption={captionFor(holeReady, "Create a body first")}
+            disabled={locked || !holeReady}
+            onClick={onHole}
+          />
+          <ToolButton
+            icon={<MirrorIcon />}
+            showLabel
+            label="Mirror"
+            shortcut="I"
+            data-testid="new-mirror"
+            aria-label={
+              mirrorReady
+                ? "Mirror — reflect the body about a plane and union the copy in (I)"
+                : "Mirror — create a body first"
+            }
+            caption={captionFor(mirrorReady, "Create a body first")}
+            disabled={locked || !mirrorReady}
+            onClick={onMirror}
+          />
+          <ToolButton
             icon={<CombineIcon />}
             showLabel
             label="Combine"
@@ -496,6 +598,82 @@ export function CreateStrip({
             caption={captionFor(combineReady, "Needs two bodies")}
             disabled={locked || !combineReady}
             onClick={onCombine}
+          />
+        </ToolGroup>
+
+        <ToolGroup eyebrow="Sheet metal">
+          <ToolButton
+            icon={<BaseFlangeIcon />}
+            showLabel
+            label="Base flange"
+            data-testid="new-base-flange"
+            aria-label={
+              baseFlangeReady
+                ? "Base flange — thicken a sketch profile to gauge (the sheet's first body)"
+                : "Base flange — draw a sketch first"
+            }
+            caption={captionFor(baseFlangeReady, "Draw a sketch first")}
+            disabled={locked || !baseFlangeReady}
+            onClick={onNewBaseFlange}
+          />
+          <ToolButton
+            icon={<EdgeFlangeIcon />}
+            showLabel
+            label="Edge flange"
+            data-testid="new-edge-flange"
+            aria-label={
+              edgeFlangeReady
+                ? "Edge flange — fold a leg off a straight edge of the sheet"
+                : "Edge flange — add a base flange first"
+            }
+            caption={captionFor(edgeFlangeReady, "Add a base flange first")}
+            disabled={locked || !edgeFlangeReady}
+            onClick={onNewEdgeFlange}
+          />
+          <ToolButton
+            icon={<HemIcon />}
+            showLabel
+            label="Hem"
+            data-testid="new-hem"
+            aria-label={
+              hemReady
+                ? "Hem — fold a straight edge of the sheet 180° back onto itself (a closed hem)"
+                : "Hem — add a base flange first"
+            }
+            caption={captionFor(hemReady, "Add a base flange first")}
+            disabled={locked || !hemReady}
+            onClick={onNewHem}
+          />
+          <ToolButton
+            icon={<CornerReliefIcon />}
+            showLabel
+            label="Corner relief"
+            data-testid="new-corner-relief"
+            aria-label={
+              cornerReliefReady
+                ? "Corner relief — notch the shared corner of two adjacent edge flanges"
+                : "Corner relief — add two edge flanges that meet at a corner first"
+            }
+            caption={captionFor(cornerReliefReady, "Needs two edge flanges")}
+            disabled={locked || !cornerReliefReady}
+            onClick={onNewCornerRelief}
+          />
+          <ToolButton
+            icon={<FlatPatternIcon />}
+            showLabel
+            label="Flat pattern"
+            data-testid="new-flat-pattern"
+            aria-label={
+              canFlatPattern
+                ? "Flat pattern — unfold the sheet body onto a drawing blank"
+                : "Flat pattern — add a base flange first"
+            }
+            caption={captionFor(
+              flatPatternReady,
+              flatteningPattern ? "Unfolding…" : "Add a base flange first",
+            )}
+            disabled={locked || !flatPatternReady}
+            onClick={onFlatPattern}
           />
         </ToolGroup>
 

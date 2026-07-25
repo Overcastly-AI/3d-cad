@@ -44,6 +44,7 @@ import math
 from collections.abc import Sequence
 
 from build123d import Axis, Solid, Vector
+from py_kit.schemas.features import MAX_PATTERN_COUNT
 
 from geometry.kernel.lumps import assemble_lumps
 from geometry.kernel.types import BodyShape
@@ -55,7 +56,9 @@ MIN_DIRECTION_MAGNITUDE = 1e-9
 
 
 class PatternCountError(ValueError):
-    """The instance count is below 1 (a pattern has at least the seed)."""
+    """The instance count is below 1 (a pattern has at least the seed) or above
+    the :data:`~py_kit.schemas.features.MAX_PATTERN_COUNT` work bound (audit
+    G2 — an unbounded count loops the kernel building bodies + booleans)."""
 
 
 class PatternSpacingError(ValueError):
@@ -91,6 +94,14 @@ def _check_count(count: int) -> None:
         raise PatternCountError(
             f"Pattern count must be at least 1 (the seed instance is instance "
             f"0), got {count}."
+        )
+    # Defense-in-depth twin of the parse-time `le=MAX_PATTERN_COUNT` DTO bound
+    # (audit G2): the evaluate path can never reach here over the ceiling, but
+    # a direct kernel caller must hit the same wall, not an unbounded loop.
+    if count > MAX_PATTERN_COUNT:
+        raise PatternCountError(
+            f"Pattern count must be at most {MAX_PATTERN_COUNT} (per-request "
+            f"work bound), got {count}."
         )
 
 

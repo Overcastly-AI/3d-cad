@@ -245,6 +245,90 @@ def test_delete_part_referenced_by_drawing_view_is_409(client: TestClient) -> No
     assert dependents[0]["kind"] == "drawing"
 
 
+def _datum_envelope(offset_mm: float = 30.0) -> dict[str, Any]:
+    """An offset datum plane feature (the section-view cutting-plane target)."""
+    return {
+        "type": "datum",
+        "version": 1,
+        "params": {"base": "XY", "offset_mm": offset_mm, "flip": False},
+    }
+
+
+def _add_feature(
+    client: TestClient, part_id: str, name: str, feature: dict[str, Any], expected: int
+) -> str:
+    response = client.post(
+        f"/api/v1/parts/{part_id}/features",
+        json={"name": name, "feature": feature, "expected_tree_version": expected},
+        headers=_headers(),
+    )
+    assert response.status_code == 201, response.text
+    feature_id: str = response.json()["feature"]["id"]
+    return feature_id
+
+
+def test_undo_removing_sectioned_feature_blocked_like_delete(
+    client: TestClient,
+) -> None:
+    """Audit P2 #16 — undo must honour the SAME cross-document protection a direct
+    delete does. A drawing section view whose cutting plane is a FeatureRef into a
+    datum feature depends on that feature; both a direct delete AND an undo that
+    would remove the datum are blocked with a typed 409, so the section view never
+    silently breaks (a `failed: true` empty box on the print)."""
+    part = _create_part(client, "sectioned")
+    # One part mutation → tree_version 1; undo from here reverts to the empty tree,
+    # removing the datum the section view references.
+    datum_id = _add_feature(client, part, "Plane1", _datum_envelope(), 0)
+
+    drawing_id = _create_drawing(client, "section-detail")
+    sheet_id = _add_sheet(client, drawing_id, 0).json()["sheet"]["id"]
+    rv = _add_view(
+        client,
+        drawing_id,
+        sheet_id,
+        part,
+        1,
+        projection="section",
+        section_params={
+            "plane": {"kind": "feature", "feature_id": datum_id},
+            "flip": False,
+        },
+    )
+    assert rv.status_code == 201, rv.text
+
+    # Direct delete of the depended-on datum is blocked and lists the drawing.
+    deleted = client.delete(
+        f"/api/v1/parts/{part}/features/{datum_id}",
+        params={"expected_tree_version": 1},
+        headers=_headers(),
+    )
+    assert deleted.status_code == 409, deleted.text
+    del_err = _error(deleted.json())
+    assert del_err["code"] == "feature_has_dependents"
+    assert {d["name"]: d.get("kind") for d in del_err["details"]["dependents"]} == {
+        "section-detail": "drawing"
+    }
+
+    # Undo would remove that SAME datum → now blocked identically (was silent).
+    undone = client.post(
+        f"/api/v1/parts/{part}/undo",
+        json={"expected_tree_version": 1},
+        headers=_headers(),
+    )
+    assert undone.status_code == 409, undone.text
+    undo_err = _error(undone.json())
+    assert undo_err["code"] == "part_restore_conflict"
+    assert undo_err["details"]["reason"] == "section_view_feature_missing"
+    assert undo_err["details"]["feature_id"] == datum_id
+    assert undo_err["details"]["drawing_name"] == "section-detail"
+
+    # Both were refused, not applied: the datum survives and tree_version is unmoved
+    # — the section view is NOT silently broken.
+    tree = client.get(f"/api/v1/parts/{part}/features", headers=_headers()).json()
+    assert [f["id"] for f in tree["features"]] == [datum_id]
+    assert tree["tree_version"] == 1
+
+
 # --- optimistic concurrency -------------------------------------------------------
 
 
@@ -365,6 +449,56 @@ def test_update_view_reframes(client: TestClient) -> None:
     assert view["position"] == {"x_mm": 120.0, "y_mm": 30.0}
 
 
+def test_view_defaults_to_auto_place(client: TestClient) -> None:
+    """A view created without `auto_place` defaults to bounds-aware auto-layout
+    (back-compat) — the flag is present and True on the response."""
+    part = _create_part(client, "p")
+    drawing_id = _create_drawing(client, "auto")
+    sheet_id = _add_sheet(client, drawing_id, 0).json()["sheet"]["id"]
+    view = _add_view(client, drawing_id, sheet_id, part, 1).json()["view"]
+    assert view["auto_place"] is True
+
+
+def test_drag_to_place_position_persists_and_survives_reload(
+    client: TestClient,
+) -> None:
+    """The drag-to-place write path: PATCH position + auto_place=false persists a
+    hand-placed view, and the position + flag survive a fresh tree read (reload)."""
+    part = _create_part(client, "p")
+    drawing_id = _create_drawing(client, "drag")
+    sheet_id = _add_sheet(client, drawing_id, 0).json()["sheet"]["id"]
+    view_id = _add_view(client, drawing_id, sheet_id, part, 1).json()["view"]["id"]
+
+    response = client.patch(
+        f"/api/v1/drawings/{drawing_id}/views/{view_id}",
+        json={
+            "expected_version": 2,
+            "position": {"x_mm": 137.5, "y_mm": 88.25},
+            "auto_place": False,
+        },
+        headers=_headers(),
+    )
+    assert response.status_code == 200, response.text
+    view = response.json()["view"]
+    assert view["position"] == {"x_mm": 137.5, "y_mm": 88.25}
+    assert view["auto_place"] is False
+
+    # Reload: a fresh tree read still carries the authored position + honored flag.
+    reloaded = client.get(f"/api/v1/drawings/{drawing_id}", headers=_headers()).json()
+    reloaded_view = reloaded["sheets"][0]["views"][0]
+    assert reloaded_view["position"] == {"x_mm": 137.5, "y_mm": 88.25}
+    assert reloaded_view["auto_place"] is False
+
+    # And auto_place can be toggled back to auto-layout on its own.
+    back = client.patch(
+        f"/api/v1/drawings/{drawing_id}/views/{view_id}",
+        json={"expected_version": 3, "auto_place": True},
+        headers=_headers(),
+    )
+    assert back.status_code == 200, back.text
+    assert back.json()["view"]["auto_place"] is True
+
+
 def test_delete_view_cascades_dimensions_and_renumbers(client: TestClient) -> None:
     part = _create_part(client, "p")
     drawing_id = _create_drawing(client, "cascade")
@@ -478,3 +612,140 @@ def _row_count(
             await engine.dispose()
 
     return asyncio.run(run())
+
+
+# --- one sheet, one source document, one scale (engineering audit H2) -------------
+
+
+def test_view_referencing_another_document_on_the_same_sheet_is_422(
+    client: TestClient,
+) -> None:
+    """A sheet composes from ONE document; a second source is a typed 422, not a
+    silently mis-projected export (`documents.drawings._ensure_sheet_source`)."""
+    part_a = _create_part(client, "part-a")
+    part_b = _create_part(client, "part-b")
+    drawing_id = _create_drawing(client, "two-parts")
+    sheet_id = _add_sheet(client, drawing_id, 0).json()["sheet"]["id"]
+    assert _add_view(client, drawing_id, sheet_id, part_a, 1).status_code == 201
+
+    response = _add_view(client, drawing_id, sheet_id, part_b, 2, projection="right")
+    assert response.status_code == 422, response.text
+    error = _error(response.json())
+    assert error["code"] == "sheet_source_document_mismatch"
+    assert error["details"]["sheet_ref_document_id"] == part_a
+    assert error["details"]["ref_document_id"] == part_b
+
+    # The rejected write left the sheet untouched (one view, version unchanged).
+    tree = client.get(f"/api/v1/drawings/{drawing_id}", headers=_headers()).json()
+    assert len(tree["sheets"][0]["views"]) == 1
+    assert tree["doc_version"] == 2
+
+
+def test_view_with_a_different_scale_on_the_same_sheet_is_422(
+    client: TestClient,
+) -> None:
+    part = _create_part(client, "one-part")
+    drawing_id = _create_drawing(client, "two-scales")
+    sheet_id = _add_sheet(client, drawing_id, 0).json()["sheet"]["id"]
+    assert (
+        _add_view(
+            client,
+            drawing_id,
+            sheet_id,
+            part,
+            1,
+            scale={"numerator": 1, "denominator": 2},
+        ).status_code
+        == 201
+    )
+
+    response = _add_view(
+        client,
+        drawing_id,
+        sheet_id,
+        part,
+        2,
+        projection="top",
+        scale={"numerator": 1, "denominator": 1},
+    )
+    assert response.status_code == 422, response.text
+    error = _error(response.json())
+    assert error["code"] == "sheet_view_scale_mismatch"
+    assert error["details"]["sheet_scale"] == "1:2"
+    assert error["details"]["scale"] == "1:1"
+
+
+def test_second_view_matching_source_and_scale_is_accepted(client: TestClient) -> None:
+    """The guard rejects DIVERGENCE only — a consistent multi-view sheet (what the
+    frontend's standard layout writes) is unaffected."""
+    part = _create_part(client, "consistent")
+    drawing_id = _create_drawing(client, "standard-layout")
+    sheet_id = _add_sheet(client, drawing_id, 0).json()["sheet"]["id"]
+    scale = {"numerator": 1, "denominator": 2}
+    version = 1
+    for projection in ("front", "top", "right", "iso"):
+        response = _add_view(
+            client,
+            drawing_id,
+            sheet_id,
+            part,
+            version,
+            projection=projection,
+            scale=scale,
+        )
+        assert response.status_code == 201, response.text
+        version = response.json()["doc_version"]
+    tree = client.get(f"/api/v1/drawings/{drawing_id}", headers=_headers()).json()
+    assert [v["projection"] for v in tree["sheets"][0]["views"]] == [
+        "front",
+        "top",
+        "right",
+        "iso",
+    ]
+
+
+def test_rescaling_one_view_of_a_multi_view_sheet_is_422(client: TestClient) -> None:
+    part = _create_part(client, "rescale")
+    drawing_id = _create_drawing(client, "rescale-one")
+    sheet_id = _add_sheet(client, drawing_id, 0).json()["sheet"]["id"]
+    first = _add_view(client, drawing_id, sheet_id, part, 1).json()["view"]["id"]
+    assert (
+        _add_view(client, drawing_id, sheet_id, part, 2, projection="top").status_code
+        == 201
+    )
+
+    response = client.patch(
+        f"/api/v1/drawings/{drawing_id}/views/{first}",
+        json={"expected_version": 3, "scale": {"numerator": 1, "denominator": 4}},
+        headers=_headers(),
+    )
+    assert response.status_code == 422, response.text
+    assert _error(response.json())["code"] == "sheet_view_scale_mismatch"
+
+    # Re-placing that same view (no scale change) still works.
+    ok = client.patch(
+        f"/api/v1/drawings/{drawing_id}/views/{first}",
+        json={
+            "expected_version": 3,
+            "position": {"x_mm": 120.0, "y_mm": 90.0},
+            "auto_place": False,
+        },
+        headers=_headers(),
+    )
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["view"]["auto_place"] is False
+
+
+def test_rescaling_the_only_view_of_a_sheet_is_allowed(client: TestClient) -> None:
+    part = _create_part(client, "lone")
+    drawing_id = _create_drawing(client, "lone-view")
+    sheet_id = _add_sheet(client, drawing_id, 0).json()["sheet"]["id"]
+    view_id = _add_view(client, drawing_id, sheet_id, part, 1).json()["view"]["id"]
+
+    response = client.patch(
+        f"/api/v1/drawings/{drawing_id}/views/{view_id}",
+        json={"expected_version": 2, "scale": {"numerator": 1, "denominator": 4}},
+        headers=_headers(),
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["view"]["scale"] == {"numerator": 1, "denominator": 4}

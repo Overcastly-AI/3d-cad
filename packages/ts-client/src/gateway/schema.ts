@@ -25,6 +25,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/assemblies/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import Assembly Step
+         * @description Upload an untrusted assembly STEP → a real Loft assembly (or single part).
+         *
+         *     THE first truly-untrusted entry into the XCAF reader, so it is defended in
+         *     depth: auth-gated (``CurrentUser``), rate-limited (``COMPUTE_RATE_LIMIT``),
+         *     and size-capped WHILE the raw body streams (oversize → 422 ``import_too_large``
+         *     before the body is fully read or anything goes upstream — the strongest DoS
+         *     guard, §6). The bytes then take an identity-free hop to the geometry service's
+         *     ``/assembly/import`` (the killable-subprocess parse bound lives there, slice
+         *     2a — no principal travels upstream, RESEARCH §3), whose structured read drives
+         *     the documents service to create the assembly (deduped parts + named instances
+         *     at placements) or fall back to a single-body part.
+         *
+         *     A second DoS guard beyond bytes: the geometry read's product count is capped
+         *     at :data:`MAX_IMPORT_ASSEMBLY_PRODUCTS` BEFORE documents is touched, so a
+         *     small STEP that encodes a pathological occurrence count cannot fan out into
+         *     unbounded documents-side part/instance creation (no partial assembly is ever
+         *     created). Geometry / documents error envelopes (``import_parse_failed`` /
+         *     ``import_no_solid`` / ``import_parse_timeout`` / ``assembly_name_taken`` …)
+         *     are re-surfaced verbatim.
+         */
+        post: operations["import_assembly_step_api_v1_assemblies_import_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/assemblies/{assembly_id}": {
         parameters: {
             query?: never;
@@ -595,6 +633,67 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/geometry/assembly/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Assembly Export
+         * @description Proxy an assembly export to the geometry service; pass the file through.
+         *
+         *     Auth-protected (an assembly graph belongs to a signed-in user); the geometry
+         *     hop stays identity-free, so the principal never travels upstream (same
+         *     posture as ``/export`` + ``/assembly/evaluate``, RESEARCH §3). The shared
+         *     :class:`ExportAssemblyRequest` DTO validates at the gateway before anything
+         *     goes upstream. Geometry solves the assembly and composes it into ONE
+         *     multi-instance STEP (AP214 product structure) or STL; a body-less assembly is
+         *     a 422 ``assembly_export_no_body`` envelope, re-surfaced verbatim.
+         */
+        post: operations["assembly_export_api_v1_geometry_assembly_export_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/geometry/assembly/interference": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Assembly Interference
+         * @description Proxy an assembly interference check to the geometry service (assemblies §4).
+         *
+         *     Auth-protected (an assembly graph belongs to a signed-in user); the geometry
+         *     hop stays identity-free, so the principal never travels upstream (same posture
+         *     as ``/assembly/evaluate`` + measure/overlay, RESEARCH §3). The shared
+         *     :class:`EvaluateAssemblyRequest` DTO validates at the gateway before anything
+         *     goes upstream. Geometry solves the assembly and runs a pairwise
+         *     ``BRepAlgoAPI_Common`` over the solved world-placed instance bodies, returning
+         *     the clash list ``[{instance_a, instance_b, overlap_volume_mm3}]`` (each pair
+         *     once, a merely-touching pair is NO clash) plus the solve status/diagnosis. A
+         *     non-overlapping assembly is ``clashes: []``; a bad part/mate/solve is a 200
+         *     with a typed status and a (possibly empty) clash list (design §4), never a
+         *     4xx/5xx from the check itself. The envelope stays reserved for
+         *     transport/validation failures of this call.
+         */
+        post: operations["assembly_interference_api_v1_geometry_assembly_interference_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/geometry/drawing/evaluate": {
         parameters: {
             query?: never;
@@ -1145,6 +1244,31 @@ export interface paths {
         patch: operations["update_feature_api_v1_parts__part_id__features__feature_id__patch"];
         trace?: never;
     };
+    "/api/v1/parts/{part_id}/features/{feature_id}/suppress": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Suppress Feature
+         * @description Toggle a feature's suppress flag (feature-tree.md §4.3a).
+         *
+         *     Flips ONLY ``suppressed`` (a suppressed feature is skipped at rebuild),
+         *     bumping ``tree_version`` under the same optimistic-concurrency guard as
+         *     every other feature write — a stale version is documents' 422 envelope,
+         *     re-surfaced verbatim.
+         */
+        patch: operations["suppress_feature_api_v1_parts__part_id__features__feature_id__suppress_patch"];
+        trace?: never;
+    };
     "/api/v1/parts/{part_id}/redo": {
         parameters: {
             query?: never;
@@ -1388,6 +1512,30 @@ export interface components {
             mates: components["schemas"]["MateResponse"][];
         };
         /**
+         * AssemblyImportResult
+         * @description A STEP that carried product structure became a Loft assembly (SLICE-2b).
+         *
+         *     ``assembly`` is the freshly-created assembly graph (its N named instances at
+         *     their imported placements, ready to render — the same read model every other
+         *     assembly route serves). ``part_ids`` are the DEDUPED part documents created:
+         *     one per unique ``body_step_id``, so a part occurring twice is ONE id here but
+         *     two instances in ``assembly.instances``.
+         */
+        AssemblyImportResult: {
+            /** @description The created assembly with its instances at imported placements */
+            assembly: components["schemas"]["AssemblyGraphResponse"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "assembly";
+            /**
+             * Part Ids
+             * @description Deduped part documents created (one per unique body_step_id)
+             */
+            part_ids: string[];
+        };
+        /**
          * AssemblyListResponse
          * @description The caller's assemblies, oldest first (wrapper leaves room for paging).
          */
@@ -1623,6 +1771,35 @@ export interface components {
             radius_mm: number;
         };
         /**
+         * BodyLumpInfo
+         * @description Per-body lump count of an evaluated tree (docs/design/multi-body.md §MB-4).
+         *
+         *     The whole-part aggregate ``properties.topology.shells`` cannot tell a
+         *     disjoint-union / multi-solid-import body (one body, several disjoint LUMPS)
+         *     from a single-lump body: a sealed hollow inflates the shell count, and the
+         *     aggregate sums across every body. This per-body entry carries the honest
+         *     lump count so a consumer (the Bodies panel) can flag a multi-lump body.
+         *
+         *     ``base_feature_id`` is the body's identity — the id of the feature that
+         *     CREATED it (§MB-0 Decision 1), the same key ``EvaluationState.bodies`` uses —
+         *     so a caller maps the count back to the body/row it names. ``lumps`` is the
+         *     number of disjoint connected solids (``>= 1``; a single-lump body reports
+         *     ``1``), counted by ``geometry.kernel.lumps.lump_count``.
+         */
+        BodyLumpInfo: {
+            /**
+             * Base Feature Id
+             * Format: uuid
+             * @description Id of the feature that created this body (its §MB-0 identity)
+             */
+            base_feature_id: string;
+            /**
+             * Lumps
+             * @description Number of disjoint connected solids (lumps) of this body; 1 for a single-lump body, >1 for a disjoint union / multi-solid import.
+             */
+            lumps: number;
+        };
+        /**
          * BomLine
          * @description One line of an assembly's bill of materials (a flat, direct-instance BOM).
          *
@@ -1682,6 +1859,11 @@ export interface components {
          */
         BooleanFeature: {
             params: components["schemas"]["BooleanParamsV1"];
+            /**
+             * Suppressed
+             * @description Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional — absent reads False, no param_version bump.
+             */
+            suppressed?: boolean;
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -1797,6 +1979,11 @@ export interface components {
         ChamferFeature: {
             params: components["schemas"]["ChamferParamsV1"];
             /**
+             * Suppressed
+             * @description Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional — absent reads False, no param_version bump.
+             */
+            suppressed?: boolean;
+            /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
@@ -1858,7 +2045,7 @@ export interface components {
             axis_point: components["schemas"]["Vec3"];
             /**
              * Count
-             * @description TOTAL instances INCLUDING the seed; an integer >= 1. `count < 1` is a `pattern_bad_count` rebuild error; `count = 1` is a no-op.
+             * @description TOTAL instances INCLUDING the seed; an integer >= 1, at most MAX_PATTERN_COUNT (work bound, audit G2 — over the ceiling is a parse-time 422). `count < 1` is a `pattern_bad_count` rebuild error; `count = 1` is a no-op.
              */
             count: number;
             /**
@@ -1866,6 +2053,53 @@ export interface components {
              * @enum {string}
              */
             kind: "circular";
+        };
+        /**
+         * ClashPair
+         * @description One interfering instance pair + the volume of their B-rep overlap (§4).
+         *
+         *     ``instance_a`` / ``instance_b`` are the two clashing instances — reported as
+         *     an UNORDERED pair exactly once (``instance_a`` precedes ``instance_b`` in the
+         *     request's instance order, so the same physical clash is never double-listed).
+         *     ``overlap_volume_mm3`` is the exact volume of the solved-world intersection
+         *     solid (``BRepAlgoAPI_Common``), always positive and above the kernel-tolerance
+         *     floor (a merely-touching, coincident-face pair reports NO clash, §4).
+         *
+         *     ``unresolved`` distinguishes a MEASURED clash from one the kernel boolean
+         *     could not resolve. The exact intersection can *fail* on two deeply
+         *     interpenetrating solids (an OCCT robustness limit that shares an exception
+         *     surface with a harmless grazing degeneracy); reporting such a pair as "clear"
+         *     would be a dangerous false negative for a collision check, so when the boolean
+         *     fails but the two solved-world bounding boxes overlap, the pair is surfaced as
+         *     ``unresolved: true`` for the user to inspect. For an unresolved pair
+         *     ``overlap_volume_mm3`` is a COARSE magnitude hint (the overlapping-AABB volume,
+         *     which bounds the true overlap from above), NOT an exact clash volume. A normal
+         *     measured clash carries ``unresolved: false`` (the default) and an exact volume.
+         */
+        ClashPair: {
+            /**
+             * Instance A
+             * Format: uuid
+             * @description First clashing instance (request order)
+             */
+            instance_a: string;
+            /**
+             * Instance B
+             * Format: uuid
+             * @description Second clashing instance (later in request order)
+             */
+            instance_b: string;
+            /**
+             * Overlap Volume Mm3
+             * @description Overlap magnitude (mm³): the EXACT intersection-solid volume for a measured clash (above the kernel-tolerance floor), or — when `unresolved` — the coarse overlapping-AABB volume as a hint
+             */
+            overlap_volume_mm3: number;
+            /**
+             * Unresolved
+             * @description True when the exact B-rep boolean FAILED but the two solved-world bounding boxes overlap, so a real interference is possible but could not be measured — surfaced for inspection, never reported as clear. False (default) for a normally-measured clash.
+             * @default false
+             */
+            unresolved: boolean;
         };
         /**
          * CoincidentConstraint
@@ -2059,6 +2293,42 @@ export interface components {
             kind: "error";
         };
         /**
+         * ComposedHatch
+         * @description A section view's placed crosshatch (drawings-section.md §5) — the parallel
+         *     fill strokes of every cross-section face.
+         *
+         *     Generated by :func:`geometry.drawings.compose.place_sheet`'s section branch: a set
+         *     of parallel lines at the ANSI 45° angle and a fixed sheet-mm spacing, analytically
+         *     clipped (even-odd scanline) to each face's outer loop minus its interior loops — so
+         *     the hole is left blank. Every coordinate is in FINAL sheet-SVG space (mm, y-DOWN,
+         *     top-left origin — the same space every other placed primitive uses), so a
+         *     serializer draws each ``lines`` segment verbatim. Deterministic (§6): the loops,
+         *     angle, spacing, and clip origin are pure functions of the projected geometry, so
+         *     the same section ⇒ byte-identical strokes. Export-only in v1 (§5): the DOM sheet
+         *     shows the section's edges + cut-face outline but no on-screen crosshatch.
+         */
+        ComposedHatch: {
+            /**
+             * Lines
+             * @description Clipped 45° crosshatch strokes (sheet-SVG space), scanline order
+             */
+            lines: components["schemas"]["ComposedHatchLine"][];
+        };
+        /**
+         * ComposedHatchLine
+         * @description One crosshatch stroke of a placed section face (final sheet-SVG space).
+         */
+        ComposedHatchLine: {
+            /** X1 */
+            x1: number;
+            /** X2 */
+            x2: number;
+            /** Y1 */
+            y1: number;
+            /** Y2 */
+            y2: number;
+        };
+        /**
          * ComposedLineEdge
          * @description A placed straight projected edge (sheet-mm SVG space).
          */
@@ -2130,6 +2400,37 @@ export interface components {
             text: components["schemas"]["ComposedDimText"];
         };
         /**
+         * ComposedNote
+         * @description A placed free-text note annotation (design §2.2 v1 — text at a sheet point).
+         *
+         *     The composed twin of :class:`NoteAnnotationParams`: the note ``text`` and its
+         *     anchor ``x``/``y`` in FINAL sheet-SVG space (mm, y-DOWN, top-left origin — the
+         *     same space every other placed primitive on :class:`ComposedSheet` uses), so a
+         *     serializer stamps it verbatim (no re-reasoning about axes). The three serializers
+         *     render it as left-anchored graphite-ink text, consistent with the title-block
+         *     stamped values. Additive to the sheet: an empty ``notes`` list emits nothing, so a
+         *     sheet with no notes composes byte-identically to its pre-notes golden. A note whose
+         *     anchor falls outside the sheet is placed verbatim (clipped by the viewer), the same
+         *     honest posture as a title-block text run — never a crash.
+         */
+        ComposedNote: {
+            /**
+             * Text
+             * @description The note body, rendered verbatim
+             */
+            text: string;
+            /**
+             * X
+             * @description Note anchor X (mm, SVG space)
+             */
+            x: number;
+            /**
+             * Y
+             * @description Note anchor Y (mm, SVG space, y-down)
+             */
+            y: number;
+        };
+        /**
          * ComposedPoint
          * @description A 2D point in FINAL sheet-SVG space (mm, y-DOWN, top-left origin).
          */
@@ -2197,6 +2498,11 @@ export interface components {
              */
             margin_mm: number;
             /**
+             * Notes
+             * @description Placed free-text note annotations (design §2.2), each stamped at its sheet anchor; empty for a sheet with no notes — additive, so a note-free sheet composes byte-identically to its pre-notes golden.
+             */
+            notes?: components["schemas"]["ComposedNote"][];
+            /**
              * Scale Label
              * @description The sheet scale label ('1:1')
              */
@@ -2223,12 +2529,27 @@ export interface components {
          * ComposedTitleBlock
          * @description The placed bottom-right title block (drawing-export.md §4.2).
          *
-         *     Geometry (box + the two internal rules) plus the three stamped values (drawing
-         *     ``title`` truncated to fit, ``scale`` label, ``size`` display). The fixed
-         *     captions ("TITLE" / "SCALE" / "SIZE" / "LOFT · PART DRAWING") are the
-         *     serializer's rendering constants (matching the on-screen title block).
+         *     Geometry (box + the two internal rules) plus the stamped values: the always-on
+         *     drawing ``title`` (truncated to fit), ``scale`` label and ``size`` display, plus
+         *     the OPTIONAL free-text :class:`TitleBlock` fields ``author`` / ``date`` / ``notes``
+         *     (each truncated to fit its cell, ``None`` when unset). The fixed captions ("TITLE" /
+         *     "SCALE" / "SIZE" / "LOFT · PART DRAWING" and, for the optional fields, "DRAWN" /
+         *     "DATE" / "NOTES") are the serializer's rendering constants (matching the on-screen
+         *     title block). A ``None`` optional field is stamped by NO serializer — caption and
+         *     value both omitted — so a title block with no free-text composes byte-identically to
+         *     its pre-free-text golden (the additive posture the notes/bend-table fields carry).
          */
         ComposedTitleBlock: {
+            /**
+             * Author
+             * @description Author/drafter, truncated to fit; None (stamps nothing) when the authored field is unset or blank
+             */
+            author?: string | null;
+            /**
+             * Date
+             * @description Free-text date, truncated to fit; None (stamps nothing) when the authored field is unset or blank
+             */
+            date?: string | null;
             /** Height */
             height: number;
             /**
@@ -2236,6 +2557,11 @@ export interface components {
              * @description Y of the horizontal rule in the right cell
              */
             mid_y: number;
+            /**
+             * Notes
+             * @description Free-text notes, truncated to fit; None (stamps nothing) when the authored field is unset or blank
+             */
+            notes?: string | null;
             /**
              * Scale
              * @description Scale label ('1:1')
@@ -2272,6 +2598,15 @@ export interface components {
          *     ``edges``/``dimensions`` are empty. ``anchor`` is the view-centre in SVG space
          *     (the placeholder + caption reference it); ``label``/``label_pos`` are the
          *     stamped caption ("FRONT") and its position.
+         *
+         *     ``error`` carries the TYPED per-view failure through composition (FINDINGS #15):
+         *     the :class:`~py_kit.schemas.features.FeatureError` (code + human message) from the
+         *     source :class:`DrawingViewResult` — a ``view_projection_failed`` /
+         *     ``section_plane_not_principal`` / ``section_empty`` /
+         *     ``flat_pattern_not_sheet_metal`` / ``section_params_missing`` — so the sheet/print
+         *     can show WHY a view is empty instead of a bare "VIEW FAILED". Null on success and
+         *     on an ABSENT result (a requested view with no evaluation, ``failed`` set but no
+         *     typed reason to carry).
          */
         ComposedView: {
             /** @description View-centre in SVG space */
@@ -2286,11 +2621,15 @@ export interface components {
              * @description Placed projected edges
              */
             edges?: (components["schemas"]["ComposedLineEdge"] | components["schemas"]["ComposedCircleEdge"] | components["schemas"]["ComposedPolylineEdge"])[];
+            /** @description Typed per-view failure carried through composition (FINDINGS #15): the source view's FeatureError (code + message), so a failed view prints its reason instead of a bare 'VIEW FAILED'. Null on success or when the view had no evaluated result at all (no typed reason to carry). */
+            error?: components["schemas"]["FeatureError"] | null;
             /**
              * Failed
              * @description True when the view has no projected geometry
              */
             failed: boolean;
+            /** @description A section view's placed crosshatch (drawings-section.md §5); null for every non-section view — additive, so a standard/flat-pattern view composes byte-identically (the `bend_table` pattern). */
+            hatch?: components["schemas"]["ComposedHatch"] | null;
             /**
              * Label
              * @description Caption text (e.g. 'FRONT')
@@ -2303,7 +2642,7 @@ export interface components {
              * @description Projection direction
              * @enum {string}
              */
-            projection: "front" | "top" | "right" | "iso" | "flat_pattern";
+            projection: "front" | "top" | "right" | "iso" | "flat_pattern" | "section";
         };
         /**
          * ConcentricConstraint
@@ -2384,6 +2723,11 @@ export interface components {
         DatumFeature: {
             /** Params */
             params: components["schemas"]["DatumOffsetParams"] | components["schemas"]["DatumOnFaceParams"] | components["schemas"]["DatumOffsetFromParams"] | components["schemas"]["DatumMidplaneParams"];
+            /**
+             * Suppressed
+             * @description Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional — absent reads False, no param_version bump.
+             */
+            suppressed?: boolean;
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -2777,6 +3121,11 @@ export interface components {
         DraftFeature: {
             params: components["schemas"]["DraftParamsV1"];
             /**
+             * Suppressed
+             * @description Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional — absent reads False, no param_version bump.
+             */
+            suppressed?: boolean;
+            /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
@@ -2921,7 +3270,7 @@ export interface components {
              * @description Which requested view's frame measures it — supplies the §3.2 foreshortening reference only; the value is model-true regardless (§3.1)
              * @enum {string}
              */
-            view: "front" | "top" | "right" | "iso" | "flat_pattern";
+            view: "front" | "top" | "right" | "iso" | "flat_pattern" | "section";
         };
         /**
          * DrawingListResponse
@@ -3032,16 +3381,21 @@ export interface components {
              * @description Canonically-ordered visible+hidden 2D edges (empty on error)
              */
             edges?: components["schemas"]["ProjectedViewEdge"][];
-            /** @description Typed per-view failure (`view_projection_failed` for HLR, `flat_pattern_not_sheet_metal` / `subshape_unresolved` for a flat pattern), or null on success (design §1.5 / sheet-metal.md §7) */
+            /** @description Typed per-view failure (`view_projection_failed` for HLR, `flat_pattern_not_sheet_metal` / `subshape_unresolved` for a flat pattern, `section_plane_not_principal` / `section_plane_misses_body` / `section_empty` for a section), or null on success (design §1.5 / §7) */
             error?: components["schemas"]["FeatureError"] | null;
             /** @description The scale applied (echoes the request) */
             scale: components["schemas"]["ViewScale"];
+            /**
+             * Section Faces
+             * @description Cross-section boundary loops for a `section` view (drawings-section.md §5) — the region the compose layer hatches; empty for every standard HLR / flat_pattern view and on error (additive, existing views unaffected — the `bend_table` pattern).
+             */
+            section_faces?: components["schemas"]["SectionFaceLoop"][];
             /**
              * View
              * @description The projection direction of this view
              * @enum {string}
              */
-            view: "front" | "top" | "right" | "iso" | "flat_pattern";
+            view: "front" | "top" | "right" | "iso" | "flat_pattern" | "section";
         };
         /**
          * EdgeLengthMeasurement
@@ -3238,18 +3592,18 @@ export interface components {
             assembly_id: string;
             /**
              * Instances
-             * @description The assembly's instances (result order preserved)
+             * @description The assembly's instances (result order preserved), bounded by MAX_ASSEMBLY_INSTANCES (work bound, audit G2)
              */
             instances: components["schemas"]["EvaluatedInstance"][];
             /**
              * Linear Deflection
-             * @description Presentation tessellation parameter (mm), never persisted
+             * @description Presentation tessellation parameter (mm), never persisted. Floored at MIN_LINEAR_DEFLECTION (work bound, audit G2).
              * @default 0.1
              */
             linear_deflection: number;
             /**
              * Mates
-             * @description The mate graph; processed in order_index order (determinism)
+             * @description The mate graph; processed in order_index order (determinism), bounded by MAX_ASSEMBLY_MATES (work bound, audit G2)
              */
             mates?: components["schemas"]["EvaluatedMate"][];
             /**
@@ -3319,12 +3673,12 @@ export interface components {
         EvaluateDrawingViewsRequest: {
             /**
              * Dimensions
-             * @description Dimensions to measure against the evaluated body, each tagged with its view (design §3/§5). Empty (the default) → no measurement and the response is projected edges only, byte-for-byte the slice-#3 behaviour (fully backward-compatible).
+             * @description Dimensions to measure against the evaluated body, each tagged with its view (design §3/§5), bounded by MAX_DRAWING_DIMENSIONS (work bound, audit G2). Empty (the default) → no measurement and the response is projected edges only, byte-for-byte the slice-#3 behaviour (fully backward-compatible).
              */
             dimensions?: components["schemas"]["DrawingDimensionInput"][];
             /**
              * Features
-             * @description The part's ordered feature prefix (feature-tree §4 contract)
+             * @description The part's ordered feature prefix (feature-tree §4 contract), bounded by MAX_TREE_FEATURES (work bound, audit G2)
              */
             features: components["schemas"]["EvaluatedFeatureInput"][];
             /**
@@ -3342,15 +3696,22 @@ export interface components {
              */
             scale: components["schemas"]["ViewScale"];
             /**
+             * Section Params
+             * @description Per-view section parameters, keyed by the INDEX into `views` of each `section` view (drawings-section.md §1). The `section` view at `views[i]` takes its cutting plane + flip from `section_params[i]`; a `section` view with no matching entry resolves to a typed `section_params_missing` (never a crash). Keyed PER-VIEW (not a single request-level value) so params bind to a SPECIFIC view and more than one section view is representable. Empty (the default) → no section view: a non-section request carries an empty map and behaves byte-for-byte as the pre-section state.
+             */
+            section_params?: {
+                [key: string]: components["schemas"]["SectionViewParams"];
+            };
+            /**
              * Tree Version
              * @description Echoed back; cache/correlation key
              */
             tree_version: number;
             /**
              * Views
-             * @description The standard views to project (subset of front/top/right/iso); processed and returned in request order
+             * @description The standard views to project (subset of front/top/right/iso); processed and returned in request order. Bounded by MAX_DRAWING_VIEWS (work bound, audit G2 — HLR runs per view).
              */
-            views: ("front" | "top" | "right" | "iso" | "flat_pattern")[];
+            views: ("front" | "top" | "right" | "iso" | "flat_pattern" | "section")[];
         };
         /**
          * EvaluateDrawingViewsResult
@@ -3397,12 +3758,12 @@ export interface components {
         EvaluateTreeRequest: {
             /**
              * Features
-             * @description Ordered prefix (rollback already applied)
+             * @description Ordered prefix (rollback already applied), bounded by MAX_TREE_FEATURES (work bound, audit G2)
              */
             features: components["schemas"]["EvaluatedFeatureInput"][];
             /**
              * Linear Deflection
-             * @description Presentation parameter (mm), NEVER persisted per feature (design §8.3)
+             * @description Presentation parameter (mm), NEVER persisted per feature (design §8.3). Floored at MIN_LINEAR_DEFLECTION (work bound, audit G2).
              * @default 0.1
              */
             linear_deflection: number;
@@ -3424,6 +3785,11 @@ export interface components {
          *     the envelope stays reserved for transport/validation failures (§4.3).
          */
         EvaluateTreeResult: {
+            /**
+             * Bodies
+             * @description Per-body lump count of the last-good body set (§MB-4), tree-ordered by the feature that created each body. Lets a consumer flag a multi-lump (disjoint-union / multi-solid-import) body the whole-part `properties.topology.shells` aggregate cannot distinguish. Additive: absent/empty for a tree with no body-affecting feature.
+             */
+            bodies?: components["schemas"]["BodyLumpInfo"][];
             /**
              * Features
              * @description Same order as the request
@@ -3455,7 +3821,7 @@ export interface components {
          */
         EvaluatedFeatureInput: {
             /** Feature */
-            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["BooleanFeature"];
+            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["HoleFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["MirrorFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["SheetMetalHemFeature"] | components["schemas"]["SheetMetalCornerReliefFeature"] | components["schemas"]["BooleanFeature"];
             /**
              * Id
              * Format: uuid
@@ -3478,7 +3844,7 @@ export interface components {
         EvaluatedInstance: {
             /**
              * Features
-             * @description The part's ordered feature prefix (feature-tree §4 contract)
+             * @description The part's ordered feature prefix (feature-tree §4 contract), bounded by MAX_TREE_FEATURES (work bound, audit G2)
              */
             features: components["schemas"]["EvaluatedFeatureInput"][];
             /**
@@ -3493,6 +3859,11 @@ export interface components {
              * @description Instance identity (result keying)
              */
             instance_id: string;
+            /**
+             * Name
+             * @description Human-readable instance name ('Bracket <1>'), threaded into the STEP export as the PRODUCT name so a Loft->STEP->Loft round trip preserves part identity instead of writing the instance UUID (FINDINGS #7). Optional: evaluate/interference ignore it; the export path falls back to the instance id when absent (a nameless request stays valid).
+             */
+            name?: string | null;
             /**
              * Part Key
              * @description Dedup key f'{ref_document_id}@{version-or-tip}': instances sharing it evaluate once and share one content-addressed mesh (§4)
@@ -3545,6 +3916,62 @@ export interface components {
             order_index: number;
         };
         /**
+         * ExportAssemblyRequest
+         * @description Evaluate an assembly graph and export it as one multi-instance CAD file.
+         *
+         *     Extends :class:`EvaluateAssemblyRequest` (the solver runs the identical
+         *     evaluate pipeline — same solved world placements), adding only the export
+         *     ``format`` and the STL faceting parameter. STEP exports the exact B-rep as
+         *     **AP214 product structure**: every instance that produced a body becomes a
+         *     named PRODUCT positioned at its SOLVED world placement, so a downstream tool
+         *     (or a re-import) recovers each part traceable to its instance. STL bakes the
+         *     solved placements into a single faceted compound (no product names — the
+         *     format carries none). Byte-deterministic for identical requests (RESEARCH
+         *     §9): the STEP creation timestamp is pinned kernel-side and the assembly's
+         *     per-occurrence ids are canonicalised, so the same graph in yields identical
+         *     bytes out, in-process and across an interpreter restart.
+         */
+        ExportAssemblyRequest: {
+            /**
+             * Angular Deflection
+             * @description STL facet angular deflection (rad) between adjacent segments; ignored for STEP (exact B-rep). Floored at MIN_ANGULAR_DEFLECTION (work bound, audit G2).
+             * @default 0.1
+             */
+            angular_deflection: number;
+            /**
+             * Assembly Id
+             * Format: uuid
+             */
+            assembly_id: string;
+            /**
+             * Format
+             * @description Export file format: STEP (exact B-rep, AP214 product structure) or STL (faceted mesh, placements baked into one compound)
+             * @enum {string}
+             */
+            format: "step" | "stl";
+            /**
+             * Instances
+             * @description The assembly's instances (result order preserved), bounded by MAX_ASSEMBLY_INSTANCES (work bound, audit G2)
+             */
+            instances: components["schemas"]["EvaluatedInstance"][];
+            /**
+             * Linear Deflection
+             * @description Presentation tessellation parameter (mm), never persisted. Floored at MIN_LINEAR_DEFLECTION (work bound, audit G2).
+             * @default 0.1
+             */
+            linear_deflection: number;
+            /**
+             * Mates
+             * @description The mate graph; processed in order_index order (determinism), bounded by MAX_ASSEMBLY_MATES (work bound, audit G2)
+             */
+            mates?: components["schemas"]["EvaluatedMate"][];
+            /**
+             * Version
+             * @description Echoed back; cache/correlation key
+             */
+            version: number;
+        };
+        /**
          * ExportRequest
          * @description Build a parametric shape and export it as a downloadable CAD file.
          *
@@ -3556,7 +3983,7 @@ export interface components {
         ExportRequest: {
             /**
              * Angular Deflection
-             * @description STL facet angular deflection (rad) between adjacent segments; ignored for STEP (exact B-rep)
+             * @description STL facet angular deflection (rad) between adjacent segments; ignored for STEP (exact B-rep). Floored at MIN_ANGULAR_DEFLECTION (work bound, audit G2).
              * @default 0.1
              */
             angular_deflection: number;
@@ -3568,7 +3995,7 @@ export interface components {
             format: "step" | "stl";
             /**
              * Linear Deflection
-             * @description STL facet linear deflection (mm), same semantics as tessellation; ignored for STEP (exact B-rep)
+             * @description STL facet linear deflection (mm), same semantics as tessellation; ignored for STEP (exact B-rep). Floored at MIN_LINEAR_DEFLECTION (work bound, audit G2).
              * @default 0.1
              */
             linear_deflection: number;
@@ -3590,6 +4017,11 @@ export interface components {
          */
         ExtrudeFeature: {
             params: components["schemas"]["ExtrudeParamsV1"];
+            /**
+             * Suppressed
+             * @description Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional — absent reads False, no param_version bump.
+             */
+            suppressed?: boolean;
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -3658,7 +4090,7 @@ export interface components {
             kind: "faces";
             /**
              * Refs
-             * @description The planar faces to leave OPEN (each a stage-1 face SubshapeRef resolved against the current body). EMPTY = a fully-enclosed hollow (no opening) — a valid selection, not a 422 (design decision).
+             * @description The planar faces to leave OPEN (each a stage-1 face SubshapeRef resolved against the current body), bounded by MAX_SELECTOR_REFS (work bound, audit G2). EMPTY = a fully-enclosed hollow (no opening) — a valid selection, not a 422 (design decision).
              */
             refs?: components["schemas"]["SubshapeRef"][];
         };
@@ -3674,7 +4106,7 @@ export interface components {
              */
             expected_tree_version: number;
             /** Feature */
-            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["BooleanFeature"];
+            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["HoleFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["MirrorFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["SheetMetalHemFeature"] | components["schemas"]["SheetMetalCornerReliefFeature"] | components["schemas"]["BooleanFeature"];
             /**
              * Name
              * @description User-facing name ("Sketch1")
@@ -3757,7 +4189,7 @@ export interface components {
              */
             created_at: string;
             /** Feature */
-            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["BooleanFeature"];
+            feature: components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["HoleFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["MirrorFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["SheetMetalHemFeature"] | components["schemas"]["SheetMetalCornerReliefFeature"] | components["schemas"]["BooleanFeature"];
             /**
              * Id
              * Format: uuid
@@ -3789,7 +4221,10 @@ export interface components {
         /**
          * FeatureResult
          * @description Per-feature evaluation status. Strict-prefix rule (§4.3): the first
-         *     failure is ``error``, every subsequent feature ``skipped``.
+         *     failure is ``error``, every subsequent feature ``skipped``. A feature marked
+         *     ``suppressed`` (§4.3a) is neither: it is deliberately skipped from the
+         *     rebuild — distinct from a downstream ``skipped`` (which means an earlier
+         *     feature failed) — so the tree UI can show it dimmed rather than red.
          */
         FeatureResult: {
             /** @description Typed per-feature payload for ok features that produce one (§7.10): solved sketch geometry today; future feature types add kind-tagged variants additively. */
@@ -3804,7 +4239,32 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "ok" | "error" | "skipped";
+            status: "ok" | "error" | "skipped" | "suppressed";
+        };
+        /**
+         * FeatureSuppressRequest
+         * @description Toggle ONLY a feature's suppress flag (feature-tree.md §4.3a).
+         *
+         *     A DEDICATED, minimal mutation — distinct from :class:`FeatureUpdate` — so
+         *     suppressing/un-suppressing never touches ``params`` (no re-validation of
+         *     the payload, no dependency-edge rewrite): it flips the envelope-level
+         *     ``suppressed`` flag and bumps ``tree_version`` under the same
+         *     optimistic-concurrency guard as every other write (stale value → 422). A
+         *     suppressed feature is SKIPPED at rebuild (the body is built from the
+         *     non-suppressed prefix), so this changes what an evaluation of the part
+         *     means and is a normal history-recording tree edit (undoable).
+         */
+        FeatureSuppressRequest: {
+            /**
+             * Expected Tree Version
+             * @description Optimistic-concurrency guard: the tree_version the client last saw; a stale value is rejected 422 (design §1.2)
+             */
+            expected_tree_version: number;
+            /**
+             * Suppressed
+             * @description New suppress state: True skips the feature at rebuild, False re-includes it (feature-tree.md §4.3a).
+             */
+            suppressed: boolean;
         };
         /**
          * FeatureTreeResponse
@@ -3846,7 +4306,7 @@ export interface components {
             /** Expected Tree Version */
             expected_tree_version: number;
             /** Feature */
-            feature?: (components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["BooleanFeature"]) | null;
+            feature?: (components["schemas"]["DatumFeature"] | components["schemas"]["SketchFeature"] | components["schemas"]["ExtrudeFeature"] | components["schemas"]["RevolveFeature"] | components["schemas"]["SweepFeature"] | components["schemas"]["LoftFeature"] | components["schemas"]["FilletFeature"] | components["schemas"]["ChamferFeature"] | components["schemas"]["ShellFeature"] | components["schemas"]["DraftFeature"] | components["schemas"]["HoleFeature"] | components["schemas"]["PatternFeature"] | components["schemas"]["MirrorFeature"] | components["schemas"]["ImportFeature"] | components["schemas"]["SheetMetalBaseFlangeFeature"] | components["schemas"]["SheetMetalEdgeFlangeFeature"] | components["schemas"]["SheetMetalHemFeature"] | components["schemas"]["SheetMetalCornerReliefFeature"] | components["schemas"]["BooleanFeature"]) | null;
             /** Name */
             name?: string | null;
         };
@@ -3856,6 +4316,11 @@ export interface components {
          */
         FilletFeature: {
             params: components["schemas"]["FilletParamsV1"];
+            /**
+             * Suppressed
+             * @description Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional — absent reads False, no param_version bump.
+             */
+            suppressed?: boolean;
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -3911,6 +4376,201 @@ export interface components {
             detail?: components["schemas"]["ValidationError"][];
         };
         /**
+         * HoleBlindDepth
+         * @description A blind hole drilled ``depth_mm`` into the material (``kind: "blind"``).
+         *
+         *     ``depth_mm`` is measured from the placement face INTO the solid along the
+         *     (inward) drill axis. A depth that exceeds the available material — the drill
+         *     would break through the far side — is a per-feature ``hole_too_deep`` rebuild
+         *     error (use a through-all hole instead), never a silently wrong body.
+         */
+        HoleBlindDepth: {
+            /**
+             * Depth Mm
+             * @description Depth of the blind hole from the face into the material (mm)
+             */
+            depth_mm: number;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "blind";
+        };
+        /**
+         * HoleCounterbore
+         * @description A larger coaxial CYLINDRICAL recess at the face (``kind: "counterbore"``).
+         *
+         *     Seats a socket-head cap screw: a flat-bottomed cylinder of
+         *     ``cbore_diameter_mm`` sunk ``cbore_depth_mm`` from the placement face, coaxial
+         *     with the bore, subtracted ALONGSIDE the bore. The recess diameter must exceed
+         *     the bore ``diameter_mm`` and its depth must fit within the body's thickness —
+         *     an invalid recess degrades to a typed ``hole_cbore_invalid`` (diameter) /
+         *     ``hole_too_deep`` (depth) rebuild error, never a raise or a silently wrong
+         *     body (the never-500 posture the simple hole already holds).
+         */
+        HoleCounterbore: {
+            /**
+             * Cbore Depth Mm
+             * @description Depth of the counterbore recess from the face into the material (mm); must fit the body thickness (a `hole_too_deep` otherwise)
+             */
+            cbore_depth_mm: number;
+            /**
+             * Cbore Diameter Mm
+             * @description Counterbore recess diameter (mm); must EXCEED the bore `diameter_mm` (a `hole_cbore_invalid` rebuild error otherwise)
+             */
+            cbore_diameter_mm: number;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "counterbore";
+        };
+        /**
+         * HoleCountersink
+         * @description A coaxial CONICAL recess at the face (``kind: "countersink"``).
+         *
+         *     Seats a flat-head screw: a truncated cone — ``csink_diameter_mm`` wide at the
+         *     surface, tapering at the ``csink_angle_deg`` INCLUDED angle (82° and 90° are
+         *     the fastener standards) down to the bore diameter — subtracted alongside the
+         *     bore. The mouth diameter must exceed the bore ``diameter_mm`` and the cone
+         *     depth the angle implies must fit the body — an invalid recess degrades to a
+         *     typed ``hole_csink_invalid`` (diameter) / ``hole_too_deep`` (depth) rebuild
+         *     error, never a raise.
+         */
+        HoleCountersink: {
+            /**
+             * Csink Angle Deg
+             * @description INCLUDED cone angle (degrees); 82 and 90 are the flat-head fastener standards. The cone tapers from the mouth diameter down to the bore diameter over a depth the angle implies.
+             */
+            csink_angle_deg: number;
+            /**
+             * Csink Diameter Mm
+             * @description Countersink mouth diameter at the face surface (mm); must EXCEED the bore `diameter_mm` (a `hole_csink_invalid` otherwise)
+             */
+            csink_diameter_mm: number;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "countersink";
+        };
+        /**
+         * HoleFeature
+         * @description ``{"type": "hole", "version": 1, "params": {...}}`` envelope.
+         *
+         *     A body-MODIFYING feature (design §7.6): it drills a cylinder into the current
+         *     body at a point on a picked planar face (through-all or blind). ``params`` is
+         *     :class:`HoleParamsV1`.
+         */
+        HoleFeature: {
+            params: components["schemas"]["HoleParamsV1"];
+            /**
+             * Suppressed
+             * @description Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional — absent reads False, no param_version bump.
+             */
+            suppressed?: boolean;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "hole";
+            /**
+             * Version
+             * @constant
+             */
+            version: 1;
+        };
+        /**
+         * HoleParamsV1
+         * @description A face-placed cylindrical hole — through-all or blind, plain or recessed.
+         *
+         *     The dedicated Hole feature (BACKLOG P2): drill a straight cylinder of
+         *     ``diameter_mm`` into the current body at ``position`` on the planar ``face``,
+         *     cutting INTO the material (opposite the face's outward normal — the correct
+         *     direction, chosen automatically, no direction knob to get wrong). Like a
+         *     fillet/shell/draft it modifies the implicit single body chain (design §7.6),
+         *     so it carries no whole-feature ``FeatureRef`` — its dependency on the prior
+         *     body-affecting feature is tree order. The placement face IS a named reference,
+         *     though: ``face`` is the SAME stage-1 planar-face :class:`SubshapeRef` the
+         *     ``on_face`` datum / shell openings resolve, so it materialises into
+         *     ``feature_dependencies`` (deleting that body feature is a 409-with-dependents;
+         *     a reorder re-checks strict-backward).
+         *
+         *     ``position`` is a WORLD-space point; the geometry service projects it onto the
+         *     resolved face plane to fix the drill axis (a pick that lands a hair off-plane
+         *     still drills clean and perpendicular). A point that projects OUTSIDE the body
+         *     — or a resolved direction into empty space — removes no material and is a
+         *     ``hole_off_body`` rebuild error, never a silent no-op.
+         *
+         *     ``depth`` is a :data:`HoleDepth`: ``through_all`` cuts fully through;
+         *     ``blind`` drills a ``depth_mm`` pocket. A blind depth that exceeds the
+         *     available material is ``hole_too_deep``. A non-planar / missing / congruent
+         *     face reference degrades exactly as the ``on_face`` datum does
+         *     (``subshape_unresolved`` / ``subshape_ambiguous``) — planar faces only carry a
+         *     signature, so a non-planar pick cannot be authored.
+         *
+         *     ``type`` is a :data:`HoleType`: ``simple`` (the default when omitted — the
+         *     slice-1 plain bore) or a bore PLUS a coaxial recess at the face —
+         *     ``counterbore`` (a larger cylinder) or ``countersink`` (a cone). A recess
+         *     whose diameter does not exceed the bore is ``hole_cbore_invalid`` /
+         *     ``hole_csink_invalid``; a recess deeper than the material is ``hole_too_deep``.
+         */
+        HoleParamsV1: {
+            /**
+             * Depth
+             * @description Through-all, or a blind pocket depth (:data:`HoleDepth`)
+             */
+            depth: components["schemas"]["HoleThroughAll"] | components["schemas"]["HoleBlindDepth"];
+            /**
+             * Diameter Mm
+             * @description Hole diameter (mm)
+             */
+            diameter_mm: number;
+            /** @description Planar face of an earlier body-affecting feature to drill into (the SAME stage-1 signature reference the on_face datum uses) */
+            face: components["schemas"]["SubshapeRef"];
+            /** @description World-space placement point, projected onto the face plane to fix the drill axis (mm) */
+            position: components["schemas"]["Vec3"];
+            /**
+             * Type
+             * @description Hole type: a plain bore (`simple`, the default when omitted — slice-1 behaviour) or a bore plus a coaxial counterbore / countersink recess at the face (:data:`HoleType`)
+             */
+            type?: components["schemas"]["HoleSimple"] | components["schemas"]["HoleCounterbore"] | components["schemas"]["HoleCountersink"];
+        };
+        /**
+         * HoleSimple
+         * @description A plain straight drilled hole — no recess (``kind: "simple"``, the default).
+         *
+         *     The slice-1 shape: the bore alone (``diameter_mm`` + the through-all|blind
+         *     ``depth``), with no counterbore/countersink recess at the face. ``kind``
+         *     DEFAULTS to ``"simple"`` so a legacy :class:`HoleParamsV1` that carries NO
+         *     ``type`` validates unchanged — the discriminated :data:`HoleType` is a purely
+         *     ADDITIVE member (NO ``param_version`` bump; the RevolveAxis / DatumParams
+         *     idiom).
+         */
+        HoleSimple: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "simple";
+        };
+        /**
+         * HoleThroughAll
+         * @description A hole that cuts fully THROUGH the body (``kind: "through_all"``).
+         *
+         *     No depth to specify — the drill clears the body on both sides regardless of
+         *     the local wall thickness (the geometry service spans the bounding box). The
+         *     default ``kind`` makes ``{"kind": "through_all"}`` explicit while a future
+         *     additive depth mode joins the discriminated union without a bump.
+         */
+        HoleThroughAll: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "through_all";
+        };
+        /**
          * HorizontalConstraint
          * @description A line is parallel to the sketch X axis.
          */
@@ -3936,6 +4596,11 @@ export interface components {
          */
         ImportFeature: {
             params: components["schemas"]["ImportParamsV1"];
+            /**
+             * Suppressed
+             * @description Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional — absent reads False, no param_version bump.
+             */
+            suppressed?: boolean;
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -4164,6 +4829,49 @@ export interface components {
             placement?: components["schemas"]["Placement"] | null;
         };
         /**
+         * InterferenceResult
+         * @description Pairwise clash list over a solved assembly's instances (§4).
+         *
+         *     The output of ``POST /api/v1/assembly/interference``: the SAME solve as
+         *     ``evaluate_assembly`` (so ``status`` / ``diagnosis`` / ``mate_errors`` carry
+         *     the identical solve context — why the instances sit where they do), plus the
+         *     ``clashes`` — every unordered instance pair whose solved-world part bodies
+         *     interfere with non-trivial volume. A non-overlapping assembly is
+         *     ``clashes: []``. Deterministic (RESEARCH §9): the pairwise scan runs in a
+         *     fixed request-instance order over the BLAS-pinned solve, so identical graphs
+         *     yield an identical clash list. A bad part/mate/solve is a typed per-entry
+         *     error or a non-``well_constrained`` status inside a 200 (never a 4xx/5xx),
+         *     consistent with ``evaluate_assembly``; the envelope stays reserved for
+         *     transport/validation failures of the call itself.
+         */
+        InterferenceResult: {
+            /**
+             * Assembly Id
+             * Format: uuid
+             */
+            assembly_id: string;
+            /**
+             * Clashes
+             * @description Interfering instance pairs (request-order, each pair once); empty for a clash-free assembly. Includes any `unresolved` pairs whose exact boolean failed but whose bounding boxes overlap (surfaced, not hidden as clear).
+             */
+            clashes: components["schemas"]["ClashPair"][];
+            /** @description Remaining DOF + offending mate ids; None for a clean well_constrained solve (design §2.4) */
+            diagnosis?: components["schemas"]["AssemblySolveDiagnosis"] | null;
+            /**
+             * Mate Errors
+             * @description Per-mate resolution failures (dropped from the solve, §4)
+             */
+            mate_errors?: components["schemas"]["MateEvaluationError"][];
+            /**
+             * Status
+             * @description Assembly-level solve outcome
+             * @enum {string}
+             */
+            status: "well_constrained" | "under_constrained" | "over_constrained" | "conflicting" | "not_converged";
+            /** Version */
+            version: number;
+        };
+        /**
          * LinearDimensionParams
          * @description A linear dimension — an edge length or a point-to-point distance (§3.1).
          */
@@ -4194,7 +4902,7 @@ export interface components {
         LinearPatternParamsV1: {
             /**
              * Count
-             * @description TOTAL instances INCLUDING the seed (instance 0); an integer >= 1. `count < 1` is a `pattern_bad_count` rebuild error; `count = 1` is a no-op (the body is unchanged).
+             * @description TOTAL instances INCLUDING the seed (instance 0); an integer >= 1, at most MAX_PATTERN_COUNT (work bound, audit G2 — over the ceiling is a parse-time 422). `count < 1` is a `pattern_bad_count` rebuild error; `count = 1` is a no-op (the body is unchanged).
              */
             count: number;
             /** @description World-space direction of the row; only its DIRECTION is used (magnitude ignored; a zero-length vector is a `pattern_bad_direction` rebuild error) */
@@ -4244,6 +4952,11 @@ export interface components {
          */
         LoftFeature: {
             params: components["schemas"]["LoftParamsV1"];
+            /**
+             * Suppressed
+             * @description Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional — absent reads False, no param_version bump.
+             */
+            suppressed?: boolean;
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -4313,7 +5026,7 @@ export interface components {
             operation: "add" | "cut";
             /**
              * Profiles
-             * @description Ordered earlier sketch features (>= 2) to blend through; each forms a single closed profile wire or a single apex point (design §2.2). Fewer than 2 is a request-validation 422.
+             * @description Ordered earlier sketch features (>= 2, bounded by MAX_LOFT_SECTIONS — work bound, audit G2) to blend through; each forms a single closed profile wire or a single apex point (design §2.2). Fewer than 2 is a request-validation 422.
              */
             profiles: components["schemas"]["FeatureRef"][];
         };
@@ -4575,7 +5288,7 @@ export interface components {
              * @description The view direction this dimension was measured in
              * @enum {string}
              */
-            view: "front" | "top" | "right" | "iso" | "flat_pattern";
+            view: "front" | "top" | "right" | "iso" | "flat_pattern" | "section";
         };
         /**
          * MeshStats
@@ -4631,6 +5344,67 @@ export interface components {
              * @enum {string}
              */
             kind: "points";
+        };
+        /**
+         * MirrorFeature
+         * @description ``{"type": "mirror", "version": 1, "params": {...}}`` envelope.
+         *
+         *     A body-affecting feature (design §7.6): it reflects the current body about a
+         *     plane and boolean-unions the reflection into the single body chain — the
+         *     reflective sibling of :class:`PatternFeature`. ``params`` is
+         *     :class:`MirrorParamsV1`.
+         */
+        MirrorFeature: {
+            params: components["schemas"]["MirrorParamsV1"];
+            /**
+             * Suppressed
+             * @description Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional — absent reads False, no param_version bump.
+             */
+            suppressed?: boolean;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "mirror";
+            /**
+             * Version
+             * @constant
+             */
+            version: 1;
+        };
+        /**
+         * MirrorParamsV1
+         * @description Reflect the current body about a plane and union the reflection in.
+         *
+         *     The mirror feature (BACKLOG P2): a whole-body reflection about ``plane``,
+         *     boolean-unioned into the single body chain (design §7.6) — the reflective
+         *     sibling of the ADD pattern (see the module note for the shared "replicate the
+         *     current body + union" semantics). Like a fillet/chamfer/pattern it carries NO
+         *     source ``FeatureRef``: it mirrors the implicit body chain that exists at its
+         *     point in the tree, so its dependency on the prior body-affecting feature is
+         *     tree order.
+         *
+         *     ``plane`` is a :data:`GeomRef` — the SAME plane reference a sketch uses (no
+         *     new plane taxonomy, DRY): a :class:`DatumPlaneRef` (an origin datum XY/XZ/YZ)
+         *     or a :class:`FeatureRef` to an earlier ``datum`` feature (an offset / on-face
+         *     / midplane plane). A ``FeatureRef`` that does not resolve to a ``datum`` of
+         *     this prefix is a write-time 422 (the eval-time backstop is
+         *     ``reference_unresolved``, pinned to the referenced feature).
+         *
+         *     The reflection is a true handedness-reversing isometry, NOT a translation
+         *     (proven by the ``mirror-triangle-prism-2x`` golden). It handles every case
+         *     sanely: a body that CLEARS the plane mirrors to a disjoint TWO-lump body
+         *     (volume ``2V``); an OVERLAPPING reflection merges to one solid; a SYMMETRIC
+         *     body is unchanged. A degenerate/failed reflection is a per-feature
+         *     ``mirror_failed`` rebuild error; a mirror with no prior body is
+         *     ``no_target_body`` — never a silently wrong body.
+         */
+        MirrorParamsV1: {
+            /**
+             * Plane
+             * @description Mirror plane — an origin datum (XY/XZ/YZ `DatumPlaneRef`) or an earlier `datum` feature (`FeatureRef`); the SAME plane vocabulary a sketch uses (discriminated on `kind`)
+             */
+            plane: components["schemas"]["DatumPlaneRef"] | components["schemas"]["FeatureRef"];
         };
         /**
          * NoteAnnotationParams
@@ -4705,6 +5479,11 @@ export interface components {
          *     index — topological naming, feature-tree design §2.4).
          */
         OverlayFace: {
+            /**
+             * Feature Id
+             * @description Feature that OWNS this face (created it, or last modified it into its current form) — the tree feature id (FeatureResult.feature_id / the evaluate request's feature.id), for feature-localized selection highlighting (FINDINGS #9). Map a selected feature id to its faces by collecting every OverlayFace whose feature_id equals it; each face's `index` is its body.faces() ordinal (== the GLB primitive ordinal, one glTF primitive per B-rep face), so those indices are the mesh face set to highlight. Best-effort provenance for RENDERING (a cylindrical hole wall attributes to the hole, the untouched base faces to the extrude); NOT a rebuild-surviving reference (that is the signature). Null when the server did not compute attribution (older payloads / no body-affecting feature).
+             */
+            feature_id?: string | null;
             /**
              * Index
              * @description Transient 0-based body.faces() index (this tree only; NOT stable across edits — the stored reference is the signature)
@@ -4881,6 +5660,11 @@ export interface components {
         PatternFeature: {
             params: components["schemas"]["PatternParamsV1"];
             /**
+             * Suppressed
+             * @description Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional — absent reads False, no param_version bump.
+             */
+            suppressed?: boolean;
+            /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
@@ -4956,7 +5740,7 @@ export interface components {
             kind: "edges";
             /**
              * Refs
-             * @description The specific picked edges (>= 1), each a stage-1 EdgeSignature reference resolved against the current body
+             * @description The specific picked edges (>= 1, bounded by MAX_SELECTOR_REFS — work bound, audit G2), each a stage-1 EdgeSignature reference resolved against the current body
              */
             refs: components["schemas"]["EdgeSubshapeRef"][];
         };
@@ -5283,6 +6067,11 @@ export interface components {
         RevolveFeature: {
             params: components["schemas"]["RevolveParamsV1"];
             /**
+             * Suppressed
+             * @description Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional — absent reads False, no param_version bump.
+             */
+            suppressed?: boolean;
+            /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
@@ -5349,6 +6138,60 @@ export interface components {
             expected_tree_version: number;
             /** Rollback Feature Id */
             rollback_feature_id: string | null;
+        };
+        /**
+         * SectionFaceLoop
+         * @description One section cross-section face as canonical projected boundary loops (§5/§6).
+         *
+         *     A section view's cut face, projected into the view plane (view mm at the view's
+         *     scale — the SAME frame as the view's ``edges``, so the hatch lands on the drawn
+         *     outline). ``outer`` is the face's outer boundary; ``holes`` are its interior (bore)
+         *     boundaries. Each loop is a closed polyline pinned to a deterministic start vertex
+         *     and winding (outer CCW, holes CW in the view frame, drawings-section.md §6) so the
+         *     payload is byte-stable regardless of OCCT's edge order. The compose layer generates
+         *     the crosshatch from these loops (even-odd scanline clip: holes carve gaps); the
+         *     projection layer stays purely geometry. Empty for every non-section view — additive,
+         *     so existing views are unaffected (the ``bend_table`` pattern).
+         */
+        SectionFaceLoop: {
+            /**
+             * Holes
+             * @description Interior (bore) boundaries, each a closed projected polyline
+             */
+            holes?: components["schemas"]["ProjectedPoint"][][];
+            /**
+             * Outer
+             * @description The face's outer boundary as a closed projected polyline
+             */
+            outer: components["schemas"]["ProjectedPoint"][];
+        };
+        /**
+         * SectionViewParams
+         * @description The cutting plane + half selection of a section view (drawings-section.md §1).
+         *
+         *     v1 specifies the section's cutting plane by DATUM REFERENCE, not a drawn cutting
+         *     line (§1): ``plane`` is the shipped :data:`~py_kit.schemas.features.GeomRef`
+         *     (``DatumPlaneRef`` for one of the XY/XZ/YZ origin planes, or a ``FeatureRef`` to
+         *     an axis-aligned offset / midplane datum FEATURE in the referenced part) — the
+         *     EXACT union a sketch's plane reference uses, so no parallel plane taxonomy is
+         *     introduced (DRY). The geometry service resolves it, checks the v1 axis-aligned
+         *     precondition (a non-principal normal is a typed ``section_plane_not_principal``,
+         *     §7), cuts, and hatches. ``flip`` chooses which half is removed (§4): ``false``
+         *     (default) removes the eye-side material (the standard "cut away what is between
+         *     you and the plane"), ``true`` the far side.
+         */
+        SectionViewParams: {
+            /**
+             * Flip
+             * @description Which half is removed (§4): false (default) removes the eye-side material; true the far side.
+             * @default false
+             */
+            flip: boolean;
+            /**
+             * Plane
+             * @description The cutting plane, as a datum reference (reused GeomRef): a DatumPlaneRef (XY/XZ/YZ) or a FeatureRef to an axis-aligned offset/midplane datum. A non-principal-axis normal is out of v1 (typed error, §7).
+             */
+            plane: components["schemas"]["DatumPlaneRef"] | components["schemas"]["FeatureRef"];
         };
         /**
          * SelectorV1
@@ -5455,6 +6298,11 @@ export interface components {
         SheetMetalBaseFlangeFeature: {
             params: components["schemas"]["SheetMetalBaseFlangeParamsV1"];
             /**
+             * Suppressed
+             * @description Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional — absent reads False, no param_version bump.
+             */
+            suppressed?: boolean;
+            /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
@@ -5527,6 +6375,86 @@ export interface components {
             thickness_mm: number;
         };
         /**
+         * SheetMetalCornerReliefFeature
+         * @description ``{"type": "sheet_metal_corner_relief", "version": 1, "params": {...}}``.
+         *
+         *     A body-affecting feature (sheet-metal.md §4.4) that cuts a rectangular notch at
+         *     the shared corner of two adjacent edge flanges and — via the analytic relieved
+         *     unfold — makes that corner develop into a single non-overlapping flat blank. It
+         *     names the two bends by :class:`FeatureRef` (the edge-flange features that created
+         *     them); the evaluator resolves each to its recorded
+         *     :class:`CylindricalFaceSignature` (§5) to drive both relief halves. ``params`` is
+         *     :class:`SheetMetalCornerReliefParamsV1`.
+         */
+        SheetMetalCornerReliefFeature: {
+            params: components["schemas"]["SheetMetalCornerReliefParamsV1"];
+            /**
+             * Suppressed
+             * @description Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional — absent reads False, no param_version bump.
+             */
+            suppressed?: boolean;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "sheet_metal_corner_relief";
+            /**
+             * Version
+             * @constant
+             */
+            version: 1;
+        };
+        /**
+         * SheetMetalCornerReliefParamsV1
+         * @description An explicit RECTANGULAR corner relief at two adjacent flanges' corner (§4.4).
+         *
+         *     Names the two bends whose shared corner it relieves — ``bend_a`` / ``bend_b``,
+         *     each a :class:`FeatureRef` at the earlier ``sheet_metal_edge_flange`` feature
+         *     that created that bend. The evaluator resolves each ref to that feature's
+         *     recorded :class:`CylindricalFaceSignature` (§5) and drives BOTH halves of the
+         *     relief from the two signatures: the 3D notch boolean
+         *     (:func:`geometry.sheet_metal.apply_corner_relief`) and the relieved flat-pattern
+         *     unfold (:func:`unfold_sheet_metal` with ``reliefs=...``) — consistent by
+         *     construction (the fold-back guarantee, §4.4.4).
+         *
+         *     SIZING (§4.4.3): the notch is ``size = relief_ratio * thickness`` by default
+         *     (``relief_ratio = 1.0`` — one gauge thickness, the tear-safe SolidWorks Relief
+         *     Ratio default), with the part's gauge taken from the base flange. An absolute
+         *     ``size_mm`` OVERRIDES the ratio when set (the authoring/UI convenience the golden
+         *     pins to an exact number). The manufacturing floor ``size >= bend_radius`` (the
+         *     notch should clear the bend arc) is a recommendation, not a hard bound — an
+         *     undersized relief is a manufacturing warning, still a fold-back-consistent body.
+         *
+         *     v1 ships ``relief_type = "rectangular"`` only (the sole purely-rectilinear
+         *     developable notch; obround / round / tear are §4.4.1 follow-ons). It MODIFIES the
+         *     implicit single sheet body chain (design §7.6) — it carries no ``merge`` — so its
+         *     only whole-feature dependencies are the two edge-flange refs + tree order.
+         */
+        SheetMetalCornerReliefParamsV1: {
+            /** @description The FIRST bend of the relieved corner — a FeatureRef at the earlier sheet_metal_edge_flange feature that created it. Resolved to that feature's recorded CylindricalFaceSignature (§5). */
+            bend_a: components["schemas"]["FeatureRef"];
+            /** @description The SECOND bend of the relieved corner — a FeatureRef at the other sheet_metal_edge_flange feature. Its shared corner with bend_a is the corner the notch relieves; the two bends must be PERPENDICULAR (a real tray corner) or the relief is a typed error (§4.4). */
+            bend_b: components["schemas"]["FeatureRef"];
+            /**
+             * Relief Ratio
+             * @description Notch size as a multiple of gauge thickness (size = relief_ratio * thickness) — the SolidWorks Relief Ratio family. Default 1.0 (one thickness, tear-safe). IGNORED when size_mm is set.
+             * @default 1
+             */
+            relief_ratio: number;
+            /**
+             * Relief Type
+             * @description Relief geometry. v1 ships 'rectangular' only (the sole purely-rectilinear developable notch — §4.4.1). Obround / round / tear each need a curved / degenerate cut and are deferred (additive Literal members, no param_version bump). Absent reads 'rectangular'.
+             * @default rectangular
+             * @constant
+             */
+            relief_type: "rectangular";
+            /**
+             * Size Mm
+             * @description Absolute notch size (mm). When set, OVERRIDES relief_ratio (the authoring/UI convenience that resolves the ratio to an exact value the golden pins). Omitted (None) uses relief_ratio * the part's gauge thickness.
+             */
+            size_mm?: number | null;
+        };
+        /**
          * SheetMetalEdgeFlangeFeature
          * @description ``{"type": "sheet_metal_edge_flange", "version": 1, "params": {...}}`` envelope.
          *
@@ -5537,6 +6465,11 @@ export interface components {
          */
         SheetMetalEdgeFlangeFeature: {
             params: components["schemas"]["SheetMetalEdgeFlangeParamsV1"];
+            /**
+             * Suppressed
+             * @description Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional — absent reads False, no param_version bump.
+             */
+            suppressed?: boolean;
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -5595,6 +6528,100 @@ export interface components {
              * @description Neutral-axis fraction K in [0, 1] for this bend's allowance (§1). Omitted (None) inherits the part's base-flange default `k_factor` (0.44 v1 baseline); a value overrides it per-bend.
              */
             k_factor?: number | null;
+            /**
+             * Offset Mm
+             * @description Span OFFSET (mm) from the picked edge's canonical start (its EdgeSignature `end_a`, design §4.5.1). Omitted (None) reads 0 — the span starts at `end_a`. With `width_mm` omitted the flange spans [offset, edge_length]. Nullable-optional (like `width_mm`) so existing clients that never send it stay valid — the additive-field rule.
+             */
+            offset_mm?: number | null;
+            /**
+             * Width Mm
+             * @description Flange WIDTH (mm) along the picked edge (design §4.5.1). Omitted (None) spans the full edge (or the remainder past `offset_mm`). The span [offset, offset + width] is measured from the edge's CANONICAL start (the lexicographically smaller endpoint — the stored EdgeSignature's `end_a`). `offset + width` must fit the resolved edge length (a typed feature error otherwise). Each span end INTERIOR to the edge gets an automatic rectangular bend-end relief notch, size = 1 x gauge (§4.5.2).
+             */
+            width_mm?: number | null;
+        };
+        /**
+         * SheetMetalHemFeature
+         * @description ``{"type": "sheet_metal_hem", "version": 1, "params": {...}}`` envelope.
+         *
+         *     A body-MODIFYING feature (parity §2, closed hem): it folds the picked edge ~180
+         *     deg back onto the sheet (reusing the edge flange's bend machinery at a fixed 180
+         *     deg fold), fusing one clean solid, and tags the bend face with a
+         *     :class:`CylindricalFaceSignature` (§5) for the unfold's provenance — exactly as
+         *     an edge flange does. ``params`` is :class:`SheetMetalHemParamsV1`.
+         */
+        SheetMetalHemFeature: {
+            params: components["schemas"]["SheetMetalHemParamsV1"];
+            /**
+             * Suppressed
+             * @description Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional — absent reads False, no param_version bump.
+             */
+            suppressed?: boolean;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "sheet_metal_hem";
+            /**
+             * Version
+             * @constant
+             */
+            version: 1;
+        };
+        /**
+         * SheetMetalHemParamsV1
+         * @description A hem folded off a straight edge of the sheet — v1 CLOSED hem (parity §2).
+         *
+         *     A closed hem folds the picked edge ~180 deg back FLAT against the parent face,
+         *     with a small inner ``bend_radius_mm`` giving the doubled edge its tight,
+         *     near-zero air gap (the gap between the two layers is ~2 * bend_radius). It is a
+         *     specialization of the edge flange: the geometry side reuses ``build_edge_flange``
+         *     with the fold angle FIXED at 180 deg, so the fused body is one clean solid and
+         *     the flat pattern develops it as any bend (``BA = pi * (radius + K * thickness)``,
+         *     §1) — its bend-table row reads angle 180 deg.
+         *
+         *     ``edge`` is an :class:`EdgeSubshapeRef` naming the base-flange edge to hem — the
+         *     SAME stage-1 :class:`EdgeSignature` machinery a fillet/chamfer or edge-flange
+         *     pick uses (topological-naming §10); its ``feature_id`` materialises the
+         *     dependency on the base-flange feature. ``length_mm`` is the developed flat
+         *     length of the folded-back return (to the bend tangent line, §9 golden #1's
+         *     convention). ``bend_radius_mm`` / ``k_factor`` default from the part's base
+         *     flange (:class:`SheetMetalBaseFlangeParamsV1`) when omitted (``None``) and may
+         *     be OVERRIDDEN per-hem — a tight closed hem sets a SMALL radius (e.g. ~0.5 *
+         *     thickness) rather than the part's general bend radius.
+         *
+         *     A ZERO ``bend_radius_mm`` (a truly zero-gap / zero-radius closed hem) is a
+         *     degenerate fold; the ``gt=0`` bound rejects it as a typed validation error
+         *     rather than admitting a degenerate solid (honest degradation — parity §3).
+         *
+         *     Like a fillet/shell it MODIFIES the implicit single body chain (design §7.6) —
+         *     it carries no ``merge`` (it always fuses into the sheet body the edge belongs
+         *     to) — so its only whole-feature dependency is the named-edge ref + tree order.
+         */
+        SheetMetalHemParamsV1: {
+            /**
+             * Bend Radius Mm
+             * @description INNER bend radius (mm) of the hem fold; the layers' air gap is ~2 * this. Omitted (None) inherits the part's base-flange default `bend_radius_mm`; a value overrides it per-hem. A tight closed hem uses a SMALL radius (~0.5 * thickness). A zero radius (zero-gap degenerate fold) is rejected by the `gt=0` bound.
+             */
+            bend_radius_mm?: number | null;
+            /** @description The base-flange STRAIGHT edge to hem (a stage-1 EdgeSignature reference resolved against the current sheet body). The return folds ~180 deg back over this edge's adjacent flat face. */
+            edge: components["schemas"]["EdgeSubshapeRef"];
+            /**
+             * Hem Type
+             * @description Hem shape. v1 ships 'closed' only (the return folds flat back against the parent — parity §2). Open / teardrop / rolled hems each need a curved cross-section profile and are deferred (additive Literal members, no param_version bump). Absent reads 'closed'.
+             * @default closed
+             * @constant
+             */
+            hem_type: "closed";
+            /**
+             * K Factor
+             * @description Neutral-axis fraction K in [0, 1] for the hem's bend allowance (§1). Omitted (None) inherits the part's base-flange default `k_factor` (0.44 v1 baseline); a value overrides it per-hem.
+             */
+            k_factor?: number | null;
+            /**
+             * Length Mm
+             * @description Developed flat length of the folded-back return (mm), measured to the bend tangent line (§9 golden #1 convention).
+             */
+            length_mm: number;
         };
         /**
          * SheetMutationResponse
@@ -5703,6 +6730,11 @@ export interface components {
         ShellFeature: {
             params: components["schemas"]["ShellParamsV1"];
             /**
+             * Suppressed
+             * @description Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional — absent reads False, no param_version bump.
+             */
+            suppressed?: boolean;
+            /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
@@ -5744,6 +6776,28 @@ export interface components {
              * @description Uniform inward wall thickness (mm). Must be small enough that the inward cavity does not self-intersect; too large is a `shell_thickness_too_large` rebuild error.
              */
             thickness_mm: number;
+        };
+        /**
+         * SingleBodyImportResult
+         * @description A flat STEP became a single-body part — the MB-4b fallback (SLICE-2b).
+         *
+         *     Backward-compatible with the pre-assembly import: one part document seeded
+         *     with the ``import`` base feature, no assembly. ``tree_version`` is the part's
+         *     post-import concurrency token (1 — the single import feature).
+         */
+        SingleBodyImportResult: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "part";
+            /** @description The created single-body part */
+            part: components["schemas"]["PartResponse"];
+            /**
+             * Tree Version
+             * @description The part's concurrency token after the import feature (== 1)
+             */
+            tree_version: number;
         };
         /**
          * SketchArc
@@ -5804,7 +6858,7 @@ export interface components {
             distance: number;
             /**
              * Entities
-             * @description The whole sketch's entities (chamfer rewrites the two corner curves and ADDS the bevel line).
+             * @description The whole sketch's entities (chamfer rewrites the two corner curves and ADDS the bevel line), bounded by MAX_SKETCH_ENTITIES (work bound, audit G2).
              */
             entities: (components["schemas"]["SketchPoint"] | components["schemas"]["SketchLine"] | components["schemas"]["SketchCircle"] | components["schemas"]["SketchArc"] | components["schemas"]["SketchSpline"])[];
         };
@@ -5935,7 +6989,7 @@ export interface components {
         SketchEditRequest: {
             /**
              * Entities
-             * @description The whole sketch's entities (the edit rewrites this set).
+             * @description The whole sketch's entities (the edit rewrites this set), bounded by MAX_SKETCH_ENTITIES (work bound, audit G2).
              */
             entities: (components["schemas"]["SketchPoint"] | components["schemas"]["SketchLine"] | components["schemas"]["SketchCircle"] | components["schemas"]["SketchArc"] | components["schemas"]["SketchSpline"])[];
             /** @description Sketch-plane pick point (mm): the segment to delete (trim) or the end to lengthen (extend, nearest endpoint wins). */
@@ -5973,6 +7027,11 @@ export interface components {
          */
         SketchFeature: {
             params: components["schemas"]["SketchParamsV1"];
+            /**
+             * Suppressed
+             * @description Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional — absent reads False, no param_version bump.
+             */
+            suppressed?: boolean;
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -6018,7 +7077,7 @@ export interface components {
             b: string;
             /**
              * Entities
-             * @description The whole sketch's entities (fillet rewrites the two corner curves and ADDS the arc).
+             * @description The whole sketch's entities (fillet rewrites the two corner curves and ADDS the arc), bounded by MAX_SKETCH_ENTITIES (work bound, audit G2).
              */
             entities: (components["schemas"]["SketchPoint"] | components["schemas"]["SketchLine"] | components["schemas"]["SketchCircle"] | components["schemas"]["SketchArc"] | components["schemas"]["SketchSpline"])[];
             /**
@@ -6074,12 +7133,12 @@ export interface components {
             axis: components["schemas"]["MirrorAxisEntity"] | components["schemas"]["MirrorAxisPoints"];
             /**
              * Entities
-             * @description The whole sketch's entities (mirror ADDS to this set; the sources stay unchanged).
+             * @description The whole sketch's entities (mirror ADDS to this set; the sources stay unchanged), bounded by MAX_SKETCH_ENTITIES (work bound, audit G2).
              */
             entities: (components["schemas"]["SketchPoint"] | components["schemas"]["SketchLine"] | components["schemas"]["SketchCircle"] | components["schemas"]["SketchArc"] | components["schemas"]["SketchSpline"])[];
             /**
              * Targets
-             * @description Ids of the entities to reflect; each must be in `entities`.
+             * @description Ids of the entities to reflect; each must be in `entities` (so the list shares its MAX_SKETCH_ENTITIES bound — audit G2).
              */
             targets: string[];
         };
@@ -6127,7 +7186,7 @@ export interface components {
             distance: number;
             /**
              * Entities
-             * @description The whole sketch's entities (offset ADDS to this set; the source stays unchanged).
+             * @description The whole sketch's entities (offset ADDS to this set; the source stays unchanged), bounded by MAX_SKETCH_ENTITIES (work bound, audit G2).
              */
             entities: (components["schemas"]["SketchPoint"] | components["schemas"]["SketchLine"] | components["schemas"]["SketchCircle"] | components["schemas"]["SketchArc"] | components["schemas"]["SketchSpline"])[];
             /**
@@ -6174,9 +7233,15 @@ export interface components {
          *     design §2.4) on the documents write path and the geometry request path.
          */
         SketchParamsV1: {
-            /** Constraints */
+            /**
+             * Constraints
+             * @description The sketch's constraints, bounded by MAX_SKETCH_CONSTRAINTS (work bound, audit G2)
+             */
             constraints: (components["schemas"]["CoincidentConstraint"] | components["schemas"]["HorizontalConstraint"] | components["schemas"]["VerticalConstraint"] | components["schemas"]["DistanceConstraint"] | components["schemas"]["RadiusConstraint"] | components["schemas"]["FixedConstraint"] | components["schemas"]["ParallelConstraint"] | components["schemas"]["PerpendicularConstraint"] | components["schemas"]["TangentConstraint"] | components["schemas"]["EqualConstraint"] | components["schemas"]["SymmetricConstraint"] | components["schemas"]["ConcentricConstraint"])[];
-            /** Entities */
+            /**
+             * Entities
+             * @description The sketch's entities, bounded by MAX_SKETCH_ENTITIES (work bound, audit G2)
+             */
             entities: (components["schemas"]["SketchPoint"] | components["schemas"]["SketchLine"] | components["schemas"]["SketchCircle"] | components["schemas"]["SketchArc"] | components["schemas"]["SketchSpline"])[];
             /** Plane */
             plane: components["schemas"]["DatumPlaneRef"] | components["schemas"]["FeatureRef"];
@@ -6265,7 +7330,7 @@ export interface components {
             kind: "spline";
             /**
              * Points
-             * @description Ordered fit points (mm) the curve interpolates through; at least two. Consecutive points must be distinct (a coincident pair is a degenerate spline, rejected at profile build).
+             * @description Ordered fit points (mm) the curve interpolates through; at least two, at most MAX_SPLINE_POINTS (work bound, audit G2). Consecutive points must be distinct (a coincident pair is a degenerate spline, rejected at profile build).
              */
             points: components["schemas"]["Point2D"][];
         };
@@ -6397,6 +7462,11 @@ export interface components {
         SweepFeature: {
             params: components["schemas"]["SweepParamsV1"];
             /**
+             * Suppressed
+             * @description Feature suppress flag: when True a tree rebuild SKIPS this feature and downstream features rebuild off the last non-suppressed body (BACKLOG feature suppress). Additive-optional — absent reads False, no param_version bump.
+             */
+            suppressed?: boolean;
+            /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
@@ -6521,7 +7591,7 @@ export interface components {
         TessellateRequest: {
             /**
              * Linear Deflection
-             * @description Max distance (mm) between a curve and its tessellation; lower = finer mesh
+             * @description Max distance (mm) between a curve and its tessellation; lower = finer mesh. Floored at MIN_LINEAR_DEFLECTION (work bound, audit G2).
              * @default 0.1
              */
             linear_deflection: number;
@@ -6683,6 +7753,12 @@ export interface components {
          */
         ViewCreate: {
             /**
+             * Auto Place
+             * @description Placement mode (drawing-export.md §4.2, mirrors :class:`SheetViewPlacement`): True (default) = the composer DERIVES the anchor (bounds-aware auto-layout), so `position` rides along for persistence but does not drive anchoring; False = the composer HONORS `position` verbatim (the drag-to-place seam). Additive — an omitted value keeps the auto-layout behaviour byte-identical.
+             * @default true
+             */
+            auto_place: boolean;
+            /**
              * Expected Version
              * @description Optimistic-concurrency guard (design §2.1)
              */
@@ -6691,10 +7767,10 @@ export interface components {
             position: components["schemas"]["SheetPoint"];
             /**
              * Projection
-             * @description Projection direction (front / top / right / iso)
+             * @description Projection direction (front / top / right / iso / flat_pattern / section)
              * @enum {string}
              */
-            projection: "front" | "top" | "right" | "iso" | "flat_pattern";
+            projection: "front" | "top" | "right" | "iso" | "flat_pattern" | "section";
             /**
              * Ref Document Id
              * Format: uuid
@@ -6716,6 +7792,8 @@ export interface components {
              *     }
              */
             scale: components["schemas"]["ViewScale"];
+            /** @description The cutting plane + flip for a `section` view (drawings-section.md §1); required iff `projection == 'section'`, NULL for every other view. Documents validates the ref shape and persists it as JSONB (the geometry service resolves + cuts). */
+            section_params?: components["schemas"]["SectionViewParams"] | null;
         };
         /**
          * ViewMutationResponse
@@ -6731,6 +7809,12 @@ export interface components {
          * @description A view as stored (design §2.2).
          */
         ViewResponse: {
+            /**
+             * Auto Place
+             * @description Placement mode (mirrors :class:`SheetViewPlacement`): True (default) = the composer auto-places (bounds-aware); False = a persisted drag-to-place position the composer honors verbatim. Survives reload — the compose/export path threads it into `SheetViewPlacement.auto_place`.
+             * @default true
+             */
+            auto_place: boolean;
             /**
              * Created At
              * Format: date-time
@@ -6751,7 +7835,7 @@ export interface components {
              * Projection
              * @enum {string}
              */
-            projection: "front" | "top" | "right" | "iso" | "flat_pattern";
+            projection: "front" | "top" | "right" | "iso" | "flat_pattern" | "section";
             /**
              * Ref Document Id
              * Format: uuid
@@ -6768,6 +7852,8 @@ export interface components {
              */
             ref_pinned_version: number | null;
             scale: components["schemas"]["ViewScale"];
+            /** @description The section view's cutting plane + flip (drawings-section.md §1); NULL for every non-section view */
+            section_params?: components["schemas"]["SectionViewParams"] | null;
             /**
              * Sheet Id
              * Format: uuid
@@ -6809,13 +7895,18 @@ export interface components {
          */
         ViewUpdate: {
             /**
+             * Auto Place
+             * @description Placement mode (mirrors :class:`SheetViewPlacement`): set False to PERSIST a dragged position so the composer honors `position` verbatim (the drag-to-place seam — typically sent alongside `position`); set True to return the view to bounds-aware auto-layout. Null (default) leaves the mode unchanged. At least one of the update fields must be provided.
+             */
+            auto_place?: boolean | null;
+            /**
              * Expected Version
              * @description Optimistic-concurrency guard (design §2.1)
              */
             expected_version: number;
             position?: components["schemas"]["SheetPoint"] | null;
             /** Projection */
-            projection?: ("front" | "top" | "right" | "iso" | "flat_pattern") | null;
+            projection?: ("front" | "top" | "right" | "iso" | "flat_pattern" | "section") | null;
             scale?: components["schemas"]["ViewScale"] | null;
         };
     };
@@ -6867,6 +7958,43 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AssemblyResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_assembly_step_api_v1_assemblies_import_post: {
+        parameters: {
+            query?: {
+                /** @description Name for the created assembly (or single-body part when the file carries no product structure) */
+                name?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The STEP part-21 file bytes (raw request body). */
+        requestBody: {
+            content: {
+                "application/octet-stream": string;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssemblyImportResult"] | components["schemas"]["SingleBodyImportResult"];
                 };
             };
             /** @description Validation Error */
@@ -7561,6 +8689,8 @@ export interface operations {
             query?: {
                 /** @description Artifact format to compose: svg | pdf | dxf */
                 format?: "svg" | "pdf" | "dxf";
+                /** @description Which sheet to compose (a sheet id from the drawing tree); omit to compose the FIRST sheet (back-compat). An unknown/foreign id is a `sheet_not_found` 404. */
+                sheet?: string | null;
             };
             header?: never;
             path: {
@@ -7594,7 +8724,10 @@ export interface operations {
     };
     compose_drawing_sheet_api_v1_drawings__drawing_id__sheet_post: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Which sheet to compose (a sheet id from the drawing tree); omit to compose the FIRST sheet (back-compat). An unknown/foreign id is a `sheet_not_found` 404. */
+                sheet?: string | null;
+            };
             header?: never;
             path: {
                 drawing_id: string;
@@ -7928,6 +9061,75 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EvaluateAssemblyResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    assembly_export_api_v1_geometry_assembly_export_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExportAssemblyRequest"];
+            };
+        };
+        responses: {
+            /** @description The exported assembly CAD file, proxied byte-exact from the geometry service: STEP AP214 part 21 (`model/step`, exact B-rep with product structure — each instance a named PRODUCT at its solved placement) or binary STL (`model/stl`, faceted mesh). `Content-Disposition` carries the suggested download filename. Byte-deterministic: identical requests produce identical files. */
+            200: {
+                headers: {
+                    /** @description attachment; filename="<shape>.<format>" */
+                    "Content-Disposition"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "model/step": string;
+                    "model/stl": string;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    assembly_interference_api_v1_geometry_assembly_interference_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EvaluateAssemblyRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InterferenceResult"];
                 };
             };
             /** @description Validation Error */
@@ -8812,6 +10014,42 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["FeatureUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeatureMutationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    suppress_feature_api_v1_parts__part_id__features__feature_id__suppress_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                part_id: string;
+                feature_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FeatureSuppressRequest"];
             };
         };
         responses: {

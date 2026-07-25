@@ -174,6 +174,57 @@ test.describe("document units — inch entry stores canonical mm", () => {
     });
   });
 
+  test("mass-props + bbox readouts honor the document unit (FINDINGS #17)", async ({
+    page,
+  }) => {
+    const { id: partId } = await seedSketchedPart(page);
+    await page.goto(`/parts/${partId}`);
+    await expect(page.getByTestId("eval-status")).toHaveText("Solved", {
+      timeout: 30_000,
+    });
+
+    // Author a 10 mm extrude → a 40×25×10 body = 10,000 mm³. In the default mm
+    // document the readout is the raw grouped mm³ with the mm³ label.
+    await page.getByTestId("new-extrude").click();
+    await page.getByTestId("extrude-distance").press("Enter");
+    await expect(page.getByTestId("body-inspector")).toBeVisible({
+      timeout: 30_000,
+    });
+    const volume = page.getByTestId("prop-volume");
+    await expect(volume).toContainText("10,000", { timeout: 30_000 });
+    await expect(volume).toContainText("mm³");
+    await expect(page.getByTestId("prop-area")).toContainText("mm²");
+
+    // Before: the mm readout (audit's baseline).
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.mouse.move(720, 500);
+    await page.screenshot({
+      path: `${SCREENSHOT_DIR}/units-readout-mm-1440.png`,
+    });
+
+    // Flip to inches — a PURE re-label: the stored mm never moves, but the
+    // readouts now convert. 10,000 mm³ / 25.4³ = 0.6102 in³; the label is in³
+    // (the audit bug was the readout still printing raw mm under `in`).
+    await page.getByTestId("document-unit-select").selectOption("in");
+    await expect(volume).toContainText("in³", { timeout: 30_000 });
+    await expect(volume).toContainText("0.61");
+    await expect(volume).not.toContainText("mm");
+    // 40×25 mm face = 1000 mm² / 25.4² = 1.55 in²; the area label follows too.
+    await expect(page.getByTestId("prop-area")).toContainText("in²");
+    await expect(page.getByTestId("prop-centroid")).toContainText("in");
+
+    // After: the same body, readouts in inches (1440 + small-laptop).
+    await page.mouse.move(720, 500);
+    await page.screenshot({
+      path: `${SCREENSHOT_DIR}/units-readout-in-1440.png`,
+    });
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.mouse.move(640, 400);
+    await page.screenshot({
+      path: `${SCREENSHOT_DIR}/units-readout-in-1280.png`,
+    });
+  });
+
   test("changing units is a pure re-label — the stored mm never moves", async ({
     page,
   }) => {

@@ -65,6 +65,34 @@ function straddlingSketchParams(): unknown {
   };
 }
 
+/**
+ * A HALF-PROFILE open ONLY along the axis, closed by the construction
+ * centerline (the SolidWorks/Fusion idiom the geometry `1605a11` shipped): the
+ * three REAL edges e1..e3 form an open chain touching sketch x=0 at both ends,
+ * and the construction line `axis` (0,20)→(0,0) closes it. Revolving 360° about
+ * that centerline yields a SOLID cylinder r12 h20 — matching the geometry
+ * golden `revolve-centerline-cylinder-r12-h20`. This is the case the annulus
+ * (already fully closed) does NOT exercise: here the CENTERLINE is load-bearing.
+ */
+function halfProfileSketchParams(): unknown {
+  return {
+    plane: { kind: "datum_plane", plane: "XY" },
+    entities: [
+      { id: "e1", kind: "line", start: { x: 0, y: 0 }, end: { x: 12, y: 0 } },
+      { id: "e2", kind: "line", start: { x: 12, y: 0 }, end: { x: 12, y: 20 } },
+      { id: "e3", kind: "line", start: { x: 12, y: 20 }, end: { x: 0, y: 20 } },
+      {
+        id: "axis",
+        kind: "line",
+        start: { x: 0, y: 20 },
+        end: { x: 0, y: 0 },
+        construction: true,
+      },
+    ],
+    constraints: [],
+  };
+}
+
 /** An open profile (three edges) offset from the axis — no closed wire. */
 function openSketchParams(): unknown {
   return {
@@ -145,6 +173,9 @@ async function bodyVolume(page: Page): Promise<number> {
 // Annulus r10–20, h15: V(360°) = π·(20² − 10²)·15 = 4500π ≈ 14137.17 mm³.
 const FULL_VOLUME = 4500 * Math.PI;
 
+// Half-profile cylinder r12, h20: V(360°) = π·12²·20 = 2880π ≈ 9047.79 mm³.
+const CYLINDER_VOLUME = 2880 * Math.PI;
+
 test.describe("revolve authoring", () => {
   test("pick axis → body; edit angle 360 → 180 → body halves", async ({
     page,
@@ -191,6 +222,48 @@ test.describe("revolve authoring", () => {
       .toBeLessThan(FULL_VOLUME * 0.6);
     await expectRenderedBody(page);
     expect(await bodyVolume(page)).toBeGreaterThan(FULL_VOLUME * 0.4);
+  });
+
+  test("construction centerline closes a half-profile → solid cylinder", async ({
+    page,
+  }) => {
+    // The capability geometry `1605a11` shipped, proven end-to-end in-app: the
+    // profile's real edges are OPEN along sketch x=0; only the construction
+    // centerline closes them. If the axis picker excluded construction lines
+    // this half-profile could never be revolved — so this is the regression
+    // guard that the centerline is a first-class (in fact default) axis choice.
+    const part = await seedSketchedPart(
+      page,
+      "Spindle",
+      halfProfileSketchParams(),
+    );
+    await page.goto(`/parts/${part.id}`);
+
+    const revolveAction = page.getByTestId("new-revolve");
+    await expect(revolveAction).toBeEnabled({ timeout: 30_000 });
+    await revolveAction.click();
+
+    const editor = page.getByTestId("revolve-editor");
+    await expect(editor).toBeVisible();
+    // The construction centerline is the DEFAULT axis, and its label names it.
+    const axis = page.getByTestId("revolve-axis");
+    await expect(axis).toHaveValue("axis");
+    await expect(axis.locator("option[value='axis']")).toContainText(
+      "construction",
+    );
+    await expect(page.getByTestId("revolve-angle")).toHaveValue("360");
+    await page.getByTestId("revolve-angle").press("Enter");
+
+    // The half-profile, closed by the centerline, sweeps a full solid cylinder.
+    await expect(page.getByTestId("eval-status")).toHaveText("Solved", {
+      timeout: 30_000,
+    });
+    await expect(page.getByTestId("feature-row")).toHaveCount(2);
+    await expect(page.getByTestId("body-inspector")).toBeVisible();
+    await expectRenderedBody(page);
+    const volume = await bodyVolume(page);
+    expect(volume).toBeGreaterThan(CYLINDER_VOLUME * 0.98);
+    expect(volume).toBeLessThan(CYLINDER_VOLUME * 1.02);
   });
 
   test("axis through the profile surfaces axis_intersects_profile", async ({
@@ -271,3 +344,46 @@ test.describe("revolve authoring small laptop (1280×800)", () => {
     await page.screenshot({ path: `${SCREENSHOT_DIR}/revolve-laptop.png` });
   });
 });
+
+/**
+ * Founder before/after of the marquee capability: a HALF-PROFILE closed by a
+ * construction centerline, revolved about that centerline. "Before" is the
+ * open half-profile with the centerline visible in the viewport (no body yet);
+ * "after" is the solid cylinder with the revolve editor open on its
+ * construction-line axis. Captured at 1440 and 1280×800.
+ */
+for (const width of [1440, 1280] as const) {
+  test.describe(`revolve construction-centerline founder shots (${width})`, () => {
+    test.use({ viewport: { width, height: width === 1280 ? 800 : 900 } });
+
+    test("half-profile + centerline → revolved cylinder", async ({ page }) => {
+      const part = await seedSketchedPart(
+        page,
+        "Spindle",
+        halfProfileSketchParams(),
+      );
+      await page.goto(`/parts/${part.id}`);
+
+      // BEFORE — the open half-profile with its construction centerline drawn on
+      // the axis; the sketch layer renders while no body exists yet.
+      const revolveAction = page.getByTestId("new-revolve");
+      await expect(revolveAction).toBeEnabled({ timeout: 30_000 });
+      await page.screenshot({
+        path: `${SCREENSHOT_DIR}/revolve-centerline-sketch-${width}.png`,
+      });
+
+      // AFTER — revolve about the construction centerline, then re-open the
+      // editor so the axis pick, the solid, and the tree share one frame.
+      await revolveAction.click();
+      await expect(page.getByTestId("revolve-axis")).toHaveValue("axis");
+      await page.getByTestId("revolve-angle").press("Enter");
+      await expect(page.getByTestId("body-inspector")).toBeVisible();
+      await expectRenderedBody(page);
+      await page.getByTestId("feature-select-1").click();
+      await expect(page.getByTestId("revolve-editor")).toBeVisible();
+      await page.screenshot({
+        path: `${SCREENSHOT_DIR}/revolve-centerline-body-${width}.png`,
+      });
+    });
+  });
+}

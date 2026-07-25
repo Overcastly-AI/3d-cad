@@ -17,8 +17,70 @@ describe("friendlyFeatureError", () => {
     );
   });
 
+  it("humanises the mirror rebuild codes", () => {
+    expect(friendlyFeatureError("no_target_body", "raw")).toMatch(
+      /no body to mirror/i,
+    );
+    expect(friendlyFeatureError("reference_unresolved", "raw")).toMatch(
+      /mirror plane can no longer be found/i,
+    );
+    expect(friendlyFeatureError("mirror_failed", "raw")).toMatch(
+      /reflection couldn't be joined/i,
+    );
+  });
+
+  it("humanises the revolve rebuild codes", () => {
+    expect(friendlyFeatureError("no_axis", "raw")).toMatch(
+      /construction centerline|usable line/i,
+    );
+    expect(friendlyFeatureError("profile_not_closed", "raw")).toMatch(
+      /closed region|construction centerline/i,
+    );
+    expect(friendlyFeatureError("axis_intersects_profile", "raw")).toMatch(
+      /through the profile|to one side/i,
+    );
+  });
+
+  it("keys profile_not_closed copy on the feature type (FINDINGS #13)", () => {
+    // An open-profile EXTRUDE must not read revolve axis advice.
+    const extrude = friendlyFeatureError(
+      "profile_not_closed",
+      "raw",
+      "extrude",
+    );
+    expect(extrude).toMatch(/extrude/i);
+    expect(extrude).not.toMatch(/centerline|axis/i);
+    // A revolve keeps its axis-idiom guidance.
+    const revolve = friendlyFeatureError(
+      "profile_not_closed",
+      "raw",
+      "revolve",
+    );
+    expect(revolve).toMatch(/centerline/i);
+    // Sweep and loft each name their own section, still never the axis.
+    expect(friendlyFeatureError("profile_not_closed", "raw", "sweep")).toMatch(
+      /swept|section/i,
+    );
+    expect(friendlyFeatureError("profile_not_closed", "raw", "loft")).toMatch(
+      /section/i,
+    );
+  });
+
+  it("uses the generic profile copy when no feature type is given", () => {
+    const generic = friendlyFeatureError("profile_not_closed", "raw");
+    expect(generic).toMatch(/closed region/i);
+    expect(generic).not.toMatch(/centerline|axis/i);
+  });
+
+  it("falls back to friendly/server copy for a type without an override", () => {
+    // A hole reuses the same profile code but has no override → generic copy.
+    expect(
+      friendlyFeatureError("profile_not_closed", "raw", "hole"),
+    ).not.toMatch(/centerline|axis/i);
+  });
+
   it("falls back to the server message for unmapped codes", () => {
-    expect(friendlyFeatureError("axis_intersects_profile", "server msg")).toBe(
+    expect(friendlyFeatureError("revolve_failed", "server msg")).toBe(
       "server msg",
     );
   });

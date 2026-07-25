@@ -31,7 +31,14 @@ from geometry.kernel.edges import (
     resolve_edge,
     select_edges,
 )
-from geometry.kernel.export import export_step_bytes, export_stl_bytes
+from geometry.kernel.export import (
+    AssemblyComponent,
+    export_step_assembly_bytes,
+    export_step_bytes,
+    export_stl_assembly_bytes,
+    export_stl_bytes,
+    place_body,
+)
 from geometry.kernel.extrude import (
     BooleanError,
     ProfileNotClosedError,
@@ -51,16 +58,38 @@ from geometry.kernel.faces import (
     resolve_faces,
 )
 from geometry.kernel.fillet import FilletError, fillet_body
+from geometry.kernel.hole import (
+    HoleError,
+    HoleInvalidDiameterError,
+    HoleOffBodyError,
+    HoleRecessInvalidError,
+    HoleTooDeepError,
+    bore_hole,
+    bore_tool,
+    counterbore_tool,
+    countersink_tool,
+    cut_counterbore,
+    cut_countersink,
+)
 from geometry.kernel.imports import (
     ImportNoSolidError,
     ImportParseError,
     ImportParseTimeoutError,
+    ImportResponseTooLargeError,
+    ImportTooManyProductsError,
     import_step_solid,
     solid_from_brep_bytes,
     solid_to_brep_bytes,
 )
+from geometry.kernel.interference import (
+    CLASH_VOLUME_FLOOR_MM3,
+    OverlapProbe,
+    intersection_volume,
+    probe_overlap,
+)
 from geometry.kernel.loft import LoftError, build_loft_section, loft_sections
 from geometry.kernel.measure import EdgeIndexError, MeasureError, measure_targets
+from geometry.kernel.mirror import MirrorError, mirror_cut, mirror_union
 from geometry.kernel.overlay import selection_overlay
 from geometry.kernel.pattern import (
     PatternAngleError,
@@ -76,16 +105,23 @@ from geometry.kernel.pattern import (
     linear_pattern_cut,
 )
 from geometry.kernel.properties import combine_properties, measure_shape
+from geometry.kernel.provenance import attribute_faces
 from geometry.kernel.revolve import (
     AxisIntersectsProfileError,
     NoAxisError,
     RevolveError,
+    build_revolve_profile_face,
     check_axis_clears_profile,
     resolve_axis_line,
     revolve_face,
 )
 from geometry.kernel.shapes import build_box, build_cylinder
 from geometry.kernel.shell import ShellError, ShellThicknessError, shell_body
+from geometry.kernel.step_assembly import (
+    ReadProduct,
+    StepAssemblyRead,
+    read_step_assembly,
+)
 from geometry.kernel.sweep import (
     PathClosedError,
     PathEmptyError,
@@ -107,7 +143,9 @@ from geometry.schemas import (
 )
 
 __all__ = [
+    "CLASH_VOLUME_FLOOR_MM3",
     "DATUM_PLANES",
+    "AssemblyComponent",
     "AxisIntersectsProfileError",
     "BooleanDisjointError",
     "BooleanEmptyError",
@@ -118,13 +156,22 @@ __all__ = [
     "EdgeRecord",
     "FaceResolutionError",
     "FilletError",
+    "HoleError",
+    "HoleInvalidDiameterError",
+    "HoleOffBodyError",
+    "HoleRecessInvalidError",
+    "HoleTooDeepError",
     "ImportNoSolidError",
     "ImportParseError",
     "ImportParseTimeoutError",
+    "ImportResponseTooLargeError",
+    "ImportTooManyProductsError",
     "LoftError",
     "MeasureError",
+    "MirrorError",
     "NoAxisError",
     "NoEdgesSelectedError",
+    "OverlapProbe",
     "PathClosedError",
     "PathEmptyError",
     "PathNotConnectedError",
@@ -138,13 +185,18 @@ __all__ = [
     "PlanarFaceRecord",
     "ProfileNotClosedError",
     "ProfileUnsupportedError",
+    "ReadProduct",
     "RevolveError",
     "ShellError",
     "ShellThicknessError",
+    "StepAssemblyRead",
     "SubshapeAmbiguousError",
     "SubshapeUnresolvedError",
     "SweepError",
+    "attribute_faces",
     "boolean_bodies",
+    "bore_hole",
+    "bore_tool",
     "build_box",
     "build_cylinder",
     "build_datum_plane",
@@ -152,6 +204,7 @@ __all__ = [
     "build_path_wire",
     "build_profile_face",
     "build_profile_faces",
+    "build_revolve_profile_face",
     "build_shape",
     "chamfer_body",
     "check_axis_clears_profile",
@@ -159,26 +212,38 @@ __all__ = [
     "circular_pattern_cut",
     "combine_body",
     "combine_properties",
+    "counterbore_tool",
+    "countersink_tool",
+    "cut_counterbore",
+    "cut_countersink",
     "draft_body",
     "edge_signature_dto",
     "enumerate_edges",
     "evaluate_export",
     "evaluate_tessellation",
     "export_solid",
+    "export_step_assembly_bytes",
     "export_step_bytes",
+    "export_stl_assembly_bytes",
     "export_stl_bytes",
     "extrude_face",
     "fillet_body",
     "glb_stats",
     "import_step_solid",
+    "intersection_volume",
     "linear_pattern",
     "linear_pattern_cut",
     "loft_sections",
     "measure_shape",
     "measure_targets",
     "midplane_between",
+    "mirror_cut",
+    "mirror_union",
     "offset_plane",
+    "place_body",
     "planar_faces",
+    "probe_overlap",
+    "read_step_assembly",
     "resolve_axis_line",
     "resolve_edge",
     "resolve_face_plane",

@@ -18,7 +18,14 @@
  * as a proper drafting annotation from the composed model; it stays honest about
  * a per-view projection failure and a per-dimension measure error.
  */
-import { useState, type Ref } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+  type Ref,
+} from "react";
 
 import { drawing, font, viewport } from "@loft/design";
 
@@ -26,6 +33,8 @@ import type {
   ComposedBendTable,
   ComposedDimension,
   ComposedEdge,
+  ComposedHatch,
+  ComposedNote,
   ComposedPoint,
   ComposedSheet,
   ComposedTitleBlock,
@@ -45,6 +54,7 @@ import {
   type Point2D,
   type SvgEdge,
 } from "../drawing/layout";
+import { titleBlockFields } from "../drawing/titleBlock";
 
 /** A pick on a dimensionable projected edge — the seed of an authored dimension. */
 export interface EdgePickEvent {
@@ -113,6 +123,18 @@ export interface DrawingSheetProps {
   onPickEdge?: (event: EdgePickEvent) => void;
   /** Fired when a straight edge's endpoint handle is picked (point-to-point). */
   onPickEndpoint?: (event: EndpointPickEvent) => void;
+  /** Fired when a view is dragged (or nudged) to a new placement — `position` is
+   * the view CENTRE in sheet mm, y-up from bottom-left (the SheetViewPlacement
+   * convention; the y-flip from SVG space is applied here). Persisted with
+   * `auto_place: false` so the composer honours it verbatim. */
+  onPlaceView?: (
+    viewId: string,
+    position: { x_mm: number; y_mm: number },
+  ) => void;
+  /** Fired to return a view to bounds-aware auto-layout (`auto_place: true`). */
+  onResetView?: (viewId: string) => void;
+  /** A placement write is in flight — suspend further drag/nudge/reset. */
+  placementBusy?: boolean;
   /** Handle on the root `<svg>` so the editor can serialize it to a file (#5). */
   svgRef?: Ref<SVGSVGElement>;
 }
@@ -689,7 +711,26 @@ function errorHeadline(
 ): string {
   if (code === "flat_pattern_not_sheet_metal") return "NOT A SHEET-METAL PART";
   if (code === "subshape_unresolved") return "BEND UNRESOLVED";
+  if (code === "section_plane_not_principal") return "PLANE NOT AXIS-ALIGNED";
+  if (code === "section_plane_misses_body") return "PLANE MISSES THE PART";
+  if (code === "section_empty") return "NO CUT FACE";
+  if (code === "section_params_missing") return "NO CUTTING PLANE SET";
+  if (projection === "section") return "SECTION FAILED";
   return projection === "flat_pattern" ? "FLAT PATTERN FAILED" : "VIEW FAILED";
+}
+
+/** Forward-looking guidance for a typed section failure (drawings-section.md §7) —
+ * an error explains what went wrong and how to fix it (frontend-design). */
+function sectionDetail(code: string | undefined): string | null {
+  if (code === "section_plane_not_principal")
+    return "v1 cuts on an axis-aligned plane. Choose XY, XZ, YZ, or an offset datum parallel to one.";
+  if (code === "section_plane_misses_body")
+    return "The cutting plane doesn't pass through the part. Choose a plane that intersects it.";
+  if (code === "section_empty")
+    return "The plane grazes the part without cutting a face. Move it into the solid.";
+  if (code === "section_params_missing")
+    return "This section view has no cutting plane. Re-create it and pick a plane.";
+  return null;
 }
 
 /** An honest inline error state for a view that produced no geometry — a dashed
@@ -709,7 +750,9 @@ function FailedView({
   const detail =
     error?.code === "flat_pattern_not_sheet_metal"
       ? "Add a base flange and an edge flange to unfold a flat blank."
-      : (error?.message ?? "This view produced no geometry.");
+      : (sectionDetail(error?.code) ??
+        error?.message ??
+        "This view produced no geometry.");
   const lines = wrapText(detail, 34, 3);
   const boxW = 78;
   const boxH = 20 + lines.length * 4.4;
@@ -756,6 +799,100 @@ function FailedView({
   );
 }
 
+/**
+ * A section view's crosshatch — the ANSI 45° cut-face fill (drawings-section.md
+ * §5), drawn VERBATIM from the composed model (coordinates already in final
+ * sheet-mm SVG space). Rendered UNDER the projected edges so the cut outline and
+ * any dimensions read on top of the fill. The `drawing.hatch` ink + weight are
+ * the same the server serializer emits (`_HATCH_INK` / `_HATCH_W`) and the same
+ * `drawing-hatch` test hook, so the on-screen section and the exported SVG/PDF/
+ * DXF are one fill — QA drives a single target set (E1b, closing section views
+ * to fully end-to-end: kernel + wire + web authoring + on-screen fill). */
+function SectionHatch({ hatch }: { hatch: ComposedHatch }) {
+  if (hatch.lines.length === 0) return null;
+  return (
+    <g
+      data-testid="drawing-hatch"
+      aria-hidden="true"
+      stroke={drawing.hatch}
+      strokeWidth={drawing.hatchWeightMm}
+      // `round` matches the server serializer's hatch stroke (compose.py
+      // `_emit_hatch`) so the on-screen fill == the exported SVG/PDF/DXF.
+      strokeLinecap="round"
+    >
+      {hatch.lines.map((line, i) => (
+        <line key={i} x1={line.x1} y1={line.y1} x2={line.x2} y2={line.y2} />
+      ))}
+    </g>
+  );
+}
+
+/** A view's geometry extents in final SVG space (mm) — the box the placement
+ * frame wraps. A failed/empty view (no edges) falls back to a box around its
+ * anchor so it stays grabbable. */
+interface ViewExtents {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+function viewGeometryBounds(view: ComposedView): ViewExtents {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  const acc = (x: number, y: number) => {
+    if (x < minX) minX = x;
+    if (y < minY) minY = y;
+    if (x > maxX) maxX = x;
+    if (y > maxY) maxY = y;
+  };
+  for (const edge of view.edges ?? []) {
+    if (edge.kind === "line") {
+      acc(edge.x1, edge.y1);
+      acc(edge.x2, edge.y2);
+    } else if (edge.kind === "circle") {
+      acc(edge.cx - edge.r, edge.cy - edge.r);
+      acc(edge.cx + edge.r, edge.cy + edge.r);
+    } else {
+      for (const p of edge.points) acc(p.x_mm, p.y_mm);
+    }
+  }
+  acc(view.label_pos.x_mm, view.label_pos.y_mm);
+  if (!Number.isFinite(minX)) {
+    const half = { w: 40, h: 15 };
+    return {
+      x: view.anchor.x_mm - half.w,
+      y: view.anchor.y_mm - half.h,
+      w: half.w * 2,
+      h: half.h * 2,
+    };
+  }
+  return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+}
+
+/** Map a client (screen px) point into the SVG's own user space (sheet mm),
+ * inverting the on-screen fit transform. Uses `createSVGPoint`/`getScreenCTM`
+ * (present in every browser that runs the viewport); returns the raw client
+ * point in the rare env where the CTM is unavailable so a drag is a no-op, never
+ * a throw. */
+function clientPointToSvg(
+  svg: SVGSVGElement,
+  clientX: number,
+  clientY: number,
+): { x: number; y: number } {
+  const ctm = svg.getScreenCTM ? svg.getScreenCTM() : null;
+  if (!ctm || typeof svg.createSVGPoint !== "function") {
+    return { x: clientX, y: clientY };
+  }
+  const pt = svg.createSVGPoint();
+  pt.x = clientX;
+  pt.y = clientY;
+  const mapped = pt.matrixTransform(ctm.inverse());
+  return { x: mapped.x, y: mapped.y };
+}
+
 /** A pickable vertex handle resolved to final SVG space + its canonical label. */
 interface VertexHandleSpec {
   key: string;
@@ -772,30 +909,162 @@ function SheetView({
   composedView,
   result,
   viewId,
+  autoPlace,
+  sheetHeightMm,
   selectedEdgeKey,
   armedEdgeKeys,
   selectedVertexKeys,
   endpointPickActive,
+  placementBusy,
   onPickEdge,
   onPickEndpoint,
+  onPlaceView,
+  onResetView,
 }: {
   composedView: ComposedView;
   /** The aligned evaluate result for this view (pick provenance), or undefined. */
   result: DrawingViewResult | undefined;
   viewId: string | null;
+  /** Whether this view is currently auto-placed (false = a persisted drag). */
+  autoPlace: boolean;
+  /** The sheet height (mm) — the y-flip datum from SVG space to y-up placement. */
+  sheetHeightMm: number;
   selectedEdgeKey: string | null | undefined;
   armedEdgeKeys: readonly string[];
   selectedVertexKeys: readonly string[];
   /** A point-to-point pick is armed — reveal all endpoint handles. */
   endpointPickActive: boolean;
+  placementBusy: boolean;
   onPickEdge?: (event: EdgePickEvent) => void;
   onPickEndpoint?: (event: EndpointPickEvent) => void;
+  onPlaceView?: (
+    viewId: string,
+    position: { x_mm: number; y_mm: number },
+  ) => void;
+  onResetView?: (viewId: string) => void;
 }) {
   const projection = composedView.projection;
   // Which straight edge (by `edgeKey`) currently reveals its endpoint handles —
   // set on that edge's hover/focus, so handles appear on proximity/intent rather
   // than as a persistent stamp on every corner (frontend-QA P2).
   const [revealKey, setRevealKey] = useState<string | null>(null);
+
+  // --- Drag-to-place ---------------------------------------------------------
+  // The view is grabbable to author its position: a live translate follows the
+  // pointer (or an arrow-key nudge), and on drop the new CENTRE persists via
+  // `onPlaceView` (y-flipped to the y-up SheetViewPlacement convention). The
+  // transform is held until the recompose lands the view at its new anchor —
+  // the anchor-change effect clears it, so there is no snap-back flash.
+  const placeable = onPlaceView !== undefined && viewId !== null;
+  const anchorX = composedView.anchor.x_mm;
+  const anchorY = composedView.anchor.y_mm;
+  const [placement, setPlacement] = useState<{ dx: number; dy: number } | null>(
+    null,
+  );
+  const [frameHover, setFrameHover] = useState(false);
+  const [frameFocus, setFrameFocus] = useState(false);
+  const placementRef = useRef<{ dx: number; dy: number } | null>(null);
+  const dragStart = useRef<{ x: number; y: number } | null>(null);
+  const pending = useRef(false);
+  const setPlace = (next: { dx: number; dy: number } | null) => {
+    placementRef.current = next;
+    setPlacement(next);
+  };
+  // Clear the local transform once the recompose settles at the new anchor.
+  useEffect(() => {
+    setPlace(null);
+    pending.current = false;
+    dragStart.current = null;
+  }, [anchorX, anchorY]);
+
+  const commitPlacement = () => {
+    const cur = placementRef.current;
+    if (
+      !pending.current ||
+      !placeable ||
+      viewId === null ||
+      onPlaceView === undefined ||
+      cur === null ||
+      (cur.dx === 0 && cur.dy === 0)
+    ) {
+      pending.current = false;
+      if (cur && cur.dx === 0 && cur.dy === 0) setPlace(null);
+      return;
+    }
+    pending.current = false;
+    onPlaceView(viewId, {
+      x_mm: anchorX + cur.dx,
+      y_mm: sheetHeightMm - (anchorY + cur.dy),
+    });
+    // Keep the transform (do not clear) — the anchor-change effect clears it
+    // when the composed view lands at its new home.
+  };
+
+  const onFramePointerDown = (event: ReactPointerEvent<SVGElement>) => {
+    if (!placeable || placementBusy || event.button !== 0) return;
+    const svg = event.currentTarget.ownerSVGElement;
+    if (!svg) return;
+    dragStart.current = clientPointToSvg(svg, event.clientX, event.clientY);
+    pending.current = true;
+    setPlace({ dx: 0, dy: 0 });
+    event.currentTarget.setPointerCapture(event.pointerId);
+    event.stopPropagation();
+  };
+  const onFramePointerMove = (event: ReactPointerEvent<SVGElement>) => {
+    if (dragStart.current === null) return;
+    const svg = event.currentTarget.ownerSVGElement;
+    if (!svg) return;
+    const p = clientPointToSvg(svg, event.clientX, event.clientY);
+    setPlace({ dx: p.x - dragStart.current.x, dy: p.y - dragStart.current.y });
+  };
+  const onFramePointerUp = (event: ReactPointerEvent<SVGElement>) => {
+    if (dragStart.current === null) return;
+    dragStart.current = null;
+    try {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    } catch {
+      // capture may already be released
+    }
+    commitPlacement();
+  };
+  const onFrameKeyDown = (event: ReactKeyboardEvent) => {
+    if (!placeable || placementBusy) return;
+    const step = event.shiftKey
+      ? drawing.placementNudgeMm * 5
+      : drawing.placementNudgeMm;
+    const base = placementRef.current ?? { dx: 0, dy: 0 };
+    let handled = true;
+    switch (event.key) {
+      case "ArrowLeft":
+        pending.current = true;
+        setPlace({ dx: base.dx - step, dy: base.dy });
+        break;
+      case "ArrowRight":
+        pending.current = true;
+        setPlace({ dx: base.dx + step, dy: base.dy });
+        break;
+      case "ArrowUp":
+        pending.current = true;
+        setPlace({ dx: base.dx, dy: base.dy - step });
+        break;
+      case "ArrowDown":
+        pending.current = true;
+        setPlace({ dx: base.dx, dy: base.dy + step });
+        break;
+      case "Enter":
+      case " ":
+        commitPlacement();
+        break;
+      case "Escape":
+        pending.current = false;
+        setPlace(null);
+        break;
+      default:
+        handled = false;
+    }
+    if (handled) event.preventDefault();
+  };
+
   const failed = composedView.failed;
   const composedEdges = composedView.edges ?? [];
   const composedDims = composedView.dimensions ?? [];
@@ -867,6 +1136,17 @@ function SheetView({
     }
   }
 
+  const bounds = viewGeometryBounds(composedView);
+  const pad = drawing.placementPadMm;
+  const frame = {
+    x: bounds.x - pad,
+    y: bounds.y - pad,
+    w: bounds.w + pad * 2,
+    h: bounds.h + pad * 2,
+  };
+  const dragging = placement !== null;
+  const frameRevealed = placeable && (frameHover || frameFocus || dragging);
+
   return (
     <g
       data-testid="drawing-view"
@@ -874,7 +1154,33 @@ function SheetView({
       data-view-error={failed ? "true" : "false"}
       data-edge-count={composedEdges.length}
       data-dimension-count={composedDims.length}
+      data-placed={placeable && !autoPlace ? "true" : "false"}
+      data-dragging={dragging ? "true" : "false"}
+      transform={
+        dragging ? `translate(${placement.dx} ${placement.dy})` : undefined
+      }
+      onMouseEnter={placeable ? () => setFrameHover(true) : undefined}
+      onMouseLeave={placeable ? () => setFrameHover(false) : undefined}
     >
+      {/* Drag plate — a transparent grab surface UNDER the geometry so empty
+          interior moves the view, while edges/handles (painted after) keep their
+          own picks. Fills the frame so hover reads across the whole view. */}
+      {placeable ? (
+        <rect
+          data-testid="drawing-view-drag"
+          data-placement-chrome="frame"
+          x={frame.x}
+          y={frame.y}
+          width={frame.w}
+          height={frame.h}
+          fill="transparent"
+          style={{ cursor: dragging ? "grabbing" : "grab" }}
+          onPointerDown={onFramePointerDown}
+          onPointerMove={onFramePointerMove}
+          onPointerUp={onFramePointerUp}
+          onPointerCancel={onFramePointerUp}
+        />
+      ) : null}
       {failed ? (
         <FailedView
           projection={projection}
@@ -883,6 +1189,11 @@ function SheetView({
         />
       ) : (
         <>
+          {/* Section cut-face fill UNDER the edges (a non-section view has no
+              `hatch`, so this is a no-op there — the `bend_table` additive rule). */}
+          {composedView.hatch ? (
+            <SectionHatch hatch={composedView.hatch} />
+          ) : null}
           {svgEdges.map((edge, i) => {
             const key =
               edge.sourceEdge !== null
@@ -936,6 +1247,185 @@ function SheetView({
       >
         {composedView.label}
       </text>
+      {/* Placement frame + grip + reset — the drag-to-place affordance. Drawn
+          LAST so the chrome sits above the geometry; excluded from the export. */}
+      {placeable ? (
+        <PlacementFrame
+          frame={frame}
+          revealed={frameRevealed}
+          placed={!autoPlace}
+          dragging={dragging}
+          busy={placementBusy}
+          label={composedView.label}
+          onGripPointerDown={onFramePointerDown}
+          onGripPointerMove={onFramePointerMove}
+          onGripPointerUp={onFramePointerUp}
+          onGripKeyDown={onFrameKeyDown}
+          onGripFocus={() => setFrameFocus(true)}
+          onGripBlur={() => {
+            setFrameFocus(false);
+            commitPlacement();
+          }}
+          onReset={
+            onResetView && viewId !== null
+              ? () => onResetView(viewId)
+              : undefined
+          }
+        />
+      ) : null}
+    </g>
+  );
+}
+
+/**
+ * The view placement frame — a quiet blueprint-blue border (the CAD view-border
+ * idiom) that reveals on hover/focus, with a corner grip you drag or nudge with
+ * arrow keys, and a "reset to auto-layout" control shown once the view carries a
+ * dragged position. Reuses the pick-blue so placement and dimensioning read as
+ * one instrument. All chrome carries `data-placement-chrome` so the SVG export
+ * strips it — the print is drafting geometry only.
+ */
+function PlacementFrame({
+  frame,
+  revealed,
+  placed,
+  dragging,
+  busy,
+  label,
+  onGripPointerDown,
+  onGripPointerMove,
+  onGripPointerUp,
+  onGripKeyDown,
+  onGripFocus,
+  onGripBlur,
+  onReset,
+}: {
+  frame: { x: number; y: number; w: number; h: number };
+  revealed: boolean;
+  placed: boolean;
+  dragging: boolean;
+  busy: boolean;
+  label: string;
+  onGripPointerDown: (event: ReactPointerEvent<SVGElement>) => void;
+  onGripPointerMove: (event: ReactPointerEvent<SVGElement>) => void;
+  onGripPointerUp: (event: ReactPointerEvent<SVGElement>) => void;
+  onGripKeyDown: (event: ReactKeyboardEvent) => void;
+  onGripFocus: () => void;
+  onGripBlur: () => void;
+  onReset?: () => void;
+}) {
+  const grip = drawing.placementGripMm;
+  const ink = dragging ? drawing.pickSelected : drawing.pickHover;
+  // A placed view keeps a faint corner tick at rest so the manual placement is
+  // discoverable without hovering; hover/drag brings up the full frame.
+  const showFrame = revealed;
+  const showGrip = revealed || placed;
+  return (
+    <g data-placement-chrome="frame" aria-hidden={showGrip ? undefined : true}>
+      {showFrame ? (
+        <rect
+          data-testid="drawing-view-frame"
+          x={frame.x}
+          y={frame.y}
+          width={frame.w}
+          height={frame.h}
+          fill="none"
+          stroke={ink}
+          strokeWidth={drawing.placementFrameWeightMm}
+          strokeDasharray={`${drawing.placementFrameDashMm} ${drawing.placementFrameGapMm}`}
+          pointerEvents="none"
+        />
+      ) : null}
+      {showGrip ? (
+        <g
+          role="button"
+          tabIndex={0}
+          aria-label={`Move the ${label} view — drag, or use arrow keys to nudge`}
+          data-testid="drawing-view-grip"
+          style={{
+            cursor: dragging ? "grabbing" : "grab",
+            outline: "none",
+            touchAction: "none",
+          }}
+          onPointerDown={onGripPointerDown}
+          onPointerMove={onGripPointerMove}
+          onPointerUp={onGripPointerUp}
+          onPointerCancel={onGripPointerUp}
+          onKeyDown={onGripKeyDown}
+          onFocus={onGripFocus}
+          onBlur={onGripBlur}
+        >
+          <rect
+            x={frame.x - grip}
+            y={frame.y - grip}
+            width={grip * 2}
+            height={grip * 2}
+            fill={revealed || dragging ? drawing.pickSelected : drawing.paper}
+            stroke={ink}
+            strokeWidth={0.5}
+          />
+          {/* Move glyph — a small four-way cross, the drag vernacular. */}
+          <g
+            stroke={revealed || dragging ? drawing.paper : ink}
+            strokeWidth={0.4}
+            strokeLinecap="round"
+          >
+            <line
+              x1={frame.x - grip * 0.55}
+              y1={frame.y}
+              x2={frame.x + grip * 0.55}
+              y2={frame.y}
+            />
+            <line
+              x1={frame.x}
+              y1={frame.y - grip * 0.55}
+              x2={frame.x}
+              y2={frame.y + grip * 0.55}
+            />
+          </g>
+        </g>
+      ) : null}
+      {showFrame && placed && onReset ? (
+        <g
+          role="button"
+          tabIndex={0}
+          aria-label={`Return the ${label} view to auto-layout`}
+          data-testid="drawing-view-reset"
+          style={{ cursor: busy ? "default" : "pointer", outline: "none" }}
+          onClick={busy ? undefined : onReset}
+          onKeyDown={(event) => {
+            if (busy) return;
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              onReset();
+            }
+          }}
+        >
+          <rect
+            x={frame.x + frame.w - 15}
+            y={frame.y - grip}
+            width={15}
+            height={grip * 2}
+            fill={drawing.paper}
+            stroke={ink}
+            strokeWidth={0.4}
+            opacity={busy ? 0.5 : 1}
+          />
+          <text
+            x={frame.x + frame.w - 15 / 2}
+            y={frame.y + 0.9}
+            textAnchor="middle"
+            dominantBaseline="middle"
+            fill={ink}
+            fontFamily={font.display}
+            fontSize={2.4}
+            letterSpacing={0.3}
+            opacity={busy ? 0.5 : 1}
+          >
+            AUTO
+          </text>
+        </g>
+      ) : null}
     </g>
   );
 }
@@ -955,6 +1445,22 @@ function TitleBlock({ block }: { block: ComposedTitleBlock }) {
     fill: drawing.ink,
     fontFamily: font.data,
     fontSize: 3.4,
+  };
+  // Secondary free-text rows (author/date/notes) — the `titleBlockFields` helper
+  // is the shared DOM twin of the server's `_tb_fields`, so both stamp the same
+  // rows at the same baselines. x offsets match `_TB_FIELD_CAP_DX` (4) /
+  // `_TB_FIELD_VAL_DX` (18); a null field is already skipped by the helper.
+  const fields = titleBlockFields(block);
+  const fieldCaption = {
+    fill: drawing.label,
+    fontFamily: font.data,
+    fontSize: drawing.titleFieldCaptionMm,
+    letterSpacing: 0.4,
+  };
+  const fieldValue = {
+    fill: drawing.ink,
+    fontFamily: font.data,
+    fontSize: drawing.titleFieldValueMm,
   };
   return (
     <g data-testid="drawing-title-block">
@@ -997,6 +1503,23 @@ function TitleBlock({ block }: { block: ComposedTitleBlock }) {
       <text x={splitX + 4} y={y + h - 4} {...value}>
         {block.size}
       </text>
+      {/* Secondary rows — the same additive DRAWN / DATE / NOTES rows the
+          SVG/PDF/DXF serializers now emit; the helper already drops null fields. */}
+      {fields.map((field) => (
+        <g key={field.key}>
+          <text x={x + 4} y={y + field.dy} {...fieldCaption}>
+            {field.caption}
+          </text>
+          <text
+            data-testid={`title-block-${field.key}`}
+            x={x + 18}
+            y={y + field.dy}
+            {...fieldValue}
+          >
+            {field.value}
+          </text>
+        </g>
+      ))}
     </g>
   );
 }
@@ -1099,6 +1622,29 @@ function BendTable({ table }: { table: ComposedBendTable }) {
   );
 }
 
+/** A free-text note stamped on the sheet at its authored point (design §2.2) —
+ * left-anchored graphite ink, a sibling of the title-block value stamp. Drawn
+ * VERBATIM from the composed model: the anchor (`x`/`y`) is already in final
+ * sheet-mm SVG space, so no transform. Mirrors the server SVG serializer exactly
+ * (`data-testid="drawing-note"`, start-anchored, baseline at `y`, `noteTextMm`
+ * height, 0.1 letter-spacing) so the on-screen note and the exported note read
+ * identically — one placement, one palette, two renderers. */
+function SheetNote({ note }: { note: ComposedNote }) {
+  return (
+    <text
+      data-testid="drawing-note"
+      x={note.x}
+      y={note.y}
+      fill={drawing.dimensionText}
+      fontFamily={font.data}
+      fontSize={drawing.noteTextMm}
+      letterSpacing={0.1}
+    >
+      {note.text}
+    </text>
+  );
+}
+
 export function DrawingSheet({
   composed,
   views,
@@ -1107,8 +1653,11 @@ export function DrawingSheet({
   armedEdgeKeys,
   selectedVertexKeys,
   endpointPickActive,
+  placementBusy,
   onPickEdge,
   onPickEndpoint,
+  onPlaceView,
+  onResetView,
   svgRef,
 }: DrawingSheetProps) {
   const width = composed.width_mm;
@@ -1116,7 +1665,11 @@ export function DrawingSheet({
   const margin = composed.margin_mm;
   const composedViews = composed.views ?? [];
   const viewIdByProjection = new Map<ViewProjection, string>();
-  for (const view of views) viewIdByProjection.set(view.projection, view.id);
+  const viewByProjection = new Map<ViewProjection, ViewResponse>();
+  for (const view of views) {
+    viewIdByProjection.set(view.projection, view.id);
+    viewByProjection.set(view.projection, view);
+  }
 
   return (
     <svg
@@ -1160,16 +1713,26 @@ export function DrawingSheet({
           composedView={composedView}
           result={resultByProjection.get(composedView.projection)}
           viewId={viewIdByProjection.get(composedView.projection) ?? null}
+          autoPlace={
+            viewByProjection.get(composedView.projection)?.auto_place ?? true
+          }
+          sheetHeightMm={height}
           selectedEdgeKey={selectedEdgeKey}
           armedEdgeKeys={armedEdgeKeys ?? []}
           selectedVertexKeys={selectedVertexKeys ?? []}
           endpointPickActive={endpointPickActive ?? false}
+          placementBusy={placementBusy ?? false}
           onPickEdge={onPickEdge}
           onPickEndpoint={onPickEndpoint}
+          onPlaceView={onPlaceView}
+          onResetView={onResetView}
         />
       ))}
       <TitleBlock block={composed.title_block} />
       {composed.bend_table ? <BendTable table={composed.bend_table} /> : null}
+      {(composed.notes ?? []).map((note, i) => (
+        <SheetNote key={i} note={note} />
+      ))}
     </svg>
   );
 }

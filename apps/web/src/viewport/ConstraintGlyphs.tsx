@@ -243,25 +243,33 @@ function DimensionEditor({ basis }: { basis: PlaneBasis }) {
             aria-label={`${noun} name (optional, for expressions)`}
           />
           <SegmentedControl
-            label="Role"
+            label="This dimension"
             value={isDriving ? "driving" : "driven"}
             onChange={(next) => setDriving(next === "driving")}
             options={[
               {
                 value: "driving",
-                label: "Driving",
+                label: "Sets size",
                 "data-testid": "dimension-driving",
-                "aria-label": "Driving — the value controls the geometry",
+                "aria-label":
+                  "Sets size — the value you type controls the shape",
               },
               {
                 value: "driven",
-                label: "Driven",
+                label: "Reference",
                 "data-testid": "dimension-driven",
                 "aria-label":
-                  "Driven — the value is measured from the geometry",
+                  "Reference — the value is measured from the shape, not typed",
               },
             ]}
           />
+          {/* Plain-language gloss of the choice — no CAD jargon at the first
+              dimension (UX audit #20c). */}
+          <p className="-mt-0.5 font-body text-2xs text-gauge">
+            {isDriving
+              ? "Type a number to set the size."
+              : "Read-only — measured from the shape."}
+          </p>
           {/* Enter applies; the submit button exists for pointer users. */}
           <div className="flex items-center justify-between gap-2 pt-0.5">
             <button

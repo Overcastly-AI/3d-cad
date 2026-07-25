@@ -476,6 +476,41 @@ per-feature errors** — the py-kit error envelope (4xx/5xx) is reserved for
 transport/validation failures of the evaluation call itself, not for
 geometry outcomes.
 
+### 4.3a Feature suppress
+
+A feature carries a persisted **`suppressed: bool = False`** flag on its
+envelope (not inside `params` — it is orthogonal to every feature type, a
+rebuild flag rather than a modeling parameter, so it lives once on the shared
+envelope base and never forces a `param_version` bump). When a rebuild reaches
+a suppressed feature it is **skipped entirely**: no dispatch, no body mutation,
+no advance of the last-good / previous-body-feature markers — the running body
+state carries forward as the **last non-suppressed body**, and each subsequent
+non-suppressed feature evaluates off it. The feature's `FeatureResult.status`
+is `suppressed` (a fourth status beside `ok`/`error`/`skipped`), distinct from
+the downstream `skipped` a failure produces, so the tree UI dims it rather than
+reddening it.
+
+A non-suppressed feature that **directly references** a suppressed feature — a
+profile/plane/operand `FeatureRef`, or a picked face/edge
+`SubshapeRef`/`EdgeSubshapeRef` anchored on it — cannot rebuild off a body that
+omits that feature's contribution. That is a typed **`references_suppressed`**
+per-feature error (a 200 with the strict prefix downstream, the suppressed
+upstream id pinned), distinct from `reference_unresolved` (the target still
+exists; it is deliberately suppressed) and never a raise. The check walks every
+ref kind the schema carries (`iter_feature_refs`), so a new ref-bearing field
+is covered automatically. Suppress changes the *evaluated geometry* (a
+suppressed fillet yields the un-filleted box), and un-suppressing restores it;
+the flag defaults `False`, so every existing tree and golden evaluates
+byte-identically.
+
+**Slice boundary (2026-07-23):** slice 1 lands the schema flag + the geometry
+evaluator honoring it (this section). Documents stores a feature by
+decomposing the envelope into `(type, param_version, params)` columns, so the
+envelope-level flag is **not** yet persisted — the documents slice adds a
+`suppressed` column, reads it back in the CRUD response and the
+evaluation-request builder, and exposes a suppress-toggle endpoint; the web
+tree adds the toggle control.
+
 ### 4.4 Persistence of evaluation state
 
 Evaluation results are **not** stored in Postgres. They are a pure function

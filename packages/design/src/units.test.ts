@@ -1,13 +1,17 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  areaUnitLabel,
   formatLength,
   fromMm,
+  fromMmArea,
+  fromMmVolume,
   LENGTH_UNITS,
   type LengthUnit,
   MM_PER_UNIT,
   parseLength,
   toMm,
+  volumeUnitLabel,
 } from "./units";
 
 const FACTORS: Array<[LengthUnit, number]> = [
@@ -157,6 +161,36 @@ describe("formatLength", () => {
   it("normalises -0 to 0", () => {
     expect(formatLength(-0, "mm")).toBe("0 mm");
     expect(formatLength(0, "in")).toBe("0 in");
+  });
+});
+
+describe("fromMmArea / fromMmVolume — squared / cubed factor conversion", () => {
+  it("is the identity for mm", () => {
+    expect(fromMmArea(1234.5, "mm")).toBe(1234.5);
+    expect(fromMmVolume(31391.38, "mm")).toBe(31391.38);
+  });
+
+  it("divides area by the square of the length factor", () => {
+    // 1 in² ≡ 25.4² mm² = 645.16 mm².
+    expect(fromMmArea(645.16, "in")).toBeCloseTo(1, 9);
+    // 1 cm² ≡ 100 mm².
+    expect(fromMmArea(100, "cm")).toBeCloseTo(1, 9);
+  });
+
+  it("divides volume by the cube of the length factor", () => {
+    // 1 in³ ≡ 25.4³ mm³ = 16387.064 mm³.
+    expect(fromMmVolume(16387.064, "in")).toBeCloseTo(1, 9);
+    // 1 cm³ ≡ 1000 mm³.
+    expect(fromMmVolume(1000, "cm")).toBeCloseTo(1, 9);
+    // The audit's exact case: 31391.38 mm³ under `in` ≈ 1.9156 in³, NOT the raw mm.
+    expect(fromMmVolume(31391.38, "in")).toBeCloseTo(1.91562, 4);
+  });
+
+  it("labels area/volume with the squared/cubed glyph", () => {
+    expect(areaUnitLabel("mm")).toBe("mm²");
+    expect(areaUnitLabel("in")).toBe("in²");
+    expect(volumeUnitLabel("mm")).toBe("mm³");
+    expect(volumeUnitLabel("in")).toBe("in³");
   });
 });
 

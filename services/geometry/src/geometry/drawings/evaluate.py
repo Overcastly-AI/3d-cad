@@ -28,6 +28,7 @@ in shape and error posture (a single part rather than an instance graph).
 
 from __future__ import annotations
 
+from build123d import Plane
 from py_kit.schemas.drawings import (
     DrawingViewResult,
     EvaluateDrawingViewsRequest,
@@ -35,8 +36,16 @@ from py_kit.schemas.drawings import (
     MeasuredDimensionResult,
     ProjectedPoint,
     ProjectedViewEdge,
+    SectionFaceLoop,
+    SectionViewParams,
+    ViewScale,
 )
-from py_kit.schemas.features import EvaluateTreeRequest, FeatureError
+from py_kit.schemas.features import (
+    DatumPlaneRef,
+    EvaluateTreeRequest,
+    FeatureError,
+    GeomRef,
+)
 
 from geometry.drawings.flat_pattern import FLAT_PATTERN_VIEW, flat_pattern_view_result
 from geometry.drawings.measure import measure_dimension_dto
@@ -46,8 +55,21 @@ from geometry.drawings.project import (
     ViewProjectionError,
     project_view,
 )
+from geometry.drawings.section import (
+    SectionCut,
+    SectionEmptyError,
+    SectionLoop2D,
+    SectionMissesBodyError,
+    SectionPlaneNotPrincipalError,
+    section_cut,
+)
 from geometry.features import TreeEvaluation, evaluate_tree
+from geometry.kernel.datum import DATUM_PLANES
 from geometry.kernel.types import BodyShape
+
+#: The section view projection kind (drawings-section.md v1) — like ``flat_pattern``
+#: it is NOT one of the third-angle quartet: it has its OWN evaluate + compose branch.
+SECTION_VIEW = "section"
 
 
 def _part_no_body_error(evaluation: TreeEvaluation) -> FeatureError:
@@ -82,7 +104,7 @@ def _to_point(point: Point2D) -> ProjectedPoint:
     return ProjectedPoint(x_mm=point.x, y_mm=point.y)
 
 
-def _to_edge(edge: ProjectedEdge) -> ProjectedViewEdge:
+def projected_edge_dto(edge: ProjectedEdge) -> ProjectedViewEdge:
     """Map one internal projected-edge dataclass → the neutral boundary DTO."""
     return ProjectedViewEdge(
         primitive=edge.primitive,
@@ -129,6 +151,124 @@ def _measure_dimensions(
     ]
 
 
+def _to_section_loop(loop: SectionLoop2D) -> SectionFaceLoop:
+    """Internal 2D section loop → the neutral boundary DTO (no kernel type)."""
+    return SectionFaceLoop(
+        outer=[_to_point(p) for p in loop.outer],
+        holes=[[_to_point(p) for p in hole] for hole in loop.holes],
+    )
+
+
+def _resolve_section_plane(
+    ref: GeomRef, evaluation: TreeEvaluation
+) -> Plane | FeatureError:
+    """Resolve a section view's cutting-plane reference to a concrete plane (§1).
+
+    Reuses the SAME datum machinery a sketch's plane reference resolves through
+    (drawings-section.md §1, DRY): a :class:`DatumPlaneRef` maps by name through the
+    shipped ``DATUM_PLANES``; a :class:`FeatureRef` looks the datum feature's already-
+    resolved plane up in ``evaluation.datum_planes`` (populated by ``evaluate_tree`` —
+    never a re-resolution). A ref that does not resolve to a datum plane of this prefix
+    (deleted / retargeted / a non-datum feature) is a typed ``subshape_unresolved`` (§7
+    — the topological-naming honesty contract), never a wrong plane.
+    """
+    if isinstance(ref, DatumPlaneRef):
+        return DATUM_PLANES[ref.plane]
+    plane = evaluation.datum_planes.get(ref.feature_id)
+    if plane is None:
+        return FeatureError(
+            code="subshape_unresolved",
+            message=(
+                "The section cutting plane must reference an origin datum (XY/XZ/YZ) "
+                "or an earlier axis-aligned datum feature of this part; the referenced "
+                "feature is not a resolved datum plane."
+            ),
+            upstream_feature_id=ref.feature_id,
+        )
+    return plane
+
+
+def section_view_result(
+    evaluation: TreeEvaluation,
+    params: SectionViewParams | None,
+    scale: ViewScale,
+    scale_value: float,
+) -> DrawingViewResult:
+    """Build the ``section`` :class:`DrawingViewResult` for an evaluated part (§2).
+
+    Resolves the cutting plane (§1), cuts the eye-side half through the shipped
+    disjoint-tolerant boolean (:func:`geometry.drawings.section.section_cut`), projects
+    the remaining behind-geometry through the shipped HLR seam with the derived STANDARD
+    view direction (§3) — filtered to VISIBLE edges (a section omits hidden lines, §3) —
+    and carries the canonical cross-section loops for the compose layer to hatch (§5).
+    Total — never raises for a modelling outcome: a missing plane param, a non-principal
+    normal, a plane that misses / swallows the body, an unresolved datum ref, or an HLR
+    failure each become this view's typed error (drawings-section.md §7).
+    """
+    if params is None:
+        return DrawingViewResult(
+            view=SECTION_VIEW,
+            scale=scale,
+            error=FeatureError(
+                code="section_params_missing",
+                message=(
+                    "A section view requires `section_params` (the cutting plane + "
+                    "flip); none were provided."
+                ),
+            ),
+        )
+    if evaluation.body is None:
+        return DrawingViewResult(
+            view=SECTION_VIEW,
+            scale=scale,
+            error=_part_no_body_error(evaluation),
+        )
+    resolved = _resolve_section_plane(params.plane, evaluation)
+    if isinstance(resolved, FeatureError):
+        return DrawingViewResult(view=SECTION_VIEW, scale=scale, error=resolved)
+
+    try:
+        cut: SectionCut = section_cut(
+            evaluation.body, resolved, flip=params.flip, scale=scale_value
+        )
+    except SectionPlaneNotPrincipalError as exc:
+        return DrawingViewResult(
+            view=SECTION_VIEW,
+            scale=scale,
+            error=FeatureError(code="section_plane_not_principal", message=str(exc)),
+        )
+    except SectionMissesBodyError as exc:
+        return DrawingViewResult(
+            view=SECTION_VIEW,
+            scale=scale,
+            error=FeatureError(code="section_plane_misses_body", message=str(exc)),
+        )
+    except SectionEmptyError as exc:
+        return DrawingViewResult(
+            view=SECTION_VIEW,
+            scale=scale,
+            error=FeatureError(code="section_empty", message=str(exc)),
+        )
+
+    try:
+        projection = project_view(cut.remaining, cut.view, scale=scale_value)
+    except ViewProjectionError as exc:
+        return DrawingViewResult(
+            view=SECTION_VIEW,
+            scale=scale,
+            error=FeatureError(code="view_projection_failed", message=str(exc)),
+        )
+    # A section view conventionally OMITS hidden lines (design §3) — the interior is
+    # now exposed, so dashed occluded edges only add noise. Keep visible edges only.
+    return DrawingViewResult(
+        view=SECTION_VIEW,
+        scale=scale,
+        edges=[projected_edge_dto(e) for e in projection.visible_edges],
+        section_faces=[_to_section_loop(lp) for lp in cut.loops],
+        error=None,
+    )
+
+
 def evaluate_drawing_views(
     request: EvaluateDrawingViewsRequest,
 ) -> EvaluateDrawingViewsResult:
@@ -165,13 +305,31 @@ def evaluate_drawing_views(
 
     body = evaluation.body
     views: list[DrawingViewResult] = []
-    for view in request.views:
+    for index, view in enumerate(request.views):
         if view == FLAT_PATTERN_VIEW:
             # A flat_pattern view SKIPS HLR (sheet-metal.md §7): it unfolds the
             # sheet-metal body and feeds the edge_role-tagged outline + bend table
             # straight into the SAME DrawingViewResult shape. Non-sheet-metal /
             # unresolvable-bend cases are that view's typed error (handled inside).
             views.append(flat_pattern_view_result(evaluation, request.scale))
+            continue
+        if view == SECTION_VIEW:
+            # A section view (drawings-section.md §2) resolves its cutting plane, cuts
+            # the eye-side half, then projects the behind-geometry through the SAME HLR
+            # seam with the derived standard direction (no frame refactor, §3) — its
+            # own evaluate arm, mirroring flat_pattern. Handled entirely inside. Each
+            # section view reads ITS OWN params from the per-view `section_params` map
+            # (keyed by this view's index into `views`, §1) — the level-correct wire
+            # that binds params to a specific view; a section view with no entry is a
+            # typed `section_params_missing` inside `section_view_result`.
+            views.append(
+                section_view_result(
+                    evaluation,
+                    request.section_params.get(index),
+                    request.scale,
+                    scale_value,
+                )
+            )
             continue
         try:
             projection = project_view(body, view, scale=scale_value)
@@ -189,7 +347,7 @@ def evaluate_drawing_views(
             DrawingViewResult(
                 view=view,
                 scale=request.scale,
-                edges=[_to_edge(e) for e in projection.edges],
+                edges=[projected_edge_dto(e) for e in projection.edges],
                 error=None,
             )
         )

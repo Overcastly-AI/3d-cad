@@ -27,6 +27,7 @@ from py_kit.schemas.features import (
     FeatureTypeRegistry,
     FeatureUpdate,
     FilletFeature,
+    MirrorFeature,
     ShellFeature,
     SketchFeature,
     SketchParamsV1,
@@ -135,6 +136,10 @@ def test_worked_example_sketch_round_trips_verbatim() -> None:
     assert envelope.model_dump(mode="json") == {
         "type": "sketch",
         "version": 1,
+        # Envelope-level suppress flag (FeatureEnvelopeBase); a normal field that
+        # defaults False, so a dumped envelope carries it — exactly like the
+        # `merge` param default above (the always-serialized additive idiom).
+        "suppressed": False,
         "params": SKETCH_PARAMS,
     }
 
@@ -148,6 +153,7 @@ def test_worked_example_extrude_round_trips_verbatim() -> None:
     assert envelope.model_dump(mode="json") == {
         "type": "extrude",
         "version": 1,
+        "suppressed": False,
         "params": EXTRUDE_PARAMS,
     }
 
@@ -163,6 +169,7 @@ def test_fillet_round_trips_and_selector_discriminates() -> None:
     assert envelope.model_dump(mode="json") == {
         "type": "fillet",
         "version": 1,
+        "suppressed": False,
         "params": FILLET_PARAMS,
     }
 
@@ -768,6 +775,54 @@ def test_sketch_plane_feature_ref_accepts_datum() -> None:
     (reference,) = feature_references(sketch)
     assert reference.slot == "plane"
     assert reference.allowed_types == frozenset({"datum"})
+
+
+def test_mirror_on_datum_plane_round_trips_and_has_no_feature_refs() -> None:
+    """A mirror about an origin datum plane names a WORLD plane — no feature_id,
+    so no dependency edge (like a pattern's world vectors). Reuses the SAME
+    GeomRef a sketch uses (DRY)."""
+    envelope = MirrorFeature.model_validate(
+        {
+            "type": "mirror",
+            "version": 1,
+            "params": {"plane": {"kind": "datum_plane", "plane": "YZ"}},
+        }
+    )
+    assert envelope.params.plane.kind == "datum_plane"
+    assert feature_references(envelope) == ()
+    assert list(iter_feature_refs(envelope)) == []
+    assert envelope.model_dump(mode="json") == {
+        "type": "mirror",
+        "version": 1,
+        "suppressed": False,
+        "params": {"plane": {"kind": "datum_plane", "plane": "YZ"}},
+    }
+
+
+def test_mirror_on_datum_feature_materializes_a_datum_dependency() -> None:
+    """A mirror about an earlier `datum` feature carries the SAME `datum`-only
+    plane FeatureRef a sketch plane does (deleting that datum is a
+    409-with-dependents). The slot map and the generic walk agree (self-check)."""
+    mirror = MirrorFeature.model_validate(
+        {
+            "type": "mirror",
+            "version": 1,
+            "params": {"plane": {"kind": "feature", "feature_id": str(SKETCH_ID)}},
+        }
+    )
+    (reference,) = feature_references(mirror)
+    assert reference.slot == "plane"
+    assert reference.ref.feature_id == SKETCH_ID
+    assert reference.allowed_types == frozenset({"datum"})
+    # The generic walk finds the SAME single ref (balanced self-check).
+    assert [r.feature_id for r in iter_feature_refs(mirror)] == [SKETCH_ID]
+
+
+def test_mirror_is_body_affecting() -> None:
+    """A mirror produces/mutates the body chain, so its result faces/edges are
+    nameable by a later SubshapeRef (a hole on a mirrored boss)."""
+    assert "mirror" in BODY_AFFECTING_FEATURE_TYPES
+    assert FEATURE_REGISTRY.current_version("mirror") == 1
 
 
 def test_slot_map_drift_fails_loudly() -> None:

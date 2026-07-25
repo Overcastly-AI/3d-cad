@@ -30,6 +30,23 @@ from build123d import CenterOf, Compound, Face, Solid
 
 from geometry.kernel.types import BodyShape
 
+
+def lump_count(body: BodyShape) -> int:
+    """The number of disjoint LUMPS (connected solids) of a body (§MB-4).
+
+    The counting sibling of :func:`assemble_lumps` — the single place the rest of
+    the service asks "how many lumps?" (CLAUDE.md DRY rule), so the per-body lump
+    count on the evaluate wire and the kernel ops' lump-preserving guards share one
+    definition. A bare :class:`~build123d.Solid` is exactly ONE lump; a multi-lump
+    :class:`~build123d.Compound` (a disjoint boolean / multi-solid import, §MB-4)
+    has one per child solid. ``.solids()`` iterates every subshape solid of either
+    (a Solid returns just itself), so this is ``>= 1`` for any real body — never a
+    per-part shell aggregate (which a sealed hollow inflates), but the honest count
+    of separate pieces a consumer needs to flag a multi-lump body.
+    """
+    return len(body.solids())
+
+
 #: A total-order sort key over lumps (RESEARCH §9): the mass centroid
 #: (x, then y, then z) with volume as the final tiebreaker. Absolute-coordinate,
 #: so two lumps at distinct positions never tie; genuinely coincident lumps are

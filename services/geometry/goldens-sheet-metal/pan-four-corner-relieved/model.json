@@ -1,0 +1,315 @@
+{
+  "part_id": "5e500000-0000-0000-0000-0000000000a5",
+  "tree_version": 1,
+  "linear_deflection": 0.1,
+  "features": [
+    {
+      "id": "5e500000-0000-0000-0000-0000000000a5",
+      "feature": {
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "plane": {
+            "kind": "datum_plane",
+            "plane": "XY"
+          },
+          "entities": [
+            {
+              "id": "e1",
+              "kind": "line",
+              "start": {
+                "x": 0,
+                "y": 0
+              },
+              "end": {
+                "x": 40,
+                "y": 0
+              }
+            },
+            {
+              "id": "e2",
+              "kind": "line",
+              "start": {
+                "x": 40,
+                "y": 0
+              },
+              "end": {
+                "x": 40,
+                "y": 30
+              }
+            },
+            {
+              "id": "e3",
+              "kind": "line",
+              "start": {
+                "x": 40,
+                "y": 30
+              },
+              "end": {
+                "x": 0,
+                "y": 30
+              }
+            },
+            {
+              "id": "e4",
+              "kind": "line",
+              "start": {
+                "x": 0,
+                "y": 30
+              },
+              "end": {
+                "x": 0,
+                "y": 0
+              }
+            }
+          ],
+          "constraints": []
+        }
+      }
+    },
+    {
+      "id": "5e500000-0000-0000-0000-0000000000b5",
+      "feature": {
+        "type": "sheet_metal_base_flange",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "5e500000-0000-0000-0000-0000000000a5"
+          },
+          "thickness_mm": 2.0,
+          "bend_radius_mm": 3.0,
+          "k_factor": 0.44
+        }
+      }
+    },
+    {
+      "id": "5e500000-0000-0000-0000-0000000000c5",
+      "feature": {
+        "type": "sheet_metal_edge_flange",
+        "version": 1,
+        "params": {
+          "edge": {
+            "kind": "subshape",
+            "feature_id": "5e500000-0000-0000-0000-0000000000b5",
+            "subshape_type": "edge",
+            "selector": {
+              "selector_version": 1,
+              "signature": {
+                "subshape_type": "edge",
+                "curve": "line",
+                "end_a": {
+                  "x": 40.0,
+                  "y": 0.0,
+                  "z": 2.0
+                },
+                "end_b": {
+                  "x": 40.0,
+                  "y": 30.0,
+                  "z": 2.0
+                },
+                "midpoint": {
+                  "x": 40.0,
+                  "y": 15.0,
+                  "z": 2.0
+                },
+                "length_mm": 30.0
+              }
+            }
+          },
+          "flange_length_mm": 20.0,
+          "bend_angle_deg": 90.0
+        }
+      }
+    },
+    {
+      "id": "5e500000-0000-0000-0000-0000000000d5",
+      "feature": {
+        "type": "sheet_metal_edge_flange",
+        "version": 1,
+        "params": {
+          "edge": {
+            "kind": "subshape",
+            "feature_id": "5e500000-0000-0000-0000-0000000000b5",
+            "subshape_type": "edge",
+            "selector": {
+              "selector_version": 1,
+              "signature": {
+                "subshape_type": "edge",
+                "curve": "line",
+                "end_a": {
+                  "x": 0.0,
+                  "y": 0.0,
+                  "z": 2.0
+                },
+                "end_b": {
+                  "x": 0.0,
+                  "y": 30.0,
+                  "z": 2.0
+                },
+                "midpoint": {
+                  "x": 0.0,
+                  "y": 15.0,
+                  "z": 2.0
+                },
+                "length_mm": 30.0
+              }
+            }
+          },
+          "flange_length_mm": 15.0,
+          "bend_angle_deg": 90.0
+        }
+      }
+    },
+    {
+      "id": "5e500000-0000-0000-0000-0000000000e5",
+      "feature": {
+        "type": "sheet_metal_edge_flange",
+        "version": 1,
+        "params": {
+          "edge": {
+            "kind": "subshape",
+            "feature_id": "5e500000-0000-0000-0000-0000000000b5",
+            "subshape_type": "edge",
+            "selector": {
+              "selector_version": 1,
+              "signature": {
+                "subshape_type": "edge",
+                "curve": "line",
+                "end_a": {
+                  "x": 0.0,
+                  "y": 30.0,
+                  "z": 2.0
+                },
+                "end_b": {
+                  "x": 40.0,
+                  "y": 30.0,
+                  "z": 2.0
+                },
+                "midpoint": {
+                  "x": 20.0,
+                  "y": 30.0,
+                  "z": 2.0
+                },
+                "length_mm": 40.0
+              }
+            }
+          },
+          "flange_length_mm": 25.0,
+          "bend_angle_deg": 90.0
+        }
+      }
+    },
+    {
+      "id": "5e500000-0000-0000-0000-0000000000f5",
+      "feature": {
+        "type": "sheet_metal_edge_flange",
+        "version": 1,
+        "params": {
+          "edge": {
+            "kind": "subshape",
+            "feature_id": "5e500000-0000-0000-0000-0000000000b5",
+            "subshape_type": "edge",
+            "selector": {
+              "selector_version": 1,
+              "signature": {
+                "subshape_type": "edge",
+                "curve": "line",
+                "end_a": {
+                  "x": 0.0,
+                  "y": 0.0,
+                  "z": 2.0
+                },
+                "end_b": {
+                  "x": 40.0,
+                  "y": 0.0,
+                  "z": 2.0
+                },
+                "midpoint": {
+                  "x": 20.0,
+                  "y": 0.0,
+                  "z": 2.0
+                },
+                "length_mm": 40.0
+              }
+            }
+          },
+          "flange_length_mm": 10.0,
+          "bend_angle_deg": 90.0
+        }
+      }
+    },
+    {
+      "id": "5e500000-0000-0000-0000-00000000001a",
+      "feature": {
+        "type": "sheet_metal_corner_relief",
+        "version": 1,
+        "params": {
+          "bend_a": {
+            "kind": "feature",
+            "feature_id": "5e500000-0000-0000-0000-0000000000c5"
+          },
+          "bend_b": {
+            "kind": "feature",
+            "feature_id": "5e500000-0000-0000-0000-0000000000e5"
+          },
+          "relief_ratio": 1.5
+        }
+      }
+    },
+    {
+      "id": "5e500000-0000-0000-0000-00000000001b",
+      "feature": {
+        "type": "sheet_metal_corner_relief",
+        "version": 1,
+        "params": {
+          "bend_a": {
+            "kind": "feature",
+            "feature_id": "5e500000-0000-0000-0000-0000000000d5"
+          },
+          "bend_b": {
+            "kind": "feature",
+            "feature_id": "5e500000-0000-0000-0000-0000000000e5"
+          },
+          "relief_ratio": 1.5
+        }
+      }
+    },
+    {
+      "id": "5e500000-0000-0000-0000-00000000001c",
+      "feature": {
+        "type": "sheet_metal_corner_relief",
+        "version": 1,
+        "params": {
+          "bend_a": {
+            "kind": "feature",
+            "feature_id": "5e500000-0000-0000-0000-0000000000d5"
+          },
+          "bend_b": {
+            "kind": "feature",
+            "feature_id": "5e500000-0000-0000-0000-0000000000f5"
+          },
+          "relief_ratio": 1.5
+        }
+      }
+    },
+    {
+      "id": "5e500000-0000-0000-0000-00000000001d",
+      "feature": {
+        "type": "sheet_metal_corner_relief",
+        "version": 1,
+        "params": {
+          "bend_a": {
+            "kind": "feature",
+            "feature_id": "5e500000-0000-0000-0000-0000000000c5"
+          },
+          "bend_b": {
+            "kind": "feature",
+            "feature_id": "5e500000-0000-0000-0000-0000000000f5"
+          },
+          "relief_ratio": 1.5
+        }
+      }
+    }
+  ]
+}

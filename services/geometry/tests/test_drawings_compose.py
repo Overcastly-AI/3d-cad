@@ -53,6 +53,7 @@ from py_kit.schemas.drawings import (
     ComposedLineEdge,
     ComposedMeasuredDimension,
     ComposeDrawingRequest,
+    ComposedSheet,
     DiameterDimensionParams,
     DimensionEndpointRef,
     DimensionParams,
@@ -62,6 +63,7 @@ from py_kit.schemas.drawings import (
     ProjectedPoint,
     ProjectedViewEdge,
     RadiusDimensionParams,
+    TitleBlock,
     ViewProjection,
 )
 from py_kit.schemas.features import EdgeSignature
@@ -483,6 +485,43 @@ def test_parity_bounds_aware_layout_third_angle_and_centering() -> None:
     assert (a["front"].y + a["iso"].y) / 2 == pytest.approx(dims.y / 2, abs=_TOL)
 
 
+def test_bounds_aware_layout_first_angle_swaps_top_and_right() -> None:
+    """First-angle (ISO 128) mirrors third-angle placement: the top view drops
+    BELOW the front and the right-side view moves to its LEFT, while the iso corner
+    is conventionally unchanged (drawings.md §1.2). Same projected geometry, swapped
+    placement — the D3 wire (AUDIT-ENGINEERING)."""
+    dims = sheet_dimensions("A4", "landscape")
+    bounds: dict[ViewProjection, ViewBounds | None] = {
+        v: _square_bounds(20) for v in ("front", "top", "right", "iso")
+    }
+    third = bounds_aware_layout(bounds, dims, "third_angle")
+    first = bounds_aware_layout(bounds, dims, "first_angle")
+    # First-angle relations (mirror of third-angle).
+    assert first["top"].y < first["front"].y  # top BELOW front (y-up)
+    assert first["top"].x == pytest.approx(first["front"].x, abs=_TOL)
+    assert first["right"].x < first["front"].x  # right-side view LEFT of front
+    assert first["right"].y == pytest.approx(first["front"].y, abs=_TOL)
+    # The convention actually changes the placement (not a silent no-op — the D3 bug).
+    assert first["top"].y != pytest.approx(third["top"].y, abs=1e-3)
+    assert first["right"].x != pytest.approx(third["right"].x, abs=1e-3)
+    # The arrangement stays centred in the sheet regardless of convention.
+    xs = [first[v].x for v in ("front", "top", "right", "iso")]
+    ys = [first[v].y for v in ("front", "top", "right", "iso")]
+    assert (min(xs) + max(xs)) / 2 == pytest.approx(dims.x / 2, abs=_TOL)
+    assert (min(ys) + max(ys)) / 2 == pytest.approx(dims.y / 2, abs=_TOL)
+
+
+def test_bounds_aware_layout_third_angle_is_default() -> None:
+    """Omitting the convention == third-angle (the byte-identity default path)."""
+    dims = sheet_dimensions("A4", "landscape")
+    bounds: dict[ViewProjection, ViewBounds | None] = {
+        v: _square_bounds(20) for v in ("front", "top", "right", "iso")
+    }
+    assert bounds_aware_layout(bounds, dims) == bounds_aware_layout(
+        bounds, dims, "third_angle"
+    )
+
+
 def test_parity_bounds_aware_layout_gutter_spacing() -> None:
     """Adjacent views' boxes are spaced by half+gutter+half, even for a large
     part (layout.test.ts VIEW_GUTTER_MM = 24)."""
@@ -555,7 +594,9 @@ request = ComposeDrawingRequest.model_validate_json(
     (golden / "request.json").read_text(encoding="utf-8")
 )
 evaluation = evaluate_drawing_views(request)
-composed = place_sheet(evaluation, request.dimensions, request.layout)
+composed = place_sheet(
+    evaluation, request.dimensions, request.layout, request.annotations
+)
 sys.stdout.write(serialize_svg(composed))
 """
 
@@ -619,7 +660,9 @@ request = ComposeDrawingRequest.model_validate_json(
     (golden / "request.json").read_text(encoding="utf-8")
 )
 evaluation = evaluate_drawing_views(request)
-composed = place_sheet(evaluation, request.dimensions, request.layout)
+composed = place_sheet(
+    evaluation, request.dimensions, request.layout, request.annotations
+)
 sys.stdout.buffer.write(serialize_pdf(composed))
 """
 
@@ -699,7 +742,9 @@ request = ComposeDrawingRequest.model_validate_json(
     (golden / "request.json").read_text(encoding="utf-8")
 )
 evaluation = evaluate_drawing_views(request)
-composed = place_sheet(evaluation, request.dimensions, request.layout)
+composed = place_sheet(
+    evaluation, request.dimensions, request.layout, request.annotations
+)
 sys.stdout.buffer.write(serialize_dxf(composed))
 """
 
@@ -718,6 +763,495 @@ def test_golden_dxf_is_deterministic_across_interpreter_restart() -> None:
     assert result.stdout == local, (
         "composed DXF bytes differ across interpreter restart"
     )
+
+
+# --- note annotations: composed onto the sheet + serialized (design §2.2) -------
+# The WB-64 dead-capability fix: an authored `NoteAnnotationParams` (text + SheetPoint)
+# was stored yet NEVER drawn. These gates prove it now lands at its sheet point in all
+# three server-composed formats, and that a note-FREE sheet stays byte-identical.
+_NOTE_GOLDEN_DIR = Path(__file__).resolve().parent / "compose_note_goldens"
+
+
+def _note_request() -> ComposeDrawingRequest:
+    return ComposeDrawingRequest.model_validate_json(
+        (_NOTE_GOLDEN_DIR / "request.json").read_text(encoding="utf-8")
+    )
+
+
+def _compose_note_sheet() -> ComposedSheet:
+    request = _note_request()
+    evaluation = evaluate_drawing_views(request)
+    return place_sheet(
+        evaluation, request.dimensions, request.layout, request.annotations
+    )
+
+
+def test_notes_place_at_sheet_points() -> None:
+    """Each authored note is placed verbatim at its sheet-mm anchor (design §2.2),
+    request order preserved — no view transform, no y-flip (the serializers apply the
+    per-format axis convention, as they do for the title block)."""
+    sheet = _compose_note_sheet()
+    assert [(n.x, n.y, n.text) for n in sheet.notes] == [
+        (20.0, 24.0, "MATERIAL: AL 6061-T6"),
+        (20.0, 32.0, "DEBURR ALL EDGES"),
+    ]
+
+
+def test_note_golden_svg_is_byte_identical() -> None:
+    """The composed SVG for the note golden matches the committed golden byte-for-byte:
+    each note is a left-anchored ink `<text>` stamped at its SheetPoint."""
+    expected = (_NOTE_GOLDEN_DIR / "sheet.svg").read_text(encoding="utf-8")
+    assert serialize_svg(_compose_note_sheet()) == expected
+
+
+def test_note_golden_pdf_is_byte_identical() -> None:
+    expected = (_NOTE_GOLDEN_DIR / "sheet.pdf").read_bytes()
+    assert serialize_pdf(_compose_note_sheet()) == expected
+
+
+def test_note_golden_dxf_is_byte_identical() -> None:
+    expected = (_NOTE_GOLDEN_DIR / "sheet.dxf").read_bytes()
+    assert serialize_dxf(_compose_note_sheet()) == expected
+
+
+def test_note_lands_at_sheet_point_in_svg() -> None:
+    """The SVG stamps each note's text at its SheetPoint (x/y verbatim) as a
+    left-anchored ink `<text>` — the invisible-note defect (WB-64) is fixed."""
+    svg = serialize_svg(_compose_note_sheet())
+    assert '<text data-testid="drawing-note" x="20.0000" y="24.0000"' in svg
+    assert ">MATERIAL: AL 6061-T6</text>" in svg
+    assert ">DEBURR ALL EDGES</text>" in svg
+
+
+def test_note_lands_at_sheet_point_in_dxf() -> None:
+    """The DXF emits each note as a REAL TEXT entity on the NOTES layer at its
+    (y-flipped) sheet anchor — CAD-editable text a shop reads, not a picture."""
+    doc = ezdxf.read(  # pyright: ignore[reportPrivateImportUsage]
+        io.StringIO(serialize_dxf(_compose_note_sheet()).decode("utf-8"))
+    )
+    assert "NOTES" in {layer.dxf.name for layer in doc.layers}
+    notes = {
+        e.dxf.text: (round(e.dxf.insert.x, 3), round(e.dxf.insert.y, 3))
+        for e in doc.modelspace()
+        if e.dxftype() == "TEXT" and e.dxf.layer == "NOTES"
+    }
+    # Model space is y-UP: the SVG y-down anchors 24 / 32 map to 210-24 / 210-32.
+    assert notes == {
+        "MATERIAL: AL 6061-T6": (20.0, 186.0),
+        "DEBURR ALL EDGES": (20.0, 178.0),
+    }
+    assert not doc.audit().errors
+
+
+def test_note_pdf_carries_note_text() -> None:
+    """The PDF (base-14 Courier, pageCompression=0 → plain text ops) carries the note
+    strings — dimensionally-correct shop text, not an opaque blob."""
+    pdf = serialize_pdf(_compose_note_sheet())
+    for token in (b"MATERIAL: AL 6061-T6", b"DEBURR ALL EDGES"):
+        assert token in pdf, f"missing {token!r}"
+
+
+def test_note_golden_svg_is_deterministic_across_interpreter_restart() -> None:
+    """A fresh-interpreter compose of the note golden reproduces the SAME SVG bytes
+    (§8.3 / RESEARCH §9) — note placement is byte-deterministic like everything else."""
+    local = serialize_svg(_compose_note_sheet())
+    result = subprocess.run(
+        [sys.executable, "-c", _RESTART_PROBE, str(_NOTE_GOLDEN_DIR)],
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+    assert result.returncode == 0, f"restart probe failed:\n{result.stderr}"
+    assert result.stdout == local, (
+        "composed note SVG differs across interpreter restart"
+    )
+
+
+def test_no_note_sheet_is_byte_identical_to_pre_notes_goldens() -> None:
+    """A sheet with NO notes composes byte-identically to its pre-notes goldens in all
+    three formats: `composed.notes` is empty and emits nothing (the notes capability is
+    additive — no note ⇒ no output change). Guards the parity port + the DE-4 cache."""
+    request = _golden_request()
+    assert request.annotations == []
+    evaluation = evaluate_drawing_views(request)
+    composed = place_sheet(
+        evaluation, request.dimensions, request.layout, request.annotations
+    )
+    assert composed.notes == []
+    assert serialize_svg(composed) == (_GOLDEN_DIR / "sheet.svg").read_text(
+        encoding="utf-8"
+    )
+    assert serialize_pdf(composed) == (_GOLDEN_DIR / "sheet.pdf").read_bytes()
+    assert serialize_dxf(composed) == (_GOLDEN_DIR / "sheet.dxf").read_bytes()
+
+
+# --- title-block free-text: author/date/notes stamped (AUDIT-ENGINEERING D1) -----
+# The WB-64 GA case: a `TitleBlock {author, date, notes}` was threaded to compose yet
+# stamped by NO serializer (only title/scale/size rendered). This is the PROCESS-GUARD
+# golden the audit asked for — a NON-DEFAULT title block whose author/date/notes MUST
+# appear in the placed sheet + all three serialized formats — the golden that would have
+# gone red before the fix. The paired no-title-block byte-identity is asserted above
+# (`test_no_note_sheet_...` composes the null-title_block golden) and again here.
+_TB_GOLDEN_DIR = Path(__file__).resolve().parent / "compose_title_block_goldens"
+
+
+def _tb_request() -> ComposeDrawingRequest:
+    return ComposeDrawingRequest.model_validate_json(
+        (_TB_GOLDEN_DIR / "request.json").read_text(encoding="utf-8")
+    )
+
+
+def _compose_tb_sheet() -> ComposedSheet:
+    request = _tb_request()
+    evaluation = evaluate_drawing_views(request)
+    return place_sheet(
+        evaluation, request.dimensions, request.layout, request.annotations
+    )
+
+
+def test_title_block_free_text_reaches_composed_sheet() -> None:
+    """author/date/notes are stamped onto the placed `ComposedTitleBlock` (not dropped).
+
+    THE guard for D1: the authored `TitleBlock` free-text lands on the composed model —
+    the exact assertion that would have failed before the fix (author/date/notes were
+    silently discarded by `_title_block`)."""
+    tb = _compose_tb_sheet().title_block
+    assert tb.author == "LOFT ENGINEERING"
+    assert tb.date == "2026-07-23"
+    assert tb.notes == "MATERIAL: AL 6061-T6"
+
+
+def test_title_block_golden_svg_is_byte_identical() -> None:
+    """The composed SVG for the non-default title block matches its committed golden
+    byte-for-byte — author/date/notes rows stamped as labeled left-cell fields."""
+    expected = (_TB_GOLDEN_DIR / "sheet.svg").read_text(encoding="utf-8")
+    assert serialize_svg(_compose_tb_sheet()) == expected
+
+
+def test_title_block_golden_pdf_is_byte_identical() -> None:
+    expected = (_TB_GOLDEN_DIR / "sheet.pdf").read_bytes()
+    assert serialize_pdf(_compose_tb_sheet()) == expected
+
+
+def test_title_block_golden_dxf_is_byte_identical() -> None:
+    expected = (_TB_GOLDEN_DIR / "sheet.dxf").read_bytes()
+    assert serialize_dxf(_compose_tb_sheet()) == expected
+
+
+def test_title_block_free_text_stamped_in_svg() -> None:
+    """The SVG stamps each free-text value as a labeled left-cell field with a stable
+    `data-testid` (the DOM-parity hook the paired frontend follow-on mirrors)."""
+    svg = serialize_svg(_compose_tb_sheet())
+    assert 'data-testid="title-block-author"' in svg
+    assert ">LOFT ENGINEERING</text>" in svg
+    assert 'data-testid="title-block-date"' in svg
+    assert ">2026-07-23</text>" in svg
+    assert 'data-testid="title-block-notes"' in svg
+    assert ">MATERIAL: AL 6061-T6</text>" in svg
+    # The captions render too (a labeled field, not a bare value).
+    assert ">DRAWN</text>" in svg and ">DATE</text>" in svg and ">NOTES</text>" in svg
+
+
+def test_title_block_free_text_in_dxf_is_real_text() -> None:
+    """The DXF emits each free-text value as a REAL TEXT entity on the TITLE layer —
+    CAD-editable text a shop reads, not a picture."""
+    doc = ezdxf.read(  # pyright: ignore[reportPrivateImportUsage]
+        io.StringIO(serialize_dxf(_compose_tb_sheet()).decode("utf-8"))
+    )
+    texts = {
+        e.dxf.text
+        for e in doc.modelspace()
+        if e.dxftype() == "TEXT" and e.dxf.layer == "TITLE"
+    }
+    assert {"LOFT ENGINEERING", "2026-07-23", "MATERIAL: AL 6061-T6"} <= texts
+    assert {"DRAWN", "DATE", "NOTES"} <= texts
+    assert not doc.audit().errors
+
+
+def test_title_block_free_text_in_pdf() -> None:
+    """The PDF (base-14 Courier, pageCompression=0 → plain text ops) carries the
+    author/date/notes strings — dimensionally-correct shop text, not an opaque blob."""
+    pdf = serialize_pdf(_compose_tb_sheet())
+    for token in (b"LOFT ENGINEERING", b"2026-07-23", b"MATERIAL: AL 6061-T6"):
+        assert token in pdf, f"missing {token!r}"
+
+
+def test_empty_title_block_is_byte_identical_to_no_free_text() -> None:
+    """A `TitleBlock` whose fields are all blank/absent stamps NOTHING extra: the sheet
+    composes byte-identically to the same layout with `title_block=None` in all three
+    formats (the additive posture — no free-text ⇒ no output change). Complements the
+    non-default golden above: the guard cuts BOTH ways."""
+    base = _golden_request()
+    # Same request, but attach an all-blank TitleBlock (whitespace-only → coerced None).
+    blank_layout = base.layout.model_copy(
+        update={"title_block": TitleBlock(author="  ", date="", notes=None)}
+    )
+    evaluation = evaluate_drawing_views(base)
+    with_blank = place_sheet(
+        evaluation, base.dimensions, blank_layout, base.annotations
+    )
+    assert with_blank.title_block.author is None
+    assert with_blank.title_block.date is None
+    assert with_blank.title_block.notes is None
+    assert serialize_svg(with_blank) == (_GOLDEN_DIR / "sheet.svg").read_text(
+        encoding="utf-8"
+    )
+    assert serialize_pdf(with_blank) == (_GOLDEN_DIR / "sheet.pdf").read_bytes()
+    assert serialize_dxf(with_blank) == (_GOLDEN_DIR / "sheet.dxf").read_bytes()
+
+
+def test_title_block_golden_svg_is_deterministic_across_interpreter_restart() -> None:
+    """A fresh-interpreter compose of the title-block golden reproduces the SAME SVG
+    bytes (§8.3 / RESEARCH §9) — the free-text rows are byte-deterministic strings."""
+    local = serialize_svg(_compose_tb_sheet())
+    result = subprocess.run(
+        [sys.executable, "-c", _RESTART_PROBE, str(_TB_GOLDEN_DIR)],
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+    assert result.returncode == 0, f"restart probe failed:\n{result.stderr}"
+    assert result.stdout == local, (
+        "composed title-block SVG differs across interpreter restart"
+    )
+
+
+# --- first-angle convention golden (AUDIT-ENGINEERING D3) ----------------------
+# A NON-DEFAULT authored field (`layout.projection = "first_angle"`) that MUST change
+# the placed sheet — the process-guard golden the audit asked for: a first-angle sheet
+# used to silently compose as third-angle (`compose.py` never branched on the
+# convention). These prove the swapped placement lands in the ComposedSheet + all three
+# serialized formats, AND that the third-angle default path stays byte-identical
+# (asserted by the plate/title-block goldens above — those requests are third_angle).
+_FA_GOLDEN_DIR = Path(__file__).resolve().parent / "compose_first_angle_goldens"
+
+
+def _fa_request() -> ComposeDrawingRequest:
+    return ComposeDrawingRequest.model_validate_json(
+        (_FA_GOLDEN_DIR / "request.json").read_text(encoding="utf-8")
+    )
+
+
+def _compose_fa_sheet() -> ComposedSheet:
+    request = _fa_request()
+    evaluation = evaluate_drawing_views(request)
+    return place_sheet(
+        evaluation, request.dimensions, request.layout, request.annotations
+    )
+
+
+def test_first_angle_swaps_placement_in_composed_sheet() -> None:
+    """THE D3 guard: a `first_angle` sheet places the top view BELOW the front and the
+    right-side view to its LEFT in the ComposedSheet (SVG space, y-down) — the exact
+    assertion that failed before the wire (it silently composed as third-angle)."""
+    anchors = {v.projection: v.anchor for v in _compose_fa_sheet().views}
+    # SVG space is y-DOWN: a larger y_mm is LOWER on the page.
+    assert anchors["top"].y_mm > anchors["front"].y_mm  # top below front
+    assert anchors["right"].x_mm < anchors["front"].x_mm  # right-side view left
+    # The iso corner is conventionally unchanged (upper-right: right of + above front).
+    assert anchors["iso"].x_mm > anchors["front"].x_mm
+    assert anchors["iso"].y_mm < anchors["front"].y_mm
+
+
+def test_first_angle_differs_from_third_angle() -> None:
+    """The convention is honored, not a no-op: the SAME part composed first-angle vs
+    third-angle yields DIFFERENT SVG bytes (D3 was that they were identical)."""
+    fa = serialize_svg(_compose_fa_sheet())
+    third_layout = _fa_request().layout.model_copy(update={"projection": "third_angle"})
+    request = _fa_request()
+    evaluation = evaluate_drawing_views(request)
+    third = serialize_svg(
+        place_sheet(evaluation, request.dimensions, third_layout, request.annotations)
+    )
+    assert fa != third
+
+
+def test_first_angle_golden_svg_is_byte_identical() -> None:
+    expected = (_FA_GOLDEN_DIR / "sheet.svg").read_text(encoding="utf-8")
+    assert serialize_svg(_compose_fa_sheet()) == expected
+
+
+def test_first_angle_golden_pdf_is_byte_identical() -> None:
+    expected = (_FA_GOLDEN_DIR / "sheet.pdf").read_bytes()
+    assert serialize_pdf(_compose_fa_sheet()) == expected
+
+
+def test_first_angle_golden_dxf_is_byte_identical() -> None:
+    expected = (_FA_GOLDEN_DIR / "sheet.dxf").read_bytes()
+    assert serialize_dxf(_compose_fa_sheet()) == expected
+
+
+def test_first_angle_golden_svg_is_deterministic_across_interpreter_restart() -> None:
+    """A fresh-interpreter compose of the first-angle golden reproduces the SAME SVG
+    bytes (§8.3 / RESEARCH §9) — placement is a pure function of the convention."""
+    local = serialize_svg(_compose_fa_sheet())
+    result = subprocess.run(
+        [sys.executable, "-c", _RESTART_PROBE, str(_FA_GOLDEN_DIR)],
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+    assert result.returncode == 0, f"restart probe failed:\n{result.stderr}"
+    assert result.stdout == local, (
+        "composed first-angle SVG differs across interpreter restart"
+    )
+
+
+# --- authored dimension placement golden (AUDIT-ENGINEERING D2) ----------------
+# The process-guard golden the audit asked for: a NON-DEFAULT DimensionPlacement (a
+# linear dimension with an explicit non-zero `offset_mm` AND a `text_pos`) whose
+# AUTHORED position MUST reach the composed sheet — the golden that would have gone
+# red before the wire (the composer used to recompute placement entirely via its
+# auto-penalty engine and silently ignore the authored fields). The paired default-
+# placement byte-identity is asserted by every OTHER golden here (all ship
+# `offset_mm == 0` / `text_pos == None`, the auto-penalty path) and again explicitly
+# below (`test_authored_placement_default_is_byte_identical`): the guard cuts BOTH
+# ways — authored placement is honored, default placement is untouched.
+_PLACEMENT_GOLDEN_DIR = Path(__file__).resolve().parent / "compose_placement_goldens"
+
+#: The authored values baked into the placement golden's linear dimension (id
+#: ...0001, the front-view 40 mm bottom edge). `offset_mm` is a LARGE value (well
+#: past the auto token offset `_O == 11 mm`) so the authored dimension line is
+#: unmistakably not the auto one; `text_pos` is an explicit sheet point.
+_AUTHORED_OFFSET_MM = 30.0
+_AUTHORED_TEXT_POS = (120.0, 100.0)
+_LINEAR_DIM_ID = "00000000-0000-0000-0000-000000000001"
+
+
+def _placement_request() -> ComposeDrawingRequest:
+    return ComposeDrawingRequest.model_validate_json(
+        (_PLACEMENT_GOLDEN_DIR / "request.json").read_text(encoding="utf-8")
+    )
+
+
+def _compose_placement() -> ComposedSheet:
+    request = _placement_request()
+    evaluation = evaluate_drawing_views(request)
+    return place_sheet(
+        evaluation, request.dimensions, request.layout, request.annotations
+    )
+
+
+def _linear_dim(sheet: ComposedSheet) -> ComposedMeasuredDimension:
+    """The single placed LINEAR measured dimension across all views."""
+    found = [
+        d
+        for v in sheet.views
+        for d in v.dimensions
+        if isinstance(d, ComposedMeasuredDimension) and d.dimension_type == "linear"
+    ]
+    assert len(found) == 1, f"expected one linear dim, got {len(found)}"
+    return found[0]
+
+
+def _front_bottom_edge_y(sheet: ComposedSheet) -> float:
+    """SVG y of the front view's bottom (measured) edge — the horizontal, length-40
+    visible line with the LARGEST y (bottom-most, y-down). The authored offset is
+    measured against THIS geometry, so the assertion is transform-independent."""
+    front = next(v for v in sheet.views if v.projection == "front")
+    ys = [
+        e.y1
+        for e in front.edges
+        if isinstance(e, ComposedLineEdge)
+        and e.visible
+        and abs(e.y1 - e.y2) < 1e-6
+        and abs(abs(e.x1 - e.x2) - 40.0) < 1e-6
+    ]
+    assert ys, "front view has no horizontal 40 mm edge"
+    return max(ys)
+
+
+def test_authored_offset_places_dimension_line_verbatim() -> None:
+    """The authored `offset_mm` (30 mm) — NOT the auto token offset (`_O == 11 mm`) —
+    is the perpendicular distance from the measured edge to the composed dimension
+    line. Proves the composer SEEDS its dimension-line offset from the authored field
+    instead of the penalty engine (the D2 wire)."""
+    sheet = _compose_placement()
+    dim = _linear_dim(sheet)
+    dim_lines = [ln for ln in dim.lines if ln.role == "dimension"]
+    assert len(dim_lines) == 1
+    line = dim_lines[0]
+    assert abs(line.y1 - line.y2) < 1e-6, "dimension line horizontal in front view"
+    gap = line.y1 - _front_bottom_edge_y(sheet)
+    assert gap == pytest.approx(_AUTHORED_OFFSET_MM, abs=_TOL)
+    # And unmistakably NOT the auto offset the penalty engine would have chosen.
+    assert abs(gap - 11.0) > 1.0
+
+
+def test_authored_text_pos_overrides_text_verbatim() -> None:
+    """The authored `text_pos` lands VERBATIM in final sheet-SVG space (no view
+    transform / y-flip re-applied), while the stamped value + geometry stay the
+    model-true auto-placed ones."""
+    dim = _linear_dim(_compose_placement())
+    assert (dim.text.x, dim.text.y) == _AUTHORED_TEXT_POS
+    assert dim.text.value == "40.000"  # model-true value, unchanged by placement
+
+
+def test_authored_placement_differs_from_auto() -> None:
+    """The SAME part/dimension composed with DEFAULT placement puts the linear dim
+    at the auto offset (11 mm) and the auto text position — so the authored golden is
+    genuinely a different placement, not a coincidental match."""
+    auto_sheet = place_sheet(
+        evaluate_drawing_views(_golden_request()),
+        _golden_request().dimensions,
+        _golden_request().layout,
+    )
+    auto = _linear_dim(auto_sheet)
+    auto_gap = next(ln for ln in auto.lines if ln.role == "dimension").y1
+    auto_gap -= _front_bottom_edge_y(auto_sheet)
+    assert auto_gap == pytest.approx(11.0, abs=_TOL)
+    assert (auto.text.x, auto.text.y) != _AUTHORED_TEXT_POS
+
+
+def test_placement_golden_svg_is_byte_identical() -> None:
+    """The composed SVG for the authored-placement sheet matches its committed golden
+    byte-for-byte — the authored dimension line + text position are placed
+    deterministically."""
+    expected = (_PLACEMENT_GOLDEN_DIR / "sheet.svg").read_text(encoding="utf-8")
+    assert serialize_svg(_compose_placement()) == expected
+
+
+def test_placement_golden_pdf_is_byte_identical() -> None:
+    expected = (_PLACEMENT_GOLDEN_DIR / "sheet.pdf").read_bytes()
+    assert serialize_pdf(_compose_placement()) == expected
+
+
+def test_placement_golden_dxf_is_byte_identical() -> None:
+    expected = (_PLACEMENT_GOLDEN_DIR / "sheet.dxf").read_bytes()
+    assert serialize_dxf(_compose_placement()) == expected
+
+
+def test_placement_golden_svg_is_deterministic_across_interpreter_restart() -> None:
+    """A fresh-interpreter compose of the placement golden reproduces the SAME SVG
+    bytes (§8.3 / RESEARCH §9) — authored placement is a pure function of the input."""
+    local = serialize_svg(_compose_placement())
+    result = subprocess.run(
+        [sys.executable, "-c", _RESTART_PROBE, str(_PLACEMENT_GOLDEN_DIR)],
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+    assert result.returncode == 0, f"restart probe failed:\n{result.stderr}"
+    assert result.stdout == local, (
+        "composed placement SVG differs across interpreter restart"
+    )
+
+
+def test_authored_placement_default_is_byte_identical() -> None:
+    """A dimension carrying the DEFAULT placement (`offset_mm == 0`, `text_pos ==
+    None` — what every shipped dimension ships) composes byte-identically to the
+    pre-wire plate golden in all three formats: the auto-penalty path is untouched
+    for defaults. The byte-identity safety gate the D2 wire is required to preserve."""
+    composed = place_sheet(
+        evaluate_drawing_views(_golden_request()),
+        _golden_request().dimensions,
+        _golden_request().layout,
+    )
+    assert serialize_svg(composed) == (_GOLDEN_DIR / "sheet.svg").read_text(
+        encoding="utf-8"
+    )
+    assert serialize_pdf(composed) == (_GOLDEN_DIR / "sheet.pdf").read_bytes()
+    assert serialize_dxf(composed) == (_GOLDEN_DIR / "sheet.dxf").read_bytes()
 
 
 # --- endpoint (mirrors /export wiring) -----------------------------------------

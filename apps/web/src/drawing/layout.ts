@@ -44,6 +44,7 @@ export const VIEW_LABEL: Record<ViewProjection, string> = {
   right: "Right",
   iso: "Isometric",
   flat_pattern: "Flat Pattern",
+  section: "Section A-A",
 };
 
 type SheetSize = SheetResponse["size"];
@@ -61,6 +62,33 @@ const SHEET_MM_LANDSCAPE: Record<SheetSize, readonly [number, number]> = {
   ANSI_C: [558.8, 431.8],
   ANSI_D: [863.6, 558.8],
 };
+
+/** The terse display name for a size — "A4" as-is, "ANSI_B" → "ANSI B" (the
+ *  form the title block stamps and the post-layout readout shows). */
+export function sheetSizeLabel(size: SheetSize): string {
+  return size.startsWith("ANSI_") ? `ANSI ${size.slice(5)}` : size;
+}
+
+/**
+ * The standard sheet SIZES the auto-layout picker offers, in the same order the
+ * dimension table declares them (A4 first — the default — up through A0, then
+ * the ANSI series). Each label carries its LANDSCAPE mm extents so an engineer
+ * can see at a glance how much room a bigger sheet buys: the WB-64 finding was a
+ * 258 mm part that fits A4 only at a tiny 1:5, where a larger sheet earns a far
+ * more usable scale (the fit-scale half already reduces to the sheet; this lets
+ * the sheet itself be chosen). Reads straight off SHEET_MM_LANDSCAPE so the
+ * options can never drift from the dimensions the layout actually uses.
+ */
+export const SHEET_SIZE_OPTIONS: readonly {
+  value: SheetSize;
+  label: string;
+}[] = (Object.keys(SHEET_MM_LANDSCAPE) as SheetSize[]).map((size) => {
+  const [long, short] = SHEET_MM_LANDSCAPE[size];
+  return {
+    value: size,
+    label: `${sheetSizeLabel(size)} · ${long} × ${short} mm`,
+  };
+});
 
 export interface SheetDims {
   /** Sheet width in mm (the SVG viewBox width). */
@@ -112,6 +140,11 @@ export function standardLayout(
     // centred as a lone-view placeholder so the map stays total. Its real
     // placement + bend-table render is the next frontend slice (sheet-metal.md §7).
     flat_pattern: { x: dims.width / 2, y: dims.height / 2 },
+    // A section view (drawings-section.md) is likewise a lone centred view, not part
+    // of the third-angle seed; the on-screen crosshatch is export-only in v1 (§5), so
+    // the DOM sheet renders its edges + cut-face outline here and the hatch ports in a
+    // fast-follow. Centred placeholder keeps the map total.
+    section: { x: dims.width / 2, y: dims.height / 2 },
   };
 }
 
@@ -225,3 +258,85 @@ export const SCALE_OPTIONS: readonly {
   { value: "1:5", label: "1:5", numerator: 1, denominator: 5 },
   { value: "1:10", label: "1:10", numerator: 1, denominator: 10 },
 ];
+
+/** Model-space bbox extents (mm) along the world axes. */
+export interface ModelExtents {
+  x: number;
+  y: number;
+  z: number;
+}
+
+/** Margin (sheet mm) kept between a view's footprint and its cell edge.
+ * Calibrated, not padded: the SERVER's bounds-aware composer is the real
+ * collision guarantee — this client cell model is a pre-flight estimate, and
+ * 4 mm keeps the empirically-verified clean layouts acceptable (the WB-64
+ * bottle's true iso height at 1:5 is 61.7 mm — a 6 mm margin would push it to
+ * an unnecessarily tiny 1:10) while the exact projection coefficients below
+ * keep the estimate honest. */
+const FIT_MARGIN_MM = 4;
+
+// Anchor-derived half-gaps, kept in lock-step with standardLayout's 0.32/0.68
+// columns and 0.36/0.70 rows: a view's usable half-width is the smaller of its
+// column's edge distance (0.32) and the mid-gap to the other column (0.18);
+// half-height likewise (bottom row edge 0.36, top row edge 0.30, row mid-gap
+// 0.17). If the anchors move, these must move with them.
+const CELL_HALF_W_FRACTION = Math.min(0.32, 0.18);
+const CELL_HALF_H_FRACTION = Math.min(0.36, 0.3, 0.17);
+
+// EXACT true-isometric projection coefficients of the SERVER's iso frame
+// (geometry.drawings.project: N = normalize(−1,−1,1), X = normalize(Z×N)):
+// world x → (0.7071, 0.4082), y → (−0.7071, 0.4082), z → (0, 0.8165), so an
+// axis-aligned box projects to exactly w = 0.7071·(x+y),
+// h = 0.8165·z + 0.4082·(x+y). Code-review 2026-07-22: the previous hand
+// coefficients (0.87 / 0.82 / 0.3) mislabelled themselves an over-approx —
+// the width was 23% over while the xy-height term UNDER-approximated by 27%,
+// letting flat/pancake parts accept a scale whose iso view overflows its cell.
+const ISO_W_XY = 0.7071;
+const ISO_H_Z = 0.8165;
+const ISO_H_XY = 0.4082;
+
+/**
+ * The largest standard scale whose four auto-layout views fit their quadrant
+ * cells on `dims`, never exceeding `chosenValue` (a user's explicit pick is a
+ * ceiling, not a suggestion — auto-fit only ever *reduces*). This is the
+ * fit-scale half of the auto-layout fix (BACKLOG 2026-07-20, WB-64 dogfooding:
+ * a 258 mm part at the 1:1 default rendered views off-sheet and overlapping).
+ *
+ * Cells come from the {@link standardLayout} anchor scheme (see the fraction
+ * constants above), each less {@link FIT_MARGIN_MM} per side. Footprints are
+ * the exact ortho projections (front x·z, right y·z, top x·y) plus the
+ * true-iso bound (constants above). If even the smallest option cannot fit,
+ * that smallest option is returned (a too-small view beats an unusable
+ * overlap, and the server's bounds-aware composer still draws it).
+ */
+export function fitScale(
+  extents: ModelExtents,
+  dims: SheetDims,
+  chosenValue: string,
+): (typeof SCALE_OPTIONS)[number] {
+  const cellW = 2 * CELL_HALF_W_FRACTION * dims.width - 2 * FIT_MARGIN_MM;
+  const cellH = 2 * CELL_HALF_H_FRACTION * dims.height - 2 * FIT_MARGIN_MM;
+  const footprints: readonly [number, number][] = [
+    [extents.x, extents.z], // front
+    [extents.y, extents.z], // right
+    [extents.x, extents.y], // top
+    [
+      ISO_W_XY * (extents.x + extents.y),
+      ISO_H_Z * extents.z + ISO_H_XY * (extents.x + extents.y),
+    ], // iso
+  ];
+  const ratio = (o: { numerator: number; denominator: number }) =>
+    o.numerator / o.denominator;
+  const chosen = SCALE_OPTIONS.find((o) => o.value === chosenValue);
+  const ceiling = chosen ? ratio(chosen) : 1;
+  const candidates = SCALE_OPTIONS.filter((o) => ratio(o) <= ceiling).sort(
+    (a, b) => ratio(b) - ratio(a),
+  );
+  for (const option of candidates) {
+    const s = ratio(option);
+    if (footprints.every(([w, h]) => w * s <= cellW && h * s <= cellH)) {
+      return option;
+    }
+  }
+  return candidates[candidates.length - 1] ?? SCALE_OPTIONS[0]!;
+}

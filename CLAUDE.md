@@ -72,6 +72,11 @@ and intentional** — never templated. Standing rules:
    before calling UI work done.
 4. **Show, don't tell.** UI changes ship with before/after screenshots
    (desktop + small-laptop widths) surfaced to the founder at milestones.
+   **"Surfaced" means the orchestrator SENDS the screenshots to the founder
+   (the file-send tool), not merely generates them into `docs/screenshots/`.**
+   Every UI change → pass the before/after shots to the founder in chat;
+   generating a PNG the founder never sees does not count (founder directive
+   2026-07-23).
 5. **Never break the product for looks.** Preserve test hooks (`data-testid`,
    roles, accessible names). Quality floor: WCAG-AA contrast, visible focus,
    `prefers-reduced-motion`, self-hosted fonts, responsive to 1280×800.
@@ -342,6 +347,49 @@ recipe here in the same commit as the fix.**
   Playwright boots a fresh Vite proxying to the :8000 gateway `just e2e`
   starts. Agents booting an isolated frontend MUST kill their Vite in teardown,
   not just their uvicorns.
+- **Run the batch-end `just e2e` in a QUIET window — never concurrent with
+  heavy agents — and treat a red sweep run under CPU load as UNCONFIRMED.**
+  Seen 2026-07-23: a batch-end sweep kicked off while 2-3 kernel agents were
+  running geometry pytest + booting isolated stacks came back 2 failed / 188
+  passed; both failures were 5s-timeout UI-state waits in the heaviest specs
+  (`full-flow.spec.ts` register→sketch→extrude→export, `sketch-on-face.spec.ts`)
+  — `new-extrude` "solve a sketch first" still disabled, `sketch-strip`
+  toHaveCount(0) got 1. The discriminator that proves FLAKE not regression: the
+  failure POINT MOVED between runs (extrude-enable one run, sketch-strip-dismiss
+  the next) — a real code regression fails identically every time; a
+  contention flake wanders to whichever 5s-gated step loses the CPU race that
+  run. The diff under test (`beb3a21`, drawings-only) didn't touch the
+  sketch/extrude path, and 188 specs passed. Procedure: (a) don't overlap the
+  gate with agent load; (b) if it happens, reconfirm the specific failures by
+  an isolated rerun in a QUIET window before concluding regression — but a
+  moving failure point is already a flake tell; (c) the heavy founder-flow
+  specs' intermediate waits use the default 5s (the `eval-status` wait already
+  uses 30s) — bump the solve/UI-state-gated ones to a generous timeout so the
+  gate is contention-robust (filed as a spec-hardening item, same class as the
+  raster tolerance fix).
+- **A bisect that reproduces a failure at an "earlier green" commit proves the
+  failure is NOT in the diff under test — but it does NOT prove "environment."
+  Confirm the actual assertion before naming a cause.** Cautionary tale
+  (2026-07-22): a batch-end `just e2e` failed 6 specs; a four-point bisect (HEAD
+  → `0c10265` → `47c88f4` → `24b1c53`) reproduced them all at a commit believed
+  green, and the orchestrator concluded "container-restart raster drift" and
+  filed it as such. A qa-tester then read the specs and found the real cause: 5
+  of the 6 (the measure specs) asserted the STALE pre-units-convention readout
+  string `"37.42"`, but the units change (`70ce39d`, 2026-07-17) switched the
+  readout to `formatLength` → `"37.4166 mm"` — and that commit is an ANCESTOR of
+  all three bisect points, so they were deterministically red there too, for a
+  code/assertion reason, not the environment. The `toHaveText("37.42")` timeout
+  was misread as "the readout never appears" when it appears with the correct
+  value in a new format. Only the undo-redo 1280 band-fit (`≤0px` → `Received:
+  1`) was genuine sub-pixel raster drift (fixed with a documented ≤2px
+  tolerance). Lessons: (a) the "green" end of a bisect must be a commit you have
+  actually seen pass, not one assumed to; a shared ancestor bug hides from every
+  bisect point below it. (b) Before concluding "environment," open the spec and
+  read the EXACT expected-vs-received — a stale golden/format string and a raster
+  miss look identical through a `toHaveText` timeout. (c) DOM-overlay picks
+  (`getByTestId("measure-vertex-N")`) are already raster-independent, so "pick
+  coords drifted" was never even applicable to those specs. Measure/undo-redo
+  specs are container-robust as of `1e1395d`.
 - **Founder screenshots are refresh-on-demand, not a per-run output.** `just
   e2e` used to rewrite ~90 PNGs under `docs/screenshots/` every run, forcing a
   noise commit. Two churn sources: (1) the per-run random session email in the
@@ -378,4 +426,26 @@ recipe here in the same commit as the fix.**
   harness parses goldens as JSON (whitespace-insensitive) so a stored content
   hash is a string field unaffected by formatting, i.e. `prettier --write` on a
   golden is behaviour-neutral and safe.** Always run the full `just lint` at the
-  batch boundary regardless.
+  batch boundary regardless. **(3) Lint with `uv run ruff …`, NEVER a bare PATH
+  `ruff`.** Seen 2026-07-23 (interference slice `e46db16`): the agent ran a PATH
+  `ruff check` that predated the `RUF002` confusable rule and reported "0 errors,"
+  but the locked `uv run ruff check` (0.15.20) flagged 8× `RUF002` (a test file
+  using U+00D7 `×`/U+2212 `−` glyphs — every other file uses ASCII `x`/`-`) + 1×
+  `SIM300`, so HEAD shipped lint-red under a false "lint clean" claim (geometry-QA
+  caught it). A bare `ruff` resolves to whatever's on PATH, which can be older than
+  the lockfile; `uv run ruff` always uses the pinned 0.15.20 CI installs. Prefer
+  ASCII in code/tests (`x`, `-`, `<=`) — reserve `×`/`−`/`≤` for docs/markdown.
+- **When a concurrent agent's unfinished work blocks a clean full `just lint`,
+  scope your gate to your ENTIRE diff — every file you touched — not just the
+  primary source file.** Cautionary tale (2026-07-23, overnight loop): a
+  first-angle-projection slice (`822b3a9`) changed `bounds_aware_layout`'s
+  signature in `compose.py` AND the call sites in `test_drawings_compose.py`,
+  but — unable to run repo-wide `just lint` because a concurrent frontend agent
+  had unfinished `apps/web` work — ran only scoped `pyright compose.py`. That
+  passed; the signature change left 7 `pyright` errors in the TEST file
+  (`dict[str, ViewBounds]` vs the new `dict[ViewProjection, ViewBounds | None]`),
+  so HEAD shipped lint-red and a sibling agent caught it. A scoped gate is fine
+  when the tree is dirty with foreign work, but scope it to `git diff --name-only`
+  (your whole change), e.g. `uv run pyright <each changed .py>` + `ruff` on all
+  of them — never just the one file you were "mainly" editing. A signature change
+  breaks its callers and tests, which single-file scoping can't see.

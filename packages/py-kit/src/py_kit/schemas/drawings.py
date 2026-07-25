@@ -33,15 +33,45 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
-from py_kit.schemas.assemblies import RefDocumentKind
+from py_kit.schemas.assemblies import (
+    AssemblySolveDiagnosis,
+    AssemblySolveStatus,
+    EvaluateAssemblyRequest,
+    InstanceEvaluationError,
+    MateEvaluationError,
+    RefDocumentKind,
+)
 from py_kit.schemas.features import (
+    MAX_TREE_FEATURES,
     EdgeSignature,
     EvaluatedFeatureInput,
     FeatureError,
+    GeomRef,
 )
 
 #: Upper bound for a user-facing drawing name ("Bracket — Detail").
 DRAWING_NAME_MAX_LENGTH = 200
+
+# --- Per-request work bounds (engineering audit 2026-07-24 G2) -------------------
+#
+# The rate limiter caps request FREQUENCY; these constants cap the WORK one
+# drawing evaluate/compose request can demand. Over-bound is a typed 422 at
+# parse, never a worker OOM/monopolization.
+
+#: Ceiling on views in one drawing evaluate/compose request. Exact HLR
+#: (``HLRBRep_Algo``) runs PER VIEW — the expensive op — and a real sheet holds
+#: a handful of views (the standard front/top/right/iso plus sections), so 32
+#: is far beyond legitimate use while bounding the per-request HLR fan-out.
+MAX_DRAWING_VIEWS = 32
+
+#: Ceiling on dimensions in one drawing evaluate/compose request. Each is an
+#: exact B-rep measurement + a placement pass; a dense production sheet runs
+#: tens of dimensions, so 500 is generous.
+MAX_DRAWING_DIMENSIONS = 500
+
+#: Ceiling on note annotations in one compose request — placement/serialization
+#: work only, same generous scale as dimensions.
+MAX_DRAWING_ANNOTATIONS = 500
 
 #: Upper bound for a per-sheet name ("Sheet 1").
 SHEET_NAME_MAX_LENGTH = 200
@@ -106,7 +136,13 @@ SheetProjectionConvention = Literal["third_angle", "first_angle"]
 #: projection ENUM is ALL documents persists — mapping a standard direction to a 3D
 #: frame + running HLR (or, for ``flat_pattern``, running the unfold) is the
 #: geometry service's job (design §1.2 / sheet-metal.md §6/§7), never here.
-ViewProjection = Literal["front", "top", "right", "iso", "flat_pattern"]
+#:
+#: ``section`` is a full PLANAR section of a single-body part (drawings-section.md v1):
+#: like ``flat_pattern`` it is NOT one of the third-angle quartet — it is placed by its
+#: OWN evaluate + compose branch, and the cutting plane rides in a sibling
+#: :class:`SectionViewParams` (the projection enum stays a pure direction; the plane is
+#: geometry-resolved, never here).
+ViewProjection = Literal["front", "top", "right", "iso", "flat_pattern", "section"]
 
 #: An unfolded flat-pattern edge's ROLE (sheet-metal.md §6): a ``body`` edge is a
 #: real cut outline; a ``bend`` edge is a fold line (rendered as its own dashed-blue
@@ -117,6 +153,34 @@ EdgeRole = Literal["body", "bend"]
 
 #: A bend's fold sense in a flat pattern's bend table (sheet-metal.md §1/§6).
 BendDirection = Literal["up", "down"]
+
+
+class SectionViewParams(BaseModel):
+    """The cutting plane + half selection of a section view (drawings-section.md §1).
+
+    v1 specifies the section's cutting plane by DATUM REFERENCE, not a drawn cutting
+    line (§1): ``plane`` is the shipped :data:`~py_kit.schemas.features.GeomRef`
+    (``DatumPlaneRef`` for one of the XY/XZ/YZ origin planes, or a ``FeatureRef`` to
+    an axis-aligned offset / midplane datum FEATURE in the referenced part) — the
+    EXACT union a sketch's plane reference uses, so no parallel plane taxonomy is
+    introduced (DRY). The geometry service resolves it, checks the v1 axis-aligned
+    precondition (a non-principal normal is a typed ``section_plane_not_principal``,
+    §7), cuts, and hatches. ``flip`` chooses which half is removed (§4): ``false``
+    (default) removes the eye-side material (the standard "cut away what is between
+    you and the plane"), ``true`` the far side.
+    """
+
+    plane: GeomRef = Field(
+        description="The cutting plane, as a datum reference (reused GeomRef): a "
+        "DatumPlaneRef (XY/XZ/YZ) or a FeatureRef to an axis-aligned offset/midplane "
+        "datum. A non-principal-axis normal is out of v1 (typed error, §7)."
+    )
+    flip: bool = Field(
+        default=False,
+        description="Which half is removed (§4): false (default) removes the eye-side "
+        "material; true the far side.",
+    )
+
 
 #: The v1 dimension set (design §3.1).
 DimensionType = Literal["linear", "diameter", "radius", "angular"]
@@ -519,12 +583,30 @@ class ViewCreate(BaseModel):
         "design §7)",
     )
     projection: ViewProjection = Field(
-        description="Projection direction (front / top / right / iso)"
+        description="Projection direction (front / top / right / iso / flat_pattern / "
+        "section)"
     )
     scale: ViewScale = Field(
         default=DEFAULT_VIEW_SCALE, description="Drawing scale (rational; 1:1 default)"
     )
     position: SheetPoint = Field(description="View placement on the sheet (mm)")
+    auto_place: bool = Field(
+        default=True,
+        description="Placement mode (drawing-export.md §4.2, mirrors "
+        ":class:`SheetViewPlacement`): True (default) = the composer DERIVES the "
+        "anchor (bounds-aware auto-layout), so `position` rides along for "
+        "persistence but does not drive anchoring; False = the composer HONORS "
+        "`position` verbatim (the drag-to-place seam). Additive — an omitted value "
+        "keeps the auto-layout behaviour byte-identical.",
+    )
+    section_params: SectionViewParams | None = Field(
+        default=None,
+        description="The cutting plane + flip for a `section` view (drawings-"
+        "section.md §1); required iff `projection == 'section'`, NULL for every "
+        "other view. "
+        "Documents validates the ref shape and persists it as JSONB (the geometry "
+        "service resolves + cuts).",
+    )
 
 
 class ViewUpdate(BaseModel):
@@ -541,6 +623,14 @@ class ViewUpdate(BaseModel):
     projection: ViewProjection | None = None
     scale: ViewScale | None = None
     position: SheetPoint | None = None
+    auto_place: bool | None = Field(
+        default=None,
+        description="Placement mode (mirrors :class:`SheetViewPlacement`): set False "
+        "to PERSIST a dragged position so the composer honors `position` verbatim "
+        "(the drag-to-place seam — typically sent alongside `position`); set True to "
+        "return the view to bounds-aware auto-layout. Null (default) leaves the mode "
+        "unchanged. At least one of the update fields must be provided.",
+    )
 
 
 class ViewResponse(BaseModel):
@@ -557,6 +647,18 @@ class ViewResponse(BaseModel):
     projection: ViewProjection
     scale: ViewScale
     position: SheetPoint
+    auto_place: bool = Field(
+        default=True,
+        description="Placement mode (mirrors :class:`SheetViewPlacement`): True "
+        "(default) = the composer auto-places (bounds-aware); False = a persisted "
+        "drag-to-place position the composer honors verbatim. Survives reload — the "
+        "compose/export path threads it into `SheetViewPlacement.auto_place`.",
+    )
+    section_params: SectionViewParams | None = Field(
+        default=None,
+        description="The section view's cutting plane + flip (drawings-section.md §1); "
+        "NULL for every non-section view",
+    )
     order_index: int = Field(
         description="Stable view order on the sheet (dense 0..n-1)"
     )
@@ -693,6 +795,29 @@ class ProjectedPoint(BaseModel):
     y_mm: float = Field(description="Y in the view plane (mm, model-mm x scale)")
 
 
+class SectionFaceLoop(BaseModel):
+    """One section cross-section face as canonical projected boundary loops (§5/§6).
+
+    A section view's cut face, projected into the view plane (view mm at the view's
+    scale — the SAME frame as the view's ``edges``, so the hatch lands on the drawn
+    outline). ``outer`` is the face's outer boundary; ``holes`` are its interior (bore)
+    boundaries. Each loop is a closed polyline pinned to a deterministic start vertex
+    and winding (outer CCW, holes CW in the view frame, drawings-section.md §6) so the
+    payload is byte-stable regardless of OCCT's edge order. The compose layer generates
+    the crosshatch from these loops (even-odd scanline clip: holes carve gaps); the
+    projection layer stays purely geometry. Empty for every non-section view — additive,
+    so existing views are unaffected (the ``bend_table`` pattern).
+    """
+
+    outer: list[ProjectedPoint] = Field(
+        description="The face's outer boundary as a closed projected polyline"
+    )
+    holes: list[list[ProjectedPoint]] = Field(
+        default_factory=list["list[ProjectedPoint]"],
+        description="Interior (bore) boundaries, each a closed projected polyline",
+    )
+
+
 class ProjectedViewEdge(BaseModel):
     """One classified 2D edge of a projected view (design §1.3) — a neutral
     primitive, never a kernel handle (the boundary twin of
@@ -827,11 +952,19 @@ class DrawingViewResult(BaseModel):
         description="Per-bend fold rows for a flat_pattern view (sheet-metal.md §6/"
         "§7); empty for every standard HLR view and on error",
     )
+    section_faces: list[SectionFaceLoop] = Field(
+        default_factory=list["SectionFaceLoop"],
+        description="Cross-section boundary loops for a `section` view (drawings-"
+        "section.md §5) — the region the compose layer hatches; empty for every "
+        "standard HLR / flat_pattern view and on error (additive, existing views "
+        "unaffected — the `bend_table` pattern).",
+    )
     error: FeatureError | None = Field(
         default=None,
         description="Typed per-view failure (`view_projection_failed` for HLR, "
-        "`flat_pattern_not_sheet_metal` / `subshape_unresolved` for a flat pattern), "
-        "or null on success (design §1.5 / sheet-metal.md §7)",
+        "`flat_pattern_not_sheet_metal` / `subshape_unresolved` for a flat pattern, "
+        "`section_plane_not_principal` / `section_plane_misses_body` / `section_empty` "
+        "for a section), or null on success (design §1.5 / §7)",
     )
 
 
@@ -905,11 +1038,15 @@ class EvaluateDrawingViewsRequest(BaseModel):
     part_id: uuid.UUID = Field(description="The referenced part's identity (echoed)")
     tree_version: int = Field(description="Echoed back; cache/correlation key")
     features: list[EvaluatedFeatureInput] = Field(
-        description="The part's ordered feature prefix (feature-tree §4 contract)"
+        max_length=MAX_TREE_FEATURES,
+        description="The part's ordered feature prefix (feature-tree §4 "
+        "contract), bounded by MAX_TREE_FEATURES (work bound, audit G2)",
     )
     views: list[ViewProjection] = Field(
+        max_length=MAX_DRAWING_VIEWS,
         description="The standard views to project (subset of front/top/right/iso); "
-        "processed and returned in request order"
+        "processed and returned in request order. Bounded by MAX_DRAWING_VIEWS "
+        "(work bound, audit G2 — HLR runs per view).",
     )
     scale: ViewScale = Field(
         default=DEFAULT_VIEW_SCALE,
@@ -917,10 +1054,24 @@ class EvaluateDrawingViewsRequest(BaseModel):
     )
     dimensions: list[DrawingDimensionInput] = Field(
         default_factory=list["DrawingDimensionInput"],
+        max_length=MAX_DRAWING_DIMENSIONS,
         description="Dimensions to measure against the evaluated body, each tagged "
-        "with its view (design §3/§5). Empty (the default) → no measurement and the "
+        "with its view (design §3/§5), bounded by MAX_DRAWING_DIMENSIONS (work "
+        "bound, audit G2). Empty (the default) → no measurement and the "
         "response is projected edges only, byte-for-byte the slice-#3 behaviour "
         "(fully backward-compatible).",
+    )
+    section_params: dict[int, SectionViewParams] = Field(
+        default_factory=dict[int, "SectionViewParams"],
+        description="Per-view section parameters, keyed by the INDEX into `views` of "
+        "each `section` view (drawings-section.md §1). The `section` view at "
+        "`views[i]` takes its cutting plane + flip from `section_params[i]`; a "
+        "`section` view with no matching entry resolves to a typed "
+        "`section_params_missing` (never a crash). Keyed PER-VIEW (not a single "
+        "request-level value) so params bind to a SPECIFIC view and more than one "
+        "section view is representable. Empty (the default) → no section view: a "
+        "non-section request carries an empty map and behaves byte-for-byte as the "
+        "pre-section state.",
     )
 
 
@@ -1004,18 +1155,39 @@ class SheetViewPlacement(BaseModel):
 
     GENERAL per-view intent (multi-part/assembly ready): each placed view names
     its ``projection`` direction, its authored sheet ``position``, and its
-    ``scale``. NB — the composer re-derives view ANCHORS from the projected bounds
-    (``boundsAwareLayout``, the on-screen renderer's behaviour), so ``position`` is
-    carried for generality/persistence but does not drive v1 anchoring; the field
-    that IS load-bearing here is ``projection`` (WHICH views to place and in what
-    order) and ``scale`` (the title-block stamp). v1 ships the 4 standard views at
-    one shared scale.
+    ``scale``.
+
+    Placement is a two-mode contract (drawing-export.md §4.2, FINDINGS #6):
+
+    * ``auto_place`` (default ``True``): the composer DERIVES the anchor. The
+      standard front/top/right/iso quartet is laid out by ``boundsAwareLayout`` (the
+      on-screen renderer's behaviour); an ADDITIVE ``section`` / ``flat_pattern``
+      view is placed in a FREE slot that never overlaps the already-placed views
+      (previously it was dropped dead-centre and collided with the quartet). Here
+      ``position`` is carried for generality/persistence but does not drive anchoring.
+    * ``auto_place = False``: the composer HONORS ``position`` verbatim — the view is
+      centred at that authored sheet point. This is the seam a drag-to-place UI
+      drives (the frontend follow-up): documents stores the dragged position and the
+      backend respects it, so a hand-placed view lands exactly where authored.
+
+    ``position`` (when honored) is the view CENTRE in sheet millimetres, y-UP from the
+    bottom-left origin — the SAME frame the auto anchors use, so an authored and an
+    auto-placed view are directly comparable. v1 ships the 4 standard views
+    auto-placed at one shared scale.
     """
 
     projection: ViewProjection = Field(description="Projection direction of the view")
     position: SheetPoint = Field(description="Authored sheet position (mm)")
     scale: ViewScale = Field(
         default=DEFAULT_VIEW_SCALE, description="View scale (rational; 1:1 default)"
+    )
+    auto_place: bool = Field(
+        default=True,
+        description="True (default): the composer derives the anchor (bounds-aware "
+        "for the standard quartet, a non-overlapping free slot for section/"
+        "flat_pattern). False: honor `position` verbatim (the drag-to-place seam, "
+        "FINDINGS #6). Additive — an omitted value keeps the auto-layout behaviour "
+        "byte-identical.",
     )
 
 
@@ -1045,7 +1217,9 @@ class SheetLayout(BaseModel):
         default=None, description="Free-text title block (design §9 q6; v1 unused)"
     )
     views: list[SheetViewPlacement] = Field(
-        description="The placed views (which projections to compose + their order)"
+        max_length=MAX_DRAWING_VIEWS,
+        description="The placed views (which projections to compose + their "
+        "order), bounded by MAX_DRAWING_VIEWS (work bound, audit G2)",
     )
 
 
@@ -1059,9 +1233,39 @@ class ComposeDrawingRequest(EvaluateDrawingViewsRequest):
     views) and the requested ``format``. The geometry service evaluates the part
     ONCE, places the sheet (``place_sheet``), and serializes to the requested
     artifact — deterministic (RESEARCH §9): same request ⇒ byte-identical artifact.
+
+    **Assembly source (design §7, Drawings #4).** A view referencing an ASSEMBLY
+    (not a single part) carries the resolved assembly graph in ``assembly`` — the
+    reused :class:`~py_kit.schemas.assemblies.EvaluateAssemblyRequest` (instances +
+    mates + version) documents resolves for the referenced assembly document. When
+    ``assembly`` is set the geometry service projects the SOLVED assembly compound
+    (``evaluate_assembly_drawing_views`` — the ``/drawing/assembly/evaluate``
+    machinery) INSTEAD of a single part body, then folds the resulting per-view HLR
+    edges into the sheet exactly as a part view (the SAME ``place_sheet``); the
+    inherited part fields (``part_id`` / ``tree_version`` / ``features``) then carry
+    the assembly's echoed id/version + an empty feature list and are not evaluated.
+    ``None`` (the default) is a PART compose, byte-identical to the pre-assembly
+    contract — the additive posture the ``section_params`` / notes fields carry.
     """
 
     layout: SheetLayout = Field(description="Sheet layout (size + title block + views)")
+    assembly: EvaluateAssemblyRequest | None = Field(
+        default=None,
+        description="The resolved assembly graph for an ASSEMBLY-referencing view "
+        "(design §7): geometry projects the solved assembly compound instead of a "
+        "single part body, folding the per-view HLR edges into the sheet exactly as a "
+        "part view. NULL (default) = a part compose (byte-identical to the "
+        "pre-assembly contract); the inherited part fields are then ignored.",
+    )
+    annotations: list[Annotation] = Field(
+        default_factory=list["Annotation"],
+        max_length=MAX_DRAWING_ANNOTATIONS,
+        description="Sheet annotations (v1: free-text notes) placed at their authored "
+        "sheet positions; empty by default, bounded by MAX_DRAWING_ANNOTATIONS "
+        "(work bound, audit G2). Composed onto the sheet + serialized in "
+        "all three formats. Part of the content-addressed artifact cache key (DE-4), "
+        "so a note edit misses the cache and recomposes.",
+    )
     format: ArtifactFormat = Field(
         default="svg", description="Artifact format to serialize (svg | pdf | dxf)"
     )
@@ -1137,6 +1341,35 @@ ComposedEdge = Annotated[
 ]
 
 
+class ComposedHatchLine(BaseModel):
+    """One crosshatch stroke of a placed section face (final sheet-SVG space)."""
+
+    x1: float
+    y1: float
+    x2: float
+    y2: float
+
+
+class ComposedHatch(BaseModel):
+    """A section view's placed crosshatch (drawings-section.md §5) — the parallel
+    fill strokes of every cross-section face.
+
+    Generated by :func:`geometry.drawings.compose.place_sheet`'s section branch: a set
+    of parallel lines at the ANSI 45° angle and a fixed sheet-mm spacing, analytically
+    clipped (even-odd scanline) to each face's outer loop minus its interior loops — so
+    the hole is left blank. Every coordinate is in FINAL sheet-SVG space (mm, y-DOWN,
+    top-left origin — the same space every other placed primitive uses), so a
+    serializer draws each ``lines`` segment verbatim. Deterministic (§6): the loops,
+    angle, spacing, and clip origin are pure functions of the projected geometry, so
+    the same section ⇒ byte-identical strokes. Export-only in v1 (§5): the DOM sheet
+    shows the section's edges + cut-face outline but no on-screen crosshatch.
+    """
+
+    lines: list[ComposedHatchLine] = Field(
+        description="Clipped 45° crosshatch strokes (sheet-SVG space), scanline order"
+    )
+
+
 class ComposedDimLine(BaseModel):
     """One straight rule of a placed dimension (extension or dimension line)."""
 
@@ -1208,10 +1441,26 @@ class ComposedView(BaseModel):
     ``edges``/``dimensions`` are empty. ``anchor`` is the view-centre in SVG space
     (the placeholder + caption reference it); ``label``/``label_pos`` are the
     stamped caption ("FRONT") and its position.
+
+    ``error`` carries the TYPED per-view failure through composition (FINDINGS #15):
+    the :class:`~py_kit.schemas.features.FeatureError` (code + human message) from the
+    source :class:`DrawingViewResult` — a ``view_projection_failed`` /
+    ``section_plane_not_principal`` / ``section_empty`` /
+    ``flat_pattern_not_sheet_metal`` / ``section_params_missing`` — so the sheet/print
+    can show WHY a view is empty instead of a bare "VIEW FAILED". Null on success and
+    on an ABSENT result (a requested view with no evaluation, ``failed`` set but no
+    typed reason to carry).
     """
 
     projection: ViewProjection = Field(description="Projection direction")
     failed: bool = Field(description="True when the view has no projected geometry")
+    error: FeatureError | None = Field(
+        default=None,
+        description="Typed per-view failure carried through composition (FINDINGS "
+        "#15): the source view's FeatureError (code + message), so a failed view "
+        "prints its reason instead of a bare 'VIEW FAILED'. Null on success or when "
+        "the view had no evaluated result at all (no typed reason to carry).",
+    )
     anchor: ComposedPoint = Field(description="View-centre in SVG space")
     label: str = Field(description="Caption text (e.g. 'FRONT')")
     label_pos: ComposedPoint = Field(description="Caption position (SVG space)")
@@ -1221,15 +1470,26 @@ class ComposedView(BaseModel):
     dimensions: list[ComposedDimension] = Field(
         default_factory=list["ComposedDimension"], description="Placed dimensions"
     )
+    hatch: ComposedHatch | None = Field(
+        default=None,
+        description="A section view's placed crosshatch (drawings-section.md §5); null "
+        "for every non-section view — additive, so a standard/flat-pattern view "
+        "composes byte-identically (the `bend_table` pattern).",
+    )
 
 
 class ComposedTitleBlock(BaseModel):
     """The placed bottom-right title block (drawing-export.md §4.2).
 
-    Geometry (box + the two internal rules) plus the three stamped values (drawing
-    ``title`` truncated to fit, ``scale`` label, ``size`` display). The fixed
-    captions ("TITLE" / "SCALE" / "SIZE" / "LOFT · PART DRAWING") are the
-    serializer's rendering constants (matching the on-screen title block).
+    Geometry (box + the two internal rules) plus the stamped values: the always-on
+    drawing ``title`` (truncated to fit), ``scale`` label and ``size`` display, plus
+    the OPTIONAL free-text :class:`TitleBlock` fields ``author`` / ``date`` / ``notes``
+    (each truncated to fit its cell, ``None`` when unset). The fixed captions ("TITLE" /
+    "SCALE" / "SIZE" / "LOFT · PART DRAWING" and, for the optional fields, "DRAWN" /
+    "DATE" / "NOTES") are the serializer's rendering constants (matching the on-screen
+    title block). A ``None`` optional field is stamped by NO serializer — caption and
+    value both omitted — so a title block with no free-text composes byte-identically to
+    its pre-free-text golden (the additive posture the notes/bend-table fields carry).
     """
 
     x: float
@@ -1241,6 +1501,21 @@ class ComposedTitleBlock(BaseModel):
     title: str = Field(description="Drawing title, truncated to fit the cell")
     scale: str = Field(description="Scale label ('1:1')")
     size: str = Field(description="Sheet size, display form ('A4', 'ANSI A')")
+    author: str | None = Field(
+        default=None,
+        description="Author/drafter, truncated to fit; None (stamps nothing) when the "
+        "authored field is unset or blank",
+    )
+    date: str | None = Field(
+        default=None,
+        description="Free-text date, truncated to fit; None (stamps nothing) when the "
+        "authored field is unset or blank",
+    )
+    notes: str | None = Field(
+        default=None,
+        description="Free-text notes, truncated to fit; None (stamps nothing) when the "
+        "authored field is unset or blank",
+    )
 
 
 class ComposedBendTable(BaseModel):
@@ -1269,6 +1544,25 @@ class ComposedBendTable(BaseModel):
     )
 
 
+class ComposedNote(BaseModel):
+    """A placed free-text note annotation (design §2.2 v1 — text at a sheet point).
+
+    The composed twin of :class:`NoteAnnotationParams`: the note ``text`` and its
+    anchor ``x``/``y`` in FINAL sheet-SVG space (mm, y-DOWN, top-left origin — the
+    same space every other placed primitive on :class:`ComposedSheet` uses), so a
+    serializer stamps it verbatim (no re-reasoning about axes). The three serializers
+    render it as left-anchored graphite-ink text, consistent with the title-block
+    stamped values. Additive to the sheet: an empty ``notes`` list emits nothing, so a
+    sheet with no notes composes byte-identically to its pre-notes golden. A note whose
+    anchor falls outside the sheet is placed verbatim (clipped by the viewer), the same
+    honest posture as a title-block text run — never a crash.
+    """
+
+    x: float = Field(description="Note anchor X (mm, SVG space)")
+    y: float = Field(description="Note anchor Y (mm, SVG space, y-down)")
+    text: str = Field(description="The note body, rendered verbatim")
+
+
 class ComposedSheet(BaseModel):
     """A fully placed drawing sheet — the model the three serializers render (§4.2).
 
@@ -1294,4 +1588,105 @@ class ComposedSheet(BaseModel):
         description="A flat-pattern sheet's placed bend-table block (rows + anchor "
         "rect, sheet-metal.md §7); null for every standard (HLR) sheet — additive, so "
         "a standard sheet composes byte-identically.",
+    )
+    notes: list[ComposedNote] = Field(
+        default_factory=list["ComposedNote"],
+        description="Placed free-text note annotations (design §2.2), each stamped at "
+        "its sheet anchor; empty for a sheet with no notes — additive, so a note-free "
+        "sheet composes byte-identically to its pre-notes golden.",
+    )
+
+
+# --- §7 assembly-view projection contract (documents → geometry → gateway → web) --
+#
+# The assembly analogue of EvaluateDrawingViewsRequest (design §7): where the part
+# request carries ONE feature tree, an assembly view projects the UNION of every
+# instance's body at its SOLVED world placement. The request REUSES the shipped
+# EvaluateAssemblyRequest VERBATIM (instances + mates + version — no duplication of
+# the instance/mate shape, CLAUDE.md DRY), so geometry solves the assembly (the SAME
+# solve_assembly the evaluate/interference/export routes call), places each instance
+# body, composes ONE compound, and runs the SAME exact HLR (project_view) per view.
+# The projected edges are the identical neutral ProjectedViewEdge shape a part view
+# emits, so a drawing consumer renders assembly + part views through one code path.
+# Standard orthographic + iso views only (front/top/right/iso); flat_pattern / section
+# are part-body view kinds and are a typed per-view error for an assembly (§7).
+
+
+class EvaluateAssemblyDrawingViewsRequest(BaseModel):
+    """Project a solved ASSEMBLY into its requested standard drawing views (§7).
+
+    documents sends INTENT — the assembly graph (via the reused
+    :class:`~py_kit.schemas.assemblies.EvaluateAssemblyRequest`: each instance's
+    part feature prefix + authored/grounded placement + the mate graph) plus the
+    standard views to project and the drawing scale. geometry is the sole evaluator:
+    it solves the assembly ONCE (``solve_assembly`` — each unique part evaluated
+    once, the mate graph solved to per-instance world placements), places every
+    bodied instance at its SOLVED world pose, composes them into one compound, and
+    runs exact HLR (``project_view``) per requested view. No kernel/OCCT type crosses
+    the boundary — the response is the same pure-pydantic :class:`ProjectedViewEdge`
+    list a part view emits. Deterministic (RESEARCH §9): the BLAS-pinned solve + the
+    canonical HLR edge order yield byte-identical projected edges for the same request,
+    in-process AND across an interpreter restart.
+    """
+
+    assembly: EvaluateAssemblyRequest = Field(
+        description="The assembly graph to project (reused VERBATIM — instances + "
+        "mates + version); geometry solves it with the SAME solve_assembly the "
+        "evaluate/interference/export routes use"
+    )
+    views: list[ViewProjection] = Field(
+        max_length=MAX_DRAWING_VIEWS,
+        description="The standard views to project (subset of front/top/right/iso); "
+        "processed and returned in request order, bounded by MAX_DRAWING_VIEWS "
+        "(work bound, audit G2). `flat_pattern` / `section` are "
+        "part-body view kinds — a typed per-view error for an assembly (§7)",
+    )
+    scale: ViewScale = Field(
+        default=DEFAULT_VIEW_SCALE,
+        description="Drawing scale (rational; 1:1 default) applied to every view",
+    )
+
+
+class EvaluateAssemblyDrawingViewsResult(BaseModel):
+    """Per-view projected geometry for an assembly, plus the solve context (§7).
+
+    ``views`` carries one :class:`DrawingViewResult` per requested view, in request
+    order — each either the assembly's canonically-ordered visible+hidden 2D edges
+    (the union of every placed instance's silhouettes, hidden lines where one
+    instance occludes another) or a typed per-view error (``view_projection_failed``
+    for an HLR failure, ``assembly_view_unsupported_projection`` for a flat_pattern /
+    section view kind). ``assembly_error`` is set ONLY when NO instance produced a
+    body (nothing to project); ``views`` is then empty (the assembly analogue of the
+    part ``part_error``). ``status`` / ``diagnosis`` / ``instance_errors`` /
+    ``mate_errors`` echo the SAME solve context ``evaluate_assembly`` reports, so a
+    bad instance or mate is a typed per-entry error inside a 200 — never a 500, never
+    a silently-empty view (design §4/§7).
+    """
+
+    assembly_id: uuid.UUID
+    version: int = Field(description="Echoed back; cache/correlation key")
+    views: list[DrawingViewResult] = Field(
+        default_factory=list["DrawingViewResult"],
+        description="One result per requested view, in request order (empty when "
+        "`assembly_error` is set)",
+    )
+    status: AssemblySolveStatus = Field(
+        description="The mate-solve status (echoes the evaluate route, design §4)"
+    )
+    diagnosis: AssemblySolveDiagnosis | None = Field(
+        default=None, description="Under/over-constrained diagnosis, or null"
+    )
+    instance_errors: list[InstanceEvaluationError] = Field(
+        default_factory=list["InstanceEvaluationError"],
+        description="Per-instance body-evaluation failures (a bodyless part is "
+        "DROPPED from the projection, the rest still project) — typed, never a 500",
+    )
+    mate_errors: list[MateEvaluationError] = Field(
+        default_factory=list["MateEvaluationError"],
+        description="Per-mate resolution failures dropped from the solve (design §4)",
+    )
+    assembly_error: FeatureError | None = Field(
+        default=None,
+        description="Set when NO instance produced a body (nothing to project); "
+        "`views` is then empty (the assembly analogue of the part `part_error`)",
     )

@@ -1,3 +1,4 @@
+import { CommandBand } from "@loft/design";
 import type { ReactNode } from "react";
 
 /**
@@ -8,17 +9,14 @@ import type { ReactNode } from "react";
  * tools otherwise, so the top band is always THE command surface and the
  * viewport below keeps every pixel it can.
  *
- * `relative` so a strip's transient overlays (constraint hint / save error)
- * can hang from `top-full` into the viewport without thickening the band; the
- * band itself stays a single thin instrument row.
+ * All band behavior lives in the `CommandBand` primitive (fix the primitive,
+ * not the instance): the measured label tier (`data-band-tier`), the
+ * overflow clamp (the band can never widen the app frame or hide a tool
+ * group), and the `z-band` stacking layer that keeps its tooltips/flyouts
+ * above the floating panels. Strips' transient overlays (constraint hint /
+ * save error) still hang from `top-full` into the viewport without
+ * thickening the band — the band stays a single thin instrument row.
  */
 export function TopToolbar({ children }: { children: ReactNode }) {
-  return (
-    <div
-      data-testid="top-toolbar"
-      className="relative z-10 flex h-band shrink-0 items-stretch overflow-visible border-b border-hairline bg-anvil"
-    >
-      {children}
-    </div>
-  );
+  return <CommandBand data-testid="top-toolbar">{children}</CommandBand>;
 }

@@ -31,6 +31,7 @@ from py_kit.schemas.features import (
     FeatureMutationResponse,
     FeatureReorderRequest,
     FeatureResponse,
+    FeatureSuppressRequest,
     FeatureTreeResponse,
     FeatureUpdate,
     RollbackBarMove,
@@ -115,6 +116,33 @@ async def update_feature(
         user,
         "PATCH",
         f"/api/v1/parts/{part_id}/features/{feature_id}",
+        request.model_dump_json(),
+    )
+    if upstream.status_code != status.HTTP_200_OK:
+        raise_upstream_error(upstream, service=_SERVICE)
+    return FeatureMutationResponse.model_validate_json(upstream.content)
+
+
+@router.patch("/{part_id}/features/{feature_id}/suppress")
+async def suppress_feature(
+    part_id: uuid.UUID,
+    feature_id: uuid.UUID,
+    request: FeatureSuppressRequest,
+    user: CurrentUser,
+    http_request: Request,
+) -> FeatureMutationResponse:
+    """Toggle a feature's suppress flag (feature-tree.md §4.3a).
+
+    Flips ONLY ``suppressed`` (a suppressed feature is skipped at rebuild),
+    bumping ``tree_version`` under the same optimistic-concurrency guard as
+    every other feature write — a stale version is documents' 422 envelope,
+    re-surfaced verbatim.
+    """
+    upstream = await forward_documents(
+        http_request,
+        user,
+        "PATCH",
+        f"/api/v1/parts/{part_id}/features/{feature_id}/suppress",
         request.model_dump_json(),
     )
     if upstream.status_code != status.HTTP_200_OK:

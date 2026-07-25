@@ -22,6 +22,18 @@ ROUNDTRIP_TOL = 1e-7
 
 
 @pytest.fixture(scope="session")
+def roundtrip_tol() -> float:
+    """``ROUNDTRIP_TOL`` as a fixture (importlib mode blocks cross-module imports).
+
+    For gates that compare mass properties themselves rather than through
+    :func:`assert_roundtrip_preserved` — e.g. the assembly-export round-trip,
+    which matches re-imported solids to solved placements — so the one documented
+    kernel bound stays the single source of truth (DRY), never re-hardcoded.
+    """
+    return ROUNDTRIP_TOL
+
+
+@pytest.fixture(scope="session")
 def assert_roundtrip_preserved() -> Callable[
     [str, ShapeProperties, ShapeProperties], None
 ]:

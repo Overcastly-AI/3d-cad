@@ -7,6 +7,12 @@ docs/design/sheet-metal.md §2/§5/§6/§9 and :mod:`geometry.sheet_metal.unfold
 """
 
 from geometry.sheet_metal.base_flange import SheetMetalDefaults
+from geometry.sheet_metal.corner_relief import (
+    CornerReliefError,
+    apply_corner_relief,
+    corner_relief_tools,
+    cut_relief_tools,
+)
 from geometry.sheet_metal.edge_flange import (
     EdgeFlangeEdgeError,
     EdgeFlangeError,
@@ -33,6 +39,8 @@ from geometry.sheet_metal.resolve import (
 )
 from geometry.sheet_metal.unfold import (
     BendProvenance,
+    CornerRelief,
+    UnfoldFoldBackError,
     UnfoldOverlapError,
     UnfoldScopeError,
     UnfoldStarError,
@@ -45,6 +53,8 @@ __all__ = [
     "BendFlankingFacesError",
     "BendLine",
     "BendProvenance",
+    "CornerRelief",
+    "CornerReliefError",
     "EdgeFlangeEdgeError",
     "EdgeFlangeError",
     "EdgeFlangeResult",
@@ -57,11 +67,15 @@ __all__ = [
     "ResolvedFlange",
     "SheetMetalDefaults",
     "SheetMetalUnfoldError",
+    "UnfoldFoldBackError",
     "UnfoldOverlapError",
     "UnfoldScopeError",
     "UnfoldStarError",
+    "apply_corner_relief",
     "bend_allowance",
     "build_edge_flange",
+    "corner_relief_tools",
+    "cut_relief_tools",
     "cylindrical_face_signature",
     "resolve_bend_faces",
     "resolve_bends",

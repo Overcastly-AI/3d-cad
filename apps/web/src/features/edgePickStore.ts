@@ -14,13 +14,21 @@ import { create } from "zustand";
 
 import type { OverlayResult } from "../api/measure";
 import type { EdgeSignature } from "../api/parts";
-import { toggleEdge } from "./edge";
+import { isEdgePicked, toggleEdge } from "./edge";
 
 export interface EdgePickState {
   /** A fillet/chamfer editor is open (create or edit). */
   active: boolean;
   /** "Pick edges" mode is armed — the overlay is shown + hittable. */
   picking: boolean;
+  /**
+   * Single-edge mode (the edge flange picks ONE straight edge to fold off): a
+   * click REPLACES the current pick instead of appending. Fillet/chamfer open
+   * multi-select (false); the edge flange opens single-select (true). The
+   * shared overlay stays unchanged — it always calls `toggle`, which honours
+   * this flag.
+   */
+  singleSelect: boolean;
   /** Pickable geometry of the current body, or null until it loads. */
   overlay: OverlayResult | null;
   /** Overlay-fetch failure message (422 envelope), or null. */
@@ -31,7 +39,11 @@ export interface EdgePickState {
   hoverEdge: number | null;
 
   /** Open a fresh pick session, seeding it (edit → persisted refs; create → []). */
-  open: (picked: readonly EdgeSignature[], picking: boolean) => void;
+  open: (
+    picked: readonly EdgeSignature[],
+    picking: boolean,
+    singleSelect?: boolean,
+  ) => void;
   /** Close the session and drop the overlay + picks. */
   close: () => void;
   /** Switch between "By rule" and "Pick edges" (keeps the picks). */
@@ -48,15 +60,17 @@ export interface EdgePickState {
 export const useEdgePickStore = create<EdgePickState>((set) => ({
   active: false,
   picking: false,
+  singleSelect: false,
   overlay: null,
   overlayError: null,
   picked: [],
   hoverEdge: null,
 
-  open: (picked, picking) =>
+  open: (picked, picking, singleSelect = false) =>
     set({
       active: true,
       picking,
+      singleSelect,
       picked: [...picked],
       overlay: null,
       overlayError: null,
@@ -66,6 +80,7 @@ export const useEdgePickStore = create<EdgePickState>((set) => ({
     set({
       active: false,
       picking: false,
+      singleSelect: false,
       overlay: null,
       overlayError: null,
       picked: [],
@@ -75,7 +90,15 @@ export const useEdgePickStore = create<EdgePickState>((set) => ({
   setOverlay: (overlay) => set({ overlay, overlayError: null }),
   setOverlayError: (overlayError) => set({ overlayError }),
   toggle: (signature) =>
-    set((state) => ({ picked: toggleEdge(state.picked, signature) })),
+    set((state) => ({
+      // Single-edge mode: a click replaces the pick (or clears it on a repeat);
+      // multi mode appends/removes as fillet/chamfer expect.
+      picked: state.singleSelect
+        ? isEdgePicked(state.picked, signature)
+          ? []
+          : [signature]
+        : toggleEdge(state.picked, signature),
+    })),
   clearPicks: () => set({ picked: [] }),
   setHoverEdge: (hoverEdge) => set({ hoverEdge }),
 }));

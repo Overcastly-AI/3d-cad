@@ -7,6 +7,868 @@ not "do the tests pass" but **"is the geometry RIGHT?"** (RESEARCH §9,
 decisions recorded here AND in the golden's `expected.json` — never a way to
 go green.
 
+## 2026-07-23 — Drawings assembly views slice 1 (`8be617e`) — adversarial geometry QA (geometry-qa)
+
+**Scope.** Independent adversarial verification of the assembly-drawing projection
+core (`services/geometry/src/geometry/drawings/assembly_project.py`) past its shipped
+golden (big+small cube full-occlusion + union + 90° rotation). The slice solves the
+assembly once, composes every placed instance body into ONE `Compound`
+(`compose_assembly_body`), and runs the SHARED exact HLR (`project_view`) per view.
+I pushed the seven attack families in the brief. **VERDICT: the assembly compose +
+HLR path is GEOMETRICALLY CORRECT — no P0/P1/P2 defect introduced by this slice.**
+One genuine defect exists but is **PRE-EXISTING in the shared HLR post-processing**
+(`project.py::_canonicalize`), reproduces on the single-part drawing path, and is
+merely made *common* by assemblies — filed P3. Added **9 guard tests**
+(`services/geometry/tests/test_drawings_assembly_project.py`, 9→18 passing + 1 xfail;
+ruff format+check + pyright clean).
+
+### 1. Off-axis (non-principal) rotation — CORRECT
+A 10(X)x30(Y)x10(Z) box rotated **30° about world X** (not the golden's 90° swap),
+FRONT + TOP. Projected silhouette extents match the analytic rotated-corner extents
+to displayed precision: FRONT z'∈[-7.5000, 16.1603], TOP y'∈[-17.9904, 12.9904] —
+exactly `y·cos∓z·sin` / `y·sin+z·cos` over the 8 corners. The placement quaternion
+flows through `place_body` into HLR for an arbitrary angle. Guard
+`test_off_axis_rotated_instance_matches_analytic_extents`.
+
+### 2. Iso is a first-class assembly view — CORRECT
+Golden covers front/top/right only. (a) Single-instance == part invariant EXTENDED
+to iso: a one-instance assembly at identity projects the iso view **byte-for-byte**
+equal to the standalone part (12 edges). (b) Two-box golden in iso = clean union of
+each cube's own iso silhouette (a lone cube iso = 9 visible + 3 hidden), so the two
+disjoint cubes = **18 visible + 6 hidden** with zero cross-instance culling. Guards
+`test_single_instance_assembly_projects_identically_to_the_part_iso`,
+`test_two_box_assembly_iso_is_the_union_of_both_cube_silhouettes`.
+
+### 3. Multi-lump instance — CORRECT
+An instance whose PART body is a two-solid `Compound` (built via a `merge=False`
+second extrude — an in-chain disjoint `add` is rejected by the boolean lump guard).
+TOP view projects **both** lumps: X[-10,-2]Y[-10,10] and X[2,10]Y[-6,6] → 8 visible,
+0 hidden. No `.solids()[0]` shortcut drops a lump anywhere in compose/HLR. Guard
+`test_multi_lump_instance_projects_every_lump`.
+
+### 4. Deep instance stack (depth ordering) — CORRECT
+(a) Big front 20-cube + **four** progressively smaller cubes stacked behind it, each
+strictly inside the big silhouette → 4 visible (front cube) + **16 hidden** (four
+nested dashed rectangles at half-extents 4.0/3.5/3.0/2.5), no missing/extra edge.
+(b) **Six identical aligned** cubes stacked in depth → every behind copy projects
+exactly onto the front silhouette, visible-wins culls all coincident hidden copies →
+4 visible, 0 hidden (reads as one square, correct). Guards
+`test_deep_stack_far_instances_are_all_hidden_nested`,
+`test_identical_aligned_stack_culls_to_a_single_silhouette`.
+
+### 5. Coincident-face (flush) pair — CORRECT, no doubled line
+Two boxes flush on x=0 (C world X[-10,0], D X[0,10]) FRONT → outer 20x20 silhouette
+split at x=0 PLUS the single shared boundary line, which appears **exactly once**
+(the two coincident face edges de-dup): 7 visible, 0 hidden. Guard
+`test_two_flush_boxes_share_one_edge_no_doubling`.
+
+### 6. Determinism — CORRECT (in-process + cross-interpreter)
+The compound HLR is byte-identical across repeated in-process eval (existing) AND
+across a **fresh interpreter** (subprocess restart probe over all four views —
+compound-children order is request-instance order, HLR + canonical sort pin the rest):
+`sha256(model_dump_json)` identical across 3 independent processes (`c8460174…`).
+Guard `test_assembly_projection_is_deterministic_across_interpreter_restart`.
+
+### 7. Interpenetrating (volume-overlapping) instances — SAFE, honest limitation
+Two boxes sharing volume (A [-10,10]³, B offset (10,10,0)) project without a crash and
+with correct mutual occlusion (FRONT 8V/4H, ISO 16V/3H). NB the true *intersection
+seam* between two interpenetrating solids is NOT drawn — a `Compound` is not a boolean
+union, so no such topological edge exists. This is honest, matches the module's stated
+contract ("occlusion resolved ACROSS instances," not boolean seams), and mirrors how
+every kernel drawing/interference path treats a compound. Observation, not a defect.
+
+### 🟠 P3 (PRE-EXISTING, shared HLR) — partial occlusion emits a dashed line over a solid line
+**Evidence.** Box A (front slab, world X[-10,10] Y[-5,0] Z[-10,10]) *partially*
+occludes box B behind it (world X[0,20] Y[10,15] Z[-5,5]). FRONT view — B's bottom
+edge at z=-5 (analytically: hidden over X[0,10], visible over X[10,20]) is emitted as
+**three** edges:
+```
+H (0,-5)->(10,-5)     # correct dashed portion, behind A
+V (10,-5)->(20,-5)    # correct solid portion, clear of A
+H (0,-5)->(20,-5)     # SPURIOUS full-length hidden edge  <-- defect
+```
+so segment X[10,20] is drawn **both dashed and solid**, and X[0,10] is drawn dashed
+twice (same for the z=+5 edge → 2 hidden-over-visible overlaps).
+**Root cause.** `geometry.drawings.project._canonicalize` visible-wins culling drops a
+hidden edge only when it is EXACTLY coincident with a visible one; it does not resolve
+a hidden edge that *partially* overlaps a collinear visible segment. B's coincident
+front/back bottom face edges: HLR splits the near copy into H+V at the occlusion
+boundary while the far copy stays a single full-length hidden edge; the two are not
+key-equal, so neither de-dup nor visible-wins removes the redundant dashed run.
+**Attribution.** NOT introduced by `8be617e` — reproduces identically on the SINGLE
+PART drawing path (`evaluate_drawing_views` on a `merge=False` multi-lump part), so it
+lives in the shared `project.py`, not the assembly compose. The assembly slice only
+makes it *common* (partial inter-part occlusion is the norm in assemblies) and its
+golden (full occlusion only) cannot catch it.
+**Severity P3:** all edge COORDINATES are correct and occlusion assignment is correct;
+this is a redundant/contradictory *visibility* classification (a dashed line bleeding
+over a solid one) — not wrong geometry, mass, topology, or a crash. Reachable in the
+UI wherever one part partially occludes another. Guard (asserts the correct invariant,
+`xfail(strict=False)` so it flips to XPASS on fix):
+`test_partial_occlusion_emits_no_hidden_over_visible_overlap`.
+
+### VERDICT: ASSEMBLY-DRAWING SLICE 1 IS GEOMETRICALLY SOUND
+Off-axis rotation, iso, multi-lump, deep-depth occlusion, flush coincident faces, and
+determinism (incl. cross-interpreter) all hold to analytic tolerance. The one real
+defect is a pre-existing shared-HLR visible-wins gap (P3), filed against
+`drawings/project.py`, not this slice. Coverage extended 9→18 goldens + 1 documenting
+xfail.
+
+## 2026-07-23 — Hole slice 2: counterbore + countersink (`d82cd27`) — adversarial geometry QA (geometry-qa)
+
+**Scope.** Independent adversarial verification of the counterbore/countersink
+recess cores (`kernel/hole.py::cut_counterbore`, `::cut_countersink`) past the
+two shipped axis-aligned goldens (`hole-counterbore-d18-r5-40x25x10` → 8510.885,
+`hole-countersink-d18-90deg-r5-40x25x10` → 8896.254). Both goldens drill a CENTRED
+Ø18 recess over a Ø10 through-bore on the +Z face — they structurally cannot catch
+a hardcoded/transposed recess axis, an off-standard cone angle, a break-through, or
+an edge-overhang. I drove the kernel DIRECTLY over the seven attack families the
+brief names. **VERDICT: geometry is CORRECT — no P0/P1/P2 geometric defect.** Every
+probe matched its closed-form oracle to ≤5e-12 mm³, every must-reject case errors
+with the right typed error (never an invalid solid / 500), and the recess is
+byte-identical across a fresh-interpreter restart. Gaps were TEST-COVERAGE only;
+closed with **11 guard tests** in `services/geometry/tests/test_hole.py` (27→38
+passing + 1 pre-existing xfail; ruff format+check + pyright clean).
+
+Analytic oracle used throughout: counterbore annulus `π·(R²-r²)·h_cbore`; countersink
+annular cone `π·h/3·(R²+R·r+r²) - π·r²·h` with `h=(R-r)/tan(θ/2)`.
+
+### 1. Recess coaxial along the FACE normal on a 30°-tilted face — CORRECT
+Countersink (Ø12 mouth / Ø6 bore / 90°) on a block rotated 30° about X, placed
+OFF the centroid axis (`origin + x_dir·6`): removed **113.0973355292299** vs analytic
+`π·3/3·(36+18+9) - π·9·3` = **113.09733552923258** (diff -2.7e-12), one lump. Cone
+tracks the tilted normal, not world Z — no hardcoded-axis bug. (The counterbore
+already had a tilted guard; the countersink did not — now `test_cut_countersink_
+tracks_tilted_face_normal`.)
+
+### 2. Countersink angle sweep 60/82/90/118° (drill-point standards) — CORRECT
+Ø12 mouth over Ø6 bore, 10 mm block. All match the frustum oracle across the
+`tan(θ/2)` range, 8 faces each, one lump:
+| θ° | cone h (mm) | removed (mm³) | analytic (mm³) | Δ |
+|----|-------------|---------------|----------------|---|
+| 60 | 5.1962 | 195.89033133729754 | 195.89033133729552 | +2.0e-12 |
+| 82 | 3.4511 | 130.10360173370282 | 130.10360173370333 | -5.1e-13 |
+| 90 | 3.0000 | 113.0973355292299 | 113.09733552923258 | -2.7e-12 |
+|118 | 1.8026 | 67.95573503646119 | 67.95573503646236 | -1.2e-12 |
+
+### 2b. Angle limits — shallow cone valid, over-steep → `hole_too_deep`
+NB the brief's phrasing is geometrically inverted: a LARGE included angle is a
+SHALLOW cone. **150°** (half-angle 75°, h≈0.80 mm) forms the correct thin frustum
+(removed 30.30433972116771 vs 30.30433972116958, Δ-1.9e-12, one lump) — NOT a
+degenerate sliver. A SMALL angle is the deep one: **20°** implies h≈17 mm > the
+10 mm block → `HoleTooDeepError`, correctly. Guards: `..._shallow_angle_is_valid_
+shallow_frustum`, `..._steep_angle_deep_cone_is_too_deep`.
+
+### 3. Degenerate mouth r→R and cone-past-blind-bore — SAFE
+Countersink diameter EXACTLY the bore (10 mm = 10 mm, h→0) → `HoleRecessInvalidError`
+(the `radius <= bore_radius` guard trips on equality) — no zero-height cone tool /
+invalid solid. Separately, a cone that OUTREACHES a short blind bore (bore 2 mm,
+90° cone depth 4 mm) is a valid single positive-volume lump: it removes the annulus
+PLUS fresh material below the bore floor (removed 475.43 > the through-bore annular
+318.35, as expected), boolean does not fail. Guards: `..._diameter_equals_bore_is_
+recess_invalid`, `..._cone_deeper_than_blind_bore_is_valid_solid`.
+
+### 4. Counterbore depth == body thickness (break-through) vs > thickness — CORRECT
+Ø18 recess `cbore_depth == 10` (== thickness) on a 10 mm block is a clean
+through-recess: coincident far-face boolean removes the full annulus
+`π·(9²-5²)·10` = **1759.2918860102855** vs **1759.291886010284** (Δ+1.4e-12), 7 faces,
+one lump — VALID, not rejected. `cbore_depth = 10.001` (a hair over) →
+`HoleTooDeepError`; 14 mm → same. The exact-thickness boundary is the last VALID
+depth. Guards: `..._depth_equals_thickness_is_through_recess`, `..._just_over_
+thickness_is_too_deep`.
+
+### 5. Recess edge-overhang — typed `hole_too_deep` (documented ASYMMETRY, by design)
+Bore Ø10 fully inside at x=6, but the wider Ø18 recess spans x∈[-3,15], poking 3 mm
+past the x=0 wall → removed < full analytic annulus → `HoleTooDeepError`. Note the
+deliberate asymmetry vs a THROUGH-bore, which IS allowed to break out an edge and
+return a partial volume (`test_hole_partial_breakout_matches_analytic_partial_
+volume`): a RECESS is held to its full analytic annulus, so an edge-overhanging
+recess is rejected rather than returning partial mass. This matches the kernel
+docstring ("...or overhangs the face edge"). Not a defect — a valid typed error,
+never a crash/invalid solid. Guard: `..._recess_edge_overhang_is_too_deep`.
+
+### 6. Blind bore + counterbore stack — volumes sum, CORRECT
+Blind Ø10 bore 8 mm deep + Ø18 counterbore 4 mm at the face: bore removes
+628.3185307179574 (vs π·25·8 = 628.3185307179587), recess removes 703.7167544041167
+(vs π·56·4 = 703.716754404114), total 1332.0352851220741 (vs 1332.035285122072,
+Δ+1.8e-12). 10 faces (6 block + bore wall + bore bottom cap + cbore wall + cbore
+annulus floor), one lump — bore stays blind at 8 mm while the recess seats at the
+face. Guard: `test_blind_bore_plus_counterbore_volumes_sum`.
+
+### 7. Determinism — byte-identical in-process AND across interpreter restart
+6 in-process rebuilds of both recesses → 1 distinct (volume, area, faces, edges,
+shells) signature (`test_recess_cuts_are_deterministic_across_repeats`). Two FRESH
+interpreter processes produced identical reprs: counterbore
+`8510.885082198436 / 3557.6105975943624 / 9/18/1`, countersink
+`8896.253781038786 / 3404.288182471737 / 8/17/1` — matching each golden's
+`expected.json` within its documented 1e-9 tolerance (the direct-kernel volume
+8510.885082198436 vs golden 8510.885082198438 differ by 2e-12, well inside 1e-9).
+
+**Note (pre-existing, not from this commit).** The negative-diameter defence-in-depth
+gap remains an `xfail` (`test_negative_diameter_is_typed_hole_error`): a non-positive
+diameter raises a raw OCCT `Standard_ConstructionError`, not a typed `HoleError`.
+UNREACHABLE from the API (`HoleParamsV1.diameter_mm` is `Field(gt=0)`; the recess
+diameters/angle are likewise bounded), so it stays a low-severity hardening item, not
+a P0. No new schema-reachable path from slice 2 changes this.
+
+**Tolerance note.** All new assertions use `KERNEL_VOL_TOL = 1e-6` mm³ (the existing
+constant), ~6 orders above the observed ≤5e-12 float-noise floor and >8 below the
+whole-mm³ removals — a NEW assertion sized for the boolean residual on rotated/
+break-through bodies, never a loosening of the goldens' 1e-9.
+
+## 2026-07-23 — Revolve construction-centerline axis (`1605a11`) — adversarial geometry QA (geometry-qa)
+
+**Scope.** Independent adversarial verification of the centerline-closes-open-
+profile fix (`kernel/revolve.py::build_revolve_profile_face`: try the shared
+`build_profile_face`; on `ProfileNotClosedError` retry with the axis LINE
+promoted to a real closing edge). The shipped suite (14 tests + the new golden
+`revolve-centerline-cylinder-r12-h20`, 2880π) proves the happy path (cylinder,
+90° partial, open-away-from-axis rejection). I pushed on the two failure modes
+that a green suite can hide: the retry silently **bridging a wrong solid**, and
+a **wrong volume** when the axis promotion straddles/partially-closes the
+profile. **VERDICT: geometry is CORRECT — no P0/P1/P2 geometric defect.** All
+seven probe families matched their analytic / Pappus oracle to ≤3e-15, and every
+must-reject case errors safely (`profile_not_closed` / `axis_intersects_profile`),
+never a solid. Gaps were TEST-COVERAGE only; closed with 6 guard tests in
+`services/geometry/tests/test_revolve.py` (14 → 20, all green; ruff + pyright
+clean). Golden's own gates (mass/topology/mesh + STEP round-trip) re-verified.
+
+### 1. Washer via offset axis + open-at-inner-radius — CORRECT (no bore fill)
+Closed rectangle [6,12]×[0,20] about a separate centerline at x=0 → **6785.840131753952**
+mm³ vs Pappus `2π·R_c·A = 2π·9·(6·20)` = 6785.840131753952 (R_c=9, A=120) — exact.
+The dangerous inverse: the SAME rectangle left OPEN at the inner radius (x=6) with
+the centerline at x=0 does **not** wrongly fill the bore into a cylinder
+(9047.787) — it returns `profile_not_closed` (the promoted axis at x=0 cannot
+reach the open endpoints at x=6). Already covered by
+`test_profile_open_away_from_axis_still_profile_not_closed` (axis_gap=5).
+
+### 2. Axis line SHORTER than the open span — `profile_not_closed` (silent-bridge guard) ✅ NEW
+Half-profile open along x=0 for y∈[0,20], centerline only y∈[0,10]. Promoting the
+short axis edge leaves (0,20) dangling (10 mm gap ≫ 1e-4 wire tol) → correctly
+`profile_not_closed`, NOT a bridged partial solid.
+`test_axis_shorter_than_open_span_is_profile_not_closed`.
+
+### 3. Open at the axis AND elsewhere — `profile_not_closed` (partial-close guard) ✅ NEW
+Profile missing BOTH its on-axis edge and its top edge. The fallback supplies only
+the axis edge, so the top stays open → `profile_not_closed`, never a partially
+closed / wrong solid. `test_profile_open_at_axis_and_elsewhere_is_profile_not_closed`.
+
+### 4. Tilted (non-principal) centerline — CORRECT solid of revolution ✅ NEW
+Closed square [3,5]×[0,1] about the 45° line y=x through the origin → **31.100180567108566**
+mm³ vs Pappus `2π·d·A` with d=|4−0.5|/√2=2.4748737, A=2 → 31.100180567108563
+(**err 3e-15**). The kernel is not restricted to principal axes; a tilted
+construction line resolves to `Axis(origin, dir)` and revolves correctly.
+`test_tilted_construction_centerline_revolves_about_the_tilted_axis`.
+
+### 5. Partial angle 120° + open half-profile — exact one-third ✅ NEW
+120° of the r12/h20 open half-profile → **3015.928947446201** = (120/360)·2880π =
+960π = 3015.9289474462018 exact. Complements the shipped 90° quarter case with a
+non-quarter fraction. `test_construction_centerline_partial_angle_120_is_exact_third`.
+
+### 6. Real on-axis edge vs. open+centerline — BYTE-IDENTICAL body (anti-seam/double-count) ✅ NEW
+The design claim is "closes exactly the face a real on-axis edge would give." A
+rectangle [0,12]×[0,20] closed by a REAL on-axis edge, and the same rectangle left
+open and closed by the retry — with the **same** axis-line direction — produce the
+**same disc**: identical volume (9047.786842338604) AND byte-identical GLB content
+hash (`sha256:218fde…`, 506 v / 500 t / topology 3-3-1). Kernel cross-check: both
+faces = 4 edges / area 240, both solids faces=3 edges=3 verts=2 shells=1, identical
+vertex set. No doubled edge, no extra seam.
+`test_real_on_axis_edge_and_centerline_close_yield_identical_body`.
+*Note (not a defect):* reversing the axis-line direction changes the GLB hash
+(`218fde…`→`51c69a…`) at identical volume/topology — legitimate seam/parametrization
+placement from the revolution direction, expected physics, not nondeterminism.
+
+### 7. Straddling profile closable by the centerline — `axis_intersects_profile` (order guard) ✅ NEW
+The fix reordered evaluate to build the face BEFORE `check_axis_clears_profile`. An
+open profile whose two ends sit on the axis but whose body crosses to BOTH sides
+(x∈[−6,6]) — so the centerline CAN close it into a face — is still rejected
+`axis_intersects_profile`, never a self-intersecting swept solid. The pre-existing
+closed-straddle case ([−5,5]) also still fires. `test_straddling_profile_closable_by_centerline_still_axis_intersects`.
+
+### Usability note (LOW, not a defect — errs safe)
+A centerline drawn LONGER than the profile (endpoints overhang both open ends, e.g.
+axis y∈[−5,25] over a profile y∈[0,20]) returns `profile_not_closed` rather than
+closing — SolidWorks/Fusion tolerate an over-long centerline. This is
+UNDER-acceptance (rejects a valid idiom), never wrong geometry. Filing to the
+groomer as a P3 usability item on the revolve editor, separate from this fix.
+
+### Evidence
+20/20 `test_revolve.py` green; `revolve-centerline-cylinder-r12-h20` golden gates
+(4/4) + STEP round-trip green; byte-deterministic response test green. Probe
+scripts under scratchpad; guard tests are the durable record. build123d 0.11.1 /
+OCCT 7.9 / planegcs, 2026-07-23.
+
+## 2026-07-23 — Assembly STEP import: XCAF product-structure reader (`f75fb26`) — adversarial geometry QA (geometry-qa)
+
+**Scope.** Independent adversarial verification of STEP import slice 1
+(`kernel/step_assembly.py`: `STEPCAFControl_Reader` → `XCAFDoc_ShapeTool` walk
+into per-product `{name, world placement, LOCAL body}`; `has_assembly_structure`
+= `IsAssembly_s` on a free root; `assembly/import_step.py` tessellate +
+content-address + measure; `POST /api/v1/assembly/import`). The shipped 10-test
+suite proves the FLAT round-trip (one XDE level: root → N leaves, incl. ONE 50°
+off-axis case vs a Rodrigues oracle). I pushed past what a flat round-trip can
+reach — location composition under nesting, name↔placement pairing at scale, the
+`has_assembly_structure` boundary, repeated-part poses, and cross-restart
+determinism. **VERDICT: geometry is CORRECT — no P0/P1/P2 geometric defect.**
+Every probe matched an independent Rodrigues oracle (built without a quaternion,
+so a shared quat-convention bug cannot hide). Gaps were TEST-COVERAGE only;
+closed with 7 guard tests in `test_step_assembly_import.py` (10 → 17, all green;
+pyright + ruff clean).
+
+### 1. Nested sub-assembly placement composition (parent∘child order) — PASS
+The highest-value probe: a flat round-trip cannot reach the reader's recursion
+(`_collect_components` → `world = parent_location.Multiplied(component_location)`),
+so a child∘parent order bug would be invisible to the shipped suite. Authored a
+genuine nested assembly (a Compound-of-Compound → OCCT writes real NAUO
+sub-assembly structure, NAUO count 3) with a sub-assembly at 30°/Z @ (100,0,0)
+whose children carry their OWN local placements (leafA 45°/X @ (0,50,0); leafB
+identity @ (0,0,20)). Recovered WORLD centroid vs oracle `R_sub·R_child·c +
+R_sub·ct + st`:
+
+| leaf | expected world centroid | recovered | max abs err |
+|------|-------------------------|-----------|-------------|
+| leafA | (81.09789, 42.73941, 17.67767) | identical | **4.4e-12** |
+| leafB | (99.33013, 11.16025, 35.0) | identical | 4.4e-12 |
+
+3-level deep nesting (25°/Z ∘ 40°/X ∘ 20°/Y) also composes correctly: max err
+**4.4e-12**. Composition order is right (`Multiplied` = parent·child).
+
+### 2. Repeated sub-assembly instanced twice (deepest composition) — PASS
+One sub-assembly (2 leaves) instanced twice under root at different placements
+(30°/Z @ (100,0,0) and 60°/Y @ (-100,20,5)); NAUO count 6 → 4 leaf products.
+Each leaf's two occurrences recovered at their own correct world pose, matched
+as unordered sets: max err **0.0** (at 4-dp), well within tol. Shared-prototype
+expansion is correct.
+
+### 3. Many products, 5 distinct off-axis rotations — PASS (no swap)
+5 products, each a different non-axis-aligned quaternion. Every name recovered,
+name↔placement pairing intact (no swap across dedup + XDE ordering). Per-product
+world-centroid err ≤ **9.7e-12**, rotation-matrix err ≤ **5.0e-13** vs Rodrigues.
+
+### 4. `has_assembly_structure` boundary — PASS (both sides)
+| file | NAUO | expected | actual |
+|------|------|----------|--------|
+| single-component "assembly" (1 NAUO) | 1 | true | **true** (name + placement recovered) |
+| flat multi-solid part (Compound of 3 solids) | 0 | false → MB-4b | **false**, 1 product |
+| flat single body | 0 | false | **false**, 1 product |
+
+A single-NAUO file genuinely carries product structure → `true` is correct; a
+flat multi-lump part is correctly NOT mis-detected as an assembly.
+
+### 5. Repeated part at DIFFERENT placements — PASS
+Two occurrences of one box at 37°/X @ origin and 88°/Z @ (200,10,0): ONE shared
+content-addressed mesh id (dedup intact) BUT two DISTINCT placements, each world
+centroid correct to **≤2.5e-12**. Dedup does not collapse distinct poses.
+
+### 6. Determinism across interpreter restart — PASS
+The `TDocStd_Document`-kept-alive / process-global `Interface_Static` gotcha:
+ran the read in 3 fresh interpreters over a 3-product assembly incl. two off-axis
+rotations → **byte-identical** placement digests (float `repr` identical, no
+drift/leak). Guard test uses two `sys.executable` subprocesses.
+
+**Guard tests added** (test code only; no kernel/app source touched):
+`test_nested_subassembly_composes_parent_then_child`,
+`test_repeated_subassembly_instanced_twice`,
+`test_many_products_distinct_rotations_no_swap`,
+`test_single_component_assembly_is_true_at_boundary`,
+`test_flat_multi_lump_has_no_assembly_structure`,
+`test_repeated_part_distinct_placements_both_correct`,
+`test_structured_read_is_deterministic_across_restart`. All tol assertions use
+the documented `roundtrip_tol` (1e-7); measured deviations are ~1e-12, so the
+bound is a ceiling with ~5 orders of margin, not a fit. No defects filed.
+
+## 2026-07-23 — Assembly interference/collision detection (`e46db16`) — adversarial geometry QA (geometry-qa)
+
+**Scope.** Independent adversarial verification of the clash-detection P1
+(`kernel/interference.py::intersection_volume` = `BRepAlgoAPI_Common` + GProp;
+`assembly/interference.py::check_interference` = pairwise over `solve_assembly`;
+`CLASH_VOLUME_FLOOR_MM3 = 1e-12`). The shipped 6-test suite only exercised
+axis-aligned boxes at identity/translation. Probed the five highest-risk gaps
+(rotation accuracy incl. transpose/order, floor correctness at grazing contact,
+multi-lump Compound parts, N-pairwise completeness, determinism).
+**VERDICT: geometry is CORRECT — no P0/P1 geometric defect.** All five probes
+matched hand-derived analytics. Real gaps were TEST-COVERAGE only; closed with
+6 guard tests. One non-geometry lint-gate escape found (🟡, filed).
+
+### 1. Rotation accuracy incl. transpose/order — PASS (exact, transpose-proof)
+Highest-value check. Box (local x[0,40] y[0,25] z[0,10]) placed on instance B
+with a +90° rotation about +Z (`q=(0,0,√2/2,√2/2)`) then `t=(30,0,0)`, run
+through the full `check_interference` -> `_world_body` -> `place_body` path.
+Correct `R(q)` maps local (lx,ly)->(-ly,lx) so B spans x[5,30] y[0,40] z[0,10];
+overlap with A(x[0,40] y[0,25] z[0,10]) = 25 x 25 x 10 = **6250 mm³**.
+
+| quantity | value |
+|---|---|
+| analytic overlap | 6250.0 mm³ |
+| measured (`overlap_volume_mm3`) | **6250.0** (err 0.0) |
+
+Discriminator: a transposed/inverted rotation (`R(q)ᵀ` = the -90° rotation)
+would place B at x[30,55] y[-40,0] -> ZERO overlap -> no clash. Reporting exactly
+6250 proves the shared `place_body` quaternion->`gp_Trsf` handedness/order is
+correct on the clash path (consistent with the STEP-export rotation audit,
+`b7408fd` entry below). Non-axis-aligned cross-check: both instances rotated
+about the (1,1,1) body diagonal by 37° with B's offset = `R(q)·(30,0,0)` (rigid
+invariance) -> measured **2500.000000000001 mm³** (err 9.1e-13, well within
+rel-tol 1e-6). Guard tests: `test_rotated_placement_matches_analytic_and_catches_transpose`,
+`test_non_axis_aligned_rotation_preserves_overlap_volume`.
+
+### 2. Floor correctness at grazing contact — PASS (floor is defensible)
+The `1e-12 mm³` floor = one kernel-tolerance cube `(1e-4 mm)³`.
+
+| case | overlap depth | analytic vol | reported? |
+|---|---|---|---|
+| thin-but-real interpenetration | 0.001 mm on 25x10 face | 0.25 mm³ | **YES** (measured 0.24999999999941733) |
+| sub-floor sliver | 4e-16 mm (vol ~1e-13) | <floor | **NO** (clashes=[]) |
+| just-touching coincident face (shipped) | 0 | 0 | NO |
+
+The floor is conservative by ~10 orders of magnitude: the smallest RESOLVABLE
+interference on this geometry (depth = kernel tol 1e-4 mm on the 25x10 face) is
+0.025 mm³ = 2.5e10 x the floor, so the floor cannot hide a real thin interference.
+It cannot admit a numerical sliver either — a volume can only exceed 1e-12 mm³
+with a linear dimension >> kernel tol, and OCCT returns an empty common for any
+sub-tolerance-depth contact (verified: a synthetic "just above floor" target of
+vol ~1e-11 requires depth 4e-14 mm, far below kernel tol -> OCCT forms no common
+-> correctly no clash). Guard test: `test_thin_but_real_interpenetration_is_reported`.
+
+### 3. Multi-lump Compound part instance — PASS (sums across lumps)
+Instance of `multibody-two-disjoint-boxes` (cube A x[0,20] + cube B x[30,50],
+both y[0,20] z[0,20]) vs a 40x25x10 box at (10,5,5) (x[10,50] y[5,30] z[5,15])
+that pierces BOTH cubes: overlap with A = 10x15x10 = 1500; with B = 20x15x10 =
+3000; **total 4500 mm³**. Measured **4500.0** (err 0.0). Confirms the kernel
+integrates ALL solids of the common (`Compound(children=solids)` roll-up), not
+just the first lump. Guard test: `test_multi_lump_part_sums_overlap_across_both_lumps`.
+
+### 4. N-pairwise completeness — PASS (all pairs, each once, none dropped)
+4 instances A@0 B@30 C@35 D@200:
+
+| pair | analytic | measured |
+|---|---|---|
+| (A,B) | 2500 | 2500.0 |
+| (A,C) | 1250 | 1250.0 |
+| (B,C) | 8750 | 8750.0 |
+| any D pair | none | not reported |
+
+Exactly 3 clashes; no self-pair, no duplicate `(B,A)`, D isolated. Guard test:
+`test_four_instances_report_every_clashing_pair_once`.
+
+### 5. Determinism — PASS (in-process + fresh interpreter, incl. rotated pair)
+Repeated `check_interference` calls (incl. the rotated-B graph) -> bit-identical
+clash ordering AND volumes. Cross-interpreter (two fresh `uv run python`
+processes) reproduced identical `(1,2)=6250.0`, `(1,3)=1249.9999999999998`.
+Ordering follows the fixed request-instance pair scan. Guard test:
+`test_clash_list_is_deterministic_across_repeated_calls`.
+
+### 🟡 FINDING (non-geometry): `e46db16` shipped a ruff-RED test file — file for kernel-architect
+`services/geometry/tests/test_assembly_interference.py` as committed fails the
+lint gate under the LOCKED ruff (0.15.20, the version CI's `uv sync --locked`
+installs): **9 errors — 8× RUF002** (docstrings use U+00D7 `×` MULTIPLICATION
+SIGN, ambiguous with `x`; this file is the ONLY Python file in the repo using
+`×` — every other file uses ASCII `x`, e.g. `40x25x10`) **+ 1× SIM300**
+(yoda-condition `CLASH_VOLUME_FLOOR_MM3 == pytest.approx(1e-12)`). `uv run ruff
+check .` from repo root on clean HEAD returns `Found 9 errors`. The commit's
+"just lint (ruff+pyright) clean" claim was contradicted — almost certainly the
+CLAUDE.md "ruff version skew" trap (author ran a `ruff <0.15` that predates the
+`×` confusable rule; the locked/CI ruff flags it). **Severity 🟡** (P3 — lint
+only, zero geometric or runtime impact). **Fixed in place** as part of this
+test-territory pass: normalized 27 `×`/`−` glyphs to ASCII (behaviour-neutral,
+matches repo convention) and the yoda condition; whole file now `ruff check` +
+`ruff format --check` + `pyright` clean.
+
+### Guard tests added (test-code only, geometry-qa territory)
+6 new tests in `test_assembly_interference.py` encoding cases 1-5 above; full
+file **12/12 green**, `just lint`-clean. No kernel/app source touched — the
+implementation held up under every adversarial probe.
+
+---
+
+## 2026-07-23 — Assembly STEP export (`b7408fd`) — adversarial geometry QA (geometry-qa)
+
+**Scope.** Independent adversarial verification of the assembly export P0 beyond
+the two committed 2-instance goldens: determinism completeness, round-trip
+fidelity at scale (3+ instances / non-axis-aligned rotation / repeated part),
+PRODUCT traceability under a repeated part, STL parity, and the `solve_assembly`
+extraction. **VERDICT: geometrically sound — no P0/P1 defects.** One 🟡 test-
+coverage gap found and CLOSED with a guard test.
+
+### 1. Rotation convention — PASS (correct order, no transpose)
+`_placed_body` builds `gp_Quaternion(x,y,z,w)` → `gp_Trsf.SetRotation` +
+`SetTranslationPart`, i.e. `world = R(q)·local + t`. Verified across THREE
+independent implementations for a 50° rotation about the off-axis (1,2,3),
+`local=(3,−7,11)`, `t=(5,−2,8)`:
+
+| implementation | world point |
+|---|---|
+| Rodrigues reference (numpy, no quat) | `(16.29325812, −5.78631373, 14.09312312)` |
+| `Pose.apply_point` (numpy quat matrix) | `(16.29325812, −5.78631373, 14.09312312)` |
+| OCCT `gp_Quaternion`→`gp_Trsf` (path under test) | `(16.29325812, −5.78631373, 14.09312312)` |
+
+Agree to ~1e-14. A transpose (→ rotation by −θ) or a `(w,x,y,z)` component swap
+would diverge here; they do not.
+
+### 2. Round-trip at scale — PASS (3 instances, repeated part, rotated)
+Synthetic 3-instance assembly, ALL sharing one `part_key` (repeated part), inst-3
+rotated 50° about (1,2,3), no mates (grounded → seed == solved). Export STEP →
+`import_step` → 3 solids recovered, bijectively matched to solved poses:
+
+| instance | centroid err | vol err | area err |
+|---|---|---|---|
+| id 1 (identity) | 1.07e-13 | 4.55e-11 | 4.14e-11 |
+| id 2 (t=(100,0,0)) | 9.95e-14 | 4.73e-11 | 4.14e-11 |
+| id 3 (rotated) | 1.28e-11 | 4.55e-11 | 4.14e-11 |
+
+Worst 4.7e-11, ~3 orders inside `ROUNDTRIP_TOL` (1e-7). Solve status
+`well_constrained`; 0 solids lost.
+
+### 3. PRODUCT traceability under a repeated part — PASS
+3 instances / 1 part_key → PRODUCT names `{root(0x270f), id1, id2, id3}`, each
+instance id appearing exactly once. Repeated part does NOT collide/dedup the
+occurrences (the XCAF label per placed child is distinct). Distinct-name count
+`{id1:1, id2:1, id3:1}`.
+
+### 4. Determinism completeness — PASS (canonicalisation is COMPLETE)
+The builder's claim is that `NEXT_ASSEMBLY_USAGE_OCCURRENCE` ids are the ONLY
+nondeterministic byte range beyond the pinned `FILE_NAME` timestamp. **Stressed
+by diffing two RAW (pre-canonicalisation) exports of an identical 3-instance
+structure separated by 5 counter-advancing exports** — every byte range OCCT
+varies is exposed:
+
+```
+raw1 71350 bytes / raw2 71353 bytes — differing lines: 3
+  #548  NAUO('1' → '19')
+  #1065 NAUO('2' → '20')
+  #1582 NAUO('3' → '21')
+NON-NAUO differing lines: 0    ← canonicalisation is complete
+canonicalised(raw1) == canonicalised(raw2): True
+```
+
+Zero non-NAUO drift: no entity `#N` id, PRODUCT id, or label tag leaks a global
+counter. End-to-end `export_assembly` confirmed byte-identical for the same
+request after interleaving 3 STEP + 3 STL + 3 evaluate calls (in-process), and
+the shipped restart/hash-seed gate passes. Input reordering yields *different*
+bytes (a different request — expected), and forward order is stable across a
+reorder in between.
+
+### 5. STL parity — PASS
+3-instance rotated assembly → binary STL, 3084 triangles, 154284 bytes; vertex
+bbox `[−9.08,−2.52,−5.32]..[140,43.23,25.67]` covers the far instance at x=100
+(placements baked correctly). Byte-identical under interleaved STL exports.
+
+### 6. `solve_assembly` extraction — PASS (pure refactor, no regression)
+`evaluate_assembly` now delegates to the extracted `solve_assembly` and runs the
+identical `instances_out`/roll-up loop; `test_assembly_goldens` +
+`test_assembly_evaluate` (both bolted + gap goldens, mass-property + solve golden
+values) stay green. No result changed.
+
+### 🟡 Coverage gap found → CLOSED (geometry-qa contribution)
+**Both** shipped goldens (`assembly-two-plates-{bolted,gap}`) solve EVERY instance
+to the IDENTITY orientation (verified in each `expected.json`). So the shipped
+round-trip suite **never exercised a non-identity rotation through the
+`_placed_body` gp_Quaternion path**, nor 3+ instances, nor a repeated part — a
+transpose or `(w,x,y,z)` swap maps identity→identity and would have passed the
+entire suite while placing every rotated body wrong (the "green suite, wrong
+geometry" failure mode). Added guard
+`test_step_assembly_export_nonidentity_rotation_roundtrip` to
+`test_assembly_export.py`: 3 instances of one repeated part, inst-3 rotated 50°
+about (1,2,3), round-tripped against an INDEPENDENT Rodrigues world-centroid
+oracle (hand-derived plate props, measured == OCCT to 0.0) within `roundtrip_tol`,
+plus distinct-PRODUCT-name assertions. **Runs green** (`pytest -k
+nonidentity_rotation` → 1 passed; full `test_assembly_export.py` → 14 passed;
+`ruff format`/`check` clean). Recommend the kernel-architect ALSO commit a
+persistent rotated multi-instance golden under `goldens-assembly/` so the case is
+locked as a golden, not only a synthetic guard (🟡 backlog item, not a defect).
+
+---
+
+## 2026-07-23 — Assembly STEP export (AP214 product structure) — determinism decision (kernel-architect self-report)
+
+**Feature:** `POST /api/v1/assembly/export` composes a solved assembly into ONE
+multi-instance STEP/STL. STEP writes AP214 product structure via build123d's XCAF
+`STEPCAFControl_Writer` (auto-naming off → our per-child labels become the PRODUCT
+names): each instance a named PRODUCT positioned at its SOLVED world placement.
+
+**Determinism (RESEARCH §9) — one NEW nondeterministic byte range beyond the
+timestamp.** The XCAF assembly path stamps each `NEXT_ASSEMBLY_USAGE_OCCURRENCE`
+with an **id string from an OCCT process-global counter** that increments across
+writer invocations, so a second in-process export of the same graph differs ONLY
+in those id fields (verified: a 3-instance box assembly diffed exactly the N NAUO
+id lines, `'1','2','3'` → `'3','4','5'`, nothing else). The id is an arbitrary
+label — STEP cross-references use `#N` entity ids, never this string — so
+`geometry.kernel.export._canonicalise_occurrence_ids` renumbers them to
+appearance order (`1..N`, itself deterministic), making the whole file
+byte-identical for identical requests. This is the assembly analogue of the
+pinned `FILE_NAME` timestamp (gap #4); both are provenance labels, not geometry.
+
+**Evidence (`tests/test_assembly_export.py`, over the two bolted goldens):**
+STEP+STL byte-identical across 2 in-process exports AND a fresh interpreter under
+a different `PYTHONHASHSEED`; worked export → `build123d.import_step` → each part
+body recovered at its solved placement (world volume/area/centroid within the
+kernel round-trip bound 1e-7); every instance id present as a PRODUCT name
+(traceability); a body-less assembly → clean 422 `assembly_export_no_body`, never
+a zero-solid file. Single-part `/export` path untouched.
+
+## 2026-07-23 — SECTION VIEWS v1 independent audit (commit 137a929) — 🔴 WRONG-HALF BUG
+
+**VERDICT: 🔴 P0 correctness defect found — the FRONT (XZ / Y-normal) section cuts the
+WRONG HALF.** Section-face geometry, hatch carve, honest degradation, determinism, and
+no-perturbation-of-shipped-goldens all PASS. But the flip/eye/tool-sign coupling is
+correct on only TWO of the three principal planes; the front view (the single most
+common section, "Section A-A" on the front) silently removes the far half and keeps
+the eye-side stub. This is exactly the WF-1 "silently-wrong drawing" class.
+
+**Root cause (single, precise).** `section.py::_half_space_tool` derives which half to
+remove from the **sign of the cut plane's `z_dir`**:
+```
+normal_sign = +1 if plane.z_dir[axis] >= 0 else -1
+remove_dir  = tool_sign * normal_sign        # <-- WRONG driver
+```
+Design §4 and the module's own `resolve_section_frame` say the removed half must key off
+the **standard-view eye** `eye_N = view_normal(view)`, NOT the datum's normal sign
+("keying off the axis (not the sign) is what makes this single-valued"). The two agree
+only when `eye_N` points along `+axis`:
+
+| plane | view | eye_N (view_normal) | datum z_dir | agree? |
+|---|---|---|---|---|
+| XY | top | **+Z** | +Z | yes → correct |
+| YZ | right | **+X** | +X | yes → correct |
+| XZ | **front** | **−Y** | +Y | **NO → wrong half** |
+
+**Evidence (independent, `section_cut` on a box `[0,10]` along each axis, cut at 5,
+flip=false — flip=false must remove the eye-side half, so `remaining` must be the FAR
+half):**
+```
+axis=YZ  view=right  remaining coord[0]=(0.000, 5.000)  expected far=(0,5)   OK
+axis=XZ  view=front  remaining coord[1]=(0.000, 5.000)  expected far=(5,10)  *** WRONG HALF ***
+axis=XY  view=top    remaining coord[2]=(0.000, 5.000)  expected far=(0,5)   OK
+```
+For the front section, flip=false keeps y∈[0,5] (the −Y / eye side) and removes y∈[5,10]
+(the +Y / far side) — the exact inverse of the reviewed top-view convention. On an
+along-N-asymmetric part (slab y∈[0,10] + boss on the +Y face) the rendered front section
+therefore shows the plain slab when it should show the slab+boss, and vice-versa for
+flip=true — a wrong drawing with no error raised.
+
+**Second symptom, same root cause (sign-dependence).** Because the driver is `plane.z_dir`
+sign, the SAME geometric XZ plane authored with `z_dir=+Y` vs `z_dir=−Y` removes OPPOSITE
+halves for the same `flip` — non-canonical; a datum's arbitrary orientation must not
+change the cut. (`test_flip_is_not_datum_normal_sign_dependent`.)
+
+**Why the shipped 14 tests missed it.** (a) The wrong-half golden exercises ONLY the XY /
+top plane — the one plane where the sign bug is invisible. (b) The boss is always on the
+`+axis` side and the code always removes the `+axis` half, so a naive "boss cut away"
+assertion passes for the front too — but its *semantic label* ("removes the eye-side
+boss") is false there. Testing all three planes against `view_normal` as ground truth is
+what exposes it (the audit's explicit ask).
+
+**One-line fix for the builder (do NOT apply here — territory is tests/docs):** in
+`_half_space_tool`, replace `normal_sign` with the eye sign of the resolved view,
+`eye_sign = view_normal(view)[axis]`, and `remove_dir = tool_sign * eye_sign`. Verified by
+hand to make all three planes correct AND remove the z_dir-sign dependence. The strict
+`xfail`s I added flip to failures the moment this lands, forcing their removal.
+
+### The other four gates — PASS (independent verification)
+
+**2. Section face + hatch (PASS).** Bored 40×25×10 plate, two Ø10 through-holes, cut z=5:
+section area = **842.9204 mm²** vs analytic `1000 − 2·π·5² = 842.9204` (exact to 1e-4);
+one outer loop + two hole loops. Hatch carve is REAL, not "less length": sampling every
+segment of the 40×40-with-10×10-hole crosshatch, **0** interior points fall inside the
+hole (point-in-polygon), i.e. no segment crosses the carved region. Byte-determinism
+re-confirmed in-process and across a fresh interpreter (shipped
+`test_section_hatch_is_deterministic_across_interpreter_restart`, green).
+
+**Off-centre-offset half vs. notch (PASS, audit 🟡3).** A body spanning `[0,40]` cut at
+25 (well off centre) on each principal axis yields a single clean slab (vol 30000 =
+30·30·25, one lump, cut face at 25) — a HALF, never a notch — on all three axes.
+`test_off_centre_offset_is_a_clean_half_not_a_notch[0,1,2]` green. NB the front axis still
+half-cuts cleanly; it just keeps the wrong half (orthogonal to the notch concern).
+
+**3. No perturbation of shipped drawings (PASS).** Full standard-view / flat-pattern /
+export / composer golden suites (`test_drawings_compose`, `_project`, `_evaluate`,
+`test_goldens`, `test_export`, `test_sheet_metal_flat_pattern_{bytes,sheet}`) are
+byte-identical — the additive `section` branch shifted no existing projected geometry.
+
+**4. Honest degradation (PASS).** All five typed outcomes hold, never a crash/500/wrong
+output: non-principal normal → `SectionPlaneNotPrincipalError` / `section_plane_not_principal`;
+plane misses body → `SectionMissesBodyError` / `section_plane_misses_body`; whole-body
+removal → `SectionEmptyError` / `section_empty`; coincident face → `section_empty`;
+unresolved datum ref → `subshape_unresolved`; missing params → `section_params_missing`.
+
+**5. STEP round-trip / export (N/A — confirmed).** A section is a DRAWING view: the
+`remaining` body is projected to 2D edges + hatch and never STEP-exported. `test_export`
+is untouched and green — no body-export path is affected.
+
+### Adversarial goldens/tests added — `services/geometry/tests/test_drawings_section_audit.py`
+- `test_flip_false_removes_the_eye_side_half[0,1,2]` — all-3-planes eye-side check vs
+  `view_normal`; front (`[1]`) marked `xfail(strict)` (the 🔴).
+- `test_flip_true_removes_the_far_side_half[0,1,2]` — the mirror; front `xfail(strict)`.
+- `test_flip_is_not_datum_normal_sign_dependent` — `xfail(strict)` (sign-dependence 🔴).
+- `test_off_centre_offset_is_a_clean_half_not_a_notch[0,1,2]` — half-not-notch (PASS).
+- `test_bored_section_face_area_is_analytic_exact` — 842.9204 mm² (PASS).
+- `test_no_hatch_segment_crosses_a_hole_interior` — point-in-polygon carve (PASS).
+- `test_section_cut_loops_are_deterministic_in_process` (PASS).
+
+Result: **10 passed, 3 xfailed** (the 3 strict-xfails ARE the 🔴 — they will XPASS→fail
+and demand removal the instant the fix lands). `ruff`/`pyright` clean.
+
+**Action for the groomer:** file **P0 — front (XZ) section view cuts the wrong half**
+against the section-views item, with this root cause + one-line fix. Reachable from the
+UI (any XZ-plane / offset-XZ datum section, flip default).
+
+## 2026-07-19 — Sheet-metal FULL 4-CORNER PAN corner relief (kernel-architect self-report)
+
+**SHIPPED.** The canonical sheet-metal use case — a pan/box with ALL FOUR corners
+relieved (every adjacent flange pair shares a flange) — now relieves cleanly. Two
+usability gaps from code review, both root-caused to resolution being coupled to the
+cut and the un-notched reference being a lazy first-relief snapshot:
+
+- **Shared-flange gap (the blocker).** A second relief SHARING a flange with an earlier
+  relief failed `subshape_unresolved`: the earlier notch shortens the shared flange's
+  bend cylinder and shifts its area centroid past the 1e-6 signature match tolerance,
+  so it no longer resolved against the LIVE (already-notched) body. Fix: resolve every
+  relief against a CLEAN un-notched reference (`corner_relief_tools`) and cut the
+  accumulated notches from the live body (`cut_relief_tools`).
+- **Flange-after-relief gap.** The reference was snapshotted at the first relief, so a
+  bend from a LATER flange was in `bend_provenance` but not the snapshot → a valid 3D
+  body with a broken (`subshape_unresolved`) flat pattern, every feature `ok`. Fix: the
+  reference is maintained by the FOLDS (option (a)) — a flange after a relief develops a
+  correct flat pattern.
+
+**Flagship golden `pan-four-corner-relieved`** (base 40×30×2, 4 edge flanges off all
+four edges lengths 20/15/25/10, 4 corner reliefs `relief_ratio 1.5` → size 3.0):
+- All 10 features `ok`; body is ONE shell, topology `{faces:46, edges:132, shells:1}`.
+- `bend_widths_mm = [24, 24, 34, 34]` — each of the four flanges notched at BOTH ends
+  (30-wide → 24, 40-wide → 34). The relieved body's 3D inner bend cylindrical-face
+  widths equal these to ~1e-14.
+- **Fold-back over all EIGHT flange notches:** removed volume **517.5928947446** ==
+  removed flat area × t (**508.5451079023**) + 8-notch bend bias
+  (`8·size·(π/2)·t²·(0.5−K)` = **9.0477868423**), residual ~1e-9.
+- flat_area **4248.9840107638**, content_hash **e56065b5…c68c2** (byte-deterministic).
+- All existing sheet-metal goldens BYTE-UNCHANGED (single/opposite-corner relief and
+  the unrelieved pan take the identical paths — the clean reference equals the live body
+  when no notch precedes).
+
+`test_sheet_metal_four_corner_pan.py` (10 tests) + `test_flange_after_relief_*` gate
+both fixes end-to-end through `evaluate_tree`. Auto-relief is now a genuine fast-follow.
+
+## 2026-07-19 — Sheet-metal CLOSED HEM (kernel-architect self-report)
+
+**SHIPPED.** First-class `SheetMetalHemParamsV1` (`type="sheet_metal_hem"`): a
+closed hem folds the picked edge ~180° flat back onto the parent at a small inner
+radius — mechanically a specialization of the shipped edge flange, reusing
+`build_edge_flange` at `bend_angle_deg=180` + the shipped `unfold_sheet_metal`
+verbatim (the edge-flange and hem evaluators DRY-share `_fold_flange_off_edge`).
+
+**Tractability finding (the uncertain part) — VERDICT: TRACTABLE, no wall, no
+guard needed.** The feared near-flat degeneracy does NOT occur. Probed
+`build_edge_flange` at 180° across radii r ∈ {1.0, 0.5, 0.2, 0.1, 0.05, 0.01,
+5e-3, 1e-3, 1e-4, 1e-6} and legs {0.5 … 500}: **every case is ONE valid solid**
+(BRepCheck `IsValid()`=True, one shell), correct analytic volume. Reason: the
+folded return sits ~2·radius ABOVE the base with an air gap, so the two layers
+never share a coincident plane — the fold-back is structurally incapable of
+self-intersecting. The unfold develops it correctly as a bend at π
+(BA = π·(r + K·t)), angle exactly 180°.
+
+**Golden `closed-hem-plate`** (plate 50×20×2, closed hem r=1, return 15, K=0.44):
+- BA = π·(1 + 0.44·2) = π·1.88 = **5.9061941887488105** — measured == analytic,
+  residual **0.0** (the r=1 mm inner arc resolves EXACTLY, unlike the r=3 mm
+  L-bracket's 2.9999999999999933).
+- flat_length = 50 + BA + 15 = **70.90619418874881** (measured == analytic).
+- flat_area = 1000 + 300 + BA·20 = **1418.123883774976** = flat_length·20 (§9 #2
+  area conservation; the blank is a rectangle).
+- Fused body: **one valid solid**, volume **2851.327412287183** mm³ (analytic
+  2851.3274122871835, residual ~9e-13, within 1e-6), topology faces=10/edges=24/
+  shells=1. Outline = 4 body edges + 1 bend line, angle 180°, direction up.
+- Byte-deterministic in-process AND across a fresh interpreter restart
+  (content_hash `6e0b1657…2809`).
+
+**Honest degradation (parity §3):** a zero-radius/zero-gap (degenerate) hem is a
+typed schema rejection (`bend_radius_mm > 0`); a kernel fold failure inherits
+`build_edge_flange`'s typed `EdgeFlangeError` → `edge_flange_failed` (proven by a
+forced-failure test — the real geometry never fails, so this locks the
+error-mapping guard); unresolvable edge → `subshape_unresolved`; no prior body →
+`no_prior_body`. Never a raw kernel exception or an invalid solid.
+
+**Existing goldens byte-unchanged** (empty relief set / non-hem trees take the
+verbatim shipped paths). Full `tests/` suite green; 18 hem tests. Deferred:
+open/teardrop/rolled hems (curved cross-section) + a Hem authoring UI slice.
+
+## 2026-07-19 — Sheet-metal CORNER RELIEF v1 (kernel-architect self-report)
+
+**SHIPPED + fold-back P0 reconciled (code-review request-changes).** v1 =
+**rectangular** relief for a **depth-1 adjacent-flange tray corner**, driven by one
+`CornerRelief` spec (names the two bends by their `CylindricalFaceSignature` +
+`size_mm`). Golden `corner-tray-relieved-unfold` reuses the `corner-tray-perp-unfold`
+tree (40×30 base + two ⟂ edge flanges) with a valid **size 3.0 = bend_radius**
+relief (was 2.0, below the §4.4.3 floor — fixed).
+
+**The bug (why the model lied about the part):** the 3D relief (a `2·size` box
+centred on the bend-axis crossing) and the flat pattern (a full-length flange inset)
+modeled DIFFERENT reliefs — the box never reached the outboard folded walls (removed
+~24.8 mm³, walls left full width 30/40) while the flat narrowed the whole flange
+(walls 28/38, removed 118 mm²). Folding the flat blank did NOT reproduce the 3D
+body. **Fix:** both halves now model the SAME **local corner notch** — width `size`,
+developed depth `BA+size`, wall FULL width above it (not a full-length narrowing).
+The 3D cut is one per-flange slot (`_flange_notch_box`) that cuts from the base
+corner through the full bend arc and `size` up the folded wall, so it is the folded
+image of the flat notch. Evidence (build123d 0.11.1 / OCCT 7.9, tol 1e-9, vol tol
+1e-6):
+
+- **Fold-back cross-consistency gate (NEW — the missing test this class shipped
+  without):** (1) the relieved body's INNER bend cylindrical-face widths = **[27.0,
+  37.0]** == the flat `bend_widths_mm` (fold line shortened identically); (2) removed
+  3D volume **129.3982236861566 mm³** == removed flat area×t + bend term =
+  63.5681384877852·2 + Σ`size·angle·t²·(0.5−K)` (2.2619467…) = 129.39822368615503,
+  matching to ~1e-11. A half modeling a different relief fails this by ~100 mm³.
+- **Area conservation with the LOCAL notch subtracted (§9 #2):** relieved `flat_area`
+  3163.0601438697086 = unrelieved 3226.628282357494 − removed 63.5681384877852, where
+  removed = base corner square (3²=9) + 2× per-flange notch (3·(BA+3)=27.284…),
+  BA=6.094689747964199 — **leg-length-independent** (both flanges remove the same
+  local notch, unlike the old inset). Outline body loop's shoelace area = flat_area
+  exactly.
+- **Outline = ONE closed loop with a reentrant L-shaped notch** (10 body edges + 2
+  fold lines), verified non-convex. Envelope unchanged (the notch is a LOCAL bite at
+  the concave corner; far ends keep full extent + full width).
+- **3D notch:** relieved vol 6350.247719318986 vs base 6479.645943005143, ONE
+  connected shell, topology faces=20/edges=54/shells=1, deterministic.
+- **Determinism (§9 #4):** relieved `FlatPattern` content_hash `c1671448…`
+  byte-identical in-process AND across a fresh interpreter restart.
+- **Honest degradation (never a wrong blank / raw crash):** fully-welded depth-2 box
+  corner stays a TYPED `UnfoldStarError` even WITH a relief; parallel-named relief →
+  typed (`CornerReliefError` / `UnfoldStarError`); unresolvable bend →
+  `subshape_unresolved` (§5); a non-axis-aligned corner → `CornerReliefError`.
+- **Regression gate:** ALL existing depth-1/depth-2 goldens BYTE-UNCHANGED — the
+  relieved path runs ONLY when `reliefs=...` is supplied. Full `pytest tests/` green.
+
+## 2026-07-19 — Corner relief WIRED as an authorable feature (kernel-architect self-report)
+
+**Closed the dead-capability gap:** the relief geometry above was reachable only
+from tests. Now `SheetMetalCornerReliefParamsV1` (`type="sheet_metal_corner_relief"`,
+two edge-flange `FeatureRef`s + `relief_ratio`/`size_mm`, EXPLICIT per §4.4.2) is a
+real feature registered in all six arms; its evaluator cuts the 3D notch and records
+the relief so the flat-pattern unfold + the drawing `flat_pattern` view develop the
+matching relieved blank. Fold-back invariant now proven at the **pipeline** level.
+
+- **New golden `corner-tray-relieved-feature`** — the relieved-tray tree + an authored
+  `sheet_metal_corner_relief` feature (`relief_ratio 1.5` → size 3.0 at gauge 2.0).
+  Evaluating it: 5/5 features ok; the evaluated body is the RELIEVED body (vol
+  **6350.247719318986**, topology faces=20/edges=54/shells=1); the pre-relief snapshot
+  (`unfold_body`) has the base vol **6479.645943005143**; the pipeline flat pattern's
+  content_hash is **`c1671448…`** — BYTE-IDENTICAL to the unit `corner-tray-relieved-unfold`
+  golden (same relief, same computation), proving the feature drives the SAME two halves.
+- **Pipeline fold-back gate (`test_sheet_metal_corner_relief_feature.py`, 12 tests):**
+  reproduces both witnesses reached entirely through `evaluate_tree` — the evaluated
+  relieved body's inner bend cylindrical-face widths == flat `bend_widths_mm` [27.0,
+  37.0], and removed 3D volume (snapshot − relieved) == removed flat area×t + bend term
+  to ~1e-11. Also asserts the drawing `flat_pattern` view develops the relieved outline
+  (10 body + 2 bend edges, 2 bend-table rows).
+- **Pipeline finding (recorded):** the unfold must resolve bends on the un-notched body
+  — the notch shifts the bend cylindrical-face centroid past the `_CENTROID_TOL_MM`
+  (1e-6) match tolerance — so the evaluator snapshots the pre-relief body once, and the
+  unfold resolves against that while applying the relief analytically (§4.4.4).
+- **Honest degradation, typed at the pipeline:** a bend ref to a non-edge-flange feature
+  → `reference_unresolved`; parallel/same bends → `corner_relief_failed`; no prior body
+  → `no_prior_body` — all inside the strict-prefix partial result, never a crash.
+- **Regression gate:** existing goldens byte-unchanged; contracts + ts-client regenerated
+  (`just gen-check` clean); full `pytest tests/` green.
+
 ## 2026-07-19 — Sheet-metal depth-≥2 bend-TREE unfold FEATURE (kernel-architect self-report)
 
 **SHIPPED — the spike graduated into `unfold_sheet_metal`.** Depth-2 is no longer
@@ -1627,6 +2489,7 @@ consumes. `subshape_ambiguous` for faces is unreachable-but-guarded (above).
 | `fillet-plate-r5` | FIRST FILLET golden (new curved-topology class): sketch→extrude→fillet tree — the plate's 4 vertical (Z-parallel) edges rounded r=5 via geometric edge selection (design §2.4, not topological naming); GProp over quarter-cylinder fillet surfaces, curved-face tessellation, STEP re-approximation of trimmed cylindrical surfaces | 1e-9 (curved-geometry, measured-then-set; observed worst 1.78e-15) | 10 / 24 / 1 | 544 / 524 |
 | `chamfer-plate-d5` | FIRST CHAMFER golden (all-planar): sketch→extrude→chamfer tree — the plate's 4 vertical (Z-parallel) edges beveled d=5 (45°) via the SAME `EdgeSelector` plumbing fillet uses (shared `select_edges` helper, design §2.4); GProp over 4 PLANAR bevel faces + octagonal caps, EXACT STEP survival (0.0 vs fillet's curved 1.26e-10) | 1e-9 (all-planar, measured-then-set; volume/area exact, residual worst 3.55e-15) | 10 / 24 / 1 | 48 / 28 |
 | `revolve-annulus-r10-20-h15` | FIRST REVOLVE golden (solid of revolution): sketch→revolve tree — a rectangle [r 10..20]×[h 0..15] revolved 360° about a CONSTRUCTION centerline into an annular cylinder; shares extrude's `build_profile_face`/`combine_body`; GProp over two coaxial cylinders + two annular caps, periodic seam-edge topology, STEP re-approximation of the revolved cylinders | 1e-9 (curved-geometry, measured-then-set; observed worst 1.82e-12 on volume) | 4 / 6 / 1 | 1012 / 1008 |
+| `revolve-centerline-cylinder-r12-h20` | CONSTRUCTION-CENTERLINE REVOLVE golden (BACKLOG P2, the SolidWorks/Fusion idiom): sketch→revolve tree — a HALF-profile OPEN only along the axis (three real rectangle edges r∈[0,12], y∈[0,20]; the on-axis edge is a CONSTRUCTION centerline excluded from the wire) revolved 360° about that centerline into a solid cylinder. Locks `build_revolve_profile_face`: `build_profile_face` raises `profile_not_closed`, the fallback promotes the axis line to a real closing edge (the face a real on-axis edge would give), then revolves. FIRST golden whose profile is closed BY the axis of revolution; distinct from the offset-closed annulus and the primitive `build_cylinder`. Analytic V = 2880π = 9047.7868…, S = 768π; centroid on-axis (0,10,0) | 1e-9 (curved-geometry, measured-then-set; volume/area 0.0, centroid ≤1.21e-15) | 3 / 3 / 1 | 506 / 500 |
 | `pattern-linear-3x-bar` | FIRST PATTERN golden (linear pattern, #7): sketch→extrude→pattern tree — a unit cube LINEAR-patterned +X (spacing 6, count 3, overlapping) so the copies fuse into a connected bar [0,22]×[0,10]×[0,10]; locks the pattern handler + placement math (unit dir × spacing × k) + variadic fuse + single-solid finalize (§7.6), and STEP round-trip of the patterned body | 1e-9 (all-planar union, measured-then-set; volume/area/centroid/AABB EXACTLY 0.0) | 6 / 12 / 1 | 24 / 12 |
 | `pattern-circular-4x-quadrant-box` | FIRST CIRCULAR-PATTERN golden (audit **F4** — the trig-heaviest body op, previously with only an in-process volume unit test and NO cross-interpreter determinism gate): sketch→extrude→circular-pattern tree — the quadrant-1 unit prism [0,10]³ CIRCULAR-patterned about +Z through the origin (angle 360°, count 4, step 90°) so the four copies TILE the four quadrants and fuse into one clean box [-10,10]×[-10,10]×[0,10]; locks the circular handler + rotation placement (Axis rotate 90/180/270°) + fuse + single-solid finalize (§7.6) + clean() seam collapse, and puts the trig-heaviest op on the **interpreter-restart byte-determinism** gate. Analytic V = 4·1000 = 4000 mm³ (quadrants share only zero-measure faces → no volume overlap, unlike the linear golden), centroid on-axis (0,0,5) by 4-fold symmetry | 1e-9 (rotation-placed union, measured-then-set; 90/180/270° cos/sin NOT fp-exact → worst residual 1.1e-12 on volume, centroid.x 3.9e-16 on-axis, AABB ≤ 2e-15) | 6 / 12 / 1 | 24 / 12 |
 | `pattern-cut-6hole-boltcircle-60x60x10` | FIRST PATTERN-OF-A-CUT golden (BACKLOG **#3** / showcase **F1**): sketch→extrude add→sketch→extrude **cut**→circular-pattern — a 60×60×10 plate, ONE r4 hole cut at (20,0), then a circular pattern (360°, count 6) that arrays the CUT (option a: the source feature is the extrude-cut, so the tool is reconstructed and REMOVED at each placement) into a 6-hole bolt circle — **6 holes removed, not 6 bodies added**. Locks the pattern cut-source inference (`prev_body_feature` is an extrude-cut) + tool reconstruction from the source's already-solved profile + `circular_pattern_cut` rotated-tool placement + variadic `body.cut` + single-solid finalize (§7.6) + clean() seam collapse. Analytic V = 36000 − 960π = 32984.071 mm³ (six disjoint holes, no overlap), centroid on-axis (0,0,5) by 6-fold symmetry; generalizes the 2-hole plate (8/18) by +4 cylinder faces / +12 edges | 1e-8 (rotated curved CUT, measured-then-set; both non-fp-exact rotation AND a boolean cut through curved walls → worst residual 1.46e-11 on volume, ~13× the whole-body-rotation golden, centroid.x/.y ≤ 5.5e-17 on-axis, AABB EXACTLY 0.0; 10× tighter than the 1e-7 kernel bound) | 12 / 30 / 1 | 3060 / 3060 |
@@ -3559,3 +4422,255 @@ boundaries hold; equal-radius bends disambiguate correctly. Two QA contributions
 landed (byte-pin + STEP round-trip, both filling real coverage holes).
 **One 🟡 finding (not a defect):** no non-90° golden is committed though the
 capability is correct — file a "120° edge-flange golden" backlog item to lock it.
+
+---
+
+## 2026-07-23 — Hole feature slice 1 (`352000a`) adversarial geometry QA (geometry-qa)
+
+Adversarial probe of `services/geometry/kernel/hole.py::bore_hole` past the single
+committed golden `hole-through-r5-40x25x10` (Ø10 through-hole at the CENTRE of an
+axis-aligned +Z face of a prismatic block). Drove the kernel op DIRECTLY (the same
+entry `_evaluate_hole` calls, past the schema) over the cases that centred /
+axis-aligned golden structurally cannot catch. Six added guard tests in
+`services/geometry/tests/test_hole.py` (kernel-level section), all green
+(16 passed + 1 documented xfail). Numbers observed build123d 0.11.1 / OCCT 7.9.
+
+### 1. Non-axis-aligned placement face — PASS (no hardcoded/transposed axis)
+40×25×10 block rotated 30° about X → top face normal (0, −0.5, 0.866). Through-drill
+along that normal. removed = **785.3981634** vs analytic π·5²·10 = **785.3981634**
+(diff **−1.14e-12**). Topology 7/15/1, 1 lump — identical to the axis-aligned golden.
+The drill axis tracks the resolved face normal into the solid; a hardcoded −Z or a
+transposed normal would remove the wrong volume or nothing.
+Guard: `test_hole_axis_follows_nonaxis_aligned_face_normal`.
+
+### 2. Partial edge breakout — PASS (analytic partial volume, valid solid)
+Through-hole centre 3 mm from the x=0 wall (r=5 pokes 2 mm past it). removed =
+**673.574359** = (π·5² − segment)·10 analytic **673.574359** (diff **0.0e0**),
+strictly < full 785.398. Result stays 1 shell / 1 lump, volume > 0 — never a silent
+invalid body. Blind counterpart (depth 4 mm, same overhang) → `HoleTooDeepError`
+as documented.
+Guards: `test_hole_partial_breakout_matches_analytic_partial_volume`,
+`test_blind_hole_partial_edge_breakout_is_too_deep_error`.
+
+### 3. Blind flat bottom, off-centre — PASS
+Ø8 blind pocket 6.5 mm deep at (12,10) on a 10 mm block. removed = **9673.274364e-…**
+matches π·4²·6.5 (diff <1e-6). Far face intact (bbox min.z = 0). Exactly one +Z
+bore-bottom cap, area π·16 = **50.265482**, sitting at z = **3.5000000000** (=10−6.5).
+Guard: `test_blind_hole_flat_bottom_sits_at_exact_depth_off_center`.
+
+### 4. Through-all on a stepped/gapped single body — PASS (clears segments, not the gap)
+C-channel: two 3 mm flanges (z∈[0,3],[12,15]) joined by a web (x∈[0,3]) — ONE solid,
+9 mm internal air gap. Ø6 through-drill at x=20 (clear of the web) spans flange1 → gap
+→ flange2. removed = **169.646003** = π·3²·(3+3) analytic **169.646003** (diff
+**+1.48e-12**); NOT π·3²·15 = 424.115 (would wrongly fill the gap), NOT π·3²·3
+(a through-all that stopped at the first solid). 1 lump preserved. The 3×-diagonal
+tool span clears all material along the axis; removed = sum of solid segments only.
+Guard: `test_through_all_clears_stepped_body_segments_only`.
+
+### 5. Degenerate / oversize diameter — typed, with ONE defence-in-depth gap
+- Ø100 (covers the whole 40×25 face) through-all → `BooleanError` "cut consumed the
+  entire body" (→ `boolean_failed` at the feature layer). Typed, no invalid solid.
+  Guard: `test_oversize_diameter_degrades_to_typed_boolean_error`.
+- Ø0 (through and blind) → `HoleOffBodyError` (removed no material). Typed, sane.
+- **Ø negative → RAW `Standard_ConstructionError` from `Solid.make_cylinder`, NOT a
+  typed `HoleError`.** It would escape `_evaluate_hole`'s HoleError/BooleanError
+  handlers as an uncaught 500. **UNREACHABLE from the API today** — `HoleParamsV1.
+  diameter_mm` is `Field(gt=0)` (and `depth_mm` likewise) — so this is a defence-in-
+  depth gap, not a P0. Filed 🟢 P3 (below). Guard: `test_negative_diameter_is_typed_
+  hole_error` (xfail strict=True; flips to a plain raises() when the kernel guards it).
+
+### 6. Determinism — PASS (in-process + cross-restart)
+8× repeated kernel eval → single distinct (volume, surface-area, faces/edges/shells)
+signature. Two FRESH interpreters produced byte-identical reprs: through-hole vol
+**9214.601836602551**, SA **3457.079632679489**. Complements the API byte-determinism
+golden. Guard: `test_bore_hole_is_deterministic_across_repeated_kernel_eval`.
+
+### Findings filed
+- 🟢 **P3 (defence-in-depth)** — `bore_hole` lets a non-positive `diameter_mm` reach
+  `Solid.make_cylinder`, which raises a raw `Standard_ConstructionError` (untyped →
+  500) instead of a `HoleError`. Not reachable from the UI (schema `gt=0`), so low
+  severity; fix = guard `radius > 0` at the top of `bore_hole` with `HoleError`, then
+  the xfail guard flips green. Kernel-architect item.
+- 🟡 **Coverage note** — the shipped capability has ONE golden (centred, axis-aligned,
+  through). The six guards above now cover tilted-face / partial-breakout / stepped-
+  body / off-centre-blind / degenerate / determinism at the kernel level, but no
+  COMMITTED golden model exercises a non-axis-aligned or blind hole through the golden
+  harness. Suggest a "hole on a rotated face" and a "blind counterbore-depth" golden
+  next cycle to lock these in the mass-property/topology harness.
+
+### VERDICT: HOLE SLICE 1 IS GEOMETRICALLY SOUND — no P0/P1/P2 defects
+Drill axis follows the resolved face normal on tilted faces (diff 1e-12), partial
+breakouts and stepped-body through-alls match analytic volume exactly (removed = solid
+segments only, never the air gap), blind bottoms sit at the exact depth, oversize/zero
+diameters degrade to typed errors, and results are byte-deterministic across restart.
+The only blemish is an unreachable negative-diameter raw raise (🟢 P3 defence-in-depth).
+
+## 2026-07-23 — Mirror feature (`1497bac`) adversarial geometry QA (geometry-qa)
+
+Adversarial correctness probe of the mirror feature (`kernel/mirror.py::mirror_union`),
+pushing past the single axis-aligned-origin-plane golden `mirror-triangle-prism-2x`
+(YZ, disjoint 2V=72). Env: build123d 0.11.1 / OCCT 7.9, native geometry service via
+`TestClient`. Pre-existing suite (`tests/test_mirror.py`) already covered: golden 2V,
+reflection-vs-translation proof, overlap merge (192 mm³, 1 shell), symmetric no-op
+(144 mm³), offset-datum-FEATURE plane (axis-parallel), byte determinism, error paths.
+Three real coverage GAPS found and closed with guard tests (all analytic, oracle-first).
+
+### 1. Mirror about a TILTED (non-principal) datum plane — PASS
+Every prior mirror test uses a principal (YZ) or axis-PARALLEL (XZ-offset) plane; none
+would catch a resolution bug that mirrors about a principal plane / the origin instead
+of an arbitrarily-oriented datum. Authored a **midplane datum between XZ and YZ** — its
+angular bisector is the plane **x = y** (normal `(1,-1,0)/√2` through the world origin),
+which reflects `(x,y,z) → (y,x,z)` (a 45° x↔y SWAP). Source box x∈[2,5], y∈[0,1],
+z∈[0,3] (V=9) clears the plane (min x=2 > max y=1) → disjoint 2V union.
+- Independent pure-Python reflection-matrix oracle (`_reflect_point`, no build123d):
+  reflect((3.5,0.5,1.5)) across x=y = **(0.5,3.5,1.5)** exact (x↔y swap confirmed);
+  union centroid = midpoint = **(2,2,1.5)**, which lies ON the plane (`n·(c−o)=0`).
+- Measured: V **18.0**, centroid **(2.0, 2.0, 1.5)** (residual ≤9e-16), shells **2**,
+  faces **12**, bbox x[≈0,5] y[0,5] z[0,3]. A YZ-plane bug would give centroid
+  (0, 0.5, 1.5) — FAILS by 2 mm in x. The tilted datum resolved correctly.
+- Guard: `test_mirror_about_a_tilted_non_principal_midplane_datum`.
+
+### 2. Overlap-with-plane union volume — PASS (pre-existing, re-verified)
+`test_overlapping_mirror_merges_to_one_solid`: box x∈[−1,4] (V=120) mirrored about YZ
+→ reflected x∈[−4,1], overlap x∈[−1,1] (V=48). Union = 120+120−48 = **192 mm³**, exactly
+**1 shell** (merged, not naive 2V=240, not double-counted). Confirmed sound; no gap.
+
+### 3. Chirality / validity — PASS
+A mirror flips handedness; the reflected solid must stay a VALID, OUTWARD, POSITIVE-
+volume solid (not inside-out / negative). Kernel-level (the HTTP wire exposes only
+aggregate mass props): chiral right-triangle prism (V=36) reflected via `Shape.mirror`:
+- reflected lump ALONE: volume **36.0 > 0** (not negated), `is_valid` **True**
+  (OCCT `BRepCheck_Analyzer` verdict — rejects inward-facing / unclosed shells),
+  centroid **(−3, 4/3, 3)** (right angle lands at x=−2, nearest the plane).
+- `mirror_union` disjoint result: V **72.0**, `is_valid` **True**.
+- Guard: `test_mirrored_lump_is_a_valid_positive_volume_solid`.
+
+### 4. Multi-lump / multi-body source — PASS
+Every prior test feeds a single-lump source. Fed the SECOND mirror a source that is
+already a disjoint TWO-lump body: chiral prism (V=36) → mirror YZ → 2 lumps (V=72) →
+mirror about XZ-offset datum at y=−8 → reflects BOTH lumps y∈[0,4] → y∈[−20,−16].
+- Measured: V **144.0** (4×36), centroid **(0, −8, 3)**, shells **4** (count DOUBLED
+  2→4, not stuck at 2, not merged to 1), faces **20** (4 prisms × 5), bbox x[−5,5]
+  y[−20,4] z[0,6]. Every lump reflected, union correct.
+- Guard: `test_mirror_of_a_multi_lump_source_doubles_every_lump`.
+
+### 5. Symmetric source about the plane — PASS (pre-existing, re-verified)
+`test_symmetric_body_mirror_is_a_no_op`: box x∈[−3,3] mirrored about YZ → union == source,
+V **144** unchanged (not 2V), **1 shell**, 6 faces (no sliver / double-face at the plane —
+`clean()` collapses the coincident geometry). Sound; no gap.
+
+### 6. Determinism — PASS (pre-existing)
+`test_evaluate_response_is_byte_deterministic`: same mirror tree → byte-identical response
+INCLUDING `mesh_glb_id`. Backed by `assemble_lumps`' explicit centroid-then-volume lump
+ordering (never OCCT traversal order) + the golden harness's cross-restart gate.
+
+### Findings filed
+- 🟡 **Coverage note (builder item, kernel-architect)** — the shipped mirror capability
+  ships ONE committed golden (`mirror-triangle-prism-2x`: axis-aligned YZ, disjoint 2V).
+  The tilted-midplane, multi-lump-source, and chirality/validity cases are now guarded
+  at the test level but NO committed golden exercises a non-principal mirror plane or a
+  multi-lump-source mirror through the mass-property/topology golden harness. Suggest a
+  "mirror about a tilted midplane datum" golden and a "mirror of a two-lump body" golden
+  next cycle to lock these into the harness. Not a defect — coverage extension.
+
+### VERDICT: MIRROR FEATURE IS GEOMETRICALLY SOUND — no P0/P1/P2/P3 defects
+The reflection is a true handedness-reversing isometry about the RESOLVED plane, tilted
+or principal (tilted-midplane centroid on-plane to ≤9e-16, x↔y swap exact); overlap
+unions subtract the overlap (192, 1 shell) and never double-count; symmetric sources are
+a clean no-op (144, no sliver); multi-lump sources reflect every lump and double the
+count (2→4); reflected lumps are valid positive-volume solids (OCCT `is_valid`); results
+are byte-deterministic. Only a 🟡 golden-coverage extension is recommended.
+
+---
+
+## 2026-07-23 — Feature suppress slice 1 (`7e20880`) — adversarial correctness QA
+
+Adversarial review of the evaluate-tree suppress control-flow
+(`services/geometry/src/geometry/features/evaluate.py`: `_suppressed_reference_error`
++ the `evaluate_tree` skip/ref-walk). Pushed the seven edges the happy-path tests
+(suppress-fillet, middle-suppress, direct-ref-to-suppressed) miss. All evidence is
+numbers from the real evaluator via `TestClient`; guards added to
+`services/geometry/tests/test_evaluate_tree.py` (7 new, all PASS; full file 48 passed;
+`ruff check`/`ruff format --check`/`pyright` clean).
+
+### 1. Suppress the BASE / first body-creating feature — PASS
+`[sketch, extrude(suppressed), fillet]` → sketch `ok`, extrude `suppressed`, fillet
+`error` code **`no_target_body`** (200, strict prefix). No prior body ⇒ artifact fields
+honestly null (`mesh_glb_id`/`properties` = None, `bodies == []`). No crash, no phantom
+body. Guard: `test_suppressing_the_base_feature_yields_no_phantom_body`.
+
+### 2. Suppress EVERY feature — PASS
+All three rows `suppressed`, `last_good_feature_id` None, no body, no raise, and
+byte-identical across repeat posts. Guard:
+`test_suppressing_every_feature_is_an_empty_deterministic_result`.
+
+### 3. Indirect datum→sketch→extrude, datum suppressed — PASS (no wrong-geometry hazard)
+`[datum(suppressed), sketch-on-datum, extrude]`: the sketch's plane FeatureRef is walked
+by `iter_feature_refs`, so the sketch reports **`references_suppressed`** pinned to the
+datum id — NOT a silent resolve against a stale origin plane. Strict prefix then skips the
+extrude, so the chain builds **no body** (`mesh_glb_id`/`properties` = None). The
+wrong-geometry hazard (an extrude on a phantom plane) cannot occur; the walk catches the
+datum even though the extrude only references it transitively via the sketch. Guard:
+`test_indirect_datum_sketch_extrude_chain_catches_the_suppressed_datum`.
+
+### 4. Suppress one boolean operand — PASS
+`[A, B(suppressed), boolean(union, A, B)]`: the boolean's operand FeatureRef to B →
+**`references_suppressed`** pinned to B. Last-good body is A ALONE — exactly one body,
+V **10000.0** mm³ (the bare box), NOT a half-union or a silent single-body pass. Control
+(both present, overlapping boxes) unions cleanly to V **15000.0** mm³, proving the suppress
+flag alone flipped the outcome. Guard:
+`test_boolean_operand_suppressed_is_typed_not_a_half_union`.
+
+### 5. Suppress a pattern/mirror SOURCE — PASS (design note, not a defect)
+The task expected a `references_suppressed` here, but the **v1 pattern/mirror design is
+source-less**: it arrays/reflects the ACTIVE body via world-space vectors, with NO explicit
+source FeatureRef (`_evaluate_pattern`/`_evaluate_mirror` read `state.active_body`; the
+pattern cut-vs-union mode is inferred from `state.prev_body_feature`, which is advanced
+ONLY on ok body-affecting features, never on a suppressed one). So "suppress the source"
+correctly degrades to a typed **`no_target_body`** when no body remains (no phantom
+pattern/mirror), or an honest rebuild off the REDUCED body when one does: mirror of a
+fillet-suppressed box → un-filleted box reflected about YZ = two disjoint 10000 mm³ lumps
+in one body, V **20000.0** mm³ (proving it took the last non-suppressed body, not a cached
+filleted one). Guards: `test_source_less_pattern_and_mirror_never_phantom_on_suppressed_body`,
+`test_mirror_rebuilds_off_the_reduced_body_when_a_modifier_is_suppressed`.
+
+### 6. Un-suppress round-trip / determinism — PASS
+A suppressed fillet yields geometry byte-identical to the fillet's absence: `[box, extrude]`
+and `[box, extrude, fillet(suppressed)]` share the same `mesh_glb_id`. The suppressed tree
+is byte-deterministic on repeat (existing `test_suppressed_tree_is_byte_deterministic`), and
+the probe hashes reproduced identically across fresh interpreter processes
+(`sha256:e33338…` for the guard-7 body twice, cold-start). No cross-restart drift.
+
+### 7. Volume analytic on a topology-changing suppress — PASS
+`[box, pocket-through-cut(suppressed), fillet]`: the fillet re-evaluates off the UN-cut box,
+producing a GLB **byte-identical** (`mesh_glb_id` `sha256:e33338f1…`, V **9753.19167034292**
+mm³) to the never-cut `[box, fillet]`. Byte identity — not just matching mass properties —
+proves the downstream body genuinely lost the cut's contribution (re-evaluated off the
+changed body, not a cached holed one). Guard:
+`test_topology_changing_suppress_reevaluates_downstream_off_changed_body`.
+
+### Findings filed
+- 🟢 **No defects.** Suppress control flow is correct across all seven edges. A suppressed
+  feature is skipped with no body mutation and no `prev_body_feature`/`last_good` advance;
+  every downstream dependency degrades to a typed per-feature error (`references_suppressed`
+  for a direct/indirect ref, `no_target_body`/`no_prior_body` for a source-less modifier
+  with no body) — never a raise, a phantom body, or wrong geometry. `iter_feature_refs`
+  walks the sketch-plane FeatureRef and both boolean operand refs, so datum and boolean
+  edges are covered without per-feature-type code.
+- 🟡 **Design observation (not a defect), for slice-2/builder awareness** — because v1
+  pattern/mirror are source-less (array/reflect the active body), suppressing an
+  *intermediate* body-affecting feature can silently change a pattern's inferred combine
+  mode: with the immediately-preceding feature suppressed, `state.prev_body_feature` points
+  further back, so a pattern that would have array-CUT (source = a suppressed extrude-cut)
+  instead array-UNIONS whole-body copies (or vice-versa). This follows the documented
+  "infer mode from the immediately-preceding body-affecting feature" rule consistently and
+  deterministically, so it is honest — but it is a non-obvious interaction the slice-2 web
+  toggle UX and any future golden should be aware of. No wrong geometry; flagging for docs.
+
+### VERDICT: SUPPRESS SLICE 1 IS GEOMETRICALLY SOUND — no P0/P1/P2/P3 defects
+Suppressed features are honestly skipped; downstream rebuilds off the last non-suppressed
+body; every broken dependency is a typed 200 error pinned to the suppressed upstream, never
+a crash or a phantom/wrong body; topology-changing suppress re-evaluates downstream
+byte-identically to the never-built variant; results are byte-deterministic including
+`mesh_glb_id`. One 🟡 design observation on source-less pattern combine-mode inference under
+intermediate suppress — behaviour is correct and deterministic, flagged for slice-2 docs/UX.

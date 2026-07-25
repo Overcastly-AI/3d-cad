@@ -8,7 +8,13 @@
  * (an extrude opens its editor); rolling the bar before a feature marks
  * everything below it inert without deleting it.
  */
-import { Button, Panel, PanelSection } from "@loft/design";
+import {
+  Button,
+  Panel,
+  PanelSection,
+  SuppressIcon,
+  TextField,
+} from "@loft/design";
 import type { ReactNode } from "react";
 
 import type {
@@ -21,6 +27,8 @@ import {
   friendlyFeatureError,
   KEEP_AS_ONE_BODY_ACTION,
   offersBooleanDisjointRecovery,
+  offersRepickFace,
+  REPICK_FACE_ACTION,
 } from "../features/featureErrors";
 import { barSlotIndex, rollbackIdForSlot } from "../features/rollback";
 
@@ -42,13 +50,51 @@ export interface FeatureTreePanelProps {
   /** True while a `boolean_disjoint` recovery write is in flight — disables the
    * recovery button so a double-click can't enqueue two updates. */
   recoveringDisjoint?: boolean;
+  /** Re-pick repair for a `subshape_unresolved` error (FINDINGS #3): re-arm face
+   * selection for this feature so the user can re-attach the lost reference.
+   * Absent = no repair offered (e.g. the assembly reuse). */
+  onRepickFace?: (feature: FeatureResponse) => void;
+  /** Toggle a feature's suppress flag (feature-tree.md §4.3a): a suppressed
+   * feature is skipped at rebuild but stays in the tree (reversible). */
+  onToggleSuppress: (feature: FeatureResponse) => void;
+  /** The feature id whose suppress toggle is mid-write — disables its control
+   * so a double-click can't enqueue two flips. */
+  suppressingId?: string | null;
+  /** Right-click on a row (UI-REVIEW #10): open the row context menu at the
+   * pointer. Absent = no menu (e.g. the assembly reuse, which has none). */
+  onRowContextMenu?: (feature: FeatureResponse, x: number, y: number) => void;
+  /** The feature id whose name is being edited inline (from the row menu's
+   * Rename); its label cell becomes a text field. */
+  renamingId?: string | null;
+  /** Commit an inline rename (Enter / blur) — a no-op upstream when unchanged. */
+  onCommitRename?: (feature: FeatureResponse, name: string) => void;
+  /** Abandon an inline rename (Escape) without writing. */
+  onCancelRename?: () => void;
 }
 
 const STATUS_LABEL: Record<string, string> = {
   ok: "OK",
   error: "ERR",
   skipped: "SKIP",
+  suppressed: "SUPP",
 };
+
+/**
+ * Friendlier type badges for the few feature types whose wire name is
+ * snake_case. Everything else (extrude / fillet / …) is already a plain word,
+ * so it falls through to the raw type.
+ */
+const FEATURE_TYPE_LABEL: Record<string, string> = {
+  sheet_metal_base_flange: "base flange",
+  sheet_metal_edge_flange: "edge flange",
+  sheet_metal_hem: "hem",
+  sheet_metal_corner_relief: "corner relief",
+};
+
+/** The badge text for a feature type — a friendly label, else the raw type. */
+function featureTypeLabel(type: string): string {
+  return FEATURE_TYPE_LABEL[type] ?? type;
+}
 
 export function FeatureTreePanel({
   tree,
@@ -61,6 +107,13 @@ export function FeatureTreePanel({
   rollbackBusy,
   onKeepAsOneBody,
   recoveringDisjoint = false,
+  onRepickFace,
+  onToggleSuppress,
+  suppressingId = null,
+  onRowContextMenu,
+  renamingId = null,
+  onCommitRename,
+  onCancelRename,
 }: FeatureTreePanelProps) {
   const resultById = new Map<string, FeatureResult>(
     (evaluation?.features ?? []).map((f) => [f.feature_id, f]),
@@ -145,36 +198,117 @@ export function FeatureTreePanel({
                 const status = result?.status;
                 const rolledBack = index > barSlot;
                 const selected = feature.id === selectedFeatureId;
+                // Suppressed reads from the persisted envelope flag (authoritative
+                // the instant the tree refetches, before the re-evaluate lands)
+                // OR the evaluate's dedicated `suppressed` status — either marks
+                // the row quiet-and-struck, distinct from a red error.
+                const suppressed =
+                  (feature.feature.suppressed ?? false) ||
+                  status === "suppressed";
+                const suppressBusy = feature.id === suppressingId;
+                const renaming = feature.id === renamingId;
                 return (
                   <FeatureRowGroup key={feature.id}>
                     <li
-                      className={`flex items-baseline gap-2 border-l-2 py-1 pr-3 pl-[10px] ${
+                      className={`group/row flex items-baseline gap-2 border-l-2 py-1 pr-2 pl-[10px] ${
                         selected ? "border-brass" : "border-transparent"
                       }`}
                       data-testid="feature-row"
                       data-rolled-back={rolledBack || undefined}
+                      data-suppressed={suppressed || undefined}
+                      onContextMenu={
+                        onRowContextMenu
+                          ? (event) => {
+                              event.preventDefault();
+                              onRowContextMenu(
+                                feature,
+                                event.clientX,
+                                event.clientY,
+                              );
+                            }
+                          : undefined
+                      }
                     >
+                      {renaming ? (
+                        <div className="flex grow items-baseline gap-2">
+                          <span className="w-5 shrink-0 font-data text-xs tabular-nums text-gauge">
+                            {String(index + 1).padStart(2, "0")}
+                          </span>
+                          <TextField
+                            label={`Rename ${feature.name}`}
+                            hideLabel
+                            autoFocus
+                            defaultValue={feature.name}
+                            className="grow"
+                            data-testid={`feature-rename-${index}`}
+                            onFocus={(e) => e.currentTarget.select()}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                onCommitRename?.(
+                                  feature,
+                                  e.currentTarget.value,
+                                );
+                              } else if (e.key === "Escape") {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                onCancelRename?.();
+                              }
+                            }}
+                            onBlur={(e) =>
+                              onCommitRename?.(feature, e.currentTarget.value)
+                            }
+                          />
+                          <span className="shrink-0 font-body text-xs text-gauge">
+                            {featureTypeLabel(feature.feature.type)}
+                          </span>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => onSelectFeature(feature)}
+                          aria-pressed={selected}
+                          aria-label={`Select ${feature.name}`}
+                          data-testid={`feature-select-${index}`}
+                          className="flex grow items-baseline gap-2 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass"
+                        >
+                          <span className="w-5 shrink-0 font-data text-xs tabular-nums text-gauge">
+                            {String(index + 1).padStart(2, "0")}
+                          </span>
+                          <span
+                            className={`grow truncate font-data text-base ${
+                              suppressed
+                                ? "text-gauge line-through decoration-etch"
+                                : rolledBack
+                                  ? "text-gauge"
+                                  : "text-mist"
+                            }`}
+                          >
+                            {feature.name}
+                          </span>
+                          <span className="shrink-0 font-body text-xs text-gauge">
+                            {featureTypeLabel(feature.feature.type)}
+                          </span>
+                        </button>
+                      )}
+                      {/* Suppress toggle — quiet by default, brass when the
+                          feature is suppressed. Struck-out row + this pressed
+                          control read "held out of the build", reversibly. */}
                       <button
                         type="button"
-                        onClick={() => onSelectFeature(feature)}
-                        aria-pressed={selected}
-                        aria-label={`Select ${feature.name}`}
-                        data-testid={`feature-select-${index}`}
-                        className="flex grow items-baseline gap-2 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass"
+                        onClick={() => onToggleSuppress(feature)}
+                        disabled={suppressBusy}
+                        aria-pressed={suppressed}
+                        aria-busy={suppressBusy}
+                        aria-label={`Suppress ${feature.name}`}
+                        data-testid={`feature-suppress-${index}`}
+                        className={`shrink-0 rounded-sm p-0.5 transition-colors duration-fast focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass disabled:cursor-default ${
+                          suppressed
+                            ? "text-brass"
+                            : "text-gauge opacity-60 hover:text-mist hover:opacity-100 group-focus-within/row:opacity-100 group-hover/row:opacity-100"
+                        }`}
                       >
-                        <span className="w-5 shrink-0 font-data text-xs tabular-nums text-gauge">
-                          {String(index + 1).padStart(2, "0")}
-                        </span>
-                        <span
-                          className={`grow truncate font-data text-base ${
-                            rolledBack ? "text-gauge" : "text-mist"
-                          }`}
-                        >
-                          {feature.name}
-                        </span>
-                        <span className="shrink-0 font-body text-xs text-gauge">
-                          {feature.feature.type}
-                        </span>
+                        <SuppressIcon size={14} />
                       </button>
                       <span
                         className={`w-8 shrink-0 text-right font-data text-xs ${
@@ -183,12 +317,20 @@ export function FeatureTreePanel({
                         aria-label={
                           rolledBack
                             ? "rolled back"
-                            : status
-                              ? `evaluation ${status}`
-                              : undefined
+                            : suppressed
+                              ? "evaluation suppressed"
+                              : status
+                                ? `evaluation ${status}`
+                                : undefined
                         }
                       >
-                        {rolledBack ? "—" : status ? STATUS_LABEL[status] : "—"}
+                        {rolledBack
+                          ? "—"
+                          : suppressed
+                            ? STATUS_LABEL.suppressed
+                            : status
+                              ? STATUS_LABEL[status]
+                              : "—"}
                       </span>
                     </li>
                     {status === "error" && result?.error && !rolledBack ? (
@@ -204,6 +346,7 @@ export function FeatureTreePanel({
                           {friendlyFeatureError(
                             result.error.code,
                             result.error.message,
+                            feature.feature.type,
                           )}
                         </span>
                         {onKeepAsOneBody &&
@@ -222,6 +365,17 @@ export function FeatureTreePanel({
                             {recoveringDisjoint
                               ? "Combining…"
                               : KEEP_AS_ONE_BODY_ACTION}
+                          </Button>
+                        ) : null}
+                        {onRepickFace &&
+                        offersRepickFace(feature, result.error.code) ? (
+                          <Button
+                            variant="ghost"
+                            className="mt-1.5 py-0.5 text-xs"
+                            data-testid={`feature-repick-face-${index}`}
+                            onClick={() => onRepickFace(feature)}
+                          >
+                            {REPICK_FACE_ACTION}
                           </Button>
                         ) : null}
                       </li>

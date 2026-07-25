@@ -31,6 +31,7 @@ from gateway.geometry import create_geometry_client
 from gateway.geometry import router as geometry_router
 from gateway.parts import create_documents_client
 from gateway.parts import router as parts_router
+from gateway.step_import import assembly_router as assembly_import_router
 from gateway.step_import import router as step_import_router
 
 TITLE = "Loft Gateway"
@@ -158,6 +159,7 @@ def build_app(
     app.include_router(assemblies_router)
     app.include_router(drawings_router)
     app.include_router(step_import_router)
+    app.include_router(assembly_import_router)
     return app
 
 

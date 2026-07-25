@@ -1,0 +1,36 @@
+{
+  "description": "Corner-relief v1 END-TO-END feature golden (docs/design/sheet-metal.md §4.4): the SAME authored corner tray as corner-tray-relieved-unfold, but the relief is now an AUTHORED sheet_metal_corner_relief FEATURE in the tree (bend_a/bend_b FeatureRefs at the two edge flanges, relief_ratio 1.5 -> size 3.0 at gauge 2.0), not a test-constructed CornerRelief. Evaluating the tree cuts the 3D notch into the body AND records the relief so the flat-pattern unfold develops the matching relieved blank. This pins the wired pipeline: the evaluated body IS the relieved body (with the notch), and the flat pattern (unfolded from the pre-relief snapshot with the recorded relief) is BYTE-IDENTICAL to corner-tray-relieved-unfold's pinned content_hash. The fold-back guarantee (§4.4.4) therefore holds at the pipeline level, not just the apply_corner_relief unit level.",
+  "relief": {
+    "relief_type": "rectangular",
+    "relief_ratio": 1.5,
+    "size_mm": 3.0,
+    "authoring": "The corner relief is feature 5e30...e3: relief_ratio 1.5 with no size_mm override, so the evaluator sizes the notch as relief_ratio * thickness = 1.5 * 2.0 = 3.0 mm. bend_a/bend_b are FeatureRefs at edge flanges 5e30...c3 (off x=40) and 5e30...d3 (off y=30); the evaluator maps each to its recorded CylindricalFaceSignature (§5)."
+  },
+  "derivation": [
+    "Identical geometry to corner-tray-relieved-unfold, reached through the FEATURE pipeline instead of a hand-built CornerRelief. The evaluated body is the RELIEVED body; the flat pattern is unfolded from the pre-relief body snapshot (ev.unfold_body) with the recorded relief applied analytically (§4.4.4), because a relief notch shifts the bend cylindrical-face centroid past the signature match tolerance.",
+    "Flat pattern (analytic, §4.4.4): flat_area = 3163.0601438697086 mm^2, content_hash c1671448...869ff -- BYTE-IDENTICAL to corner-tray-relieved-unfold (same relief, same computation). removed_area = 63.5681384877852 = base corner square 9 + 2 * flange local notch s*(BA+s) with BA = (pi/2)*(3 + 0.44*2) = 6.094689747964199, s = 3.0. bend_widths_mm = [27.0, 37.0] (fold lines shortened by s at the corner end).",
+    "3D relieved body (apply_corner_relief, fired by the feature evaluator): relieved volume 6350.247719318986 mm^3 vs unrelieved base 6479.645943005143, removed 129.3982236861566 mm^3, ONE connected shell, topology {faces:20, edges:54, shells:1}. FOLD-BACK CROSS-CONSISTENCY (§4.4.4): removed_volume == removed_area * t (127.1362769755704) + bias (2 * s * (pi/2) * t^2 * (0.5 - K) = 2.2619467105846514) = 129.398... to ~1e-11, and the relieved body's inner bend cylindrical-face widths are [27.0, 37.0] == bend_widths_mm."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "Same basis as corner-tray-relieved-unfold (build123d 0.11.1 / OCCT 7.9); flat-pattern residuals ~1e-12 (area) / ~1e-11 (BA); volume tolerance 1e-6 absorbs arc-fit noise, the fold-back identity holds to ~1e-11.",
+  "relief_size_mm": 3.0,
+  "bend_allowance_mm": 6.094689747964199,
+  "unrelieved_flat_area_mm2": 3226.628282357494,
+  "removed_area_mm2": 63.5681384877852,
+  "flat_area_mm2": 3163.0601438697086,
+  "flat_length_mm": 61.094689747964196,
+  "bend_width_mm": 66.0946897479642,
+  "bend_count": 2,
+  "bend_angle_deg": 90.0,
+  "bend_radius_mm": 3.0,
+  "bend_direction": "up",
+  "bend_widths_mm": [27.0, 37.0],
+  "body_edge_count": 10,
+  "bend_edge_count": 2,
+  "base_volume_mm3": 6479.645943005143,
+  "relieved_volume_mm3": 6350.247719318986,
+  "removed_volume_mm3": 129.3982236861566,
+  "volume_tolerance": 1e-6,
+  "relieved_topology": { "faces": 20, "edges": 54, "shells": 1 },
+  "content_hash": "c1671448af87d37298dd7b5cc57bfcc162023953fceab2fd50fcaf54964869ff"
+}

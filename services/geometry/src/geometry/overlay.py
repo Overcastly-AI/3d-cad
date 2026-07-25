@@ -16,7 +16,7 @@ from py_kit.schemas.overlay import OverlayRequest, OverlayResult
 
 from geometry.faults import unexpected_query_failure
 from geometry.features import evaluate_tree, tree_no_body_error
-from geometry.kernel import selection_overlay
+from geometry.kernel import attribute_faces, selection_overlay
 
 
 def evaluate_overlay(request: OverlayRequest) -> OverlayResult:
@@ -36,7 +36,15 @@ def evaluate_overlay(request: OverlayRequest) -> OverlayResult:
         )
 
     try:
-        return selection_overlay(evaluation.body, request.tree.linear_deflection)
+        # Per-face feature provenance (FINDINGS #9): attribute each face of the
+        # last-good body to the feature that created / last modified it, threaded
+        # onto OverlayFace.feature_id so the frontend highlights ONLY the selected
+        # feature's faces (never a whole-body clay swap). Additive — the vertices/
+        # edges/signatures path is unchanged.
+        face_features = attribute_faces(evaluation.body, evaluation.body_history)
+        return selection_overlay(
+            evaluation.body, request.tree.linear_deflection, face_features
+        )
     except Exception as exc:
         raise unexpected_query_failure(
             exc, code="overlay_failed", action="overlay"

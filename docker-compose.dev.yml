@@ -25,14 +25,24 @@ services:
       - ./services/gateway/src:/app/dev/service:ro
       - ./packages/py-kit/src:/app/dev/py-kit:ro
 
+  # DEBUG-ONLY host ports for the internal services, LOOPBACK-BOUND. The base
+  # compose deliberately publishes NEITHER documents nor geometry (audit G3:
+  # documents trusts the X-Loft-User header — exposing :8001 beyond the compose
+  # network is forged-header cross-tenant access). This dev overlay binds them
+  # to 127.0.0.1 so `just smoke` and local curl work against `just dev` /
+  # dev-instance stacks. NEVER copy these mappings into a real deploy.
   documents:
     <<: *dev-service
+    ports:
+      - "127.0.0.1:${DOCUMENTS_PORT:-8001}:8001"
     volumes:
       - ./services/documents/src:/app/dev/service:ro
       - ./packages/py-kit/src:/app/dev/py-kit:ro
 
   geometry:
     <<: *dev-service
+    ports:
+      - "127.0.0.1:${GEOMETRY_PORT:-8002}:8002"
     volumes:
       - ./services/geometry/src:/app/dev/service:ro
       - ./packages/py-kit/src:/app/dev/py-kit:ro

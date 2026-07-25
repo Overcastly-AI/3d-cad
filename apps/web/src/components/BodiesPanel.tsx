@@ -8,10 +8,15 @@
  */
 import { Panel, PanelSection } from "@loft/design";
 
-import type { BodyInfo } from "../features/bodies";
+import { lumpBadgeLabel, type BodyInfo } from "../features/bodies";
 
 export interface BodiesPanelProps {
   bodies: readonly BodyInfo[];
+  /** Per-body disjoint-solid (lump) count from the evaluate wire (§MB-4c), keyed
+   * by base feature id. A body with `lumps > 1` gets a quiet multi-solid badge;
+   * absent/unknown → no badge. Optional so a caller without an evaluation (an
+   * empty tree) can omit it. */
+  lumpsByFeature?: ReadonlyMap<string, number>;
   /** Selected feature id (a body row lights its brass left-rule when its base
    * feature is selected). */
   selectedFeatureId: string | null;
@@ -21,6 +26,7 @@ export interface BodiesPanelProps {
 
 export function BodiesPanel({
   bodies,
+  lumpsByFeature,
   selectedFeatureId,
   onSelectBody,
 }: BodiesPanelProps) {
@@ -41,6 +47,9 @@ export function BodiesPanel({
             <ol className="pb-1">
               {bodies.map((body) => {
                 const selected = body.baseFeatureId === selectedFeatureId;
+                const lumpBadge = lumpBadgeLabel(
+                  lumpsByFeature?.get(body.baseFeatureId),
+                );
                 return (
                   <li
                     key={body.baseFeatureId}
@@ -63,6 +72,15 @@ export function BodiesPanel({
                       <span className="grow truncate font-data text-base text-mist">
                         Body {body.ordinal}
                       </span>
+                      {lumpBadge !== null ? (
+                        <span
+                          data-testid={`body-lumps-${body.ordinal - 1}`}
+                          title="A disjoint multi-solid body"
+                          className="inline-flex shrink-0 items-center rounded-sm border border-etch px-1 font-display text-2xs uppercase tracking-[0.12em] text-gauge tabular-nums"
+                        >
+                          {lumpBadge}
+                        </span>
+                      ) : null}
                       <span className="shrink-0 truncate font-body text-xs text-gauge">
                         {body.name}
                       </span>

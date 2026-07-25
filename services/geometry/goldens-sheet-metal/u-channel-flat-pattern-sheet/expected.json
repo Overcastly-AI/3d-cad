@@ -1,10 +1,10 @@
 {
-  "description": "Slice #4 COMPOSED FLAT-PATTERN SHEET golden for the authored U-channel (base flange + TWO edge flanges off the same base — the depth-1-star N=2 case). The same feature tree the u-channel-flat-pattern-view golden evaluates is COMPOSED onto a sheet (drawing-export.md §4.2 / sheet-metal.md §7): the additive flat-pattern branch of place_sheet places the single flat blank CENTRED plus a two-row bend-table block. Proves the composed flat-pattern sheet scales to N>1 bends through the SAME pipeline, with edge_role preserved and the bend table clear of the blank.",
+  "description": "Slice #4 COMPOSED FLAT-PATTERN SHEET golden for the authored U-channel (base flange + TWO edge flanges off the same base \u2014 the depth-1-star N=2 case). The same feature tree the u-channel-flat-pattern-view golden evaluates is COMPOSED onto a sheet (drawing-export.md \u00a74.2 / sheet-metal.md \u00a77): the additive flat-pattern branch of place_sheet places the single flat blank CENTRED plus a two-row bend-table block. Proves the composed flat-pattern sheet scales to N>1 bends through the SAME pipeline, with edge_role preserved and the bend table clear of the blank.",
   "derivation": [
     "The flat pattern is a rectangle: 4 body edges (edge_role='body') plus one fold line per bend (edge_role='bend'). For the N=2 U-channel: body_edge_count = 4, bend_edge_count = 2. view_to_svg_edges carries edge_role THROUGH placement, so the composed edge list preserves the two bend strokes.",
     "Layout: A4 landscape (297x210 mm), one flat_pattern view placement, title 'U-Channel Flat Pattern', scale 1:1. The blank is placed CENTRED on the sheet (anchor = sheet centre 148.5, 105.0). The bend-table block is anchored at the top-left margin corner (10, 10), clear of the centred blank (asserted non-overlapping the blank bbox).",
-    "The bend_table on the ComposedSheet carries two BendTableRows (bend-1, bend-2), in the unfold's deterministic fold-position order (positional correlation to the edge_role='bend' edges, §6): each 90 deg, radius 3 mm, up, BA 6.094689747964199 mm — the analytic nominals hand-derived in ../u-channel-edge-flange/expected.json.",
-    "content_hash is the sha256 of the composed ComposedSheet.model_dump_json() (place_sheet output, scale 1:1, the fixed layout above) — a DETERMINISM PIN reproducible in-process AND across a fresh interpreter restart (§9 #4). Version-pinned like the unfold golden."
+    "The bend_table on the ComposedSheet carries two BendTableRows (bend-1, bend-2), in the unfold's deterministic fold-position order (positional correlation to the edge_role='bend' edges, \u00a76): each 90 deg, radius 3 mm, up, BA 6.094689747964199 mm \u2014 the analytic nominals hand-derived in ../u-channel-edge-flange/expected.json.",
+    "content_hash is the sha256 of the composed ComposedSheet.model_dump_json() (place_sheet output, scale 1:1, the fixed layout above) \u2014 a DETERMINISM PIN reproducible in-process AND across a fresh interpreter restart (\u00a79 #4). Version-pinned like the unfold golden."
   ],
   "tolerance": 1e-9,
   "tolerance_rationale": "Measured first, then set. Centring residual is floating-point only (<1e-12); the bend-table values are the exact unfold outputs (~1.2e-13 vs the analytic nominals, matching ../u-channel-edge-flange/expected.json). The 1e-9 ceiling gives ~3 orders of headroom while staying tighter than the standing kernel linear tolerance (1e-7 m).",
@@ -29,5 +29,5 @@
       "bend_allowance_mm": 6.094689747964199
     }
   ],
-  "content_hash": "42aaf9015cd8ebf828ed2252d96b82d89810f33a16d7a0bb21b1d73b587b1d4e"
+  "content_hash": "f83d0ad4e7822655bd186b252cc0956dfdd3ffb85ee5008fd3cd2a039b81a28b"
 }

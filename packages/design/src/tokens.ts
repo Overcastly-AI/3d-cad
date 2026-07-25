@@ -67,7 +67,38 @@ export const viewport = {
    * read is preserved). The rest tint is the matcap multiply identity.
    */
   selectedSurfaceTint: "#E8CDA4",
+  /**
+   * Hover surface tint — a QUIET warm multiply of the studio matcap, held much
+   * closer to white than the selection tint so hovering the body reads as a
+   * gentle warm-up (not a commit). Paired with the brass-hover edge, it makes
+   * body hover perceptible where the edge alone was imperceptible (UI audit
+   * #19b). Selection still wins and reads clearly warmer.
+   */
+  hoverSurfaceTint: "#F3E9D8",
   restSurfaceTint: "#FFFFFF",
+  /**
+   * Feature-localized selection (FINDINGS #9). Selecting a feature in the tree
+   * (e.g. a hole) highlights ONLY the faces that feature owns — the studio
+   * matcap is PRESERVED on the rest of the body, never a whole-body clay swap.
+   * The selected subset takes a deeper warm-brass multiply than the whole-body
+   * `selectedSurfaceTint` so it POPS against its machined-aluminum neighbours
+   * (Plasticity's "addressed feature under a worklight" read), and its B-rep
+   * boundary edges brass to trace the feature. A feature that owns EVERY face
+   * (the base extrude of a plain box) stays the gentler whole-body select — one
+   * selection language, two ranges (subset vs whole).
+   */
+  featureSelect: {
+    /** Selected-feature face tint — multiplies the studio matcap toward brass,
+     *  a step deeper than the whole-body select so a subset reads as focused.
+     *  Matcaps carry no emissive channel, so the machined-metal read survives. */
+    faceTint: "#E4BE85",
+    /** Selected-feature B-rep edge emphasis — the selection brass. */
+    edge: color.brass,
+  },
+  /** Surface tint of a clashing/interfering body — multiplies the studio matcap
+   * toward a warm red (matcaps carry no emissive channel), so the body reads
+   * red-flushed but still metal. The single source `assembly.clashTint` reads. */
+  clashSurfaceTint: "#F2C9C9",
   /**
    * Atmosphere — the DOM half of the scene (the canvas is transparent and the
    * wrapper paints depth behind it; the vignette overlays it). One palette,
@@ -100,6 +131,19 @@ export const viewport = {
     /** Cool fill rim (skylight bounce). */
     rim: "#93A9C1",
   },
+  /**
+   * Face-pick highlight (UI audit #19a). A face pick used to read as a blanket
+   * of floating DOM squares; now the face UNDER the cursor (hovered or the
+   * armed pick) also gets a translucent brass patch laid ON its plane — the
+   * pick reads as the real surface, cursor-driven, not a square. Two strengths
+   * (hover / chosen); opacities are design decisions held here.
+   */
+  facePick: {
+    hover: color.brassHover,
+    selected: color.brass,
+    hoverOpacity: 0.16,
+    selectedOpacity: 0.3,
+  },
   /** The view reference cube (orientation gizmo) — a machinist's block. */
   gizmo: {
     face: color.anvil,
@@ -107,6 +151,26 @@ export const viewport = {
     text: color.mist,
     hover: color.brass,
     opacity: 0.92,
+  },
+  /**
+   * Feature preview ghost (live extrude preview; UI-REVIEW 2026-07-24 #8). The
+   * result of the OPEN editor before Save — a translucent swept volume in the
+   * working-brass selection language, so it reads as "about to be", not
+   * committed. The surface takes the same studio matcap as the real body,
+   * tinted toward brass (the matcap carries the metal read; the tint is the
+   * "pending" cue); the edges take the selection brass. Opacities are design
+   * decisions, held here — not per-mesh magic numbers.
+   */
+  preview: {
+    /** Ghost surface tint — multiplies the studio matcap toward brass (shares
+     *  the body-selection tint: one "addressed" language, one source). */
+    surfaceTint: "#E8CDA4",
+    /** Ghost B-rep edge lines — the selection brass. */
+    edge: color.brass,
+    /** Ghost surface opacity (translucent — the "not yet committed" read). */
+    surfaceOpacity: 0.42,
+    /** Ghost edge opacity (a hair under solid so it reads as a preview). */
+    edgeOpacity: 0.85,
   },
 } as const;
 
@@ -221,6 +285,19 @@ export const assembly = {
   restTint: viewport.restSurfaceTint,
   /** Hovered instance / mate pick — brass-hover. */
   hover: color.brassHover,
+  /**
+   * An interfering (clashing) instance — flag red, matching the DOM clash
+   * schedule + tree badge, so the WebGL edge and the panel read one alarm.
+   */
+  clash: color.flag,
+  /**
+   * Surface tint of a clashing instance — multiplies the studio matcap toward
+   * a warm red (matcaps carry no emissive channel), so an interfering body
+   * reads red-flushed but still metal. References `viewport.clashSurfaceTint`,
+   * mirroring how `selectedTint` references `selectedSurfaceTint` — one clash
+   * tint, one source (never a raw hex duplicated here).
+   */
+  clashTint: viewport.clashSurfaceTint,
 } as const;
 
 /**
@@ -289,6 +366,26 @@ export const drawing = {
    * edges. Sized to clear the vertex yet read as a distinct annotation layer. */
   dimensionArcRadiusMm: 13,
 
+  // --- Free-text notes — the sheet's plain-language annotation layer (§2.2). ---
+  // A note is ordinary sheet body text: left-anchored graphite ink at its
+  // authored sheet point, a sibling of the dimension/title-block value stamp.
+  /** Free-text note height (mm) — MATCHES the server composer's `_NOTE_TEXT_MM`,
+   *  so the on-screen note and the exported SVG/PDF/DXF note are ONE height (the
+   *  cross-renderer token duplication drawing-export.md notes; one source here). */
+  noteTextMm: 3.2,
+
+  // --- Title-block secondary fields (author/date/notes) — drawing D1b. ---
+  // The optional TitleBlock free-text stamps as labeled DRAWN / DATE / NOTES rows
+  // in the left cell's mid-band, below the primary title. A real block's secondary
+  // fields are smaller than its title; these two heights MATCH the server composer's
+  // `_TB_FIELD_CAP_MM` / `_TB_FIELD_VAL_MM`, so the DOM sheet and the exported
+  // SVG/PDF/DXF read one height rather than each hardcoding it (one source, two
+  // renderers — the same cross-renderer rule `noteTextMm` carries).
+  /** Secondary-field caption height (mm) — the quiet DRAWN / DATE / NOTES label. */
+  titleFieldCaptionMm: 2.1,
+  /** Secondary-field value height (mm) — the stamped free-text, below the title. */
+  titleFieldValueMm: 2.4,
+
   // --- Vertex handles — the endpoint pick affordance for point-to-point. ---
   // A point-to-point dimension names two edge ENDPOINTS (design §3.3), so a
   // straight edge's ends get small square handles: precise vertex picking, the
@@ -314,6 +411,18 @@ export const drawing = {
   pickFocusRingMm: 2.4,
   /** Invisible hit-stroke width (mm) so thin edges are easy to click/focus. */
   pickHitMm: 2.6,
+
+  // --- Section crosshatch — the cut-face fill of a section view (drawings-section.md §5). ---
+  // A section view slices the part on a datum plane and hatches the solid it cuts
+  // through: the ANSI 45° parallel-line fill. The ink + weight are the SAME the
+  // server composer hand-emits for the exported hatch (compose.py `_HATCH_INK` /
+  // `_HATCH_W`), so the on-screen section fill and the exported SVG/PDF/DXF read
+  // ONE colour — the design token is the single source both renderers draw from
+  // (one palette, two renderers — CLAUDE.md DRY design rule).
+  /** Section crosshatch ink — a quiet thin graphite (4.0:1 on the vellum). */
+  hatch: "#7A8695",
+  /** Section crosshatch stroke weight (mm) — the lightest fill rule on the sheet. */
+  hatchWeightMm: 0.25,
 
   // --- Flat-pattern fold lines — the sheet-metal signature (sheet-metal.md §7). ---
   // A sheet-metal flat blank's defining mark is the FOLD LINE: where the shop
@@ -354,6 +463,24 @@ export const drawing = {
    *  92 mm block — the same `_BEND_COL_DX / _BEND_TABLE_W` ratio the server uses,
    *  named once here (BEND · ANGLE · RADIUS · DIR · ALLOW). */
   bendTableColumnFractions: [3 / 92, 26 / 92, 43 / 92, 62 / 92, 77 / 92],
+
+  // --- View placement — the drag-to-place affordance (drawing-export.md §4.2). ---
+  // A view is grabbable to author its position on the sheet: a thin blueprint-blue
+  // FRAME (the CAD view-border idiom, Fusion/Plasticity) reveals on hover/focus,
+  // with a corner grip you drag. Reused pick-blue (`pickHover`/`pickSelected`) so
+  // placement and dimensioning read as one instrument, not two accents — boldness
+  // stays spent on the sheet inversion, this chrome is quiet and precise.
+  /** Placement-frame stroke weight (mm) — a light annotation rule, not an object edge. */
+  placementFrameWeightMm: 0.35,
+  /** Placement-frame dash + gap (mm) — a phantom-line frame, distinct from an object edge. */
+  placementFrameDashMm: 2.4,
+  placementFrameGapMm: 1.8,
+  /** Padding (mm) between the view's geometry extents and its placement frame. */
+  placementPadMm: 5,
+  /** Corner-grip half-size (mm) — the square drag handle at the frame's top-left. */
+  placementGripMm: 2.6,
+  /** Keyboard nudge step (mm) per arrow press; the coarse step (Shift) is 5×. */
+  placementNudgeMm: 1,
 } as const;
 
 export const font = {
@@ -438,4 +565,31 @@ export const layout = {
    * floating tree panel: panel inset (12) + panel width + gutter (12).
    */
   editorInset: 12 + 320 + 12,
+} as const;
+
+/**
+ * Stacking layers (z-index) — ONE named scale for every page-level stacking
+ * context, so no surface ever wins or loses a paint battle by an ad-hoc
+ * number (the 2026-07-24 audit P1: the band's `z-10` context trapped its
+ * tooltips underneath the `z-30` panels). Values inside a layer's own
+ * stacking context stay local (small relative numbers are fine there);
+ * anything that competes at the PAGE level must use this scale.
+ *
+ * Order, bottom → top:
+ * - `overlay` — transient sheets hanging off a surface into the viewport
+ *   (offset-plane author, constraint hints, save errors).
+ * - `panel` — floating instrument panels over the canvas (tree, inspector).
+ * - `hud` — viewport HUD chrome (DRO, view rail, status banners).
+ * - `band` — the command band. ABOVE panel/hud deliberately: its tooltips
+ *   and flyouts hang down into the viewport and must never be occluded by a
+ *   panel. The band itself never geometrically overlaps a panel (it sits
+ *   above the canvas in flow), so panels lose no pixels to it.
+ * - `menu` — context menus / popovers and their dismiss scrims.
+ */
+export const zLayer = {
+  overlay: 20,
+  panel: 30,
+  hud: 40,
+  band: 50,
+  menu: 60,
 } as const;

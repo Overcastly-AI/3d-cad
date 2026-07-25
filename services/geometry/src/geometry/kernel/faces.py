@@ -15,12 +15,23 @@ normal), ``z_dir`` the outward face normal, and an ``x_dir`` pinned purely from
 the normal (:func:`deterministic_x_dir`) so the 2D→3D mapping is stable across
 rebuilds, independent of OCCT's internal face parametrisation.
 
+RESILIENT RE-MATCH (FINDINGS #3): the match is TWO-TIER. Tier 1 is the strict
+signature (normal + centroid + area) — exact on a clean rebuild. But the most
+common parametric edit — resizing ONE hole on a shared face — shifts that face's
+area and area-centroid, so a strict-only match would orphan every SIBLING
+reference to the same face. Tier 2 (reached only when tier 1 finds nothing)
+re-matches on the strongest planar invariant ALONE — same-sense normal + the
+coincident supporting plane (``centroid . normal``, invariant under any in-plane
+boundary change) — so a sibling feature on the same planar face still resolves.
+
 HONEST STAGE-1 LIMIT (§7.3): signature matching is BEST-EFFORT, not the
 structural non-retarget guarantee of stage 2. It resolves the same face across
 the common edits and FAILS HONESTLY (:class:`SubshapeUnresolvedError` /
 :class:`SubshapeAmbiguousError`) for most others, but a drastic model change can
-retarget to a coincidentally-congruent face without erroring. Only planar faces
-carry a signature (the ``on_face`` datum cannot reference a non-planar face).
+retarget to a coincidentally-congruent face without erroring. The resilient tier
+keeps that honesty: two DISTINCT coplanar faces both match → an honest ambiguity,
+never a guess. Only planar faces carry a signature (the ``on_face`` datum cannot
+reference a non-planar face).
 
 Match tolerances (documented, NOT ad-hoc — CLAUDE.md; sized in docs/GEOMETRY-QA.md):
 the intended face is the SAME face on a clean rebuild, so residuals are
@@ -53,6 +64,14 @@ from geometry.kernel.types import BodyShape
 _NORMAL_MAX_ANGLE_TOL = 1e-9  # 1 - cos(theta) between unit normals (same sense)
 _CENTROID_TOL_MM = 1e-6  # Euclidean centroid distance (mm)
 _AREA_REL_TOL = 1e-6  # relative area difference
+
+#: Public aliases of the two positional face-match tolerances above, single-sourced
+#: HERE for cross-module reuse (CLAUDE.md DRY — no re-declared epsilons): the
+#: per-face feature-provenance matcher (:mod:`geometry.kernel.provenance`) matches
+#: on the SAME area/centroid invariant class, so it imports these rather than
+#: declaring its own.
+CENTROID_TOL_MM = _CENTROID_TOL_MM
+AREA_REL_TOL = _AREA_REL_TOL
 
 
 class FaceResolutionError(ValueError):
@@ -221,14 +240,122 @@ def planar_signatures_match(
     return abs(candidate.area_mm2 - target.area_mm2) / area_ref <= _AREA_REL_TOL
 
 
+def _plane_offset(sig: PlanarFaceSignature) -> float:
+    """Signed distance of the face's supporting plane from the world origin along
+    its own outward normal — ``centroid . normal``.
+
+    The strongest planar invariant (topo-naming §2b): unlike area or the
+    area-centroid POSITION, ``centroid . normal`` is untouched by ANY in-plane
+    change to the face boundary — a sibling hole resized, an edge filleted, a
+    pocket added elsewhere on the same face. So it is the re-match key that
+    survives the most common parametric edit (FINDINGS #3).
+    """
+    return (
+        sig.centroid.x * sig.normal.x
+        + sig.centroid.y * sig.normal.y
+        + sig.centroid.z * sig.normal.z
+    )
+
+
+def coplanar_signatures_match(
+    candidate: PlanarFaceSignature, target: PlanarFaceSignature
+) -> bool:
+    """Resilient re-match on the strongest planar invariants ALONE — same-sense
+    normal + coincident supporting plane — IGNORING the area and centroid POSITION.
+
+    The fallback tier of the face resolver (FINDINGS #3). The single most common
+    parametric edit — resizing ONE hole on a shared face — shifts that face's area
+    and area-centroid, so the strict :func:`planar_signatures_match` (which pins
+    both) orphans every SIBLING reference to the same face (``subshape_unresolved``
+    even though the face plainly still exists). The supporting plane — outward
+    normal + signed offset ``centroid . normal`` (:func:`_plane_offset`) — is
+    invariant under any in-plane boundary change, so a sibling feature on the same
+    planar face still resolves. Best-effort but still HONEST (§7.3): two DISTINCT
+    coplanar faces both match here → the caller reports an honest
+    ``subshape_ambiguous`` rather than guess (§7.2 — refuse to guess). Uses the
+    SAME documented normal / linear tolerances as the strict matcher (no new
+    epsilons)."""
+    n_dot = (
+        candidate.normal.x * target.normal.x
+        + candidate.normal.y * target.normal.y
+        + candidate.normal.z * target.normal.z
+    )
+    if 1.0 - n_dot > _NORMAL_MAX_ANGLE_TOL:
+        return False
+    return abs(_plane_offset(candidate) - _plane_offset(target)) <= _CENTROID_TOL_MM
+
+
+def _match_face_records(
+    records: list[PlanarFaceRecord], target: PlanarFaceSignature
+) -> tuple[list[PlanarFaceRecord], bool]:
+    """The two-tier planar-face match shared by both resolvers (CLAUDE.md DRY).
+
+    Tier 1 — the STRICT signature (:func:`planar_signatures_match`, normal +
+    centroid + area): on a clean rebuild the intended face is bit-identical, so
+    this is the exact, unambiguous match and NOTHING about the established
+    behaviour changes when it fires (clean rebuilds, congruent-twin ambiguity,
+    honest not-found all resolve exactly as before). Tier 2 — reached ONLY when
+    tier 1 finds NOTHING — the resilient coplanar re-match
+    (:func:`coplanar_signatures_match`), so a sibling reference to a face whose
+    area/centroid drifted under an unrelated edit still resolves (FINDINGS #3),
+    while a face that genuinely vanished still finds no plane and fails honestly.
+
+    Returns ``(matched records, resilient)``: the records (0, 1, or >1) — the
+    caller maps the count onto its typed unresolved / ambiguous error — and
+    whether TIER 2 produced them. That flag is load-bearing, not bookkeeping: a
+    tier-2 match means the face's area CENTROID moved, so a consumer that derives
+    a POSITION from the record (:func:`resolve_face_plane`, whose plane origin is
+    the centroid) must re-anchor rather than adopt the drifted origin — otherwise
+    the resilience would silently TRANSLATE every sketch seated on that face
+    (audit regression A). Consumers that only need the :class:`Face` itself
+    (:func:`resolve_faces`) ignore it."""
+    strict = [r for r in records if planar_signatures_match(r.signature, target)]
+    if strict:
+        return strict, False
+    return [r for r in records if coplanar_signatures_match(r.signature, target)], True
+
+
+def _anchored_plane(plane: Plane, target: PlanarFaceSignature) -> Plane:
+    """*plane*'s supporting plane, re-anchored at the STORED signature's centroid.
+
+    The tier-2 (resilient re-match) origin rule. Tier 2 matches on the supporting
+    plane ALONE — deliberately ignoring the area centroid POSITION, because that
+    is exactly what an unrelated in-plane edit moves — so the matched record's
+    plane origin (the CURRENT face's area centroid, :func:`_face_plane`) is a
+    different point from the one the reference was authored against. Adopting it
+    verbatim would silently translate the datum/sketch/mate anchored on that face
+    (e.g. a 40x40x10 plate whose neighbouring hole goes Ø6 -> Ø8 moves the shared
+    top face's centroid 0.1156 mm in x AND y — a wrong part, no error). So the
+    returned plane keeps the matched face's ORIENTATION (normal + the
+    deterministic in-plane x_dir) but sits at the stored centroid PROJECTED onto
+    the matched supporting plane: the point the user picked, snapped onto the face
+    that is actually there. Projection (not the raw stored centroid) keeps the
+    origin exactly ON the face's plane despite the tier-2 offset tolerance, so the
+    basis stays consistent. Pure function of (record, stored signature) —
+    deterministic (RESEARCH §9)."""
+    normal = plane.z_dir
+    stored = Vector(target.centroid.x, target.centroid.y, target.centroid.z)
+    anchor = stored - normal * (stored - plane.origin).dot(normal)
+    return Plane(origin=anchor, x_dir=plane.x_dir, z_dir=normal)
+
+
 def resolve_face_plane(
     body: BodyShape, target: PlanarFaceSignature, offset_mm: float
 ) -> Plane:
     """Resolve a stage-1 face signature to its planar face's sketch plane.
 
-    Matches *target* against the planar faces of *body* (:func:`planar_faces`),
-    requires EXACTLY ONE match (§7.2 — refuse to guess), and returns that face's
-    deterministic sketch plane, shifted ``offset_mm`` along the face normal.
+    Matches *target* against the planar faces of *body* (:func:`planar_faces`) via
+    the two-tier :func:`_match_face_records` (strict signature, then a resilient
+    coplanar re-match — FINDINGS #3), requires EXACTLY ONE match (§7.2 — refuse to
+    guess), and returns that face's deterministic sketch plane, shifted
+    ``offset_mm`` along the face normal.
+
+    ORIGIN RULE. A tier-1 (strict) match pins the centroid to within
+    ``_CENTROID_TOL_MM``, so the matched face's own plane IS the authored one and
+    is returned unchanged. A tier-2 match got there precisely BECAUSE the area
+    centroid moved, so the plane is re-anchored at the stored centroid projected
+    onto the matched face (:func:`_anchored_plane`) — never the drifted origin,
+    which would silently translate the sketch/datum/mate seated on that face.
 
     Raises:
         SubshapeUnresolvedError: zero matching planar faces (the referenced face
@@ -236,11 +363,7 @@ def resolve_face_plane(
         SubshapeAmbiguousError: two or more within tolerance (a congruent twin) —
             an honest error, never a coin flip (determinism, RESEARCH §9).
     """
-    matches = [
-        record
-        for record in planar_faces(body)
-        if planar_signatures_match(record.signature, target)
-    ]
+    matches, resilient = _match_face_records(planar_faces(body), target)
     if not matches:
         raise SubshapeUnresolvedError(
             "No planar face of the current body matches the stored face "
@@ -255,6 +378,8 @@ def resolve_face_plane(
             "Refusing to guess — pick a face without a congruent twin."
         )
     plane = matches[0].plane
+    if resilient:
+        plane = _anchored_plane(plane, target)
     if offset_mm == 0.0:
         return plane
     return Plane(
@@ -285,7 +410,10 @@ def resolve_faces(body: BodyShape, targets: list[PlanarFaceSignature]) -> list[F
     records = planar_faces(body)
     chosen: dict[int, Face] = {}
     for target in targets:
-        matches = [r for r in records if planar_signatures_match(r.signature, target)]
+        # The tier flag is irrelevant here: this resolver returns the kernel
+        # :class:`Face` itself, not a derived POSITION, so there is no origin to
+        # re-anchor (contrast :func:`resolve_face_plane`).
+        matches, _resilient = _match_face_records(records, target)
         if not matches:
             raise SubshapeUnresolvedError(
                 "No planar face of the current body matches a picked face "

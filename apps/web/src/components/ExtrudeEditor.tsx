@@ -31,6 +31,8 @@ import {
   type ExtrudeDirection,
   type ExtrudeForm,
   type ExtrudeOperation,
+  type ExtrudePreviewState,
+  extrudePreviewState,
   parseDistanceMm,
   type ProfileOption,
 } from "../features/extrude";
@@ -48,6 +50,12 @@ export interface ExtrudeEditorProps {
   saving: boolean;
   /** Server-side failure envelope message, or null. */
   error: string | null;
+  /**
+   * Live preview projection of the form as the user types (UI-REVIEW #8) — the
+   * viewport draws a ghost of the result before Save. Fired null on any
+   * incomplete form and once on unmount (the ghost never lingers past close).
+   */
+  onPreviewChange?: (preview: ExtrudePreviewState | null) => void;
 }
 
 const OPERATIONS: ReadonlyArray<SegmentOption<ExtrudeOperation>> = [
@@ -92,11 +100,19 @@ export function ExtrudeEditor({
   onCancel,
   saving,
   error,
+  onPreviewChange,
 }: ExtrudeEditorProps) {
   const unit = useDocumentLengthUnit();
   const [form, setForm] = useState<ExtrudeForm>(initial);
   // Re-seed when the editor is retargeted at a different feature.
   useEffect(() => setForm(initial), [initial]);
+
+  // Feed the live ghost: every form/unit change re-projects the preview; the
+  // cleanup clears it so closing the editor (unmount) never leaves a ghost.
+  useEffect(() => {
+    onPreviewChange?.(extrudePreviewState(form, unit));
+    return () => onPreviewChange?.(null);
+  }, [form, unit, onPreviewChange]);
 
   const submit = useCallback(() => {
     const distance = parseDistanceMm(form.distanceInput, unit);
@@ -117,12 +133,9 @@ export function ExtrudeEditor({
       if (event.key === "Enter") {
         event.preventDefault();
         if (!saving) submit();
-      } else if (event.key === "Escape") {
-        event.preventDefault();
-        onCancel();
       }
     },
-    [saving, submit, onCancel],
+    [saving, submit],
   );
 
   const distanceMsg = distanceError(form.distanceInput, unit);

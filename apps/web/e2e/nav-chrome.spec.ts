@@ -139,7 +139,7 @@ test.describe("gated tools explain themselves", () => {
     const extrude = page.getByTestId("new-extrude");
     // No sketch yet → honestly disabled (aria-disabled, still in the a11y tree).
     await expect(extrude).toBeDisabled();
-    await expect(extrude).toContainText("Solve a sketch first");
+    await expect(extrude).toContainText("Draw a sketch to extrude");
 
     // MOUSE: a native-disabled button is pointer-events:none — hovering it would
     // hit the element behind and time out. This hover SUCCEEDING proves the tool

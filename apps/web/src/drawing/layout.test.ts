@@ -2,8 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import type { EdgeSignature, ProjectedViewEdge } from "../api/drawings";
 import {
+  SHEET_SIZE_OPTIONS,
   endpointHandlesForEdge,
+  fitScale,
   sheetDimensions,
+  sheetSizeLabel,
   standardLayout,
 } from "./layout";
 
@@ -17,6 +20,109 @@ describe("sheetDimensions", () => {
       width: 210,
       height: 297,
     });
+  });
+
+  it("A3 landscape is 420×297 mm (a bigger sheet than A4)", () => {
+    expect(sheetDimensions("A3", "landscape")).toEqual({
+      width: 420,
+      height: 297,
+    });
+  });
+});
+
+describe("SHEET_SIZE_OPTIONS (the size picker's choices)", () => {
+  it("offers every standard size, A4 first, ANSI last", () => {
+    const values = SHEET_SIZE_OPTIONS.map((o) => o.value);
+    expect(values).toEqual([
+      "A4",
+      "A3",
+      "A2",
+      "A1",
+      "A0",
+      "ANSI_A",
+      "ANSI_B",
+      "ANSI_C",
+      "ANSI_D",
+    ]);
+  });
+
+  it("labels carry the landscape mm extents (from SHEET_MM_LANDSCAPE, no drift)", () => {
+    const a4 = SHEET_SIZE_OPTIONS.find((o) => o.value === "A4");
+    expect(a4?.label).toBe("A4 · 297 × 210 mm");
+    const a3 = SHEET_SIZE_OPTIONS.find((o) => o.value === "A3");
+    expect(a3?.label).toBe("A3 · 420 × 297 mm");
+  });
+
+  it("humanises the ANSI display name", () => {
+    expect(sheetSizeLabel("A4")).toBe("A4");
+    expect(sheetSizeLabel("ANSI_B")).toBe("ANSI B");
+    const ansiB = SHEET_SIZE_OPTIONS.find((o) => o.value === "ANSI_B");
+    expect(ansiB?.label.startsWith("ANSI B ·")).toBe(true);
+  });
+});
+
+describe("fitScale (auto-layout fit — WB-64 dogfooding fix)", () => {
+  const a4 = sheetDimensions("A4", "landscape");
+
+  it("keeps 1:1 for a part whose views fit their cells (the plate)", () => {
+    expect(fitScale({ x: 40, y: 25, z: 10 }, a4, "1:1").value).toBe("1:1");
+  });
+
+  it("reduces a 258 mm bottle to 1:5 on A4 (1:1 and 1:2 overflow)", () => {
+    expect(fitScale({ x: 120, y: 120, z: 258 }, a4, "1:1").value).toBe("1:5");
+  });
+
+  it("treats the user's picked scale as a ceiling, never upscaling", () => {
+    // A tiny part at an explicit 1:10 stays 1:10 — fit only ever reduces.
+    expect(fitScale({ x: 10, y: 10, z: 5 }, a4, "1:10").value).toBe("1:10");
+  });
+
+  it("respects an explicit magnification when it fits", () => {
+    expect(fitScale({ x: 8, y: 8, z: 4 }, a4, "5:1").value).toBe("5:1");
+  });
+
+  it("falls back to the smallest option when nothing fits (never throws)", () => {
+    expect(fitScale({ x: 5000, y: 5000, z: 5000 }, a4, "1:1").value).toBe(
+      "1:10",
+    );
+  });
+
+  it("a magnified choice that overflows steps DOWN through the options", () => {
+    // 5:1 on a 100 mm part overflows; the fit walks down to what fits.
+    const fitted = fitScale({ x: 100, y: 100, z: 50 }, a4, "5:1");
+    expect(fitted.value).toBe("1:2");
+  });
+
+  it("pancake iso-height bound is honoured (review 2026-07-22 regression)", () => {
+    // A flat, wide part whose ORTHO views all fit at 1:1 but whose iso view is
+    // HEIGHT-dominated by the xy term: true iso height 0.8165·30 + 0.4082·109
+    // ≈ 69.0 mm > the 63.4 mm A4 cell, so 1:1 must be rejected. The previous
+    // 0.3 xy-coefficient accepted exactly this shape at 1:1 (its over-wide
+    // 0.87 width bound sat just inside the old cell, masking nothing here).
+    expect(fitScale({ x: 95, y: 14, z: 30 }, a4, "1:1").value).toBe("1:2");
+  });
+
+  it("a bigger sheet earns a bigger scale (the WB-64 size-control payoff)", () => {
+    // A 200×140×30 part overflows A4's quadrant cells until 1:5, but the larger
+    // A3 sheet fits the same four views at 1:2 — the exact reason the size
+    // picker exists (choosing A3 buys a far more usable scale for a big part).
+    const big = { x: 200, y: 140, z: 30 };
+    const onA4 = fitScale(big, sheetDimensions("A4", "landscape"), "1:1");
+    const onA3 = fitScale(big, sheetDimensions("A3", "landscape"), "1:1");
+    expect(onA4.value).toBe("1:5");
+    expect(onA3.value).toBe("1:2");
+    // The A3 scale is strictly larger than the A4 scale.
+    expect(onA3.numerator / onA3.denominator).toBeGreaterThan(
+      onA4.numerator / onA4.denominator,
+    );
+  });
+
+  it("portrait sheet swaps the cell aspect", () => {
+    const portrait = sheetDimensions("A4", "portrait");
+    // 210 wide → columns narrow to ~63.6 mm: a 90 mm-wide part no longer fits
+    // its column at 1:1 even though it does on landscape.
+    expect(fitScale({ x: 90, y: 5, z: 20 }, portrait, "1:1").value).toBe("1:2");
+    expect(fitScale({ x: 90, y: 5, z: 20 }, a4, "1:1").value).toBe("1:1");
   });
 });
 
