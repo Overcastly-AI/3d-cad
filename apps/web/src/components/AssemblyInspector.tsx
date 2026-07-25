@@ -9,12 +9,9 @@
 import { Panel, PanelRow, PanelSection } from "@loft/design";
 
 import type { AssemblyStatus, EvaluateAssemblyResult } from "../api/assemblies";
-import {
-  formatCount,
-  formatExtents,
-  formatQuantity,
-  formatVec3,
-} from "../lib/format";
+import { assemblyReadout } from "../assembly/readout";
+import { formatCount } from "../lib/format";
+import { useDocumentLengthUnit } from "../units/documentUnit";
 
 export interface AssemblyInspectorProps {
   evaluation: EvaluateAssemblyResult | undefined;
@@ -41,10 +38,13 @@ export function AssemblyInspector({
   evaluating,
 }: AssemblyInspectorProps) {
   const em = "—";
-  const props = evaluation?.properties ?? null;
-  const bbox = evaluation?.bounding_box ?? null;
   const diagnosis = evaluation?.diagnosis ?? null;
   const status = evaluation?.status ?? null;
+  // Combined-mass / bbox readouts honor the document unit (FINDINGS burn-down
+  // 2026-07-25 #7) — the same display-boundary conversion the part inspector
+  // does, so an inch assembly and its inch parts speak one convention.
+  const unit = useDocumentLengthUnit();
+  const readout = assemblyReadout(evaluation, unit);
 
   return (
     <aside
@@ -87,20 +87,32 @@ export function AssemblyInspector({
         </PanelSection>
 
         <PanelSection eyebrow="Combined mass">
-          <PanelRow label="Volume" unit="mm³" data-testid="assembly-volume">
-            {props ? formatQuantity(props.volume) : em}
+          <PanelRow
+            label="Volume"
+            unit={readout.volumeUnit}
+            data-testid="assembly-volume"
+          >
+            {readout.volume}
           </PanelRow>
-          <PanelRow label="Area" unit="mm²">
-            {props ? formatQuantity(props.surface_area) : em}
+          <PanelRow label="Area" unit={readout.areaUnit}>
+            {readout.area}
           </PanelRow>
-          <PanelRow label="Centroid" unit="mm" data-testid="assembly-centroid">
-            {props ? formatVec3(props.centroid) : em}
+          <PanelRow
+            label="Centroid"
+            unit={readout.lengthUnit}
+            data-testid="assembly-centroid"
+          >
+            {readout.centroid}
           </PanelRow>
         </PanelSection>
 
         <PanelSection eyebrow="Bounding box">
-          <PanelRow label="Extents" unit="mm" data-testid="assembly-extents">
-            {bbox ? formatExtents(bbox.min, bbox.max) : em}
+          <PanelRow
+            label="Extents"
+            unit={readout.lengthUnit}
+            data-testid="assembly-extents"
+          >
+            {readout.extents}
           </PanelRow>
         </PanelSection>
         {/* The decorative footer is gone (UI-REVIEW 2026-07-16, Track B):

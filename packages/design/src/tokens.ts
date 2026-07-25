@@ -171,6 +171,29 @@ export const viewport = {
     surfaceOpacity: 0.42,
     /** Ghost edge opacity (a hair under solid so it reads as a preview). */
     edgeOpacity: 0.85,
+    /**
+     * CUT ghost (FINDINGS burn-down 2026-07-25 #5). An extrude that REMOVES
+     * material must never paint a proud brass solid — the preview would state
+     * the opposite of the result. A cut is drawn as a VOID instead, and the
+     * whole read inverts:
+     *   · only the cavity's BACK walls are shaded (you look INTO the pocket,
+     *     not at a body's near surface);
+     *   · they are shaded DARK and cold — a hole in machined aluminum is a
+     *     shadow, not a highlight — where the add ghost is warm and bright.
+     * Add = warm, bright, filling. Cut = cold, dark, hollow. Distinct at a
+     * glance, and distinct from the red clash tint (interference), which is the
+     * only other tinted body state.
+     */
+    cut: {
+      /** Cavity wall tint — multiplies the studio matcap down into cold shade. */
+      wallTint: "#3B4757",
+      /** Cavity wall opacity — the plate still reads THROUGH the void. */
+      wallOpacity: 0.55,
+      /** Void silhouette ink — cold steel, the anti-brass. */
+      edge: "#AFC3D6",
+      /** Void silhouette opacity. */
+      edgeOpacity: 0.8,
+    },
   },
 } as const;
 

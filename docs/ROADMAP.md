@@ -53,6 +53,28 @@ a pocket in each half — locked by a new golden
 (`mirror-cut-clearing-plane-block-40x40x20`, planar, tol 1e-9) plus the
 Hole-sourced twin and an earlier-cut-survives guard in `test_mirror.py`.
 
+**Burn-down code-review fixes — frontend (2026-07-25).** Four confirmed
+findings from the independent review of the burn-down diff, all in `apps/web`
++ `packages/design`. (4) A right-drag PAN no longer pops the viewport context
+menu: the orbit rig binds the right button to pan and only `preventDefault()`s
+`contextmenu`, so every pan used to end with the menu open. The menu is now
+gated on a stationary right-button gesture (4 px click slop) on BOTH
+platform behaviours — `contextmenu`-on-press (Chromium/Linux; the request is
+held and released on pointerup) and on-release. (5) The live extrude ghost
+obeys `operation`: a CUT is drawn as a VOID — back walls only, shaded cold and
+dark — instead of the warm brass SOLID it painted regardless, a preview that
+stated the opposite of what Save produces. (7) The ASSEMBLY inspector joins
+FINDINGS #17's unit-aware readouts (in³/in²/in via `assemblyReadout`), so an
+inch assembly and its inch parts no longer speak two conventions; readout
+PRECISION is unit-aware too (a 100 mm³ feature reads `0.0061 in³`, not
+`0.01`). (9) `ContextMenu` now really restores focus to the trigger on close,
+as its docstring promised — deferring to an action that moved focus itself
+(Rename). Gates: `tsc`/eslint/prettier + web (836) and design (48) unit suites
+green; targeted Playwright green (new `viewport-gestures`,
+`extrude-cut-preview`, `assembly-units`; regression `interaction-depth`,
+`document-units`, `assembly-inspect`). Before/after founder shots under
+`docs/screenshots/extrude-cut-ghost-*` and `assembly-units-in-*`.
+
 **Prior focus — daily-driver depth (2026-07-23 product audit), still the
 standing direction beneath the burn-down.** The 2026-07-23 audit re-pointed
 the queue from the sheet-metal

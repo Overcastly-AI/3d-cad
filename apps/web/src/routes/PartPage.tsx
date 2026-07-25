@@ -3599,6 +3599,7 @@ export function PartPage() {
                     data-testid="extrude-preview-active"
                     data-distance-mm={extrudePreview.distanceMm}
                     data-direction={extrudePreview.direction}
+                    data-operation={extrudePreview.operation}
                   />
                 ) : null}
                 {isEmptyPart ? (
@@ -3948,6 +3949,7 @@ export function PartPage() {
                 layer={extrudeGhostLayer}
                 distanceMm={extrudePreview.distanceMm}
                 direction={extrudePreview.direction}
+                operation={extrudePreview.operation}
               />
             ) : null}
             <MeasureOverlay />

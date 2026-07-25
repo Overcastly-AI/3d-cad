@@ -1162,6 +1162,11 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
+- 2026-07-25 — **Burn-down code-review fixes, frontend (frontend-builder):**
+  right-drag pan no longer opens the viewport context menu (click-slop gate,
+  press- and release-fired `contextmenu`); the extrude ghost honours
+  `operation` (cut = cold dark void, not a brass solid); the assembly inspector
+  and readout precision are unit-aware; `ContextMenu` restores focus on close.
 - 2026-07-24 — **Drawings #4 SLICE 2 — gateway gate-removal + documents resolution
   (backend-builder):** `assembly_views_unsupported` gone; documents
   `GET /assemblies/{id}/evaluation-request` resolves the graph; gateway threads it as
