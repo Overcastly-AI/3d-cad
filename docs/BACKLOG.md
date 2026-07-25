@@ -751,6 +751,17 @@ Full narrative evidence lives in `docs/ROADMAP.md` (Phase 4/4b sections) and
       an honest `subshape_unresolved`). Tier 2 now re-anchors at the STORED centroid
       projected onto the matched face; tier 1 unchanged. 2 regressions.
       [src: code-review 2026-07-25 regression A]
+- [x] (P1, M) **H4 — per-face provenance taxed every compute path and scanned
+      quadratically.** (a) `evaluate_tree(..., record_history=False)` by default,
+      so only `/overlay` funds the snapshots — the other 8 call sites retain 0
+      intermediate B-reps (goldens measured 4/3/2 → 0) with byte-identical GLB.
+      (b) The matcher is one spatial hash over all snapshots keyed
+      `(surface, quantised centroid)`: 600-face body 180300 → 600 comparisons;
+      8.83 s → 1.82 s at 4800 faces, now linear and snapshot-count independent.
+      (c) `MAX_PROVENANCE_FACES = 8000` (py-kit, G2 idiom, contract-visible)
+      DEGRADES to null attribution past the bound rather than 422-ing the whole
+      picking overlay. 5 new geometry tests + an `overlay` benchmark group.
+      [src: AUDIT-ENGINEERING.md 2026-07-25 H4]
 - [x] (P0, S) **Regression B — the cut-aware mirror silently NO-OPPED the two
       canonical mirror workflows.** `_prev_cut_tools` fires on ANY preceding
       extrude-cut/Hole and `_evaluate_mirror` then took `mirror_cut`

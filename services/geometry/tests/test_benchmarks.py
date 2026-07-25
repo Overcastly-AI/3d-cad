@@ -61,6 +61,7 @@ from geometry.drawings import (
 from geometry.harness import build_model_solid, evaluate_model, load_model_request
 from geometry.kernel import measure_shape
 from geometry.kernel.tessellate import tessellate_glb
+from geometry.overlay import evaluate_overlay
 from geometry.schemas import DEFAULT_LINEAR_DEFLECTION
 from py_kit.schemas.assemblies import EvaluateAssemblyRequest
 from py_kit.schemas.drawings import (
@@ -71,6 +72,7 @@ from py_kit.schemas.drawings import (
     ViewScale,
 )
 from py_kit.schemas.features import EvaluateTreeRequest
+from py_kit.schemas.overlay import OverlayRequest
 
 _GEO_ROOT = Path(__file__).resolve().parent.parent
 _GOLDENS = _GEO_ROOT / "goldens"
@@ -123,6 +125,23 @@ def _tree_eval_factory(golden: str) -> Factory:
     def factory() -> Thunk:
         request = _tree_model(golden)
         return lambda: evaluate_model(request)  # type: ignore[arg-type]
+
+    return factory
+
+
+def _overlay_factory(golden: str) -> Factory:
+    """The INTERACTIVE selection round trip: recompute the tree, attribute every
+    face to its feature, and build the pickable overlay — the exact work
+    ``POST /api/v1/overlay`` does on a face pick / feature select.
+
+    Budgeted because per-face provenance made this route super-linear in face
+    count (audit H4) and it is the one route a user hits on every click; the
+    matcher is indexed and the pass is bounded now, and this ceiling is the
+    tripwire that keeps it that way."""
+
+    def factory() -> Thunk:
+        request = OverlayRequest(tree=_tree_model(golden))  # type: ignore[arg-type]
+        return lambda: evaluate_overlay(request)
 
     return factory
 
@@ -283,6 +302,20 @@ CASES: list[BenchCase] = [
         "union-then-fillet",
         _L,
         _tree_eval_factory("boolean-union-then-fillet"),
+    ),
+    # Interactive selection overlay (recompute + per-face provenance + pick
+    # geometry) — the route every viewport click hits (audit H4).
+    BenchCase(
+        "overlay",
+        "plate-6hole-ring-cut",
+        _H,
+        _overlay_factory("sketch-extrude-plate-6hole-ring-cut-60x60x10"),
+    ),
+    BenchCase(
+        "overlay",
+        "pattern-cut-6hole-boltcircle",
+        _H,
+        _overlay_factory("pattern-cut-6hole-boltcircle-60x60x10"),
     ),
     # Tessellation (GLB): a primitive, a curved primitive, and a dense body.
     BenchCase("tessellate", "box-primitive", _L, _tessellate_factory("box-10x20x30")),

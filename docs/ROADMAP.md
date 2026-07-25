@@ -34,7 +34,14 @@ same projection (migration `0011` UNIQUE `(sheet_id, projection)` + typed 422),
 which is what made a drag-to-place persist onto another view's row; the web
 sheet now keys per view id. **H5** — `MAX_DRAWING_SHEETS = 100` closes the one
 work bound G2 missed (parse ceiling + documents write twin), and the drawing
-tree read is 4 queries instead of `1 + 3n`. Alongside, review **CR-6**: a
+tree read is 4 queries instead of `1 + 3n`. **H4** — the per-face provenance
+that shipped with feature-localized selection no longer taxes every compute
+path: body-history recording is opt-in (only `/overlay` asks; the other eight
+`evaluate_tree` call sites retain 0 intermediate B-reps, down from one per
+body-affecting feature), the matcher is hash-indexed (600-face body: 180 300 →
+600 comparisons; 8.83 s → 1.82 s at 4800 faces), and the pass is bounded by a
+documented `MAX_PROVENANCE_FACES = 8000` that DEGRADES to null attribution
+(the frontend's existing whole-body fallback) instead of pinning a worker. Alongside, review **CR-6**: a
 multi-sheet drawing's export now downloads as `<drawing>-<sheet>.<ext>` instead
 of every sheet sharing one filename. **Code-review regression A (kernel, same batch):** the
 FINDINGS #3 resilient face re-match (`2b6b72e`) silently MOVED the resolved

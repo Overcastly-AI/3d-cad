@@ -1027,7 +1027,44 @@ projection on one sheet (grep across `services/*/tests` + `apps/web/e2e`).
 
 ---
 
-### H4 — Per-face provenance made `evaluate_tree` retain O(features) intermediate B-reps on **every** compute path, and made `/overlay` quadratic in face count. **P2 (memory, all paths) / P1 (latency, `/overlay` on imported bodies) · CONFIRMED by code; magnitudes PLAUSIBLE (not measured — no stack this pass)**
+### H4 — Per-face provenance made `evaluate_tree` retain O(features) intermediate B-reps on **every** compute path, and made `/overlay` quadratic in face count. **P2 (memory, all paths) / P1 (latency, `/overlay` on imported bodies) · CONFIRMED by code; magnitudes PLAUSIBLE (not measured — no stack this pass)** · **✅ FIXED · magnitudes now MEASURED**
+
+
+> **Landed 2026-07-25 (kernel-architect).** All three legs, with the magnitudes
+> measured rather than estimated (build123d 0.11.1 / OCCT 7.9):
+>
+> * **(a) history is OPT-IN.** `evaluate_tree(request, *, record_history=False)`;
+>   only `geometry/overlay.py` passes `True`. The other eight call sites
+>   (tessellate, export, measure, drawing compose, per-instance assembly
+>   evaluation, the golden harness) retain **0** snapshots where they previously
+>   held one intermediate B-rep per body-affecting feature — measured on the
+>   goldens: `boolean-union-then-fillet` 4 → 0, `pattern-cut-6hole-boltcircle`
+>   3 → 0, `plate-6hole-ring-cut` 2 → 0 — and the multi-body `Compound` per
+>   feature is no longer constructed on the tessellate path. Same GLB bytes /
+>   `mesh_glb_id` / mass properties either way (asserted).
+> * **(b) the matcher is HASH-INDEXED.** One spatial hash over every snapshot,
+>   keyed `(surface family, centroid quantised to CENTROID_TOL_MM)` and carrying
+>   the snapshot order; a final face probes its own cell + 26 neighbours and takes
+>   the minimum order. Same result (the documented tolerance still decides — the
+>   index only narrows candidates), now `O(total faces)` and independent of
+>   snapshot COUNT. Measured: 600-face body **180 300 → 600** matcher calls (75x);
+>   end to end **0.355 s → 0.220 s** at 600 faces, **2.53 s → 1.21 s** at 2400,
+>   **8.83 s → 1.82 s** at 4800 — i.e. the old curve was super-linear and the new
+>   one is flat per face (GProp-bound at ~186 µs/face).
+> * **(c) the work is BOUNDED.** `MAX_PROVENANCE_FACES = 8000` (fingerprint budget
+>   = final faces + Σ snapshot faces) in `packages/py-kit/src/py_kit/schemas/overlay.py`,
+>   documented in the G2 style and contract-visible on `OverlayFace.feature_id`.
+>   Past it the pass is **skipped** → all-`null` attribution → the frontend's
+>   existing whole-body fallback. Deliberately NOT a 422: that would take vertex/
+>   edge/face picking, measure and sketch-on-face away from large imported bodies
+>   that work fine today, to protect a rendering nicety.
+>
+> Coverage gap closed: `test_provenance.py` gained a size gate asserting matcher
+> calls stay linear (contention-invariant — an operation count, not a wall-clock),
+> a non-overlay-retains-nothing test, and the two degradation tests; the benchmark
+> corpus gained an `overlay` group (two dense goldens, tier-1 ceiling) so the
+> interactive route now has a standing budget.
+
 
 `406b89b` added, unconditionally, in `services/geometry/src/geometry/features/evaluate.py:2443-2447`:
 
@@ -1281,7 +1318,7 @@ instances both named "Bolt"), which the round trip must not merge.
 | # | Sev | Item | Why now |
 |---|-----|------|---------|
 | 1 | **P1** | **H1** — add `activeSheetId` to the `drawing-eval` query key + a two-section-sheet e2e | One-line fix for a silent-wrong-geometry-on-screen bug in the feature that shipped last night. Cheapest P1 in the repo. |
-| 2 | **P1** | **H4(b)** — index the provenance matcher + make `body_history` opt-in | `/overlay` is now super-linear in face count on the interactive path, and every non-overlay evaluate pays retained memory it never uses. Regression introduced *after* G2 established the per-request-cost rule. |
+| 2 | **P1** | ✅ **H4** — index the provenance matcher + make `body_history` opt-in + `MAX_PROVENANCE_FACES` (landed 2026-07-25) | `/overlay` is now super-linear in face count on the interactive path, and every non-overlay evaluate pays retained memory it never uses. Regression introduced *after* G2 established the per-request-cost rule. |
 | 3 | **P1** | **H2** — reject (or implement) mixed source documents + per-view scale on a sheet | Wrong-print risk reachable through the public API today, and Phase 5 is about to hand that API to agents. |
 | 4 | **P2** | **H3** — `UniqueConstraint("sheet_id","projection")` + migration 0011 + typed 422 | The drag-to-place PATCH can write to the wrong view row. Data corruption from a UI gesture. |
 | 5 | **P2** | **H6** — correct the ROADMAP/FINDINGS certification claim; add the "certify only after the sweep exits 0" rule + `docs/.last-sweep` | Process rot compounds: the next agent trusts an unverified green. Fix the rule, not just the sentence. |

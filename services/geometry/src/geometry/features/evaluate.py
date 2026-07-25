@@ -299,7 +299,8 @@ class EvaluationState:
     #: of clay-swapping the whole body. Each snapshot is built exactly like the
     #: final tessellated shape (:func:`_snapshot_shape` — bare solid or flattened
     #: Compound), so a face matches across snapshots by geometry. Service-internal
-    #: kernel shapes, never serialized — exactly like ``bodies``.
+    #: kernel shapes, never serialized — exactly like ``bodies``. Populated ONLY
+    #: when the caller passes ``record_history=True`` (audit H4).
     body_history: list[tuple[uuid.UUID, BodyShape]] = field(
         default_factory=list[tuple[uuid.UUID, BodyShape]]
     )
@@ -2314,7 +2315,9 @@ class TreeEvaluation:
     #: order): ``(feature id, shape)``. Service-internal like ``body``. Per-face
     #: feature provenance (FINDINGS #9) — the overlay service threads
     #: :func:`geometry.kernel.attribute_faces` over ``(body, body_history)`` onto
-    #: ``OverlayFace.feature_id`` for feature-localized selection. Empty for a
+    #: ``OverlayFace.feature_id`` for feature-localized selection. EMPTY unless the
+    #: caller asked for it (``evaluate_tree(..., record_history=True)`` — audit H4:
+    #: only the overlay path funds the retained intermediate bodies), and for a
     #: body-less tree.
     body_history: list[tuple[uuid.UUID, BodyShape]] = field(
         default_factory=list[tuple[uuid.UUID, BodyShape]]
@@ -2387,7 +2390,9 @@ def _suppressed_reference_error(
     return None
 
 
-def evaluate_tree(request: EvaluateTreeRequest) -> TreeEvaluation:
+def evaluate_tree(
+    request: EvaluateTreeRequest, *, record_history: bool = False
+) -> TreeEvaluation:
     """Evaluate an ordered feature prefix under the strict-prefix rule (§4.3).
 
     Suppressed features (§4.3a) are SKIPPED: the body is built from the
@@ -2396,9 +2401,23 @@ def evaluate_tree(request: EvaluateTreeRequest) -> TreeEvaluation:
     suppressed one is a typed ``references_suppressed`` error
     (:func:`_suppressed_reference_error`), never a raise.
 
+    *record_history* (OPT-IN, audit H4) turns on the per-feature body snapshots
+    that feed per-face provenance (:attr:`TreeEvaluation.body_history`). It is off
+    by default because ONLY the overlay service consumes them, while
+    ``evaluate_tree`` has nine call sites — tessellate, export, measure, drawing
+    compose, per-instance assembly evaluation, the golden harness. Recording
+    unconditionally made every one of those retain an intermediate B-rep per
+    body-affecting feature (up to ``MAX_TREE_FEATURES``, and per unique part in an
+    assembly) plus, for a multi-body part, CONSTRUCT a fresh ``Compound`` per
+    feature — real OCCT work on the tessellate hot path, funded by callers that
+    never read the result. With it off, each intermediate body dies as the next
+    feature supersedes it, exactly as before provenance existed.
+
     Deterministic: same request → identical statuses, identical solved
     positions, byte-identical GLB and therefore identical ``mesh_glb_id``
-    (RESEARCH §9). Never raises for geometry outcomes.
+    (RESEARCH §9) — and *record_history* changes NOTHING about the evaluated
+    geometry, only whether the intermediates are kept. Never raises for geometry
+    outcomes.
     """
     state = EvaluationState(linear_deflection=request.linear_deflection)
     results: list[FeatureResult] = []
@@ -2442,8 +2461,11 @@ def evaluate_tree(request: EvaluateTreeRequest) -> TreeEvaluation:
                 state.prev_body_feature = item.feature
                 # Snapshot the body set for per-face feature provenance
                 # (FINDINGS #9): each final face is attributed to the earliest
-                # feature after which it exists in its final form.
-                if state.bodies:
+                # feature after which it exists in its final form. OPT-IN (audit
+                # H4) — only the overlay path reads these, so no other caller pays
+                # the retained intermediate bodies (or the per-feature Compound
+                # construction on a multi-body part).
+                if record_history and state.bodies:
                     state.body_history.append((item.id, _snapshot_shape(state.bodies)))
         else:
             results.append(
