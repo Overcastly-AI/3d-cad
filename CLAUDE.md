@@ -330,6 +330,15 @@ recipe here in the same commit as the fix.**
     DSNs are file URLs: `sqlite+aiosqlite:////abs/path/documents.db` (the env
     var is `POSTGRES_URL`; `py_kit.db.async_dsn` normalizes `sqlite://` →
     `sqlite+aiosqlite://`).
+    **Always `rm -f` the SQLite files first — `create_all` does NOT migrate.**
+    `metadata.create_all` is a no-op on a table that already exists, so a
+    scratchpad `documents.db` left by an earlier session is silently reused at
+    ITS old schema. Seen 2026-07-25: a db from 07-23 made every e2e spec fail
+    at `new-sketch` with gateway 500s — `no such column: features.suppressed`,
+    a column added after that file was written. The failure looks like a code
+    regression and is not one, and it gets worse the longer a container lives
+    (the schema drifts further each day). Start every native boot from fresh
+    files.
   - **geometry → in-process LRU mesh store** when `S3_URL` is unset. Keep
     `--workers 1` (the LRU is per-process; multi-worker would split it). No MinIO.
   - **gateway → fail-open rate limiter** when `REDIS_URL` is unset (no-op
