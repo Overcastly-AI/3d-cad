@@ -1305,7 +1305,10 @@ flexible sub-assemblies, part-version pinning-as-default.
       a partially-occluded segment is split at the overlap and never drawn both dashed
       and solid. Regressions: 5-view zero-overlap sheet, honored-position, typed-error-
       preserved, partial-occlusion split; flat-pattern-sheet goldens refreshed for the
-      additive `error` field; `just gen` clean.
+      additive `error` field; `just gen` clean. (2026-07-25: the ASSEMBLY-path guard
+      `test_partial_occlusion_emits_no_hidden_over_visible_overlap` was left
+      `xfail(strict=False)` by this commit and had been XPASSing ever since — marker
+      removed, it is a real assertion covering both paths now.)
       **Assembly STEP name fidelity ✅ 2026-07-24 (kernel-architect; FINDINGS #7):**
       the assembly STEP export wrote every PRODUCT name as the instance UUID, so a
       Loft→STEP→Loft round trip recovered parts named `c8f8baa9-…` — positions

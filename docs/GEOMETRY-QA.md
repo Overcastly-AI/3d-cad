@@ -402,7 +402,16 @@ union, so no such topological edge exists. This is honest, matches the module's 
 contract ("occlusion resolved ACROSS instances," not boolean seams), and mirrors how
 every kernel drawing/interference path treats a compound. Observation, not a defect.
 
-### 🟠 P3 (PRE-EXISTING, shared HLR) — partial occlusion emits a dashed line over a solid line
+### 🟢 P3 (PRE-EXISTING, shared HLR) — FIXED `0e6c282` — partial occlusion emits a dashed line over a solid line
+**Status 2026-07-25 (kernel-architect).** Fixed one day after filing by `0e6c282`
+(FINDINGS #21) in the shared post-processing this always lived in: `_canonicalize`
+step 2b subtracts a visible line's collinear coverage from an overlapping hidden
+line (`_resolve_hidden_line`), where step 2 had only dropped EXACT coincidences.
+That commit added its regressions on the single-part path and left the assembly
+guard `xfail(strict=False)`, so it XPASSed silently for a day — the marker is now
+removed and `test_partial_occlusion_emits_no_hidden_over_visible_overlap` is a
+real assertion covering the assembly path too. Original evidence below.
+
 **Evidence.** Box A (front slab, world X[-10,10] Y[-5,0] Z[-10,10]) *partially*
 occludes box B behind it (world X[0,20] Y[10,15] Z[-5,5]). FRONT view — B's bottom
 edge at z=-5 (analytically: hidden over X[0,10], visible over X[10,20]) is emitted as

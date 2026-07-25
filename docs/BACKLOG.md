@@ -637,6 +637,8 @@ frame refactor are v2/§11. Spike de-collected.
       dashed+solid. Regressions: 5-view zero-overlap, honored-position, typed-error-
       preserved, partial-occlusion split. Goldens refreshed (additive `error` field);
       `just gen`/`gen-check` clean. [src: FINDINGS #6/#15/#21]
+      Follow-up 2026-07-25: #21's ASSEMBLY-path guard was left `xfail(strict=False)`
+      and had been XPASSing since this commit — marker removed, real assertion now.
 - [x] (P1, S) FINDINGS #7 assembly STEP writes UUIDs as PRODUCT names
       (`services/geometry`, `services/documents`, `packages/py-kit`). New optional
       `EvaluatedInstance.name` threads the human-readable instance name (populated at

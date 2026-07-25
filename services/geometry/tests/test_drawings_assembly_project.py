@@ -778,31 +778,27 @@ def test_assembly_projection_is_deterministic_across_interpreter_restart() -> No
     )
 
 
-# --- KNOWN DEFECT guard (P3, PRE-EXISTING in the shared HLR post-processing) --
+# --- FIXED-DEFECT regression (was P3 in the shared HLR post-processing) -------
 
 
-@pytest.mark.xfail(
-    reason=(
-        "PRE-EXISTING shared-HLR defect (geometry.drawings.project._canonicalize): "
-        "visible-wins culling only drops a hidden edge EXACTLY coincident with a "
-        "visible one, not a hidden edge that PARTIALLY overlaps a collinear visible "
-        "segment. Under partial cross-instance occlusion a body's coincident "
-        "front/back face edge splits into hidden+visible on the near copy while the "
-        "far copy stays a full-length hidden edge, so a segment is emitted BOTH "
-        "dashed and solid. Reproduces on the single-part multi-lump path too (not "
-        "introduced by the assembly slice 8be617e). Filed 2026-07-23; strict=False "
-        "so it flips to XPASS when the shared canonicalize is fixed."
-    ),
-    strict=False,
-)
 def test_partial_occlusion_emits_no_hidden_over_visible_overlap() -> None:
     """Partial cross-instance occlusion: box A (front slab, world X[-10,10] Y[-5,0]
     Z[-10,10]) partially occludes box B behind it (world X[0,20] Y[10,15] Z[-5,5]).
     B's bottom/top edges (Z=±5) should each read HIDDEN over X[0,10] (behind A) and
     VISIBLE over X[10,20] (clear of A). CORRECT output draws each segment once; the
-    defect additionally emits the FULL-length hidden edge, so X[10,20] is drawn both
-    dashed and solid. This guard asserts the CORRECT invariant: no hidden line
-    collinearly overlaps a visible line."""
+    defect additionally emitted the FULL-length hidden edge, so X[10,20] was drawn
+    both dashed and solid. This guard asserts the CORRECT invariant: no hidden line
+    collinearly overlaps a visible line.
+
+    Filed 2026-07-23 as a P3 ``xfail(strict=False)`` on the assembly path, and
+    FIXED one day later by `0e6c282` (FINDINGS #21) in the SHARED post-processing
+    it always lived in: ``_canonicalize`` step 2b now subtracts a visible line's
+    collinear coverage from an overlapping hidden line (``_resolve_hidden_line``),
+    where step 2 had only dropped EXACT coincidences. That commit added its
+    regressions on the single-part path and left this assembly guard xfailing —
+    so it XPASSed silently until 2026-07-25. Marker removed: this is a real
+    assertion now, and it fails if the shared culling regresses on either path.
+    """
     box_a = _instance(
         1,
         "A@1",
