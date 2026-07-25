@@ -1233,3 +1233,53 @@ def test_mixed_sheet_is_refused_on_the_sheet_route_too(db_url: str) -> None:
     assert response.status_code == 422, response.text
     assert _envelope(response.json())["code"] == "sheet_source_document_mismatch"
     assert geometry_seen == []
+
+
+# --- the download names the SHEET, not just the drawing (review CR-6) -------------
+
+
+def _disposition(response: Any) -> str:
+    disposition: str = response.headers["content-disposition"]
+    return disposition
+
+
+def test_multi_sheet_export_filenames_distinguish_the_sheets(db_url: str) -> None:
+    """With `?sheet=` composing any sheet, both sheets used to download under the
+    drawing's name (`plate.pdf` / `plate (1).pdf` — indistinguishable). The gateway
+    now names the file after the SHEET for a multi-sheet drawing."""
+    geometry_seen: list[httpx.Request] = []
+    with make_client(
+        db_url, _documents_two_sheet([]), _geometry_pdf(geometry_seen)
+    ) as client:
+        _, bearer = _register(client)
+        first = client.post(
+            f"/api/v1/drawings/{DRAWING}/export?format=pdf&sheet={SHEET}",
+            headers=bearer,
+        )
+        second = client.post(
+            f"/api/v1/drawings/{DRAWING}/export?format=pdf&sheet={SHEET_TWO}",
+            headers=bearer,
+        )
+        omitted = client.post(
+            f"/api/v1/drawings/{DRAWING}/export?format=pdf", headers=bearer
+        )
+
+    assert first.status_code == 200, first.text
+    # The geometry stub always suggests `bracket-detail.pdf` (it composes from
+    # `layout.title`, the DRAWING name) — the gateway overrides it per sheet.
+    assert _disposition(first) == 'attachment; filename="bracket-detail-sheet-1.pdf"'
+    assert _disposition(second) == 'attachment; filename="bracket-detail-sheet-2.pdf"'
+    # Omitting `?sheet` composes sheet 1 — and names it sheet 1, not the drawing.
+    assert _disposition(omitted) == _disposition(first)
+
+
+def test_single_sheet_export_filename_is_unchanged(db_url: str) -> None:
+    """A lone sheet needs no disambiguation, so the bare drawing name stays."""
+    with make_client(db_url, _documents_ok([]), _geometry_pdf([])) as client:
+        _, bearer = _register(client)
+        response = client.post(
+            f"/api/v1/drawings/{DRAWING}/export?format=pdf", headers=bearer
+        )
+
+    assert response.status_code == 200, response.text
+    assert _disposition(response) == 'attachment; filename="bracket-detail.pdf"'

@@ -792,6 +792,13 @@ Full narrative evidence lives in `docs/ROADMAP.md` (Phase 4/4b sections) and
       G2 idiom); `_by_sheet` collapses the reads to ONE `sheet_id IN (...)` query
       per child table → 4 queries per tree. Contracts regenerated.
       [src: AUDIT-ENGINEERING.md 2026-07-25 H5]
+- [x] (P2, S) **CR-6 — the multi-sheet export filename did not name the sheet**, so
+      exporting sheets 1 and 2 of one drawing gave `plate.pdf` + `plate (1).pdf`.
+      The gateway (the only hop that knows WHICH sheet composed) now sets
+      `Content-Disposition` itself: `<drawing>-<sheet>.<ext>` for a multi-sheet
+      drawing, unchanged `<drawing>.<ext>` for a single-sheet one. Real gateway
+      regressions (the web `exportDrawing.test.ts` header was a mock).
+      [src: code-review CR-6]
 
 ### Recently shipped (2026-07-24 batch)
 

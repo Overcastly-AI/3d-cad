@@ -425,9 +425,12 @@ export interface paths {
          *     unknown/foreign drawing re-surfaced verbatim), the gateway assembles the
          *     :class:`ComposeDrawingRequest` from that persisted state, and the stateless
          *     geometry service (identity-free upstream) evaluates + places + serializes it.
-         *     The artifact bytes stream back with geometry's ``Content-Type`` +
-         *     ``Content-Disposition``; its per-format envelopes (e.g. ``not_implemented`` for
-         *     ``dxf``) re-surface verbatim.
+         *     The artifact bytes stream back with geometry's ``Content-Type``; its
+         *     per-format envelopes (e.g. ``not_implemented`` for ``dxf``) re-surface
+         *     verbatim. The download filename is set HERE (``Content-Disposition``), not
+         *     relayed: only the gateway knows which sheet was composed, so a multi-sheet
+         *     drawing downloads as ``<drawing>-<sheet>.<ext>`` instead of every sheet
+         *     sharing the drawing's name; a single-sheet drawing keeps ``<drawing>.<ext>``.
          */
         post: operations["export_drawing_api_v1_drawings__drawing_id__export_post"];
         delete?: never;

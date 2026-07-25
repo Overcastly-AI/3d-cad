@@ -34,7 +34,9 @@ same projection (migration `0011` UNIQUE `(sheet_id, projection)` + typed 422),
 which is what made a drag-to-place persist onto another view's row; the web
 sheet now keys per view id. **H5** — `MAX_DRAWING_SHEETS = 100` closes the one
 work bound G2 missed (parse ceiling + documents write twin), and the drawing
-tree read is 4 queries instead of `1 + 3n`. **Code-review regression A (kernel, same batch):** the
+tree read is 4 queries instead of `1 + 3n`. Alongside, review **CR-6**: a
+multi-sheet drawing's export now downloads as `<drawing>-<sheet>.<ext>` instead
+of every sheet sharing one filename. **Code-review regression A (kernel, same batch):** the
 FINDINGS #3 resilient face re-match (`2b6b72e`) silently MOVED the resolved
 plane origin — a tier-2 match returned the matched face's CURRENT area centroid,
 so editing a neighbouring hole Ø6→Ø8 on a 40×40×10 plate translated every sketch/
