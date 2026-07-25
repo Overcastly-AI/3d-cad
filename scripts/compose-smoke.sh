@@ -65,15 +65,19 @@ step "1/5 build + boot (docker compose up -d --build)"
 docker compose up -d --build --wait "${SERVICES[@]}"
 
 step "2/5 provision the mesh bucket (one-shot)"
-docker compose run --rm minio-init
+docker compose run --rm -T minio-init
 
 # Each schema-owning service migrates its OWN database with the alembic tree
 # baked into its image — no host Python, no host DB port. --no-deps: the
-# stack is already up, this must not restart it.
+# stack is already up, this must not restart it. `current` afterwards is the
+# evidence line (upgrade itself is silent: env.py configures no logging).
 step "3/5 create the schemas (alembic, from the service images)"
 for service in gateway documents; do
-  docker compose run --rm --no-deps "$service" \
+  docker compose run --rm -T --no-deps "$service" \
     alembic -c /app/migrations/alembic.ini upgrade head
+  printf '%s schema at revision: ' "$service"
+  docker compose run --rm -T --no-deps "$service" \
+    alembic -c /app/migrations/alembic.ini current
 done
 
 # The base stack publishes ONLY the gateway (audit G3), so that is the only
