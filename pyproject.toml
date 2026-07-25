@@ -85,4 +85,10 @@ testpaths = ["services", "packages"]
 addopts = "-q --import-mode=importlib -m 'not benchmark'"
 markers = [
     "benchmark: opt-in detailed perf timings (median/p95); excluded from the default suite",
+    # Cross-service tests that boot >1 real service app in-process (e.g. the
+    # assembly-import chain: gateway -> geometry -> documents over ASGI
+    # transports). INCLUDED in the default suite — the marker exists so a
+    # kernel-free slice can deselect them (`-m 'not integration'`), never to
+    # hide them from CI.
+    "integration: multi-service in-process chain tests (real OCCT); default-included",
 ]

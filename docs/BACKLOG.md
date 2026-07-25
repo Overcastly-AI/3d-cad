@@ -225,7 +225,7 @@ frame refactor are v2/§11. Spike de-collected.
       **SHIPPED 2026-07-25 (backend-builder):** `StepAssemblyImportResult.bodies`
       ({address -> fragment}) + `body_step_for()` as the ONE resolver; geometry's
       emit needed no change (the per-product field is hoisted, never serialized).
-- [ ] (P2, S) Assembly import: permanent 3-service HTTP integration test. The
+- [x] (P2, S) Assembly import: permanent 3-service HTTP integration test. The
       shipped unit suites cover geometry-read and documents-creation in ISOLATION
       but never the real gateway → geometry → documents HTTP chain. Port the
       qa-tester's full-chain harness (`scratchpad/assembly_import_roundtrip.py`)
@@ -233,6 +233,9 @@ frame refactor are v2/§11. Spike de-collected.
       (auth + byte cap + occurrence/response caps + atomic doc creation) is
       exercised end-to-end in CI/e2e, not just the two halves. [src: slice-2b
       security review 2026-07-23]
+      **SHIPPED 2026-07-25 (backend-builder):**
+      `gateway/tests/test_assembly_import_chain.py` — 3 apps in-process over
+      `ASGITransport` (hermetic, ~14 s, `integration`-marked, DEFAULT pytest run).
 - [ ] (P2, M) Drawings parity #4 — assembly drawing views + BOM/balloons (WIRE).
       The real capability behind the D4 gate: compose a drawing view that
       projects an ASSEMBLY (not a single part) — an assembly-side

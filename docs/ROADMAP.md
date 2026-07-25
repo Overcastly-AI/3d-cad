@@ -724,6 +724,17 @@ so a part instanced N times ships its fragment once and the amplification is gon
 from the WIRE, not merely capped (measured on the 3-product/2-body round-trip:
 46,005 → 30,657 chars of body text, and the saving grows with instance count);
 consumers resolve through the one `StepAssemblyImportResult.body_step_for()`.
+**Permanent 3-service chain gate 2026-07-25 (backend-builder)**: the untrusted
+upload path is no longer proven only in halves —
+`services/gateway/tests/test_assembly_import_chain.py` boots gateway + geometry +
+documents IN-PROCESS over `httpx.ASGITransport` (no uvicorn, no ports, no docker;
+SQLite via `metadata.create_all`) and drives a real exported assembly STEP
+through the whole chain: real content-address dedup (2 parts / 3 named instances),
+placements within `roundtrip_tol`, the created parts EVALUATE back to their
+authored volumes (6000 / 120 mm³), the bracket's fragment crossing the documents
+hop once, the flat-STEP MB-4b fallback, and 401 / streamed byte cap / count cap /
+name-collision atomicity with real payloads. `integration`-marked but INCLUDED in
+the default `pytest` run (~14 s).
 Still deferred past v1 (design doc §5): exploded views, BOM formatting,
 flexible sub-assemblies, part-version pinning-as-default.
 
