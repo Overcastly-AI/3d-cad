@@ -741,6 +741,17 @@ Full narrative evidence lives in `docs/ROADMAP.md` (Phase 4/4b sections) and
 
 ### Recently shipped (2026-07-25 batch — engineering audit H findings)
 
+- [x] (P0, S) **Regression A — the resilient face re-match silently MOVED the
+      resolved plane origin.** Tier 2 (`coplanar_signatures_match`) matches on the
+      supporting plane alone, but `resolve_face_plane` returned the matched
+      record's plane — origin = the CURRENT area centroid. Measured on the fixture
+      (40×40×10 plate, hole at (8,8) Ø6→Ø8): the shared top face's centroid moves
+      (-0.1439,-0.1439) → (-0.2595,-0.2595), so every sketch/datum/assembly mate on
+      that face translated 0.1156 mm in x and y with no error (pre-`2b6b72e` it was
+      an honest `subshape_unresolved`). Tier 2 now re-anchors at the STORED centroid
+      projected onto the matched face; tier 1 unchanged. 2 regressions.
+      [src: code-review 2026-07-25 regression A]
+
 - [x] (P1, S) **H2 — a sheet silently mixed source documents and scales.**
       `ComposeDrawingRequest` carries ONE source + ONE scale, so a sheet whose
       views named different parts/scales exported EVERY view from `views[0]`'s

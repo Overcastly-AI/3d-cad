@@ -287,7 +287,7 @@ def coplanar_signatures_match(
 
 def _match_face_records(
     records: list[PlanarFaceRecord], target: PlanarFaceSignature
-) -> list[PlanarFaceRecord]:
+) -> tuple[list[PlanarFaceRecord], bool]:
     """The two-tier planar-face match shared by both resolvers (CLAUDE.md DRY).
 
     Tier 1 — the STRICT signature (:func:`planar_signatures_match`, normal +
@@ -299,12 +299,44 @@ def _match_face_records(
     (:func:`coplanar_signatures_match`), so a sibling reference to a face whose
     area/centroid drifted under an unrelated edit still resolves (FINDINGS #3),
     while a face that genuinely vanished still finds no plane and fails honestly.
-    Returns the matched records (0, 1, or >1); the caller maps the count onto its
-    typed unresolved / ambiguous error."""
+
+    Returns ``(matched records, resilient)``: the records (0, 1, or >1) — the
+    caller maps the count onto its typed unresolved / ambiguous error — and
+    whether TIER 2 produced them. That flag is load-bearing, not bookkeeping: a
+    tier-2 match means the face's area CENTROID moved, so a consumer that derives
+    a POSITION from the record (:func:`resolve_face_plane`, whose plane origin is
+    the centroid) must re-anchor rather than adopt the drifted origin — otherwise
+    the resilience would silently TRANSLATE every sketch seated on that face
+    (audit regression A). Consumers that only need the :class:`Face` itself
+    (:func:`resolve_faces`) ignore it."""
     strict = [r for r in records if planar_signatures_match(r.signature, target)]
     if strict:
-        return strict
-    return [r for r in records if coplanar_signatures_match(r.signature, target)]
+        return strict, False
+    return [r for r in records if coplanar_signatures_match(r.signature, target)], True
+
+
+def _anchored_plane(plane: Plane, target: PlanarFaceSignature) -> Plane:
+    """*plane*'s supporting plane, re-anchored at the STORED signature's centroid.
+
+    The tier-2 (resilient re-match) origin rule. Tier 2 matches on the supporting
+    plane ALONE — deliberately ignoring the area centroid POSITION, because that
+    is exactly what an unrelated in-plane edit moves — so the matched record's
+    plane origin (the CURRENT face's area centroid, :func:`_face_plane`) is a
+    different point from the one the reference was authored against. Adopting it
+    verbatim would silently translate the datum/sketch/mate anchored on that face
+    (e.g. a 40x40x10 plate whose neighbouring hole goes Ø6 -> Ø8 moves the shared
+    top face's centroid 0.1156 mm in x AND y — a wrong part, no error). So the
+    returned plane keeps the matched face's ORIENTATION (normal + the
+    deterministic in-plane x_dir) but sits at the stored centroid PROJECTED onto
+    the matched supporting plane: the point the user picked, snapped onto the face
+    that is actually there. Projection (not the raw stored centroid) keeps the
+    origin exactly ON the face's plane despite the tier-2 offset tolerance, so the
+    basis stays consistent. Pure function of (record, stored signature) —
+    deterministic (RESEARCH §9)."""
+    normal = plane.z_dir
+    stored = Vector(target.centroid.x, target.centroid.y, target.centroid.z)
+    anchor = stored - normal * (stored - plane.origin).dot(normal)
+    return Plane(origin=anchor, x_dir=plane.x_dir, z_dir=normal)
 
 
 def resolve_face_plane(
@@ -318,13 +350,20 @@ def resolve_face_plane(
     guess), and returns that face's deterministic sketch plane, shifted
     ``offset_mm`` along the face normal.
 
+    ORIGIN RULE. A tier-1 (strict) match pins the centroid to within
+    ``_CENTROID_TOL_MM``, so the matched face's own plane IS the authored one and
+    is returned unchanged. A tier-2 match got there precisely BECAUSE the area
+    centroid moved, so the plane is re-anchored at the stored centroid projected
+    onto the matched face (:func:`_anchored_plane`) — never the drifted origin,
+    which would silently translate the sketch/datum/mate seated on that face.
+
     Raises:
         SubshapeUnresolvedError: zero matching planar faces (the referenced face
             no longer exists after the rebuild).
         SubshapeAmbiguousError: two or more within tolerance (a congruent twin) —
             an honest error, never a coin flip (determinism, RESEARCH §9).
     """
-    matches = _match_face_records(planar_faces(body), target)
+    matches, resilient = _match_face_records(planar_faces(body), target)
     if not matches:
         raise SubshapeUnresolvedError(
             "No planar face of the current body matches the stored face "
@@ -339,6 +378,8 @@ def resolve_face_plane(
             "Refusing to guess — pick a face without a congruent twin."
         )
     plane = matches[0].plane
+    if resilient:
+        plane = _anchored_plane(plane, target)
     if offset_mm == 0.0:
         return plane
     return Plane(
@@ -369,7 +410,10 @@ def resolve_faces(body: BodyShape, targets: list[PlanarFaceSignature]) -> list[F
     records = planar_faces(body)
     chosen: dict[int, Face] = {}
     for target in targets:
-        matches = _match_face_records(records, target)
+        # The tier flag is irrelevant here: this resolver returns the kernel
+        # :class:`Face` itself, not a derived POSITION, so there is no origin to
+        # re-anchor (contrast :func:`resolve_face_plane`).
+        matches, _resilient = _match_face_records(records, target)
         if not matches:
             raise SubshapeUnresolvedError(
                 "No planar face of the current body matches a picked face "

@@ -176,6 +176,46 @@ def test_sibling_face_reference_survives_a_neighbours_diameter_edit() -> None:
     assert tuple(plane8.origin)[2] == pytest.approx(10.0, abs=TOL)
 
 
+def test_resilient_rematch_does_not_move_the_resolved_origin() -> None:
+    """The resilience must not silently TRANSLATE the reference (audit regression A).
+
+    The tier-2 re-match deliberately ignores the area-centroid POSITION — that is
+    what an unrelated in-plane edit moves — so returning the matched record's own
+    plane hands back an origin at the NEW centroid. On this fixture (a 40x40x10
+    plate, off-centre hole at (8,8) going Ø6 -> Ø8) the shared top face's area
+    centroid moves (-0.1439,-0.1439) -> (-0.2595,-0.2595): a 0.1156 mm shift in x
+    AND y, i.e. every sketch/datum/mate seated on that face silently moves 0.163 mm
+    when a NEIGHBOUR's diameter is edited. The z-only assertion above cannot see it
+    (z is invariant by construction), so this asserts the full origin.
+
+    The prior test's only visible symptom was resolution succeeding; this one pins
+    WHERE it resolves to. Fails on the pre-fix resolver."""
+    sig_b, body6 = _drilled_top(6.0)
+    plane6 = resolve_face_plane(body6, sig_b, 0.0)
+    _sig_a8, body8 = _drilled_top(8.0)
+    plane8 = resolve_face_plane(body8, sig_b, 0.0)
+
+    # Same face, same authored anchor: the in-plane origin must not move at all.
+    assert tuple(plane8.origin) == pytest.approx(tuple(plane6.origin), abs=TOL)
+    # And it IS the stored (picked) centroid, snapped onto the supporting plane.
+    stored = (sig_b.centroid.x, sig_b.centroid.y, sig_b.centroid.z)
+    assert tuple(plane8.origin) == pytest.approx(stored, abs=TOL)
+    # The basis is unchanged too (orientation comes from the matched face).
+    assert tuple(plane8.x_dir) == pytest.approx(tuple(plane6.x_dir), abs=TOL)
+    assert tuple(plane8.z_dir) == pytest.approx(tuple(plane6.z_dir), abs=TOL)
+
+
+def test_resilient_rematch_offset_applies_to_the_anchored_origin() -> None:
+    """An offset datum on a resiliently re-matched face offsets the ANCHORED
+    origin along the normal — the offset composes with the anchor, so an
+    offset sketch does not re-acquire the drift the anchor removed."""
+    sig_b, _body6 = _drilled_top(6.0)
+    _sig_a8, body8 = _drilled_top(8.0)
+    plane = resolve_face_plane(body8, sig_b, 5.0)
+    offset_origin = (sig_b.centroid.x, sig_b.centroid.y, 15.0)
+    assert tuple(plane.origin) == pytest.approx(offset_origin, abs=TOL)
+
+
 def test_resilient_rematch_still_fails_honestly_when_the_plane_is_gone() -> None:
     """The resilient tier does NOT paper over a genuinely-missing face: a signature
     whose supporting plane exists on NO face of the body is still an honest
