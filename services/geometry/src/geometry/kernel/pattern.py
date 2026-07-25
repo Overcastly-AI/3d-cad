@@ -37,9 +37,12 @@ cut is byte-identical.
 
 Documented limitations (GEOMETRY-QA): the ADD mode arrays the WHOLE body-so-far
 (feature-scoped ADD patterning of one boss's tool is future work); the CUT mode
-arrays the immediately-preceding cut feature's tool (an intervening
-fillet/etc. falls back to ADD — the source is inferred from tree order, not a
-picked reference). Either way the result must be ONE connected solid (§7.6): a
+arrays the IMMEDIATELY-preceding cut feature's tool (an intervening fillet/etc.
+falls back to ADD — the source is inferred from tree order, not a picked
+reference; reviewed and locked, and unlike the mirror's version of the same
+shadowing that fallback only reads the request differently, it never destroys
+geometry — see ``geometry.features.evaluate._pattern_cut_tools`` vs
+``_mirror_cut_tools``). Either way the result must be ONE connected solid (§7.6): a
 disjoint union or a cut that severs the body raises :class:`PatternDisjointError`
 until multi-body parts land.
 

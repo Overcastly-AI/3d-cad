@@ -113,16 +113,55 @@ what the PRE-FIX kernel returned, so a reader can see the assertion is real:
 | 4 | pocket A -> pocket B -> midplane mirror | 29600.0, 21 faces | 30400.0 for the naive union-then-recut "fix" (welds A shut) |
 | 5 | hole A Ø6->Ø8 with sibling hole B + on-face datum + boss | all 7 features `ok`; datum origin == the STORED signature centroid at both diameters; analytic V + centroid | `subshape_unresolved` (pre-#3), then a 0.1734 mm x / 0.1766 mm y origin TRANSLATION (pre-regression-A) |
 
-### 🔴 FINDINGS — four LIVE defects the matrix caught on `446a872`
+### FINDINGS — four LIVE defects the matrix caught on `446a872`
+
+**Status 2026-07-25 (kernel-architect): CM-1 🟢, CM-2 🟢, CM-3 🟢 fixed — the two
+P0s and the P1 — in `3c6ec19` (CM-2), `39fb38e` (CM-3) and the CM-1 commit; CM-4
+🔴 remains open (an export/import seam, queued separately), plus one re-scoped P2
+residual of CM-1 (a mirror does not duplicate an intervening ADD's material; proof
+of why below). Ten `xfail(strict)` markers became two.** The design chosen for all
+three: ONE shared, topological reachability predicate
+(`geometry.kernel.removal.removal_reaches_body`) asked by mirror, pattern and the
+in-chain cut, plus per-feature cut-tool tracking so nothing can shadow a removal.
+The original evidence is preserved verbatim below.
 
 Recorded as `xfail(strict=True)` with the correct, unweakened assertion: the
 suite stays honest today and turns RED the moment a fix lands, forcing the
 marker's removal. **None was fixed here** — `services/geometry/src/**` is the
 kernel agent's territory.
 
-**🔴 CM-1 (P0) — a `mirror` re-ERASES a cut when ANY non-cut feature sits between
-the cut and the mirror. FINDINGS #2's featureless-brick symptom, reachable
-again.**
+**🟢 CM-1 (P0) — FIXED 2026-07-25 (kernel-architect) — a `mirror` re-ERASED a cut
+when ANY non-cut feature sat between the cut and the mirror. FINDINGS #2's
+featureless-brick symptom, reachable again.**
+FIX: cut tools are now TRACKED PER FEATURE instead of sniffed from the previous
+one. Each ok cut records the exact removal solids it subtracted
+(`EvaluationState.record_cut_tools` — extrude-CUT's region prisms; the Hole's bore
++ recess, as it already did), together with the feature id and the body they came
+from. Two readers, two DOCUMENTED rules over one store (no second mechanism):
+`_mirror_cut_tools` = the most recent cut of the ACTIVE body, however far back
+(CM-1), and `_pattern_cut_tools` = only when that cut is the immediate predecessor
+— the pattern's reviewed, locked rule. The asymmetry is now deliberate and stated
+in code: shadowing costs a pattern a less useful READING (array the body-so-far,
+which two tests lock); it cost the mirror EXISTING GEOMETRY, because
+`mirror_union` fuses reflected material into the void. The recorded body id also
+closes a latent multi-body hole: a cut in body A can no longer be reflected into
+body B (`test_mirror_does_not_reflect_a_cut_made_in_another_body`).
+Measured after the fix (2 of 3 cases now exact, both bores present, 12 faces):
+chamfer **29629.38070170254** (was 31640.000000000007), fillet
+**29834.867379348696** (was 31845.486677646164).
+**The boss case stays xfail, re-scoped P2 and NOT silent-wrong-geometry any more:
+30309.380701702525** (was 32640.0) — the hole is preserved and mirrored; what is
+missing is the 320 mm^3 REFLECTION OF THE BOSS. That expectation is unreachable
+without breaking a lock: 30629.3807 requires `mirror_union` + re-subtract of both
+tool sets, and `test_mirror_preserves_a_cut_that_precedes_the_mirrored_one` proves
+that welds an earlier pocket shut (30400.0 where 29600.0 is correct); reflecting
+ALL tracked cuts gives 28800.0 there instead of the locked 29600.0. The two
+expectations are mutually exclusive under any single rule, so the honest fix is
+the incumbent semantic — mirror a SELECTED SET of features — filed as a v2 item
+(`CM1_BOSS_UNMIRRORED` carries the proof in the suite). The v1 rule is now stated
+plainly: a mirror reflects the most recent RECORDED CUT and never material an
+intervening ADD contributed (same family as the already-locked observation that a
+crossing mirror erases an asymmetric MODIFIER).
 Chain: `40x40 sketch -> extrude add 20 -> HOLE Ø8 through at (10,20) -> <one
 feature> -> datum YZ@20 -> MIRROR`. The inserted feature is 20+ mm from the
 bore, so the bore must still reflect to x=30.

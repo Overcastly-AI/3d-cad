@@ -87,8 +87,13 @@ def rect_sketch(
 
 
 def extrude_input(
-    feature_id: uuid.UUID, profile_id: uuid.UUID, distance_mm: float = 6.0
+    feature_id: uuid.UUID,
+    profile_id: uuid.UUID,
+    distance_mm: float = 6.0,
+    *,
+    merge: bool = True,
 ) -> dict[str, Any]:
+    """An additive extrude; ``merge=False`` STARTS a second body (§MB-0 Dec. 2)."""
     return {
         "id": str(feature_id),
         "feature": {
@@ -99,6 +104,7 @@ def extrude_input(
                 "distance_mm": distance_mm,
                 "operation": "add",
                 "direction": "normal",
+                "merge": merge,
             },
         },
     }
@@ -762,6 +768,137 @@ def test_mirror_preserves_a_cut_that_precedes_the_mirrored_one() -> None:
 
 
 # --- Error paths are per-feature values, never transport failures ---------------------
+
+
+# --- An INTERVENING feature must not shadow the cut a mirror reflects (CM-1) ---------
+#
+# The composition matrix (GEOMETRY-QA 2026-07-25) reached the FINDINGS #2
+# featureless-brick symptom again: the mirror sniffed the IMMEDIATELY-preceding
+# body-affecting feature for its cut source, so an unrelated chamfer / fillet /
+# boss between the hole and the mirror made it take `mirror_union`, whose
+# reflection FILLS the bore (31640.0 mm^3 with no cylindrical face where
+# 29629.3807 is correct). The feature layer now RECORDS each cut's removal tools
+# and the mirror reflects the most recent cut of the active body, so no feature in
+# between can shadow it. The pattern deliberately KEEPS the immediate-predecessor
+# rule (its fallback is a different reading, not lost geometry) — locked by
+# `test_pattern_after_an_intervening_fillet_unions_whole_body_not_recut`.
+
+CHAMFER_ID = uuid.UUID("00000000-0000-0000-0000-0000000000f1")
+FILLET_ID = uuid.UUID("00000000-0000-0000-0000-0000000000f2")
+
+
+def _z_edge_modifier(
+    feature_id: uuid.UUID, kind: str, size_mm: float
+) -> dict[str, Any]:
+    """A fillet/chamfer of the four Z-parallel edges — an unrelated modifier to
+    sit between a cut and the mirror (the `axis_parallel` edge predicate)."""
+    size = "radius_mm" if kind == "fillet" else "distance_mm"
+    return {
+        "id": str(feature_id),
+        "feature": {
+            "type": kind,
+            "version": 1,
+            "params": {
+                "edges": {"kind": "axis_parallel", "axis": "Z"},
+                size: size_mm,
+            },
+        },
+    }
+
+
+@pytest.mark.parametrize(
+    ("kind", "removed"),
+    [
+        # A chamfer d3 on the four corners of a 40x40x20 plate: 4 * (d^2/2) * h.
+        ("chamfer", 4.0 * 20.0 * (3.0**2 / 2.0)),
+        # A fillet r3 on the same corners: 4 * (r^2 - pi r^2 / 4) * h.
+        ("fillet", 20.0 * 4.0 * (3.0**2 - math.pi * 3.0**2 / 4.0)),
+    ],
+)
+def test_mirror_keeps_the_hole_across_an_intervening_modifier(
+    kind: str, removed: float
+) -> None:
+    """CM-1 (P0): hole -> <chamfer|fillet> -> midplane mirror keeps BOTH bores.
+
+    A 40x40x20 plate, one Ø8 through-hole at x=10, an unrelated corner
+    chamfer/fillet 20+ mm from the bore, then a mirror about x=20. The bore must
+    still reflect to x=30, so the volume is the modified plate minus TWO bores and
+    the topology carries two cylinder walls (8 faces + 4 chamfer/fillet faces = 12).
+    Pre-fix: the bore vanished entirely (31640.0 / 31845.4867, no cylindrical face).
+    """
+    result = _post(
+        _request(
+            [
+                rect_sketch(SKETCH_ID, 0.0, 0.0, 40.0, 40.0),
+                extrude_input(BODY_ID, SKETCH_ID, 20.0),
+                hole_feature_input(
+                    HOLE_FEATURE_ID,
+                    BODY_ID,
+                    (20.0, 20.0, 20.0),
+                    1600.0,
+                    (10.0, 20.0, 20.0),
+                    8.0,
+                ),
+                _z_edge_modifier(
+                    CHAMFER_ID if kind == "chamfer" else FILLET_ID, kind, 3.0
+                ),
+                datum_offset_input(DATUM_ID, "YZ", 20.0),
+                mirror_input(
+                    MIRROR_ID, {"kind": "feature", "feature_id": str(DATUM_ID)}
+                ),
+            ]
+        )
+    )
+
+    assert [r.status for r in result.features] == ["ok"] * 6
+    assert result.properties is not None
+    two_bores = 2 * math.pi * 4.0**2 * 20.0
+    assert result.properties.volume == pytest.approx(
+        32000.0 - removed - two_bores, abs=MIRROR_TOL
+    )
+    # 6 outer + 4 modifier faces + 2 cylinder walls; a filled bore reads 10.
+    assert result.properties.topology.faces == 12
+    assert result.properties.topology.shells == 1
+    # Bores at x=10 and x=30 are symmetric about the mirror plane, as are the four
+    # modified corners → the centroid sits exactly on x=20.
+    assert result.properties.centroid.x == pytest.approx(20.0, abs=MIRROR_TOL)
+
+
+def test_mirror_does_not_reflect_a_cut_made_in_another_body() -> None:
+    """The recorded cut applies to ITS body only (§MB-0).
+
+    A pocketed 40x40x20 plate, then a SECOND body (``merge: false``) that clears
+    it, then a mirror about the second body's own -X face at x=60. The recorded
+    pocket tool belongs to body A, so the mirror must not reflect it into body B:
+    body B (a 20x20x10 block at x in [60,80]) reflects and unions to two 4000 mm^3
+    lumps = 8000, leaving body A's 30000 mm^3 untouched — 38000 mm^3 in total.
+    """
+    block_sketch = uuid.UUID("00000000-0000-0000-0000-0000000000f3")
+    block_body = uuid.UUID("00000000-0000-0000-0000-0000000000f4")
+    result = _post(
+        _request(
+            [
+                rect_sketch(SKETCH_ID, 0.0, 0.0, 40.0, 40.0),
+                extrude_input(BODY_ID, SKETCH_ID, 20.0),
+                rect_sketch(POCKET_SKETCH_ID, 10.0, 10.0, 20.0, 30.0),
+                extrude_cut_input(POCKET_CUT_ID, POCKET_SKETCH_ID, 10.0),
+                rect_sketch(block_sketch, 60.0, 0.0, 80.0, 20.0),
+                extrude_input(block_body, block_sketch, 10.0, merge=False),
+                datum_offset_input(DATUM_ID, "YZ", 60.0),
+                mirror_input(
+                    MIRROR_ID, {"kind": "feature", "feature_id": str(DATUM_ID)}
+                ),
+            ]
+        )
+    )
+
+    assert [r.status for r in result.features] == ["ok"] * 8
+    assert result.properties is not None
+    # A: 40*40*20 - 10*20*10 = 30000; B doubled: 2 * 20*20*10 = 8000.
+    assert result.properties.volume == pytest.approx(38000.0, abs=MIRROR_TOL)
+    bbox = result.properties.bounding_box
+    assert bbox.min.x == pytest.approx(0.0, abs=MIRROR_TOL)
+    assert bbox.max.x == pytest.approx(80.0, abs=MIRROR_TOL)
 
 
 def test_mirror_before_any_body_is_no_target_body() -> None:

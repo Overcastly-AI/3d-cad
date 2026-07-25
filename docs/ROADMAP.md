@@ -40,7 +40,14 @@ audited defects are seeded cases that FAIL on the pre-fix behaviour. 198 tests,
 24-38 s (no nightly tier needed). **It immediately caught 4 NEW live defects**
 (2 P0) recorded as `xfail(strict)` so the suite flips red when they are fixed:
 **CM-1** a mirror re-erases a hole when any non-cut feature sits between the cut
-and the mirror (31640.0 vs 29629.3807 — FINDINGS #2 reachable again); **CM-2** a
+and the mirror (31640.0 vs 29629.3807 — FINDINGS #2 reachable again) — **FIXED
+2026-07-25** (kernel-architect): cut tools are tracked PER FEATURE, so the mirror
+reflects the most recent recorded cut of the active body (29629.3807 / 29834.8674
+measured, both bores present) while the pattern keeps its locked
+immediate-predecessor rule; one P2 residual remains (a mirror still does not
+duplicate an intervening ADD's material — the incumbent "mirror selected features"
+semantic, filed with the proof that no single v1 rule satisfies both it and the
+earlier-pocket lock); **CM-2** a
 pattern of a cut whose tools all clear the body is a silent no-op (14400.0 vs
 28800.0 — the defect `fa30220` fixed for mirror only) — **FIXED 2026-07-25**
 (kernel-architect): one shared, topological `removal_reaches_body` predicate now

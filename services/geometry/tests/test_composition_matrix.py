@@ -2206,18 +2206,28 @@ def test_composed_body_survives_a_step_roundtrip(
 # docs/GEOMETRY-QA.md 2026-07-25 as CM-1 .. CM-4.
 
 
-@pytest.mark.xfail(
+#: The ONE part of CM-1 still open after the 2026-07-25 fix (see the test's
+#: docstring for the proof that it cannot be closed without breaking a locked
+#: semantic): the hole now survives every intervening feature, but a mirror does
+#: not DUPLICATE material an intervening ADD contributed, so the boss case lands
+#: 30309.380701702525 (hole mirrored, boss single) where this parametrization asks
+#: for 30629.3807 (boss mirrored too). Not silent-wrong-geometry any more — the
+#: void is preserved — but a documented v1 limit, filed P2.
+CM1_BOSS_UNMIRRORED = pytest.mark.xfail(
     strict=True,
-    reason="CM-1 (P0, LIVE on 446a872): a mirror re-ERASES a cut whenever any "
-    "non-cut feature sits between the cut and the mirror. `_prev_cut_tools` "
-    "reads only `state.prev_body_feature`, so an intervening chamfer/fillet/"
-    "boss makes it return None and `_evaluate_mirror` takes `mirror_union`, "
-    "whose reflection FILLS the seed void — the FINDINGS #2 featureless-brick "
-    "symptom, reachable again. Measured: 31640.0 obtained vs 29629.3807 "
-    "expected (chamfer); 31845.4867 vs 29834.8674 (fillet); 32640.0 vs "
-    "30629.3807 (boss). Fix = walk back past non-cut features (or track cut "
-    "tools per feature) instead of only the immediate predecessor.",
+    reason="CM-1 residual (P2, open): the hole IS preserved and mirrored now "
+    "(30309.380701702525 vs the 32640.0 featureless brick before), but v1's mirror "
+    "reflects the recorded CUT, never material an intervening ADD contributed, so "
+    "the 8x8x5 boss is not duplicated (320 mm^3 short of this expectation). "
+    "Mirroring a SELECTED SET of features — the incumbent semantic — is the real "
+    "fix and a v2 item: `test_mirror_preserves_a_cut_that_precedes_the_mirrored_one` "
+    "LOCKS 29600.0 for pocket A + pocket B + midplane mirror, which is only "
+    "reachable by reflecting the last cut and NOT unioning the body, and 30629.3807 "
+    "here is only reachable by union-then-re-subtract, which welds pocket A shut "
+    "(30400.0). The two expectations are mutually exclusive under one rule.",
 )
+
+
 @pytest.mark.parametrize(
     ("label", "between", "between_delta"),
     [
@@ -2229,11 +2239,11 @@ def test_composed_body_survives_a_step_roundtrip(
             [fillet(F_FILLET, 3.0)],
             -(20.0 * 4.0 * (3.0**2 - math.pi * 3.0**2 / 4.0)),
         ),
-        # An ADD (a boss) — not a modifier at all, proving the shadowing is about
+        # An ADD (a boss) — not a modifier at all, proving the shadowing was about
         # "the predecessor is not a cut", not about modifiers specifically. The
         # boss is 8x8x5 = 320 on a datum at z=20; it sits at x in [30,38], so the
         # mirror about x=20 also reflects it to x in [2,10] -> +2 * 320.
-        (
+        pytest.param(
             "boss",
             [
                 datum_offset(D_BOSS, "XY", 20.0),
@@ -2248,6 +2258,7 @@ def test_composed_body_survives_a_step_roundtrip(
                 extrude(F_BOSS, S_BOSS, 5.0),
             ],
             2.0 * (8.0 * 8.0 * 5.0),
+            marks=CM1_BOSS_UNMIRRORED,
         ),
     ],
 )
@@ -2261,10 +2272,22 @@ def test_cm1_mirror_keeps_the_hole_across_an_intervening_feature(
     correct answer is the seed-2 answer plus that feature's own (mirror-aware)
     delta: the bore at x=10 must STILL reflect to x=30.
 
-    Obtained on HEAD: the bore is COMPLETELY FILLED — the volume equals the
-    modified plate with no hole at all, and the topology carries NO cylindrical
+    Obtained pre-fix: the bore was COMPLETELY FILLED — the volume equalled the
+    modified plate with no hole at all, and the topology carried NO cylindrical
     face — i.e. exactly the P0 symptom `feb4318` fixed for the
-    cut-immediately-before-mirror case.
+    cut-immediately-before-mirror case (chamfer 31640.0, fillet 31845.4867, boss
+    32640.0).
+
+    FIXED 2026-07-25 (kernel): the feature layer RECORDS each cut's removal tools
+    (`EvaluationState.record_cut_tools`) and the mirror reads the MOST RECENT cut of
+    the active body (`_mirror_cut_tools`) instead of sniffing the immediately-
+    preceding feature, so no intervening feature can shadow the removal. The
+    pattern deliberately keeps the immediate-predecessor rule
+    (`_pattern_cut_tools`) — its fallback only reads the request differently, and
+    two tests lock it. Measured now: chamfer 29629.38070170254, fillet
+    29834.867379348696 (both within CURVED_TOL of the analytic values above), each
+    with the two bores present (12 faces). The boss param stays xfail — see
+    `CM1_BOSS_UNMIRRORED`.
     """
     del label
     plate = [rect_sketch(S_BASE, 0.0, 0.0, 40.0, 40.0), extrude(F_BASE, S_BASE, 20.0)]

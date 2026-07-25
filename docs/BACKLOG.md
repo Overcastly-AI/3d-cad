@@ -63,19 +63,30 @@ even-odd scanline clip) across SVG/PDF/DXF, `views.section_params jsonb` (0008);
 wrong-half + multi-loop + byte-determinism goldens; oblique + the `project_view`
 frame refactor are v2/§11. Spike de-collected.
 
-- [ ] (P0, S) **CM-1 — a `mirror` re-ERASES a cut when ANY non-cut feature sits
-      between the cut and the mirror.** FINDINGS #2's featureless-brick symptom,
-      reachable again: `plate 40x40x20 -> hole Ø8 -> chamfer -> datum YZ@20 ->
-      mirror` gives **31640.0** mm³ (hole filled, no cylindrical face) vs
-      29629.3807 correct; same with a fillet (31845.4867 vs 29834.8674) or a boss
-      (32640.0 vs 30629.3807). `_prev_cut_tools` reads only
-      `state.prev_body_feature`, so any intervening body-affecting feature falls
-      through to `mirror_union`, whose reflection fills the void. Documented as
-      benign for `pattern`; for `mirror` it destroys geometry and is documented
-      nowhere. Fix: walk back past non-cut features (or track cut tools per
-      feature). Guard already committed as `xfail(strict)` —
-      `test_cm1_mirror_keeps_the_hole_across_an_intervening_feature`; remove the
-      marker with the fix. [src: GEOMETRY-QA 2026-07-25 composition matrix]
+- [x] (P0, S) **CM-1 — a `mirror` re-ERASED a cut when ANY non-cut feature sat
+      between the cut and the mirror. Fixed 2026-07-25.** Cut tools are now
+      TRACKED PER FEATURE (`EvaluationState.record_cut_tools`, with the producing
+      feature id and body id) and read by two documented rules over one store:
+      `_mirror_cut_tools` = the most recent cut of the active body (CM-1),
+      `_pattern_cut_tools` = only the immediate predecessor (the pattern's locked
+      rule — its fallback loses a reading, not geometry). Also closes a latent
+      multi-body hole: a cut in body A can no longer be reflected into body B.
+      Measured: chamfer 31640.0 -> **29629.3807**, fillet 31845.4867 ->
+      **29834.8674**, both bores present (12 faces). `xfail` removed for those two
+      params; +3 guards in `test_mirror.py`.
+      [src: GEOMETRY-QA 2026-07-25 composition matrix]
+- [ ] (P2, M) **A mirror does not duplicate material an intervening ADD
+      contributed** (CM-1's re-scoped residual — no longer silent-wrong-geometry:
+      the void survives). `plate -> hole -> boss -> midplane mirror` = 30309.3807
+      (hole mirrored, boss single) where a modeler expects 30629.3807. Unreachable
+      under v1's "reflect the most recent recorded cut" rule, and the alternatives
+      break a lock (union-then-re-subtract welds an earlier pocket: 30400.0 vs
+      29600.0; reflecting every tracked cut gives 28800.0 there). The honest fix is
+      the incumbent semantic — mirror a SELECTED SET of features (a DTO change:
+      `features: [id, ...]`), which also retires the "a crossing mirror erases an
+      asymmetric modifier" limit. Design doc first. Pinned by
+      `CM1_BOSS_UNMIRRORED` in the composition matrix.
+      [src: CM-1 fix 2026-07-25]
 - [x] (P0, S) **CM-2 — a `pattern` of a cut whose replicated tools ALL clear the
       body was a SILENT NO-OP: the exact defect `fa30220` fixed for `mirror`
       only. Fixed 2026-07-25.** The reachability question is now ONE shared

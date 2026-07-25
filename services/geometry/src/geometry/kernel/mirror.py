@@ -20,8 +20,10 @@ it (proven by the ``mirror-triangle-prism-2x`` golden — its centroid sits ON t
 mirror plane, which a translation of the same chiral profile cannot reproduce).
 
 Two READINGS of "mirror", chosen by geometry rather than guessed (see
-:func:`mirror_cut`): when the preceding feature is a cut whose REFLECTED tool
-still reaches the body, the mirror reflects that REMOVAL (a hole on both sides);
+:func:`mirror_cut`): when the body carries a recorded cut whose REFLECTED tool
+still reaches the body, the mirror reflects that REMOVAL (a hole on both sides) —
+and the feature layer keeps that cut on record past intervening non-cut features,
+because a mirror that forgets it ERASES the void (CM-1, 2026-07-25);
 when the reflected removal cannot reach the body — the "complete the symmetric
 half" / "duplicate across a clearing plane" workflows — it reflects and unions
 the BODY, which already carries its own pockets. Neither reading is ever a
@@ -107,8 +109,9 @@ def mirror_cut(body: BodyShape, tools: Sequence[Solid], plane: Plane) -> BodySha
     """Reflect the cut *tools* about *plane* and subtract them from *body*.
 
     The CUT-AWARE mirror (the reflective sibling of
-    :func:`geometry.kernel.pattern.circular_pattern_cut`): when the mirror's
-    immediately-preceding feature is a cut (an extrude-cut or a Hole), the mirror
+    :func:`geometry.kernel.pattern.circular_pattern_cut`): when the body carries a
+    recorded cut (an extrude-cut or a Hole, however many non-cut features sit
+    between it and the mirror — CM-1), the mirror
     must reflect that removal — a plate with a hole on one side of the plane
     mirrors to a plate with a hole on BOTH sides — NOT reflect the whole filled
     body and union it (which would fill the original hole, betraying the #1 mirror
@@ -135,10 +138,11 @@ def mirror_cut(body: BodyShape, tools: Sequence[Solid], plane: Plane) -> BodySha
 
     The fallback is deliberately NOT the more "general" ``mirror_union`` +
     re-subtract of both tool sets: the union step FILLS every removal the
-    reflection covers, and only the IMMEDIATELY-preceding cut's tools are known
-    (:func:`geometry.features.evaluate._prev_cut_tools`), so an EARLIER pocket on
+    reflection covers, while only the MOST RECENT cut's tools are known
+    (:func:`geometry.features.evaluate._mirror_cut_tools`), so an EARLIER pocket on
     the same plate would be silently welded shut — trading one silent-wrong-body
-    for a worse one. Choosing the reading by reachability keeps every established
+    for a worse one (measured: 30400.0 for the union-then-recut "fix" where 29600.0
+    is correct). Choosing the reading by reachability keeps every established
     case byte-identical (the overlapping midplane mirror still takes the cut path)
     and is regression-tested both ways.
 
