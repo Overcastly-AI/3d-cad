@@ -10,9 +10,10 @@
 #               geometry S3 creds == MinIO's; internal services unpublished)
 #
 # The RUNTIME half of the compose gate lives in its own workflow —
-# .github/workflows/deploy-path.yml — because it builds the images and boots
-# the stack: ~20 min, and it must NOT be cancelled by the next push the way
-# this fast-feedback workflow is.
+# .github/workflows/deploy-path.yml — because it builds the images, boots the
+# stack, and must NOT be cancelled by the next push the way this fast-feedback
+# workflow is. Measured 86s end to end on a hosted runner (first green run
+# 2026-07-25), so it is cheap; the split is about cancellation, not cost.
 #
 # Notes:
 # - The geometry golden suite and Playwright e2e get their OWN workflow later

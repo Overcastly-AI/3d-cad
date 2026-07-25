@@ -739,7 +739,8 @@ frame refactor are v2/§11. Spike de-collected.
 ## Blocked (environment/timing — not build-blocked)
 
 - [x] (P2, S) Verify full `docker compose up` runtime — **DONE 2026-07-25**
-      (platform-builder): unblocked by running it where Docker works, CI.
+      (platform-builder): unblocked by running it where Docker works, CI —
+      `deploy-path` run `30142627371`, `success`, 86s, 9 checks passed.
       `scripts/compose-smoke.sh` (workflow `deploy-path`, `just
       compose-smoke`) builds + boots the base stack, migrates both schemas
       from the images, drives register → sketch → extrude → evaluate → mesh

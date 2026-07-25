@@ -379,8 +379,12 @@ carry forward as blocked board items.
       authored and config-validated; smoke + per-instance dev scripts;
       probes verified against bare-uvicorn boots (web joins compose with the
       web-shell item)
-- ✅ Verify full `docker compose up` — CLOSED 2026-07-25 (platform-builder):
-      the documented self-host path now runs on every push in CI
+- ✅ Verify full `docker compose up` — CLOSED 2026-07-25 (platform-builder),
+      **PROVEN GREEN**: `deploy-path` run `30142627371` at `17cc198`,
+      conclusion `success`, 86s, "9 checks passed" (real containers
+      `loft-{gateway,documents,geometry,db,minio,redis}-1` built, booted,
+      migrated, and torn down with volumes). The documented self-host path now
+      runs on every push in CI
       (`deploy-path` workflow → `scripts/compose-smoke.sh`, also `just
       compose-smoke` on any Docker host). It builds the three images, boots
       the BASE stack `--wait` (long-running services only — a one-shot named

@@ -10,9 +10,14 @@
 # Why it is not in ci.yml:
 #   - it needs its own time budget (the geometry image carries the ~700MB OCP
 #     wheel, so the build dominates the run), and
-#   - `cancel-in-progress: false` below: a 20-minute proof must not be killed
-#     by the next push, which is exactly what ci.yml's fast-feedback
-#     concurrency group does. Runs QUEUE instead, so one always completes.
+#   - `cancel-in-progress: false` below: this proof must not be killed by the
+#     next push, which is exactly what ci.yml's fast-feedback concurrency group
+#     does. Runs QUEUE instead, so one always completes.
+#
+# MEASURED: 86s end to end (build + boot + migrate + round-trip + teardown) on
+# a hosted runner, first green run 2026-07-25 — far cheaper than the OCP wheel
+# suggests, so `timeout-minutes: 45` below is deliberate headroom, not a
+# prediction. Do not tighten it into a flake source.
 #
 # Why it exists at all: a rendered-config check cannot catch a wrong RUNTIME.
 # The audit-G1 bug (geometry handed S3_URL but no credentials → every mesh
