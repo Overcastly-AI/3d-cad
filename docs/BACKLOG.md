@@ -454,10 +454,33 @@ frame refactor are v2/§11. Spike de-collected.
       drills a counterbore AND a countersink in the UI on the real stack (Solved +
       recessed body); +11 `hole.test.ts` units; founder cbore/csink authoring +
       result shots. Hole slice 2 is now END-TO-END in-app. [done 2026-07-23]
-- [ ] (P2, S) Dedicated Hole feature — SLICE 2 TAIL: tapped hole type (a thread
-      callout, not v1 geometry — DEFERRED); standard drill-size tables (+ a
-      follow-up MCP/scripting exposure). Seeds Drawings hole callouts. [src:
-      AUDIT-PRODUCT.md 2026-07-23]
+- [ ] (P2, S) Dedicated Hole feature — SLICE 2 TAIL: tapped hole type; standard
+      drill-size tables (+ a follow-up MCP/scripting exposure). Seeds Drawings
+      hole callouts. [src: AUDIT-PRODUCT.md 2026-07-23]
+      - [x] Tapped geometry + DTO (2026-07-25, kernel-architect). v1 threads are
+            **COSMETIC** (decision + trade-off + modelled-thread upgrade path in
+            `geometry/kernel/threads.py`): the kernel cuts the ISO tap-drill bore
+            `D - P` and carries a typed designation for drawing/BOM callouts — no
+            helix, so a tapped hole costs 1 face, not hundreds. `thread:
+            IsoMetricThread | None` is its OWN optional param, NOT a 4th `HoleType`
+            member (threading is orthogonal to the recess → a counterbored tapped
+            hole is one feature, and the `HoleType` union stays untouched). ISO 261
+            table M1.6–M64 (coarse + fine); `hole_thread_unsupported` (unknown
+            designation) / `hole_thread_mismatch` (bore outside `[minor, nominal)`)
+            are validated BEFORE any geometry, so neither degrades to a plain hole
+            wearing an uncuttable callout. Proof: golden
+            `hole-tapped-m10x1.5-40x25x10` (analytic 9432.549826945344 = 10000 −
+            180.625π; topology 7/15/1 — IDENTICAL to the untapped bore), the
+            evaluate response is BYTE-identical to the same hole untapped, and
+            matrix verb `hole_tapped` (+8 cells) proves pattern/mirror of a tapped
+            hole array the BORE. gen-check clean (additive optional field).
+      - [ ] Web authoring: a `Tapped` toggle + ISO designation picker in
+            `HoleEditor` (wire: `thread.standard="iso_metric"`,
+            `thread.nominal_diameter_mm`, `thread.pitch_mm`; the bore `diameter_mm`
+            is the tap drill `D - P`), `friendlyFeatureError` copy for
+            `hole_thread_unsupported` / `hole_thread_mismatch`, e2e + founder shots.
+      - [ ] Standard drill-size tables (+ MCP/scripting exposure); drawing hole
+            callouts read the designation from the feature params (never stored).
 - [x] (P2, S) Feature suppress — mark a feature suppressed (persisted flag); tree
       rebuild skips it, downstream features rebuild off the last non-suppressed
       state (or typed-fail if they reference the suppressed feature directly). A
@@ -626,6 +649,17 @@ frame refactor are v2/§11. Spike de-collected.
       reduced-motion. web unit 810 + design 42 pass; e2e view-snap + row
       rename/delete; shots `{viewport,tree}-context-menu-desktop.png`.
       [src: UI-REVIEW 2026-07-24 / FINDINGS #10]
+- [x] (P2, M) 2026-07-24 hard-audit P2 — "registers read as templated web
+      tables". SHIPPED 2026-07-25 (frontend-builder). One `DocumentRegister`
+      replaces three near-duplicate pages. Columns now answer a modeler's
+      questions: LAST WORKED (relative age; "Not started" when a document has
+      had no edit since it was named) + UNITS where `length_unit` exists —
+      replacing two columns of the same ISO date. Scribed sheet-number gutter
+      with the addressed row's brass scribe; the create control is the
+      register's next line (`N` chord shown); ruled unfiled lines run to the
+      frame edge. `DocumentRegister.test.tsx` 13 + `activity.test.ts` 7; all
+      test ids/roles kept; e2e parts-home/auth/drawings/assembly-bom green;
+      `parts-home-*.png` refreshed. [src: UI-REVIEW 2026-07-24 P2]
 - [x] (P1/P2, M) FINDINGS #6/#15/#21 drawings/HLR burn-down wave 3
       (`services/geometry`, `packages/py-kit` drawings schema). #6: non-overlapping
       sheet layout — `place_sheet` free-slots additive section/flat_pattern views

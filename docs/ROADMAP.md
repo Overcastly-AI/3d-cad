@@ -642,6 +642,22 @@ item:
       AND a countersink in the UI on the real stack (Solved + a studio-shaded
       recessed body); +11 `hole.test.ts` units. Hole slice 2 is END-TO-END in-app;
       tapped hole type + drill-size tables remain (BACKLOG P2 tail).
+- ✅ Dedicated Hole feature — SLICE 2 TAIL: TAPPED holes (geometry+DTO,
+      2026-07-25): v1 threads are **COSMETIC** — the kernel cuts the ISO tap-drill
+      bore (`D - P`) and carries a typed designation for drawing/BOM callouts; no
+      modelled helix (decision, trade-off and the upgrade path in
+      `geometry/kernel/threads.py`). `thread: IsoMetricThread | None` is its OWN
+      optional param, NOT a fourth `HoleType` member — threading is orthogonal to
+      the recess, so a counterbored tapped hole is one feature and the `HoleType`
+      union (and every consumer narrowing on its `kind`) is untouched. ISO 261
+      table M1.6-M64 (coarse + fine); an unknown designation is
+      `hole_thread_unsupported` and a bore outside `[minor, nominal)` is
+      `hole_thread_mismatch` — validated BEFORE any geometry, so neither ever
+      degrades to a plain hole wearing a thread nobody can cut. Golden
+      `hole-tapped-m10x1.5-40x25x10` (analytic π·4.25²·10; topology IDENTICAL to
+      the untapped bore) + the evaluate response is byte-identical to the same
+      hole untapped; matrix verb `hole_tapped` (+8 cells, pattern/mirror of a
+      tapped hole array the BORE). Web authoring is the follow-up.
 - ✅ Mirror feature — END-TO-END (geometry+DTO 2026-07-23; web authoring
       2026-07-23): `MirrorFeature`/`MirrorParamsV1` reflect the current body about a
       plane (origin datum XY/XZ/YZ or a `datum` feature — the SAME `GeomRef` a
@@ -1213,8 +1229,26 @@ flexible sub-assemblies, part-version pinning-as-default.
       (nav-cue, gate copy, body hover, assembly depth × 2 widths) + regression
       of hole/datum-face-pick/dimension-expressions/makeover-batch3 green;
       founder shots `findings-{nav-cue,extrude-gate-copy,body-hover,assembly-
-      depth}-{desktop,laptop}.png`. Deferred (noted): register de-templatizing
-      (#19, brief made optional).
+      depth}-{desktop,laptop}.png`.
+      **Registers de-templatized ✅ 2026-07-25 (frontend-builder; UI-REVIEW
+      2026-07-24 P2 — the last 🟡 on that audit's checklist, previously
+      deferred):** the parts/assemblies/drawings homes are ONE
+      `DocumentRegister` (the three ~410-line near-duplicate pages collapse to
+      thin copy configs, closing the near-dup UI-REVIEW flagged 2026-07-16).
+      The audit's complaint was answered as information first: the two
+      identical-ISO-date columns are replaced by LAST WORKED (relative age of
+      the last edit) which doubles as the empty-stub flag ("Not started" when a
+      document has had no edit since it was named — derivable because every
+      tree write bumps `updated_at`), plus UNITS from `length_unit` where a
+      document has one (drawings drop the column rather than rule a blank one).
+      Form: the sheet number moves into a scribed carbide gutter carrying the
+      addressed row's brass scribe, the create control becomes the register's
+      NEXT LINE (next sheet number, `N` chord finally shown), and the drawer's
+      unfiled ruled lines run to the frame edge — the "card adrift in a void"
+      read is gone. New jsdom tier `DocumentRegister.test.tsx` (13) +
+      `lib/activity.test.ts` (7); every `data-testid`/role preserved, e2e
+      parts-home/auth/drawings/assembly-bom green on the live stack; founder
+      shots `parts-home-{empty,desktop,laptop}.png` refreshed.
       **Cut-aware pattern + mirror ✅ 2026-07-24 (kernel-architect; FINDINGS
       #1–#2, the silent-wrong-geometry pair):** patterning a **Hole** feature no
       longer duplicates the whole body and mirroring a holed plate about its
