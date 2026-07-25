@@ -180,8 +180,37 @@ feature reports `ok`. Either the union fallback (mirror's answer) or a typed
 `pattern_removed_nothing` is acceptable — **silence is not**. Guard:
 `test_cm2_pattern_of_a_clearing_translation_is_not_a_silent_no_op`.
 
-**🔴 CM-3 (P1) — an `extrude-cut` / `revolve-cut` whose tool never touches the
-body silently returns the input body with status `ok`.**
+**🟢 CM-3 (P1) — FIXED 2026-07-25 (kernel-architect) — an `extrude-cut` /
+`revolve-cut` whose tool never touches the body silently returned the input body
+with status `ok`.**
+FIX: `combine_body` asks the SAME shared `removal_reaches_body` predicate
+**before** the boolean and raises `CutRemovedNothingError` (a `BooleanError`
+subclass, so nothing can regress to a 500); the feature layer maps it to the
+typed **`cut_removed_nothing`** on both cut funnels (`_cut_active` — revolve /
+sweep / loft — and the multi-region extrude-cut, per REGION, so the misplaced
+region is the one that reports). The check must precede the boolean: afterwards
+"removed nothing" is invisible — OCCT returns the input body and the empty-result
+and lump-count checks both pass. Hole keeps its OWN vocabulary: `bore_hole` /
+`cut_counterbore` / `cut_countersink` translate the shared error to
+`hole_off_body` / `hole_too_deep` through one `_cut_drill` adapter, so the
+existing Hole taxonomy is byte-identical. All four measured chains now error with
+the last-good body intact (16000.0 / 14400.0 preserved), and the matrix's
+`extrude_cut` DIAGONAL joins the self-composition ERROR class
+(`cut_removed_nothing`), so `test_self_composition_taxonomy_is_exhaustive` no
+longer exempts any verb. New guards in `test_extrude.py` include the BOUNDARY: a
+0.001 mm-wide strip removing 0.25 mm^3 (2.5e-5 of the body) is still a successful
+cut — the predicate is topological, so no volume-delta threshold exists to
+false-trip. **Measured cost** (same machine, median-of-15, monkeypatched
+comparison): the probe costs about as much as the cut it guards (7.0 ms vs
+7.7 ms on an 80x80x10 plate + Ø8 bore), so the worst cut-heavy tree
+`sketch-extrude-plate-6hole-ring-cut-60x60x10` (SIX cut regions, one probe each)
+goes 147.0 -> 205.0 ms against a 2000 ms CI ceiling (9.8x headroom) and
+`pattern-cut-6hole-boltcircle` 102.9 -> 107.9 ms. Two cheaper discriminators were
+REJECTED as unsound: a volume delta needs an epsilon (forbidden) and a
+bitwise-equal-volume test rests on an empirical OCCT property, and a
+"topology changed => something was removed" fast path false-accepts a
+face-tangent tool that imprints without removing volume — exactly the sneaky
+case. Perf remains inside budget; correctness first.
 On a 40x40x10 plate (16000.0), every feature `ok` and the body unchanged for:
 (a) a pocket sketched beside the part at x∈[100,110]; (b) a cut extruded in free
 space above it (datum at z=20, cut 5 mm); (c) **the SAME pocket cut twice**

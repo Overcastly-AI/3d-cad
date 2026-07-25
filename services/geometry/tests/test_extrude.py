@@ -49,6 +49,8 @@ SKETCH_ID = uuid.UUID("00000000-0000-0000-0000-00000000aaaa")
 EXTRUDE_ID = uuid.UUID("00000000-0000-0000-0000-00000000bbbb")
 SKETCH2_ID = uuid.UUID("00000000-0000-0000-0000-00000000cccc")
 EXTRUDE2_ID = uuid.UUID("00000000-0000-0000-0000-00000000dddd")
+SKETCH3_ID = uuid.UUID("00000000-0000-0000-0000-0000000000c3")
+EXTRUDE3_ID = uuid.UUID("00000000-0000-0000-0000-0000000000d3")
 TAIL_ID = uuid.UUID("00000000-0000-0000-0000-00000000eeee")
 
 XY_PLANE: dict[str, Any] = {"kind": "datum_plane", "plane": "XY"}
@@ -371,6 +373,102 @@ def test_circle_profile_extrudes_to_cylinder_volume() -> None:
     assert result.properties is not None
     assert result.properties.volume == pytest.approx(
         math.pi * 36.0 * 10.0, abs=EXTRUDE_TOL
+    )
+
+
+# --- A cut that removes NOTHING is a typed error, never a successful no-op (CM-3) -----
+#
+# The Hole feature has always answered `hole_off_body` for this exact user
+# mistake; the composition matrix (GEOMETRY-QA 2026-07-25, CM-3) found that every
+# other subtractive verb reported `ok` and returned the input body — `combine_body`
+# checked for an EMPTY result and a changed lump count but never for "removed
+# nothing", which is invisible AFTER the boolean (OCCT hands back the input body
+# and both checks pass). The guard is the SHARED `removal_reaches_body` predicate,
+# asked before the cut.
+
+
+def _cut_error(result: EvaluateTreeResult, index: int) -> str:
+    """The cut feature's error code, asserting the strict-prefix shape: the cut
+    is the error and the last-good body is preserved."""
+    assert result.features[index].status == "error", [r.status for r in result.features]
+    error = result.features[index].error
+    assert error is not None
+    return error.code
+
+
+def test_cut_sketched_beside_the_body_is_cut_removed_nothing() -> None:
+    """A pocket profile that lies off the part removes nothing → typed error.
+
+    The 40x25x10 plate with a 10x10 pocket sketched at x in [100,110]: the prism
+    never touches the body, so the pre-fix kernel returned the untouched plate
+    with both features `ok`. The last-good body (10000 mm^3) is preserved.
+    """
+    result = _post(
+        _request(
+            [
+                rectangle_sketch(SKETCH_ID),
+                extrude_input(EXTRUDE_ID, SKETCH_ID, 10.0),
+                rectangle_sketch(SKETCH2_ID, 100.0, 100.0, 110.0, 110.0),
+                extrude_input(EXTRUDE2_ID, SKETCH2_ID, 10.0, operation="cut"),
+            ]
+        )
+    )
+
+    assert _cut_error(result, 3) == "cut_removed_nothing"
+    assert result.properties is not None
+    assert result.properties.volume == pytest.approx(10000.0, abs=EXTRUDE_TOL)
+    assert result.last_good_feature_id == SKETCH2_ID
+
+
+def test_the_same_pocket_cut_twice_is_cut_removed_nothing() -> None:
+    """The everyday duplicate-a-feature action: the SECOND identical cut removes
+    nothing (the material is already gone) and must say so.
+
+    Pre-fix both cuts reported `ok` and the volume read 9600 mm^3 twice — the
+    user's duplicated feature was indistinguishable from a real one. The body
+    after the honest error is still the singly-pocketed 9600 mm^3 plate.
+    """
+    result = _post(
+        _request(
+            [
+                rectangle_sketch(SKETCH_ID),
+                extrude_input(EXTRUDE_ID, SKETCH_ID, 10.0),
+                rectangle_sketch(SKETCH2_ID, 5.0, 5.0, 15.0, 15.0),
+                extrude_input(EXTRUDE2_ID, SKETCH2_ID, 4.0, operation="cut"),
+                rectangle_sketch(SKETCH3_ID, 5.0, 5.0, 15.0, 15.0),
+                extrude_input(EXTRUDE3_ID, SKETCH3_ID, 4.0, operation="cut"),
+            ]
+        )
+    )
+
+    assert _cut_error(result, 5) == "cut_removed_nothing"
+    assert result.properties is not None
+    assert result.properties.volume == pytest.approx(9600.0, abs=EXTRUDE_TOL)
+
+
+def test_a_cut_that_grazes_the_body_still_removes_material() -> None:
+    """The guard's BOUNDARY: overlapping by a sliver is a real cut, not an error.
+
+    A 0.001 mm-wide strip overlapping the plate's +X face removes
+    0.001 * 25 * 10 = 0.25 mm^3 — 2.5e-5 of the body, well inside the noise band
+    a naive "did the volume change" threshold would have to allow — and the
+    topological predicate (a common that yields a SOLID) keeps it a successful cut.
+    """
+    result = _post(
+        _request(
+            [
+                rectangle_sketch(SKETCH_ID),
+                extrude_input(EXTRUDE_ID, SKETCH_ID, 10.0),
+                rectangle_sketch(SKETCH2_ID, 39.999, 0.0, 45.0, 25.0),
+                extrude_input(EXTRUDE2_ID, SKETCH2_ID, 10.0, operation="cut"),
+            ]
+        )
+    )
+
+    assert [r.status for r in result.features] == ["ok"] * 4
+    assert result.properties is not None
+    assert result.properties.volume == pytest.approx(
+        10000.0 - 0.001 * 25.0 * 10.0, abs=EXTRUDE_TOL
     )
 
 

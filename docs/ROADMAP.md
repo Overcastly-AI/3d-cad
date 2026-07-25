@@ -47,7 +47,11 @@ pattern of a cut whose tools all clear the body is a silent no-op (14400.0 vs
 answers the reachability question for mirror, pattern and the in-chain cut alike,
 and an unreachable patterned removal falls back to the whole-body replicate
 (28800.0 / 30994.6904 measured); **CM-3** extrude-cut /
-revolve-cut that removes nothing reports `ok` (Hole correctly errors); **CM-4** a
+revolve-cut that removes nothing reports `ok` (Hole correctly errors) — **FIXED
+2026-07-25**: `combine_body` asks the same shared predicate before the boolean and
+the feature layer answers the typed `cut_removed_nothing`, so a pocket beside the
+part, a cut in free space, a duplicated cut and a clear revolve-cut all degrade
+honestly with the last-good body intact; **CM-4** a
 pocket+fillet+shell body loses 2 edges across a STEP round-trip. Full evidence,
 coverage table and tolerance rationale in `docs/GEOMETRY-QA.md` (2026-07-25).
 Fixes belong to the kernel agent — QA does not touch `services/geometry/src/**`.

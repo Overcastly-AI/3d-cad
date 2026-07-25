@@ -87,16 +87,23 @@ frame refactor are v2/§11. Spike de-collected.
       **30994.6904**. `xfail` removed from
       `test_cm2_pattern_of_a_clearing_translation_is_not_a_silent_no_op`; 3 new
       guards in `test_pattern.py`. [src: GEOMETRY-QA 2026-07-25 composition matrix]
-- [ ] (P1, S) **CM-3 — an `extrude-cut`/`revolve-cut` that removes nothing
-      reports `ok` and returns the input body.** 16000.0 unchanged for a pocket
-      beside the part, a cut in free space above it, and **the same pocket cut
-      twice** (14400.0 both times — the everyday duplicate action); a revolve-cut
-      clear of the body behaves identically. `combine_body`
-      (`kernel/extrude.py`) checks for an empty result and a changed lump count
-      but never "removed nothing"; the Hole feature errors correctly
-      (`hole_off_body`) for the identical user error. Guard:
-      `test_cm3_a_cut_that_removes_nothing_must_error` (`xfail(strict)`).
+- [x] (P1, S) **CM-3 — an `extrude-cut`/`revolve-cut` that removes nothing
+      reported `ok` and returned the input body. Fixed 2026-07-25.**
+      `combine_body` now asks the shared `removal_reaches_body` predicate BEFORE
+      the boolean ("removed nothing" is invisible afterwards) and raises
+      `CutRemovedNothingError` -> typed **`cut_removed_nothing`** on both cut
+      funnels; Hole keeps `hole_off_body`/`hole_too_deep` through one `_cut_drill`
+      adapter. The matrix's `extrude_cut` diagonal joins the self-composition
+      ERROR class, so no verb is exempt any more. Cost: the worst cut-heavy tree
+      147.0 -> 205.0 ms vs a 2000 ms ceiling. `xfail` removed from
+      `test_cm3_a_cut_that_removes_nothing_must_error`; 3 new guards in
+      `test_extrude.py` incl. the 0.25 mm^3 grazing-cut boundary.
       [src: GEOMETRY-QA 2026-07-25 composition matrix]
+- [ ] (P3, XS) **Friendly copy for `cut_removed_nothing`** in
+      `apps/web/src/features/featureErrors.ts` (frontend territory). The code
+      falls back to the kernel's own message today, which already names the three
+      causes and the fix, so this is polish, not a gap.
+      [src: CM-3 fix 2026-07-25]
 - [ ] (P2, S) **CM-4 — a composed body loses STEP round-trip topology
       fidelity.** `plate 40x40x10 -> pocket -> fillet r3 -> shell t2` exports and
       re-imports with faces 36 == 36 but **edges 96 -> 98** (LINE 64 -> 66);

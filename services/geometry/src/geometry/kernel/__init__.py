@@ -41,6 +41,7 @@ from geometry.kernel.export import (
 )
 from geometry.kernel.extrude import (
     BooleanError,
+    CutRemovedNothingError,
     ProfileNotClosedError,
     ProfileUnsupportedError,
     build_profile_face,
@@ -152,6 +153,7 @@ __all__ = [
     "BooleanEmptyError",
     "BooleanError",
     "ChamferError",
+    "CutRemovedNothingError",
     "DraftError",
     "EdgeIndexError",
     "EdgeRecord",

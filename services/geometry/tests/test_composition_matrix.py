@@ -1803,6 +1803,10 @@ def test_order_independent_pairs(first: str, second: str) -> None:
 
 #: verb -> the typed error the second application must produce.
 SELF_COMPOSITION_ERRORS = {
+    # The DIAGONAL that used to be finding CM-3's shape: a duplicated cut
+    # reported `ok` and returned the input body (14400.0 both times). Since the
+    # 2026-07-25 fix it degrades exactly as the Hole always has.
+    "extrude_cut": "cut_removed_nothing",
     "hole_simple": "hole_off_body",
     "hole_counterbore": "hole_off_body",
     "hole_countersink": "hole_off_body",
@@ -1844,7 +1848,8 @@ def test_self_composition_errors_honestly(name: str) -> None:
 
     ``hole_*`` is the flagship: the second drill finds no material and answers
     ``hole_off_body`` — the "a feature that removes nothing must raise" rule,
-    which extrude-cut does NOT satisfy (finding CM-3).
+    which ``extrude_cut`` now satisfies too (``cut_removed_nothing``, CM-3 fixed
+    2026-07-25; it used to report every feature ``ok`` and return the input body).
     """
     verb = VERBS[name]
     first = evaluate(PLATE + verb.features)
@@ -1888,18 +1893,20 @@ def test_self_composition_progresses(name: str) -> None:
 
 
 def test_self_composition_taxonomy_is_exhaustive() -> None:
-    """Every verb is classified as error / identity / progress under
-    self-composition, EXCEPT extrude_cut, which is finding CM-3's shape (a
-    duplicated cut removes nothing yet reports ok) and is asserted there.
+    """EVERY verb is classified as error / identity / progress under
+    self-composition — no unclassified diagonal left.
 
-    Keeps the diagonal honest: a new verb cannot be quietly left unclassified.
+    ``extrude_cut`` was the one exemption while finding CM-3 was live (a
+    duplicated cut removed nothing yet reported ok); with the fix it joins the
+    error class, so the exemption is gone and a new verb cannot be quietly left
+    unclassified.
     """
     classified = (
         set(SELF_COMPOSITION_ERRORS)
         | set(SELF_COMPOSITION_IDENTITIES)
         | set(SELF_COMPOSITION_PROGRESSES)
     )
-    assert set(VERBS) - classified == {"extrude_cut"}
+    assert set(VERBS) - classified == set()
 
 
 # =================================================================================
@@ -2330,20 +2337,6 @@ def test_cm2_pattern_of_a_clearing_translation_is_not_a_silent_no_op(
     assert props.volume == pytest.approx(2.0 * single, abs=CURVED_TOL)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="CM-3 (P1, LIVE on 446a872): an extrude-cut / revolve-cut whose tool "
-    "never touches the body silently returns the input body with status `ok`. "
-    "`combine_body` (kernel/extrude.py) checks for an EMPTY result and a changed "
-    "lump count, but never for 'removed nothing'. The Hole feature gets this "
-    "right (`hole_off_body`) for the identical user error, so the taxonomy is "
-    "inconsistent. Measured on a 40x40x10 plate: 16000.0 unchanged with every "
-    "feature `ok` for (a) a pocket sketched beside the part at x in [100,110], "
-    "(b) a cut extruded in free space above it (datum at z=20, cut 5 mm), and "
-    "(c) the SAME pocket cut twice (14400.0 both times) — the everyday "
-    "duplicate-a-feature action. A revolve-cut placed clear of the body behaves "
-    "identically. Expected: a typed per-feature error.",
-)
 @pytest.mark.parametrize(
     ("label", "features"),
     [
@@ -2399,9 +2392,16 @@ def test_cm3_a_cut_that_removes_nothing_must_error(
     the input", applied to extrude-cut and revolve-cut.
 
     This is also the matrix's ``extrude_cut`` DIAGONAL (see
-    ``test_self_composition_taxonomy_is_exhaustive``): the "cut it again" case is
-    the one self-composition that is neither an honest error nor a declared
-    identity, because the kernel currently reports it as a successful no-op.
+    ``test_self_composition_taxonomy_is_exhaustive``): "cut it again" used to be
+    the one self-composition that was neither an honest error nor a declared
+    identity, because the kernel reported it as a successful no-op.
+
+    FIXED 2026-07-25 (kernel): ``combine_body`` asks the SHARED
+    ``removal_reaches_body`` predicate BEFORE the boolean — "removed nothing" is
+    invisible afterwards — and raises ``CutRemovedNothingError``, which the feature
+    layer surfaces as the typed ``cut_removed_nothing`` (the Hole's
+    ``hole_off_body`` for every other subtractive verb). Pre-fix all four chains
+    returned the input body (16000.0 / 14400.0) with every feature ``ok``.
     """
     del label
     plate = [rect_sketch(S_BASE, 0.0, 0.0, 40.0, 40.0), extrude(F_BASE, S_BASE, 10.0)]

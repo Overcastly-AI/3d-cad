@@ -116,6 +116,7 @@ from geometry.kernel import (
     BooleanEmptyError,
     BooleanError,
     ChamferError,
+    CutRemovedNothingError,
     DraftError,
     FilletError,
     HoleInvalidDiameterError,
@@ -447,12 +448,17 @@ def _cut_active(state: EvaluationState, tool: Solid) -> FeatureError | None:
     """Subtract *tool* from the ACTIVE body (a modifying op — §MB-0).
 
     The caller has already verified an active body exists (``no_prior_body``
-    otherwise). ``state.bodies`` is mutated only on success (§4.3).
+    otherwise). ``state.bodies`` is mutated only on success (§4.3). A tool that
+    cannot reach the body is the typed ``cut_removed_nothing`` (CM-3) — the same
+    honesty the Hole feature has always had (``hole_off_body``), so a revolve /
+    sweep / loft cut into free space is never a successful no-op.
     """
     active = state.active_body
     assert active is not None, "cut without an active body is handled by the caller"
     try:
         state.set_active_body(combine_body(active, tool, "cut"))
+    except CutRemovedNothingError as exc:
+        return FeatureError(code="cut_removed_nothing", message=str(exc))
     except BooleanError as exc:
         return FeatureError(code="boolean_failed", message=str(exc))
     return None
@@ -845,6 +851,8 @@ def _evaluate_extrude_cut(
         for face in faces:
             tool = extrude_face(face, plane, params.distance_mm, reverse)
             body = combine_body(body, tool, "cut")
+    except CutRemovedNothingError as exc:
+        return FeatureError(code="cut_removed_nothing", message=str(exc))
     except BooleanError as exc:
         return FeatureError(code="boolean_failed", message=str(exc))
     state.set_active_body(body)
