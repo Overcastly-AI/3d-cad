@@ -212,7 +212,15 @@ Correctness gates no web app needs, run in CI and by the `geometry-qa` agent:
   topology counts (faces/edges/shells) exactly.
 - **Round-trip fidelity:** model → STEP export → re-import → compare mass
   properties and topology. Runs at two levels: kernel (build123d I/O) and
-  endpoint (`POST /api/v1/export` over HTTP).
+  endpoint (`POST /api/v1/export` over HTTP). **A body must be conformal
+  BEFORE it is exported** — an OCCT op can return the right material in a
+  `BRepCheck`-invalid solid (a T-junction where two offsets coincide), and the
+  STEP reader then heals it on import, so topology counts drift while the
+  geometry does not (finding CM-4). `geometry.kernel.healing.conform_solid`
+  runs `ShapeFix_Shape` on such a body — only when `BRepCheck` already rejects
+  it, so valid bodies keep their exact topology and byte-identical exports —
+  and refuses any heal that moves the volume (decision + evidence in
+  docs/GEOMETRY-QA.md 2026-07-25).
 - **Export byte-determinism:** identical requests → byte-identical STEP/STL
   files. STEP's `FILE_NAME` creation timestamp — the one nondeterministic
   byte range OCCT writes — is pinned kernel-side

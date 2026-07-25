@@ -40,7 +40,7 @@ crosses ~2 min.
 | **suppress(F) / unsuppress(F)** = byte-identical; suppress == delete | stale caches across a composition | 8 composed chains |
 | **edit-a-param-then-revert** = byte-identical, and the intermediate must differ | drift through tool reconstruction / face re-resolution | 7 param edits |
 | **Rebuild N times** = byte-identical GLB + identical props | gate 3 over booleans | 8 composed chains x 3 |
-| **STEP round-trip**: props within `ROUNDTRIP_TOL`, topology EXACT | gate 2 over booleans | 8 composed bodies (+ **CM-4, fails**) |
+| **STEP round-trip**: props within `ROUNDTRIP_TOL`, topology EXACT | gate 2 over booleans | 9 composed bodies (incl. **CM-4, fixed**) |
 | **Same-face reference resolves to the SAME plane origin** after an unrelated sibling edit | FINDINGS #3 + regression A | seed-5 chain, via `TreeEvaluation.datum_planes` |
 | **Coverage audit** | a new feature type shipping without a matrix row/column | `test_pair_matrix_covers_every_shipped_verb` |
 
@@ -115,11 +115,11 @@ what the PRE-FIX kernel returned, so a reader can see the assertion is real:
 
 ### FINDINGS — four LIVE defects the matrix caught on `446a872`
 
-**Status 2026-07-25 (kernel-architect): CM-1 🟢, CM-2 🟢, CM-3 🟢 fixed — the two
-P0s and the P1 — in `3c6ec19` (CM-2), `39fb38e` (CM-3) and the CM-1 commit; CM-4
-🔴 remains open (an export/import seam, queued separately), plus one re-scoped P2
-residual of CM-1 (a mirror does not duplicate an intervening ADD's material; proof
-of why below). Ten `xfail(strict)` markers became two.** The design chosen for all
+**Status 2026-07-25 (kernel-architect): CM-1 🟢, CM-2 🟢, CM-3 🟢, CM-4 🟢 — all
+four fixed — in `3c6ec19` (CM-2), `39fb38e` (CM-3), `d18950a` (CM-1) and the CM-4
+commit; one re-scoped P2 residual of CM-1 remains (a mirror does not duplicate an
+intervening ADD's material; proof of why below). Ten `xfail(strict)` markers
+became one.** The design chosen for all
 three: ONE shared, topological reachability predicate
 (`geometry.kernel.removal.removal_reaches_body`) asked by mirror, pattern and the
 in-chain cut, plus per-feature cut-tool tracking so nothing can shadow a removal.
@@ -260,18 +260,42 @@ nothing". The **Hole** feature gets this right (`hole_off_body`) for the
 identical user error, so the taxonomy is inconsistent within one release.
 Guard: `test_cm3_a_cut_that_removes_nothing_must_error`.
 
-**🔴 CM-4 (P2) — a composed body loses STEP round-trip topology fidelity.**
-`40x40x10 plate -> pocket [4,12]x[10,30] through -> fillet r3 (Z) -> shell t2
-open-top`, exported to STEP and re-imported: faces 36 == 36 but **edges 96 ->
-98** (LINE edges 64 -> 66); volume delta 8.276e-11, area delta 4.184e-11, so the
-GEOMETRY survives and only the topology metadata does not. Deterministic over 3
-runs. Isolated to the triple: every pair (`fillet+shell`, `pocket+fillet`,
-`pocket+shell`, `hole+shell`, `chamfer+shell`) and the same triple on the 80 mm
-layout round-trip with EXACT topology. Diagnosis: two straight edges are re-read
-as collinear pairs on import (an extra vertex) — an export/import seam, not a
-kernel modelling bug. It matters because edge SIGNATURES (picked fillet/chamfer
-edges) and the drawings edge pipeline key off edge identity after a round-trip.
-Guard: `test_cm4_pocket_fillet_shell_survives_a_step_roundtrip`.
+**🟢 CM-4 (P2) — FIXED 2026-07-25 (kernel-architect) — a composed body lost STEP
+round-trip topology fidelity.** `40x40x10 plate -> pocket [4,12]x[10,30] through
+-> fillet r3 (Z) -> shell t2 open-top`, exported to STEP and re-imported: faces
+36 == 36 but **edges 96 -> 98** (LINE edges 64 -> 66); volume delta 8.276e-11,
+area delta 4.184e-11, so the GEOMETRY survived and only the topology metadata did
+not. It matters because edge SIGNATURES (picked fillet/chamfer edges) and the
+drawings edge pipeline key off edge identity after a round-trip.
+
+**Root cause — READ, but the reader was not at fault.** The WRITE is faithful:
+the exported part-21 carries exactly **96 `EDGE_CURVE` + 64 `VERTEX_POINT`**
+records for the 96-edge / 64-vertex body, so the writer invents nothing. The body
+itself is **`BRepCheck`-INVALID**: this shell offsets the outer wall (x=0 -> x=2)
+and the pocket wall (x=4 -> x=2) onto the SAME plane, so the 4 mm rib between them
+stays solid and the cavity pinches to zero width — two coincident coplanar faces
+(272 mm² over y∈[3,37] and 112 mm² over y∈[13,27]), the smaller one's corners
+(y=13, y=27) sitting mid-edge on the larger one's 34 mm edge instead of splitting
+it. OCCT's STEP reader sews on import and inserts them, hence +2 edges with **no
+new vertices** (64 == 64) — it was healing an input we should not have written.
+That also explains the isolation: only this layout makes two offsets coincide.
+
+**Fix.** New `geometry.kernel.healing.conform_solid` — `ShapeFix_Shape`, run
+ONLY on a solid `BRepCheck` already rejects, so every valid body (all goldens)
+takes the untouched identity path; `shell_body` puts each hollowed lump through
+it and maps a failed heal onto `shell_failed`. Measured on the CM-4 body:
+invalid -> valid, faces 36 == 36, edges 96 -> 97, vertices 64 == 64;
+**dV = -2.7e-12 mm³, dA = 0.0, centroid moved 3.6e-14 mm** (the heal is topology
+only — `CONFORM_VOLUME_TOL_MM3` = 1e-9, the planar golden tier, ENFORCES that
+rather than trusting it); deterministic (three fresh builds -> byte-identical
+STEP) and idempotent. The healed body then round-trips with **EXACT** topology
+(36/97/64, dV 8.5e-11 < `ROUNDTRIP_TOL`). Cost: one `BRepCheck` per shelled lump
+— 0.75 ms on the 6-face golden box (10.1 ms shell), 7.9 ms on the 36-face CM-4
+body (82.6 ms shell+heal); benchmarks green. Guards:
+`test_cm4_pocket_fillet_shell_survives_a_step_roundtrip` (marker removed — a real
+assertion now) + 5 kernel tests in `services/geometry/tests/test_healing.py`,
+including one that FAILS if OCCT ever stops emitting the non-conformal body, so
+the heal cannot quietly become dead code.
 
 ### 🟡 Two observations (locked, NOT filed as defects)
 

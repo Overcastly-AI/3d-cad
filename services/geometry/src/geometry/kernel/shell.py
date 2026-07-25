@@ -32,12 +32,25 @@ catches BOTH rather than shipping a wrong body:
   is the ONLY thing standing between a too-thick shell and a silently wrong
   solid on the OCCT-returns-quietly path.
 
+A THIRD mode (finding CM-4, docs/GEOMETRY-QA.md 2026-07-25): the hollow
+completes, removes the right material, and returns a **non-conformal** solid —
+where two offset faces land on the same plane (a rib whose two walls exactly
+meet, so the cavity pinches to zero width) OCCT leaves the smaller face's
+corners sitting mid-edge on the larger one instead of splitting that edge. The
+geometry is right and ``BRepCheck`` says invalid, and a STEP round-trip does not
+preserve it (the reader sews and gains edges). Every shelled lump therefore goes
+through :func:`~geometry.kernel.healing.conform_solid`, which no-ops on the valid
+bodies (all goldens) and heals that one — see that module for the measured
+evidence.
+
 Determinism (RESEARCH §9): the OCCT hollow is a pure function of
-``(body, faces, thickness)``.
+``(body, faces, thickness)``; so is the heal (measured byte-identical over three
+fresh builds, and idempotent).
 """
 
 from build123d import Compound, Face, Solid
 
+from geometry.kernel.healing import HealingError, conform_solid
 from geometry.kernel.lumps import assemble_lumps, group_faces_by_lump
 from geometry.kernel.types import BodyShape
 
@@ -136,8 +149,17 @@ def _shell_one_lump(
             "in v1 (design §7.6)."
         )
     # clean() removes redundant seam faces/edges the operation can leave behind,
-    # keeping topology counts meaningful (and golden-assertable).
-    shelled = solids[0].clean()
+    # keeping topology counts meaningful (and golden-assertable). conform_solid()
+    # then returns a VALID result untouched and heals the non-conformal
+    # pinched-cavity case (CM-4, module docstring) — never a silent reshape: it
+    # raises if the heal would move material.
+    try:
+        shelled = conform_solid(solids[0].clean())
+    except HealingError as exc:
+        raise ShellError(
+            f"Shell produced a body the kernel could not validate ({exc}); the "
+            f"wall thickness ({thickness_mm} mm) may be too large for this body."
+        ) from exc
 
     # Material-removed invariant: a valid inward shell strictly reduces the
     # volume. OCCT can quietly return the un-hollowed body when the thickness

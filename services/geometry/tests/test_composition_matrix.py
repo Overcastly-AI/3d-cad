@@ -2435,26 +2435,32 @@ def test_cm3_a_cut_that_removes_nothing_must_error(
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="CM-4 (P2, LIVE on 446a872): the pocket+fillet+shell TRIPLE gains 2 "
-    "straight edges across a STEP round-trip (faces 36 = 36, edges 96 -> 98, "
-    "LINE edges 64 -> 66; volume delta 8.3e-11, so the GEOMETRY is preserved). "
-    "Isolated to the triple: every pair (fillet+shell, pocket+fillet, "
-    "pocket+shell, hole+shell, chamfer+shell) round-trips with EXACT topology. "
-    "Diagnosis: two straight edges are re-read as collinear pairs on import "
-    "(an extra vertex), i.e. an export/import seam, not a kernel modelling bug. "
-    "It matters because edge SIGNATURES (picked fillet/chamfer edges) and the "
-    "drawings edge pipeline key off edge identity after an import round-trip.",
-)
 def test_cm4_pocket_fillet_shell_survives_a_step_roundtrip() -> None:
-    """CM-4 — gate 2 on the one composition that fails it.
+    """CM-4 — gate 2 on the one composition that used to fail it.
 
-    Its own fixture, deliberately NOT the shared 80 mm plate: the drift is
+    Its own fixture, deliberately NOT the shared 80 mm plate: the drift was
     geometry-specific (a 40x40x10 plate, a [4,12]x[10,30] through-pocket, an r3
     corner fillet and a 2 mm open-top shell). On the 80 mm layout the same triple
-    round-trips with exact topology, which is why the finding is filed as a
-    fixture-specific export/import seam rather than "shell round-trips wrongly".
+    always round-tripped with exact topology.
+
+    Obtained pre-fix: faces 36 == 36 but edges 96 -> 98 (LINE 64 -> 66), volume
+    delta 8.3e-11 — the GEOMETRY survived, the topology metadata did not, which
+    orphans a picked-edge signature and doubles an edge in a drawing view.
+
+    FIXED 2026-07-25 (kernel): the split originated on **READ**, but the reader
+    was healing an input we should not have written. The WRITE is faithful — the
+    exported STEP carries exactly 96 ``EDGE_CURVE`` + 64 ``VERTEX_POINT`` records
+    for the 96-edge / 64-vertex body — and the body itself is
+    ``BRepCheck``-INVALID: this shell offsets the outer wall (x=0 -> x=2) and the
+    pocket wall (x=4 -> x=2) onto the SAME plane, so the 4 mm rib between them
+    stays solid, the cavity pinches to zero width, and OCCT leaves the smaller
+    coincident face's corners (y=13, y=27) sitting mid-edge on the larger face's
+    34 mm edge instead of splitting it. The STEP reader sews on import and
+    inserts them, hence +2 edges with no new vertices. ``shell_body`` now passes
+    every hollowed lump through :func:`geometry.kernel.healing.conform_solid`,
+    which no-ops on a valid body and makes this one conformal (36 faces / 97
+    edges / 64 vertices, valid; dV -2.7e-12, dA 0.0) — after which the round-trip
+    is EXACT.
     """
     plate = [rect_sketch(S_BASE, 0.0, 0.0, 40.0, 40.0), extrude(F_BASE, S_BASE, 10.0)]
     top = face_ref(F_BASE, (0.0, 0.0, 1.0), (20.0, 20.0, 10.0), 1600.0)

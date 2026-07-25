@@ -61,7 +61,14 @@ revolve-cut that removes nothing reports `ok` (Hole correctly errors) — **FIXE
 the feature layer answers the typed `cut_removed_nothing`, so a pocket beside the
 part, a cut in free space, a duplicated cut and a clear revolve-cut all degrade
 honestly with the last-good body intact; **CM-4** a
-pocket+fillet+shell body loses 2 edges across a STEP round-trip. Full evidence,
+pocket+fillet+shell body loses 2 edges across a STEP round-trip (96 -> 98) —
+**FIXED 2026-07-25**: the WRITE is faithful (96 `EDGE_CURVE` records for 96
+edges); the shell returned a `BRepCheck`-INVALID body whose pinched zero-width
+cavity leaves a T-junction, and the STEP reader was healing it on import. New
+`geometry.kernel.healing.conform_solid` (`ShapeFix_Shape`, run only on a body
+`BRepCheck` already rejects, so valid bodies are untouched) makes the shell
+result conformal — dV -2.7e-12, dA 0.0, deterministic and idempotent — after
+which the round-trip is EXACT (36/97/64). Full evidence,
 coverage table and tolerance rationale in `docs/GEOMETRY-QA.md` (2026-07-25).
 Fixes belong to the kernel agent — QA does not touch `services/geometry/src/**`.
 

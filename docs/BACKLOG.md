@@ -115,16 +115,19 @@ frame refactor are v2/§11. Spike de-collected.
       falls back to the kernel's own message today, which already names the three
       causes and the fix, so this is polish, not a gap.
       [src: CM-3 fix 2026-07-25]
-- [ ] (P2, S) **CM-4 — a composed body loses STEP round-trip topology
-      fidelity.** `plate 40x40x10 -> pocket -> fillet r3 -> shell t2` exports and
-      re-imports with faces 36 == 36 but **edges 96 -> 98** (LINE 64 -> 66);
-      volume delta 8.3e-11, so the geometry survives and only the topology
-      metadata does not. Deterministic; isolated to the triple (every pair, and
-      the same triple on an 80 mm plate, round-trip exactly). Two straight edges
-      are re-read as collinear pairs on import. Matters because picked-edge
-      SIGNATURES and the drawings edge pipeline key off edge identity after a
-      round-trip. Guard: `test_cm4_pocket_fillet_shell_survives_a_step_roundtrip`
-      (`xfail(strict)`). [src: GEOMETRY-QA 2026-07-25 composition matrix]
+- [x] (P2, S) **CM-4 — a composed body loses STEP round-trip topology
+      fidelity.** `plate 40x40x10 -> pocket -> fillet r3 -> shell t2` re-imported
+      with faces 36 == 36 but **edges 96 -> 98**. FIXED 2026-07-25: the write is
+      faithful (96 `EDGE_CURVE` records for 96 edges) — the shell returned a
+      `BRepCheck`-INVALID body (outer wall and pocket wall offset onto the SAME
+      plane, cavity pinched to zero width, leaving a T-junction), and the STEP
+      reader was healing it on import. New `geometry.kernel.healing.conform_solid`
+      (`ShapeFix_Shape`, only on a body `BRepCheck` already rejects, so valid
+      bodies keep the identity path) conforms each shelled lump: dV -2.7e-12,
+      dA 0.0, deterministic + idempotent, round-trip then EXACT (36/97/64).
+      Marker removed from `test_cm4_pocket_fillet_shell_survives_a_step_roundtrip`;
+      + `services/geometry/tests/test_healing.py` (5 guards).
+      [src: GEOMETRY-QA 2026-07-25 composition matrix]
 - [ ] (P3, S) **`draft` propagates along a tangent chain with no UI/doc warning.**
       After an r4 corner fillet makes all four walls tangent-continuous, drafting
       the ONE picked +X face tapers all four walls plus the four fillet cylinders
