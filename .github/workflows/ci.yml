@@ -133,8 +133,17 @@ jobs:
       # Reuse the compose-defined MinIO + one-shot bucket bootstrap (DRY: same
       # service/bucket the dev stack uses). `--wait` blocks until MinIO is
       # healthy and minio-init has created the bucket (exit 0).
-      - name: Boot MinIO + provision the mesh bucket
-        run: docker compose up -d --wait minio minio-init
+      # `--wait` waits for services to reach running|healthy, and treats a
+      # container that EXITS as a failure — so naming the one-shot
+      # `minio-init` here made the step exit 1 the moment the bucket
+      # bootstrap succeeded ("container loft-minio-init-1 exited (0)" then
+      # "Process completed with exit code 1"). This job had therefore been
+      # red since it landed. Wait on the long-running server only, then run
+      # the one-shot to completion so its OWN exit code is the gate.
+      - name: Boot MinIO
+        run: docker compose up -d --wait minio
+      - name: Provision the mesh bucket
+        run: docker compose run --rm minio-init
       - name: Sync uv environment (locked)
         run: uv sync --locked
       - name: Cross-process mesh-store smoke (real MinIO)

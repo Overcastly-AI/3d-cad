@@ -173,9 +173,30 @@ Stale docs are a defect (this rule saved Next-Lane repeatedly; see
 - Every groom pass reconciles ROADMAP + BACKLOG against git history.
 - **Definition of done for ANY change** = builds + lint/typecheck + unit
   tests green + geometry gates green (when kernel-adjacent) + e2e green (when
-  user-facing) + ROADMAP/BACKLOG ticked + committed & pushed. For new
-  capabilities: scripting/MCP exposure where sensible (or an explicit "not
-  agent-appropriate" note) once Phase 5 lands the surface.
+  user-facing) + ROADMAP/BACKLOG ticked + committed & pushed + **CI green on
+  the pushed commit**. For new capabilities: scripting/MCP exposure where
+  sensible (or an explicit "not agent-appropriate" note) once Phase 5 lands
+  the surface.
+- **LOCAL GATES ARE NOT THE CI GATE — check GitHub Actions after every push
+  (orchestrator duty).** Learned the hard way 2026-07-25: the founder had to
+  tell us "none of the CI tests are passing" after CI had been red for
+  **days** while every batch was being certified green locally. Two
+  independent causes, both invisible to `just lint && just test && just e2e`:
+  (a) `geometry-minio-smoke` had been failing since the job landed —
+  `docker compose up -d --wait minio minio-init` names a ONE-SHOT in a
+  `--wait` list, and `--wait` waits for running|healthy and treats a
+  container that EXITS as a failure, so the step returned 1 the instant the
+  bucket bootstrap *succeeded*; and the Docker registry is blocked in this
+  container, so no local run could ever have exercised it. (b) A required
+  DTO field (`ViewCreate.auto_place`) landed in one agent's commit while the
+  web callers were fixed in a different agent's later commit, so the
+  intermediate commit was typecheck-red in CI even though the tip was green.
+  Rules: after pushing, **read the run for that SHA** (GitHub MCP:
+  `actions_list` → `list_workflow_runs` filtered by branch, then
+  `get_job_logs` with `failed_only: true`); treat `cancelled` as "superseded,
+  look at the newer run," not as pass; and **every commit must be green on
+  its own**, so a required-field change and its callers belong in ONE commit
+  even when that crosses agent territories.
 
 ## Work as a dev team
 
