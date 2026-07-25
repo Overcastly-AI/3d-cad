@@ -23,11 +23,9 @@
  * the depth is lightly debounced so a fast typist doesn't rebuild the mesh on
  * every intermediate keystroke.
  */
-import { viewport } from "@loft/design/tokens";
 import { useThree } from "@react-three/fiber";
 import { useEffect, useMemo, useState } from "react";
 import {
-  BackSide,
   BufferGeometry,
   EdgesGeometry,
   ExtrudeGeometry,
@@ -43,6 +41,7 @@ import {
 
 import type { ExtrudeDirection, ExtrudeOperation } from "../features/extrude";
 import type { SolvedSketchLayer } from "./SketchScene";
+import { extrudeGhostAppearance } from "./extrudeGhost";
 import { profileRegions } from "./profileLoops";
 import { studioMatcap } from "./studioMatcap";
 
@@ -106,7 +105,12 @@ export function ExtrudePreview({
     });
   }, [regions, depth, direction]);
 
-  const cut = operation === "cut";
+  // How this operation is shaded — the pure seam below the renderer, so "a cut
+  // never reads as added metal" is unit-testable without a GPU.
+  const appearance = useMemo(
+    () => extrudeGhostAppearance(operation),
+    [operation],
+  );
 
   const edges = useMemo(
     () => geometries.map((geometry) => new EdgesGeometry(geometry, 25)),
@@ -134,28 +138,20 @@ export function ExtrudePreview({
   // the ghost reads as a hole rather than a body. Every value is a token.
   const surfaceMaterial = useMemo(() => {
     const material = new MeshMatcapMaterial({ matcap: studioMatcap() });
-    material.color.set(
-      cut ? viewport.preview.cut.wallTint : viewport.preview.surfaceTint,
-    );
+    material.color.set(appearance.surfaceTint);
     material.transparent = true;
-    material.opacity = cut
-      ? viewport.preview.cut.wallOpacity
-      : viewport.preview.surfaceOpacity;
+    material.opacity = appearance.surfaceOpacity;
     material.depthWrite = false;
-    if (cut) material.side = BackSide;
+    material.side = appearance.surfaceSide;
     return material;
-  }, [cut]);
+  }, [appearance]);
   const edgeMaterial = useMemo(() => {
-    const material = new LineBasicMaterial({
-      color: cut ? viewport.preview.cut.edge : viewport.preview.edge,
-    });
+    const material = new LineBasicMaterial({ color: appearance.edgeColor });
     material.transparent = true;
-    material.opacity = cut
-      ? viewport.preview.cut.edgeOpacity
-      : viewport.preview.edgeOpacity;
+    material.opacity = appearance.edgeOpacity;
     material.depthWrite = false;
     return material;
-  }, [cut]);
+  }, [appearance]);
 
   // Dispose GPU resources: geometries/edges when they change, materials on
   // unmount. Draw a frame on every change (frameloop="demand").

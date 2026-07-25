@@ -82,6 +82,24 @@ green; targeted Playwright green (new `viewport-gestures`,
 `document-units`, `assembly-inspect`). Before/after founder shots under
 `docs/screenshots/extrude-cut-ghost-*` and `assembly-units-in-*`.
 
+**Component-test tier — the structural blind spot behind those four defects
+(2026-07-25, frontend-builder).** All three of the UI defects above were
+component-level behaviours that NOTHING below a 40-minute Playwright run could
+see, because `apps/web` had no DOM test harness at all (`environment: "node"`,
+`include: ["src/**/*.test.ts"]`). Both TS packages now run **two vitest
+projects split by file extension**: `*.test.ts` → `unit` (node, unchanged
+speed) and `*.test.tsx` → `dom` (jsdom + Testing Library, auto-wired matchers
+and cleanup via `src/test/domSetup.ts`). CI needed no workflow change —
+`pnpm -r --if-present run test` picks up both. 46 new tests pin the three
+defects (a cut ghost that reads as added metal, a panel that ignores its unit
+context, a menu that drops focus on Escape) plus the readouts and
+feature-keyed error copy around them; each was verified to FAIL against the
+re-introduced defect. r3f/WebGL cannot render in jsdom, so the extrude ghost's
+operation-sensitive shading was lifted into a pure `extrudeGhostAppearance`
+seam below the renderer (behaviour-identical: `FrontSide` is three's default)
+rather than mocked. Web suite 836 → 882 tests; node tier unchanged at ~8.5 s,
+DOM tier ~5 s.
+
 **Prior focus — daily-driver depth (2026-07-23 product audit), still the
 standing direction beneath the burn-down.** The 2026-07-23 audit re-pointed
 the queue from the sheet-metal

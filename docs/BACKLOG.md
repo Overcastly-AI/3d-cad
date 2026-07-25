@@ -63,6 +63,19 @@ even-odd scanline clip) across SVG/PDF/DXF, `views.section_params jsonb` (0008);
 wrong-half + multi-loop + byte-determinism goldens; oblique + the `project_view`
 frame refactor are v2/§11. Spike de-collected.
 
+- [x] (P1, S) **Component-test tier (jsdom) — close the structural blind spot
+      the production-readiness assessment surfaced. Shipped 2026-07-25**
+      (founder directive). `apps/web` had NO DOM harness, so every defect that
+      is "does this component render the value/copy it was given" was invisible
+      below a 40-min Playwright run — which is exactly how the burn-down's dead
+      `ExtrudePreviewState.operation`, hardcoded `mm³` assembly labels, and
+      unkept focus-restore docstring all shipped. Both TS packages now run two
+      vitest projects keyed on the file extension (`*.test.ts` → node,
+      `*.test.tsx` → jsdom + Testing Library, shared `src/test/domSetup.ts`);
+      no CI workflow change needed. 46 tests, each verified to fail against the
+      re-introduced defect; the r3f-only extrude-ghost shading was extracted to
+      a pure `extrudeGhostAppearance` seam instead of mocking three.js. See
+      Changelog + ROADMAP.
 - [x] (P0, M) Assembly STEP export — AP214 product structure. **Shipped
       2026-07-23** — `POST /api/v1/assembly/export` (geometry) + gateway proxy;
       `ExportAssemblyRequest` reuses `EvaluateAssemblyRequest` + format;
@@ -1178,6 +1191,9 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
+- 2026-07-25 — **jsdom component-test tier (frontend-builder):** `apps/web` +
+  `packages/design` now run two vitest projects (`*.test.ts` node, `*.test.tsx`
+  jsdom+Testing Library); 46 tests pin the three burn-down UI defects. 882 web.
 - 2026-07-25 — **Burn-down code-review fixes, frontend (frontend-builder):**
   right-drag pan no longer opens the viewport context menu (click-slop gate,
   press- and release-fired `contextmenu`); the extrude ghost honours
