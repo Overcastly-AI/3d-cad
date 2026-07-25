@@ -695,6 +695,14 @@ class View(Base):
 
     __table_args__ = (
         sa.UniqueConstraint("sheet_id", "order_index", name="uq_views_sheet_order"),
+        # ONE view per projection per sheet (engineering audit H3, migration 0011).
+        # The whole stack keys a sheet's views by PROJECTION — the composer's
+        # anchor map and the frontend's `viewIdByProjection` are both
+        # `dict[projection, …]` — so a second `front`/`section` view on one sheet
+        # collapsed to a single composed view AND made a drag-to-place PATCH
+        # persist onto the OTHER view's row. The schema now says what the code
+        # assumed; multi-section sheets need view-id keying end-to-end (BACKLOG).
+        sa.UniqueConstraint("sheet_id", "projection", name="uq_views_sheet_projection"),
         # Reverse lookup of "which views reference document X" — the
         # cross-document 409-with-dependents pre-check (design §2.2).
         sa.Index("ix_views_ref_document", "ref_document_id"),

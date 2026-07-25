@@ -36,6 +36,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 from py_kit.schemas.assemblies import (
     AssemblySolveDiagnosis,
     AssemblySolveStatus,
+    BomLine,
     EvaluateAssemblyRequest,
     InstanceEvaluationError,
     MateEvaluationError,
@@ -72,6 +73,15 @@ MAX_DRAWING_DIMENSIONS = 500
 #: Ceiling on note annotations in one compose request — placement/serialization
 #: work only, same generous scale as dimensions.
 MAX_DRAWING_ANNOTATIONS = 500
+
+#: Ceiling on SHEETS in one drawing (engineering audit H5 — the bound G2 missed).
+#: Every read of a drawing serializes its WHOLE sheet tree (``GET /drawings/{id}``
+#: and the body of every delete route), so an unbounded sheet count is an
+#: unbounded response — one POST per sheet until the document is unreadable and
+#: unrecoverable except by deleting it. A real multi-sheet print set runs a
+#: handful to a few dozen sheets, so 100 is far beyond legitimate use while
+#: keeping the tree read bounded.
+MAX_DRAWING_SHEETS = 100
 
 #: Upper bound for a per-sheet name ("Sheet 1").
 SHEET_NAME_MAX_LENGTH = 200
@@ -732,7 +742,14 @@ class DrawingTreeResponse(BaseModel):
 
     drawing: DrawingResponse
     doc_version: int = Field(description="Echoed OCC token (== drawing.doc_version)")
-    sheets: list[SheetContent]
+    sheets: list[SheetContent] = Field(
+        max_length=MAX_DRAWING_SHEETS,
+        description="The drawing's sheets in order_index order, bounded by "
+        "MAX_DRAWING_SHEETS (work bound, audit H5 — every drawing read serializes "
+        "the whole tree). documents refuses to persist past the ceiling "
+        "(`sheet_limit_exceeded` 422), so the bound can never make a stored "
+        "drawing unreadable.",
+    )
 
 
 class SheetMutationResponse(BaseModel):
@@ -1689,4 +1706,87 @@ class EvaluateAssemblyDrawingViewsResult(BaseModel):
         default=None,
         description="Set when NO instance produced a body (nothing to project); "
         "`views` is then empty (the assembly analogue of the part `part_error`)",
+    )
+
+
+# --- §7 BOM — a drawing's item list, DERIVED from the assembly it drafts ----------
+#
+# THE identity decision (design §7.1, Drawings #4 BOM slice): an item number is
+# **derived, never stored**. A drawing does not persist "part X is item 3" — it
+# persists nothing at all about the BOM; the numbered list is recomputed from the
+# assembly's own stable instance order on every read. This is §3.3's rejected-(A)
+# argument applied one document up: storing an index into a list somebody else owns
+# is the silent-drift defect class. The consequences are stated, not hidden:
+#
+# * numbering is FIRST-APPEARANCE over the assembly's `order_index` (its stable
+#   display/BOM order), NOT the name-sorted order `GET /assemblies/{id}/bom`
+#   reports — so RENAMING a part never renumbers a released print, while adding /
+#   removing / reordering an instance does (a real change the drafter made);
+# * the assembly is tracked at TIP (§2.3, `ref_pinned_version` is NULL in v1), so
+#   `assembly_version` is echoed on every read: a client that cached a BOM can see
+#   the source moved under it. Pinning flips this additively with the versioning
+#   item, exactly as views/assemblies do;
+# * a document deleted while still instanced stays a line with `missing` true and a
+#   null name (the shipped `BomLine` honesty, reused verbatim) — the quantity never
+#   silently vanishes.
+
+
+class DrawingBomLine(BomLine):
+    """One NUMBERED line of a drawing's bill of materials (design §7 BOM).
+
+    The shipped assembly :class:`~py_kit.schemas.assemblies.BomLine` (group key +
+    resolved name + `missing` + quantity, reused VERBATIM — no parallel taxonomy)
+    plus the one thing a *drawing* adds: the ``item_number`` a balloon stamps.
+
+    ``item_number`` is **derived**, not authored: lines are numbered 1..n in the
+    order each referenced document FIRST appears in the assembly's stable instance
+    ``order_index``. It is therefore a pure function of the assembly graph — two
+    reads of an unchanged assembly number identically, and a part RENAME (which
+    re-sorts the name-ordered assembly BOM) leaves every number untouched.
+    """
+
+    item_number: int = Field(
+        ge=1,
+        description="1-based item number, DERIVED from the assembly's stable "
+        "instance order (first appearance of this referenced document) — never "
+        "stored on the drawing, so it can never drift from the assembly",
+    )
+
+
+class DrawingBomResponse(BaseModel):
+    """A drawing sheet's bill of materials — the item list a balloon numbers (§7).
+
+    A pure READ MODEL (no table, no migration): the sheet's single source document
+    (the enforced one-sheet-one-source invariant, §2.2) must be an ASSEMBLY, and its
+    DIRECT instances are rolled up into numbered :class:`DrawingBomLine` s. FLAT —
+    a rigid sub-assembly instance is one ``kind: "assembly"`` line, never expanded
+    (the same v1 bound the assembly BOM states; recursive/indented is a follow-up).
+
+    A sheet drafting a PART has no bill of materials: that is a typed
+    ``drawing_bom_source_not_assembly`` 422, not a 200 with an empty list — an empty
+    BOM would read as "this assembly has no parts", which is a different and false
+    statement (the honest-degradation posture the whole drawings pillar takes).
+
+    ``assembly_version`` is the source assembly's ``doc_version`` AT READ TIME. v1
+    tracks the assembly TIP (§2.3), so this is the staleness handle: a client that
+    balloons a sheet and later reads a different ``assembly_version`` knows the item
+    list may have renumbered, without the numbers themselves ever having been stored
+    and gone quietly wrong.
+    """
+
+    drawing_id: uuid.UUID
+    sheet_id: uuid.UUID = Field(description="The sheet whose source was rolled up")
+    assembly_id: uuid.UUID = Field(description="The assembly this sheet drafts")
+    assembly_version: int = Field(
+        ge=0,
+        description="The source assembly's `doc_version` at read time — the "
+        "staleness handle for a tip-tracking (unpinned) view, §2.3",
+    )
+    lines: list[DrawingBomLine] = Field(
+        default_factory=list["DrawingBomLine"],
+        description="One numbered line per referenced document, in derived "
+        "`item_number` order (an assembly with no instances yields an empty list)",
+    )
+    total_instances: int = Field(
+        ge=0, description="Sum of every line's quantity (direct-instance count)"
     )

@@ -52,7 +52,7 @@ import math
 
 from build123d import Plane, Solid, Vector
 
-from geometry.kernel.extrude import combine_body
+from geometry.kernel.extrude import CutRemovedNothingError, combine_body
 from geometry.kernel.types import BodyShape
 
 #: A real hole strictly REMOVES material, so a drill that reduces the volume by
@@ -108,6 +108,26 @@ class HoleRecessInvalidError(HoleError):
     extra material and is a meaningless seat. Mapped 1:1 by the feature layer onto
     ``hole_cbore_invalid`` / ``hole_csink_invalid`` (per the hole type).
     """
+
+
+def _cut_drill(body: BodyShape, tool: Solid, off_body: HoleError) -> BodyShape:
+    """Cut a drill/recess *tool* through the shared boolean, keeping the Hole
+    taxonomy when the tool cannot reach the body.
+
+    :func:`~geometry.kernel.extrude.combine_body` now refuses an in-chain cut that
+    would remove nothing (CM-3, the SHARED
+    :func:`geometry.kernel.removal.removal_reaches_body` predicate). A Hole has
+    always reported that case in its OWN vocabulary — ``hole_off_body`` for the
+    bore, ``hole_too_deep`` for a recess that forms none of its annulus — so the
+    generic error is translated to the caller's *off_body* here rather than
+    leaking a ``boolean_failed`` where a hole-specific code used to be. The
+    post-cut analytic checks below stay: they also catch a bore that removes a
+    sliver, which "reaches the body" but is still off the face.
+    """
+    try:
+        return combine_body(body, tool, "cut")
+    except CutRemovedNothingError as exc:
+        raise off_body from exc
 
 
 def _drill_axis(
@@ -204,16 +224,17 @@ def bore_hole(
         depth_mm=depth_mm,
     )
 
+    off_body = HoleOffBodyError(
+        "The hole removed no material: the placement point lies off the face "
+        "(outside the body), or the cut direction points into empty space. "
+        "Re-place the hole on the face."
+    )
     before = float(body.volume)
-    result = combine_body(body, tool, "cut")
+    result = _cut_drill(body, tool, off_body)
     removed = before - float(result.volume)
 
     if removed <= before * _REMOVED_REL_TOL:
-        raise HoleOffBodyError(
-            "The hole removed no material: the placement point lies off the face "
-            "(outside the body), or the cut direction points into empty space. "
-            "Re-place the hole on the face."
-        )
+        raise off_body
     if not through_all:
         assert depth_mm is not None, "a blind hole carries a positive depth_mm"
         expected = math.pi * radius * radius * depth_mm
@@ -297,19 +318,20 @@ def cut_counterbore(
     bore_radius = bore_diameter_mm / 2.0
     radius = cbore_diameter_mm / 2.0
 
+    too_deep = HoleTooDeepError(
+        "The counterbore recess could not form its full depth: the removed "
+        f"material is short of a {cbore_depth_mm}mm-deep, diameter-"
+        f"{cbore_diameter_mm}mm recess. The depth exceeds the available material "
+        "(the recess would break through), or it overhangs the face edge. "
+        "Reduce the counterbore depth or diameter, or move the hole inward."
+    )
     before = float(body.volume)
-    result = combine_body(body, tool, "cut")
+    result = _cut_drill(body, tool, too_deep)
     removed = before - float(result.volume)
 
     expected = math.pi * (radius * radius - bore_radius * bore_radius) * cbore_depth_mm
     if removed < expected * (1.0 - _POCKET_REL_TOL):
-        raise HoleTooDeepError(
-            "The counterbore recess could not form its full depth: the removed "
-            f"material is short of a {cbore_depth_mm}mm-deep, diameter-"
-            f"{cbore_diameter_mm}mm recess. The depth exceeds the available material "
-            "(the recess would break through), or it overhangs the face edge. "
-            "Reduce the counterbore depth or diameter, or move the hole inward."
-        )
+        raise too_deep
     return result
 
 
@@ -394,8 +416,15 @@ def cut_countersink(
     slope = math.tan(math.radians(csink_angle_deg / 2.0))
     cone_depth = (radius - bore_radius) / slope
 
+    too_deep = HoleTooDeepError(
+        "The countersink recess could not form its full cone: the removed "
+        f"material is short of a diameter-{csink_diameter_mm}mm, "
+        f"{csink_angle_deg}deg countersink. The implied cone depth exceeds the "
+        "available material (it would break through), or it overhangs the face "
+        "edge. Reduce the countersink diameter/angle, or move the hole inward."
+    )
     before = float(body.volume)
-    result = combine_body(body, tool, "cut")
+    result = _cut_drill(body, tool, too_deep)
     removed = before - float(result.volume)
 
     expected = (
@@ -405,11 +434,5 @@ def cut_countersink(
         * (radius * radius + radius * bore_radius - 2.0 * bore_radius * bore_radius)
     )
     if removed < expected * (1.0 - _POCKET_REL_TOL):
-        raise HoleTooDeepError(
-            "The countersink recess could not form its full cone: the removed "
-            f"material is short of a diameter-{csink_diameter_mm}mm, "
-            f"{csink_angle_deg}deg countersink. The implied cone depth exceeds the "
-            "available material (it would break through), or it overhangs the face "
-            "edge. Reduce the countersink diameter/angle, or move the hole inward."
-        )
+        raise too_deep
     return result

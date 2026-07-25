@@ -173,9 +173,47 @@ Stale docs are a defect (this rule saved Next-Lane repeatedly; see
 - Every groom pass reconciles ROADMAP + BACKLOG against git history.
 - **Definition of done for ANY change** = builds + lint/typecheck + unit
   tests green + geometry gates green (when kernel-adjacent) + e2e green (when
-  user-facing) + ROADMAP/BACKLOG ticked + committed & pushed. For new
-  capabilities: scripting/MCP exposure where sensible (or an explicit "not
-  agent-appropriate" note) once Phase 5 lands the surface.
+  user-facing) + ROADMAP/BACKLOG ticked + committed & pushed + **CI green on
+  the pushed commit**. For new capabilities: scripting/MCP exposure where
+  sensible (or an explicit "not agent-appropriate" note) once Phase 5 lands
+  the surface.
+- **LOCAL GATES ARE NOT THE CI GATE — check GitHub Actions after every push
+  (orchestrator duty).** Learned the hard way 2026-07-25: the founder had to
+  tell us "none of the CI tests are passing" after CI had been red for
+  **days** while every batch was being certified green locally. Two
+  independent causes, both invisible to `just lint && just test && just e2e`:
+  (a) `geometry-minio-smoke` had been failing since the job landed —
+  `docker compose up -d --wait minio minio-init` names a ONE-SHOT in a
+  `--wait` list, and `--wait` waits for running|healthy and treats a
+  container that EXITS as a failure, so the step returned 1 the instant the
+  bucket bootstrap *succeeded*; and the Docker registry is blocked in this
+  container, so no local run could ever have exercised it. (b) A required
+  DTO field (`ViewCreate.auto_place`) landed in one agent's commit while the
+  web callers were fixed in a different agent's later commit, so the
+  intermediate commit was typecheck-red in CI even though the tip was green.
+  Rules: after pushing, **read the run for that SHA** (GitHub MCP:
+  `actions_list` → `list_workflow_runs` filtered by branch, then
+  `get_job_logs` with `failed_only: true`); treat `cancelled` as "superseded,
+  look at the newer run," not as pass; and **every commit must be green on
+  its own**, so a required-field change and its callers belong in ONE commit
+  even when that crosses agent territories.
+- **Only the ORCHESTRATOR can read CI — subagents cannot. Budget the relay
+  into the brief.** A subagent has no `gh`, no GitHub MCP in its toolset, and
+  `api.github.com` is policy-denied for its session (`403 GitHub access is
+  not enabled for this session`) — same policy-denial class as the blocked
+  docker registry, so there is nothing to route around. A brief that ends
+  "push and then read the run" therefore dead-ends *after* the agent has done
+  the work. Either (a) tell the agent to push and stop, and the orchestrator
+  reads the run and relays `get_job_logs` output back via SendMessage so the
+  agent can iterate, or (b) keep CI-verified work in the orchestrator's own
+  hands. Do NOT write briefs that assume a subagent can self-verify CI.
+- **A suspiciously FAST green deserves the same scrutiny as a red.** The
+  usual cause is a job that skipped its work, and `conclusion: success` is
+  emitted when every job is skipped. Discriminate by reading the log for
+  evidence the work actually happened (2026-07-25: the first-ever deploy-path
+  run passed in 86s where ~20 min was expected — real, and the proof was the
+  teardown naming six actual containers; a no-op job has nothing to remove).
+  Prefer asserting on a side effect only real execution produces.
 
 ## Work as a dev team
 
@@ -292,6 +330,15 @@ recipe here in the same commit as the fix.**
     DSNs are file URLs: `sqlite+aiosqlite:////abs/path/documents.db` (the env
     var is `POSTGRES_URL`; `py_kit.db.async_dsn` normalizes `sqlite://` →
     `sqlite+aiosqlite://`).
+    **Always `rm -f` the SQLite files first — `create_all` does NOT migrate.**
+    `metadata.create_all` is a no-op on a table that already exists, so a
+    scratchpad `documents.db` left by an earlier session is silently reused at
+    ITS old schema. Seen 2026-07-25: a db from 07-23 made every e2e spec fail
+    at `new-sketch` with gateway 500s — `no such column: features.suppressed`,
+    a column added after that file was written. The failure looks like a code
+    regression and is not one, and it gets worse the longer a container lives
+    (the schema drifts further each day). Start every native boot from fresh
+    files.
   - **geometry → in-process LRU mesh store** when `S3_URL` is unset. Keep
     `--workers 1` (the LRU is per-process; multi-worker would split it). No MinIO.
   - **gateway → fail-open rate limiter** when `REDIS_URL` is unset (no-op

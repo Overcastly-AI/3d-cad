@@ -385,6 +385,35 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/drawings/{drawing_id}/bom": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Drawing Bom
+         * @description The sheet's bill of materials — items numbered from the assembly it drafts.
+         *
+         *     A single documents hop (no geometry): the BOM is a pure documents-side READ
+         *     MODEL over the source assembly's instance graph, so nothing is evaluated and
+         *     nothing is persisted on the drawing. Item numbers are DERIVED on every read
+         *     from the assembly's stable instance order (design §7 BOM) — a stored number
+         *     could silently disagree with the assembly it names, so none is stored.
+         *     documents' typed refusals re-surface verbatim: ``sheet_not_found`` (404),
+         *     ``sheet_has_no_views`` / ``drawing_bom_source_not_assembly`` /
+         *     ``drawing_bom_source_missing`` (422).
+         */
+        get: operations["get_drawing_bom_api_v1_drawings__drawing_id__bom_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/drawings/{drawing_id}/dimensions/{dimension_id}": {
         parameters: {
             query?: never;
@@ -425,9 +454,12 @@ export interface paths {
          *     unknown/foreign drawing re-surfaced verbatim), the gateway assembles the
          *     :class:`ComposeDrawingRequest` from that persisted state, and the stateless
          *     geometry service (identity-free upstream) evaluates + places + serializes it.
-         *     The artifact bytes stream back with geometry's ``Content-Type`` +
-         *     ``Content-Disposition``; its per-format envelopes (e.g. ``not_implemented`` for
-         *     ``dxf``) re-surface verbatim.
+         *     The artifact bytes stream back with geometry's ``Content-Type``; its
+         *     per-format envelopes (e.g. ``not_implemented`` for ``dxf``) re-surface
+         *     verbatim. The download filename is set HERE (``Content-Disposition``), not
+         *     relayed: only the gateway knows which sheet was composed, so a multi-sheet
+         *     drawing downloads as ``<drawing>-<sheet>.<ext>`` instead of every sheet
+         *     sharing the drawing's name; a single-sheet drawing keeps ``<drawing>.<ext>``.
          */
         post: operations["export_drawing_api_v1_drawings__drawing_id__export_post"];
         delete?: never;
@@ -3229,6 +3261,110 @@ export interface components {
             neutral_plane: components["schemas"]["DraftNeutralPlaneV1"];
         };
         /**
+         * DrawingBomLine
+         * @description One NUMBERED line of a drawing's bill of materials (design §7 BOM).
+         *
+         *     The shipped assembly :class:`~py_kit.schemas.assemblies.BomLine` (group key +
+         *     resolved name + `missing` + quantity, reused VERBATIM — no parallel taxonomy)
+         *     plus the one thing a *drawing* adds: the ``item_number`` a balloon stamps.
+         *
+         *     ``item_number`` is **derived**, not authored: lines are numbered 1..n in the
+         *     order each referenced document FIRST appears in the assembly's stable instance
+         *     ``order_index``. It is therefore a pure function of the assembly graph — two
+         *     reads of an unchanged assembly number identically, and a part RENAME (which
+         *     re-sorts the name-ordered assembly BOM) leaves every number untouched.
+         */
+        DrawingBomLine: {
+            /**
+             * Item Number
+             * @description 1-based item number, DERIVED from the assembly's stable instance order (first appearance of this referenced document) — never stored on the drawing, so it can never drift from the assembly
+             */
+            item_number: number;
+            /**
+             * Missing
+             * @description True when the referenced document no longer exists (deleted while still instanced) — the line and its quantity are still reported so the dangling reference is visible, never silently dropped
+             * @default false
+             */
+            missing: boolean;
+            /**
+             * Name
+             * @description The referenced document's CURRENT name, or null when it has been deleted while still instanced (see `missing`)
+             */
+            name: string | null;
+            /**
+             * Quantity
+             * @description Count of direct instances referencing this document
+             */
+            quantity: number;
+            /**
+             * Ref Document Id
+             * Format: uuid
+             * @description The referenced part / sub-assembly document (the group key)
+             */
+            ref_document_id: string;
+            /**
+             * Ref Document Kind
+             * @description 'part' or 'assembly' (a rigid sub-assembly, not expanded)
+             * @enum {string}
+             */
+            ref_document_kind: "part" | "assembly";
+        };
+        /**
+         * DrawingBomResponse
+         * @description A drawing sheet's bill of materials — the item list a balloon numbers (§7).
+         *
+         *     A pure READ MODEL (no table, no migration): the sheet's single source document
+         *     (the enforced one-sheet-one-source invariant, §2.2) must be an ASSEMBLY, and its
+         *     DIRECT instances are rolled up into numbered :class:`DrawingBomLine` s. FLAT —
+         *     a rigid sub-assembly instance is one ``kind: "assembly"`` line, never expanded
+         *     (the same v1 bound the assembly BOM states; recursive/indented is a follow-up).
+         *
+         *     A sheet drafting a PART has no bill of materials: that is a typed
+         *     ``drawing_bom_source_not_assembly`` 422, not a 200 with an empty list — an empty
+         *     BOM would read as "this assembly has no parts", which is a different and false
+         *     statement (the honest-degradation posture the whole drawings pillar takes).
+         *
+         *     ``assembly_version`` is the source assembly's ``doc_version`` AT READ TIME. v1
+         *     tracks the assembly TIP (§2.3), so this is the staleness handle: a client that
+         *     balloons a sheet and later reads a different ``assembly_version`` knows the item
+         *     list may have renumbered, without the numbers themselves ever having been stored
+         *     and gone quietly wrong.
+         */
+        DrawingBomResponse: {
+            /**
+             * Assembly Id
+             * Format: uuid
+             * @description The assembly this sheet drafts
+             */
+            assembly_id: string;
+            /**
+             * Assembly Version
+             * @description The source assembly's `doc_version` at read time — the staleness handle for a tip-tracking (unpinned) view, §2.3
+             */
+            assembly_version: number;
+            /**
+             * Drawing Id
+             * Format: uuid
+             */
+            drawing_id: string;
+            /**
+             * Lines
+             * @description One numbered line per referenced document, in derived `item_number` order (an assembly with no instances yields an empty list)
+             */
+            lines?: components["schemas"]["DrawingBomLine"][];
+            /**
+             * Sheet Id
+             * Format: uuid
+             * @description The sheet whose source was rolled up
+             */
+            sheet_id: string;
+            /**
+             * Total Instances
+             * @description Sum of every line's quantity (direct-instance count)
+             */
+            total_instances: number;
+        };
+        /**
          * DrawingCreate
          * @description Create a drawing owned by the calling user (design §2.1).
          */
@@ -3330,7 +3466,10 @@ export interface components {
              */
             doc_version: number;
             drawing: components["schemas"]["DrawingResponse"];
-            /** Sheets */
+            /**
+             * Sheets
+             * @description The drawing's sheets in order_index order, bounded by MAX_DRAWING_SHEETS (work bound, audit H5 — every drawing read serializes the whole tree). documents refuses to persist past the ceiling (`sheet_limit_exceeded` 422), so the bound can never make a stored drawing unreadable.
+             */
             sheets: components["schemas"]["SheetContent"][];
         };
         /**
@@ -4514,6 +4653,14 @@ export interface components {
          *     ``counterbore`` (a larger cylinder) or ``countersink`` (a cone). A recess
          *     whose diameter does not exceed the bore is ``hole_cbore_invalid`` /
          *     ``hole_csink_invalid``; a recess deeper than the material is ``hole_too_deep``.
+         *
+         *     ``thread`` (optional, ``None`` = an untapped hole) makes the hole TAPPED: a
+         *     cosmetic :class:`IsoMetricThread` callout over the tap-drill bore, ORTHOGONAL
+         *     to ``type`` (a counterbored tapped hole sets both). It adds NO geometry — the
+         *     solid is byte-identical to the same hole without it — so a tapped hole
+         *     mirrors, patterns, shells and exports exactly as its bore does. An unknown
+         *     designation is ``hole_thread_unsupported``; a bore the thread cannot be tapped
+         *     in is ``hole_thread_mismatch``.
          */
         HoleParamsV1: {
             /**
@@ -4530,6 +4677,8 @@ export interface components {
             face: components["schemas"]["SubshapeRef"];
             /** @description World-space placement point, projected onto the face plane to fix the drill axis (mm) */
             position: components["schemas"]["Vec3"];
+            /** @description Optional COSMETIC thread callout making this a TAPPED hole (`null`/omitted = untapped). Carries the designation for drawing/BOM callouts; adds no geometry — `diameter_mm` is the tap-drill bore (:class:`IsoMetricThread`) */
+            thread?: components["schemas"]["IsoMetricThread"] | null;
             /**
              * Type
              * @description Hole type: a plain bore (`simple`, the default when omitted — slice-1 behaviour) or a bore plus a coaxial counterbore / countersink recess at the face (:data:`HoleType`)
@@ -4870,6 +5019,42 @@ export interface components {
             status: "well_constrained" | "under_constrained" | "over_constrained" | "conflicting" | "not_converged";
             /** Version */
             version: number;
+        };
+        /**
+         * IsoMetricThread
+         * @description An ISO 261 metric thread callout on a hole (``standard: "iso_metric"``).
+         *
+         *     The COSMETIC thread representation: the kernel cuts the tap-drill bore only
+         *     (``diameter_mm``) and carries this designation as metadata for drawing/BOM/
+         *     export callouts — it does NOT model helical geometry (decision + rationale +
+         *     the upgrade path in ``geometry.kernel.threads``). ``standard`` is required so
+         *     a future thread standard (UNC/UNF, NPT) joins as a discriminated union member
+         *     without a ``param_version`` bump.
+         *
+         *     The pair (``nominal_diameter_mm``, ``pitch_mm``) must be a real ISO 261
+         *     combination — M10 x 1.5 (coarse) or M10 x 1.25/1/0.75 (fine), say — and the
+         *     hole's ``diameter_mm`` must be a hole the tap can actually cut, i.e. within
+         *     ``[D - 1.0825*P, D)``. The ISO recommended tap drill is ``D - P`` (5.0 mm for
+         *     M6 x 1, 8.5 mm for M10 x 1.5 — the published tables' values). Violations are
+         *     the typed rebuild errors ``hole_thread_unsupported`` / ``hole_thread_mismatch``
+         *     — never a silent fallback to an untapped hole.
+         */
+        IsoMetricThread: {
+            /**
+             * Nominal Diameter Mm
+             * @description Nominal (major) thread diameter — the `M` number, mm: 10.0 for M10x1.5. Must be an ISO 261 size (a `hole_thread_unsupported` rebuild error otherwise)
+             */
+            nominal_diameter_mm: number;
+            /**
+             * Pitch Mm
+             * @description Thread pitch (mm): 1.5 for M10x1.5. Must be a standard pitch for that nominal diameter (a `hole_thread_unsupported` otherwise)
+             */
+            pitch_mm: number;
+            /**
+             * Standard
+             * @constant
+             */
+            standard: "iso_metric";
         };
         /**
          * LinearDimensionParams
@@ -5481,7 +5666,7 @@ export interface components {
         OverlayFace: {
             /**
              * Feature Id
-             * @description Feature that OWNS this face (created it, or last modified it into its current form) — the tree feature id (FeatureResult.feature_id / the evaluate request's feature.id), for feature-localized selection highlighting (FINDINGS #9). Map a selected feature id to its faces by collecting every OverlayFace whose feature_id equals it; each face's `index` is its body.faces() ordinal (== the GLB primitive ordinal, one glTF primitive per B-rep face), so those indices are the mesh face set to highlight. Best-effort provenance for RENDERING (a cylindrical hole wall attributes to the hole, the untouched base faces to the extrude); NOT a rebuild-surviving reference (that is the signature). Null when the server did not compute attribution (older payloads / no body-affecting feature).
+             * @description Feature that OWNS this face (created it, or last modified it into its current form) — the tree feature id (FeatureResult.feature_id / the evaluate request's feature.id), for feature-localized selection highlighting (FINDINGS #9). Map a selected feature id to its faces by collecting every OverlayFace whose feature_id equals it; each face's `index` is its body.faces() ordinal (== the GLB primitive ordinal, one glTF primitive per B-rep face), so those indices are the mesh face set to highlight. Best-effort provenance for RENDERING (a cylindrical hole wall attributes to the hole, the untouched base faces to the extrude); NOT a rebuild-surviving reference (that is the signature). Null when the server did not compute attribution: an older payload, a body with no body-affecting feature, or a body past MAX_PROVENANCE_FACES (work bound, audit H4 — attribution degrades to null rather than pinning a worker; clients must handle null and fall back to whole-body selection).
              */
             feature_id?: string | null;
             /**
@@ -8636,6 +8821,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DrawingTreeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_drawing_bom_api_v1_drawings__drawing_id__bom_get: {
+        parameters: {
+            query?: {
+                /** @description Which sheet to bill (a sheet id from the drawing tree); omit to bill the FIRST sheet, the same default the compose/export routes take. An unknown/foreign id is a `sheet_not_found` 404. */
+                sheet?: string | null;
+            };
+            header?: never;
+            path: {
+                drawing_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DrawingBomResponse"];
                 };
             };
             /** @description Validation Error */

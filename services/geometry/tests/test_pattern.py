@@ -629,6 +629,130 @@ def test_pattern_of_a_multi_region_cut_replicates_all_tools() -> None:
     assert result.properties.centroid.y == pytest.approx(0.0, abs=PATTERN_TOL)
 
 
+# --- A patterned cut that can reach NOTHING is never a silent no-op (CM-2) ------------
+#
+# The pattern half of the reading `mirror_cut` shipped in `fa30220`
+# (`test_extrude_cut_then_mirror_about_a_clearing_plane_completes_the_part`):
+# "array the removal" is only the user's meaning when a replicated tool can reach
+# the body. When none can, the request is "array the BODY" — whose copies already
+# carry the seed cut. Found by the composition matrix (GEOMETRY-QA 2026-07-25,
+# CM-2); the pre-fix kernel returned the input body with every feature `ok`.
+
+PLATE_40_ID = uuid.UUID("00000000-0000-0000-0000-0000000000a5")
+POCKET_40_ID = uuid.UUID("00000000-0000-0000-0000-0000000000b5")
+
+
+def _pocketed_40_plate(pattern: dict[str, Any]) -> dict[str, Any]:
+    """A 40x40x10 plate with an 8x20 through-pocket at x in [4,12], then *pattern*.
+
+    14400 mm^3 (16000 - 1600). Deliberately 40 wide so a +X step of 40 puts every
+    replicated POCKET TOOL beyond the +X face — the CM-2 shape.
+    """
+    return _request(
+        [
+            rect_sketch(SKETCH_ID, 0.0, 0.0, 40.0, 40.0),
+            extrude_input(BODY_ID, SKETCH_ID, 10.0),
+            rect_sketch(POCKET_40_ID, 4.0, 10.0, 12.0, 30.0),
+            extrude_input(PLATE_40_ID, POCKET_40_ID, 10.0, operation="cut"),
+            pattern,
+        ]
+    )
+
+
+def test_linear_pattern_of_a_cut_that_clears_the_body_replicates_the_body() -> None:
+    """CM-2 (P0): a +X step of 40 on a 40-wide pocketed plate must NOT be a no-op.
+
+    Every copy of the pocket tool lands at x in [44,52] — entirely beyond the
+    body — so ``body.cut(...)`` removed nothing and the pre-fix pattern returned
+    the untouched 14400.0 mm^3 plate with all five features `ok`. The kernel now
+    reads an unreachable removal as "replicate the BODY" (the SHARED
+    ``removal_reaches_body`` predicate ``mirror_cut`` already used): an 80 mm part
+    with a pocket in EACH half, 28800 mm^3, fused across the shared x=40 face into
+    one solid. Volume (2x), bbox (2x in x) and the face count each fail on the old
+    behaviour.
+    """
+    result = _post(
+        _pocketed_40_plate(
+            linear_pattern_input(
+                PATTERN_ID, direction=(1.0, 0.0, 0.0), spacing_mm=40.0, count=2
+            )
+        )
+    )
+
+    assert [r.status for r in result.features] == ["ok"] * 5
+    assert result.properties is not None
+    # 2 * (40*40*10 - 8*20*10); the silent no-op returned 14400.
+    assert result.properties.volume == pytest.approx(28800.0, abs=PATTERN_TOL)
+    bbox = result.properties.bounding_box
+    assert bbox.min.x == pytest.approx(0.0, abs=PATTERN_TOL)
+    assert bbox.max.x == pytest.approx(80.0, abs=PATTERN_TOL)
+    # 6 outer faces + 4 walls per through-pocket x 2 = 14; the no-op body had 10.
+    assert result.properties.topology.faces == 14
+    assert result.properties.topology.shells == 1
+    # The two pockets sit at x in [4,12] and [44,52] — a TRANSLATION, not a
+    # reflection — so the centroid is off the 80 mm bar's own midplane by exactly
+    # (32000*40 - 1600*8 - 1600*48) / 28800 = 41.333...
+    assert result.properties.centroid.x == pytest.approx(
+        (32000.0 * 40.0 - 1600.0 * 8.0 - 1600.0 * 48.0) / 28800.0, abs=PATTERN_TOL
+    )
+
+
+def test_circular_pattern_of_a_cut_that_clears_the_body_replicates_the_body() -> None:
+    """CM-2, the ROTATED twin — the same fallback in ``circular_pattern_cut``.
+
+    The pocketed 40 mm plate spun 180° about the Z axis through (0, 20) — the mid
+    of its own -X edge: the rotated pocket tool lands in x in [-12,-4], where
+    there is no material, so the cut could remove nothing (the pre-fix silent
+    no-op). The BODY replicate lands the plate at x in [-40,0] sharing the whole
+    x=0 face, so it fuses into one 80x40 lump of 28800 mm^3 with a pocket in each
+    half.
+    """
+    result = _post(
+        _pocketed_40_plate(
+            circular_pattern_input(
+                PATTERN_ID,
+                axis_point=(0.0, 20.0, 0.0),
+                axis_direction=(0.0, 0.0, 1.0),
+                angle_deg=360.0,
+                count=2,
+            )
+        )
+    )
+
+    assert [r.status for r in result.features] == ["ok"] * 5
+    assert result.properties is not None
+    assert result.properties.volume == pytest.approx(28800.0, abs=PATTERN_TOL)
+    bbox = result.properties.bounding_box
+    assert bbox.min.x == pytest.approx(-40.0, abs=PATTERN_TOL)
+    assert bbox.max.x == pytest.approx(40.0, abs=PATTERN_TOL)
+    # Point-symmetric about (0, 20) ⇒ the centroid sits exactly there.
+    assert result.properties.centroid.x == pytest.approx(0.0, abs=PATTERN_TOL)
+    assert result.properties.centroid.y == pytest.approx(20.0, abs=PATTERN_TOL)
+
+
+def test_patterned_cut_keeps_the_cut_path_when_one_copy_reaches() -> None:
+    """The fallback's BOUNDARY: reachable ANYWHERE ⇒ still the cut path.
+
+    Same 40 mm pocketed plate, count 3 at +X spacing 16: copy 1 (x in [20,28])
+    lands inside the body and copy 2 (x in [36,44]) half-clears the +X face. One
+    copy reaching is enough to keep "array the removal", so the body must LOSE
+    material (16000 - 1600 - 1600 - 800 = 12000) and stay 40 mm wide — never grow
+    to an 80/120 mm whole-body replicate.
+    """
+    result = _post(
+        _pocketed_40_plate(
+            linear_pattern_input(
+                PATTERN_ID, direction=(1.0, 0.0, 0.0), spacing_mm=16.0, count=3
+            )
+        )
+    )
+
+    assert [r.status for r in result.features] == ["ok"] * 5
+    assert result.properties is not None
+    assert result.properties.volume == pytest.approx(12000.0, abs=PATTERN_TOL)
+    assert result.properties.bounding_box.max.x == pytest.approx(40.0, abs=PATTERN_TOL)
+
+
 # --- Error paths are per-feature values, never transport failures ---------------------
 
 

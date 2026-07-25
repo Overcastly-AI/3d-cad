@@ -345,3 +345,47 @@ def test_drawing_dimensions_over_ceiling_rejected() -> None:
     payload["dimensions"] = [dimension] * (MAX_DRAWING_DIMENSIONS + 1)
     with pytest.raises(ValidationError):
         EvaluateDrawingViewsRequest.model_validate(payload)
+
+
+def test_drawing_sheets_over_ceiling_rejected() -> None:
+    """audit H5 — the bound G2 missed. `GET /drawings/{id}` (and every drawing
+    delete route) serializes the WHOLE sheet tree, so the read model is bounded;
+    documents carries the `sheet_limit_exceeded` write twin so a stored drawing
+    can never grow past what its own response model parses."""
+    from py_kit.schemas.drawings import MAX_DRAWING_SHEETS, DrawingTreeResponse
+
+    now = "2026-07-25T00:00:00Z"
+    sheet: dict[str, Any] = {
+        "sheet": {
+            "id": str(uuid.uuid4()),
+            "drawing_id": str(uuid.uuid4()),
+            "name": "Sheet 1",
+            "size": "A4",
+            "orientation": "landscape",
+            "projection": "third_angle",
+            "title_block": None,
+            "order_index": 0,
+            "created_at": now,
+            "updated_at": now,
+        },
+        "views": [],
+        "dimensions": [],
+        "annotations": [],
+    }
+    payload: dict[str, Any] = {
+        "drawing": {
+            "id": str(uuid.uuid4()),
+            "name": "over",
+            "owner_id": str(uuid.uuid4()),
+            "doc_version": 0,
+            "created_at": now,
+            "updated_at": now,
+        },
+        "doc_version": 0,
+        "sheets": [sheet] * MAX_DRAWING_SHEETS,
+    }
+    assert len(DrawingTreeResponse.model_validate(payload).sheets) == MAX_DRAWING_SHEETS
+
+    payload["sheets"] = [sheet] * (MAX_DRAWING_SHEETS + 1)
+    with pytest.raises(ValidationError):
+        DrawingTreeResponse.model_validate(payload)

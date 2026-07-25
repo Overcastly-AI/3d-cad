@@ -13,6 +13,7 @@ import {
   useRef,
   useState,
   type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
 import { PerspectiveCamera, Vector3, type BufferGeometry } from "three";
@@ -23,6 +24,7 @@ import { useReducedMotion } from "../lib/useReducedMotion";
 import { NavCue } from "../components/NavCue";
 import { ViewBar } from "../components/ViewBar";
 import { AdaptiveGrid } from "./AdaptiveGrid";
+import { isDragGesture, type PointerPoint } from "./contextMenuGesture";
 import { groundShadowTexture } from "./groundShadow";
 import { ModelMesh, type BodyHighlight } from "./ModelMesh";
 import {
@@ -381,6 +383,73 @@ export function Viewport({
     node.dataset["totalFaces"] = String(total);
   }, []);
 
+  /**
+   * Right-drag PANS, right-CLICK opens the menu (FINDINGS burn-down #4). The
+   * orbit rig binds the right button to pan and its own `contextmenu` handler
+   * only `preventDefault()`s — the event still reaches this container — so
+   * before this gate every pan ended with the menu popping open. The gate is
+   * the standard click-slop test, applied whenever the browser chooses to fire
+   * `contextmenu`:
+   *
+   *  - fired on PRESS (Chromium/Linux): the travel isn't known yet, so the
+   *    request is held and released on pointerup — only if the pointer stayed
+   *    put. The menu therefore opens on release of a stationary right-click,
+   *    exactly as Fusion 360 / Plasticity do.
+   *  - fired on RELEASE (Windows/macOS): the gesture's travel is already
+   *    recorded, so the decision is immediate.
+   *  - fired with no right press at all (the keyboard menu key): always opens.
+   */
+  const rightGesture = useRef<{
+    down: PointerPoint;
+    up: PointerPoint | null;
+  } | null>(null);
+  const heldMenuRequest = useRef<ReactMouseEvent | null>(null);
+
+  const handlePointerDown = useCallback((event: ReactPointerEvent) => {
+    if (event.button !== 2) return;
+    rightGesture.current = {
+      down: { x: event.clientX, y: event.clientY },
+      up: null,
+    };
+    heldMenuRequest.current = null;
+  }, []);
+
+  const handleContextMenu = useCallback(
+    (event: ReactMouseEvent) => {
+      const gesture = rightGesture.current;
+      if (gesture === null) {
+        onContextMenu?.(event); // keyboard menu key — no drag to weigh
+        return;
+      }
+      // The browser default is already suppressed by the orbit controls; keep
+      // it suppressed on our own path too.
+      event.preventDefault();
+      if (gesture.up === null) {
+        heldMenuRequest.current = event; // decide when the button comes up
+        return;
+      }
+      rightGesture.current = null;
+      if (!isDragGesture(gesture.down, gesture.up)) onContextMenu?.(event);
+    },
+    [onContextMenu],
+  );
+
+  const handlePointerUp = useCallback(
+    (event: ReactPointerEvent) => {
+      if (event.button !== 2) return;
+      const gesture = rightGesture.current;
+      if (gesture === null) return;
+      const up = { x: event.clientX, y: event.clientY };
+      gesture.up = up;
+      const held = heldMenuRequest.current;
+      if (held === null) return; // the contextmenu event is still to come
+      heldMenuRequest.current = null;
+      rightGesture.current = null;
+      if (!isDragGesture(gesture.down, up)) onContextMenu?.(held);
+    },
+    [onContextMenu],
+  );
+
   /** QA hook: the settled view + camera position, stamped on the container. */
   const handleSettle = useCallback((view: string, position: Vector3) => {
     const node = containerRef.current;
@@ -397,7 +466,9 @@ export function Viewport({
       className="relative h-full w-full min-h-0"
       data-testid="viewport"
       aria-label="3D viewport showing the tessellated model"
-      onContextMenu={onContextMenu}
+      onPointerDown={handlePointerDown}
+      onPointerUp={handlePointerUp}
+      onContextMenu={handleContextMenu}
       style={{
         // The scene's air — a skylight glow falling into the deep shop edge.
         // Painted behind the transparent canvas; tokens only.

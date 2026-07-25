@@ -1431,6 +1431,116 @@
         "title": "DraftParamsV1",
         "type": "object"
       },
+      "DrawingBomLine": {
+        "description": "One NUMBERED line of a drawing's bill of materials (design \u00a77 BOM).\n\nThe shipped assembly :class:`~py_kit.schemas.assemblies.BomLine` (group key +\nresolved name + `missing` + quantity, reused VERBATIM \u2014 no parallel taxonomy)\nplus the one thing a *drawing* adds: the ``item_number`` a balloon stamps.\n\n``item_number`` is **derived**, not authored: lines are numbered 1..n in the\norder each referenced document FIRST appears in the assembly's stable instance\n``order_index``. It is therefore a pure function of the assembly graph \u2014 two\nreads of an unchanged assembly number identically, and a part RENAME (which\nre-sorts the name-ordered assembly BOM) leaves every number untouched.",
+        "properties": {
+          "item_number": {
+            "description": "1-based item number, DERIVED from the assembly's stable instance order (first appearance of this referenced document) \u2014 never stored on the drawing, so it can never drift from the assembly",
+            "minimum": 1.0,
+            "title": "Item Number",
+            "type": "integer"
+          },
+          "missing": {
+            "default": false,
+            "description": "True when the referenced document no longer exists (deleted while still instanced) \u2014 the line and its quantity are still reported so the dangling reference is visible, never silently dropped",
+            "title": "Missing",
+            "type": "boolean"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The referenced document's CURRENT name, or null when it has been deleted while still instanced (see `missing`)",
+            "title": "Name"
+          },
+          "quantity": {
+            "description": "Count of direct instances referencing this document",
+            "minimum": 1.0,
+            "title": "Quantity",
+            "type": "integer"
+          },
+          "ref_document_id": {
+            "description": "The referenced part / sub-assembly document (the group key)",
+            "format": "uuid",
+            "title": "Ref Document Id",
+            "type": "string"
+          },
+          "ref_document_kind": {
+            "description": "'part' or 'assembly' (a rigid sub-assembly, not expanded)",
+            "enum": [
+              "part",
+              "assembly"
+            ],
+            "title": "Ref Document Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ref_document_id",
+          "ref_document_kind",
+          "name",
+          "quantity",
+          "item_number"
+        ],
+        "title": "DrawingBomLine",
+        "type": "object"
+      },
+      "DrawingBomResponse": {
+        "description": "A drawing sheet's bill of materials \u2014 the item list a balloon numbers (\u00a77).\n\nA pure READ MODEL (no table, no migration): the sheet's single source document\n(the enforced one-sheet-one-source invariant, \u00a72.2) must be an ASSEMBLY, and its\nDIRECT instances are rolled up into numbered :class:`DrawingBomLine` s. FLAT \u2014\na rigid sub-assembly instance is one ``kind: \"assembly\"`` line, never expanded\n(the same v1 bound the assembly BOM states; recursive/indented is a follow-up).\n\nA sheet drafting a PART has no bill of materials: that is a typed\n``drawing_bom_source_not_assembly`` 422, not a 200 with an empty list \u2014 an empty\nBOM would read as \"this assembly has no parts\", which is a different and false\nstatement (the honest-degradation posture the whole drawings pillar takes).\n\n``assembly_version`` is the source assembly's ``doc_version`` AT READ TIME. v1\ntracks the assembly TIP (\u00a72.3), so this is the staleness handle: a client that\nballoons a sheet and later reads a different ``assembly_version`` knows the item\nlist may have renumbered, without the numbers themselves ever having been stored\nand gone quietly wrong.",
+        "properties": {
+          "assembly_id": {
+            "description": "The assembly this sheet drafts",
+            "format": "uuid",
+            "title": "Assembly Id",
+            "type": "string"
+          },
+          "assembly_version": {
+            "description": "The source assembly's `doc_version` at read time \u2014 the staleness handle for a tip-tracking (unpinned) view, \u00a72.3",
+            "minimum": 0.0,
+            "title": "Assembly Version",
+            "type": "integer"
+          },
+          "drawing_id": {
+            "format": "uuid",
+            "title": "Drawing Id",
+            "type": "string"
+          },
+          "lines": {
+            "description": "One numbered line per referenced document, in derived `item_number` order (an assembly with no instances yields an empty list)",
+            "items": {
+              "$ref": "#/components/schemas/DrawingBomLine"
+            },
+            "title": "Lines",
+            "type": "array"
+          },
+          "sheet_id": {
+            "description": "The sheet whose source was rolled up",
+            "format": "uuid",
+            "title": "Sheet Id",
+            "type": "string"
+          },
+          "total_instances": {
+            "description": "Sum of every line's quantity (direct-instance count)",
+            "minimum": 0.0,
+            "title": "Total Instances",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "drawing_id",
+          "sheet_id",
+          "assembly_id",
+          "assembly_version",
+          "total_instances"
+        ],
+        "title": "DrawingBomResponse",
+        "type": "object"
+      },
       "DrawingCreate": {
         "description": "Create a drawing owned by the calling user (design \u00a72.1).",
         "properties": {
@@ -1522,9 +1632,11 @@
             "$ref": "#/components/schemas/DrawingResponse"
           },
           "sheets": {
+            "description": "The drawing's sheets in order_index order, bounded by MAX_DRAWING_SHEETS (work bound, audit H5 \u2014 every drawing read serializes the whole tree). documents refuses to persist past the ceiling (`sheet_limit_exceeded` 422), so the bound can never make a stored drawing unreadable.",
             "items": {
               "$ref": "#/components/schemas/SheetContent"
             },
+            "maxItems": 100,
             "title": "Sheets",
             "type": "array"
           }
@@ -2878,7 +2990,7 @@
         "type": "object"
       },
       "HoleParamsV1": {
-        "description": "A face-placed cylindrical hole \u2014 through-all or blind, plain or recessed.\n\nThe dedicated Hole feature (BACKLOG P2): drill a straight cylinder of\n``diameter_mm`` into the current body at ``position`` on the planar ``face``,\ncutting INTO the material (opposite the face's outward normal \u2014 the correct\ndirection, chosen automatically, no direction knob to get wrong). Like a\nfillet/shell/draft it modifies the implicit single body chain (design \u00a77.6),\nso it carries no whole-feature ``FeatureRef`` \u2014 its dependency on the prior\nbody-affecting feature is tree order. The placement face IS a named reference,\nthough: ``face`` is the SAME stage-1 planar-face :class:`SubshapeRef` the\n``on_face`` datum / shell openings resolve, so it materialises into\n``feature_dependencies`` (deleting that body feature is a 409-with-dependents;\na reorder re-checks strict-backward).\n\n``position`` is a WORLD-space point; the geometry service projects it onto the\nresolved face plane to fix the drill axis (a pick that lands a hair off-plane\nstill drills clean and perpendicular). A point that projects OUTSIDE the body\n\u2014 or a resolved direction into empty space \u2014 removes no material and is a\n``hole_off_body`` rebuild error, never a silent no-op.\n\n``depth`` is a :data:`HoleDepth`: ``through_all`` cuts fully through;\n``blind`` drills a ``depth_mm`` pocket. A blind depth that exceeds the\navailable material is ``hole_too_deep``. A non-planar / missing / congruent\nface reference degrades exactly as the ``on_face`` datum does\n(``subshape_unresolved`` / ``subshape_ambiguous``) \u2014 planar faces only carry a\nsignature, so a non-planar pick cannot be authored.\n\n``type`` is a :data:`HoleType`: ``simple`` (the default when omitted \u2014 the\nslice-1 plain bore) or a bore PLUS a coaxial recess at the face \u2014\n``counterbore`` (a larger cylinder) or ``countersink`` (a cone). A recess\nwhose diameter does not exceed the bore is ``hole_cbore_invalid`` /\n``hole_csink_invalid``; a recess deeper than the material is ``hole_too_deep``.",
+        "description": "A face-placed cylindrical hole \u2014 through-all or blind, plain or recessed.\n\nThe dedicated Hole feature (BACKLOG P2): drill a straight cylinder of\n``diameter_mm`` into the current body at ``position`` on the planar ``face``,\ncutting INTO the material (opposite the face's outward normal \u2014 the correct\ndirection, chosen automatically, no direction knob to get wrong). Like a\nfillet/shell/draft it modifies the implicit single body chain (design \u00a77.6),\nso it carries no whole-feature ``FeatureRef`` \u2014 its dependency on the prior\nbody-affecting feature is tree order. The placement face IS a named reference,\nthough: ``face`` is the SAME stage-1 planar-face :class:`SubshapeRef` the\n``on_face`` datum / shell openings resolve, so it materialises into\n``feature_dependencies`` (deleting that body feature is a 409-with-dependents;\na reorder re-checks strict-backward).\n\n``position`` is a WORLD-space point; the geometry service projects it onto the\nresolved face plane to fix the drill axis (a pick that lands a hair off-plane\nstill drills clean and perpendicular). A point that projects OUTSIDE the body\n\u2014 or a resolved direction into empty space \u2014 removes no material and is a\n``hole_off_body`` rebuild error, never a silent no-op.\n\n``depth`` is a :data:`HoleDepth`: ``through_all`` cuts fully through;\n``blind`` drills a ``depth_mm`` pocket. A blind depth that exceeds the\navailable material is ``hole_too_deep``. A non-planar / missing / congruent\nface reference degrades exactly as the ``on_face`` datum does\n(``subshape_unresolved`` / ``subshape_ambiguous``) \u2014 planar faces only carry a\nsignature, so a non-planar pick cannot be authored.\n\n``type`` is a :data:`HoleType`: ``simple`` (the default when omitted \u2014 the\nslice-1 plain bore) or a bore PLUS a coaxial recess at the face \u2014\n``counterbore`` (a larger cylinder) or ``countersink`` (a cone). A recess\nwhose diameter does not exceed the bore is ``hole_cbore_invalid`` /\n``hole_csink_invalid``; a recess deeper than the material is ``hole_too_deep``.\n\n``thread`` (optional, ``None`` = an untapped hole) makes the hole TAPPED: a\ncosmetic :class:`IsoMetricThread` callout over the tap-drill bore, ORTHOGONAL\nto ``type`` (a counterbored tapped hole sets both). It adds NO geometry \u2014 the\nsolid is byte-identical to the same hole without it \u2014 so a tapped hole\nmirrors, patterns, shells and exports exactly as its bore does. An unknown\ndesignation is ``hole_thread_unsupported``; a bore the thread cannot be tapped\nin is ``hole_thread_mismatch``.",
         "properties": {
           "depth": {
             "description": "Through-all, or a blind pocket depth (:data:`HoleDepth`)",
@@ -2912,6 +3024,17 @@
           "position": {
             "$ref": "#/components/schemas/Vec3",
             "description": "World-space placement point, projected onto the face plane to fix the drill axis (mm)"
+          },
+          "thread": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IsoMetricThread"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional COSMETIC thread callout making this a TAPPED hole (`null`/omitted = untapped). Carries the designation for drawing/BOM callouts; adds no geometry \u2014 `diameter_mm` is the tap-drill bore (:class:`IsoMetricThread`)"
           },
           "type": {
             "description": "Hole type: a plain bore (`simple`, the default when omitted \u2014 slice-1 behaviour) or a bore plus a coaxial counterbore / countersink recess at the face (:data:`HoleType`)",
@@ -2995,7 +3118,7 @@
         "type": "object"
       },
       "ImportAssemblyRequest": {
-        "description": "documents-side request: materialise a geometry read into Loft documents.\n\n``result`` is the geometry service's structured read (forwarded verbatim by\nthe gateway); ``name`` is the caller-chosen name for the created document \u2014\nthe assembly name (``has_assembly_structure=True``) or the single part's name\n(the MB-4b fallback). Each product's editable ``body_step`` seeds a part's\n``import`` feature (:class:`~py_kit.schemas.features.ImportParamsV1` \u2014 ZERO new\ningest path), products sharing a ``body_step_id`` collapse to ONE part with N\ninstances, and the whole graph is created atomically (all-or-nothing \u2014 a\nfailure leaves no orphan docs).",
+        "description": "documents-side request: materialise a geometry read into Loft documents.\n\n``result`` is the geometry service's structured read (forwarded verbatim by\nthe gateway); ``name`` is the caller-chosen name for the created document \u2014\nthe assembly name (``has_assembly_structure=True``) or the single part's name\n(the MB-4b fallback). Each product's editable body \u2014 resolved from the read's\nshared ``bodies`` map by ``body_step_id`` \u2014 seeds a part's ``import`` feature\n(:class:`~py_kit.schemas.features.ImportParamsV1` \u2014 ZERO new ingest path),\nproducts sharing a ``body_step_id`` collapse to ONE part with N instances, and\nthe whole graph is created atomically (all-or-nothing \u2014 a failure leaves no\norphan docs).",
         "properties": {
           "name": {
             "description": "Name for the created document \u2014 the assembly's name (product structure present) or the single part's name (single-body fallback)",
@@ -3076,7 +3199,7 @@
         "type": "object"
       },
       "ImportedProduct": {
-        "description": "One product recovered from an assembly STEP \u2014 name + placement + body.\n\n``name`` is the STEP PRODUCT name (``None`` when the file names no product \u2014\nthe caller supplies a fallback instance name). ``placement`` is the\nproduct's WORLD pose (reusing :class:`~py_kit.schemas.assemblies.Placement` \u2014\nidentity for a flat single-body STEP), matched to the exported placement\nwithin the kernel round-trip tolerance.\n\nTwo body surfaces, both content-addressed and SHARED across repeated\noccurrences of one part (the dedup contract, as slice 1 does for meshes):\n\n* ``body_step`` \u2014 the product's editable **LOCAL-frame B-rep**, as a STEP\n  AP214 part-21 fragment with the instance placement STRIPPED (that is\n  ``placement``, kept separate). It is exactly what the single-body\n  ``import`` feature ingests (:class:`~py_kit.schemas.features.ImportParamsV1`\n  ``data``), so the documents service seeds each part with ``ImportParamsV1(\n  data=body_step)`` \u2014 ZERO new ingest path. A mesh is not editable geometry;\n  this is the field that lets 2b build a REAL part per instance.\n* ``mesh_glb_id`` \u2014 a content-addressed presentation mesh for the viewport.\n\n``body_step_id`` is the content address (``sha256:<hex>``) of ``body_step``;\nit is EQUAL for two occurrences of one part, so the caller groups products by\nit to create ONE stored B-rep (one part) with N instances. ``properties`` are\nthe body's OWN (local-frame) mass properties for BOM / inspection.",
+        "description": "One product recovered from an assembly STEP \u2014 name + placement + body.\n\n``name`` is the STEP PRODUCT name (``None`` when the file names no product \u2014\nthe caller supplies a fallback instance name). ``placement`` is the\nproduct's WORLD pose (reusing :class:`~py_kit.schemas.assemblies.Placement` \u2014\nidentity for a flat single-body STEP), matched to the exported placement\nwithin the kernel round-trip tolerance.\n\nTwo body surfaces, both referenced by CONTENT ADDRESS and SHARED across\nrepeated occurrences of one part (the dedup contract, as slice 1 does for\nmeshes) \u2014 neither is inlined per occurrence:\n\n* ``body_step_id`` \u2014 the address (``sha256:<hex>``) of the product's editable\n  **LOCAL-frame B-rep**: a STEP AP214 part-21 fragment with the instance\n  placement STRIPPED (that is ``placement``, kept separate), stored ONCE under\n  this key in :attr:`StepAssemblyImportResult.bodies`. The text is exactly what\n  the single-body ``import`` feature ingests\n  (:class:`~py_kit.schemas.features.ImportParamsV1` ``data``), so the documents\n  service seeds each part with ``ImportParamsV1(data=<resolved body>)`` \u2014 ZERO\n  new ingest path. A mesh is not editable geometry; this is what lets 2b build\n  a REAL part per instance. ``None`` when the product produced no solid.\n  Because the id is EQUAL for two occurrences of one part, the caller groups\n  products by it to create ONE stored B-rep (one part) with N instances.\n* ``mesh_glb_id`` \u2014 a content-addressed presentation mesh for the viewport.\n\n``properties`` are the body's OWN (local-frame) mass properties for BOM /\ninspection.\n\n``body_step`` is a PRODUCER-SIDE construction convenience only: a producer may\npass the body text alongside the product and the parent result hoists it into\nits shared ``bodies`` map (so the geometry reader needs no separate bookkeeping),\nbut the field is NEVER serialized \u2014 the wire form carries each body once.\nConsumers MUST resolve through\n:meth:`StepAssemblyImportResult.body_step_for`.",
         "properties": {
           "body_step": {
             "anyOf": [
@@ -3087,7 +3210,7 @@
                 "type": "null"
               }
             ],
-            "description": "The product's LOCAL-frame B-rep as a STEP AP214 part-21 fragment (placement stripped \u2014 see `placement`); consumed verbatim as ImportParamsV1.data to seed an editable part (the single-body import path). Null when the product produced no solid.",
+            "description": "Producer-side convenience: the product's LOCAL-frame B-rep as a STEP AP214 part-21 fragment. NOT serialized \u2014 the parent result hoists it into its shared `bodies` map so the transport carries each body once; consumers resolve via StepAssemblyImportResult.body_step_for().",
             "title": "Body Step"
           },
           "body_step_id": {
@@ -3099,7 +3222,7 @@
                 "type": "null"
               }
             ],
-            "description": "Content address (sha256:<hex>) of `body_step`; EQUAL across repeated occurrences of one part, so the caller creates ONE part and N instances (the dedup key, as meshes share mesh_glb_id). Null when no solid.",
+            "description": "Content address (sha256:<hex>) of this product's LOCAL-frame B-rep, whose text lives ONCE under this key in the result's `bodies` map. EQUAL across repeated occurrences of one part, so the caller creates ONE part and N instances (the dedup key, as meshes share mesh_glb_id). Null when the product produced no solid.",
             "title": "Body Step Id"
           },
           "mesh_glb_id": {
@@ -3374,6 +3497,35 @@
           "expected_version"
         ],
         "title": "InstanceUpdate",
+        "type": "object"
+      },
+      "IsoMetricThread": {
+        "description": "An ISO 261 metric thread callout on a hole (``standard: \"iso_metric\"``).\n\nThe COSMETIC thread representation: the kernel cuts the tap-drill bore only\n(``diameter_mm``) and carries this designation as metadata for drawing/BOM/\nexport callouts \u2014 it does NOT model helical geometry (decision + rationale +\nthe upgrade path in ``geometry.kernel.threads``). ``standard`` is required so\na future thread standard (UNC/UNF, NPT) joins as a discriminated union member\nwithout a ``param_version`` bump.\n\nThe pair (``nominal_diameter_mm``, ``pitch_mm``) must be a real ISO 261\ncombination \u2014 M10 x 1.5 (coarse) or M10 x 1.25/1/0.75 (fine), say \u2014 and the\nhole's ``diameter_mm`` must be a hole the tap can actually cut, i.e. within\n``[D - 1.0825*P, D)``. The ISO recommended tap drill is ``D - P`` (5.0 mm for\nM6 x 1, 8.5 mm for M10 x 1.5 \u2014 the published tables' values). Violations are\nthe typed rebuild errors ``hole_thread_unsupported`` / ``hole_thread_mismatch``\n\u2014 never a silent fallback to an untapped hole.",
+        "properties": {
+          "nominal_diameter_mm": {
+            "description": "Nominal (major) thread diameter \u2014 the `M` number, mm: 10.0 for M10x1.5. Must be an ISO 261 size (a `hole_thread_unsupported` rebuild error otherwise)",
+            "exclusiveMinimum": 0.0,
+            "title": "Nominal Diameter Mm",
+            "type": "number"
+          },
+          "pitch_mm": {
+            "description": "Thread pitch (mm): 1.5 for M10x1.5. Must be a standard pitch for that nominal diameter (a `hole_thread_unsupported` otherwise)",
+            "exclusiveMinimum": 0.0,
+            "title": "Pitch Mm",
+            "type": "number"
+          },
+          "standard": {
+            "const": "iso_metric",
+            "title": "Standard",
+            "type": "string"
+          }
+        },
+        "required": [
+          "standard",
+          "nominal_diameter_mm",
+          "pitch_mm"
+        ],
+        "title": "IsoMetricThread",
         "type": "object"
       },
       "LinearDimensionParams": {
@@ -5655,8 +5807,16 @@
         "type": "object"
       },
       "StepAssemblyImportResult": {
-        "description": "Structured read of an assembly STEP \u2014 the product list + structure flag.\n\n``has_assembly_structure`` is True when the file carried\n``NEXT_ASSEMBLY_USAGE_OCCURRENCE`` product structure (multiple positioned,\nnamed products); False for a flat / single-body STEP, whose single product\nsignals the caller to fall back to the single-body MB-4b import (backward\ncompatible). ``products`` are in the deterministic order the geometry service\nwalks the product tree (RESEARCH \u00a79).",
+        "description": "Structured read of an assembly STEP \u2014 products + the shared body map.\n\n``has_assembly_structure`` is True when the file carried\n``NEXT_ASSEMBLY_USAGE_OCCURRENCE`` product structure (multiple positioned,\nnamed products); False for a flat / single-body STEP, whose single product\nsignals the caller to fall back to the single-body MB-4b import (backward\ncompatible). ``products`` are in the deterministic order the geometry service\nwalks the product tree (RESEARCH \u00a79) and reference their editable B-rep by\n``body_step_id``; ``bodies`` holds each distinct B-rep exactly ONCE, keyed by\nthat address, so a part instanced N times ships its (possibly multi-MB) STEP\nfragment once instead of N times.",
         "properties": {
+          "bodies": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Each distinct product body ONCE: content address (sha256:<hex>, == a product's body_step_id) -> its LOCAL-frame STEP AP214 part-21 fragment (placement stripped). A part instanced N times appears here once; resolve a product's body by its body_step_id.",
+            "title": "Bodies",
+            "type": "object"
+          },
           "has_assembly_structure": {
             "description": "True when the file carried NAUO product structure; False for a flat / single-body STEP (fall back to single-body import)",
             "title": "Has Assembly Structure",
@@ -7652,6 +7812,87 @@
         ]
       }
     },
+    "/api/v1/drawings/{drawing_id}/bom": {
+      "get": {
+        "description": "The sheet's bill of materials \u2014 numbered items derived from its assembly.\n\nA pure READ MODEL (no table, no migration, no write path): the sheet's single\nsource document must be an ASSEMBLY, and its DIRECT instances roll up into\n``item_number``-ed lines. **The numbers are derived on every read from the\nassembly's stable instance order and are never persisted on the drawing** \u2014\nthe drift class a stored number would create (the assembly changes; the print\nkeeps the old number and is silently wrong) is designed out rather than\ndetected. ``assembly_version`` is echoed so a tip-tracking client can see the\nsource move under it.\n\nTyped refusals, never a misleading empty list: ``sheet_not_found`` (404),\n``sheet_has_no_views`` / ``drawing_bom_source_not_assembly`` /\n``drawing_bom_source_missing`` (422). Uniform 404 for an unknown or foreign\ndrawing.",
+        "operationId": "get_drawing_bom_api_v1_drawings__drawing_id__bom_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "drawing_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Drawing Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Which sheet to bill (a sheet id from the drawing tree); omit to bill the FIRST sheet, the same default the compose/export routes take. An unknown/foreign id is a `sheet_not_found` 404.",
+            "in": "query",
+            "name": "sheet",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Which sheet to bill (a sheet id from the drawing tree); omit to bill the FIRST sheet, the same default the compose/export routes take. An unknown/foreign id is a `sheet_not_found` 404.",
+              "title": "Sheet"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DrawingBomResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Drawing Bom",
+        "tags": [
+          "drawings"
+        ]
+      }
+    },
     "/api/v1/drawings/{drawing_id}/dimensions/{dimension_id}": {
       "delete": {
         "description": "Delete a dimension; renumbers the sheet's dimensions dense (bumps version).",
@@ -8056,7 +8297,7 @@
     },
     "/api/v1/drawings/{drawing_id}/sheets/{sheet_id}/views": {
       "post": {
-        "description": "Add a view referencing a part / assembly (append at the tip).\n\nEnforces cross-document integrity (\u00a72.2): the referenced document must exist\nand belong to the caller (else ``ref_document_not_found`` 422). No acyclicity\ncheck \u2014 a drawing is a leaf consumer (\u00a72.2). ``ref_pinned_version`` is stored\nNULL: v1 tracks the referenced document's tip (\u00a72.3).",
+        "description": "Add a view referencing a part / assembly (append at the tip).\n\nEnforces cross-document integrity (\u00a72.2): the referenced document must exist\nand belong to the caller (else ``ref_document_not_found`` 422). No acyclicity\ncheck \u2014 a drawing is a leaf consumer (\u00a72.2). ``ref_pinned_version`` is stored\nNULL: v1 tracks the referenced document's tip (\u00a72.3).\n\nAlso enforces the SHEET-consistency invariant (design \u00a72.2 \"one sheet, one\nsource\"; engineering audit H2): every view of a sheet must reference the SAME\ndocument at the SAME scale, because composition threads exactly one source +\none scale per sheet (``ComposeDrawingRequest``). A mismatch is a typed\n``sheet_source_document_mismatch`` / ``sheet_view_scale_mismatch`` 422 \u2014\nthe alternative was silently projecting every view from the first view's part\nat the first view's scale, i.e. a wrong drawing a shop would cut from.",
         "operationId": "create_view_api_v1_drawings__drawing_id__sheets__sheet_id__views_post",
         "parameters": [
           {

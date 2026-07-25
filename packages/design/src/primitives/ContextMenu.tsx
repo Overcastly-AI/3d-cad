@@ -97,6 +97,31 @@ export function ContextMenu({
     setPos({ left: Math.min(x, maxLeft), top: Math.min(y, maxTop) });
   }, [open, x, y, sections]);
 
+  // Focus return (FINDINGS burn-down 2026-07-25 #9): remember what held focus
+  // when the menu opened and hand it back when the menu closes, so a keyboard
+  // user who presses Escape lands back on the feature row they came from
+  // instead of on <body>. Declared BEFORE the open-focus effect so it captures
+  // the trigger before the first row takes focus.
+  //
+  // It defers to a DELIBERATE focus move: an item whose action focuses
+  // something (Rename → the inline field) has already placed the caret, and
+  // the menu's own row is gone by cleanup time, so we only restore when focus
+  // fell back to the document body.
+  const restoreFocusRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    const trigger = document.activeElement;
+    restoreFocusRef.current = trigger instanceof HTMLElement ? trigger : null;
+    return () => {
+      const target = restoreFocusRef.current;
+      restoreFocusRef.current = null;
+      if (target === null || !target.isConnected) return;
+      const active = document.activeElement;
+      if (active !== null && active !== document.body) return;
+      target.focus();
+    };
+  }, [open]);
+
   // Focus the first enabled row on open.
   useEffect(() => {
     if (!open) return;

@@ -50,6 +50,7 @@ from py_kit.schemas.sketch import (
 )
 
 from geometry.kernel.lumps import assemble_lumps
+from geometry.kernel.removal import removal_reaches_body
 from geometry.kernel.types import BodyShape
 
 #: Wire-assembly tolerance (mm) for chaining profile edges. Solved coincident
@@ -71,6 +72,19 @@ class ProfileUnsupportedError(ValueError):
 
 class BooleanError(RuntimeError):
     """A boolean against the body failed or left an unsupported result."""
+
+
+class CutRemovedNothingError(BooleanError):
+    """An in-chain ``cut`` whose tool cannot reach the body — it would remove
+    NOTHING and return the input body (composition matrix CM-3, 2026-07-25).
+
+    The user's mistake, not a kernel failure: a pocket sketched beside the part,
+    a cut extruded into free space, or the everyday DUPLICATED cut feature. The
+    Hole feature has always reported it (``hole_off_body``); this is the same
+    honesty for every other subtractive verb, so ``ok`` never means "nothing
+    happened". A :class:`BooleanError` subclass so existing ``except
+    BooleanError`` callers keep degrading (never a 500) while the feature layer
+    can name the cause exactly (``cut_removed_nothing``)."""
 
 
 def _to_world(plane: Plane, point: Point2D) -> Vector:
@@ -474,14 +488,32 @@ def combine_body(
     result with more lumps than the input (an add that lands disjoint) is still a
     :class:`BooleanError`, never a silent extra body.
 
+    A ``cut`` whose tool cannot REACH the body is a
+    :class:`CutRemovedNothingError` (CM-3), asked through the SAME shared
+    predicate the mirrored / patterned removals ask
+    (:func:`geometry.kernel.removal.removal_reaches_body` — topological, no
+    epsilon). It is checked BEFORE the boolean because "removed nothing" is
+    invisible afterwards: OCCT returns the input body and every downstream check
+    (empty result, lump count) passes, which is exactly how a pocket sketched
+    beside the part — or the same cut applied twice — used to report ``ok``.
+
     Raises:
         BooleanError: the kernel boolean failed, produced no solid (e.g. a cut
             that consumed the whole body), or changed the lump count (an add that
             lands disjoint, a cut that severs a lump — design §7.6 / §MB-4).
+        CutRemovedNothingError: a ``cut`` whose tool misses the body entirely.
     """
     if body is None:
         assert operation == "add", "cut without a body is handled by the caller"
         return tool
+
+    if operation == "cut" and not removal_reaches_body(body, [tool]):
+        raise CutRemovedNothingError(
+            "This cut removed no material: the profile lies off the body (beside "
+            "it, or in free space), the cut direction points away from the "
+            "material, or an identical cut has already been made here. Move or "
+            "resize the profile so it overlaps the body."
+        )
 
     lump_count = len(body.solids())
     try:

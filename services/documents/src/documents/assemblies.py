@@ -413,7 +413,7 @@ async def get_assembly_evaluation_request(
     return await build_evaluate_assembly_request(session, assembly)
 
 
-async def _resolve_document_names(
+async def resolve_document_names(
     session: AsyncSession,
     owner_id: uuid.UUID,
     refs: set[tuple[uuid.UUID, RefDocumentKind]],
@@ -424,6 +424,9 @@ async def _resolve_document_names(
     time): a referenced document DELETED since it was instanced is simply absent
     from the map, and the BOM reports that line ``missing`` rather than 500-ing.
     One query per kind over only the ids actually referenced.
+
+    Shared with :mod:`documents.drawings` (a drawing sheet's BOM resolves the SAME
+    names for its item lines — CLAUDE.md DRY), hence public.
     """
     part_ids = {ref_id for ref_id, kind in refs if kind == "part"}
     assembly_ids = {ref_id for ref_id, kind in refs if kind == "assembly"}
@@ -470,7 +473,7 @@ async def _bom_response(
     groups: list[tuple[uuid.UUID, RefDocumentKind, int]] = [
         (ref_id, kind, int(count)) for ref_id, kind, count in result.all()
     ]
-    names = await _resolve_document_names(
+    names = await resolve_document_names(
         session, assembly.owner_id, {(ref_id, kind) for ref_id, kind, _ in groups}
     )
     lines = [

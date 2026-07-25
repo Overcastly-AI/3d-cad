@@ -41,6 +41,7 @@ from geometry.kernel.export import (
 )
 from geometry.kernel.extrude import (
     BooleanError,
+    CutRemovedNothingError,
     ProfileNotClosedError,
     ProfileUnsupportedError,
     build_profile_face,
@@ -106,6 +107,7 @@ from geometry.kernel.pattern import (
 )
 from geometry.kernel.properties import combine_properties, measure_shape
 from geometry.kernel.provenance import attribute_faces
+from geometry.kernel.removal import removal_reaches_body
 from geometry.kernel.revolve import (
     AxisIntersectsProfileError,
     NoAxisError,
@@ -131,6 +133,16 @@ from geometry.kernel.sweep import (
     sweep_profile,
 )
 from geometry.kernel.tessellate import glb_stats, tessellate_glb
+from geometry.kernel.threads import (
+    ISO_METRIC_PITCHES,
+    ResolvedThread,
+    ThreadBoreMismatchError,
+    ThreadError,
+    ThreadUnsupportedError,
+    check_tap_drill_bore,
+    format_designation,
+    resolve_iso_metric_thread,
+)
 from geometry.kernel.types import BodyShape
 from geometry.schemas import (
     BoxParams,
@@ -145,12 +157,14 @@ from geometry.schemas import (
 __all__ = [
     "CLASH_VOLUME_FLOOR_MM3",
     "DATUM_PLANES",
+    "ISO_METRIC_PITCHES",
     "AssemblyComponent",
     "AxisIntersectsProfileError",
     "BooleanDisjointError",
     "BooleanEmptyError",
     "BooleanError",
     "ChamferError",
+    "CutRemovedNothingError",
     "DraftError",
     "EdgeIndexError",
     "EdgeRecord",
@@ -186,6 +200,7 @@ __all__ = [
     "ProfileNotClosedError",
     "ProfileUnsupportedError",
     "ReadProduct",
+    "ResolvedThread",
     "RevolveError",
     "ShellError",
     "ShellThicknessError",
@@ -193,6 +208,9 @@ __all__ = [
     "SubshapeAmbiguousError",
     "SubshapeUnresolvedError",
     "SweepError",
+    "ThreadBoreMismatchError",
+    "ThreadError",
+    "ThreadUnsupportedError",
     "attribute_faces",
     "boolean_bodies",
     "bore_hole",
@@ -208,6 +226,7 @@ __all__ = [
     "build_shape",
     "chamfer_body",
     "check_axis_clears_profile",
+    "check_tap_drill_bore",
     "circular_pattern",
     "circular_pattern_cut",
     "combine_body",
@@ -228,6 +247,7 @@ __all__ = [
     "export_stl_bytes",
     "extrude_face",
     "fillet_body",
+    "format_designation",
     "glb_stats",
     "import_step_solid",
     "intersection_volume",
@@ -244,10 +264,12 @@ __all__ = [
     "planar_faces",
     "probe_overlap",
     "read_step_assembly",
+    "removal_reaches_body",
     "resolve_axis_line",
     "resolve_edge",
     "resolve_face_plane",
     "resolve_faces",
+    "resolve_iso_metric_thread",
     "revolve_face",
     "select_edges",
     "selection_overlay",

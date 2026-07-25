@@ -63,6 +63,113 @@ even-odd scanline clip) across SVG/PDF/DXF, `views.section_params jsonb` (0008);
 wrong-half + multi-loop + byte-determinism goldens; oblique + the `project_view`
 frame refactor are v2/§11. Spike de-collected.
 
+- [x] (P0, S) **CM-1 — a `mirror` re-ERASED a cut when ANY non-cut feature sat
+      between the cut and the mirror. Fixed 2026-07-25.** Cut tools are now
+      TRACKED PER FEATURE (`EvaluationState.record_cut_tools`, with the producing
+      feature id and body id) and read by two documented rules over one store:
+      `_mirror_cut_tools` = the most recent cut of the active body (CM-1),
+      `_pattern_cut_tools` = only the immediate predecessor (the pattern's locked
+      rule — its fallback loses a reading, not geometry). Also closes a latent
+      multi-body hole: a cut in body A can no longer be reflected into body B.
+      Measured: chamfer 31640.0 -> **29629.3807**, fillet 31845.4867 ->
+      **29834.8674**, both bores present (12 faces). `xfail` removed for those two
+      params; +3 guards in `test_mirror.py`.
+      [src: GEOMETRY-QA 2026-07-25 composition matrix]
+- [ ] (P2, M) **A mirror does not duplicate material an intervening ADD
+      contributed** (CM-1's re-scoped residual — no longer silent-wrong-geometry:
+      the void survives). `plate -> hole -> boss -> midplane mirror` = 30309.3807
+      (hole mirrored, boss single) where a modeler expects 30629.3807. Unreachable
+      under v1's "reflect the most recent recorded cut" rule, and the alternatives
+      break a lock (union-then-re-subtract welds an earlier pocket: 30400.0 vs
+      29600.0; reflecting every tracked cut gives 28800.0 there). The honest fix is
+      the incumbent semantic — mirror a SELECTED SET of features (a DTO change:
+      `features: [id, ...]`), which also retires the "a crossing mirror erases an
+      asymmetric modifier" limit. Design doc first. Pinned by
+      `CM1_BOSS_UNMIRRORED` in the composition matrix.
+      [src: CM-1 fix 2026-07-25]
+- [x] (P0, S) **CM-2 — a `pattern` of a cut whose replicated tools ALL clear the
+      body was a SILENT NO-OP: the exact defect `fa30220` fixed for `mirror`
+      only. Fixed 2026-07-25.** The reachability question is now ONE shared
+      predicate (`geometry.kernel.removal.removal_reaches_body`, extracted from
+      mirror's `_reflected_tools_reach_body` — topological, no epsilon); when no
+      replicated tool reaches the body the pattern takes the whole-body ADD path,
+      and one copy reaching anywhere keeps the cut path byte-identical. Measured:
+      pocket source 14400.0 -> **28800.0**, hole source 15497.3452 ->
+      **30994.6904**. `xfail` removed from
+      `test_cm2_pattern_of_a_clearing_translation_is_not_a_silent_no_op`; 3 new
+      guards in `test_pattern.py`. [src: GEOMETRY-QA 2026-07-25 composition matrix]
+- [x] (P1, S) **CM-3 — an `extrude-cut`/`revolve-cut` that removes nothing
+      reported `ok` and returned the input body. Fixed 2026-07-25.**
+      `combine_body` now asks the shared `removal_reaches_body` predicate BEFORE
+      the boolean ("removed nothing" is invisible afterwards) and raises
+      `CutRemovedNothingError` -> typed **`cut_removed_nothing`** on both cut
+      funnels; Hole keeps `hole_off_body`/`hole_too_deep` through one `_cut_drill`
+      adapter. The matrix's `extrude_cut` diagonal joins the self-composition
+      ERROR class, so no verb is exempt any more. Cost: the worst cut-heavy tree
+      147.0 -> 205.0 ms vs a 2000 ms ceiling. `xfail` removed from
+      `test_cm3_a_cut_that_removes_nothing_must_error`; 3 new guards in
+      `test_extrude.py` incl. the 0.25 mm^3 grazing-cut boundary.
+      [src: GEOMETRY-QA 2026-07-25 composition matrix]
+- [x] (P3, XS) **Friendly copy for `cut_removed_nothing`. Done 2026-07-25.**
+      Keyed PER VERB in `FEATURE_SPECIFIC_ERROR` (FINDINGS #13 pattern) so an
+      extrude-cut names the everyday cause — the same pocket cut twice — while
+      revolve/sweep/loft name their own geometry; generic fallback added too.
+      Covered in the jsdom tier (`FeatureTreePanel.test.tsx`) + unit lookups.
+      [src: CM-3 fix 2026-07-25]
+- [x] (P2, S) **CM-4 — a composed body loses STEP round-trip topology
+      fidelity.** `plate 40x40x10 -> pocket -> fillet r3 -> shell t2` re-imported
+      with faces 36 == 36 but **edges 96 -> 98**. FIXED 2026-07-25: the write is
+      faithful (96 `EDGE_CURVE` records for 96 edges) — the shell returned a
+      `BRepCheck`-INVALID body (outer wall and pocket wall offset onto the SAME
+      plane, cavity pinched to zero width, leaving a T-junction), and the STEP
+      reader was healing it on import. New `geometry.kernel.healing.conform_solid`
+      (`ShapeFix_Shape`, only on a body `BRepCheck` already rejects, so valid
+      bodies keep the identity path) conforms each shelled lump: dV -2.7e-12,
+      dA 0.0, deterministic + idempotent, round-trip then EXACT (36/97/64).
+      Marker removed from `test_cm4_pocket_fillet_shell_survives_a_step_roundtrip`;
+      + `services/geometry/tests/test_healing.py` (5 guards).
+      [src: GEOMETRY-QA 2026-07-25 composition matrix]
+- [ ] (P3, S) **`draft` propagates along a tangent chain with no UI/doc warning.**
+      After an r4 corner fillet makes all four walls tangent-continuous, drafting
+      the ONE picked +X face tapers all four walls plus the four fillet cylinders
+      (1361.7627 mm³ removed vs 314.9581 for the named face). OCCT-correct
+      (`BRepOffsetAPI_DraftAngle` propagates through tangent continuity) and
+      usually desirable, but a picked-face UI never says so — doc + editor copy.
+      Pinned by `test_observed_limit_draft_propagates_along_a_tangent_chain`.
+      [src: GEOMETRY-QA 2026-07-25 composition matrix]
+- [x] (P0, M) **Composition-matrix gate — close the structural blind spot that
+      let all five silent-wrong-geometry defects through. Shipped 2026-07-25**
+      (founder directive: geometry correctness is the single thing capping this
+      product). Every one of this week's five defects was a COMPOSITION of two
+      features that each passed its own golden, because the golden inventory
+      exercises verbs in ISOLATION.
+      `services/geometry/tests/test_composition_matrix.py` composes 8
+      predecessors x 13 composers (96 asserted cells; the diagonal is skipped
+      with a reason and covered by re-issued-id self-composition tests) plus
+      triples, asserting analytic volume where derivable and shape-independent
+      invariants elsewhere (cut never increases volume; a clearing mirror is
+      EXACTLY 2V; a patterned cut removes Nx the seed; removing nothing must
+      error; suppress/unsuppress and edit/revert byte-identical; a same-face
+      reference keeps its plane origin across a sibling edit; STEP round-trip of
+      composed bodies). All five audited defects are seeded cases that fail on
+      the pre-fix behaviour. 198 tests, 24-38 s — no nightly tier needed. Caught
+      4 new live defects (CM-1..CM-4 above) + 2 locked observations. Tolerances
+      are the two existing reviewed golden tiers (1e-9 planar / 1e-8 curved);
+      none loosened. See `docs/GEOMETRY-QA.md` 2026-07-25.
+      [src: founder directive 2026-07-25]
+- [x] (P1, S) **Component-test tier (jsdom) — close the structural blind spot
+      the production-readiness assessment surfaced. Shipped 2026-07-25**
+      (founder directive). `apps/web` had NO DOM harness, so every defect that
+      is "does this component render the value/copy it was given" was invisible
+      below a 40-min Playwright run — which is exactly how the burn-down's dead
+      `ExtrudePreviewState.operation`, hardcoded `mm³` assembly labels, and
+      unkept focus-restore docstring all shipped. Both TS packages now run two
+      vitest projects keyed on the file extension (`*.test.ts` → node,
+      `*.test.tsx` → jsdom + Testing Library, shared `src/test/domSetup.ts`);
+      no CI workflow change needed. 46 tests, each verified to fail against the
+      re-introduced defect; the r3f-only extrude-ghost shading was extracted to
+      a pure `extrudeGhostAppearance` seam instead of mocking three.js. See
+      Changelog + ROADMAP.
 - [x] (P0, M) Assembly STEP export — AP214 product structure. **Shipped
       2026-07-23** — `POST /api/v1/assembly/export` (geometry) + gateway proxy;
       `ExportAssemblyRequest` reuses `EvaluateAssemblyRequest` + format;
@@ -131,12 +238,19 @@ frame refactor are v2/§11. Spike de-collected.
       unchanged. Contracts + ts-client regenerated (backward-compatible — the web
       clash panel still renders `overlap_volume_mm3`). [src: AUDIT-ENGINEERING.md
       interference review]
-- [ ] (P3, S) Surface the `unresolved` clash state in the web clash panel
-      (`AssemblyClashPanel.tsx`) — a distinct "unresolved · inspect" row style
-      (not the exact-volume red balloon) for `ClashPair.unresolved=true`, so a
-      masked boolean failure reads as "could not verify — inspect" rather than a
-      measured overlap. Schema + generated API already carry the flag
-      (backward-compatible). [src: interference hardening follow-up 2026-07-23]
+- [x] (P3, S) Surface the `unresolved` clash state in the web clash panel.
+      **Shipped 2026-07-25** — an unmeasurable pair reads as UNVERIFIED (dashed
+      left rule + dashed stamp, gauge ink, magnitude parenthesised as a reference
+      upper bound + "at most" caption) with a plain-language footnote; measured
+      rows sort first and the eyebrow counts the states apart
+      (`Interference · 1 · 1 unverified`), so an unverified-only report can never
+      read as clear. Tree badge follows (UNVERIFIED, not the red CLASH claim);
+      viewport still tints both. SAME commit fixed the audit residual: the clash
+      volume now converts through the shared units core (`in³` on an inch
+      assembly — it was the last mm-only readout on the page). New pure
+      `assembly/clash.ts` + `clash.test.ts` + `AssemblyClashPanel.test.tsx` (dom
+      tier) + e2e `assembly-clash-unverified.spec.ts`.
+      [src: interference hardening follow-up 2026-07-23]
 - [x] (P1, M) Assembly STEP import with product structure. **DONE 2026-07-23
       (slices 1+2a+2b) — assembly interop is now BIDIRECTIONAL; the "assembly is
       a one-way street" is closed.** Read AP214
@@ -192,7 +306,7 @@ frame refactor are v2/§11. Spike de-collected.
       times before the response is materialised past the ceiling
       (`import_response_too_large`, 422). Both typed, never a buffered multi-GB
       response or a 500.
-- [ ] (P2, S) Assembly import: carry `body_step` ONCE per `body_step_id`
+- [x] (P2, S) Assembly import: carry `body_step` ONCE per `body_step_id`
       (transport efficiency + defense-in-depth). Today `StepAssemblyImportResult`
       repeats the full `body_step` text on every `ImportedProduct`, so a part
       instanced N times ships its B-rep fragment N times; the
@@ -202,7 +316,10 @@ frame refactor are v2/§11. Spike de-collected.
       transport. Cross-service DTO change (py-kit + geometry emit + documents
       consume + gateway forward + contracts/ts-client regen) — hence P2, not
       folded into the byte-cap slice. [src: slice-2b security review 2026-07-23]
-- [ ] (P2, S) Assembly import: permanent 3-service HTTP integration test. The
+      **SHIPPED 2026-07-25 (backend-builder):** `StepAssemblyImportResult.bodies`
+      ({address -> fragment}) + `body_step_for()` as the ONE resolver; geometry's
+      emit needed no change (the per-product field is hoisted, never serialized).
+- [x] (P2, S) Assembly import: permanent 3-service HTTP integration test. The
       shipped unit suites cover geometry-read and documents-creation in ISOLATION
       but never the real gateway → geometry → documents HTTP chain. Port the
       qa-tester's full-chain harness (`scratchpad/assembly_import_roundtrip.py`)
@@ -210,6 +327,9 @@ frame refactor are v2/§11. Spike de-collected.
       (auth + byte cap + occurrence/response caps + atomic doc creation) is
       exercised end-to-end in CI/e2e, not just the two halves. [src: slice-2b
       security review 2026-07-23]
+      **SHIPPED 2026-07-25 (backend-builder):**
+      `gateway/tests/test_assembly_import_chain.py` — 3 apps in-process over
+      `ASGITransport` (hermetic, ~14 s, `integration`-marked, DEFAULT pytest run).
 - [ ] (P2, M) Drawings parity #4 — assembly drawing views + BOM/balloons (WIRE).
       The real capability behind the D4 gate: compose a drawing view that
       projects an ASSEMBLY (not a single part) — an assembly-side
@@ -251,13 +371,40 @@ frame refactor are v2/§11. Spike de-collected.
           builder was killed by the session usage limit mid-regression-run —
           work re-verified green: drawings regression suites 100%, format +
           contracts regen completed, gen-check + web typecheck clean.)
+    - [x] (b1) **BOM data model — SHIPPED 2026-07-25** (backend-builder):
+          `GET /drawings/{id}/bom[?sheet=]` (documents read model + gateway proxy,
+          `DrawingBomLine`/`DrawingBomResponse` extending the shipped `BomLine`).
+          **Item numbers are DERIVED, never stored** (design §8a.1): numbered by
+          first appearance in the assembly's `order_index`, so a part RENAME can
+          never renumber a print (the name-sorted `/assemblies/{id}/bom` order is
+          deliberately different, gated). Staleness is visible not silent —
+          `assembly_version` echoed (tip-tracking, §8a.2) — and every failure is
+          typed: `drawing_bom_source_not_assembly` / `sheet_has_no_views` /
+          `drawing_bom_source_missing` 422, `sheet_not_found` 404, a dangling
+          reference keeping its number + quantity with `missing: true`. 15
+          documents regressions x2 dialects + 4 gateway proxy gates; contracts +
+          ts-client regenerated.
     - [ ] NEXT SLICES (scoped):
-          (b) BOM table + balloons authoring/compose; (c) web — render assembly
-          views + BOM/balloons (web reads the SAME `/drawings/{id}/sheet`
-          `ComposedSheet`, so (a) alone lights the on-screen sheet up; balloon
-          authoring + BOM table need their own DTO/compose slice); (d) documents
+          (b2) **BALLOONS — one whole slice, kernel + backend + web together**
+          (splitting it would persist balloons no serializer draws = a dead
+          capability). Decisions already made in drawings.md §8a.3: a balloon
+          stores the BOM line KEY (`ref_document_id`+kind) + its authored 2D
+          leader/anchor and NEVER the number (resolved from (b1) at compose time);
+          a balloon whose document is no longer instanced is a typed
+          `balloon_item_missing` dangling marker, never a stale number. Work:
+          promote the `Annotation` alias to a `type`-discriminated union with a
+          `balloon` member (documents persists it through the SHIPPED annotation
+          table — no migration); add `ComposedBomTable` + `ComposedBalloon` to
+          `ComposedSheet` and place them in geometry `place_sheet` (thread the
+          resolved BOM through `ComposeDrawingRequest`, additive/null = today's
+          byte-identical sheet); all three serializers render them; web authors the
+          balloon + renders the table. Gates: a compose golden with 2 items + 2
+          balloons, byte-identical no-balloon sheet, `balloon_item_missing` gate.
+          (c) web — render assembly views (web reads the SAME `/drawings/{id}/sheet`
+          `ComposedSheet`, so (a) alone lights the on-screen sheet up); (d) documents
           — nested sub-assembly FLATTEN (recursive instance walk composing
-          placements; today a nested instance degrades to typed `no_body`).
+          placements; today a nested instance degrades to typed `no_body`), which
+          also unlocks the recursive/indented BOM.
 - [x] (P2, S) Dedicated Hole feature — SLICE 1 (simple hole): `HoleFeature`/
       `HoleParamsV1` registered across ALL feature-registry arms (Feature union,
       FeatureEnvelope, FEATURE_REGISTRY, BODY_AFFECTING_FEATURE_TYPES,
@@ -307,10 +454,42 @@ frame refactor are v2/§11. Spike de-collected.
       drills a counterbore AND a countersink in the UI on the real stack (Solved +
       recessed body); +11 `hole.test.ts` units; founder cbore/csink authoring +
       result shots. Hole slice 2 is now END-TO-END in-app. [done 2026-07-23]
-- [ ] (P2, S) Dedicated Hole feature — SLICE 2 TAIL: tapped hole type (a thread
-      callout, not v1 geometry — DEFERRED); standard drill-size tables (+ a
-      follow-up MCP/scripting exposure). Seeds Drawings hole callouts. [src:
-      AUDIT-PRODUCT.md 2026-07-23]
+- [ ] (P2, S) Dedicated Hole feature — SLICE 2 TAIL: tapped hole type; standard
+      drill-size tables (+ a follow-up MCP/scripting exposure). Seeds Drawings
+      hole callouts. [src: AUDIT-PRODUCT.md 2026-07-23]
+      - [x] Tapped geometry + DTO (2026-07-25, kernel-architect). v1 threads are
+            **COSMETIC** (decision + trade-off + modelled-thread upgrade path in
+            `geometry/kernel/threads.py`): the kernel cuts the ISO tap-drill bore
+            `D - P` and carries a typed designation for drawing/BOM callouts — no
+            helix, so a tapped hole costs 1 face, not hundreds. `thread:
+            IsoMetricThread | None` is its OWN optional param, NOT a 4th `HoleType`
+            member (threading is orthogonal to the recess → a counterbored tapped
+            hole is one feature, and the `HoleType` union stays untouched). ISO 261
+            table M1.6–M64 (coarse + fine); `hole_thread_unsupported` (unknown
+            designation) / `hole_thread_mismatch` (bore outside `[minor, nominal)`)
+            are validated BEFORE any geometry, so neither degrades to a plain hole
+            wearing an uncuttable callout. Proof: golden
+            `hole-tapped-m10x1.5-40x25x10` (analytic 9432.549826945344 = 10000 −
+            180.625π; topology 7/15/1 — IDENTICAL to the untapped bore), the
+            evaluate response is BYTE-identical to the same hole untapped, and
+            matrix verb `hole_tapped` (+8 cells) proves pattern/mirror of a tapped
+            hole array the BORE. gen-check clean (additive optional field).
+      - [x] Web authoring (2026-07-25, frontend-builder). A `Tapped` CHECKBOX
+            beside the Type control (not a 4th segment — threading is orthogonal
+            to the recess) reveals a drafting thread note: brass callout stamp,
+            ISO size + pitch pickers (coarse first), tap-drill preset chip.
+            Picking a designation DERIVES `diameter_mm` to `D - P` without
+            locking it (a shop's 6.8 for M8x1.25 still submits); both typed
+            errors are guarded client-side and humanised via
+            `friendlyFeatureError`. ISO 261 table mirrored in
+            `features/thread.ts`, kept honest by a test that parses
+            `geometry/kernel/threads.py`. The FEATURE TREE row carries the
+            designation (`hole · M10x1.5`) — a tapped hole's solid is
+            byte-identical to its bore, so the UI is the only place it exists.
+            e2e (derive → mismatch guard → Solved → survives reload; + a tapped
+            counterbore) + founder shots at 1440/1280. [done 2026-07-25]
+      - [ ] Standard drill-size tables (+ MCP/scripting exposure); drawing hole
+            callouts read the designation from the feature params (never stored).
 - [x] (P2, S) Feature suppress — mark a feature suppressed (persisted flag); tree
       rebuild skips it, downstream features rebuild off the last non-suppressed
       state (or typed-fail if they reference the suppressed feature directly). A
@@ -479,6 +658,17 @@ frame refactor are v2/§11. Spike de-collected.
       reduced-motion. web unit 810 + design 42 pass; e2e view-snap + row
       rename/delete; shots `{viewport,tree}-context-menu-desktop.png`.
       [src: UI-REVIEW 2026-07-24 / FINDINGS #10]
+- [x] (P2, M) 2026-07-24 hard-audit P2 — "registers read as templated web
+      tables". SHIPPED 2026-07-25 (frontend-builder). One `DocumentRegister`
+      replaces three near-duplicate pages. Columns now answer a modeler's
+      questions: LAST WORKED (relative age; "Not started" when a document has
+      had no edit since it was named) + UNITS where `length_unit` exists —
+      replacing two columns of the same ISO date. Scribed sheet-number gutter
+      with the addressed row's brass scribe; the create control is the
+      register's next line (`N` chord shown); ruled unfiled lines run to the
+      frame edge. `DocumentRegister.test.tsx` 13 + `activity.test.ts` 7; all
+      test ids/roles kept; e2e parts-home/auth/drawings/assembly-bom green;
+      `parts-home-*.png` refreshed. [src: UI-REVIEW 2026-07-24 P2]
 - [x] (P1/P2, M) FINDINGS #6/#15/#21 drawings/HLR burn-down wave 3
       (`services/geometry`, `packages/py-kit` drawings schema). #6: non-overlapping
       sheet layout — `place_sheet` free-slots additive section/flat_pattern views
@@ -491,6 +681,8 @@ frame refactor are v2/§11. Spike de-collected.
       dashed+solid. Regressions: 5-view zero-overlap, honored-position, typed-error-
       preserved, partial-occlusion split. Goldens refreshed (additive `error` field);
       `just gen`/`gen-check` clean. [src: FINDINGS #6/#15/#21]
+      Follow-up 2026-07-25: #21's ASSEMBLY-path guard was left `xfail(strict=False)`
+      and had been XPASSing since this commit — marker removed, real assertion now.
 - [x] (P1, S) FINDINGS #7 assembly STEP writes UUIDs as PRODUCT names
       (`services/geometry`, `services/documents`, `packages/py-kit`). New optional
       `EvaluatedInstance.name` threads the human-readable instance name (populated at
@@ -725,11 +917,17 @@ frame refactor are v2/§11. Spike de-collected.
 
 ## Blocked (environment/timing — not build-blocked)
 
-- [ ] (P2, S) Verify full `docker compose up` runtime on a Docker-capable
-      host — this sandbox has no docker daemon; images and stack runtime are
-      unproven (compose config + G1/G3 invariants ARE structurally guarded by
-      `scripts/check-compose.py`; runtime mesh round-trip still needs a live
-      stack). First Docker-capable session picks it up. [src: roadmap]
+- [x] (P2, S) Verify full `docker compose up` runtime — **DONE 2026-07-25**
+      (platform-builder): unblocked by running it where Docker works, CI —
+      `deploy-path` run `30142627371`, `success`, 86s, 9 checks passed.
+      `scripts/compose-smoke.sh` (workflow `deploy-path`, `just
+      compose-smoke`) builds + boots the base stack, migrates both schemas
+      from the images, drives register → sketch → extrude → evaluate → mesh
+      fetch → STEP export over the gateway port only, and asserts the internal
+      ports are closed. Found + fixed: gateway/documents shared one database
+      although both alembic trees start at revision `0001` (second migration
+      silently no-ops), and no host-toolchain-free way to create the schema.
+      [src: roadmap]
 - [ ] (P2, S) Watchdog — arm the stall-recovery routine per
       `docs/AUTONOMOUS-LOOP.md` §1.4 once the loop runs unattended.
       [src: retro]
@@ -751,6 +949,30 @@ Full narrative evidence lives in `docs/ROADMAP.md` (Phase 4/4b sections) and
       an honest `subshape_unresolved`). Tier 2 now re-anchors at the STORED centroid
       projected onto the matched face; tier 1 unchanged. 2 regressions.
       [src: code-review 2026-07-25 regression A]
+- [x] (P1, M) **H4 — per-face provenance taxed every compute path and scanned
+      quadratically.** (a) `evaluate_tree(..., record_history=False)` by default,
+      so only `/overlay` funds the snapshots — the other 8 call sites retain 0
+      intermediate B-reps (goldens measured 4/3/2 → 0) with byte-identical GLB.
+      (b) The matcher is one spatial hash over all snapshots keyed
+      `(surface, quantised centroid)`: 600-face body 180300 → 600 comparisons;
+      8.83 s → 1.82 s at 4800 faces, now linear and snapshot-count independent.
+      (c) `MAX_PROVENANCE_FACES = 8000` (py-kit, G2 idiom, contract-visible)
+      DEGRADES to null attribution past the bound rather than 422-ing the whole
+      picking overlay. 5 new geometry tests + an `overlay` benchmark group.
+      [src: AUDIT-ENGINEERING.md 2026-07-25 H4]
+- [x] (P0, S) **Regression B — the cut-aware mirror silently NO-OPPED the two
+      canonical mirror workflows.** `_prev_cut_tools` fires on ANY preceding
+      extrude-cut/Hole and `_evaluate_mirror` then took `mirror_cut`
+      unconditionally; `mirror_cut` never verified a removal happened, so a
+      reflected tool landing outside the body cut nothing and the untouched body
+      came back `ok`. Measured: a 40×40×20 block + 10×20×10 pocket mirrored about
+      its own +X face (x=40) stayed 30000 mm³ at x∈[0,40]; now 60000 mm³ over
+      x∈[0,80] with a pocket in each half. Fix: a reflected removal that cannot
+      reach the body (topological common, no epsilon) falls back to
+      `mirror_union`, whose reflection already carries the body's own cuts —
+      deliberately NOT union-then-recut, which would weld shut any EARLIER cut.
+      New golden `mirror-cut-clearing-plane-block-40x40x20` + 3 regressions.
+      [src: code-review 2026-07-25 regression B]
 
 - [x] (P1, S) **H2 — a sheet silently mixed source documents and scales.**
       `ComposeDrawingRequest` carries ONE source + ONE scale, so a sheet whose
@@ -763,6 +985,29 @@ Full narrative evidence lives in `docs/ROADMAP.md` (Phase 4/4b sections) and
       `_assert_single_source` re-checks the READ before any part/compose hop
       (legacy rows). 8 regressions (documents + gateway).
       [src: AUDIT-ENGINEERING.md 2026-07-25 H2]
+- [x] (P2, S) **H3 — duplicate view projections collapsed at every layer; the
+      drag-to-place PATCH wrote to the WRONG row.** Now `uq_views_sheet_projection`
+      UNIQUE `(sheet_id, projection)` (migration `0011`: de-dupe keeping the lowest
+      `order_index`, dense renumber, then the constraint) + ORM twin + typed
+      `duplicate_view_projection` 422 on create/re-projection; web keys per VIEW ID
+      via the new pure `drawing/views.ts::viewRowsByProjection` (first-write-wins).
+      3 documents + 2 migration + 3 web regressions. Residue routed to the kernel
+      agent: `compose.py::_resolve_view_anchors` still keys anchors by projection.
+      [src: AUDIT-ENGINEERING.md 2026-07-25 H3]
+- [x] (P2, S) **H5 — sheets-per-drawing was the one work bound G2 missed**, and
+      `_tree_response` was N+1 over it (3 queries PER SHEET, in the drawing GET and
+      every delete route). `MAX_DRAWING_SHEETS = 100` + `max_length` on
+      `DrawingTreeResponse.sheets` + documents `sheet_limit_exceeded` 422 twin (the
+      G2 idiom); `_by_sheet` collapses the reads to ONE `sheet_id IN (...)` query
+      per child table → 4 queries per tree. Contracts regenerated.
+      [src: AUDIT-ENGINEERING.md 2026-07-25 H5]
+- [x] (P2, S) **CR-6 — the multi-sheet export filename did not name the sheet**, so
+      exporting sheets 1 and 2 of one drawing gave `plate.pdf` + `plate (1).pdf`.
+      The gateway (the only hop that knows WHICH sheet composed) now sets
+      `Content-Disposition` itself: `<drawing>-<sheet>.<ext>` for a multi-sheet
+      drawing, unchanged `<drawing>.<ext>` for a single-sheet one. Real gateway
+      regressions (the web `exportDrawing.test.ts` header was a mock).
+      [src: code-review CR-6]
 
 ### Recently shipped (2026-07-24 batch)
 
@@ -1126,6 +1371,20 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
+- 2026-07-25 — **Tapped-hole authoring (frontend-builder):** `Tapped` checkbox +
+  ISO designation picker in `HoleEditor` derives the tap drill without locking
+  it; the tree row carries `hole · M10x1.5` — the only place a tap is visible.
+- 2026-07-25 — **TAPPED holes, cosmetic threads (kernel-architect):** `thread:
+  IsoMetricThread | None` on `HoleParamsV1` cuts the ISO tap drill `D - P` and
+  carries the callout; typed `hole_thread_unsupported`/`hole_thread_mismatch`.
+- 2026-07-25 — **jsdom component-test tier (frontend-builder):** `apps/web` +
+  `packages/design` now run two vitest projects (`*.test.ts` node, `*.test.tsx`
+  jsdom+Testing Library); 46 tests pin the three burn-down UI defects. 882 web.
+- 2026-07-25 — **Burn-down code-review fixes, frontend (frontend-builder):**
+  right-drag pan no longer opens the viewport context menu (click-slop gate,
+  press- and release-fired `contextmenu`); the extrude ghost honours
+  `operation` (cut = cold dark void, not a brass solid); the assembly inspector
+  and readout precision are unit-aware; `ContextMenu` restores focus on close.
 - 2026-07-24 — **Drawings #4 SLICE 2 — gateway gate-removal + documents resolution
   (backend-builder):** `assembly_views_unsupported` gone; documents
   `GET /assemblies/{id}/evaluation-request` resolves the graph; gateway threads it as

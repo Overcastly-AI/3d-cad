@@ -7,9 +7,11 @@ no kernel type) here; this service materialises it into a REAL Loft graph:
 
 * ``has_assembly_structure=True`` → an **assembly** document plus one **part**
   per unique ``body_step_id`` (deduped) seeded with an ``import`` feature holding
-  ``ImportParamsV1(data=body_step)`` — the EXACT single-body ingest, ZERO new
-  path — and one named **instance** per product at its ``placement``. A part
-  occurring twice (same ``body_step_id``) is ONE part document with TWO instances.
+  ``ImportParamsV1(data=<the body resolved from the read's shared ``bodies``
+  map>)`` — the EXACT single-body ingest, ZERO new path — and one named
+  **instance** per product at its ``placement``. A part occurring twice (same
+  ``body_step_id``) is ONE part document with TWO instances, and its B-rep
+  travelled over the wire ONCE (bodies are carried per address, not per product).
 * ``has_assembly_structure=False`` → the **MB-4b fallback**: one single-body part
   seeded with the same ``import`` feature, no assembly (backward compatible).
 
@@ -29,6 +31,7 @@ import already does.
 """
 
 import uuid
+from typing import NamedTuple
 
 from fastapi import APIRouter, status
 from py_kit import ConflictError, ValidationApiError, get_logger
@@ -41,6 +44,7 @@ from py_kit.schemas.step_import import (
     ImportAssemblyRequest,
     ImportedProduct,
     SingleBodyImportResult,
+    StepAssemblyImportResult,
     StepImportResponse,
 )
 from pydantic import ValidationError
@@ -153,18 +157,33 @@ async def _owner_part_names(session: AsyncSession, owner_id: uuid.UUID) -> set[s
     return set(result.scalars())
 
 
-def _bodied_products(products: list[ImportedProduct]) -> list[ImportedProduct]:
-    """Products that produced an editable body (a ``body_step`` + its address).
+class _BodiedProduct(NamedTuple):
+    """A product paired with its RESOLVED editable body (never ``None``)."""
 
-    A product with no solid cannot seed an editable part. The geometry reader
-    already 422s a file that yields NO solids (``import_no_solid``), so this
-    normally keeps every product; it defends the boundary against a mixed read.
+    product: ImportedProduct
+    body_step_id: str
+    body_step: str
+
+
+def _bodied_products(result: StepAssemblyImportResult) -> list[_BodiedProduct]:
+    """Products whose editable body resolves out of the read's shared ``bodies``.
+
+    Bodies travel ONCE per content address (``bodies[body_step_id]``), so this is
+    where the shared map is resolved — through
+    :meth:`~py_kit.schemas.step_import.StepAssemblyImportResult.body_step_for`, the
+    single resolver — and where a product that cannot seed an editable part is
+    dropped: no solid (no ``body_step_id``) or an address missing from the map (a
+    malformed read). The geometry reader already 422s a file that yields NO solids
+    (``import_no_solid``), so this normally keeps every product; it defends the
+    boundary against a partial/mixed read, and pairing product with body here
+    means the creation paths below never re-derive (or assert) it.
     """
-    return [
-        product
-        for product in products
-        if product.body_step is not None and product.body_step_id is not None
-    ]
+    bodied: list[_BodiedProduct] = []
+    for product in result.products:
+        body_step = result.body_step_for(product)
+        if product.body_step_id is not None and body_step is not None:
+            bodied.append(_BodiedProduct(product, product.body_step_id, body_step))
+    return bodied
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -193,7 +212,7 @@ async def create_from_step_import(
                 "max_products": MAX_IMPORT_ASSEMBLY_PRODUCTS,
             },
         )
-    bodied = _bodied_products(result.products)
+    bodied = _bodied_products(result)
     if not bodied:
         raise ValidationApiError(
             "The imported STEP produced no solid body.",
@@ -209,12 +228,11 @@ async def _create_single_body(
     session: AsyncSession,
     owner_id: uuid.UUID,
     name: str,
-    product: ImportedProduct,
+    bodied: _BodiedProduct,
 ) -> SingleBodyImportResult:
     """The MB-4b fallback: one single-body part, no assembly (backward compatible)."""
-    assert product.body_step is not None  # _bodied_products guarantee
     try:
-        part = await _add_import_part(session, owner_id, name, product.body_step)
+        part = await _add_import_part(session, owner_id, name, bodied.body_step)
         await session.commit()
     except IntegrityError:
         await session.rollback()
@@ -233,7 +251,7 @@ async def _create_assembly(
     session: AsyncSession,
     owner_id: uuid.UUID,
     name: str,
-    bodied: list[ImportedProduct],
+    bodied: list[_BodiedProduct],
 ) -> AssemblyImportResult:
     """Create the assembly + deduped parts + named instances, atomically."""
     assembly = db.Assembly(id=uuid.uuid4(), owner_id=owner_id, name=name)
@@ -252,16 +270,12 @@ async def _create_assembly(
     used_names = await _owner_part_names(session, owner_id)
     part_by_body: dict[str, db.Part] = {}
     try:
-        for index, product in enumerate(bodied):
-            body_id = product.body_step_id
-            assert body_id is not None and product.body_step is not None  # _bodied
+        for index, (product, body_id, body_step) in enumerate(bodied):
             part = part_by_body.get(body_id)
             if part is None:
                 part_name = _unique_name(_clean_name(product.name, name), used_names)
                 used_names.add(part_name)
-                part = await _add_import_part(
-                    session, owner_id, part_name, product.body_step
-                )
+                part = await _add_import_part(session, owner_id, part_name, body_step)
                 part_by_body[body_id] = part
             session.add(
                 db.Instance(

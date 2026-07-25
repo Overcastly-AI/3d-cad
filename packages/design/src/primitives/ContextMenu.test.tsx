@@ -142,4 +142,76 @@ describe("ContextMenu", () => {
     fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
     expect(onClose).toHaveBeenCalledOnce();
   });
+
+  /**
+   * FINDINGS burn-down 2026-07-25 #9: the docstring promised focus return; it
+   * now happens. Closing the menu hands focus back to whatever opened it (the
+   * feature row), so a keyboard user never lands on <body>.
+   */
+  it("returns focus to the trigger when it closes", () => {
+    function Harness({ open }: { open: boolean }) {
+      return (
+        <>
+          <button type="button" data-testid="trigger">
+            Feature row
+          </button>
+          <ContextMenu
+            open={open}
+            x={0}
+            y={0}
+            aria-label="Menu"
+            sections={sections(
+              () => {},
+              () => {},
+            )}
+            onClose={() => {}}
+          />
+        </>
+      );
+    }
+    const { rerender } = render(<Harness open={false} />);
+    const trigger = screen.getByTestId("trigger");
+    trigger.focus();
+    expect(trigger).toHaveFocus();
+
+    rerender(<Harness open />);
+    expect(screen.getByTestId("fit")).toHaveFocus();
+
+    // Escape → closed → focus is back where the user left it.
+    rerender(<Harness open={false} />);
+    expect(trigger).toHaveFocus();
+  });
+
+  it("defers to a focus move the picked action made", () => {
+    function Harness({ open }: { open: boolean }) {
+      return (
+        <>
+          <button type="button" data-testid="trigger">
+            Feature row
+          </button>
+          <input data-testid="rename" />
+          <ContextMenu
+            open={open}
+            x={0}
+            y={0}
+            aria-label="Menu"
+            sections={sections(
+              () => {},
+              () => {},
+            )}
+            onClose={() => {}}
+          />
+        </>
+      );
+    }
+    const { rerender } = render(<Harness open={false} />);
+    screen.getByTestId("trigger").focus();
+    rerender(<Harness open />);
+
+    // The action focused its own field (Rename → inline editor); closing the
+    // menu must NOT snatch that focus back to the trigger.
+    screen.getByTestId("rename").focus();
+    rerender(<Harness open={false} />);
+    expect(screen.getByTestId("rename")).toHaveFocus();
+  });
 });

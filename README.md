@@ -1,6 +1,7 @@
 # Loft (working name)
 
 [![ci](https://github.com/Overcastly-AI/3d-cad/actions/workflows/ci.yml/badge.svg)](https://github.com/Overcastly-AI/3d-cad/actions/workflows/ci.yml)
+[![deploy-path](https://github.com/Overcastly-AI/3d-cad/actions/workflows/deploy-path.yml/badge.svg)](https://github.com/Overcastly-AI/3d-cad/actions/workflows/deploy-path.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
 **An open-source, cloud-native parametric 3D CAD platform — Python
@@ -80,10 +81,11 @@ roadmap is the order they flip in.
   geometry golden models, STEP round-trips, and determinism gates. CI is
   GitHub Actions ([`ci.yml`](./.github/workflows/ci.yml)).
 - **Compose stack** — Postgres 16 + Redis 7 + MinIO + the three services,
-  authored and config-validated. The app also boots **container-free** for
-  development (SQLite + in-process mesh store). **Caveat:** the development
-  sandbox has no Docker daemon, so `docker compose up` itself is not
-  runtime-verified there (tracked in [`docs/ROADMAP.md`](./docs/ROADMAP.md)).
+  **proven end to end in CI**: every push builds the images, boots the stack,
+  migrates both schemas, and drives a real modeling round-trip (sketch →
+  extrude → evaluate → mesh fetch → STEP export) through the published
+  gateway port (`deploy-path` workflow, i.e. `just compose-smoke`). The app also
+  boots **container-free** for development (SQLite + in-process mesh store).
 
 **What does NOT exist yet** (no sugar-coating): IGES import/export, assembly
 import/export, multi-solid STEP healing, the async job-queue runtime (geometry
@@ -125,12 +127,21 @@ The full stack (datastores + services) via Docker Compose:
 
 ```bash
 docker compose up -d --build      # or: just dev  (hot-reload overlay)
+
+# Create each service's schema (migrations ship inside the images — no host
+# Python needed). Once per database; re-running is a no-op.
+docker compose run --rm gateway   alembic -c /app/migrations/alembic.ini upgrade head
+docker compose run --rm documents alembic -c /app/migrations/alembic.ini upgrade head
 ```
 
-The compose files validate (`docker compose config` runs in CI), but the
-stack has **not yet been brought up on a Docker host** — if you hit a
-runtime issue there, it's a genuinely unknown path;
-[please file it](https://github.com/Overcastly-AI/3d-cad/issues/new/choose).
+Only the gateway is published (`:8000`); documents and geometry are internal
+to the compose network on purpose. `just compose-smoke` runs the whole thing
+as a single proof — build, boot, migrate, then a real modeling round-trip
+over the published port (register → part → sketch → extrude → evaluate →
+fetch the mesh → export STEP) plus a check that the internal services are
+unreachable from the host. **CI runs that same script on every push**
+([`deploy-path.yml`](./.github/workflows/deploy-path.yml)), so this path
+is verified, not assumed.
 
 ## Architecture at a glance
 

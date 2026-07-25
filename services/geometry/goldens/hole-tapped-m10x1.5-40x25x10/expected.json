@@ -1,0 +1,28 @@
+{
+  "description": "A 40x25x10 mm block with a TAPPED hole drilled by the dedicated HoleFeature at the centre of the top (+Z) face: an M10x1.5 thread callout over its Ø8.5 (r=4.25) tap-drill bore, fully through the material. Locks the v1 COSMETIC thread decision (geometry/kernel/threads.py): a thread adds NO geometry, so the solid is exactly the tap-drill bore — same faces/edges as the plain through-hole golden — and its removed volume stays closed-form (π·r²·H). The tap drill is the ISO rule D − P = 10 − 1.5 = 8.5 mm, the value the published metric tap-drill tables list for M10x1.5. A future MODELLED-thread option would need its own golden and its own tolerance tier; this one would be unchanged.",
+  "derivation": [
+    "Tap drill: D − P = 10 − 1.5 = 8.5 mm, so r = 4.25 mm (the bore the kernel cuts; the thread itself is a callout).",
+    "Block: 40 x 25 x 10 = 10000 mm^3.",
+    "Bore removed (Ø8.5 through the 10 mm thickness): π·r²·H = π·4.25²·10 = 180.625π = 567.4501730546564 mm^3.",
+    "Volume = 10000 − 180.625π = 9432.549826945344 mm^3 (kernel returns 9432.549826945342 — 2e-12, machine precision).",
+    "Surface area: block faces 2·(40·25) + 2·(40·10) + 2·(25·10) = 3300 mm^2; the top and bottom each lose a Ø8.5 disc (2·π·4.25² = 36.125π) and the bore adds its full-height cylindrical wall (2π·4.25·10 = 85π). Area = 3300 + (85 − 36.125)π = 3300 + 48.875π = 3453.545340944201 mm^2.",
+    "Centroid: the bore is central and through, so the body keeps the block's own centroid (20, 12.5, 5) — a tapped hole is symmetric about the mid-plane, unlike a counterbore/countersink whose recess pulls the centroid off it.",
+    "AABB unchanged: the hole is interior to the envelope, so (0,0,0)-(40,25,10).",
+    "Topology: 6 block planar faces + 1 bore cylindrical wall = 7 faces; 12 block edges + 2 bore circles + 1 cylinder seam = 15 edges; 1 shell — IDENTICAL to the untapped `hole-through-r5-40x25x10` golden's counts, which is the cosmetic decision made assertable: threading changes metadata, never topology.",
+    "Thread validity (kernel-side, not geometry): M10 is an ISO 261 size and 1.5 is its coarse pitch, and the Ø8.5 bore lies in the tappable band [minor 8.376202367904177, nominal 10) — so the callout is honoured. An unknown designation is a typed `hole_thread_unsupported`; a bore outside that band is `hole_thread_mismatch`; neither ever degrades to an untapped hole.",
+    "Mesh (linear_deflection 0.1): 530 vertices / 520 triangles from the HoleFeature harness."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "The bore is a pure boolean of one right cylinder from a box; GProp integrates the analytic quadric exactly, observed deviation from the closed-form volume/area is ~2e-12 (machine precision) and the centroid is exact to 4e-15. The 1e-9 mm^3/mm^2 ceiling matches the kernel's 1e-7 m linear posture and the simple-hole / counterbore / countersink goldens — it is not fitted to these residuals (~500x headroom).",
+  "properties": {
+    "volume": 9432.549826945344,
+    "surface_area": 3453.545340944201,
+    "centroid": { "x": 20.0, "y": 12.5, "z": 5.0 },
+    "bounding_box": {
+      "min": { "x": 0.0, "y": 0.0, "z": 0.0 },
+      "max": { "x": 40.0, "y": 25.0, "z": 10.0 }
+    }
+  },
+  "topology": { "faces": 7, "edges": 15, "shells": 1 },
+  "mesh": { "vertices": 530, "triangles": 520 }
+}

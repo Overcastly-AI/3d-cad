@@ -662,7 +662,8 @@ list.
 
 ### Component checklist (delta)
 
-- `DrawingsPage` register 🟡 (sibling-clean; watch DRY vs PartsPage — near-dup)
+- `DrawingsPage` register ✅ (near-dup resolved 2026-07-25: all three registers
+  are one `DocumentRegister` + a copy config)
 - `DrawingPage` editor 🔴 (P2 load-gating + panel occlusion)
 - `DrawingSheet` SVG ✅ (P3 caption size only)
 - `DrawingCommandBand` ✅ (P3 icon only)
@@ -1720,6 +1721,21 @@ scene *responding* — ours still mostly responds after commit.
   is still a finding). Low priority vs the modeling surfaces, but a
   thumbnail strip or engraved register treatment would make the first
   screen after sign-in feel like the same product.
+  **✅ FIXED 2026-07-25 (frontend-builder).** Diagnosed as an information
+  defect before a visual one: the two widest columns were CREATED and UPDATED
+  rendering the *same* ISO date, so the surface answered nothing. It now
+  answers what a returning engineer scans for — **LAST WORKED** (relative age
+  of the last edit; `updated_at` is bumped by every tree write) which doubles
+  as the empty-stub flag ("Not started" = no edit since it was named), and
+  **UNITS** from `length_unit`, dropped entirely on drawings rather than ruled
+  blank. Deliberately NOT invented: "has a body / has drawings / is broken" are
+  not on the wire for a list. Form extends the existing language — sheet number
+  moved into a scribed carbide gutter carrying the addressed row's brass
+  scribe, the create control is the register's NEXT LINE (next sheet number,
+  the `N` chord finally shown), unfiled ruled lines run to the frame edge (the
+  centered-card-in-a-void read is gone). All three homes are now ONE
+  `DocumentRegister` (closes the 2026-07-16 near-dup note too). Shots
+  `parts-home-{empty,desktop,laptop}.png`.
 - **P2 — assembly framing/read is the flattest of the three scenes.** Same
   matcap, but top-down default fit + small-in-frame parts + balloon squares
   (`41-assembly-dense-8-1440.png`) read flatter than the part studio; the
@@ -1777,7 +1793,8 @@ Running checklist (this pass): `TopToolbar`/`ToolButton` width tiers 🔴 (P0)
 (preview) 🔴 · context menus 🔴 · viewport atmosphere/grid/ViewCube ✅ ·
 chrome honesty (part+assembly inspectors, view rail, units, export) ✅ ·
 error/stress states (`23`/`24`/`43`) ✅ · sketch mode ✅ · drawings sheet ✅
-· registers 🟡 (templated) · token discipline ✅.
+· registers ✅ (de-templatized 2026-07-25 — one `DocumentRegister`, recency +
+unstarted + units replace the duplicate date columns) · token discipline ✅.
 
 **Process note (relaunch):** predecessor's evidence 01–40 reviewed and kept;
 41–45 (dense assembly, clash stress, 1280 sketch/editor) regenerated this

@@ -40,6 +40,18 @@ COPY services services
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-editable --package "loft-${SERVICE_NAME}"
 
+# Migration assets: alembic scripts are DATA, not part of the installed wheel
+# (hatch packages src/<service> only), so a self-hoster with no Python
+# toolchain could not create the schema — the deploy path documented in the
+# README needs `docker compose run --rm <service> alembic ... upgrade head`.
+# Collected into a fixed path that always exists (geometry owns no schema and
+# gets an empty dir) so the runtime COPY below is service-independent.
+RUN mkdir -p /migrations \
+    && if [ -f "services/${SERVICE_NAME}/alembic.ini" ]; then \
+        cp "services/${SERVICE_NAME}/alembic.ini" /migrations/alembic.ini \
+        && cp -r "services/${SERVICE_NAME}/alembic" /migrations/alembic; \
+    fi
+
 # --- runtime: slim python + the venv, non-root ------------------------------
 FROM python:3.12-slim-bookworm AS runtime
 
@@ -72,6 +84,11 @@ RUN groupadd --system loft && useradd --system --gid loft --home /app loft
 
 WORKDIR /app
 COPY --from=builder --chown=loft:loft /app/.venv /app/.venv
+# Schema owner's alembic tree (empty for services that own no schema):
+#   docker compose run --rm <service> alembic -c /app/migrations/alembic.ini upgrade head
+# `script_location = %(here)s/alembic` resolves relative to the ini, so the
+# tree is self-contained at this path; POSTGRES_URL comes from the service env.
+COPY --from=builder --chown=loft:loft /migrations /app/migrations
 
 USER loft
 
@@ -79,7 +96,10 @@ USER loft
 # 8002 (geometry); compose sets PORT accordingly. EXPOSE is documentation.
 EXPOSE 8000 8001 8002
 
-HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 \
+# start-period 30s: the geometry image imports OCP/OCCT at module import, which
+# is seconds of cold-cache work — failures before then must not count toward
+# `retries`, or `docker compose up --wait` calls a healthy service unhealthy.
+HEALTHCHECK --interval=10s --timeout=3s --start-period=30s --retries=3 \
     CMD curl -fsS "http://127.0.0.1:${PORT:-8000}/healthz" || exit 1
 
 # Shell form on purpose: SERVICE_NAME/PORT expand at runtime. exec keeps

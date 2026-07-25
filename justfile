@@ -19,6 +19,15 @@ dev-down:
 smoke base_port="8000":
     scripts/smoke-healthz.sh {{base_port}}
 
+# Prove the documented self-host path on a real docker daemon: build + boot
+# the BASE compose stack, migrate both schemas from the service images, then
+# drive a real modeling round-trip over the published gateway port (register →
+# part → sketch → extrude → evaluate → fetch the mesh → export STEP) and
+# assert the internal services are unreachable. Same script CI runs
+# (the `deploy-path` workflow). Tears the stack down; KEEP_STACK=1 to keep it.
+compose-smoke:
+    scripts/compose-smoke.sh
+
 # Lint + typecheck: ruff (lint + format), pyright strict, eslint + prettier,
 # and TS typecheck (tsc) across the pnpm workspace. The TS typecheck is here so
 # a backend change that regenerates packages/ts-client and breaks a frontend

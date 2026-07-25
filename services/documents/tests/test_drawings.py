@@ -749,3 +749,158 @@ def test_rescaling_the_only_view_of_a_sheet_is_allowed(client: TestClient) -> No
     )
     assert response.status_code == 200, response.text
     assert response.json()["view"]["scale"] == {"numerator": 1, "denominator": 4}
+
+
+# --- one view per projection per sheet (engineering audit H3) ---------------------
+
+
+def test_duplicate_projection_on_one_sheet_is_422(client: TestClient) -> None:
+    """The compose layer + the frontend key views by PROJECTION, so a second
+    `section` view collapsed to one composed view and made a drag-to-place PATCH
+    write to the OTHER row. Now a typed refusal (uq_views_sheet_projection)."""
+    part = _create_part(client, "sectioned")
+    drawing_id = _create_drawing(client, "two-sections")
+    sheet_id = _add_sheet(client, drawing_id, 0).json()["sheet"]["id"]
+    first = _add_view(
+        client,
+        drawing_id,
+        sheet_id,
+        part,
+        1,
+        projection="section",
+        section_params={
+            "plane": {"kind": "datum_plane", "plane": "XY"},
+            "flip": False,
+        },
+    )
+    assert first.status_code == 201, first.text
+
+    response = _add_view(
+        client,
+        drawing_id,
+        sheet_id,
+        part,
+        2,
+        projection="section",
+        section_params={
+            "plane": {"kind": "datum_plane", "plane": "YZ"},
+            "flip": False,
+        },
+    )
+    assert response.status_code == 422, response.text
+    error = _error(response.json())
+    assert error["code"] == "duplicate_view_projection"
+    assert error["details"]["projection"] == "section"
+    assert error["details"]["existing_view_id"] == first.json()["view"]["id"]
+
+    tree = client.get(f"/api/v1/drawings/{drawing_id}", headers=_headers()).json()
+    assert len(tree["sheets"][0]["views"]) == 1
+
+
+def test_duplicate_projection_on_another_sheet_is_allowed(client: TestClient) -> None:
+    """Uniqueness is PER SHEET — two sheets may each carry a front view."""
+    part = _create_part(client, "two-sheets-part")
+    drawing_id = _create_drawing(client, "two-sheets")
+    sheet_a = _add_sheet(client, drawing_id, 0).json()["sheet"]["id"]
+    sheet_b = _add_sheet(client, drawing_id, 1, name="Sheet 2").json()["sheet"]["id"]
+    assert _add_view(client, drawing_id, sheet_a, part, 2).status_code == 201
+    assert _add_view(client, drawing_id, sheet_b, part, 3).status_code == 201
+
+
+def test_reprojecting_a_view_onto_an_existing_projection_is_422(
+    client: TestClient,
+) -> None:
+    part = _create_part(client, "reproject")
+    drawing_id = _create_drawing(client, "reproject-clash")
+    sheet_id = _add_sheet(client, drawing_id, 0).json()["sheet"]["id"]
+    assert _add_view(client, drawing_id, sheet_id, part, 1).status_code == 201
+    top = _add_view(client, drawing_id, sheet_id, part, 2, projection="top").json()
+
+    response = client.patch(
+        f"/api/v1/drawings/{drawing_id}/views/{top['view']['id']}",
+        json={"expected_version": 3, "projection": "front"},
+        headers=_headers(),
+    )
+    assert response.status_code == 422, response.text
+    assert _error(response.json())["code"] == "duplicate_view_projection"
+
+    # Re-projecting onto a FREE projection still works, as does a no-op re-write
+    # of the view's own projection.
+    ok = client.patch(
+        f"/api/v1/drawings/{drawing_id}/views/{top['view']['id']}",
+        json={"expected_version": 3, "projection": "right"},
+        headers=_headers(),
+    )
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["view"]["projection"] == "right"
+    same = client.patch(
+        f"/api/v1/drawings/{drawing_id}/views/{top['view']['id']}",
+        json={"expected_version": 4, "projection": "right"},
+        headers=_headers(),
+    )
+    assert same.status_code == 200, same.text
+
+
+# --- the tree read is grouped, not N+1 (engineering audit H5) ---------------------
+
+
+def test_multi_sheet_tree_groups_children_by_sheet(client: TestClient) -> None:
+    """`_tree_response` now reads views/dimensions/annotations with ONE query each
+    (`WHERE sheet_id IN (...)`) and groups in Python instead of 3 queries PER
+    SHEET. This pins the grouping: no cross-sheet leakage, stored order kept."""
+    part = _create_part(client, "grouped")
+    drawing_id = _create_drawing(client, "grouped-tree")
+    sheet_a = _add_sheet(client, drawing_id, 0).json()["sheet"]["id"]
+    sheet_b = _add_sheet(client, drawing_id, 1, name="Sheet 2").json()["sheet"]["id"]
+
+    version = 2
+    view_ids: dict[str, list[str]] = {sheet_a: [], sheet_b: []}
+    for sheet_id, projections in (
+        (sheet_a, ("front", "top")),
+        (sheet_b, ("right",)),
+    ):
+        for projection in projections:
+            created = _add_view(
+                client, drawing_id, sheet_id, part, version, projection=projection
+            )
+            assert created.status_code == 201, created.text
+            view_ids[sheet_id].append(created.json()["view"]["id"])
+            version = created.json()["doc_version"]
+
+    # One dimension on sheet A's first view, one annotation on sheet B.
+    rd = client.post(
+        f"/api/v1/drawings/{drawing_id}/views/{view_ids[sheet_a][0]}/dimensions",
+        json={
+            "expected_version": version,
+            "dimension": {"type": "diameter", "edge": _edge_sig("circle", 31.4)},
+        },
+        headers=_headers(),
+    )
+    assert rd.status_code == 201, rd.text
+    version = rd.json()["doc_version"]
+    ra = client.post(
+        f"/api/v1/drawings/{drawing_id}/sheets/{sheet_b}/annotations",
+        json={
+            "expected_version": version,
+            "annotation": {
+                "type": "note",
+                "text": "Sheet 2 note",
+                "position": {"x_mm": 10.0, "y_mm": 20.0},
+            },
+        },
+        headers=_headers(),
+    )
+    assert ra.status_code == 201, ra.text
+
+    tree = client.get(f"/api/v1/drawings/{drawing_id}", headers=_headers()).json()
+    first, second = tree["sheets"]
+    assert first["sheet"]["id"] == sheet_a
+    assert [v["id"] for v in first["views"]] == view_ids[sheet_a]
+    assert [v["projection"] for v in first["views"]] == ["front", "top"]
+    assert len(first["dimensions"]) == 1
+    assert first["annotations"] == []
+
+    assert second["sheet"]["id"] == sheet_b
+    assert [v["id"] for v in second["views"]] == view_ids[sheet_b]
+    assert second["dimensions"] == []
+    assert [a["annotation"]["text"] for a in second["annotations"]] == ["Sheet 2 note"]

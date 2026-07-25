@@ -17,6 +17,24 @@ describe("friendlyFeatureError", () => {
     );
   });
 
+  it("humanises the tapped-hole rebuild codes", () => {
+    // Keyed on the CODE, never the prose — the server's message names the exact
+    // pitches / tap drill and is free to change wording; this copy is not.
+    const unsupported = friendlyFeatureError(
+      "hole_thread_unsupported",
+      "M7x1 is not an ISO 261 combination",
+    );
+    expect(unsupported).toMatch(/listed size and pitch/i);
+    expect(unsupported).not.toMatch(/ISO 261 combination/);
+
+    const mismatch = friendlyFeatureError(
+      "hole_thread_mismatch",
+      "A M10x1.5 thread cannot be tapped in a 20mm bore",
+    );
+    expect(mismatch).toMatch(/tap drill/i);
+    expect(mismatch).not.toMatch(/20mm bore/);
+  });
+
   it("humanises the mirror rebuild codes", () => {
     expect(friendlyFeatureError("no_target_body", "raw")).toMatch(
       /no body to mirror/i,
@@ -64,6 +82,41 @@ describe("friendlyFeatureError", () => {
     expect(friendlyFeatureError("profile_not_closed", "raw", "loft")).toMatch(
       /section/i,
     );
+  });
+
+  it("keys cut_removed_nothing copy on the feature type (CM-3)", () => {
+    // The everyday trigger is the SAME pocket cut twice — the extrude copy has
+    // to name it, and must never send a modeler after a revolve axis.
+    const extrude = friendlyFeatureError(
+      "cut_removed_nothing",
+      "raw",
+      "extrude",
+    );
+    expect(extrude).toMatch(/nothing was removed/i);
+    expect(extrude).toMatch(/already cut once|duplicate/i);
+    expect(extrude).not.toMatch(/axis|path|sections/i);
+    // Each other subtractive verb names its OWN geometry, never the sketch.
+    const revolve = friendlyFeatureError(
+      "cut_removed_nothing",
+      "raw",
+      "revolve",
+    );
+    expect(revolve).toMatch(/axis/i);
+    expect(revolve).not.toMatch(/pocket|path/i);
+    expect(friendlyFeatureError("cut_removed_nothing", "raw", "sweep")).toMatch(
+      /path/i,
+    );
+    expect(friendlyFeatureError("cut_removed_nothing", "raw", "loft")).toMatch(
+      /sections/i,
+    );
+  });
+
+  it("gives a generic cut_removed_nothing message without a feature type", () => {
+    const generic = friendlyFeatureError("cut_removed_nothing", "raw kernel");
+    expect(generic).toMatch(/nothing was removed/i);
+    expect(generic).not.toBe("raw kernel");
+    // No verb-specific idiom leaks into the shared string.
+    expect(generic).not.toMatch(/axis|pocket|sections/i);
   });
 
   it("uses the generic profile copy when no feature type is given", () => {

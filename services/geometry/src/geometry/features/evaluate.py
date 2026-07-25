@@ -88,6 +88,7 @@ from py_kit.schemas.features import (
     HoleCounterbore,
     HoleCountersink,
     HoleFeature,
+    HoleParamsV1,
     ImportFeature,
     LinearPatternParamsV1,
     LoftFeature,
@@ -116,6 +117,7 @@ from geometry.kernel import (
     BooleanEmptyError,
     BooleanError,
     ChamferError,
+    CutRemovedNothingError,
     DraftError,
     FilletError,
     HoleInvalidDiameterError,
@@ -147,6 +149,8 @@ from geometry.kernel import (
     SubshapeAmbiguousError,
     SubshapeUnresolvedError,
     SweepError,
+    ThreadBoreMismatchError,
+    ThreadUnsupportedError,
     boolean_bodies,
     bore_hole,
     bore_tool,
@@ -158,6 +162,7 @@ from geometry.kernel import (
     build_revolve_profile_face,
     chamfer_body,
     check_axis_clears_profile,
+    check_tap_drill_bore,
     circular_pattern,
     circular_pattern_cut,
     combine_body,
@@ -181,6 +186,7 @@ from geometry.kernel import (
     resolve_edge,
     resolve_face_plane,
     resolve_faces,
+    resolve_iso_metric_thread,
     revolve_face,
     select_edges,
     shell_body,
@@ -299,7 +305,8 @@ class EvaluationState:
     #: of clay-swapping the whole body. Each snapshot is built exactly like the
     #: final tessellated shape (:func:`_snapshot_shape` — bare solid or flattened
     #: Compound), so a face matches across snapshots by geometry. Service-internal
-    #: kernel shapes, never serialized — exactly like ``bodies``.
+    #: kernel shapes, never serialized — exactly like ``bodies``. Populated ONLY
+    #: when the caller passes ``record_history=True`` (audit H4).
     body_history: list[tuple[uuid.UUID, BodyShape]] = field(
         default_factory=list[tuple[uuid.UUID, BodyShape]]
     )
@@ -337,23 +344,41 @@ class EvaluationState:
     #: equals the live body (same bends, no notches). Service-internal, like ``bodies``.
     sheet_metal_unfold_body: BodyShape | None = None
     active_body_id: uuid.UUID | None = None
-    #: The immediately-preceding BODY-AFFECTING feature (tree order), updated
-    #: after each ok body-affecting feature by :func:`evaluate_tree`. A pattern or
-    #: mirror reads it to infer whether it should array/reflect a CUT (source = a
-    #: preceding extrude-cut or Hole, BACKLOG #3 / FINDINGS #1) or replicate
-    #: whole-body copies (the default). Holds a validated feature envelope — never
-    #: serialized, exactly like ``bodies``.
-    prev_body_feature: FeatureEnvelope | None = None
-    #: The removal TOOL solid(s) the most-recent ok Hole feature cut (bore + any
-    #: counterbore/countersink recess), captured at hole-eval time from the SAME
-    #: pre-cut body so they reproduce the drilled geometry exactly (FINDINGS #1).
-    #: A pattern / mirror whose immediately-preceding feature is that Hole
-    #: (``prev_body_feature`` is a :class:`HoleFeature`) reflects/arrays THESE tools
-    #: — never re-resolving the placement face against the post-cut body (which the
-    #: seed hole would have perturbed, FINDINGS #3). Service-internal, like
-    #: ``bodies``; ``None`` until the first Hole and never read once a NON-Hole
-    #: body-affecting feature follows (the ``prev_body_feature`` type gate).
-    last_hole_tools: list[Solid] | None = None
+    #: The id of the immediately-preceding ok BODY-AFFECTING feature (tree order),
+    #: advanced by :func:`evaluate_tree` after each one. Read ONLY through
+    #: :func:`_pattern_cut_tools`, to answer "was the last body feature the cut
+    #: that produced :attr:`last_cut_tools`?" — the pattern's locked
+    #: source-inference rule (BACKLOG #3).
+    prev_body_feature_id: uuid.UUID | None = None
+    #: The removal TOOL solid(s) of the most recent ok CUT feature — an
+    #: extrude-CUT's region prisms, or a Hole's bore + any counterbore/countersink
+    #: recess — CAPTURED at cut-eval time from the SAME pre-cut body, so they
+    #: reproduce the removed geometry exactly instead of being re-derived later
+    #: against the post-cut body (FINDINGS #1/#3). Recorded through
+    #: :meth:`record_cut_tools`; ``None`` until the first cut. Two readers with two
+    #: DIFFERENT, documented rules: :func:`_pattern_cut_tools` (immediate
+    #: predecessor only — locked) and :func:`_mirror_cut_tools` (the most recent
+    #: cut, however far back — CM-1). Service-internal, like ``bodies``.
+    last_cut_tools: list[Solid] | None = None
+    #: The feature id that produced :attr:`last_cut_tools`, and the body those
+    #: tools were cut FROM. The pattern compares the id against
+    #: :attr:`prev_body_feature_id`; BOTH readers require the recorded body to still
+    #: be active, so a cut on body A can never be replicated into body B (§MB-0).
+    last_cut_feature_id: uuid.UUID | None = None
+    last_cut_body_id: uuid.UUID | None = None
+
+    def record_cut_tools(self, feature_id: uuid.UUID, tools: list[Solid]) -> None:
+        """Record the removal tool(s) an ok CUT feature just subtracted.
+
+        The ONE write path for :attr:`last_cut_tools` (extrude-CUT and Hole today):
+        a mirror or pattern that must replicate a removal replicates THESE solids —
+        the exact tools that were cut, from the body they were cut from — rather
+        than re-deriving them later. Called only after the cut succeeded, so the
+        slot always describes material actually removed from the active body.
+        """
+        self.last_cut_tools = tools
+        self.last_cut_feature_id = feature_id
+        self.last_cut_body_id = self.active_body_id
 
     @property
     def active_body(self) -> BodyShape | None:
@@ -446,12 +471,17 @@ def _cut_active(state: EvaluationState, tool: Solid) -> FeatureError | None:
     """Subtract *tool* from the ACTIVE body (a modifying op — §MB-0).
 
     The caller has already verified an active body exists (``no_prior_body``
-    otherwise). ``state.bodies`` is mutated only on success (§4.3).
+    otherwise). ``state.bodies`` is mutated only on success (§4.3). A tool that
+    cannot reach the body is the typed ``cut_removed_nothing`` (CM-3) — the same
+    honesty the Hole feature has always had (``hole_off_body``), so a revolve /
+    sweep / loft cut into free space is never a successful no-op.
     """
     active = state.active_body
     assert active is not None, "cut without an active body is handled by the caller"
     try:
         state.set_active_body(combine_body(active, tool, "cut"))
+    except CutRemovedNothingError as exc:
+        return FeatureError(code="cut_removed_nothing", message=str(exc))
     except BooleanError as exc:
         return FeatureError(code="boolean_failed", message=str(exc))
     return None
@@ -794,7 +824,7 @@ def _evaluate_extrude(
     reverse = params.direction == "reverse"
 
     if params.operation == "cut":
-        return _evaluate_extrude_cut(params, state, reverse)
+        return _evaluate_extrude_cut(item.id, params, state, reverse)
 
     # ADD: a single closed region (one loop, or one outer boundary + interior
     # holes). N disjoint loops would be N separate solids — multi-body, which
@@ -810,7 +840,10 @@ def _evaluate_extrude(
 
 
 def _evaluate_extrude_cut(
-    params: ExtrudeParamsV1, state: EvaluationState, reverse: bool
+    feature_id: uuid.UUID,
+    params: ExtrudeParamsV1,
+    state: EvaluationState,
+    reverse: bool,
 ) -> FeatureError | None:
     """Subtract one OR MORE disjoint profile regions from the body (§4.3).
 
@@ -824,6 +857,12 @@ def _evaluate_extrude_cut(
     :func:`combine_body`'s single-solid body-chain guarantee (design §7.6);
     the active body is only replaced once every region cuts cleanly, preserving
     last-good semantics on a mid-cut failure.
+
+    On success the region prisms are RECORDED as this feature's removal tools
+    (:meth:`EvaluationState.record_cut_tools`) so a later mirror / pattern
+    replicates the exact solids that were cut — the same posture the Hole has had
+    since FINDINGS #1, and what makes an intervening feature unable to shadow the
+    removal (CM-1).
     """
     resolved = _resolve_profile_faces(params.profile, state)
     if isinstance(resolved, FeatureError):
@@ -840,13 +879,16 @@ def _evaluate_extrude_cut(
             ),
         )
 
+    tools = [extrude_face(face, plane, params.distance_mm, reverse) for face in faces]
     try:
-        for face in faces:
-            tool = extrude_face(face, plane, params.distance_mm, reverse)
+        for tool in tools:
             body = combine_body(body, tool, "cut")
+    except CutRemovedNothingError as exc:
+        return FeatureError(code="cut_removed_nothing", message=str(exc))
     except BooleanError as exc:
         return FeatureError(code="boolean_failed", message=str(exc))
     state.set_active_body(body)
+    state.record_cut_tools(feature_id, tools)
     return None
 
 
@@ -1679,13 +1721,46 @@ def _evaluate_draft(
     return None
 
 
+def _check_hole_thread(params: HoleParamsV1) -> FeatureError | None:
+    """Validate a hole's optional COSMETIC thread callout — typed, never silent.
+
+    ``None`` when the hole is untapped or the callout is honourable; otherwise the
+    per-feature error, mapped 1:1 from the kernel thread taxonomy
+    (``geometry.kernel.threads``):
+
+    * ``hole_thread_unsupported`` — the (nominal, pitch) pair is not an ISO 261
+      combination the kernel knows;
+    * ``hole_thread_mismatch`` — the authored bore is not a hole that thread can
+      be tapped in (outside ``[minor diameter, nominal diameter)``).
+
+    Pure param arithmetic, so it runs BEFORE the face resolves and before any
+    boolean: a hole whose callout cannot be honoured must produce NO body at all,
+    rather than a plain bore wearing a thread designation on the drawing (the
+    silent-wrong class this slice exists to close).
+    """
+    thread = params.thread
+    if thread is None:
+        return None
+    try:
+        resolved = resolve_iso_metric_thread(
+            thread.nominal_diameter_mm, thread.pitch_mm
+        )
+        check_tap_drill_bore(resolved, params.diameter_mm)
+    except ThreadUnsupportedError as exc:
+        return FeatureError(code="hole_thread_unsupported", message=str(exc))
+    except ThreadBoreMismatchError as exc:
+        return FeatureError(code="hole_thread_mismatch", message=str(exc))
+    return None
+
+
 def _evaluate_hole(
     item: EvaluatedFeatureInput, state: EvaluationState
 ) -> FeatureError | None:
     """Drill a cylindrical hole into the current body at a point on a face (§4.3).
 
     The dedicated Hole feature (BACKLOG P2, slice 1 — the simple bore; slice 2 —
-    the optional coaxial counterbore / countersink recess). Like fillet/shell/draft
+    the optional coaxial counterbore / countersink recess, and the optional
+    COSMETIC thread callout that makes the hole TAPPED). Like fillet/shell/draft
     it modifies the implicit single body chain (design §7.6), so it needs a prior
     body-affecting feature (``no_prior_body`` otherwise). The placement FACE is
     resolved by the SAME stage-1 planar-face signature the ``on_face`` datum /
@@ -1700,9 +1775,19 @@ def _evaluate_hole(
     ``hole_off_body`` (the point is off the face / the direction is wrong — no
     material removed), ``hole_too_deep`` (a blind depth OR a recess depth exceeds
     the available material / overhangs the face edge), ``hole_cbore_invalid`` /
-    ``hole_csink_invalid`` (a recess no wider than the bore), or ``boolean_failed``
-    (a kernel cut failure / lump-count change). The active body is only replaced on
-    success (strict-prefix rule tessellates the last-good body, §4.3).
+    ``hole_csink_invalid`` (a recess no wider than the bore),
+    ``hole_thread_unsupported`` / ``hole_thread_mismatch`` (a thread callout the
+    kernel cannot honour), or ``boolean_failed`` (a kernel cut failure /
+    lump-count change). The active body is only replaced on success (strict-prefix
+    rule tessellates the last-good body, §4.3).
+
+    A ``thread`` callout is COSMETIC (``geometry.kernel.threads``): it adds no
+    geometry — the drilled solid is byte-identical to the same hole untapped — so
+    a tapped hole mirrors/patterns/shells exactly as its bore does. It is
+    validated FIRST, before any geometry runs, because it is pure param
+    arithmetic: an unhonourable designation therefore never produces a body, and
+    never silently degrades to a plain hole carrying a thread callout nobody can
+    cut.
     """
     feature = item.feature
     assert isinstance(feature, HoleFeature), "registry dispatches on type='hole'"
@@ -1717,6 +1802,10 @@ def _evaluate_hole(
                 "precedes this one; add a feature that creates a body first."
             ),
         )
+
+    thread_error = _check_hole_thread(params)
+    if thread_error is not None:
+        return thread_error
 
     plane = _resolve_face_datum_plane(params.face, 0.0, state)
     if isinstance(plane, FeatureError):
@@ -1813,49 +1902,66 @@ def _evaluate_hole(
                 csink_angle_deg=hole_type.csink_angle_deg,
             )
         )
-    state.last_hole_tools = tools
+    state.record_cut_tools(item.id, tools)
     return None
 
 
-def _prev_cut_tools(state: EvaluationState) -> list[Solid] | None:
-    """The removal tools to array/reflect-cut, or ``None`` for whole-body (BACKLOG #3).
+def _recorded_cut_tools(state: EvaluationState) -> list[Solid] | None:
+    """:attr:`~EvaluationState.last_cut_tools`, but only while they still APPLY.
 
-    Option (a): a pattern OR mirror infers its combine mode from the
-    IMMEDIATELY-preceding body-affecting feature (``state.prev_body_feature``, tree
-    order — no new schema field, no picked reference, so independent of topological
-    naming #1). Two cut sources produce removal tools (FINDINGS #1 — both verbs
-    reasoned about the body chain without cut-awareness):
-
-    * an extrude-CUT: its removal tool(s) are RECONSTRUCTED from the source's
-      already-solved profile — a pure, deterministic function of the same solved
-      sketch + params the cut itself used (:func:`_resolve_profile_faces` +
-      :func:`extrude_face`);
-    * a Hole: the exact bore (+ any counterbore/countersink recess) tool(s)
-      CAPTURED at hole-eval time (``state.last_hole_tools``), so the seed hole
-      (placement 0 / the source side) and the copies are the identical tool without
-      re-resolving the placement face against the post-cut body.
-
-    Any other source (an add, a fillet, an intervening feature) returns ``None`` —
-    the caller replicates whole-body copies exactly as before (the add-pattern /
-    reflect-and-union mirror path is unchanged).
-
-    The source cut already succeeded in this prefix (strict-prefix rule), so
-    reconstruction cannot fail; a defensive ``FeatureError`` from the resolver
-    (which must not happen) falls back to ``None`` rather than crash.
+    The shared read both replication rules below start from: the recorded tools are
+    offered only when the body they were cut from is still the active body (§MB-0),
+    so a pocket in body A can never be reflected/arrayed into body B. ``None``
+    otherwise — the caller replicates whole-body copies.
     """
-    source = state.prev_body_feature
-    if isinstance(source, HoleFeature):
-        return state.last_hole_tools
-    if not isinstance(source, ExtrudeFeature) or source.params.operation != "cut":
+    if state.last_cut_tools is None or state.last_cut_body_id != state.active_body_id:
         return None
-    resolved = _resolve_profile_faces(source.params.profile, state)
-    if isinstance(resolved, FeatureError):
+    return state.last_cut_tools
+
+
+def _pattern_cut_tools(state: EvaluationState) -> list[Solid] | None:
+    """The tools a PATTERN should array, or ``None`` for whole-body copies.
+
+    The pattern's source inference (BACKLOG #3, option a — reviewed and LOCKED):
+    the source is the IMMEDIATELY-preceding body-affecting feature, so a pattern
+    arrays a removal only when that feature is the cut which recorded the tools.
+    Any other predecessor — an add (a boss), a fillet, an intervening modifier —
+    means "array the body-so-far", which is a legitimate and useful reading and is
+    guarded by ``test_add_pattern_after_a_cut_hole_still_unions_whole_body`` and
+    ``test_pattern_after_an_intervening_fillet_unions_whole_body_not_recut``.
+
+    Deliberately NOT the mirror's rule (:func:`_mirror_cut_tools`): the two verbs
+    ask different questions of the same recorded tools. Shadowing costs a pattern
+    only a less useful reading; it cost the mirror EXISTING GEOMETRY (CM-1).
+    """
+    if state.last_cut_feature_id != state.prev_body_feature_id:
         return None
-    faces, plane = resolved
-    reverse = source.params.direction == "reverse"
-    return [
-        extrude_face(face, plane, source.params.distance_mm, reverse) for face in faces
-    ]
+    return _recorded_cut_tools(state)
+
+
+def _mirror_cut_tools(state: EvaluationState) -> list[Solid] | None:
+    """The tools a MIRROR should reflect, or ``None`` for reflect-and-union.
+
+    The MOST RECENT cut of this body, however many non-cut features sit between it
+    and the mirror (CM-1 fix, 2026-07-25). The mirror cannot use the pattern's
+    immediate-predecessor rule, because the fallback is not merely less useful — it
+    is DESTRUCTIVE: ``mirror_union`` reflects the whole body and fuses it, so the
+    reflection's material FILLS the existing void, and a hole drilled before an
+    unrelated chamfer/fillet/boss silently disappeared (the FINDINGS #2
+    featureless-brick symptom, measured 31640.0 mm^3 vs 29629.3807 correct, with no
+    cylindrical face left in the topology).
+
+    Reflecting the most recent cut is the consistent generalisation of the LOCKED
+    v1 semantic "a mirror reflects that removal" (``mirror_cut``): the cut path
+    never unions material, so EVERY earlier void survives untouched — which is what
+    keeps ``test_mirror_preserves_a_cut_that_precedes_the_mirrored_one`` (29600.0,
+    pocket A preserved) green, and why the tempting "union then re-subtract both
+    tool sets" alternative is still rejected (it welds pocket A shut at 30400.0).
+    What v1 does NOT do is reflect an intervening ADD's material: a boss added
+    after the cut is not duplicated (documented limit, GEOMETRY-QA 2026-07-25 —
+    mirroring a SELECTED SET of features is the incumbent semantic and a v2 item).
+    """
+    return _recorded_cut_tools(state)
 
 
 def _apply_pattern(
@@ -1902,7 +2008,8 @@ def _evaluate_pattern(
     vectors (no picked sub-geometry — independent of topological naming, #1), so
     like fillet/chamfer it needs a prior body-affecting feature
     (``no_target_body`` otherwise). Two combine modes, inferred (option a) from
-    the IMMEDIATELY-preceding body-affecting feature (:func:`_prev_cut_tools`):
+    the IMMEDIATELY-preceding body-affecting feature (:func:`_pattern_cut_tools` —
+    the pattern's rule, deliberately narrower than the mirror's):
 
     * when it is an extrude-CUT or a Hole (a bolt-circle hole, a lightening hole —
       BACKLOG #3 / FINDINGS #1 / showcase F1), the copies of that cut's tool are
@@ -1932,7 +2039,7 @@ def _evaluate_pattern(
             ),
         )
 
-    tools = _prev_cut_tools(state)
+    tools = _pattern_cut_tools(state)
     try:
         state.set_active_body(_apply_pattern(active, feature.params.pattern, tools))
     except PatternCountError as exc:
@@ -1966,16 +2073,19 @@ def _evaluate_mirror(
     ``reference_unresolved`` pinned to the referenced feature (documents rejects it
     at write time; geometry re-checks because it must not trust its callers).
 
-    Two combine modes, inferred (option a) from the IMMEDIATELY-preceding
-    body-affecting feature (:func:`_prev_cut_tools`) — the SAME cut-awareness the
-    pattern uses, because mirror and pattern share the root defect (FINDINGS #1:
-    both reasoned about the body chain without it):
+    Two combine modes, chosen from the MOST RECENT cut of this body
+    (:func:`_mirror_cut_tools`) — the same cut-awareness the pattern has, but
+    tracked past intervening features, because for a mirror the fallback DESTROYS
+    geometry rather than merely reading the request differently (FINDINGS #1 and
+    CM-1: both verbs reasoned about the body chain without cut-awareness, and the
+    mirror's shadowed case erased the hole):
 
-    * when it is an extrude-CUT or a Hole, the mirror reflects THAT CUT's tool(s)
+    * when this body has a cut on record, the mirror reflects THAT CUT's tool(s)
       about ``plane`` and removes them (:func:`mirror_cut`), so a plate with a hole
       on one side mirrors to a plate with a hole on BOTH sides — the #1 mirror use
-      case. Reflecting the whole filled body and unioning would instead FILL the
-      original hole (the featureless-brick bug);
+      case — and it keeps doing so when an unrelated chamfer / fillet / boss sits
+      between the cut and the mirror (CM-1). Reflecting the whole filled body and
+      unioning would instead FILL the original hole (the featureless-brick bug);
     * otherwise the mirror reflects the WHOLE current body and BOOLEAN-UNIONS the
       reflection into the body chain (:func:`mirror_union` — option B, the
       reflective sibling of the ADD pattern, unchanged). UNLIKE a pattern this union
@@ -2004,7 +2114,7 @@ def _evaluate_mirror(
     if isinstance(plane, FeatureError):
         return plane
 
-    tools = _prev_cut_tools(state)
+    tools = _mirror_cut_tools(state)
     try:
         if tools is not None:
             state.set_active_body(mirror_cut(active, tools, plane))
@@ -2169,10 +2279,10 @@ def _evaluate_boolean(
 
 
 #: Feature types whose ok evaluation mutates the body set (§MB-0). The
-#: main loop records the last such feature as ``state.prev_body_feature`` so a
-#: pattern can infer its combine mode from the immediately-preceding
-#: body-affecting feature (BACKLOG #3). Sketch/datum are absent — they produce
-#: input geometry / a plane, never a body.
+#: main loop records the last such feature's id as ``state.prev_body_feature_id``
+#: so a pattern can infer its combine mode from the immediately-preceding
+#: body-affecting feature (BACKLOG #3, :func:`_pattern_cut_tools`). Sketch/datum
+#: are absent — they produce input geometry / a plane, never a body.
 _BODY_AFFECTING_TYPES: frozenset[str] = frozenset(
     {
         "extrude",
@@ -2314,7 +2424,9 @@ class TreeEvaluation:
     #: order): ``(feature id, shape)``. Service-internal like ``body``. Per-face
     #: feature provenance (FINDINGS #9) — the overlay service threads
     #: :func:`geometry.kernel.attribute_faces` over ``(body, body_history)`` onto
-    #: ``OverlayFace.feature_id`` for feature-localized selection. Empty for a
+    #: ``OverlayFace.feature_id`` for feature-localized selection. EMPTY unless the
+    #: caller asked for it (``evaluate_tree(..., record_history=True)`` — audit H4:
+    #: only the overlay path funds the retained intermediate bodies), and for a
     #: body-less tree.
     body_history: list[tuple[uuid.UUID, BodyShape]] = field(
         default_factory=list[tuple[uuid.UUID, BodyShape]]
@@ -2387,7 +2499,9 @@ def _suppressed_reference_error(
     return None
 
 
-def evaluate_tree(request: EvaluateTreeRequest) -> TreeEvaluation:
+def evaluate_tree(
+    request: EvaluateTreeRequest, *, record_history: bool = False
+) -> TreeEvaluation:
     """Evaluate an ordered feature prefix under the strict-prefix rule (§4.3).
 
     Suppressed features (§4.3a) are SKIPPED: the body is built from the
@@ -2396,9 +2510,23 @@ def evaluate_tree(request: EvaluateTreeRequest) -> TreeEvaluation:
     suppressed one is a typed ``references_suppressed`` error
     (:func:`_suppressed_reference_error`), never a raise.
 
+    *record_history* (OPT-IN, audit H4) turns on the per-feature body snapshots
+    that feed per-face provenance (:attr:`TreeEvaluation.body_history`). It is off
+    by default because ONLY the overlay service consumes them, while
+    ``evaluate_tree`` has nine call sites — tessellate, export, measure, drawing
+    compose, per-instance assembly evaluation, the golden harness. Recording
+    unconditionally made every one of those retain an intermediate B-rep per
+    body-affecting feature (up to ``MAX_TREE_FEATURES``, and per unique part in an
+    assembly) plus, for a multi-body part, CONSTRUCT a fresh ``Compound`` per
+    feature — real OCCT work on the tessellate hot path, funded by callers that
+    never read the result. With it off, each intermediate body dies as the next
+    feature supersedes it, exactly as before provenance existed.
+
     Deterministic: same request → identical statuses, identical solved
     positions, byte-identical GLB and therefore identical ``mesh_glb_id``
-    (RESEARCH §9). Never raises for geometry outcomes.
+    (RESEARCH §9) — and *record_history* changes NOTHING about the evaluated
+    geometry, only whether the intermediates are kept. Never raises for geometry
+    outcomes.
     """
     state = EvaluationState(linear_deflection=request.linear_deflection)
     results: list[FeatureResult] = []
@@ -2434,16 +2562,20 @@ def evaluate_tree(request: EvaluateTreeRequest) -> TreeEvaluation:
                 )
             )
             last_good_feature_id = item.id
-            # Record the last ok body-affecting feature so the NEXT feature (a
-            # pattern) can infer its source (BACKLOG #3). Set AFTER dispatch, so
-            # a pattern reads the feature BEFORE it, then this advances to the
-            # pattern itself.
+            # Advance the last ok body-affecting feature id so the NEXT feature (a
+            # pattern) can tell whether the recorded cut tools came from its
+            # IMMEDIATE predecessor (BACKLOG #3, `_pattern_cut_tools`). Set AFTER
+            # dispatch, so a pattern reads the feature BEFORE it, then this
+            # advances to the pattern itself.
             if item.feature.type in _BODY_AFFECTING_TYPES:
-                state.prev_body_feature = item.feature
+                state.prev_body_feature_id = item.id
                 # Snapshot the body set for per-face feature provenance
                 # (FINDINGS #9): each final face is attributed to the earliest
-                # feature after which it exists in its final form.
-                if state.bodies:
+                # feature after which it exists in its final form. OPT-IN (audit
+                # H4) — only the overlay path reads these, so no other caller pays
+                # the retained intermediate bodies (or the per-feature Compound
+                # construction on a multi-body part).
+                if record_history and state.bodies:
                     state.body_history.append((item.id, _snapshot_shape(state.bodies)))
         else:
             results.append(

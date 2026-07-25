@@ -78,11 +78,14 @@ def _post_import(
     products: list[ImportedProduct],
     owner: str = OWNER,
     with_principal: bool = True,
+    bodies: dict[str, str] | None = None,
 ) -> Any:
     request = ImportAssemblyRequest(
         name=name,
         result=StepAssemblyImportResult(
-            has_assembly_structure=has_structure, products=products
+            has_assembly_structure=has_structure,
+            products=products,
+            bodies=bodies or {},
         ),
     )
     headers = _headers(owner) if with_principal else {}
@@ -168,6 +171,72 @@ def test_assembly_import_names_instances_from_fallback_when_unnamed(
     assert response.status_code == 201, response.text
     names = [inst["name"] for inst in response.json()["assembly"]["instances"]]
     assert names == ["Instance <1>", "Instance <2>"]
+
+
+# --- the shared-body wire shape (bodies carried ONCE per body_step_id) ------------
+
+
+def test_repeated_part_body_travels_once_on_the_wire(client: TestClient) -> None:
+    """The canonical transport shape: products reference bodies by content address.
+
+    Two occurrences of ONE part sent as the wire form — products carrying only
+    ``body_step_id``, the fragment itself ONCE in ``bodies`` — still create ONE
+    part (seeded with that resolved body) and TWO placed instances. Also asserts
+    the request really did carry the fragment a single time, which is the point of
+    the reshape.
+    """
+    products = [
+        _product(
+            name="Bracket", body_id=BODY_A, body_step=None, placement=_pos(0, 0, 0)
+        ),
+        _product(
+            name="Bracket", body_id=BODY_A, body_step=None, placement=_pos(8, 0, 0)
+        ),
+    ]
+    wire = ImportAssemblyRequest(
+        name="Twin",
+        result=StepAssemblyImportResult(
+            has_assembly_structure=True, products=products, bodies={BODY_A: STEP_A}
+        ),
+    ).model_dump_json()
+    assert wire.count("/* body A */") == 1  # one body, two instances
+
+    response = _post_import(
+        client,
+        name="Twin",
+        has_structure=True,
+        products=products,
+        bodies={BODY_A: STEP_A},
+    )
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert len(body["part_ids"]) == 1
+    instances = body["assembly"]["instances"]
+    assert [inst["name"] for inst in instances] == ["Bracket", "Bracket"]
+    assert instances[0]["ref_document_id"] == instances[1]["ref_document_id"]
+    tree = client.get(
+        f"/api/v1/parts/{body['part_ids'][0]}/features", headers=_headers()
+    ).json()
+    assert tree["features"][0]["feature"]["params"]["data"] == STEP_A
+
+
+def test_body_address_missing_from_map_is_treated_as_bodyless(
+    client: TestClient,
+) -> None:
+    """A dangling ``body_step_id`` (malformed read) is a typed 422, never a 500."""
+    products = [
+        _product(name="Ghost", body_id=BODY_B, body_step=None, placement=_pos(0, 0, 0))
+    ]
+    response = _post_import(
+        client,
+        name="Ghost",
+        has_structure=True,
+        products=products,
+        bodies={BODY_A: STEP_A},  # BODY_B is absent
+    )
+    assert response.status_code == 422
+    assert _error(response.json())["code"] == "import_no_solid"
+    assert client.get("/api/v1/parts", headers=_headers()).json()["parts"] == []
 
 
 # --- single-body fallback (MB-4b, backward compatible) ----------------------------

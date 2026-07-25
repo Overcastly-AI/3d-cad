@@ -19,7 +19,7 @@ drawing is a signed-in user's document, never anonymously reachable.
 """
 
 import uuid
-from typing import Annotated, Any
+from typing import Annotated, Any, NamedTuple
 
 import httpx2 as httpx
 from fastapi import APIRouter, Query, Request, Response, status
@@ -34,6 +34,7 @@ from py_kit.schemas.drawings import (
     ComposedSheet,
     DimensionCreate,
     DimensionMutationResponse,
+    DrawingBomResponse,
     DrawingCreate,
     DrawingDimensionInput,
     DrawingListResponse,
@@ -44,6 +45,7 @@ from py_kit.schemas.drawings import (
     SheetCreate,
     SheetLayout,
     SheetMutationResponse,
+    SheetResponse,
     SheetUpdate,
     SheetViewPlacement,
     ViewCreate,
@@ -106,6 +108,43 @@ async def get_drawing(
     if upstream.status_code != status.HTTP_200_OK:
         raise_upstream_error(upstream, service=_SERVICE)
     return DrawingTreeResponse.model_validate_json(upstream.content)
+
+
+@router.get("/{drawing_id}/bom")
+async def get_drawing_bom(
+    drawing_id: uuid.UUID,
+    user: CurrentUser,
+    http_request: Request,
+    sheet: Annotated[
+        uuid.UUID | None,
+        Query(
+            description="Which sheet to bill (a sheet id from the drawing tree); "
+            "omit to bill the FIRST sheet, the same default the compose/export "
+            "routes take. An unknown/foreign id is a `sheet_not_found` 404.",
+        ),
+    ] = None,
+) -> DrawingBomResponse:
+    """The sheet's bill of materials — items numbered from the assembly it drafts.
+
+    A single documents hop (no geometry): the BOM is a pure documents-side READ
+    MODEL over the source assembly's instance graph, so nothing is evaluated and
+    nothing is persisted on the drawing. Item numbers are DERIVED on every read
+    from the assembly's stable instance order (design §7 BOM) — a stored number
+    could silently disagree with the assembly it names, so none is stored.
+    documents' typed refusals re-surface verbatim: ``sheet_not_found`` (404),
+    ``sheet_has_no_views`` / ``drawing_bom_source_not_assembly`` /
+    ``drawing_bom_source_missing`` (422).
+    """
+    upstream = await forward_documents(
+        http_request,
+        user,
+        "GET",
+        f"/api/v1/drawings/{drawing_id}/bom",
+        params={"sheet": str(sheet)} if sheet is not None else None,
+    )
+    if upstream.status_code != status.HTTP_200_OK:
+        raise_upstream_error(upstream, service=_SERVICE)
+    return DrawingBomResponse.model_validate_json(upstream.content)
 
 
 @router.patch("/{drawing_id}")
@@ -600,13 +639,41 @@ def _assert_single_source(sheet_content: SheetContent) -> None:
             )
 
 
+class _ComposePlan(NamedTuple):
+    """What one compose/export call needs: the request + the download name.
+
+    ``download_title`` names the SHEET, not just the drawing (review CR-6): with
+    ``?sheet=`` composing any sheet, exporting sheets 1 and 2 of one drawing
+    otherwise produced two files with the SAME name (the browser disambiguating
+    them as ``plate (1).pdf``), which makes per-sheet export unusable for the
+    multi-sheet drawings it was built for. The gateway is the only hop that knows
+    the sheet — geometry composes from a ``SheetLayout`` whose ``title`` is the
+    drawing name — so it names the download.
+    """
+
+    request: ComposeDrawingRequest
+    download_title: str
+
+
+def _download_title(tree: DrawingTreeResponse, sheet: SheetResponse) -> str:
+    """Title the export filename is slugged from (``artifact_filename``).
+
+    A single-sheet drawing keeps the bare drawing name (``plate.pdf`` —
+    unchanged, and a lone sheet needs no disambiguation); a MULTI-sheet drawing
+    appends the sheet's own name (``plate-sheet-2.pdf``).
+    """
+    if len(tree.sheets) < 2:
+        return tree.drawing.name
+    return f"{tree.drawing.name} {sheet.name}"
+
+
 async def _aggregate_compose_request(
     drawing_id: uuid.UUID,
     user: CurrentUser,
     http_request: Request,
     artifact_format: ArtifactFormat,
     sheet_id: uuid.UUID | None = None,
-) -> ComposeDrawingRequest:
+) -> _ComposePlan:
     """The shared two-hop aggregation behind both the export and the sheet route.
 
     Fetches the drawing tree AND the referenced part/assembly's evaluation-request
@@ -657,8 +724,11 @@ async def _aggregate_compose_request(
         assembly_request = EvaluateAssemblyRequest.model_validate_json(
             assembly_upstream.content
         )
-        return _compose_request(
-            tree, sheet_content, artifact_format, assembly=assembly_request
+        return _ComposePlan(
+            _compose_request(
+                tree, sheet_content, artifact_format, assembly=assembly_request
+            ),
+            _download_title(tree, sheet_content.sheet),
         )
 
     part_upstream = await forward_documents(
@@ -671,8 +741,9 @@ async def _aggregate_compose_request(
         raise_upstream_error(part_upstream, service=_SERVICE)
     evaluation_request = EvaluateTreeRequest.model_validate_json(part_upstream.content)
 
-    return _compose_request(
-        tree, sheet_content, artifact_format, part=evaluation_request
+    return _ComposePlan(
+        _compose_request(tree, sheet_content, artifact_format, part=evaluation_request),
+        _download_title(tree, sheet_content.sheet),
     )
 
 
@@ -725,11 +796,14 @@ async def export_drawing(
     unknown/foreign drawing re-surfaced verbatim), the gateway assembles the
     :class:`ComposeDrawingRequest` from that persisted state, and the stateless
     geometry service (identity-free upstream) evaluates + places + serializes it.
-    The artifact bytes stream back with geometry's ``Content-Type`` +
-    ``Content-Disposition``; its per-format envelopes (e.g. ``not_implemented`` for
-    ``dxf``) re-surface verbatim.
+    The artifact bytes stream back with geometry's ``Content-Type``; its
+    per-format envelopes (e.g. ``not_implemented`` for ``dxf``) re-surface
+    verbatim. The download filename is set HERE (``Content-Disposition``), not
+    relayed: only the gateway knows which sheet was composed, so a multi-sheet
+    drawing downloads as ``<drawing>-<sheet>.<ext>`` instead of every sheet
+    sharing the drawing's name; a single-sheet drawing keeps ``<drawing>.<ext>``.
     """
-    compose_request = await _aggregate_compose_request(
+    plan = await _aggregate_compose_request(
         drawing_id, user, http_request, format, sheet_id=sheet
     )
 
@@ -740,17 +814,18 @@ async def export_drawing(
         "POST",
         "/api/v1/drawing/compose",
         service=_GEOMETRY,
-        json_content=compose_request.model_dump_json(),
+        json_content=plan.request.model_dump_json(),
     )
     if composed.status_code != status.HTTP_200_OK:
         raise_upstream_error(composed, service=_GEOMETRY)
 
-    headers: dict[str, str] = {}
-    if "content-disposition" in composed.headers:
-        headers["Content-Disposition"] = composed.headers["content-disposition"]
-    else:
-        filename = artifact_filename(compose_request.layout.title, format)
-        headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+    # The gateway names the download, overriding geometry's suggestion: only this
+    # hop knows WHICH sheet was composed, and geometry's name comes from
+    # `layout.title` (the drawing name), so every sheet of a multi-sheet drawing
+    # would otherwise download under one name (review CR-6). Same slug function
+    # (`artifact_filename`) either way, so a single-sheet export is unchanged.
+    filename = artifact_filename(plan.download_title, format)
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
     media_type = composed.headers.get("content-type", ARTIFACT_MEDIA_TYPES[format])
     return Response(content=composed.content, media_type=media_type, headers=headers)
 
@@ -783,7 +858,7 @@ async def compose_drawing_sheet(
     source the DE-1c frontend cutover renders from — deleting the browser's
     duplicate placement engine. Deterministic (RESEARCH §9); the gateway just relays.
     """
-    compose_request = await _aggregate_compose_request(
+    plan = await _aggregate_compose_request(
         drawing_id, user, http_request, "svg", sheet_id=sheet
     )
 
@@ -794,7 +869,7 @@ async def compose_drawing_sheet(
         "POST",
         "/api/v1/drawing/compose/sheet",
         service=_GEOMETRY,
-        json_content=compose_request.model_dump_json(),
+        json_content=plan.request.model_dump_json(),
     )
     if composed.status_code != status.HTTP_200_OK:
         raise_upstream_error(composed, service=_GEOMETRY)

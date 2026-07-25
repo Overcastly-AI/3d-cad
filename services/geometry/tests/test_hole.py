@@ -40,6 +40,13 @@ from geometry.kernel.hole import (
     cut_countersink,
 )
 from geometry.kernel.lumps import lump_count
+from geometry.kernel.threads import (
+    ISO_METRIC_PITCHES,
+    ThreadBoreMismatchError,
+    ThreadUnsupportedError,
+    check_tap_drill_bore,
+    resolve_iso_metric_thread,
+)
 from geometry.kernel.types import BodyShape
 from geometry.main import app
 from py_kit.schemas.features import (
@@ -1438,3 +1445,277 @@ def test_recess_cuts_are_deterministic_across_repeats() -> None:
             )
         )
     assert len(sigs) == 1
+
+
+# --- Slice 2 TAIL: TAPPED holes — a cosmetic thread callout over the tap drill -------
+#
+# The v1 thread representation is COSMETIC (decision + rationale + the modelled-
+# thread upgrade path: geometry/kernel/threads.py): the kernel cuts the tap-drill
+# bore and carries the designation as metadata. These tests hold that decision to
+# its two promises — the geometry is EXACTLY the bore (byte-identical to the same
+# hole untapped), and a callout the kernel cannot honour is a TYPED error rather
+# than a plain hole wearing a thread nobody can cut.
+
+#: The golden's tapped hole: M10x1.5 -> tap drill D - P = 8.5 mm (r = 4.25).
+M10_TAP_DRILL = 8.5
+_TAPPED_REMOVED = math.pi * (M10_TAP_DRILL / 2.0) ** 2 * 10.0
+
+
+def _thread(nominal_diameter_mm: float, pitch_mm: float) -> dict[str, Any]:
+    return {
+        "standard": "iso_metric",
+        "nominal_diameter_mm": nominal_diameter_mm,
+        "pitch_mm": pitch_mm,
+    }
+
+
+def _tapped_hole(
+    diameter_mm: float,
+    thread: dict[str, Any] | None,
+    hole_type: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """A centred through-hole on the block's top face, optionally tapped."""
+    params: dict[str, Any] = {
+        "face": _face_ref(EXTRUDE_ID, *TOP_FACE),
+        "position": {"x": 20.0, "y": 12.5, "z": 10.0},
+        "diameter_mm": diameter_mm,
+        "depth": dict(THROUGH),
+    }
+    if thread is not None:
+        params["thread"] = thread
+    if hole_type is not None:
+        params["type"] = hole_type
+    return {
+        "id": str(HOLE_ID),
+        "feature": {"type": "hole", "version": 1, "params": params},
+    }
+
+
+def _tapped_tree(
+    diameter_mm: float,
+    thread: dict[str, Any] | None,
+    hole_type: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return _request(
+        [
+            block_sketch(SKETCH_ID),
+            extrude_add(EXTRUDE_ID, SKETCH_ID, 10.0),
+            _tapped_hole(diameter_mm, thread, hole_type),
+        ]
+    )
+
+
+def test_tapped_hole_removes_exactly_the_tap_drill_bore() -> None:
+    """An M10x1.5 tapped through-hole removes EXACTLY π·(8.5/2)²·10 — the ISO tap
+    drill D - P — and keeps the plain through-hole's 7/15/1 topology. The golden
+    `hole-tapped-m10x1.5-40x25x10` pins the same body through the harness; this
+    asserts it over the REST evaluate path with the analytic value."""
+    result = _post(_tapped_tree(M10_TAP_DRILL, _thread(10.0, 1.5)))
+
+    assert [r.status for r in result.features] == ["ok", "ok", "ok"]
+    assert result.properties is not None
+    assert result.properties.volume == _approx(BLOCK_VOLUME - _TAPPED_REMOVED)
+    assert (
+        result.properties.topology.faces,
+        result.properties.topology.edges,
+        result.properties.topology.shells,
+    ) == (7, 15, 1)
+    # A through bore is symmetric about the mid-plane (unlike a recess).
+    assert result.properties.centroid.z == _approx(5.0)
+
+
+def test_tapped_hole_is_byte_identical_to_the_same_bore_untapped() -> None:
+    """THE COSMETIC DECISION, made assertable: adding a thread callout to a hole
+    changes NO geometry. The evaluate response for a Ø8.5 hole with an M10x1.5
+    thread is byte-for-byte the response for the same Ø8.5 hole with no thread —
+    same mesh id, same mass properties, same topology.
+
+    This is what makes a tapped hole free to mirror, pattern, shell and export:
+    downstream sees the bore it always saw. It also fails loudly the day someone
+    "improves" the tap into geometry without giving it its own golden."""
+    tapped = client.post(
+        "/api/v1/evaluate", json=_tapped_tree(M10_TAP_DRILL, _thread(10.0, 1.5))
+    )
+    untapped = client.post("/api/v1/evaluate", json=_tapped_tree(M10_TAP_DRILL, None))
+
+    assert tapped.status_code == untapped.status_code == 200
+    assert tapped.content == untapped.content
+
+
+def test_tapped_hole_may_also_be_counterbored() -> None:
+    """Threading is ORTHOGONAL to the recess (why `thread` is its own field and
+    not a fourth `HoleType` member): a counterbored TAPPED hole — a cap screw head
+    sunk over an M10x1.5 tapped bore — is one feature, and removes exactly the
+    bore plus the annular recess."""
+    result = _post(
+        _tapped_tree(
+            M10_TAP_DRILL,
+            _thread(10.0, 1.5),
+            {"kind": "counterbore", "cbore_diameter_mm": 18.0, "cbore_depth_mm": 4.0},
+        )
+    )
+
+    assert [r.status for r in result.features] == ["ok", "ok", "ok"]
+    assert result.properties is not None
+    annulus = math.pi * (9.0**2 - (M10_TAP_DRILL / 2.0) ** 2) * 4.0
+    assert result.properties.volume == _approx(BLOCK_VOLUME - _TAPPED_REMOVED - annulus)
+    assert result.properties.centroid.z < 5.0
+
+
+@pytest.mark.parametrize(
+    ("nominal_mm", "pitch_mm", "why"),
+    [
+        (10.0, 1.4, "1.4 is not a standard pitch for M10 (1.5/1.25/1.0/0.75)"),
+        (7.0, 1.0, "M7 is not in the ISO 261 series"),
+        (10.0, 0.5, "0.5 is a pitch of M4/M5, never of M10"),
+    ],
+)
+def test_unhonourable_designation_is_hole_thread_unsupported(
+    nominal_mm: float, pitch_mm: float, why: str
+) -> None:
+    """A designation the kernel cannot honour is a TYPED per-feature error — never
+    a silent fallback to an untapped hole (which would ship a part whose drawing
+    calls out a thread nobody can cut). The tree still answers 200, and the
+    strict-prefix rule leaves the last-good body at the un-drilled block."""
+    result = _post(_tapped_tree(M10_TAP_DRILL, _thread(nominal_mm, pitch_mm)))
+
+    assert [r.status for r in result.features] == ["ok", "ok", "error"], why
+    assert result.features[2].error is not None
+    assert result.features[2].error.code == "hole_thread_unsupported"
+    # Validated BEFORE any geometry: the body is the plain block, not a bore.
+    assert result.properties is not None
+    assert result.properties.volume == _approx(BLOCK_VOLUME)
+
+
+@pytest.mark.parametrize(
+    ("bore_mm", "why"),
+    [
+        (10.0, "a bore AT the nominal diameter leaves no material to tap"),
+        (12.0, "a bore wider than the nominal diameter is not a tapped hole"),
+        (6.0, "a bore below the minor diameter 8.376mm cannot admit the tap"),
+    ],
+)
+def test_bore_the_thread_cannot_be_tapped_in_is_hole_thread_mismatch(
+    bore_mm: float, why: str
+) -> None:
+    """An M10x1.5 callout on a bore outside [minor, nominal) is
+    `hole_thread_mismatch` — the silent-wrong class this slice closes (a Ø12 hole
+    labelled M10 is a drawing that lies). Body untouched."""
+    result = _post(_tapped_tree(bore_mm, _thread(10.0, 1.5)))
+
+    assert [r.status for r in result.features] == ["ok", "ok", "error"], why
+    assert result.features[2].error is not None
+    assert result.features[2].error.code == "hole_thread_mismatch"
+    assert result.properties is not None
+    assert result.properties.volume == _approx(BLOCK_VOLUME)
+
+
+def test_tapped_hole_registry_roundtrip_keeps_the_designation() -> None:
+    """A tapped hole survives the shared FEATURE_REGISTRY (documents' persist/read
+    path) with its designation intact, and evaluates ok — the thread is params,
+    which is exactly how a drawing/BOM callout will read it."""
+    envelope = _tapped_hole(M10_TAP_DRILL, _thread(10.0, 1.5))["feature"]
+    loaded = FEATURE_REGISTRY.load(
+        envelope["type"], envelope["version"], envelope["params"]
+    )
+    assert isinstance(loaded, HoleFeature)
+    thread = loaded.params.thread
+    assert thread is not None
+    assert (thread.standard, thread.nominal_diameter_mm, thread.pitch_mm) == (
+        "iso_metric",
+        10.0,
+        1.5,
+    )
+    result = _post(_tapped_tree(M10_TAP_DRILL, _thread(10.0, 1.5)))
+    assert [r.status for r in result.features] == ["ok", "ok", "ok"]
+
+
+# --- Kernel-level: the ISO 261 table and its derived diameters -----------------------
+
+
+@pytest.mark.parametrize(
+    ("nominal_mm", "pitch_mm", "designation", "tap_drill_mm"),
+    [
+        (3.0, 0.5, "M3x0.5", 2.5),
+        (4.0, 0.7, "M4x0.7", 3.3),
+        (5.0, 0.8, "M5x0.8", 4.2),
+        (6.0, 1.0, "M6x1", 5.0),
+        (8.0, 1.25, "M8x1.25", 6.75),
+        (10.0, 1.5, "M10x1.5", 8.5),
+        (12.0, 1.75, "M12x1.75", 10.25),
+        (10.0, 1.25, "M10x1.25", 8.75),
+    ],
+)
+def test_tap_drill_matches_the_published_metric_table(
+    nominal_mm: float, pitch_mm: float, designation: str, tap_drill_mm: float
+) -> None:
+    """The ISO tap-drill rule D - P, cross-checked against the published metric
+    tap-drill values (M6 -> 5.0, M10x1.5 -> 8.5, M4 -> 3.3 ...). These are the
+    numbers a machinist expects; a wrong derivation here would put a wrong bore in
+    every tapped hole the app authors."""
+    thread = resolve_iso_metric_thread(nominal_mm, pitch_mm)
+    assert thread.designation == designation
+    assert thread.tap_drill_diameter_mm == _approx(tap_drill_mm)
+    # The minor diameter (100% thread) is always below the tap drill and above 0.
+    assert 0.0 < thread.minor_diameter_mm < thread.tap_drill_diameter_mm
+
+
+def test_every_table_entry_resolves_and_its_tap_drill_is_tappable() -> None:
+    """Sweep the WHOLE committed ISO 261 table: every (nominal, pitch) resolves,
+    and every one of those threads accepts its own D - P tap drill within the
+    tappable band. A table typo (a pitch too coarse for its diameter) shows up
+    here as a mismatch rather than in a user's part."""
+    for nominal_mm, pitches in ISO_METRIC_PITCHES.items():
+        assert pitches, f"M{nominal_mm} has no pitches"
+        for pitch_mm in pitches:
+            thread = resolve_iso_metric_thread(nominal_mm, pitch_mm)
+            assert (
+                thread.minor_diameter_mm
+                < thread.tap_drill_diameter_mm
+                < thread.nominal_diameter_mm
+            ), thread.designation
+            # Never raises: a thread must accept its own recommended tap drill.
+            check_tap_drill_bore(thread, thread.tap_drill_diameter_mm)
+
+
+def test_a_shop_tables_rounded_drill_is_accepted_but_a_wrong_one_is_not() -> None:
+    """The accepted bore band is [minor, nominal), not an exact D - P match: a
+    shop table's rounded stock drill (6.8 mm for M8x1.25, where D - P is 6.75) is
+    a legitimate tapped hole, while a bore below the minor diameter or at/above
+    the nominal diameter is not."""
+    thread = resolve_iso_metric_thread(8.0, 1.25)
+    check_tap_drill_bore(thread, 6.8)  # stock drill — accepted
+    check_tap_drill_bore(thread, thread.minor_diameter_mm)  # 100% thread — accepted
+    with pytest.raises(ThreadBoreMismatchError):
+        check_tap_drill_bore(thread, 6.0)  # below the minor diameter
+    with pytest.raises(ThreadBoreMismatchError):
+        check_tap_drill_bore(thread, 8.0)  # at the nominal diameter
+
+
+def test_unknown_designations_raise_the_typed_kernel_error() -> None:
+    """The kernel half of `hole_thread_unsupported`: an off-series diameter and an
+    off-standard pitch both raise :class:`ThreadUnsupportedError`, and the message
+    names what IS available (a dead end with directions, not a bare refusal)."""
+    with pytest.raises(ThreadUnsupportedError) as off_series:
+        resolve_iso_metric_thread(7.0, 1.0)
+    assert "ISO 261" in str(off_series.value)
+
+    with pytest.raises(ThreadUnsupportedError) as off_pitch:
+        resolve_iso_metric_thread(10.0, 1.4)
+    # Names the pitches M10 IS standardised at, so the message is a way forward.
+    assert "1.5" in str(off_pitch.value)
+
+
+def test_thread_resolution_is_deterministic() -> None:
+    """RESEARCH §9: the same designation resolves to identical derived diameters
+    across repeats (pure closed-form arithmetic over the committed table — no
+    iteration order, no search)."""
+    resolved = {
+        (
+            repr(t.tap_drill_diameter_mm),
+            repr(t.minor_diameter_mm),
+            t.designation,
+        )
+        for t in (resolve_iso_metric_thread(10.0, 1.5) for _ in range(5))
+    }
+    assert len(resolved) == 1

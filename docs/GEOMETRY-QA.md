@@ -7,6 +7,401 @@ not "do the tests pass" but **"is the geometry RIGHT?"** (RESEARCH §9,
 decisions recorded here AND in the golden's `expected.json` — never a way to
 go green.
 
+## 2026-07-25 — TAPPED holes: the v1 thread representation is COSMETIC, and the golden that locks it (kernel-architect)
+
+**The decision (recorded in `services/geometry/src/geometry/kernel/threads.py`,
+the schema section comment in `py_kit/schemas/features.py`, and here).** A tapped
+hole is the **ISO tap-drill bore plus a typed thread callout** — NOT modelled
+helical geometry. Reasons, in the order they decided it:
+
+1. **Downstream cost.** One modelled M6x1 through-thread is hundreds of faces
+   where the cosmetic bore is one, and that multiplies through pattern, mirror,
+   tessellation, STEP export and the drawing projector. A plate with 40 tapped
+   holes has to stay interactive; every incumbent defaults to cosmetic for
+   exactly this reason (SolidWorks "Straight Tap", Fusion "Modeled: off").
+2. **It matches manufacture.** The mill cuts the tap drill; the tap cuts the
+   thread. The solid that matches the shop floor IS the bore.
+3. **It keeps the gate analytic.** A swept helix has no closed-form volume; the
+   tap-drill bore does (`π·r²·H`), so the golden asserts a hand-derived number
+   instead of a recorded kernel value.
+
+*Upgrade path if we ever want modelled threads* (additive, non-breaking): a
+`modelled: bool = False` flag on the thread spec, the helical sweep tool in
+`kernel/threads.py`, cut after the bore — and its OWN golden at its own
+tolerance tier, because that body is not analytic. The cosmetic path stays the
+default; nothing above changes.
+
+**Two shape decisions worth the ink.** (a) `thread` is its own optional param,
+**not** a fourth `HoleType` member: threading is orthogonal to the recess, so a
+counterbored tapped hole is one feature (asserted:
+`test_tapped_hole_may_also_be_counterbored`) and no consumer narrowing on
+`HoleType.kind` changes. (b) The bore stays authored and the callout is checked
+against it — the accepted band is `[minor diameter, nominal diameter)`, which
+admits a shop table's rounded stock drill (6.8 mm for M8x1.25, where `D - P` is
+6.75) while rejecting an M10 callout on a Ø12 bore. Both failure modes are typed
+and are checked **before any geometry runs**: `hole_thread_unsupported` (not an
+ISO 261 combination) / `hole_thread_mismatch` (untappable bore). Neither ever
+degrades to a plain hole wearing a thread nobody can cut.
+
+**New golden — `hole-tapped-m10x1.5-40x25x10`** (analytic, tolerance `1e-9`, the
+same tier as the simple/cbore/csink hole goldens):
+
+| quantity | analytic | kernel | residual |
+|---|---|---|---|
+| volume | `10000 - 180.625π` = 9432.549826945344 mm³ | 9432.549826945342 | 2e-12 |
+| surface area | `3300 + 48.875π` = 3453.545340944201 mm² | 3453.5453409442007 | 4e-13 |
+| centroid | (20, 12.5, 5) exactly | (20.000000000000004, 12.5, 5.0) | 4e-15 |
+| topology | 7 faces / 15 edges / 1 shell | same | exact |
+
+Tap drill = `D - P` = 10 − 1.5 = **8.5 mm**, the value the published metric
+tap-drill tables list for M10x1.5 (cross-checked in
+`test_tap_drill_matches_the_published_metric_table` for M3/M4/M5/M6/M8/M10/M12 —
+2.5 / 3.3 / 4.2 / 5.0 / 6.75 / 8.5 / 10.25). The topology is **identical to the
+untapped `hole-through-r5-40x25x10`** counts, which is the cosmetic decision made
+assertable, and the sharpest form of it: the `/evaluate` response for a Ø8.5 hole
+*with* an M10x1.5 thread is **byte-identical** (mesh id included) to the same hole
+without one (`test_tapped_hole_is_byte_identical_to_the_same_bore_untapped`).
+That test fails the day someone turns the tap into geometry without giving it its
+own golden.
+
+**Composition.** New matrix verb `hole_tapped` (M10x1.5 tap drill at (60,8) on the
+shared plate — deliberately off the x=40 midplane, since a cut symmetric about
+the mirror plane reflects onto itself and removes nothing, which is CM-3's shape,
+not a routine cell): 14th composer, +8 cells, `hole_simple`↔`hole_tapped`
+additive in both orders, self-composition → `hole_off_body`, and it joins the
+`N x the seed` cut-array sweep. Plus
+`test_mirror_of_a_tapped_hole_keeps_the_hole_and_doubles_the_plate` — defect #2's
+assertion for the new type: `2 x (16000 - 180.625π)`, because a tapped hole
+records the same bore tool through `record_cut_tools` that a simple hole does
+(had the callout diverted that inference, the mirror would have welded the bore
+shut and read 32000). Matrix runtime 26 s → **28 s**, still an every-commit gate.
+
+## 2026-07-25 — COMPOSITION MATRIX gate: the standing guard against "feature N reasons wrongly about feature N-1's body" (geometry-qa)
+
+**Why.** In two days of auditing we found **five** silent-wrong-geometry defects
+(FINDINGS #1/#2/#3, code-review regressions A/B). Every one was a **composition
+of two features**, and every one passed the full gate suite, because the golden
+inventory exercises verbs in **isolation**. Isolated goldens are *structurally
+blind* to this class: the bug lives in how feature N reasons about the body
+feature N-1 produced. New gate:
+`services/geometry/tests/test_composition_matrix.py` — **198 tests (188 pass,
+10 `xfail(strict)` recording live defects), 24-38 s wall clock**, run every
+commit.
+
+**No slow-tier marker was added, deliberately.** The brief allowed a nightly
+tier; measured runtime is 24-38 s (worst single case 0.33 s), because every
+fixture is the smallest body that still exercises the seam. A marker for a
+~30 s gate is ceremony, and splitting the matrix would make the *composition*
+cases — the whole point — the ones that run least often. Revisit if the matrix
+crosses ~2 min.
+
+### How correctness is asserted without a golden per combination
+
+| Mechanism | What it catches | Where |
+|---|---|---|
+| **Analytic** closed-form volume/area/centroid | wrong geometry outright | 5 seeded-defect cases + 12 analytic composition cases |
+| **Disjoint additivity**: `V(A then B) = V(plate) + dA + dB`, both orders | a composed feature re-deriving its tool from the wrong body, double-counting the seed, or filling a neighbour's void | 17 pairs x 2 orders |
+| **`N x` the seed removal** for a patterned cut | FINDINGS #1 class | 5 cut sources (extrude-cut, simple/cbore/csink/tapped hole), linear + circular |
+| **EXACTLY `2V`** for a mirror about a plane the body does not cross | FINDINGS #2 **and** regression B, in all 8 predecessor contexts | matrix column `mirror_clearing` |
+| **No silent no-op**: the composed body must differ from the pre-B body by byte fingerprint (mesh sha256 + all mass props + exact topology) | a feature reporting `ok` while doing nothing | every one of the 104 matrix cells |
+| **Removes nothing => typed error** | regression-B class | `hole_*` self-composition (passes); extrude-cut/revolve-cut (**CM-3, fails**) |
+| **Order-independence** where order must not matter | a feature reading state it should not | 9 commuting pairs, + 3 *non*-commuting controls so the check has teeth |
+| **suppress(F) / unsuppress(F)** = byte-identical; suppress == delete | stale caches across a composition | 8 composed chains |
+| **edit-a-param-then-revert** = byte-identical, and the intermediate must differ | drift through tool reconstruction / face re-resolution | 7 param edits |
+| **Rebuild N times** = byte-identical GLB + identical props | gate 3 over booleans | 8 composed chains x 3 |
+| **STEP round-trip**: props within `ROUNDTRIP_TOL`, topology EXACT | gate 2 over booleans | 9 composed bodies (incl. **CM-4, fixed**) |
+| **Same-face reference resolves to the SAME plane origin** after an unrelated sibling edit | FINDINGS #3 + regression A | seed-5 chain, via `TreeEvaluation.datum_planes` |
+| **Coverage audit** | a new feature type shipping without a matrix row/column | `test_pair_matrix_covers_every_shipped_verb` |
+
+### The matrix
+
+8 predecessors (FIRST) x 14 composers (SECOND) = 112 cells; the 8 diagonal
+cells are explicitly skipped with a reason (two features cannot share an id) and
+covered instead by `test_self_composition_*`, which re-issues ids — **104 cells
+asserted**. (13 composers / 96 cells as first filed; the `tapped` column joined
+with the tapped-hole slice later the same day — see the entry above.) Base body: an 80x80x10 plate; placements are mutually disjoint in
+plan and each verb's *patterned and mirrored copies* stay strictly interior (the
+reason for the 80 mm plate and the `+Y` linear step — a `+X` step would smuggle
+finding CM-2's shape into routine cells).
+
+| FIRST \\ SECOND | ext-add | ext-cut | hole | cbore | csink | tapped | pat-lin | pat-circ | mir-clear | mir-mid | fillet | chamfer | shell | draft |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| extrude-add | · | + | + | + | + | ✓ | ✓ | ✓ | **2V** | id | ✓ | ✓ | 🛑`shell_failed` | ✓ |
+| extrude-cut | + | · | +✓ | + | + | ✓ | **Nx** | **Nx** | **2V** | ✓ | ✓ | ✓ | ✓ | + |
+| hole (simple) | + | +✓ | · | +✓ | +✓ | +✓ | **Nx** | **Nx** | **2V** | ✓ | +✓ | +✓ | ✓ | +✓ |
+| pattern-linear | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | **2V** | id | ✓ | ✓ | ✓ | ✓ |
+| mirror-midplane | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | **2V** | · | ✓ | ✓ | ✓ | ✓ |
+| fillet | ✓ | ✓ | +✓ | +✓ | ✓ | ✓ | ✓ | ✓ | **2V** | id | · | 🛑`chamfer_failed` | ✓ | ✓ |
+| shell | 🛑`boolean_failed` | ✓ | ✓ | 🛑`hole_too_deep` | 🛑`hole_too_deep` | ✓ | ✓ | ✓ | **2V** | id | ✓ | ✓ | · | ✓ |
+| draft | ✓ | + | +✓ | + | + | ✓ | ✓ | ✓ | **2V** | ✓ | ✓ | ✓ | ✓ | 🛑`subshape_unresolved` |
+
+`+` = analytic additivity · `✓` = kind invariant + no-silent-no-op · `Nx` =
+N-times-the-seed cut array · `2V` = exact doubling · `id` = asserted IDENTITY
+(x-symmetric body mirrored about its own midplane) · `🛑` = must degrade to that
+exact typed code, with the last-good body proven untouched · `·` = diagonal
+(see above).
+
+Also covered: revolve (a non-prismatic base composed with a hole and a 6-up
+rotated cut array, `V = 3690pi`), two triples (hole->pattern->clearing-mirror
+= `2(16000 - 480pi)`; pocket->fillet->shell), and the two pairs where order
+LEGITIMATELY matters, both hand-derived: `hole->shell` = `17792 + 128pi` vs
+`shell->hole` = `17792 - 32pi`.
+
+### Tolerances — the two REVIEWED golden tiers, reused verbatim (no new epsilon)
+
+- `PLANAR_TOL = 1e-9` for all-planar compositions (the tier
+  `mirror-triangle-prism-2x` / `mirror-cut-clearing-plane-block-40x40x20`
+  carry). Worst residual measured over this module's planar cases **3.6e-12**
+  (the bare plate's own GProp) => ~275x headroom.
+- `CURVED_TOL = 1e-8` for any composition with a cylindrical/conical face or a
+  ROTATED placement (the tier `pattern-cut-6hole-boltcircle-60x60x10` /
+  `mirror-hole-feature-plate-40x40x20` carry, documented worst 1.46e-11). Worst
+  measured here **2.4e-11**.
+- `ROUNDTRIP_TOL = 1e-7` — the CLAUDE.md kernel linear bound, same as the golden
+  round-trip gate.
+- **Identity comparisons across two DIFFERENT trees** assert topology EXACTLY +
+  mass properties within the tier, NOT byte-identical GLB: a mirror-and-fuse
+  rebuild legitimately hands OCCT the same solid with a different internal face
+  ORDER, and the tessellator walks faces in that order. Measured over every
+  identity case: volume **exactly 0.0** deviation and topology equal in all
+  cases; worst deviation 3.638e-12 (surface area, mirror-about-x=0 applied
+  twice), then 2.842e-14 (centroid.y, shell then midplane mirror). Byte identity
+  is kept as the bar for rebuilding the **same** tree (gate 3).
+
+No tolerance was loosened for this work.
+
+### Seeded regressions — the harness is proved to have teeth
+
+Each of the five audited defects is an explicit case whose docstring records
+what the PRE-FIX kernel returned, so a reader can see the assertion is real:
+
+| # | chain | asserted | pre-fix value |
+|---|---|---|---|
+| 1 | hole -> linear pattern 3x | `16000 - 480pi` = 14492.0355, topo 9/21/1 | 51773.8 / 59497.3 (whole body patterned) |
+| 2 | hole -> midplane mirror | `32000 - 640pi` = 29989.3807, topo 8/18/1 | 32000.0 (featureless brick) |
+| 3 | pocket -> mirror about the block's own +X face | 60000.0, bbox x∈[0,80], topo 16/36/1 | 30000.0 (silent no-op) |
+| 4 | pocket A -> pocket B -> midplane mirror | 29600.0, 21 faces | 30400.0 for the naive union-then-recut "fix" (welds A shut) |
+| 5 | hole A Ø6->Ø8 with sibling hole B + on-face datum + boss | all 7 features `ok`; datum origin == the STORED signature centroid at both diameters; analytic V + centroid | `subshape_unresolved` (pre-#3), then a 0.1734 mm x / 0.1766 mm y origin TRANSLATION (pre-regression-A) |
+
+### FINDINGS — four LIVE defects the matrix caught on `446a872`
+
+**Status 2026-07-25 (kernel-architect): CM-1 🟢, CM-2 🟢, CM-3 🟢, CM-4 🟢 — all
+four fixed — in `3c6ec19` (CM-2), `39fb38e` (CM-3), `d18950a` (CM-1) and the CM-4
+commit; one re-scoped P2 residual of CM-1 remains (a mirror does not duplicate an
+intervening ADD's material; proof of why below). Ten `xfail(strict)` markers
+became one.** The design chosen for all
+three: ONE shared, topological reachability predicate
+(`geometry.kernel.removal.removal_reaches_body`) asked by mirror, pattern and the
+in-chain cut, plus per-feature cut-tool tracking so nothing can shadow a removal.
+The original evidence is preserved verbatim below.
+
+Recorded as `xfail(strict=True)` with the correct, unweakened assertion: the
+suite stays honest today and turns RED the moment a fix lands, forcing the
+marker's removal. **None was fixed here** — `services/geometry/src/**` is the
+kernel agent's territory.
+
+**🟢 CM-1 (P0) — FIXED 2026-07-25 (kernel-architect) — a `mirror` re-ERASED a cut
+when ANY non-cut feature sat between the cut and the mirror. FINDINGS #2's
+featureless-brick symptom, reachable again.**
+FIX: cut tools are now TRACKED PER FEATURE instead of sniffed from the previous
+one. Each ok cut records the exact removal solids it subtracted
+(`EvaluationState.record_cut_tools` — extrude-CUT's region prisms; the Hole's bore
++ recess, as it already did), together with the feature id and the body they came
+from. Two readers, two DOCUMENTED rules over one store (no second mechanism):
+`_mirror_cut_tools` = the most recent cut of the ACTIVE body, however far back
+(CM-1), and `_pattern_cut_tools` = only when that cut is the immediate predecessor
+— the pattern's reviewed, locked rule. The asymmetry is now deliberate and stated
+in code: shadowing costs a pattern a less useful READING (array the body-so-far,
+which two tests lock); it cost the mirror EXISTING GEOMETRY, because
+`mirror_union` fuses reflected material into the void. The recorded body id also
+closes a latent multi-body hole: a cut in body A can no longer be reflected into
+body B (`test_mirror_does_not_reflect_a_cut_made_in_another_body`).
+Measured after the fix (2 of 3 cases now exact, both bores present, 12 faces):
+chamfer **29629.38070170254** (was 31640.000000000007), fillet
+**29834.867379348696** (was 31845.486677646164).
+**The boss case stays xfail, re-scoped P2 and NOT silent-wrong-geometry any more:
+30309.380701702525** (was 32640.0) — the hole is preserved and mirrored; what is
+missing is the 320 mm^3 REFLECTION OF THE BOSS. That expectation is unreachable
+without breaking a lock: 30629.3807 requires `mirror_union` + re-subtract of both
+tool sets, and `test_mirror_preserves_a_cut_that_precedes_the_mirrored_one` proves
+that welds an earlier pocket shut (30400.0 where 29600.0 is correct); reflecting
+ALL tracked cuts gives 28800.0 there instead of the locked 29600.0. The two
+expectations are mutually exclusive under any single rule, so the honest fix is
+the incumbent semantic — mirror a SELECTED SET of features — filed as a v2 item
+(`CM1_BOSS_UNMIRRORED` carries the proof in the suite). The v1 rule is now stated
+plainly: a mirror reflects the most recent RECORDED CUT and never material an
+intervening ADD contributed (same family as the already-locked observation that a
+crossing mirror erases an asymmetric MODIFIER).
+Chain: `40x40 sketch -> extrude add 20 -> HOLE Ø8 through at (10,20) -> <one
+feature> -> datum YZ@20 -> MIRROR`. The inserted feature is 20+ mm from the
+bore, so the bore must still reflect to x=30.
+
+| inserted feature | expected (mm³) | **obtained** | error |
+|---|---|---|---|
+| chamfer d3 (Z) | 29629.380701702532 | **31640.000000000007** | +2010.62, hole GONE |
+| fillet r3 (Z) | 29834.867379348696 | **31845.486677646164** | +2010.62, hole GONE |
+| boss add 8x8x5 | 30629.380701702532 | **32640.0** | +2010.62, hole GONE |
+
+Root cause: `_prev_cut_tools` (`features/evaluate.py:1821`) reads only
+`state.prev_body_feature`, so ANY intervening body-affecting feature makes it
+return `None`; `_evaluate_mirror` then takes `mirror_union`, whose reflected
+SOLID material fills the seed void. The obtained volume equals the modified
+plate *with no hole at all* and the topology carries **no cylindrical face**.
+Note the honest nuance: this shadowing IS documented for `pattern` (GEOMETRY-QA
+2026-07-13, "a cut shadowed by an intervening body-affecting feature falls back
+to the union path"), where the consequence is benign. For `mirror` it DESTROYS
+existing geometry, and that consequence is documented nowhere. Fix direction:
+walk back past non-cut features, or track cut tools per feature, instead of only
+the immediate predecessor. Guard:
+`test_cm1_mirror_keeps_the_hole_across_an_intervening_feature`.
+
+**🟢 CM-2 (P0) — FIXED 2026-07-25 (kernel-architect) — a `pattern` of a cut whose
+replicated tools ALL land off the body was a SILENT NO-OP: the exact defect
+`fa30220` fixed for `mirror` only.**
+FIX: the reachability question is now ONE shared predicate,
+`geometry.kernel.removal.removal_reaches_body` (extracted verbatim from mirror's
+`_reflected_tools_reach_body` — a boolean common yielding a SOLID, no epsilon),
+asked by `mirror_cut`, by `linear_pattern_cut`/`circular_pattern_cut`, and by the
+in-chain cut. When NO replicated tool reaches the body the pattern takes the
+whole-body ADD path (mirror's precedent: the copies already carry the seed cut);
+one copy reaching anywhere keeps the cut path, so every established patterned cut
+is byte-identical. Measured after the fix: pocket source **28800.0** (was
+14400.0), hole source **30994.690350851266** (was 15497.34517542563); the
+80 mm bar carries a pocket in each half (14 faces, 1 shell). Guards:
+`test_linear_pattern_of_a_cut_that_clears_the_body_replicates_the_body`,
+`test_circular_pattern_of_a_cut_that_clears_the_body_replicates_the_body`,
+`test_patterned_cut_keeps_the_cut_path_when_one_copy_reaches` (the boundary), and
+the matrix case below with its `xfail` removed.
+Chain: `40x40x10 plate -> <cut> -> LINEAR PATTERN +X, spacing 40, count 2`. The
+plate is 40 wide, so the replicated tool clears the +X face and can remove
+nothing.
+
+| cut source | expected (mm³, the mirror precedent's whole-body replicate) | **obtained** |
+|---|---|---|
+| pocket [4,12]x[10,30] through | 28800.0 | **14400.0** (unchanged, all `ok`) |
+| hole Ø8 through at (20,20) | 30994.690350851266 | **15497.34517542563** (unchanged, all `ok`) |
+
+Root cause: `mirror_cut` guards with `_reflected_tools_reach_body` and falls back
+to `mirror_union` (`kernel/mirror.py:185`); `linear_pattern_cut` /
+`circular_pattern_cut` -> `_cut_and_finalize` (`kernel/pattern.py:149`) has NO
+reachability check, so `body.cut(*tools)` returns the body unchanged and the
+feature reports `ok`. Either the union fallback (mirror's answer) or a typed
+`pattern_removed_nothing` is acceptable — **silence is not**. Guard:
+`test_cm2_pattern_of_a_clearing_translation_is_not_a_silent_no_op`.
+
+**🟢 CM-3 (P1) — FIXED 2026-07-25 (kernel-architect) — an `extrude-cut` /
+`revolve-cut` whose tool never touches the body silently returned the input body
+with status `ok`.**
+FIX: `combine_body` asks the SAME shared `removal_reaches_body` predicate
+**before** the boolean and raises `CutRemovedNothingError` (a `BooleanError`
+subclass, so nothing can regress to a 500); the feature layer maps it to the
+typed **`cut_removed_nothing`** on both cut funnels (`_cut_active` — revolve /
+sweep / loft — and the multi-region extrude-cut, per REGION, so the misplaced
+region is the one that reports). The check must precede the boolean: afterwards
+"removed nothing" is invisible — OCCT returns the input body and the empty-result
+and lump-count checks both pass. Hole keeps its OWN vocabulary: `bore_hole` /
+`cut_counterbore` / `cut_countersink` translate the shared error to
+`hole_off_body` / `hole_too_deep` through one `_cut_drill` adapter, so the
+existing Hole taxonomy is byte-identical. All four measured chains now error with
+the last-good body intact (16000.0 / 14400.0 preserved), and the matrix's
+`extrude_cut` DIAGONAL joins the self-composition ERROR class
+(`cut_removed_nothing`), so `test_self_composition_taxonomy_is_exhaustive` no
+longer exempts any verb. New guards in `test_extrude.py` include the BOUNDARY: a
+0.001 mm-wide strip removing 0.25 mm^3 (2.5e-5 of the body) is still a successful
+cut — the predicate is topological, so no volume-delta threshold exists to
+false-trip. **Measured cost** (same machine, median-of-15, monkeypatched
+comparison): the probe costs about as much as the cut it guards (7.0 ms vs
+7.7 ms on an 80x80x10 plate + Ø8 bore), so the worst cut-heavy tree
+`sketch-extrude-plate-6hole-ring-cut-60x60x10` (SIX cut regions, one probe each)
+goes 147.0 -> 205.0 ms against a 2000 ms CI ceiling (9.8x headroom) and
+`pattern-cut-6hole-boltcircle` 102.9 -> 107.9 ms. Two cheaper discriminators were
+REJECTED as unsound: a volume delta needs an epsilon (forbidden) and a
+bitwise-equal-volume test rests on an empirical OCCT property, and a
+"topology changed => something was removed" fast path false-accepts a
+face-tangent tool that imprints without removing volume — exactly the sneaky
+case. Perf remains inside budget; correctness first.
+On a 40x40x10 plate (16000.0), every feature `ok` and the body unchanged for:
+(a) a pocket sketched beside the part at x∈[100,110]; (b) a cut extruded in free
+space above it (datum at z=20, cut 5 mm); (c) **the SAME pocket cut twice**
+(14400.0 both times) — the everyday duplicate-a-feature action; (d) a
+revolve-cut placed clear of the body. `combine_body` (`kernel/extrude.py:458`)
+checks for an EMPTY result and a changed lump count but never for "removed
+nothing". The **Hole** feature gets this right (`hole_off_body`) for the
+identical user error, so the taxonomy is inconsistent within one release.
+Guard: `test_cm3_a_cut_that_removes_nothing_must_error`.
+
+**🟢 CM-4 (P2) — FIXED 2026-07-25 (kernel-architect) — a composed body lost STEP
+round-trip topology fidelity.** `40x40x10 plate -> pocket [4,12]x[10,30] through
+-> fillet r3 (Z) -> shell t2 open-top`, exported to STEP and re-imported: faces
+36 == 36 but **edges 96 -> 98** (LINE edges 64 -> 66); volume delta 8.276e-11,
+area delta 4.184e-11, so the GEOMETRY survived and only the topology metadata did
+not. It matters because edge SIGNATURES (picked fillet/chamfer edges) and the
+drawings edge pipeline key off edge identity after a round-trip.
+
+**Root cause — READ, but the reader was not at fault.** The WRITE is faithful:
+the exported part-21 carries exactly **96 `EDGE_CURVE` + 64 `VERTEX_POINT`**
+records for the 96-edge / 64-vertex body, so the writer invents nothing. The body
+itself is **`BRepCheck`-INVALID**: this shell offsets the outer wall (x=0 -> x=2)
+and the pocket wall (x=4 -> x=2) onto the SAME plane, so the 4 mm rib between them
+stays solid and the cavity pinches to zero width — two coincident coplanar faces
+(272 mm² over y∈[3,37] and 112 mm² over y∈[13,27]), the smaller one's corners
+(y=13, y=27) sitting mid-edge on the larger one's 34 mm edge instead of splitting
+it. OCCT's STEP reader sews on import and inserts them, hence +2 edges with **no
+new vertices** (64 == 64) — it was healing an input we should not have written.
+That also explains the isolation: only this layout makes two offsets coincide.
+
+**Fix.** New `geometry.kernel.healing.conform_solid` — `ShapeFix_Shape`, run
+ONLY on a solid `BRepCheck` already rejects, so every valid body (all goldens)
+takes the untouched identity path; `shell_body` puts each hollowed lump through
+it and maps a failed heal onto `shell_failed`. Measured on the CM-4 body:
+invalid -> valid, faces 36 == 36, edges 96 -> 97, vertices 64 == 64;
+**dV = -2.7e-12 mm³, dA = 0.0, centroid moved 3.6e-14 mm** (the heal is topology
+only — `CONFORM_VOLUME_TOL_MM3` = 1e-9, the planar golden tier, ENFORCES that
+rather than trusting it); deterministic (three fresh builds -> byte-identical
+STEP) and idempotent. The healed body then round-trips with **EXACT** topology
+(36/97/64, dV 8.5e-11 < `ROUNDTRIP_TOL`). Cost: one `BRepCheck` per shelled lump
+— 0.75 ms on the 6-face golden box (10.1 ms shell), 7.9 ms on the 36-face CM-4
+body (82.6 ms shell+heal); benchmarks green. Guards:
+`test_cm4_pocket_fillet_shell_survives_a_step_roundtrip` (marker removed — a real
+assertion now) + 5 kernel tests in `services/geometry/tests/test_healing.py`,
+including one that FAILS if OCCT ever stops emitting the non-conformal body, so
+the heal cannot quietly become dead code.
+
+### 🟡 Two observations (locked, NOT filed as defects)
+
+- **A mirror about a plane the body CROSSES also erases an asymmetric
+  MODIFIER.** `80x80x10 plate -> DRAFT 5° on the +X wall -> datum YZ@40 ->
+  MIRROR` returns the FULL **64000.0** mm³ box, 6/12/1 — the drafted wedge
+  (349.955 mm³) is silently filled by the reflection. Unlike CM-1 there is no
+  reflectable "tool" for a modifier, so this is inherent to the v1
+  reflect-and-union design rather than a fixable defect; it is pinned by
+  `test_observed_limit_a_crossing_mirror_erases_an_asymmetric_modifier` so a
+  future mirror redesign has to change it deliberately.
+- **P3 doc/UX: `draft` propagates along a tangent chain.** After an r4 corner
+  fillet makes all four walls tangent-continuous, drafting the ONE picked +X
+  face tapers **all four** walls (each planar side face's normal gains
+  sin 5° = 0.0872) plus the four fillet cylinders: 1361.7627 mm³ removed vs
+  314.9581 for the named face alone. OCCT-correct
+  (`BRepOffsetAPI_DraftAngle` propagates through tangent continuity) and usually
+  what a molded part wants, but a picked-face UI never says so. Pinned by
+  `test_observed_limit_draft_propagates_along_a_tangent_chain`.
+
+### 🟢 Everything else in the matrix is CORRECT
+
+96/96 matrix cells, all additivity pairs, all cut-array counts, all 8 clearing
+mirrors (exactly `2V`), all order-independence pairs, all 8 determinism chains
+(byte-identical GLB x3), all 8 suppress round-trips (suppress == delete,
+un-suppress == original, byte-identical), all 7 edit-and-revert round-trips, and
+7/8 composed STEP round-trips pass. Two composition behaviours that LOOK like
+defects and are not, both now asserted analytically rather than left ambiguous:
+the `axis_parallel: Z` fillet/chamfer predicate is GLOBAL, so it also rounds a
+boss added later (`-10*4*c - 5*4*c`) and a pocket's four CONCAVE corners, where
+the added material **exactly cancels** the plate's convex corners (which is why
+the matrix's `modify` rule is "the body changed", by fingerprint, not "the
+volume decreased"); and a draft tilts two of the four vertical edges out of the
+Z-parallel predicate, so `draft -> fillet` removes exactly HALF the fillet
+volume.
+
 ## 2026-07-23 — Drawings assembly views slice 1 (`8be617e`) — adversarial geometry QA (geometry-qa)
 
 **Scope.** Independent adversarial verification of the assembly-drawing projection
@@ -77,7 +472,16 @@ union, so no such topological edge exists. This is honest, matches the module's 
 contract ("occlusion resolved ACROSS instances," not boolean seams), and mirrors how
 every kernel drawing/interference path treats a compound. Observation, not a defect.
 
-### 🟠 P3 (PRE-EXISTING, shared HLR) — partial occlusion emits a dashed line over a solid line
+### 🟢 P3 (PRE-EXISTING, shared HLR) — FIXED `0e6c282` — partial occlusion emits a dashed line over a solid line
+**Status 2026-07-25 (kernel-architect).** Fixed one day after filing by `0e6c282`
+(FINDINGS #21) in the shared post-processing this always lived in: `_canonicalize`
+step 2b subtracts a visible line's collinear coverage from an overlapping hidden
+line (`_resolve_hidden_line`), where step 2 had only dropped EXACT coincidences.
+That commit added its regressions on the single-part path and left the assembly
+guard `xfail(strict=False)`, so it XPASSed silently for a day — the marker is now
+removed and `test_partial_occlusion_emits_no_hidden_over_visible_overlap` is a
+real assertion covering the assembly path too. Original evidence below.
+
 **Evidence.** Box A (front slab, world X[-10,10] Y[-5,0] Z[-10,10]) *partially*
 occludes box B behind it (world X[0,20] Y[10,15] Z[-5,5]). FRONT view — B's bottom
 edge at z=-5 (analytically: hidden over X[0,10], visible over X[10,20]) is emitted as

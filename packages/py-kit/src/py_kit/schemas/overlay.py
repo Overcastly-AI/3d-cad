@@ -38,6 +38,32 @@ from py_kit.schemas.features import (
 )
 from py_kit.schemas.geometry import Vec3
 
+# --- Per-request work bound (engineering audit 2026-07-25 H4) --------------------
+#
+# Same posture as the G2 bounds in py_kit.schemas.features: the rate limiter caps
+# request FREQUENCY, these cap the WORK one authenticated request can demand.
+# Unlike the G2 bounds this one cannot be a parse-time ceiling — the face count is
+# an OUTPUT of evaluation, not an input — so it is enforced where the work happens
+# and DEGRADES rather than rejects (below).
+
+#: Ceiling on the face fingerprints ONE per-face provenance pass may compute:
+#: ``len(final faces) + sum(len(snapshot faces))``. Each fingerprint is an exact-
+#: B-rep GProp (area + area centroid), measured at ~186 us/face (2026-07-25,
+#: build123d 0.11.1 / OCCT 7.9), so this bounds the pass at ~1.5 s — inside the
+#: RESEARCH §9 2 s rebuild ceiling — where the UNBOUNDED pass took 8.8 s at 4800
+#: faces and grew super-linearly (a 20k-face STEP import ran for minutes) on the
+#: interactive selection route (audit H4). An authored part is nowhere near the
+#: bound (tens of body-affecting features x tens-to-low-hundreds of faces each),
+#: so a working engineer never feels it.
+#:
+#: Over-bound DEGRADES, never errors: :func:`geometry.kernel.attribute_faces`
+#: returns all-``None`` attribution, so ``OverlayFace.feature_id`` is null and the
+#: frontend falls back to whole-body selection — exactly the behaviour before
+#: per-face provenance existed. A 422 would be strictly worse: it would take the
+#: whole overlay (vertex/edge/face picking, measure, sketch-on-face) away from
+#: large imported bodies that work fine today, to protect a RENDERING nicety.
+MAX_PROVENANCE_FACES = 8_000
+
 #: Edge curve family, enough for the client to pick a hover/label style. Exact
 #: nearest-distance still comes from the B-rep via ``/measure`` — this tag is a
 #: rendering hint, not a measurement input.
@@ -123,7 +149,10 @@ class OverlayFace(BaseModel):
         "highlight. Best-effort provenance for RENDERING (a cylindrical hole wall "
         "attributes to the hole, the untouched base faces to the extrude); NOT a "
         "rebuild-surviving reference (that is the signature). Null when the server "
-        "did not compute attribution (older payloads / no body-affecting feature).",
+        "did not compute attribution: an older payload, a body with no "
+        "body-affecting feature, or a body past MAX_PROVENANCE_FACES (work bound, "
+        "audit H4 — attribution degrades to null rather than pinning a worker; "
+        "clients must handle null and fall back to whole-body selection).",
     )
 
 

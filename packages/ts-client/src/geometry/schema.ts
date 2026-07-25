@@ -3515,6 +3515,14 @@ export interface components {
          *     ``counterbore`` (a larger cylinder) or ``countersink`` (a cone). A recess
          *     whose diameter does not exceed the bore is ``hole_cbore_invalid`` /
          *     ``hole_csink_invalid``; a recess deeper than the material is ``hole_too_deep``.
+         *
+         *     ``thread`` (optional, ``None`` = an untapped hole) makes the hole TAPPED: a
+         *     cosmetic :class:`IsoMetricThread` callout over the tap-drill bore, ORTHOGONAL
+         *     to ``type`` (a counterbored tapped hole sets both). It adds NO geometry — the
+         *     solid is byte-identical to the same hole without it — so a tapped hole
+         *     mirrors, patterns, shells and exports exactly as its bore does. An unknown
+         *     designation is ``hole_thread_unsupported``; a bore the thread cannot be tapped
+         *     in is ``hole_thread_mismatch``.
          */
         HoleParamsV1: {
             /**
@@ -3531,6 +3539,8 @@ export interface components {
             face: components["schemas"]["SubshapeRef"];
             /** @description World-space placement point, projected onto the face plane to fix the drill axis (mm) */
             position: components["schemas"]["Vec3"];
+            /** @description Optional COSMETIC thread callout making this a TAPPED hole (`null`/omitted = untapped). Carries the designation for drawing/BOM callouts; adds no geometry — `diameter_mm` is the tap-drill bore (:class:`IsoMetricThread`) */
+            thread?: components["schemas"]["IsoMetricThread"] | null;
             /**
              * Type
              * @description Hole type: a plain bore (`simple`, the default when omitted — slice-1 behaviour) or a bore plus a coaxial counterbore / countersink recess at the face (:data:`HoleType`)
@@ -3666,32 +3676,37 @@ export interface components {
          *     identity for a flat single-body STEP), matched to the exported placement
          *     within the kernel round-trip tolerance.
          *
-         *     Two body surfaces, both content-addressed and SHARED across repeated
-         *     occurrences of one part (the dedup contract, as slice 1 does for meshes):
+         *     Two body surfaces, both referenced by CONTENT ADDRESS and SHARED across
+         *     repeated occurrences of one part (the dedup contract, as slice 1 does for
+         *     meshes) — neither is inlined per occurrence:
          *
-         *     * ``body_step`` — the product's editable **LOCAL-frame B-rep**, as a STEP
-         *       AP214 part-21 fragment with the instance placement STRIPPED (that is
-         *       ``placement``, kept separate). It is exactly what the single-body
-         *       ``import`` feature ingests (:class:`~py_kit.schemas.features.ImportParamsV1`
-         *       ``data``), so the documents service seeds each part with ``ImportParamsV1(
-         *       data=body_step)`` — ZERO new ingest path. A mesh is not editable geometry;
-         *       this is the field that lets 2b build a REAL part per instance.
+         *     * ``body_step_id`` — the address (``sha256:<hex>``) of the product's editable
+         *       **LOCAL-frame B-rep**: a STEP AP214 part-21 fragment with the instance
+         *       placement STRIPPED (that is ``placement``, kept separate), stored ONCE under
+         *       this key in :attr:`StepAssemblyImportResult.bodies`. The text is exactly what
+         *       the single-body ``import`` feature ingests
+         *       (:class:`~py_kit.schemas.features.ImportParamsV1` ``data``), so the documents
+         *       service seeds each part with ``ImportParamsV1(data=<resolved body>)`` — ZERO
+         *       new ingest path. A mesh is not editable geometry; this is what lets 2b build
+         *       a REAL part per instance. ``None`` when the product produced no solid.
+         *       Because the id is EQUAL for two occurrences of one part, the caller groups
+         *       products by it to create ONE stored B-rep (one part) with N instances.
          *     * ``mesh_glb_id`` — a content-addressed presentation mesh for the viewport.
          *
-         *     ``body_step_id`` is the content address (``sha256:<hex>``) of ``body_step``;
-         *     it is EQUAL for two occurrences of one part, so the caller groups products by
-         *     it to create ONE stored B-rep (one part) with N instances. ``properties`` are
-         *     the body's OWN (local-frame) mass properties for BOM / inspection.
+         *     ``properties`` are the body's OWN (local-frame) mass properties for BOM /
+         *     inspection.
+         *
+         *     ``body_step`` is a PRODUCER-SIDE construction convenience only: a producer may
+         *     pass the body text alongside the product and the parent result hoists it into
+         *     its shared ``bodies`` map (so the geometry reader needs no separate bookkeeping),
+         *     but the field is NEVER serialized — the wire form carries each body once.
+         *     Consumers MUST resolve through
+         *     :meth:`StepAssemblyImportResult.body_step_for`.
          */
         ImportedProduct: {
             /**
-             * Body Step
-             * @description The product's LOCAL-frame B-rep as a STEP AP214 part-21 fragment (placement stripped — see `placement`); consumed verbatim as ImportParamsV1.data to seed an editable part (the single-body import path). Null when the product produced no solid.
-             */
-            body_step?: string | null;
-            /**
              * Body Step Id
-             * @description Content address (sha256:<hex>) of `body_step`; EQUAL across repeated occurrences of one part, so the caller creates ONE part and N instances (the dedup key, as meshes share mesh_glb_id). Null when no solid.
+             * @description Content address (sha256:<hex>) of this product's LOCAL-frame B-rep, whose text lives ONCE under this key in the result's `bodies` map. EQUAL across repeated occurrences of one part, so the caller creates ONE part and N instances (the dedup key, as meshes share mesh_glb_id). Null when the product produced no solid.
              */
             body_step_id?: string | null;
             /**
@@ -3803,6 +3818,42 @@ export interface components {
             status: "well_constrained" | "under_constrained" | "over_constrained" | "conflicting" | "not_converged";
             /** Version */
             version: number;
+        };
+        /**
+         * IsoMetricThread
+         * @description An ISO 261 metric thread callout on a hole (``standard: "iso_metric"``).
+         *
+         *     The COSMETIC thread representation: the kernel cuts the tap-drill bore only
+         *     (``diameter_mm``) and carries this designation as metadata for drawing/BOM/
+         *     export callouts — it does NOT model helical geometry (decision + rationale +
+         *     the upgrade path in ``geometry.kernel.threads``). ``standard`` is required so
+         *     a future thread standard (UNC/UNF, NPT) joins as a discriminated union member
+         *     without a ``param_version`` bump.
+         *
+         *     The pair (``nominal_diameter_mm``, ``pitch_mm``) must be a real ISO 261
+         *     combination — M10 x 1.5 (coarse) or M10 x 1.25/1/0.75 (fine), say — and the
+         *     hole's ``diameter_mm`` must be a hole the tap can actually cut, i.e. within
+         *     ``[D - 1.0825*P, D)``. The ISO recommended tap drill is ``D - P`` (5.0 mm for
+         *     M6 x 1, 8.5 mm for M10 x 1.5 — the published tables' values). Violations are
+         *     the typed rebuild errors ``hole_thread_unsupported`` / ``hole_thread_mismatch``
+         *     — never a silent fallback to an untapped hole.
+         */
+        IsoMetricThread: {
+            /**
+             * Nominal Diameter Mm
+             * @description Nominal (major) thread diameter — the `M` number, mm: 10.0 for M10x1.5. Must be an ISO 261 size (a `hole_thread_unsupported` rebuild error otherwise)
+             */
+            nominal_diameter_mm: number;
+            /**
+             * Pitch Mm
+             * @description Thread pitch (mm): 1.5 for M10x1.5. Must be a standard pitch for that nominal diameter (a `hole_thread_unsupported` otherwise)
+             */
+            pitch_mm: number;
+            /**
+             * Standard
+             * @constant
+             */
+            standard: "iso_metric";
         };
         /**
          * LinearDimensionParams
@@ -4343,7 +4394,7 @@ export interface components {
         OverlayFace: {
             /**
              * Feature Id
-             * @description Feature that OWNS this face (created it, or last modified it into its current form) — the tree feature id (FeatureResult.feature_id / the evaluate request's feature.id), for feature-localized selection highlighting (FINDINGS #9). Map a selected feature id to its faces by collecting every OverlayFace whose feature_id equals it; each face's `index` is its body.faces() ordinal (== the GLB primitive ordinal, one glTF primitive per B-rep face), so those indices are the mesh face set to highlight. Best-effort provenance for RENDERING (a cylindrical hole wall attributes to the hole, the untouched base faces to the extrude); NOT a rebuild-surviving reference (that is the signature). Null when the server did not compute attribution (older payloads / no body-affecting feature).
+             * @description Feature that OWNS this face (created it, or last modified it into its current form) — the tree feature id (FeatureResult.feature_id / the evaluate request's feature.id), for feature-localized selection highlighting (FINDINGS #9). Map a selected feature id to its faces by collecting every OverlayFace whose feature_id equals it; each face's `index` is its body.faces() ordinal (== the GLB primitive ordinal, one glTF primitive per B-rep face), so those indices are the mesh face set to highlight. Best-effort provenance for RENDERING (a cylindrical hole wall attributes to the hole, the untouched base faces to the extrude); NOT a rebuild-surviving reference (that is the signature). Null when the server did not compute attribution: an older payload, a body with no body-affecting feature, or a body past MAX_PROVENANCE_FACES (work bound, audit H4 — attribution degrades to null rather than pinning a worker; clients must handle null and fall back to whole-body selection).
              */
             feature_id?: string | null;
             /**
@@ -6138,16 +6189,26 @@ export interface components {
         };
         /**
          * StepAssemblyImportResult
-         * @description Structured read of an assembly STEP — the product list + structure flag.
+         * @description Structured read of an assembly STEP — products + the shared body map.
          *
          *     ``has_assembly_structure`` is True when the file carried
          *     ``NEXT_ASSEMBLY_USAGE_OCCURRENCE`` product structure (multiple positioned,
          *     named products); False for a flat / single-body STEP, whose single product
          *     signals the caller to fall back to the single-body MB-4b import (backward
          *     compatible). ``products`` are in the deterministic order the geometry service
-         *     walks the product tree (RESEARCH §9).
+         *     walks the product tree (RESEARCH §9) and reference their editable B-rep by
+         *     ``body_step_id``; ``bodies`` holds each distinct B-rep exactly ONCE, keyed by
+         *     that address, so a part instanced N times ships its (possibly multi-MB) STEP
+         *     fragment once instead of N times.
          */
         StepAssemblyImportResult: {
+            /**
+             * Bodies
+             * @description Each distinct product body ONCE: content address (sha256:<hex>, == a product's body_step_id) -> its LOCAL-frame STEP AP214 part-21 fragment (placement stripped). A part instanced N times appears here once; resolve a product's body by its body_step_id.
+             */
+            bodies?: {
+                [key: string]: string;
+            };
             /**
              * Has Assembly Structure
              * @description True when the file carried NAUO product structure; False for a flat / single-body STEP (fall back to single-body import)

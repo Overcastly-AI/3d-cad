@@ -3,7 +3,9 @@
 Status legend: ✅ done · 🚧 in progress · ⬜ planned
 
 **Current focus: FOUNDER-DIRECTED — the FINDINGS burn-down is COMPLETE
-(2026-07-25); next up is Drawings parity #4 (assembly views + BOM/balloons).**
+(2026-07-25); in flight is Drawings parity #4 (assembly views compose end-to-end;
+the derived-item-number BOM read model landed 2026-07-25, balloons filed as one
+whole slice).**
 Founder directive 2026-07-24: *"pause all things and fix items in the findings
 report — we should not proceed until all the items are fixed or implemented."*
 All 25 items in `docs/FINDINGS.md` (the consolidated 4-lens hard audit: P0
@@ -24,18 +26,129 @@ the command-band P0, and the full novice-UX + viewport-polish sweep all
 landed. See `docs/FINDINGS.md` (now a closed historical record) for per-item
 evidence.
 
+**✅ COMPOSITION MATRIX gate (2026-07-25, geometry-qa).** The standing guard for
+the defect class that produced all five of this week's silent-wrong-geometry
+findings: they were each a **composition of two features**, and each passed the
+full suite because the goldens exercise verbs in ISOLATION.
+`services/geometry/tests/test_composition_matrix.py` systematically composes
+8 predecessors x 13 composers (96 asserted cells, diagonal covered separately)
+plus triples, and proves correctness by analytic volume where derivable and by
+shape-independent invariants elsewhere — a cut may never increase volume; a
+mirror about a plane the body does not cross must EXACTLY double it; a patterned
+cut must remove exactly Nx the seed; a feature that removes nothing must error;
+suppress/unsuppress and edit/revert must be byte-identical; a same-face
+reference must resolve to the SAME plane origin after a sibling edit. All five
+audited defects are seeded cases that FAIL on the pre-fix behaviour. 198 tests,
+24-38 s (no nightly tier needed). **It immediately caught 4 NEW live defects**
+(2 P0) recorded as `xfail(strict)` so the suite flips red when they are fixed:
+**CM-1** a mirror re-erases a hole when any non-cut feature sits between the cut
+and the mirror (31640.0 vs 29629.3807 — FINDINGS #2 reachable again) — **FIXED
+2026-07-25** (kernel-architect): cut tools are tracked PER FEATURE, so the mirror
+reflects the most recent recorded cut of the active body (29629.3807 / 29834.8674
+measured, both bores present) while the pattern keeps its locked
+immediate-predecessor rule; one P2 residual remains (a mirror still does not
+duplicate an intervening ADD's material — the incumbent "mirror selected features"
+semantic, filed with the proof that no single v1 rule satisfies both it and the
+earlier-pocket lock); **CM-2** a
+pattern of a cut whose tools all clear the body is a silent no-op (14400.0 vs
+28800.0 — the defect `fa30220` fixed for mirror only) — **FIXED 2026-07-25**
+(kernel-architect): one shared, topological `removal_reaches_body` predicate now
+answers the reachability question for mirror, pattern and the in-chain cut alike,
+and an unreachable patterned removal falls back to the whole-body replicate
+(28800.0 / 30994.6904 measured); **CM-3** extrude-cut /
+revolve-cut that removes nothing reports `ok` (Hole correctly errors) — **FIXED
+2026-07-25**: `combine_body` asks the same shared predicate before the boolean and
+the feature layer answers the typed `cut_removed_nothing`, so a pocket beside the
+part, a cut in free space, a duplicated cut and a clear revolve-cut all degrade
+honestly with the last-good body intact (front end caught up 2026-07-25: the
+tree panel now reads per-verb copy for that code, naming the duplicate-cut case
+an extrude-cut actually hits); **CM-4** a
+pocket+fillet+shell body loses 2 edges across a STEP round-trip (96 -> 98) —
+**FIXED 2026-07-25**: the WRITE is faithful (96 `EDGE_CURVE` records for 96
+edges); the shell returned a `BRepCheck`-INVALID body whose pinched zero-width
+cavity leaves a T-junction, and the STEP reader was healing it on import. New
+`geometry.kernel.healing.conform_solid` (`ShapeFix_Shape`, run only on a body
+`BRepCheck` already rejects, so valid bodies are untouched) makes the shell
+result conformal — dV -2.7e-12, dA 0.0, deterministic and idempotent — after
+which the round-trip is EXACT (36/97/64). Full evidence,
+coverage table and tolerance rationale in `docs/GEOMETRY-QA.md` (2026-07-25).
+Fixes belong to the kernel agent — QA does not touch `services/geometry/src/**`.
+
 **Engineering-audit H burn-down (2026-07-25, in progress.)** The fresh
 `docs/AUDIT-ENGINEERING.md` pass (H1-H10) is being worked item-by-item.
 Landed so far: **H2** — a drawing sheet may no longer mix source documents or
 scales (documents refuses the write with typed 422s; the gateway re-checks the
 read before any compose hop), closing a silently-wrong-print seam reachable
-through the gateway API. **Code-review regression A (kernel, same batch):** the
+through the gateway API. **H3** — a sheet may no longer carry two views of the
+same projection (migration `0011` UNIQUE `(sheet_id, projection)` + typed 422),
+which is what made a drag-to-place persist onto another view's row; the web
+sheet now keys per view id. **H5** — `MAX_DRAWING_SHEETS = 100` closes the one
+work bound G2 missed (parse ceiling + documents write twin), and the drawing
+tree read is 4 queries instead of `1 + 3n`. **H4** — the per-face provenance
+that shipped with feature-localized selection no longer taxes every compute
+path: body-history recording is opt-in (only `/overlay` asks; the other eight
+`evaluate_tree` call sites retain 0 intermediate B-reps, down from one per
+body-affecting feature), the matcher is hash-indexed (600-face body: 180 300 →
+600 comparisons; 8.83 s → 1.82 s at 4800 faces), and the pass is bounded by a
+documented `MAX_PROVENANCE_FACES = 8000` that DEGRADES to null attribution
+(the frontend's existing whole-body fallback) instead of pinning a worker. Alongside, review **CR-6**: a
+multi-sheet drawing's export now downloads as `<drawing>-<sheet>.<ext>` instead
+of every sheet sharing one filename. **Code-review regression A (kernel, same batch):** the
 FINDINGS #3 resilient face re-match (`2b6b72e`) silently MOVED the resolved
 plane origin — a tier-2 match returned the matched face's CURRENT area centroid,
 so editing a neighbouring hole Ø6→Ø8 on a 40×40×10 plate translated every sketch/
 datum/mate seated on the shared top face by 0.1156 mm in x *and* y (measured), no
 error. Tier 2 now re-anchors at the STORED centroid projected onto the matched
-face; tier 1 is untouched (byte-stable goldens).
+face; tier 1 is untouched (byte-stable goldens). **Code-review regression B:**
+the cut-aware mirror (`feb4318`) took `mirror_cut` whenever the preceding feature
+was a cut and never checked that anything was removed, so both "complete the
+symmetric half" and "duplicate across a clearing plane" were SILENT NO-OPS
+(measured: a 40×40×20 block with a 10×20×10 pocket mirrored about its own +X face
+stayed 30000 mm³ at x∈[0,40], every feature `ok`). A reflected removal that cannot
+reach the body now falls back to reflect-and-union — 60000 mm³ over x∈[0,80] with
+a pocket in each half — locked by a new golden
+(`mirror-cut-clearing-plane-block-40x40x20`, planar, tol 1e-9) plus the
+Hole-sourced twin and an earlier-cut-survives guard in `test_mirror.py`.
+
+**Burn-down code-review fixes — frontend (2026-07-25).** Four confirmed
+findings from the independent review of the burn-down diff, all in `apps/web`
++ `packages/design`. (4) A right-drag PAN no longer pops the viewport context
+menu: the orbit rig binds the right button to pan and only `preventDefault()`s
+`contextmenu`, so every pan used to end with the menu open. The menu is now
+gated on a stationary right-button gesture (4 px click slop) on BOTH
+platform behaviours — `contextmenu`-on-press (Chromium/Linux; the request is
+held and released on pointerup) and on-release. (5) The live extrude ghost
+obeys `operation`: a CUT is drawn as a VOID — back walls only, shaded cold and
+dark — instead of the warm brass SOLID it painted regardless, a preview that
+stated the opposite of what Save produces. (7) The ASSEMBLY inspector joins
+FINDINGS #17's unit-aware readouts (in³/in²/in via `assemblyReadout`), so an
+inch assembly and its inch parts no longer speak two conventions; readout
+PRECISION is unit-aware too (a 100 mm³ feature reads `0.0061 in³`, not
+`0.01`). (9) `ContextMenu` now really restores focus to the trigger on close,
+as its docstring promised — deferring to an action that moved focus itself
+(Rename). Gates: `tsc`/eslint/prettier + web (836) and design (48) unit suites
+green; targeted Playwright green (new `viewport-gestures`,
+`extrude-cut-preview`, `assembly-units`; regression `interaction-depth`,
+`document-units`, `assembly-inspect`). Before/after founder shots under
+`docs/screenshots/extrude-cut-ghost-*` and `assembly-units-in-*`.
+
+**Component-test tier — the structural blind spot behind those four defects
+(2026-07-25, frontend-builder).** All three of the UI defects above were
+component-level behaviours that NOTHING below a 40-minute Playwright run could
+see, because `apps/web` had no DOM test harness at all (`environment: "node"`,
+`include: ["src/**/*.test.ts"]`). Both TS packages now run **two vitest
+projects split by file extension**: `*.test.ts` → `unit` (node, unchanged
+speed) and `*.test.tsx` → `dom` (jsdom + Testing Library, auto-wired matchers
+and cleanup via `src/test/domSetup.ts`). CI needed no workflow change —
+`pnpm -r --if-present run test` picks up both. 46 new tests pin the three
+defects (a cut ghost that reads as added metal, a panel that ignores its unit
+context, a menu that drops focus on Escape) plus the readouts and
+feature-keyed error copy around them; each was verified to FAIL against the
+re-introduced defect. r3f/WebGL cannot render in jsdom, so the extrude ghost's
+operation-sensitive shading was lifted into a pure `extrudeGhostAppearance`
+seam below the renderer (behaviour-identical: `FrontSide` is three's default)
+rather than mocked. Web suite 836 → 882 tests; node tier unchanged at ~8.5 s,
+DOM tier ~5 s.
 
 **Prior focus — daily-driver depth (2026-07-23 product audit), still the
 standing direction beneath the burn-down.** The 2026-07-23 audit re-pointed
@@ -316,10 +429,31 @@ carry forward as blocked board items.
       authored and config-validated; smoke + per-instance dev scripts;
       probes verified against bare-uvicorn boots (web joins compose with the
       web-shell item)
-- ⬜ Verify full `docker compose up` on a Docker-capable host (this sandbox
-      has no docker daemon — images and stack runtime are unproven).
-      **Environment-blocked**, does not gate phase advances; first
-      Docker-capable session picks it up
+- ✅ Verify full `docker compose up` — CLOSED 2026-07-25 (platform-builder),
+      **PROVEN GREEN**: `deploy-path` run `30142627371` at `17cc198`,
+      conclusion `success`, 86s, "9 checks passed" (real containers
+      `loft-{gateway,documents,geometry,db,minio,redis}-1` built, booted,
+      migrated, and torn down with volumes). The documented self-host path now
+      runs on every push in CI
+      (`deploy-path` workflow → `scripts/compose-smoke.sh`, also `just
+      compose-smoke` on any Docker host). It builds the three images, boots
+      the BASE stack `--wait` (long-running services only — a one-shot named
+      in a `--wait` list is read as a failure the moment it succeeds), runs
+      the `minio-init` bucket bootstrap as its own gate, creates both schemas
+      from alembic trees now BAKED INTO the images (`docker compose run --rm
+      <svc> alembic -c /app/migrations/alembic.ini upgrade head` — no host
+      Python), then drives a real round-trip through the published gateway
+      port ONLY: register → part → sketch → extrude → evaluate (volume
+      10 000 mm³) → **fetch the GLB out of MinIO** (the audit-G1 credential
+      path a config check cannot reach) → export STEP (part-21 + B-rep faces),
+      and asserts documents/geometry are unreachable from the host (G3 as a
+      runtime fact). Two real bugs the config gate could never have seen:
+      (1) gateway and documents shared ONE database while their alembic trees
+      both start at revision `0001` in the default `alembic_version` table —
+      the second service's first migration silently no-ops; now one database
+      per service, created by `deploy/docker/postgres-init` and guarded by a
+      new `check-compose.py` invariant; (2) the compose stack had NO documented
+      way to create a schema without a host uv/Python toolchain
 - ✅ Compose deploy-config audit fixes (2026-07-24 engineering audit G1/G3/G4,
       platform-builder): geometry now receives `S3_ACCESS_KEY_ID`/
       `S3_SECRET_ACCESS_KEY` anchor-sourced from the MinIO root credentials
@@ -508,6 +642,39 @@ item:
       AND a countersink in the UI on the real stack (Solved + a studio-shaded
       recessed body); +11 `hole.test.ts` units. Hole slice 2 is END-TO-END in-app;
       tapped hole type + drill-size tables remain (BACKLOG P2 tail).
+- ✅ Dedicated Hole feature — SLICE 2 TAIL: TAPPED holes (geometry+DTO,
+      2026-07-25): v1 threads are **COSMETIC** — the kernel cuts the ISO tap-drill
+      bore (`D - P`) and carries a typed designation for drawing/BOM callouts; no
+      modelled helix (decision, trade-off and the upgrade path in
+      `geometry/kernel/threads.py`). `thread: IsoMetricThread | None` is its OWN
+      optional param, NOT a fourth `HoleType` member — threading is orthogonal to
+      the recess, so a counterbored tapped hole is one feature and the `HoleType`
+      union (and every consumer narrowing on its `kind`) is untouched. ISO 261
+      table M1.6-M64 (coarse + fine); an unknown designation is
+      `hole_thread_unsupported` and a bore outside `[minor, nominal)` is
+      `hole_thread_mismatch` — validated BEFORE any geometry, so neither ever
+      degrades to a plain hole wearing a thread nobody can cut. Golden
+      `hole-tapped-m10x1.5-40x25x10` (analytic π·4.25²·10; topology IDENTICAL to
+      the untapped bore) + the evaluate response is byte-identical to the same
+      hole untapped; matrix verb `hole_tapped` (+8 cells, pattern/mirror of a
+      tapped hole array the BORE). Web authoring is the follow-up.
+- ✅ Dedicated Hole feature — SLICE 2 TAIL: TAPPED holes, WEB authoring
+      (2026-07-25): the `HoleEditor` grows a `Tapped` checkbox — a toggle BESIDE
+      the Type control, never a fourth segment inside it, because threading is
+      orthogonal to the recess (a counterbored tapped hole is one feature) — that
+      reveals a drafting thread note: the callout stamped in brass (`M10x1.5`),
+      an ISO size + pitch picker (coarse first, labelled), and a tap-drill preset
+      chip. Choosing a designation DERIVES the bore to `D - P` but never locks it,
+      so a shop's rounded stock drill (6.8 for M8x1.25) still submits; both typed
+      errors are guarded client-side (`Too small/wide to tap M10x1.5 — use the
+      Ø8.5 mm tap drill`) and humanised via `friendlyFeatureError`. The ISO 261
+      table is mirrored in `features/thread.ts` with a unit test that PARSES
+      `geometry/kernel/threads.py` and asserts equality, so drift is a red test.
+      Because a tapped hole's solid is byte-identical to its bore, the FEATURE
+      TREE row carries the designation (`hole · M10x1.5`) — the only surface on
+      which tapped-ness is visible at all. e2e drills a tapped hole on the real
+      stack (derive → mismatch guard → Solved → designation survives reload) and
+      a tapped counterbore; +52 unit/jsdom tests; founder shots at 1440 + 1280.
 - ✅ Mirror feature — END-TO-END (geometry+DTO 2026-07-23; web authoring
       2026-07-23): `MirrorFeature`/`MirrorParamsV1` reflect the current body about a
       plane (origin datum XY/XZ/YZ or a `datum` feature — the SAME `GeomRef` a
@@ -592,8 +759,15 @@ solved assembly to STEP/STL (shared `ExportRow`) and runs an in-app
 interference check surfaced as a "Clash" inspector view (per-pair overlap
 volumes + "No interferences found" empty state) with clashing instances
 flagged red across the tree + viewport; e2e `assembly-inspect.spec.ts` green
-on the real stack. This closes E2 (both halves). **Assembly STEP import SLICE 1
-(geometry XCAF reader) landed 2026-07-23** (P1 — `POST /api/v1/assembly/import`
+on the real stack. This closes E2 (both halves). **Clash schedule made honest
+2026-07-25**: a pair the kernel could not measure (`ClashPair.unresolved`) now
+reads as a distinct UNVERIFIED state — dashed rule + stamp, a parenthesised
+upper-bound magnitude, "at most" caption, plain-language footnote, measured rows
+sorted first, and the states counted apart in the eyebrow — so a known-unknown
+can never pass as a clean bill of health (the tree badge follows; the viewport
+still tints both). The overlap volume also converts through the shared units core
+(`in³` on an inch assembly), retiring the last mm-only readout on that page.
+**Assembly STEP import SLICE 1 (geometry XCAF reader) landed 2026-07-23** (P1 — `POST /api/v1/assembly/import`
 + `kernel/step_assembly.py`, the mirror of the export composer: `STEPCAFControl_
 Reader` walks the XDE product tree into `StepAssemblyImportResult{has_assembly_
 structure, products[{name, placement, mesh_glb_id, properties}]}`; export↔import
@@ -626,7 +800,25 @@ inside the CPU-bounded child (`import_too_many_products`), and a total-`body_ste
 byte cap (`MAX_IMPORT_RESPONSE_BYTES`=32 MiB) rejects a big body instanced many
 times before materialisation (`import_response_too_large`), so a small STEP can no
 longer make geometry emit a multi-GB response the gateway buffers whole; both typed
-422s. Still deferred past v1 (design doc §5): exploded views, BOM formatting,
+422s. **Transport reshaped 2026-07-25 (backend-builder)**: the read now carries
+each product B-rep ONCE per `body_step_id` — a shared `bodies:
+{content-address -> LOCAL-frame STEP fragment}` map, products referencing by id —
+so a part instanced N times ships its fragment once and the amplification is gone
+from the WIRE, not merely capped (measured on the 3-product/2-body round-trip:
+46,005 → 30,657 chars of body text, and the saving grows with instance count);
+consumers resolve through the one `StepAssemblyImportResult.body_step_for()`.
+**Permanent 3-service chain gate 2026-07-25 (backend-builder)**: the untrusted
+upload path is no longer proven only in halves —
+`services/gateway/tests/test_assembly_import_chain.py` boots gateway + geometry +
+documents IN-PROCESS over `httpx.ASGITransport` (no uvicorn, no ports, no docker;
+SQLite via `metadata.create_all`) and drives a real exported assembly STEP
+through the whole chain: real content-address dedup (2 parts / 3 named instances),
+placements within `roundtrip_tol`, the created parts EVALUATE back to their
+authored volumes (6000 / 120 mm³), the bracket's fragment crossing the documents
+hop once, the flat-STEP MB-4b fallback, and 401 / streamed byte cap / count cap /
+name-collision atomicity with real payloads. `integration`-marked but INCLUDED in
+the default `pytest` run (~14 s).
+Still deferred past v1 (design doc §5): exploded views, BOM formatting,
 flexible sub-assemblies, part-version pinning-as-default.
 
 - ✅ Assemblies: instances, mates/joints — **v1 MVP complete 2026-07-15 (all 6
@@ -1054,8 +1246,26 @@ flexible sub-assemblies, part-version pinning-as-default.
       (nav-cue, gate copy, body hover, assembly depth × 2 widths) + regression
       of hole/datum-face-pick/dimension-expressions/makeover-batch3 green;
       founder shots `findings-{nav-cue,extrude-gate-copy,body-hover,assembly-
-      depth}-{desktop,laptop}.png`. Deferred (noted): register de-templatizing
-      (#19, brief made optional).
+      depth}-{desktop,laptop}.png`.
+      **Registers de-templatized ✅ 2026-07-25 (frontend-builder; UI-REVIEW
+      2026-07-24 P2 — the last 🟡 on that audit's checklist, previously
+      deferred):** the parts/assemblies/drawings homes are ONE
+      `DocumentRegister` (the three ~410-line near-duplicate pages collapse to
+      thin copy configs, closing the near-dup UI-REVIEW flagged 2026-07-16).
+      The audit's complaint was answered as information first: the two
+      identical-ISO-date columns are replaced by LAST WORKED (relative age of
+      the last edit) which doubles as the empty-stub flag ("Not started" when a
+      document has had no edit since it was named — derivable because every
+      tree write bumps `updated_at`), plus UNITS from `length_unit` where a
+      document has one (drawings drop the column rather than rule a blank one).
+      Form: the sheet number moves into a scribed carbide gutter carrying the
+      addressed row's brass scribe, the create control becomes the register's
+      NEXT LINE (next sheet number, `N` chord finally shown), and the drawer's
+      unfiled ruled lines run to the frame edge — the "card adrift in a void"
+      read is gone. New jsdom tier `DocumentRegister.test.tsx` (13) +
+      `lib/activity.test.ts` (7); every `data-testid`/role preserved, e2e
+      parts-home/auth/drawings/assembly-bom green on the live stack; founder
+      shots `parts-home-{empty,desktop,laptop}.png` refreshed.
       **Cut-aware pattern + mirror ✅ 2026-07-24 (kernel-architect; FINDINGS
       #1–#2, the silent-wrong-geometry pair):** patterning a **Hole** feature no
       longer duplicates the whole body and mirroring a holed plate about its
@@ -1148,7 +1358,10 @@ flexible sub-assemblies, part-version pinning-as-default.
       a partially-occluded segment is split at the overlap and never drawn both dashed
       and solid. Regressions: 5-view zero-overlap sheet, honored-position, typed-error-
       preserved, partial-occlusion split; flat-pattern-sheet goldens refreshed for the
-      additive `error` field; `just gen` clean.
+      additive `error` field; `just gen` clean. (2026-07-25: the ASSEMBLY-path guard
+      `test_partial_occlusion_emits_no_hidden_over_visible_overlap` was left
+      `xfail(strict=False)` by this commit and had been XPASSing ever since — marker
+      removed, it is a real assertion covering both paths now.)
       **Assembly STEP name fidelity ✅ 2026-07-24 (kernel-architect; FINDINGS #7):**
       the assembly STEP export wrote every PRODUCT name as the instance UUID, so a
       Loft→STEP→Loft round trip recovered parts named `c8f8baa9-…` — positions
@@ -1628,6 +1841,28 @@ all done; IGES and healing remain ⬜, keeping the phase 🚧.
       green — format + contracts regen completed, gen-check + web typecheck
       clean.) Remaining: BOM/balloons + web rendering + nested flatten
       (BACKLOG D4).
+      **Drawings parity #4 — SLICE (b1) BOM DATA MODEL SHIPPED** (2026-07-25,
+      backend-builder): `GET /api/v1/drawings/{id}/bom[?sheet=]` — a documents-side
+      READ MODEL (no table, no migration) over the sheet's source assembly, proxied
+      by the gateway. **The identity decision (drawings.md §8a): item numbers are
+      DERIVED, never stored.** A drawing persists nothing about its BOM; lines are
+      numbered by first appearance in the assembly's own `order_index`, so a part
+      RENAME can never renumber a released print — deliberately NOT the name-sorted
+      order `/assemblies/{id}/bom` returns (the two orderings disagree by design,
+      and a gate says so). A real graph edit (add/remove/reorder) DOES renumber,
+      which is honest, and `assembly_version` is echoed so a tip-tracking client can
+      SEE the source move under it. Every failure is typed rather than a misleading
+      empty list: `drawing_bom_source_not_assembly` (a part drawing has no BOM) /
+      `sheet_has_no_views` / `drawing_bom_source_missing` 422, `sheet_not_found`
+      404, and a document deleted while still instanced keeps its item number +
+      quantity with `missing: true`. 15 documents regressions x2 dialects + 4
+      gateway proxy gates; `just gen` + `gen-check` clean. **Balloons are filed as
+      ONE whole slice (b2)** — persistence + geometry `place_sheet` placement + web
+      together, since persisted balloons no serializer draws would be exactly the
+      dead-capability class this week burned down; the storage/staleness decisions
+      are already made in §8a.3 (a balloon stores the BOM line KEY, never the
+      number; a de-instanced reference is a typed `balloon_item_missing` dangling
+      marker).
       **D1b (DOM half) SHIPPED** (2026-07-23): on-screen `TitleBlock` stamps the
       same DRAWN/DATE/NOTES rows the SVG/PDF/DXF emit, shared `titleBlockFields`
       helper. **D3 SHIPPED** (2026-07-23): `bounds_aware_layout` branches on

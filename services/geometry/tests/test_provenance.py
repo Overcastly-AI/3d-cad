@@ -14,14 +14,18 @@ beyond kernel jitter, so a match is unambiguous.
 """
 
 import json
+import math
 import struct
 import uuid
+from collections.abc import Callable
 from typing import Any
 
-from build123d import CenterOf, GeomType
+import pytest
+from build123d import CenterOf, Compound, GeomType, Solid
 from fastapi.testclient import TestClient
 from geometry.features import evaluate_tree
-from geometry.kernel import attribute_faces
+from geometry.kernel import attribute_faces, provenance
+from geometry.kernel.types import BodyShape
 from geometry.main import app
 from py_kit.schemas.features import EvaluateTreeRequest
 from py_kit.schemas.overlay import OverlayRequest, OverlayResult
@@ -145,7 +149,8 @@ def test_hole_wall_attributes_to_hole_base_faces_to_extrude() -> None:
     faces to the EXTRUDE feature; the drilled top/bottom faces (re-cut by the
     bore) attribute to the HOLE."""
     evaluation = evaluate_tree(
-        EvaluateTreeRequest.model_validate(_block_and_hole_tree())
+        EvaluateTreeRequest.model_validate(_block_and_hole_tree()),
+        record_history=True,
     )
     assert evaluation.body is not None
     # Two body-affecting features → two snapshots, earliest first.
@@ -177,8 +182,8 @@ def test_hole_wall_attributes_to_hole_base_faces_to_extrude() -> None:
 def test_attribution_is_deterministic() -> None:
     """Same tree → identical attribution (RESEARCH §9)."""
     tree = EvaluateTreeRequest.model_validate(_block_and_hole_tree())
-    first = evaluate_tree(tree)
-    second = evaluate_tree(tree)
+    first = evaluate_tree(tree, record_history=True)
+    second = evaluate_tree(tree, record_history=True)
     assert first.body is not None and second.body is not None
     assert attribute_faces(first.body, first.body_history) == attribute_faces(
         second.body, second.body_history
@@ -197,6 +202,141 @@ def test_glb_has_one_primitive_per_brep_face() -> None:
     face_count = len(evaluation.body.faces())
     assert _glb_primitive_count(evaluation.glb) == face_count
     assert face_count == evaluation.result.properties.topology.faces
+
+
+# --- Cost: opt-in history, indexed matching, bounded work (audit H4) -------------
+
+
+def test_only_an_opted_in_caller_records_body_history() -> None:
+    """AUDIT H4(a): recording body history is OPT-IN, so the eight non-overlay
+    `evaluate_tree` call sites (tessellate, export, measure, drawing compose,
+    per-instance assembly evaluation, the golden harness) stop retaining an
+    intermediate B-rep per body-affecting feature they never read.
+
+    The evaluated GEOMETRY must be identical either way — the flag governs what is
+    KEPT, never what is built — so this asserts the default keeps nothing while the
+    mesh id (a content hash of the deterministic GLB) and mass properties match the
+    recording run byte for byte."""
+    tree = EvaluateTreeRequest.model_validate(_block_and_hole_tree())
+    plain = evaluate_tree(tree)
+    recording = evaluate_tree(tree, record_history=True)
+
+    assert plain.body_history == []  # nothing retained on the hot path
+    assert [fid for fid, _shape in recording.body_history] == [EXTRUDE_ID, HOLE_ID]
+    # Same geometry: same content-addressed mesh, same mass properties.
+    assert plain.result.mesh_glb_id == recording.result.mesh_glb_id
+    assert plain.result.properties == recording.result.properties
+    assert plain.glb == recording.glb
+
+
+def test_the_overlay_endpoint_is_the_only_route_that_pays_for_history() -> None:
+    """The flag's wiring: `/api/v1/overlay` still returns full attribution (so the
+    opt-in did not silently disable the feature), while `/api/v1/evaluate` — the
+    tessellate hot path — is unaffected."""
+    tree = _block_and_hole_tree()
+    payload = OverlayRequest.model_validate({"tree": tree}).model_dump(mode="json")
+    overlay = OverlayResult.model_validate(
+        client.post("/api/v1/overlay", json=payload).json()
+    )
+    assert all(face.feature_id is not None for face in overlay.faces)
+
+    evaluate = client.post("/api/v1/evaluate", json=tree)
+    assert evaluate.status_code == 200
+    # The evaluate response never carried provenance and still does not.
+    assert "feature_id" not in evaluate.json().get("bodies", [{}])[0]
+
+
+def _many_face_body(boxes: int) -> Compound:
+    """A compound of *boxes* unit cubes on a 2 mm lattice — ``6 * boxes`` planar
+    faces, all distinct, built without any boolean (cheap, deterministic)."""
+    side = math.ceil(boxes ** (1 / 2))
+    solids = [
+        Solid.make_box(1.0, 1.0, 1.0).translate((i % side * 2.0, i // side * 2.0, 0.0))
+        for i in range(boxes)
+    ]
+    return Compound(solids)
+
+
+def test_attribution_work_is_linear_in_face_count(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AUDIT H4(b) SIZE GATE: the matcher is INDEXED, not scanned.
+
+    The shipped implementation compared each final face against every fingerprint
+    of every snapshot until one matched — ``O(F x S x F_snapshot)``. A single
+    20k-face STEP import (one snapshot) therefore cost ~2e8 pure-Python
+    `fingerprints_match` calls inside one authenticated request.
+
+    Asserted as an OPERATION COUNT, not wall-clock: a timing bound flakes under CI
+    contention (see the benchmark suite's ceiling policy), while the call count is
+    contention-invariant and fails LOUDLY on the quadratic path. With 600 faces the
+    old matcher averages ~F/2 comparisons per face (~180000 total); the indexed one
+    probes 27 cells holding at most a handful of candidates each, so 4 calls per
+    face is generous headroom and still ~75x below the old cost."""
+    body = _many_face_body(100)
+    faces = len(body.faces())
+    assert faces == 600
+
+    calls = 0
+    # The fingerprint type is module-private (it never crosses a boundary), so the
+    # counting wrapper is typed structurally and delegates to the real matcher.
+    real_matches: Callable[..., bool] = provenance.fingerprints_match
+
+    def counting_matches(candidate: object, target: object) -> bool:
+        nonlocal calls
+        calls += 1
+        return real_matches(candidate, target)
+
+    monkeypatch.setattr(provenance, "fingerprints_match", counting_matches)
+    history: list[tuple[uuid.UUID, BodyShape]] = [(EXTRUDE_ID, body)]
+    owners = attribute_faces(body, history)
+
+    assert owners == [EXTRUDE_ID] * faces  # every face resolves, same as before
+    assert calls <= 4 * faces, f"{calls} match calls for {faces} faces is not linear"
+
+
+def test_attribution_degrades_past_the_documented_face_bound(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AUDIT H4: past MAX_PROVENANCE_FACES the pass is SKIPPED, not run and not
+    refused. Attribution is a rendering nicety, so it degrades to all-null —
+    exactly the pre-provenance behaviour, which the frontend already handles by
+    falling back to whole-body selection — instead of pinning a worker (or taking
+    the whole picking overlay away from a large imported body with a 422).
+
+    The bound counts the TOTAL fingerprint budget (final faces + every snapshot's
+    faces), which is what the GProp cost actually scales with."""
+    body = _many_face_body(4)
+    faces = len(body.faces())
+    history: list[tuple[uuid.UUID, BodyShape]] = [(EXTRUDE_ID, body)]
+
+    # Budget = 24 final + 24 snapshot = 48; a bound just under it must degrade.
+    monkeypatch.setattr(provenance, "MAX_PROVENANCE_FACES", 2 * faces - 1)
+    assert attribute_faces(body, history) == [None] * faces
+    # ... and exactly at the budget it still attributes (the bound is inclusive).
+    monkeypatch.setattr(provenance, "MAX_PROVENANCE_FACES", 2 * faces)
+    assert attribute_faces(body, history) == [EXTRUDE_ID] * faces
+
+
+def test_overlay_still_picks_when_attribution_is_bounded_out(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Degradation is PARTIAL: a body past the bound loses `feature_id` only. The
+    vertices / edges / face signatures the measure, sketch-on-face and edge-pick
+    flows depend on are still returned in full, and the request is a 200."""
+    monkeypatch.setattr(provenance, "MAX_PROVENANCE_FACES", 1)
+    payload = OverlayRequest.model_validate(
+        {"tree": _block_and_hole_tree()}
+    ).model_dump(mode="json")
+    response = client.post("/api/v1/overlay", json=payload)
+
+    assert response.status_code == 200, response.text
+    overlay = OverlayResult.model_validate(response.json())
+    assert all(face.feature_id is None for face in overlay.faces)
+    # The drilled block's faces are all still there (6 box faces + the hole wall).
+    assert len(overlay.faces) == 7
+    assert overlay.vertices and overlay.edges
+    assert any(face.signature is not None for face in overlay.faces)
 
 
 # --- HTTP overlay carries the attribution ---------------------------------------

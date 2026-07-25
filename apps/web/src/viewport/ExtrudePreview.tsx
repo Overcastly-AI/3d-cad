@@ -11,11 +11,18 @@
  * drawn in the same studio matcap as the real body, tinted toward brass and
  * held translucent (the `viewport.preview` tokens — one palette, two renderers).
  *
+ * The ghost obeys the OPERATION (FINDINGS burn-down 2026-07-25 #5). An ADD
+ * sweeps warm, bright metal about to exist. A CUT sweeps the same volume but
+ * inverts the read into a VOID: only the cavity's BACK walls are drawn (you
+ * look into the pocket, not at a body's near face) and they are shaded cold and
+ * DARK — a hole in aluminum is a shadow, not a highlight. A cut preview
+ * therefore never paints a proud solid where Save will leave a pocket: the
+ * picture cannot contradict the result.
+ *
  * Every color/opacity is a token; GPU resources are disposed on change/unmount;
  * the depth is lightly debounced so a fast typist doesn't rebuild the mesh on
  * every intermediate keystroke.
  */
-import { viewport } from "@loft/design/tokens";
 import { useThree } from "@react-three/fiber";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -32,8 +39,9 @@ import {
   Vector3,
 } from "three";
 
-import type { ExtrudeDirection } from "../features/extrude";
+import type { ExtrudeDirection, ExtrudeOperation } from "../features/extrude";
 import type { SolvedSketchLayer } from "./SketchScene";
+import { extrudeGhostAppearance } from "./extrudeGhost";
 import { profileRegions } from "./profileLoops";
 import { studioMatcap } from "./studioMatcap";
 
@@ -44,6 +52,11 @@ export interface ExtrudePreviewProps {
   distanceMm: number;
   /** Sweep sense along the plane normal. */
   direction: ExtrudeDirection;
+  /**
+   * What Save will do with the swept volume. `"add"` draws metal about to
+   * exist; `"cut"` draws the void it will remove — never a solid.
+   */
+  operation: ExtrudeOperation;
 }
 
 /** Rebuild the ghost mesh at most this often while the distance field changes. */
@@ -63,6 +76,7 @@ export function ExtrudePreview({
   layer,
   distanceMm,
   direction,
+  operation,
 }: ExtrudePreviewProps) {
   const invalidate = useThree((state) => state.invalidate);
   const depth = useDebounced(distanceMm, PREVIEW_DEBOUNCE_MS);
@@ -91,6 +105,13 @@ export function ExtrudePreview({
     });
   }, [regions, depth, direction]);
 
+  // How this operation is shaded — the pure seam below the renderer, so "a cut
+  // never reads as added metal" is unit-testable without a GPU.
+  const appearance = useMemo(
+    () => extrudeGhostAppearance(operation),
+    [operation],
+  );
+
   const edges = useMemo(
     () => geometries.map((geometry) => new EdgesGeometry(geometry, 25)),
     [geometries],
@@ -112,21 +133,25 @@ export function ExtrudePreview({
     };
   }, [layer.basis]);
 
+  // ADD paints warm, bright metal about to exist; CUT paints the void it
+  // removes — the cavity's far walls only (BackSide), shaded cold and dark, so
+  // the ghost reads as a hole rather than a body. Every value is a token.
   const surfaceMaterial = useMemo(() => {
     const material = new MeshMatcapMaterial({ matcap: studioMatcap() });
-    material.color.set(viewport.preview.surfaceTint);
+    material.color.set(appearance.surfaceTint);
     material.transparent = true;
-    material.opacity = viewport.preview.surfaceOpacity;
+    material.opacity = appearance.surfaceOpacity;
     material.depthWrite = false;
+    material.side = appearance.surfaceSide;
     return material;
-  }, []);
+  }, [appearance]);
   const edgeMaterial = useMemo(() => {
-    const material = new LineBasicMaterial({ color: viewport.preview.edge });
+    const material = new LineBasicMaterial({ color: appearance.edgeColor });
     material.transparent = true;
-    material.opacity = viewport.preview.edgeOpacity;
+    material.opacity = appearance.edgeOpacity;
     material.depthWrite = false;
     return material;
-  }, []);
+  }, [appearance]);
 
   // Dispose GPU resources: geometries/edges when they change, materials on
   // unmount. Draw a frame on every change (frameloop="demand").

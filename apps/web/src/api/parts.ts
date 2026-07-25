@@ -84,6 +84,13 @@ export type HoleFeature = components["schemas"]["HoleFeature"];
 export type HoleParams = components["schemas"]["HoleParamsV1"];
 /** The hole `depth` slot on the wire: through-all, or a blind pocket depth. */
 export type HoleDepth = HoleParams["depth"];
+/**
+ * The optional COSMETIC thread callout that makes a hole TAPPED — a sibling of
+ * `type`, not a member of it (threading is orthogonal to the recess, so a
+ * counterbored tapped hole sets both). Carries no geometry: `diameter_mm` is
+ * the tap-drill bore.
+ */
+export type IsoMetricThread = components["schemas"]["IsoMetricThread"];
 export type ShellFeature = components["schemas"]["ShellFeature"];
 export type ShellParams = components["schemas"]["ShellParamsV1"];
 /** The shell's picked-face selector: the faces to leave OPEN (empty = sealed). */

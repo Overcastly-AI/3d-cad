@@ -25,8 +25,16 @@ export interface AssemblyTreePanelProps {
   graphError: Error | null;
   evaluation: EvaluateAssemblyResult | undefined;
   selectedInstanceId: string | null;
-  /** Instances flagged by the last interference check — badged red inline. */
+  /** Instances in a MEASURED clash from the last check — badged red inline. */
   clashingInstanceIds: ReadonlySet<string>;
+  /**
+   * Instances the last check could not measure (the exact boolean failed, their
+   * bounding volumes overlap) and that are in no measured clash. They earn a
+   * quiet dashed UNVERIFIED stamp, never the red CLASH badge: "Clash" is a
+   * measurement claim, and on these pairs the kernel has no measurement — the
+   * mirror image of the false-clear the panel already refuses to print.
+   */
+  unverifiedInstanceIds: ReadonlySet<string>;
   onSelectInstance: (instanceId: string) => void;
   onToggleGrounded: (instance: InstanceResponse) => void;
   onDeleteInstance: (instance: InstanceResponse) => void;
@@ -40,6 +48,7 @@ export function AssemblyTreePanel({
   evaluation,
   selectedInstanceId,
   clashingInstanceIds,
+  unverifiedInstanceIds,
   onSelectInstance,
   onToggleGrounded,
   onDeleteInstance,
@@ -92,6 +101,7 @@ export function AssemblyTreePanel({
               {instances.map((instance) => {
                 const selected = selectedInstanceId === instance.id;
                 const clashing = clashingInstanceIds.has(instance.id);
+                const unverified = unverifiedInstanceIds.has(instance.id);
                 const balloon = balloonById.get(instance.id) ?? 0;
                 return (
                   <li
@@ -131,6 +141,14 @@ export function AssemblyTreePanel({
                         className="shrink-0 rounded-sm border border-flag px-1 font-display text-2xs uppercase tracking-[0.14em] text-flag"
                       >
                         Clash
+                      </span>
+                    ) : unverified ? (
+                      <span
+                        data-testid={`instance-unverified-${instance.id}`}
+                        title="The exact overlap could not be measured — inspect this pair"
+                        className="shrink-0 rounded-sm border border-dashed border-etch px-1 font-display text-2xs uppercase tracking-[0.14em] text-gauge"
+                      >
+                        Unverified
                       </span>
                     ) : null}
                     <button

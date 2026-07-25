@@ -23,6 +23,8 @@ from py_kit.db import async_dsn
 from py_kit.schemas.drawings import (
     AnnotationMutationResponse,
     AnnotationResponse,
+    DrawingBomLine,
+    DrawingBomResponse,
     DrawingCreate,
     DrawingListResponse,
     DrawingResponse,
@@ -52,6 +54,9 @@ SHEET = uuid.UUID("00000000-0000-0000-0000-0000000000e1")
 VIEW = uuid.UUID("00000000-0000-0000-0000-0000000000f1")
 DIMENSION = uuid.UUID("00000000-0000-0000-0000-0000000000f2")
 ANNOTATION = uuid.UUID("00000000-0000-0000-0000-0000000000f3")
+ASSEMBLY = uuid.UUID("00000000-0000-0000-0000-0000000000a1")
+BOM_PART_A = uuid.UUID("00000000-0000-0000-0000-0000000000b1")
+BOM_PART_B = uuid.UUID("00000000-0000-0000-0000-0000000000b2")
 
 
 def _drawing(owner_id: uuid.UUID, name: str = "Bracket Drawing") -> DrawingResponse:
@@ -119,6 +124,35 @@ def _tree(owner_id: uuid.UUID) -> DrawingTreeResponse:
                 annotations=[_annotation()],
             )
         ],
+    )
+
+
+def _bom() -> DrawingBomResponse:
+    """A two-item derived BOM (drawings §7) — the shape documents serves."""
+    return DrawingBomResponse(
+        drawing_id=DRAWING,
+        sheet_id=SHEET,
+        assembly_id=ASSEMBLY,
+        assembly_version=4,
+        lines=[
+            DrawingBomLine(
+                item_number=1,
+                ref_document_id=BOM_PART_A,
+                ref_document_kind="part",
+                name="bracket",
+                missing=False,
+                quantity=2,
+            ),
+            DrawingBomLine(
+                item_number=2,
+                ref_document_id=BOM_PART_B,
+                ref_document_kind="part",
+                name=None,
+                missing=True,
+                quantity=1,
+            ),
+        ],
+        total_instances=3,
     )
 
 
@@ -196,6 +230,8 @@ def _echo_documents(seen: list[httpx.Request]) -> Handler:
         if path == "/api/v1/drawings":
             listing = DrawingListResponse(drawings=[_drawing(owner_id)])
             return httpx.Response(200, content=listing.model_dump_json())
+        if path.endswith("/bom"):
+            return httpx.Response(200, content=_bom().model_dump_json())
         return httpx.Response(200, content=_tree(owner_id).model_dump_json())
 
     return handler
@@ -227,6 +263,7 @@ def _envelope(body: dict[str, Any]) -> dict[str, Any]:
         ("POST", "/api/v1/drawings"),
         ("GET", "/api/v1/drawings"),
         ("GET", f"/api/v1/drawings/{DRAWING}"),
+        ("GET", f"/api/v1/drawings/{DRAWING}/bom"),
         ("PATCH", f"/api/v1/drawings/{DRAWING}"),
         ("DELETE", f"/api/v1/drawings/{DRAWING}"),
         ("POST", f"/api/v1/drawings/{DRAWING}/sheets"),
@@ -306,6 +343,83 @@ def test_get_drawing_tree_passthrough(db_url: str, seen: list[httpx.Request]) ->
     assert len(tree.sheets[0].annotations) == 1
     [upstream] = seen
     assert upstream.url.path == f"/api/v1/drawings/{DRAWING}"
+
+
+def test_drawing_bom_passthrough_with_derived_item_numbers(
+    db_url: str, seen: list[httpx.Request]
+) -> None:
+    """The BOM is a single documents hop — no geometry, no compose (design §7).
+
+    Item numbers ride through verbatim because documents DERIVES them from the
+    assembly's instance order; the gateway stores/computes nothing. A ``missing``
+    line survives the proxy too, so a dangling reference stays visible.
+    """
+    with make_client(db_url, _echo_documents(seen)) as client:
+        user_id, bearer = _register(client)
+        response = client.get(f"/api/v1/drawings/{DRAWING}/bom", headers=bearer)
+
+    assert response.status_code == 200, response.text
+    bom = DrawingBomResponse.model_validate(response.json())
+    assert bom.assembly_id == ASSEMBLY
+    assert bom.assembly_version == 4
+    assert bom.total_instances == 3
+    assert [(line.item_number, line.name, line.quantity) for line in bom.lines] == [
+        (1, "bracket", 2),
+        (2, None, 1),
+    ]
+    assert bom.lines[1].missing is True
+
+    [upstream] = seen
+    assert upstream.method == "GET"
+    assert upstream.url.path == f"/api/v1/drawings/{DRAWING}/bom"
+    assert upstream.headers[PRINCIPAL_HEADER] == user_id
+    # No `sheet` param when the caller omitted it (documents bills the first sheet).
+    assert "sheet" not in upstream.url.params
+
+
+def test_drawing_bom_forwards_the_sheet_selector(
+    db_url: str, seen: list[httpx.Request]
+) -> None:
+    """``?sheet=`` reaches documents verbatim — the compose/export selector reused."""
+    with make_client(db_url, _echo_documents(seen)) as client:
+        _, bearer = _register(client)
+        response = client.get(
+            f"/api/v1/drawings/{DRAWING}/bom",
+            params={"sheet": str(SHEET)},
+            headers=bearer,
+        )
+
+    assert response.status_code == 200, response.text
+    [upstream] = seen
+    assert upstream.url.params["sheet"] == str(SHEET)
+
+
+@pytest.mark.parametrize(
+    "code",
+    ["drawing_bom_source_not_assembly", "sheet_has_no_views"],
+)
+def test_drawing_bom_typed_refusals_resurface(db_url: str, code: str) -> None:
+    """A part sheet / a viewless sheet re-surfaces its typed 422, not a 500."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            422,
+            json={
+                "error": {
+                    "code": code,
+                    "message": "upstream said so.",
+                    "details": {"sheet_id": str(SHEET)},
+                    "request_id": "upstream-id",
+                }
+            },
+        )
+
+    with make_client(db_url, handler) as client:
+        _, bearer = _register(client)
+        response = client.get(f"/api/v1/drawings/{DRAWING}/bom", headers=bearer)
+
+    assert response.status_code == 422
+    assert _envelope(response.json())["code"] == code
 
 
 def test_crud_roundtrip_create_sheet_view_annotation_read(
