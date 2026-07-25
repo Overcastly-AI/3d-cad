@@ -612,3 +612,140 @@ def _row_count(
             await engine.dispose()
 
     return asyncio.run(run())
+
+
+# --- one sheet, one source document, one scale (engineering audit H2) -------------
+
+
+def test_view_referencing_another_document_on_the_same_sheet_is_422(
+    client: TestClient,
+) -> None:
+    """A sheet composes from ONE document; a second source is a typed 422, not a
+    silently mis-projected export (`documents.drawings._ensure_sheet_source`)."""
+    part_a = _create_part(client, "part-a")
+    part_b = _create_part(client, "part-b")
+    drawing_id = _create_drawing(client, "two-parts")
+    sheet_id = _add_sheet(client, drawing_id, 0).json()["sheet"]["id"]
+    assert _add_view(client, drawing_id, sheet_id, part_a, 1).status_code == 201
+
+    response = _add_view(client, drawing_id, sheet_id, part_b, 2, projection="right")
+    assert response.status_code == 422, response.text
+    error = _error(response.json())
+    assert error["code"] == "sheet_source_document_mismatch"
+    assert error["details"]["sheet_ref_document_id"] == part_a
+    assert error["details"]["ref_document_id"] == part_b
+
+    # The rejected write left the sheet untouched (one view, version unchanged).
+    tree = client.get(f"/api/v1/drawings/{drawing_id}", headers=_headers()).json()
+    assert len(tree["sheets"][0]["views"]) == 1
+    assert tree["doc_version"] == 2
+
+
+def test_view_with_a_different_scale_on_the_same_sheet_is_422(
+    client: TestClient,
+) -> None:
+    part = _create_part(client, "one-part")
+    drawing_id = _create_drawing(client, "two-scales")
+    sheet_id = _add_sheet(client, drawing_id, 0).json()["sheet"]["id"]
+    assert (
+        _add_view(
+            client,
+            drawing_id,
+            sheet_id,
+            part,
+            1,
+            scale={"numerator": 1, "denominator": 2},
+        ).status_code
+        == 201
+    )
+
+    response = _add_view(
+        client,
+        drawing_id,
+        sheet_id,
+        part,
+        2,
+        projection="top",
+        scale={"numerator": 1, "denominator": 1},
+    )
+    assert response.status_code == 422, response.text
+    error = _error(response.json())
+    assert error["code"] == "sheet_view_scale_mismatch"
+    assert error["details"]["sheet_scale"] == "1:2"
+    assert error["details"]["scale"] == "1:1"
+
+
+def test_second_view_matching_source_and_scale_is_accepted(client: TestClient) -> None:
+    """The guard rejects DIVERGENCE only — a consistent multi-view sheet (what the
+    frontend's standard layout writes) is unaffected."""
+    part = _create_part(client, "consistent")
+    drawing_id = _create_drawing(client, "standard-layout")
+    sheet_id = _add_sheet(client, drawing_id, 0).json()["sheet"]["id"]
+    scale = {"numerator": 1, "denominator": 2}
+    version = 1
+    for projection in ("front", "top", "right", "iso"):
+        response = _add_view(
+            client,
+            drawing_id,
+            sheet_id,
+            part,
+            version,
+            projection=projection,
+            scale=scale,
+        )
+        assert response.status_code == 201, response.text
+        version = response.json()["doc_version"]
+    tree = client.get(f"/api/v1/drawings/{drawing_id}", headers=_headers()).json()
+    assert [v["projection"] for v in tree["sheets"][0]["views"]] == [
+        "front",
+        "top",
+        "right",
+        "iso",
+    ]
+
+
+def test_rescaling_one_view_of_a_multi_view_sheet_is_422(client: TestClient) -> None:
+    part = _create_part(client, "rescale")
+    drawing_id = _create_drawing(client, "rescale-one")
+    sheet_id = _add_sheet(client, drawing_id, 0).json()["sheet"]["id"]
+    first = _add_view(client, drawing_id, sheet_id, part, 1).json()["view"]["id"]
+    assert (
+        _add_view(client, drawing_id, sheet_id, part, 2, projection="top").status_code
+        == 201
+    )
+
+    response = client.patch(
+        f"/api/v1/drawings/{drawing_id}/views/{first}",
+        json={"expected_version": 3, "scale": {"numerator": 1, "denominator": 4}},
+        headers=_headers(),
+    )
+    assert response.status_code == 422, response.text
+    assert _error(response.json())["code"] == "sheet_view_scale_mismatch"
+
+    # Re-placing that same view (no scale change) still works.
+    ok = client.patch(
+        f"/api/v1/drawings/{drawing_id}/views/{first}",
+        json={
+            "expected_version": 3,
+            "position": {"x_mm": 120.0, "y_mm": 90.0},
+            "auto_place": False,
+        },
+        headers=_headers(),
+    )
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["view"]["auto_place"] is False
+
+
+def test_rescaling_the_only_view_of_a_sheet_is_allowed(client: TestClient) -> None:
+    part = _create_part(client, "lone")
+    drawing_id = _create_drawing(client, "lone-view")
+    sheet_id = _add_sheet(client, drawing_id, 0).json()["sheet"]["id"]
+    view_id = _add_view(client, drawing_id, sheet_id, part, 1).json()["view"]["id"]
+
+    response = client.patch(
+        f"/api/v1/drawings/{drawing_id}/views/{view_id}",
+        json={"expected_version": 2, "scale": {"numerator": 1, "denominator": 4}},
+        headers=_headers(),
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["view"]["scale"] == {"numerator": 1, "denominator": 4}

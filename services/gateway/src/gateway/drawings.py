@@ -497,8 +497,10 @@ def _compose_request(
             for index, view in enumerate(views)
             if view.section_params is not None
         },
-        # v1 drafts a single shared scale across the standard views (the frontend's
-        # `effectiveScaleValue`) — the first placed view carries it.
+        # A sheet composes at ONE scale (audit H2): documents refuses a view whose
+        # scale differs from the sheet's (`sheet_view_scale_mismatch`) and
+        # `_assert_single_source` re-checks it here, so view 0's scale IS the
+        # sheet's scale rather than an unstated v1 simplification.
         scale=views[0].scale,
         dimensions=dimension_inputs,
         # The sheet's authored free-text notes (design §2.2), in stored order — placed
@@ -547,7 +549,55 @@ def _select_sheet(
             "The sheet has no views to export; lay out its standard views first.",
             code="drawing_not_composable",
         )
+    _assert_single_source(sheet_content)
     return sheet_content
+
+
+def _assert_single_source(sheet_content: SheetContent) -> None:
+    """Refuse to compose a sheet whose views disagree on source or scale (**H2**).
+
+    ``ComposeDrawingRequest`` carries exactly ONE source document and ONE scale, so
+    :func:`_compose_request` necessarily reduces the sheet to ``views[0]``. documents
+    now enforces the matching write-time invariant (``sheet_source_document_mismatch``
+    / ``sheet_view_scale_mismatch`` — ``documents.drawings._ensure_sheet_source``);
+    this is the READ-side backstop for rows written before that guard (or by any
+    future writer): the composed artifact would otherwise project EVERY view from
+    view 0's part at view 0's scale while keeping the other views' captions — a
+    silently wrong drawing a shop would cut from. Refusing with the SAME typed codes
+    the write path uses is the honest outcome; per-view sources/scales are a
+    separate slice (BACKLOG), not a silent default.
+    """
+    source = sheet_content.views[0]
+    for view in sheet_content.views[1:]:
+        if (
+            view.ref_document_id != source.ref_document_id
+            or view.ref_document_kind != source.ref_document_kind
+        ):
+            raise ValidationApiError(
+                "This sheet's views reference different documents, which cannot be "
+                "composed as one sheet; keep one part or assembly per sheet.",
+                code="sheet_source_document_mismatch",
+                details={
+                    "sheet_id": str(sheet_content.sheet.id),
+                    "sheet_ref_document_id": str(source.ref_document_id),
+                    "view_id": str(view.id),
+                    "ref_document_id": str(view.ref_document_id),
+                },
+            )
+        if view.scale != source.scale:
+            raise ValidationApiError(
+                "This sheet's views carry different scales, which cannot be "
+                "composed as one sheet; per-view scale is not composed in v1.",
+                code="sheet_view_scale_mismatch",
+                details={
+                    "sheet_id": str(sheet_content.sheet.id),
+                    "sheet_scale": (
+                        f"{source.scale.numerator}:{source.scale.denominator}"
+                    ),
+                    "view_id": str(view.id),
+                    "scale": f"{view.scale.numerator}:{view.scale.denominator}",
+                },
+            )
 
 
 async def _aggregate_compose_request(
@@ -580,9 +630,12 @@ async def _aggregate_compose_request(
     tree = DrawingTreeResponse.model_validate_json(drawing_upstream.content)
 
     sheet_content = _select_sheet(tree, sheet_id)
-    # Composes the selected sheet's single source document (the sheet's views share a
-    # part/assembly, mirroring the on-screen DrawingPage); its kind selects the
-    # documents evaluation-request hop + the compose source (design §7).
+    # Composes the selected sheet's single source document. "The sheet's views share
+    # ONE document at ONE scale" is an ENFORCED invariant, not an assumption (audit
+    # H2): documents refuses the divergent write and `_select_sheet` re-checks the
+    # read (`_assert_single_source`), so view 0 is the sheet's source rather than an
+    # arbitrary pick. Its kind selects the documents evaluation-request hop + the
+    # compose source (design §7).
     source_view = sheet_content.views[0]
     referenced_document_id = source_view.ref_document_id
 

@@ -262,6 +262,17 @@ order_index    integer -- UNIQUE(sheet_id,order)type         text     -- 'note'|
 - **No cycles possible** — a drawing references parts/assemblies but nothing
   references a drawing, so the acyclicity walk assemblies need (§1.2) is not
   required here; a drawing is a pure leaf consumer.
+- **One sheet = one source document at one scale** (decision 2026-07-25,
+  engineering audit **H2**; option (a) of the two the audit offered). Composition
+  threads exactly one `part`/`assembly` source and one `scale` per sheet
+  (`ComposeDrawingRequest`), so a sheet whose views named different documents (or
+  scales) was projected *entirely* from `views[0]`'s part at `views[0]`'s scale —
+  silently, with the other views' captions intact. documents now REFUSES the
+  divergent write (`sheet_source_document_mismatch` / `sheet_view_scale_mismatch`
+  422 in `create_view` + the `update_view` re-scale path) and the gateway re-checks
+  the read before any compose hop. Per-view sources/scales (multi-part detail
+  sheets) are a real feature — threading them through `ComposeDrawingRequest` +
+  geometry is a separate slice (BACKLOG), not a silent default.
 
 ### 2.3 Version pinning — pin-ready schema, v1 tracks tip (the same honest constraint)
 

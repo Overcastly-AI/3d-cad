@@ -1162,3 +1162,74 @@ def test_auto_place_flag_threaded_into_placement(db_url: str) -> None:
     assert placements["front"].auto_place is False
     assert placements["front"].position.x_mm == 50.0  # honored authored position
     assert placements["top"].auto_place is True
+
+
+# --- one sheet, one source document, one scale (engineering audit H2) -------------
+
+
+def _mixed_source_tree() -> DrawingTreeResponse:
+    """A sheet whose second view references a DIFFERENT part — the shape documents
+    now refuses to write, kept here as the legacy/foreign-writer row."""
+    tree = _drawing_tree()
+    tree.sheets[0].views[1].ref_document_id = uuid.UUID(int=PART.int + 1)
+    return tree
+
+
+def _mixed_scale_tree() -> DrawingTreeResponse:
+    """A sheet whose second view carries a different scale (1:1 vs 1:2)."""
+    tree = _drawing_tree()
+    tree.sheets[0].views[1].scale = ViewScale(numerator=1, denominator=1)
+    return tree
+
+
+@pytest.mark.parametrize(
+    ("tree_factory", "code"),
+    [
+        (_mixed_source_tree, "sheet_source_document_mismatch"),
+        (_mixed_scale_tree, "sheet_view_scale_mismatch"),
+    ],
+)
+def test_mixed_sheet_is_refused_before_any_part_or_compose_hop(
+    db_url: str,
+    tree_factory: Callable[[], DrawingTreeResponse],
+    code: str,
+) -> None:
+    """A sheet mixing source documents / scales composed EVERY view from `views[0]`'s
+    part at `views[0]`'s scale — a silently wrong print (audit H2). It is now a typed
+    422 taken on the drawing GET alone: no part evaluation-request, no compose."""
+    documents_seen: list[httpx.Request] = []
+    geometry_seen: list[httpx.Request] = []
+
+    def documents_mixed(request: httpx.Request) -> httpx.Response:
+        documents_seen.append(request)
+        return httpx.Response(200, content=tree_factory().model_dump_json())
+
+    with make_client(db_url, documents_mixed, _geometry_pdf(geometry_seen)) as client:
+        _, bearer = _register(client)
+        response = client.post(
+            f"/api/v1/drawings/{DRAWING}/export?format=pdf", headers=bearer
+        )
+
+    assert response.status_code == 422, response.text
+    error = _envelope(response.json())
+    assert error["code"] == code
+    assert error["details"]["view_id"] == str(TOP_VIEW)
+    assert [r.url.path for r in documents_seen] == [f"/api/v1/drawings/{DRAWING}"]
+    assert geometry_seen == []
+
+
+def test_mixed_sheet_is_refused_on_the_sheet_route_too(db_url: str) -> None:
+    """The JSON `/sheet` twin shares `_select_sheet`, so the on-screen sheet refuses
+    the same inconsistent state instead of rendering the wrong part."""
+    geometry_seen: list[httpx.Request] = []
+
+    def documents_mixed(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=_mixed_source_tree().model_dump_json())
+
+    with make_client(db_url, documents_mixed, _geometry_sheet(geometry_seen)) as client:
+        _, bearer = _register(client)
+        response = client.post(f"/api/v1/drawings/{DRAWING}/sheet", headers=bearer)
+
+    assert response.status_code == 422, response.text
+    assert _envelope(response.json())["code"] == "sheet_source_document_mismatch"
+    assert geometry_seen == []

@@ -24,6 +24,13 @@ the command-band P0, and the full novice-UX + viewport-polish sweep all
 landed. See `docs/FINDINGS.md` (now a closed historical record) for per-item
 evidence.
 
+**Engineering-audit H burn-down (2026-07-25, in progress.)** The fresh
+`docs/AUDIT-ENGINEERING.md` pass (H1-H10) is being worked item-by-item.
+Landed so far: **H2** — a drawing sheet may no longer mix source documents or
+scales (documents refuses the write with typed 422s; the gateway re-checks the
+read before any compose hop), closing a silently-wrong-print seam reachable
+through the gateway API.
+
 **Prior focus — daily-driver depth (2026-07-23 product audit), still the
 standing direction beneath the burn-down.** The 2026-07-23 audit re-pointed
 the queue from the sheet-metal

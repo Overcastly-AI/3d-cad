@@ -739,6 +739,20 @@ frame refactor are v2/§11. Spike de-collected.
 Full narrative evidence lives in `docs/ROADMAP.md` (Phase 4/4b sections) and
 `CHANGELOG.md`; one line per item below per token economy.
 
+### Recently shipped (2026-07-25 batch — engineering audit H findings)
+
+- [x] (P1, S) **H2 — a sheet silently mixed source documents and scales.**
+      `ComposeDrawingRequest` carries ONE source + ONE scale, so a sheet whose
+      views named different parts/scales exported EVERY view from `views[0]`'s
+      part at `views[0]`'s scale (reachable via the gateway API / Phase-5 agent
+      surface). Enforced instead of guessed (design decision (a), drawings.md
+      §2.2): documents refuses the divergent write
+      (`sheet_source_document_mismatch` / `sheet_view_scale_mismatch` 422 in
+      `create_view` + the `update_view` re-scale path) and the gateway
+      `_assert_single_source` re-checks the READ before any part/compose hop
+      (legacy rows). 8 regressions (documents + gateway).
+      [src: AUDIT-ENGINEERING.md 2026-07-25 H2]
+
 ### Recently shipped (2026-07-24 batch)
 
 - [x] (P1, S) FINDINGS #9 geometry enabler — per-face feature provenance

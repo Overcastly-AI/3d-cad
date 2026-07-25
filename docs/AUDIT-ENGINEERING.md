@@ -910,7 +910,21 @@ switches sheets but distinguishes them by the *composed note*, which comes from
 
 ---
 
-### H2 — A sheet whose views reference different documents composes **every** view from `views[0]`'s part. **P1 · CONFIRMED**
+### H2 — A sheet whose views reference different documents composes **every** view from `views[0]`'s part. **P1 · CONFIRMED · ✅ FIXED**
+
+> **Landed 2026-07-25 (backend-builder).** Option **(a) — enforce**, stated in
+> `docs/design/drawings.md` §2.2 ("one sheet = one source document at one
+> scale"): `documents.drawings._ensure_sheet_source` rejects a `create_view`
+> whose `ref_document_id`/`ref_document_kind` or `scale` diverges from the
+> sheet's first view (`sheet_source_document_mismatch` /
+> `sheet_view_scale_mismatch` 422), and the same guard runs on the `update_view`
+> re-scale path (a single-view sheet re-scales freely). Read-side backstop for
+> rows written before the guard: `gateway.drawings._assert_single_source` (in
+> `_select_sheet`, so `/export` AND `/sheet` share it) refuses with the same
+> typed codes **before** the part-evaluation hop — regression asserts
+> `documents_seen == [drawing GET]` and `geometry_seen == []`. Per-view
+> sources/scales filed as a feature slice, not a silent default. Coverage: 5
+> documents + 3 gateway regressions.
 
 Nothing constrains a sheet's views to one source document:
 
