@@ -197,6 +197,23 @@ Stale docs are a defect (this rule saved Next-Lane repeatedly; see
   look at the newer run," not as pass; and **every commit must be green on
   its own**, so a required-field change and its callers belong in ONE commit
   even when that crosses agent territories.
+- **Only the ORCHESTRATOR can read CI — subagents cannot. Budget the relay
+  into the brief.** A subagent has no `gh`, no GitHub MCP in its toolset, and
+  `api.github.com` is policy-denied for its session (`403 GitHub access is
+  not enabled for this session`) — same policy-denial class as the blocked
+  docker registry, so there is nothing to route around. A brief that ends
+  "push and then read the run" therefore dead-ends *after* the agent has done
+  the work. Either (a) tell the agent to push and stop, and the orchestrator
+  reads the run and relays `get_job_logs` output back via SendMessage so the
+  agent can iterate, or (b) keep CI-verified work in the orchestrator's own
+  hands. Do NOT write briefs that assume a subagent can self-verify CI.
+- **A suspiciously FAST green deserves the same scrutiny as a red.** The
+  usual cause is a job that skipped its work, and `conclusion: success` is
+  emitted when every job is skipped. Discriminate by reading the log for
+  evidence the work actually happened (2026-07-25: the first-ever deploy-path
+  run passed in 86s where ~20 min was expected — real, and the proof was the
+  teardown naming six actual containers; a no-op job has nothing to remove).
+  Prefer asserting on a side effect only real execution produces.
 
 ## Work as a dev team
 
