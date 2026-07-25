@@ -1431,6 +1431,116 @@
         "title": "DraftParamsV1",
         "type": "object"
       },
+      "DrawingBomLine": {
+        "description": "One NUMBERED line of a drawing's bill of materials (design \u00a77 BOM).\n\nThe shipped assembly :class:`~py_kit.schemas.assemblies.BomLine` (group key +\nresolved name + `missing` + quantity, reused VERBATIM \u2014 no parallel taxonomy)\nplus the one thing a *drawing* adds: the ``item_number`` a balloon stamps.\n\n``item_number`` is **derived**, not authored: lines are numbered 1..n in the\norder each referenced document FIRST appears in the assembly's stable instance\n``order_index``. It is therefore a pure function of the assembly graph \u2014 two\nreads of an unchanged assembly number identically, and a part RENAME (which\nre-sorts the name-ordered assembly BOM) leaves every number untouched.",
+        "properties": {
+          "item_number": {
+            "description": "1-based item number, DERIVED from the assembly's stable instance order (first appearance of this referenced document) \u2014 never stored on the drawing, so it can never drift from the assembly",
+            "minimum": 1.0,
+            "title": "Item Number",
+            "type": "integer"
+          },
+          "missing": {
+            "default": false,
+            "description": "True when the referenced document no longer exists (deleted while still instanced) \u2014 the line and its quantity are still reported so the dangling reference is visible, never silently dropped",
+            "title": "Missing",
+            "type": "boolean"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The referenced document's CURRENT name, or null when it has been deleted while still instanced (see `missing`)",
+            "title": "Name"
+          },
+          "quantity": {
+            "description": "Count of direct instances referencing this document",
+            "minimum": 1.0,
+            "title": "Quantity",
+            "type": "integer"
+          },
+          "ref_document_id": {
+            "description": "The referenced part / sub-assembly document (the group key)",
+            "format": "uuid",
+            "title": "Ref Document Id",
+            "type": "string"
+          },
+          "ref_document_kind": {
+            "description": "'part' or 'assembly' (a rigid sub-assembly, not expanded)",
+            "enum": [
+              "part",
+              "assembly"
+            ],
+            "title": "Ref Document Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ref_document_id",
+          "ref_document_kind",
+          "name",
+          "quantity",
+          "item_number"
+        ],
+        "title": "DrawingBomLine",
+        "type": "object"
+      },
+      "DrawingBomResponse": {
+        "description": "A drawing sheet's bill of materials \u2014 the item list a balloon numbers (\u00a77).\n\nA pure READ MODEL (no table, no migration): the sheet's single source document\n(the enforced one-sheet-one-source invariant, \u00a72.2) must be an ASSEMBLY, and its\nDIRECT instances are rolled up into numbered :class:`DrawingBomLine` s. FLAT \u2014\na rigid sub-assembly instance is one ``kind: \"assembly\"`` line, never expanded\n(the same v1 bound the assembly BOM states; recursive/indented is a follow-up).\n\nA sheet drafting a PART has no bill of materials: that is a typed\n``drawing_bom_source_not_assembly`` 422, not a 200 with an empty list \u2014 an empty\nBOM would read as \"this assembly has no parts\", which is a different and false\nstatement (the honest-degradation posture the whole drawings pillar takes).\n\n``assembly_version`` is the source assembly's ``doc_version`` AT READ TIME. v1\ntracks the assembly TIP (\u00a72.3), so this is the staleness handle: a client that\nballoons a sheet and later reads a different ``assembly_version`` knows the item\nlist may have renumbered, without the numbers themselves ever having been stored\nand gone quietly wrong.",
+        "properties": {
+          "assembly_id": {
+            "description": "The assembly this sheet drafts",
+            "format": "uuid",
+            "title": "Assembly Id",
+            "type": "string"
+          },
+          "assembly_version": {
+            "description": "The source assembly's `doc_version` at read time \u2014 the staleness handle for a tip-tracking (unpinned) view, \u00a72.3",
+            "minimum": 0.0,
+            "title": "Assembly Version",
+            "type": "integer"
+          },
+          "drawing_id": {
+            "format": "uuid",
+            "title": "Drawing Id",
+            "type": "string"
+          },
+          "lines": {
+            "description": "One numbered line per referenced document, in derived `item_number` order (an assembly with no instances yields an empty list)",
+            "items": {
+              "$ref": "#/components/schemas/DrawingBomLine"
+            },
+            "title": "Lines",
+            "type": "array"
+          },
+          "sheet_id": {
+            "description": "The sheet whose source was rolled up",
+            "format": "uuid",
+            "title": "Sheet Id",
+            "type": "string"
+          },
+          "total_instances": {
+            "description": "Sum of every line's quantity (direct-instance count)",
+            "minimum": 0.0,
+            "title": "Total Instances",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "drawing_id",
+          "sheet_id",
+          "assembly_id",
+          "assembly_version",
+          "total_instances"
+        ],
+        "title": "DrawingBomResponse",
+        "type": "object"
+      },
       "DrawingCreate": {
         "description": "Create a drawing owned by the calling user (design \u00a72.1).",
         "properties": {
@@ -7657,6 +7767,87 @@
           }
         },
         "summary": "Delete Annotation",
+        "tags": [
+          "drawings"
+        ]
+      }
+    },
+    "/api/v1/drawings/{drawing_id}/bom": {
+      "get": {
+        "description": "The sheet's bill of materials \u2014 numbered items derived from its assembly.\n\nA pure READ MODEL (no table, no migration, no write path): the sheet's single\nsource document must be an ASSEMBLY, and its DIRECT instances roll up into\n``item_number``-ed lines. **The numbers are derived on every read from the\nassembly's stable instance order and are never persisted on the drawing** \u2014\nthe drift class a stored number would create (the assembly changes; the print\nkeeps the old number and is silently wrong) is designed out rather than\ndetected. ``assembly_version`` is echoed so a tip-tracking client can see the\nsource move under it.\n\nTyped refusals, never a misleading empty list: ``sheet_not_found`` (404),\n``sheet_has_no_views`` / ``drawing_bom_source_not_assembly`` /\n``drawing_bom_source_missing`` (422). Uniform 404 for an unknown or foreign\ndrawing.",
+        "operationId": "get_drawing_bom_api_v1_drawings__drawing_id__bom_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "drawing_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Drawing Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Which sheet to bill (a sheet id from the drawing tree); omit to bill the FIRST sheet, the same default the compose/export routes take. An unknown/foreign id is a `sheet_not_found` 404.",
+            "in": "query",
+            "name": "sheet",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Which sheet to bill (a sheet id from the drawing tree); omit to bill the FIRST sheet, the same default the compose/export routes take. An unknown/foreign id is a `sheet_not_found` 404.",
+              "title": "Sheet"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DrawingBomResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Drawing Bom",
         "tags": [
           "drawings"
         ]

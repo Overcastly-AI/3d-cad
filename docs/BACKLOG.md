@@ -367,13 +367,40 @@ frame refactor are v2/§11. Spike de-collected.
           builder was killed by the session usage limit mid-regression-run —
           work re-verified green: drawings regression suites 100%, format +
           contracts regen completed, gen-check + web typecheck clean.)
+    - [x] (b1) **BOM data model — SHIPPED 2026-07-25** (backend-builder):
+          `GET /drawings/{id}/bom[?sheet=]` (documents read model + gateway proxy,
+          `DrawingBomLine`/`DrawingBomResponse` extending the shipped `BomLine`).
+          **Item numbers are DERIVED, never stored** (design §8a.1): numbered by
+          first appearance in the assembly's `order_index`, so a part RENAME can
+          never renumber a print (the name-sorted `/assemblies/{id}/bom` order is
+          deliberately different, gated). Staleness is visible not silent —
+          `assembly_version` echoed (tip-tracking, §8a.2) — and every failure is
+          typed: `drawing_bom_source_not_assembly` / `sheet_has_no_views` /
+          `drawing_bom_source_missing` 422, `sheet_not_found` 404, a dangling
+          reference keeping its number + quantity with `missing: true`. 15
+          documents regressions x2 dialects + 4 gateway proxy gates; contracts +
+          ts-client regenerated.
     - [ ] NEXT SLICES (scoped):
-          (b) BOM table + balloons authoring/compose; (c) web — render assembly
-          views + BOM/balloons (web reads the SAME `/drawings/{id}/sheet`
-          `ComposedSheet`, so (a) alone lights the on-screen sheet up; balloon
-          authoring + BOM table need their own DTO/compose slice); (d) documents
+          (b2) **BALLOONS — one whole slice, kernel + backend + web together**
+          (splitting it would persist balloons no serializer draws = a dead
+          capability). Decisions already made in drawings.md §8a.3: a balloon
+          stores the BOM line KEY (`ref_document_id`+kind) + its authored 2D
+          leader/anchor and NEVER the number (resolved from (b1) at compose time);
+          a balloon whose document is no longer instanced is a typed
+          `balloon_item_missing` dangling marker, never a stale number. Work:
+          promote the `Annotation` alias to a `type`-discriminated union with a
+          `balloon` member (documents persists it through the SHIPPED annotation
+          table — no migration); add `ComposedBomTable` + `ComposedBalloon` to
+          `ComposedSheet` and place them in geometry `place_sheet` (thread the
+          resolved BOM through `ComposeDrawingRequest`, additive/null = today's
+          byte-identical sheet); all three serializers render them; web authors the
+          balloon + renders the table. Gates: a compose golden with 2 items + 2
+          balloons, byte-identical no-balloon sheet, `balloon_item_missing` gate.
+          (c) web — render assembly views (web reads the SAME `/drawings/{id}/sheet`
+          `ComposedSheet`, so (a) alone lights the on-screen sheet up); (d) documents
           — nested sub-assembly FLATTEN (recursive instance walk composing
-          placements; today a nested instance degrades to typed `no_body`).
+          placements; today a nested instance degrades to typed `no_body`), which
+          also unlocks the recursive/indented BOM.
 - [x] (P2, S) Dedicated Hole feature — SLICE 1 (simple hole): `HoleFeature`/
       `HoleParamsV1` registered across ALL feature-registry arms (Feature union,
       FeatureEnvelope, FEATURE_REGISTRY, BODY_AFFECTING_FEATURE_TYPES,

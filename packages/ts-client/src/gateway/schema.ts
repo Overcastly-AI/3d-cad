@@ -385,6 +385,35 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/drawings/{drawing_id}/bom": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Drawing Bom
+         * @description The sheet's bill of materials — items numbered from the assembly it drafts.
+         *
+         *     A single documents hop (no geometry): the BOM is a pure documents-side READ
+         *     MODEL over the source assembly's instance graph, so nothing is evaluated and
+         *     nothing is persisted on the drawing. Item numbers are DERIVED on every read
+         *     from the assembly's stable instance order (design §7 BOM) — a stored number
+         *     could silently disagree with the assembly it names, so none is stored.
+         *     documents' typed refusals re-surface verbatim: ``sheet_not_found`` (404),
+         *     ``sheet_has_no_views`` / ``drawing_bom_source_not_assembly`` /
+         *     ``drawing_bom_source_missing`` (422).
+         */
+        get: operations["get_drawing_bom_api_v1_drawings__drawing_id__bom_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/drawings/{drawing_id}/dimensions/{dimension_id}": {
         parameters: {
             query?: never;
@@ -3230,6 +3259,110 @@ export interface components {
             faces: components["schemas"]["FaceSelector"];
             /** @description The fixed plane the picked faces rotate about; its normal is the pull direction (:class:`DraftNeutralPlaneV1`). */
             neutral_plane: components["schemas"]["DraftNeutralPlaneV1"];
+        };
+        /**
+         * DrawingBomLine
+         * @description One NUMBERED line of a drawing's bill of materials (design §7 BOM).
+         *
+         *     The shipped assembly :class:`~py_kit.schemas.assemblies.BomLine` (group key +
+         *     resolved name + `missing` + quantity, reused VERBATIM — no parallel taxonomy)
+         *     plus the one thing a *drawing* adds: the ``item_number`` a balloon stamps.
+         *
+         *     ``item_number`` is **derived**, not authored: lines are numbered 1..n in the
+         *     order each referenced document FIRST appears in the assembly's stable instance
+         *     ``order_index``. It is therefore a pure function of the assembly graph — two
+         *     reads of an unchanged assembly number identically, and a part RENAME (which
+         *     re-sorts the name-ordered assembly BOM) leaves every number untouched.
+         */
+        DrawingBomLine: {
+            /**
+             * Item Number
+             * @description 1-based item number, DERIVED from the assembly's stable instance order (first appearance of this referenced document) — never stored on the drawing, so it can never drift from the assembly
+             */
+            item_number: number;
+            /**
+             * Missing
+             * @description True when the referenced document no longer exists (deleted while still instanced) — the line and its quantity are still reported so the dangling reference is visible, never silently dropped
+             * @default false
+             */
+            missing: boolean;
+            /**
+             * Name
+             * @description The referenced document's CURRENT name, or null when it has been deleted while still instanced (see `missing`)
+             */
+            name: string | null;
+            /**
+             * Quantity
+             * @description Count of direct instances referencing this document
+             */
+            quantity: number;
+            /**
+             * Ref Document Id
+             * Format: uuid
+             * @description The referenced part / sub-assembly document (the group key)
+             */
+            ref_document_id: string;
+            /**
+             * Ref Document Kind
+             * @description 'part' or 'assembly' (a rigid sub-assembly, not expanded)
+             * @enum {string}
+             */
+            ref_document_kind: "part" | "assembly";
+        };
+        /**
+         * DrawingBomResponse
+         * @description A drawing sheet's bill of materials — the item list a balloon numbers (§7).
+         *
+         *     A pure READ MODEL (no table, no migration): the sheet's single source document
+         *     (the enforced one-sheet-one-source invariant, §2.2) must be an ASSEMBLY, and its
+         *     DIRECT instances are rolled up into numbered :class:`DrawingBomLine` s. FLAT —
+         *     a rigid sub-assembly instance is one ``kind: "assembly"`` line, never expanded
+         *     (the same v1 bound the assembly BOM states; recursive/indented is a follow-up).
+         *
+         *     A sheet drafting a PART has no bill of materials: that is a typed
+         *     ``drawing_bom_source_not_assembly`` 422, not a 200 with an empty list — an empty
+         *     BOM would read as "this assembly has no parts", which is a different and false
+         *     statement (the honest-degradation posture the whole drawings pillar takes).
+         *
+         *     ``assembly_version`` is the source assembly's ``doc_version`` AT READ TIME. v1
+         *     tracks the assembly TIP (§2.3), so this is the staleness handle: a client that
+         *     balloons a sheet and later reads a different ``assembly_version`` knows the item
+         *     list may have renumbered, without the numbers themselves ever having been stored
+         *     and gone quietly wrong.
+         */
+        DrawingBomResponse: {
+            /**
+             * Assembly Id
+             * Format: uuid
+             * @description The assembly this sheet drafts
+             */
+            assembly_id: string;
+            /**
+             * Assembly Version
+             * @description The source assembly's `doc_version` at read time — the staleness handle for a tip-tracking (unpinned) view, §2.3
+             */
+            assembly_version: number;
+            /**
+             * Drawing Id
+             * Format: uuid
+             */
+            drawing_id: string;
+            /**
+             * Lines
+             * @description One numbered line per referenced document, in derived `item_number` order (an assembly with no instances yields an empty list)
+             */
+            lines?: components["schemas"]["DrawingBomLine"][];
+            /**
+             * Sheet Id
+             * Format: uuid
+             * @description The sheet whose source was rolled up
+             */
+            sheet_id: string;
+            /**
+             * Total Instances
+             * @description Sum of every line's quantity (direct-instance count)
+             */
+            total_instances: number;
         };
         /**
          * DrawingCreate
@@ -8642,6 +8775,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DrawingTreeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_drawing_bom_api_v1_drawings__drawing_id__bom_get: {
+        parameters: {
+            query?: {
+                /** @description Which sheet to bill (a sheet id from the drawing tree); omit to bill the FIRST sheet, the same default the compose/export routes take. An unknown/foreign id is a `sheet_not_found` 404. */
+                sheet?: string | null;
+            };
+            header?: never;
+            path: {
+                drawing_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DrawingBomResponse"];
                 };
             };
             /** @description Validation Error */

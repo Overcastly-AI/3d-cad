@@ -34,6 +34,7 @@ from py_kit.schemas.drawings import (
     ComposedSheet,
     DimensionCreate,
     DimensionMutationResponse,
+    DrawingBomResponse,
     DrawingCreate,
     DrawingDimensionInput,
     DrawingListResponse,
@@ -107,6 +108,43 @@ async def get_drawing(
     if upstream.status_code != status.HTTP_200_OK:
         raise_upstream_error(upstream, service=_SERVICE)
     return DrawingTreeResponse.model_validate_json(upstream.content)
+
+
+@router.get("/{drawing_id}/bom")
+async def get_drawing_bom(
+    drawing_id: uuid.UUID,
+    user: CurrentUser,
+    http_request: Request,
+    sheet: Annotated[
+        uuid.UUID | None,
+        Query(
+            description="Which sheet to bill (a sheet id from the drawing tree); "
+            "omit to bill the FIRST sheet, the same default the compose/export "
+            "routes take. An unknown/foreign id is a `sheet_not_found` 404.",
+        ),
+    ] = None,
+) -> DrawingBomResponse:
+    """The sheet's bill of materials — items numbered from the assembly it drafts.
+
+    A single documents hop (no geometry): the BOM is a pure documents-side READ
+    MODEL over the source assembly's instance graph, so nothing is evaluated and
+    nothing is persisted on the drawing. Item numbers are DERIVED on every read
+    from the assembly's stable instance order (design §7 BOM) — a stored number
+    could silently disagree with the assembly it names, so none is stored.
+    documents' typed refusals re-surface verbatim: ``sheet_not_found`` (404),
+    ``sheet_has_no_views`` / ``drawing_bom_source_not_assembly`` /
+    ``drawing_bom_source_missing`` (422).
+    """
+    upstream = await forward_documents(
+        http_request,
+        user,
+        "GET",
+        f"/api/v1/drawings/{drawing_id}/bom",
+        params={"sheet": str(sheet)} if sheet is not None else None,
+    )
+    if upstream.status_code != status.HTTP_200_OK:
+        raise_upstream_error(upstream, service=_SERVICE)
+    return DrawingBomResponse.model_validate_json(upstream.content)
 
 
 @router.patch("/{drawing_id}")

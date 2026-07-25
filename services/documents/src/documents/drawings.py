@@ -18,11 +18,12 @@ walk is needed; deleting a drawing simply cascades its whole layout.
 """
 
 import uuid
-from typing import Annotated
+from typing import Annotated, cast
 
 from fastapi import APIRouter, Query, status
 from py_kit import ConflictError, NotFoundError, ValidationApiError, get_logger
 from py_kit.db import SessionDep
+from py_kit.schemas.assemblies import RefDocumentKind
 from py_kit.schemas.drawings import (
     MAX_DRAWING_ANNOTATIONS,
     MAX_DRAWING_DIMENSIONS,
@@ -39,6 +40,8 @@ from py_kit.schemas.drawings import (
     DimensionMutationResponse,
     DimensionParams,
     DimensionResponse,
+    DrawingBomLine,
+    DrawingBomResponse,
     DrawingCreate,
     DrawingListResponse,
     DrawingResponse,
@@ -67,6 +70,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 
 from documents import db
+from documents.assemblies import resolve_document_names
+from documents.assembly_history import ordered_instances
 from documents.parts import (
     Principal,
     get_owned_drawing,
@@ -496,6 +501,163 @@ async def get_drawing(
     """One owned drawing with its full sheet/view/dimension/annotation tree."""
     drawing = await get_owned_drawing(session, owner_id, drawing_id)
     return await _tree_response(session, drawing)
+
+
+# --- the sheet's bill of materials (design §7 BOM — a DERIVED read model) ---------
+
+
+async def _bom_source_assembly(
+    session: AsyncSession,
+    owner_id: uuid.UUID,
+    drawing: db.Drawing,
+    sheet_id: uuid.UUID | None,
+) -> tuple[db.Sheet, db.Assembly]:
+    """The sheet to bill + the ASSEMBLY it drafts, or a typed refusal (design §7).
+
+    Selects the requested ``sheet_id`` (the FIRST sheet when omitted — the same
+    default ``?sheet=`` gives the compose/export routes) and resolves its single
+    source document. "One sheet, one source" is an ENFORCED invariant
+    (:func:`_ensure_sheet_source`), so the sheet's first view IS its source.
+
+    Every failure is typed and honest rather than an empty list:
+    ``sheet_not_found`` (404 — no sheets at all, or an id from another drawing),
+    ``sheet_has_no_views`` (422 — nothing laid out, so no source document),
+    ``drawing_bom_source_not_assembly`` (422 — a PART drawing genuinely has no bill
+    of materials; an empty BOM would falsely read as "no items"), and
+    ``drawing_bom_source_missing`` (422 — the source assembly is gone; normally
+    impossible, since deleting a referenced document is a 409-with-dependents).
+    """
+    if sheet_id is None:
+        sheets = await _ordered(session, db.Sheet, db.Sheet.drawing_id, drawing.id)
+        if not sheets:
+            raise NotFoundError(
+                "This drawing has no sheets to bill.", code="sheet_not_found"
+            )
+        sheet = sheets[0]
+        assert isinstance(sheet, db.Sheet)
+    else:
+        sheet = await _get_sheet(session, drawing, sheet_id)
+
+    views = await _sheet_views(session, sheet.id)
+    if not views:
+        raise ValidationApiError(
+            "This sheet has no views, so it references no document to bill; lay "
+            "out its standard views first.",
+            code="sheet_has_no_views",
+            details={"sheet_id": str(sheet.id)},
+        )
+    source = views[0]
+    if source.ref_document_kind != "assembly":
+        raise ValidationApiError(
+            "This sheet drafts a part, and a part drawing has no bill of "
+            "materials; a BOM is derived from an assembly's instances.",
+            code="drawing_bom_source_not_assembly",
+            details={
+                "sheet_id": str(sheet.id),
+                "ref_document_id": str(source.ref_document_id),
+                "ref_document_kind": source.ref_document_kind,
+            },
+        )
+    assembly = await session.get(db.Assembly, source.ref_document_id)
+    if assembly is None or assembly.owner_id != owner_id:
+        raise ValidationApiError(
+            "The assembly this sheet drafts no longer exists, so its bill of "
+            "materials cannot be derived.",
+            code="drawing_bom_source_missing",
+            details={
+                "sheet_id": str(sheet.id),
+                "ref_document_id": str(source.ref_document_id),
+            },
+        )
+    return sheet, assembly
+
+
+async def _bom_lines(
+    session: AsyncSession, assembly: db.Assembly
+) -> list[DrawingBomLine]:
+    """Number the assembly's direct instances into drawing BOM lines (design §7).
+
+    **Item numbers are DERIVED here, never stored** (the identity decision, design
+    §7.1): the instances are walked in the assembly's own stable ``order_index``
+    (its display/BOM order) and each referenced document takes the next item number
+    at its FIRST appearance, quantities accumulating onto that line. Consequences,
+    stated: a part RENAME never renumbers (unlike the name-sorted
+    ``GET /assemblies/{id}/bom``, whose order is a display convenience); adding,
+    removing, or reordering an instance does — a real edit, and the reason nothing
+    downstream may cache a number.
+
+    FLAT, like the assembly BOM: a rigid sub-assembly instance is a single
+    ``kind: "assembly"`` line, never expanded. A referenced document deleted while
+    still instanced keeps its line with ``missing`` true and a null name — the
+    quantity is never silently dropped.
+    """
+    instances = await ordered_instances(session, assembly.id)
+    order: list[tuple[uuid.UUID, RefDocumentKind]] = []
+    quantities: dict[tuple[uuid.UUID, RefDocumentKind], int] = {}
+    for instance in instances:
+        key = (
+            instance.ref_document_id,
+            cast(RefDocumentKind, instance.ref_document_kind),
+        )
+        if key not in quantities:
+            order.append(key)
+            quantities[key] = 0
+        quantities[key] += 1
+    names = await resolve_document_names(session, assembly.owner_id, set(order))
+    return [
+        DrawingBomLine(
+            item_number=index + 1,
+            ref_document_id=ref_id,
+            ref_document_kind=kind,
+            name=names.get((ref_id, kind)),
+            missing=(ref_id, kind) not in names,
+            quantity=quantities[(ref_id, kind)],
+        )
+        for index, (ref_id, kind) in enumerate(order)
+    ]
+
+
+@router.get("/{drawing_id}/bom")
+async def get_drawing_bom(
+    drawing_id: uuid.UUID,
+    owner_id: Principal,
+    session: SessionDep,
+    sheet: Annotated[
+        uuid.UUID | None,
+        Query(
+            description="Which sheet to bill (a sheet id from the drawing tree); "
+            "omit to bill the FIRST sheet, the same default the compose/export "
+            "routes take. An unknown/foreign id is a `sheet_not_found` 404.",
+        ),
+    ] = None,
+) -> DrawingBomResponse:
+    """The sheet's bill of materials — numbered items derived from its assembly.
+
+    A pure READ MODEL (no table, no migration, no write path): the sheet's single
+    source document must be an ASSEMBLY, and its DIRECT instances roll up into
+    ``item_number``-ed lines. **The numbers are derived on every read from the
+    assembly's stable instance order and are never persisted on the drawing** —
+    the drift class a stored number would create (the assembly changes; the print
+    keeps the old number and is silently wrong) is designed out rather than
+    detected. ``assembly_version`` is echoed so a tip-tracking client can see the
+    source move under it.
+
+    Typed refusals, never a misleading empty list: ``sheet_not_found`` (404),
+    ``sheet_has_no_views`` / ``drawing_bom_source_not_assembly`` /
+    ``drawing_bom_source_missing`` (422). Uniform 404 for an unknown or foreign
+    drawing.
+    """
+    drawing = await get_owned_drawing(session, owner_id, drawing_id)
+    sheet_row, assembly = await _bom_source_assembly(session, owner_id, drawing, sheet)
+    lines = await _bom_lines(session, assembly)
+    return DrawingBomResponse(
+        drawing_id=drawing.id,
+        sheet_id=sheet_row.id,
+        assembly_id=assembly.id,
+        assembly_version=assembly.doc_version,
+        lines=lines,
+        total_instances=sum(line.quantity for line in lines),
+    )
 
 
 @router.patch("/{drawing_id}")

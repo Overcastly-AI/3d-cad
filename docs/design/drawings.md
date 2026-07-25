@@ -655,6 +655,89 @@ gateable as rigorously as parts/assemblies (RESEARCH §9; `geometry-qa` →
 
 ---
 
+## 8a. Assembly BOM + balloons — the identity decision (2026-07-25)
+
+A drawing that projects an assembly (§1.2, shipped) wants two more things a shop
+print has: an **item table** (the BOM) and **balloons** — leader-and-circle
+callouts on the view that stamp an item number. The BOM is a *derived view of the
+assembly's instance graph*, and the whole design turns on one question: **what, if
+anything, does the drawing store about it?**
+
+### 8a.1 Decision: item numbers are DERIVED, never stored
+
+`GET /api/v1/drawings/{id}/bom[?sheet=]` (documents read model, gateway proxy) is
+a pure function of the referenced assembly. **The drawing persists nothing about
+its BOM** — no table, no migration, no `item_number` column. Rejected: storing
+"part X is item 3" on the drawing, which is §3.3's rejected option (A) one document
+up — an index into a list somebody else owns, which drifts silently the moment the
+owner changes. The failure mode of a stored number is a *print that is confidently
+wrong*, which is strictly worse than one that refuses.
+
+**Numbering rule:** lines are numbered 1..n by the order each referenced document
+**first appears in the assembly's own `order_index`** (its stable display/BOM
+order, `assemblies.md` §1.2), quantities accumulating onto the line. Deliberately
+**not** the resolved-name sort `GET /assemblies/{id}/bom` uses — that ordering is a
+display convenience, and numbering from it would mean **renaming a part renumbers a
+released print**. The two BOM endpoints therefore return the same roll-up in
+different orders, on purpose (gated by
+`test_bom_order_differs_from_the_name_sorted_assembly_bom`).
+
+The honest consequence, stated rather than hidden: **adding, removing, or
+reordering an instance DOES renumber**, because the numbers are a function of the
+graph. That is a real edit the drafter made, it moves `assembly_version` with it,
+and nothing downstream is permitted to cache a number.
+
+### 8a.2 Cross-document staleness: tip-tracking, with a visible handle
+
+A view tracks the referenced document's TIP (§2.3, `ref_pinned_version` NULL), so
+the BOM always reflects the assembly *now* — there is no window in which the table
+and the assembly disagree. What v1 does not get is determinism across time, the
+same accepted limitation views and assembly instances carry, flipping additively
+when versioning lands. To make the drift *visible* rather than merely absent,
+`DrawingBomResponse` echoes **`assembly_version`** (the source assembly's
+`doc_version` at read time): a client that rendered a table and later reads a
+different version knows the item list may have renumbered.
+
+Degradation is typed, never an empty list that reads as a false statement:
+
+| Situation | Outcome |
+|---|---|
+| Sheet drafts a PART | `drawing_bom_source_not_assembly` **422** — a part drawing has no BOM; an empty list would read as "this assembly has no parts" |
+| Sheet has no views | `sheet_has_no_views` **422** — no source document to bill |
+| No sheets / foreign sheet id | `sheet_not_found` **404** |
+| Source assembly deleted out from under the sheet (raced past the 409-with-dependents pre-check) | `drawing_bom_source_missing` **422**, never a 500 |
+| A referenced document deleted while still instanced | the line **survives** with `missing: true`, a null name, and its item number + quantity intact (shipped `BomLine` honesty, reused verbatim) |
+
+FLAT, matching the assembly BOM: a rigid sub-assembly instance is one
+`kind: "assembly"` line, never expanded (recursive/indented BOM stays a tracked
+follow-up, alongside the nested-instance flatten in the projection path).
+
+### 8a.3 Balloons (NEXT slice) — store the line KEY, resolve the number
+
+The same decision propagates: a balloon persists **the BOM line's identity**
+(`ref_document_id` + `ref_document_kind` — the group key) plus its authored 2D
+leader/anchor placement, and **never the number**. The number is resolved at
+read/compose time from §8a.1, so a balloon cannot disagree with the table beside
+it. A balloon whose referenced document is no longer instanced resolves to a typed
+`balloon_item_missing` and composes as a **dangling marker** — the exact posture a
+`subshape_unresolved` dimension takes (§3.3) — never a stale number.
+
+Stated limit of that key choice: a document-keyed balloon numbers the *item*, not
+the *occurrence*, so two instances of the same part share one number (which is
+correct ISO practice) but a balloon cannot say "this particular one". Per-occurrence
+balloons need an instance-scoped BOM and are deferred, named here rather than
+discovered later.
+
+**What is wired vs. filed (2026-07-25).** Wired: the derived BOM read model
+(documents + gateway + DTOs + regressions). Filed as a single coherent Ready item
+(BACKLOG D4 slice (b2)): balloon persistence (the `Annotation` alias promoted to a
+`type`-discriminated union with a `balloon` member), the geometry `place_sheet`
+placement of a `ComposedBomTable` + `ComposedBalloon` onto `ComposedSheet`, and the
+web surface. Balloons ship as one whole thing or not at all — persisted balloons
+that no serializer draws would be a dead capability.
+
+---
+
 ## 9. Open questions (owned by the implementing items; none block endorsement)
 
 1. **Projected-edge→model-edge provenance depth.** §3.3 needs HLR-classified

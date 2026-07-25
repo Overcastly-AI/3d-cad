@@ -3,7 +3,9 @@
 Status legend: ✅ done · 🚧 in progress · ⬜ planned
 
 **Current focus: FOUNDER-DIRECTED — the FINDINGS burn-down is COMPLETE
-(2026-07-25); next up is Drawings parity #4 (assembly views + BOM/balloons).**
+(2026-07-25); in flight is Drawings parity #4 (assembly views compose end-to-end;
+the derived-item-number BOM read model landed 2026-07-25, balloons filed as one
+whole slice).**
 Founder directive 2026-07-24: *"pause all things and fix items in the findings
 report — we should not proceed until all the items are fixed or implemented."*
 All 25 items in `docs/FINDINGS.md` (the consolidated 4-lens hard audit: P0
@@ -1776,6 +1778,28 @@ all done; IGES and healing remain ⬜, keeping the phase 🚧.
       green — format + contracts regen completed, gen-check + web typecheck
       clean.) Remaining: BOM/balloons + web rendering + nested flatten
       (BACKLOG D4).
+      **Drawings parity #4 — SLICE (b1) BOM DATA MODEL SHIPPED** (2026-07-25,
+      backend-builder): `GET /api/v1/drawings/{id}/bom[?sheet=]` — a documents-side
+      READ MODEL (no table, no migration) over the sheet's source assembly, proxied
+      by the gateway. **The identity decision (drawings.md §8a): item numbers are
+      DERIVED, never stored.** A drawing persists nothing about its BOM; lines are
+      numbered by first appearance in the assembly's own `order_index`, so a part
+      RENAME can never renumber a released print — deliberately NOT the name-sorted
+      order `/assemblies/{id}/bom` returns (the two orderings disagree by design,
+      and a gate says so). A real graph edit (add/remove/reorder) DOES renumber,
+      which is honest, and `assembly_version` is echoed so a tip-tracking client can
+      SEE the source move under it. Every failure is typed rather than a misleading
+      empty list: `drawing_bom_source_not_assembly` (a part drawing has no BOM) /
+      `sheet_has_no_views` / `drawing_bom_source_missing` 422, `sheet_not_found`
+      404, and a document deleted while still instanced keeps its item number +
+      quantity with `missing: true`. 15 documents regressions x2 dialects + 4
+      gateway proxy gates; `just gen` + `gen-check` clean. **Balloons are filed as
+      ONE whole slice (b2)** — persistence + geometry `place_sheet` placement + web
+      together, since persisted balloons no serializer draws would be exactly the
+      dead-capability class this week burned down; the storage/staleness decisions
+      are already made in §8a.3 (a balloon stores the BOM line KEY, never the
+      number; a de-instanced reference is a typed `balloon_item_missing` dangling
+      marker).
       **D1b (DOM half) SHIPPED** (2026-07-23): on-screen `TitleBlock` stamps the
       same DRAWN/DATE/NOTES rows the SVG/PDF/DXF emit, shared `titleBlockFields`
       helper. **D3 SHIPPED** (2026-07-23): `bounds_aware_layout` branches on
