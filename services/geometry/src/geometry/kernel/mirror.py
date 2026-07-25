@@ -19,6 +19,14 @@ across the plane, so a chiral body's mirror lands where no translation can put
 it (proven by the ``mirror-triangle-prism-2x`` golden — its centroid sits ON the
 mirror plane, which a translation of the same chiral profile cannot reproduce).
 
+Two READINGS of "mirror", chosen by geometry rather than guessed (see
+:func:`mirror_cut`): when the preceding feature is a cut whose REFLECTED tool
+still reaches the body, the mirror reflects that REMOVAL (a hole on both sides);
+when the reflected removal cannot reach the body — the "complete the symmetric
+half" / "duplicate across a clearing plane" workflows — it reflects and unions
+the BODY, which already carries its own pockets. Neither reading is ever a
+silent no-op.
+
 TWO honest outcomes, both valid (unlike a pattern, a mirror does NOT force a
 single connected lump — the reflection of a body that clears the plane is a
 legitimately DISJOINT second lump, and multi-body parts are supported, §MB-0):
@@ -94,6 +102,30 @@ def mirror_union(body: BodyShape, plane: Plane) -> BodyShape:
     return assemble_lumps(solids)
 
 
+def _reflected_tools_reach_body(body: BodyShape, reflected: Sequence[Solid]) -> bool:
+    """Does any *reflected* removal tool share VOLUME with *body*?
+
+    The discriminator between the two honest mirror readings (below). Purely
+    TOPOLOGICAL — a boolean common that yields at least one SOLID — so it
+    introduces no epsilon (CLAUDE.md): tools that merely touch the body on a face
+    (the exact clearing-plane case, where the reflection sits against the mirror
+    plane) common to a face/shell, never a solid, and correctly read as "does not
+    reach". A probe that raises is answered ``True`` — i.e. keep the established
+    cut path, which guards its own outcome — so an OCCT anomaly can never turn a
+    previously-working mirror into an error.
+    """
+    for tool in reflected:
+        try:
+            # build123d types the boolean common as ShapeList[Unknown] | None (the
+            # OCP wheel ships no stubs); the ignore is scoped to this one call.
+            common = body.intersect(tool)  # pyright: ignore[reportUnknownVariableType]
+        except Exception:  # OCCT failure modes are not a stable taxonomy
+            return True
+        if common is not None and common.solids():
+            return True
+    return False
+
+
 def mirror_cut(body: BodyShape, tools: Sequence[Solid], plane: Plane) -> BodyShape:
     """Reflect the cut *tools* about *plane* and subtract them from *body*.
 
@@ -108,10 +140,34 @@ def mirror_cut(body: BodyShape, tools: Sequence[Solid], plane: Plane) -> BodySha
     one variadic ``cut``, then ``clean()``-ed so the removed geometry's redundant
     seams collapse and topology counts stay meaningful (and golden-assertable).
 
-    The result must keep *body*'s LUMP COUNT (``k`` — 1 for the common single-body
-    plate): a reflected hole cut interior to the body never severs or empties it.
-    A cut that removes the whole body, or splits a lump, is a
-    :class:`MirrorError` (never a silently wrong body).
+    VACUOUS-CUT FALLBACK (the fix for a silent no-op, code review 2026-07-25).
+    "Mirror the cut" is only the user's meaning when the reflected removal can
+    actually reach the body. In the OTHER canonical mirror workflow — "complete
+    the symmetric half" / "duplicate across a clearing plane": extrude-add a
+    block, pocket it, then mirror about the block's own +X FACE — the reflected
+    tool lands entirely OUTSIDE the body, ``body.cut(...)`` returns the body
+    unchanged, and the mirror was a SILENT NO-OP (measured: a 40x40x20 block with
+    a 10x20x10 pocket mirrored about x=40 stayed 30000 mm^3 at x in [0,40], every
+    feature reporting ``ok``). So when the reflected tools do not reach the body
+    (:func:`_reflected_tools_reach_body`) the feature falls back to
+    :func:`mirror_union` — which is exactly right there, because the reflection of
+    an ALREADY-CUT body carries its own pockets/holes: the result is the completed
+    80 mm part with a pocket in each half (60000 mm^3), or two pocketed lumps for a
+    clearing plane the body does not touch.
+
+    The fallback is deliberately NOT the more "general" ``mirror_union`` +
+    re-subtract of both tool sets: the union step FILLS every removal the
+    reflection covers, and only the IMMEDIATELY-preceding cut's tools are known
+    (:func:`geometry.features.evaluate._prev_cut_tools`), so an EARLIER pocket on
+    the same plate would be silently welded shut — trading one silent-wrong-body
+    for a worse one. Choosing the reading by reachability keeps every established
+    case byte-identical (the overlapping midplane mirror still takes the cut path)
+    and is regression-tested both ways.
+
+    When the cut path IS taken the result must keep *body*'s LUMP COUNT (``k`` — 1
+    for the common single-body plate): a reflected hole cut interior to the body
+    never severs or empties it. A cut that removes the whole body, or splits a
+    lump, is a :class:`MirrorError` (never a silently wrong body).
 
     Raises:
         MirrorError: the OCCT reflection/cut failed, removed the entire body, or
@@ -125,6 +181,11 @@ def mirror_cut(body: BodyShape, tools: Sequence[Solid], plane: Plane) -> BodySha
             f"Mirror reflection of the cut tool failed in the kernel "
             f"({type(exc).__name__}); the mirror plane may be degenerate."
         ) from exc
+
+    if not _reflected_tools_reach_body(body, reflected):
+        # The mirrored removal cannot touch the body — cutting would be a no-op.
+        # The user is completing/duplicating the body, not mirroring the cut.
+        return mirror_union(body, plane)
 
     try:
         cut = body.cut(*reflected)

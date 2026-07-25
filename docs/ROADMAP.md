@@ -40,7 +40,16 @@ plane origin — a tier-2 match returned the matched face's CURRENT area centroi
 so editing a neighbouring hole Ø6→Ø8 on a 40×40×10 plate translated every sketch/
 datum/mate seated on the shared top face by 0.1156 mm in x *and* y (measured), no
 error. Tier 2 now re-anchors at the STORED centroid projected onto the matched
-face; tier 1 is untouched (byte-stable goldens).
+face; tier 1 is untouched (byte-stable goldens). **Code-review regression B:**
+the cut-aware mirror (`feb4318`) took `mirror_cut` whenever the preceding feature
+was a cut and never checked that anything was removed, so both "complete the
+symmetric half" and "duplicate across a clearing plane" were SILENT NO-OPS
+(measured: a 40×40×20 block with a 10×20×10 pocket mirrored about its own +X face
+stayed 30000 mm³ at x∈[0,40], every feature `ok`). A reflected removal that cannot
+reach the body now falls back to reflect-and-union — 60000 mm³ over x∈[0,80] with
+a pocket in each half — locked by a new golden
+(`mirror-cut-clearing-plane-block-40x40x20`, planar, tol 1e-9) plus the
+Hole-sourced twin and an earlier-cut-survives guard in `test_mirror.py`.
 
 **Prior focus — daily-driver depth (2026-07-23 product audit), still the
 standing direction beneath the burn-down.** The 2026-07-23 audit re-pointed

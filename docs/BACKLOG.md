@@ -751,6 +751,19 @@ Full narrative evidence lives in `docs/ROADMAP.md` (Phase 4/4b sections) and
       an honest `subshape_unresolved`). Tier 2 now re-anchors at the STORED centroid
       projected onto the matched face; tier 1 unchanged. 2 regressions.
       [src: code-review 2026-07-25 regression A]
+- [x] (P0, S) **Regression B — the cut-aware mirror silently NO-OPPED the two
+      canonical mirror workflows.** `_prev_cut_tools` fires on ANY preceding
+      extrude-cut/Hole and `_evaluate_mirror` then took `mirror_cut`
+      unconditionally; `mirror_cut` never verified a removal happened, so a
+      reflected tool landing outside the body cut nothing and the untouched body
+      came back `ok`. Measured: a 40×40×20 block + 10×20×10 pocket mirrored about
+      its own +X face (x=40) stayed 30000 mm³ at x∈[0,40]; now 60000 mm³ over
+      x∈[0,80] with a pocket in each half. Fix: a reflected removal that cannot
+      reach the body (topological common, no epsilon) falls back to
+      `mirror_union`, whose reflection already carries the body's own cuts —
+      deliberately NOT union-then-recut, which would weld shut any EARLIER cut.
+      New golden `mirror-cut-clearing-plane-block-40x40x20` + 3 regressions.
+      [src: code-review 2026-07-25 regression B]
 
 - [x] (P1, S) **H2 — a sheet silently mixed source documents and scales.**
       `ComposeDrawingRequest` carries ONE source + ONE scale, so a sheet whose
