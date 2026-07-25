@@ -1,6 +1,7 @@
 # Loft (working name)
 
 [![ci](https://github.com/Overcastly-AI/3d-cad/actions/workflows/ci.yml/badge.svg)](https://github.com/Overcastly-AI/3d-cad/actions/workflows/ci.yml)
+[![deploy-path](https://github.com/Overcastly-AI/3d-cad/actions/workflows/deploy-path.yml/badge.svg)](https://github.com/Overcastly-AI/3d-cad/actions/workflows/deploy-path.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
 **An open-source, cloud-native parametric 3D CAD platform — Python
@@ -83,7 +84,7 @@ roadmap is the order they flip in.
   **proven end to end in CI**: every push builds the images, boots the stack,
   migrates both schemas, and drives a real modeling round-trip (sketch →
   extrude → evaluate → mesh fetch → STEP export) through the published
-  gateway port (`compose-stack-e2e`, i.e. `just compose-smoke`). The app also
+  gateway port (`deploy-path` workflow, i.e. `just compose-smoke`). The app also
   boots **container-free** for development (SQLite + in-process mesh store).
 
 **What does NOT exist yet** (no sugar-coating): IGES import/export, assembly
@@ -139,7 +140,7 @@ as a single proof — build, boot, migrate, then a real modeling round-trip
 over the published port (register → part → sketch → extrude → evaluate →
 fetch the mesh → export STEP) plus a check that the internal services are
 unreachable from the host. **CI runs that same script on every push**
-(`compose-stack-e2e` in [`ci.yml`](./.github/workflows/ci.yml)), so this path
+([`deploy-path.yml`](./.github/workflows/deploy-path.yml)), so this path
 is verified, not assumed.
 
 ## Architecture at a glance

@@ -381,7 +381,7 @@ carry forward as blocked board items.
       web-shell item)
 - ✅ Verify full `docker compose up` — CLOSED 2026-07-25 (platform-builder):
       the documented self-host path now runs on every push in CI
-      (`compose-stack-e2e` → `scripts/compose-smoke.sh`, also `just
+      (`deploy-path` workflow → `scripts/compose-smoke.sh`, also `just
       compose-smoke` on any Docker host). It builds the three images, boots
       the BASE stack `--wait` (long-running services only — a one-shot named
       in a `--wait` list is read as a failure the moment it succeeds), runs

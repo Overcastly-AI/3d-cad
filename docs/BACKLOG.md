@@ -740,7 +740,7 @@ frame refactor are v2/§11. Spike de-collected.
 
 - [x] (P2, S) Verify full `docker compose up` runtime — **DONE 2026-07-25**
       (platform-builder): unblocked by running it where Docker works, CI.
-      `scripts/compose-smoke.sh` (job `compose-stack-e2e`, `just
+      `scripts/compose-smoke.sh` (workflow `deploy-path`, `just
       compose-smoke`) builds + boots the base stack, migrates both schemas
       from the images, drives register → sketch → extrude → evaluate → mesh
       fetch → STEP export over the gateway port only, and asserts the internal

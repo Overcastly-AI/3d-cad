@@ -18,7 +18,7 @@
 #      MinIO credential path, audit G1) → export STEP;
 #   6. documents/geometry are unreachable from the host (audit G3).
 #
-# Runs in CI (.github/workflows/ci.yml, job `compose-stack-e2e`) and on any
+# Runs in CI (.github/workflows/deploy-path.yml) and on any
 # Docker-capable machine — same script, same proof. Failures dump
 # `docker compose logs` before exiting so the cause is in the output.
 

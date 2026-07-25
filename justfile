@@ -24,7 +24,7 @@ smoke base_port="8000":
 # drive a real modeling round-trip over the published gateway port (register →
 # part → sketch → extrude → evaluate → fetch the mesh → export STEP) and
 # assert the internal services are unreachable. Same script CI runs
-# (compose-stack-e2e). Tears the stack down; KEEP_STACK=1 to keep it.
+# (the `deploy-path` workflow). Tears the stack down; KEEP_STACK=1 to keep it.
 compose-smoke:
     scripts/compose-smoke.sh
 

@@ -1,0 +1,56 @@
+# Loft deploy-path proof — the documented self-host install, on a real daemon.
+#
+# ci.yml checks the compose files as TEXT (`docker compose config -q` +
+# scripts/check-compose.py). This workflow RUNS them: it builds the three
+# service images, boots the base stack, creates both schemas from the alembic
+# trees baked into the images, and drives a genuine modeling round-trip over
+# the published gateway port — the same sequence a self-hoster follows from
+# the README.
+#
+# Why it is not in ci.yml:
+#   - it needs its own time budget (the geometry image carries the ~700MB OCP
+#     wheel, so the build dominates the run), and
+#   - `cancel-in-progress: false` below: a 20-minute proof must not be killed
+#     by the next push, which is exactly what ci.yml's fast-feedback
+#     concurrency group does. Runs QUEUE instead, so one always completes.
+#
+# Why it exists at all: a rendered-config check cannot catch a wrong RUNTIME.
+# The audit-G1 bug (geometry handed S3_URL but no credentials → every mesh
+# put/get 403s → blank viewport) renders as perfectly valid YAML. Only a real
+# request through the whole path finds it, so the round-trip's mesh fetch is
+# the load-bearing assertion here.
+
+name: deploy-path
+
+on:
+  push:
+    branches:
+      - main
+      - "claude/**"
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-path-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  compose-stack-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      # ONE script, so a human can run the identical proof on any Docker host:
+      #   scripts/compose-smoke.sh    (or `just compose-smoke`)
+      # Build + boot (--wait on long-running services only) → minio bucket
+      # one-shot → alembic per service → gateway /healthz+/readyz → round-trip
+      # (register → part → sketch → extrude → evaluate → fetch the GLB out of
+      # MinIO → export STEP) → internal ports closed. It dumps
+      # `docker compose ps`, `df -h`, and `docker compose logs` on failure.
+      - name: Compose stack end-to-end (build, boot, migrate, round-trip)
+        run: scripts/compose-smoke.sh
+      # The script tears the stack down in its own EXIT trap; this catches the
+      # case where the job is killed before the trap runs (e.g. job timeout).
+      - name: Tear down
+        if: always()
+        run: docker compose down -v --remove-orphans

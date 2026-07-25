@@ -5,7 +5,7 @@ The CHEAP half of the compose gate: renders the config (no daemon, no image
 pulls — runnable in a container with the registry blocked) and asserts the
 structural invariants. The expensive half — a real ``docker compose up`` and
 a modeling round-trip on a live stack — is ``scripts/compose-smoke.sh`` (CI
-job ``compose-stack-e2e``); this file keeps the regressions visible on every
+workflow ``deploy-path``); this file keeps the regressions visible on every
 push without paying for an image build. Invariants:
 
 1. G1 — geometry carries S3 credentials whose VALUES equal the MinIO root
