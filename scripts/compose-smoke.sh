@@ -40,6 +40,9 @@ dump_logs() {
   echo
   echo "compose-smoke: FAILED — container state and logs follow" >&2
   docker compose ps --all >&2 || true
+  # Disk is a real failure mode: the geometry image carries the ~700MB OCP
+  # wheel, so an out-of-space build must not look like a mystery.
+  df -h / >&2 || true
   docker compose logs --no-color --tail 200 >&2 || true
 }
 

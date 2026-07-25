@@ -38,11 +38,17 @@ services:
     volumes:
       - db-data:/var/lib/postgresql/data
       - ./deploy/docker/postgres-init:/docker-entrypoint-initdb.d:ro
+    # `-h 127.0.0.1` on purpose — TCP, not the unix socket: while the entrypoint
+    # runs initdb + /docker-entrypoint-initdb.d it serves a socket-only server
+    # with listen_addresses='', so a socket probe reports HEALTHY mid-bootstrap
+    # and dependents (and `up --wait`) race a server that is about to restart
+    # and is not yet reachable over the network. A TCP probe passes only once
+    # the real server is accepting the connections the services actually make.
     healthcheck:
       test:
         [
           "CMD-SHELL",
-          "pg_isready -U ${POSTGRES_USER:-loft} -d ${POSTGRES_DB:-loft}",
+          "pg_isready -h 127.0.0.1 -U ${POSTGRES_USER:-loft} -d ${POSTGRES_DB:-loft}",
         ]
       interval: 5s
       timeout: 3s
