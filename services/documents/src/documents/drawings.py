@@ -257,6 +257,7 @@ def _view_response(view: db.View) -> ViewResponse:
         projection=view.projection,  # type: ignore[arg-type]
         scale=ViewScale(numerator=view.scale_num, denominator=view.scale_den),
         position=SheetPointDTO(x_mm=view.pos_x_mm, y_mm=view.pos_y_mm),
+        auto_place=view.auto_place,
         section_params=(
             SectionViewParams.model_validate(view.section_params)
             if view.section_params is not None
@@ -594,6 +595,7 @@ async def create_view(
         scale_den=request.scale.denominator,
         pos_x_mm=request.position.x_mm,
         pos_y_mm=request.position.y_mm,
+        auto_place=request.auto_place,
         section_params=(
             request.section_params.model_dump(mode="json")
             if request.section_params is not None
@@ -626,6 +628,12 @@ async def update_view(
 ) -> ViewMutationResponse:
     """Re-frame / re-scale / re-place a view (bumps ``doc_version``).
 
+    The drag-to-place write path (drawing-export.md §4.2): a frontend PERSISTS a
+    dragged position by patching ``position`` + ``auto_place=false`` — the position
+    then survives reload and the compose/export path honors it verbatim (threaded
+    into ``SheetViewPlacement.auto_place``) instead of auto-placing. ``auto_place=true``
+    returns the view to bounds-aware auto-layout.
+
     Re-pointing the referenced document is deliberately NOT an update (it changes
     which body the view's dimensions resolve against) — delete + recreate.
     """
@@ -633,9 +641,10 @@ async def update_view(
         request.projection is None
         and request.scale is None
         and request.position is None
+        and request.auto_place is None
     ):
         raise ValidationApiError(
-            "Provide at least one of projection, scale, or position.",
+            "Provide at least one of projection, scale, position, or auto_place.",
             code="empty_view_update",
         )
     drawing = await get_owned_drawing(session, owner_id, drawing_id, for_update=True)
@@ -650,6 +659,8 @@ async def update_view(
     if request.position is not None:
         view.pos_x_mm = request.position.x_mm
         view.pos_y_mm = request.position.y_mm
+    if request.auto_place is not None:
+        view.auto_place = request.auto_place
 
     drawing.doc_version += 1
     await session.commit()

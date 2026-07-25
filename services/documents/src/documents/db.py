@@ -664,6 +664,14 @@ class View(Base):
     scale_den: Mapped[int] = mapped_column(sa.Integer(), nullable=False)
     pos_x_mm: Mapped[float] = mapped_column(sa.Float(), nullable=False)
     pos_y_mm: Mapped[float] = mapped_column(sa.Float(), nullable=False)
+    #: Placement mode (drawing-export.md §4.2): True (default) = the composer
+    #: auto-places (bounds-aware); False = a persisted drag-to-place position the
+    #: composer honors verbatim. Server-default true so every pre-existing view
+    #: backfills to auto-layout in one statement (the additive-optional posture the
+    #: ``section_params`` / ``suppressed`` columns carry).
+    auto_place: Mapped[bool] = mapped_column(
+        sa.Boolean(), nullable=False, server_default=sa.text("true")
+    )
     #: A ``section`` view's cutting plane + flip (drawings-section.md §1) as JSONB —
     #: the validated :class:`~py_kit.schemas.drawings.SectionViewParams` payload; NULL
     #: for every non-section view, so existing views are untouched (additive).

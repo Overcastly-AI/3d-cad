@@ -590,6 +590,15 @@ class ViewCreate(BaseModel):
         default=DEFAULT_VIEW_SCALE, description="Drawing scale (rational; 1:1 default)"
     )
     position: SheetPoint = Field(description="View placement on the sheet (mm)")
+    auto_place: bool = Field(
+        default=True,
+        description="Placement mode (drawing-export.md §4.2, mirrors "
+        ":class:`SheetViewPlacement`): True (default) = the composer DERIVES the "
+        "anchor (bounds-aware auto-layout), so `position` rides along for "
+        "persistence but does not drive anchoring; False = the composer HONORS "
+        "`position` verbatim (the drag-to-place seam). Additive — an omitted value "
+        "keeps the auto-layout behaviour byte-identical.",
+    )
     section_params: SectionViewParams | None = Field(
         default=None,
         description="The cutting plane + flip for a `section` view (drawings-"
@@ -614,6 +623,14 @@ class ViewUpdate(BaseModel):
     projection: ViewProjection | None = None
     scale: ViewScale | None = None
     position: SheetPoint | None = None
+    auto_place: bool | None = Field(
+        default=None,
+        description="Placement mode (mirrors :class:`SheetViewPlacement`): set False "
+        "to PERSIST a dragged position so the composer honors `position` verbatim "
+        "(the drag-to-place seam — typically sent alongside `position`); set True to "
+        "return the view to bounds-aware auto-layout. Null (default) leaves the mode "
+        "unchanged. At least one of the update fields must be provided.",
+    )
 
 
 class ViewResponse(BaseModel):
@@ -630,6 +647,13 @@ class ViewResponse(BaseModel):
     projection: ViewProjection
     scale: ViewScale
     position: SheetPoint
+    auto_place: bool = Field(
+        default=True,
+        description="Placement mode (mirrors :class:`SheetViewPlacement`): True "
+        "(default) = the composer auto-places (bounds-aware); False = a persisted "
+        "drag-to-place position the composer honors verbatim. Survives reload — the "
+        "compose/export path threads it into `SheetViewPlacement.auto_place`.",
+    )
     section_params: SectionViewParams | None = Field(
         default=None,
         description="The section view's cutting plane + flip (drawings-section.md §1); "

@@ -23,7 +23,7 @@ from typing import Annotated, Any
 
 import httpx2 as httpx
 from fastapi import APIRouter, Query, Request, Response, status
-from py_kit.errors import ValidationApiError
+from py_kit.errors import NotFoundError, ValidationApiError
 from py_kit.schemas.assemblies import EvaluateAssemblyRequest
 from py_kit.schemas.drawings import (
     ARTIFACT_MEDIA_TYPES,
@@ -405,6 +405,7 @@ async def delete_annotation(
 
 def _compose_request(
     tree: DrawingTreeResponse,
+    sheet_content: SheetContent,
     artifact_format: ArtifactFormat,
     *,
     part: EvaluateTreeRequest | None = None,
@@ -413,13 +414,15 @@ def _compose_request(
     """Assemble the geometry `ComposeDrawingRequest` from persisted drawing state.
 
     Mirrors the on-screen sheet the frontend evaluates (``apps/web`` DrawingPage):
-    v1 composes the drawing's FIRST sheet — its views (projection + placement +
-    scale) become the :class:`SheetLayout`, its dimensions (each tagged with the
-    projection of the view it annotates) become the measured inputs, and the source
-    document's ``evaluation-request`` supplies the projection intent. The composer
-    re-derives view anchors from the projected bounds (``boundsAwareLayout``), so the
-    persisted per-view ``position`` rides along for generality but ``projection`` /
-    ``scale`` drive v1.
+    composes the REQUESTED ``sheet_content`` (the drawing's first sheet by default —
+    the multi-sheet switcher selects any sheet by id, see
+    :func:`_aggregate_compose_request`) — its views (projection + placement + scale)
+    become the :class:`SheetLayout`, its dimensions (each tagged with the projection
+    of the view it annotates) become the measured inputs, and the source document's
+    ``evaluation-request`` supplies the projection intent. Each placed view carries
+    its persisted ``auto_place`` flag: ``True`` (default) lets the composer re-derive
+    the anchor from the projected bounds (``boundsAwareLayout``), ``False`` honors the
+    persisted drag-to-place ``position`` verbatim (drawing-export.md §4.2).
 
     Exactly ONE source is threaded (design §7): a PART view carries ``part`` (part id
     + tree version + feature prefix — geometry projects the single body); an ASSEMBLY
@@ -429,7 +432,6 @@ def _compose_request(
     into the SAME sheet via the SAME ``place_sheet`` (the edges are the identical
     neutral :class:`ProjectedViewEdge` shape) — one composition path for both.
     """
-    sheet_content: SheetContent = tree.sheets[0]
     sheet = sheet_content.sheet
     views = sheet_content.views
     projection_by_view: dict[uuid.UUID, ViewProjection] = {
@@ -453,7 +455,13 @@ def _compose_request(
         title_block=sheet.title_block,
         views=[
             SheetViewPlacement(
-                projection=v.projection, position=v.position, scale=v.scale
+                projection=v.projection,
+                position=v.position,
+                scale=v.scale,
+                # Thread the persisted drag-to-place flag: a hand-placed view
+                # (`auto_place=False`) is honored at its authored `position`; the
+                # default `True` keeps bounds-aware auto-layout (§4.2).
+                auto_place=v.auto_place,
             )
             for v in views
         ],
@@ -504,23 +512,65 @@ def _compose_request(
     )
 
 
+def _select_sheet(
+    tree: DrawingTreeResponse, sheet_id: uuid.UUID | None
+) -> SheetContent:
+    """Pick which sheet to compose — the requested ``sheet_id``, else the first.
+
+    Multi-sheet support (Drawings #21 backend): the compose/export routes accept an
+    optional ``sheet`` query param (a sheet id from the drawing tree). When omitted
+    the FIRST sheet composes — byte-identical to the pre-multi-sheet single-sheet
+    behaviour (back-compat). An unknown/foreign ``sheet_id`` is a ``sheet_not_found``
+    404 (the sheet is not part of this drawing); a drawing/sheet with no laid-out
+    views is a ``drawing_not_composable`` 422.
+    """
+    if not tree.sheets:
+        raise ValidationApiError(
+            "The drawing has no sheets to export; add a sheet and lay out its "
+            "standard views first.",
+            code="drawing_not_composable",
+        )
+
+    if sheet_id is None:
+        sheet_content = tree.sheets[0]
+    else:
+        sheet_content = next((s for s in tree.sheets if s.sheet.id == sheet_id), None)
+        if sheet_content is None:
+            raise NotFoundError(
+                f"Sheet {sheet_id} is not part of drawing {tree.drawing.id}.",
+                code="sheet_not_found",
+                details={"sheet_id": str(sheet_id)},
+            )
+
+    if not sheet_content.views:
+        raise ValidationApiError(
+            "The sheet has no views to export; lay out its standard views first.",
+            code="drawing_not_composable",
+        )
+    return sheet_content
+
+
 async def _aggregate_compose_request(
     drawing_id: uuid.UUID,
     user: CurrentUser,
     http_request: Request,
     artifact_format: ArtifactFormat,
+    sheet_id: uuid.UUID | None = None,
 ) -> ComposeDrawingRequest:
     """The shared two-hop aggregation behind both the export and the sheet route.
 
     Fetches the drawing tree AND the referenced part/assembly's evaluation-request
     from documents (principal attached, uniform 404 re-surfaced verbatim), then
     assembles the geometry :class:`ComposeDrawingRequest` from that persisted state.
-    The first sheet's source-document KIND selects the hop: a part view fetches
+    The REQUESTED sheet (``sheet_id`` — a sheet id from the drawing tree; the FIRST
+    sheet when omitted, back-compat) is selected by :func:`_select_sheet`; its first
+    view's source-document KIND selects the hop: a part view fetches
     ``/parts/{id}/evaluation-request`` (§4.2), an assembly view
-    ``/assemblies/{id}/evaluation-request`` (§7) threaded as ``assembly``. A drawing
-    with no laid-out views is a gateway-side ``drawing_not_composable`` 422 (no
-    document hop, no compose). ``artifact_format`` rides along for the bytes
-    ``/export`` route; the JSON ``/sheet`` route passes the default and ignores it.
+    ``/assemblies/{id}/evaluation-request`` (§7) threaded as ``assembly``. A sheet
+    with no laid-out views is a gateway-side ``drawing_not_composable`` 422, an
+    unknown ``sheet_id`` a ``sheet_not_found`` 404 (no document hop, no compose).
+    ``artifact_format`` rides along for the bytes ``/export`` route; the JSON
+    ``/sheet`` route passes the default and ignores it.
     """
     drawing_upstream = await forward_documents(
         http_request, user, "GET", f"/api/v1/drawings/{drawing_id}"
@@ -529,15 +579,11 @@ async def _aggregate_compose_request(
         raise_upstream_error(drawing_upstream, service=_SERVICE)
     tree = DrawingTreeResponse.model_validate_json(drawing_upstream.content)
 
-    if not tree.sheets or not tree.sheets[0].views:
-        raise ValidationApiError(
-            "The drawing has no views to export; lay out its standard views first.",
-            code="drawing_not_composable",
-        )
-    # v1 composes the first sheet's single source document (the sheet's views share a
+    sheet_content = _select_sheet(tree, sheet_id)
+    # Composes the selected sheet's single source document (the sheet's views share a
     # part/assembly, mirroring the on-screen DrawingPage); its kind selects the
     # documents evaluation-request hop + the compose source (design §7).
-    source_view = tree.sheets[0].views[0]
+    source_view = sheet_content.views[0]
     referenced_document_id = source_view.ref_document_id
 
     if source_view.ref_document_kind == "assembly":
@@ -558,7 +604,9 @@ async def _aggregate_compose_request(
         assembly_request = EvaluateAssemblyRequest.model_validate_json(
             assembly_upstream.content
         )
-        return _compose_request(tree, artifact_format, assembly=assembly_request)
+        return _compose_request(
+            tree, sheet_content, artifact_format, assembly=assembly_request
+        )
 
     part_upstream = await forward_documents(
         http_request,
@@ -570,7 +618,9 @@ async def _aggregate_compose_request(
         raise_upstream_error(part_upstream, service=_SERVICE)
     evaluation_request = EvaluateTreeRequest.model_validate_json(part_upstream.content)
 
-    return _compose_request(tree, artifact_format, part=evaluation_request)
+    return _compose_request(
+        tree, sheet_content, artifact_format, part=evaluation_request
+    )
 
 
 _EXPORT_RESPONSES: dict[int | str, dict[str, Any]] = {
@@ -604,6 +654,14 @@ async def export_drawing(
         ArtifactFormat,
         Query(description="Artifact format to compose: svg | pdf | dxf"),
     ] = "svg",
+    sheet: Annotated[
+        uuid.UUID | None,
+        Query(
+            description="Which sheet to compose (a sheet id from the drawing tree); "
+            "omit to compose the FIRST sheet (back-compat). An unknown/foreign id is "
+            "a `sheet_not_found` 404.",
+        ),
+    ] = None,
 ) -> Response:
     """Compose the drawing into a downloadable SVG/PDF/DXF artifact (design §4.2).
 
@@ -619,7 +677,7 @@ async def export_drawing(
     ``dxf``) re-surface verbatim.
     """
     compose_request = await _aggregate_compose_request(
-        drawing_id, user, http_request, format
+        drawing_id, user, http_request, format, sheet_id=sheet
     )
 
     geometry_client: httpx.AsyncClient = http_request.app.state.geometry_client
@@ -652,6 +710,14 @@ async def compose_drawing_sheet(
     drawing_id: uuid.UUID,
     user: CurrentUser,
     http_request: Request,
+    sheet: Annotated[
+        uuid.UUID | None,
+        Query(
+            description="Which sheet to compose (a sheet id from the drawing tree); "
+            "omit to compose the FIRST sheet (back-compat). An unknown/foreign id is "
+            "a `sheet_not_found` 404.",
+        ),
+    ] = None,
 ) -> ComposedSheet:
     """Compose the drawing into the placed ``ComposedSheet`` MODEL (design §4.2, DE-1b).
 
@@ -665,7 +731,7 @@ async def compose_drawing_sheet(
     duplicate placement engine. Deterministic (RESEARCH §9); the gateway just relays.
     """
     compose_request = await _aggregate_compose_request(
-        drawing_id, user, http_request, "svg"
+        drawing_id, user, http_request, "svg", sheet_id=sheet
     )
 
     geometry_client: httpx.AsyncClient = http_request.app.state.geometry_client

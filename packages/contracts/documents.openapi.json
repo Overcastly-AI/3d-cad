@@ -6019,6 +6019,12 @@
       "ViewCreate": {
         "description": "Add a view referencing a part / assembly at a projection (design \u00a72.2).\n\n``ref_document_id`` is a cross-document reference, NOT an FK (design \u00a72.2,\nidentical to an assembly instance): documents enforces existence at write time\nand deleting the referenced document is a 409-with-dependents. v1 tracks the\nreferenced document's TIP (``ref_pinned_version`` present but NULL \u2014 design\n\u00a72.3, the schema is pin-ready). ``projection`` is the standard orthographic /\niso direction (all documents stores \u2014 mapping it to a 3D frame + HLR is\ngeometry's job). ``order_index`` is appended at the tip when omitted.",
         "properties": {
+          "auto_place": {
+            "default": true,
+            "description": "Placement mode (drawing-export.md \u00a74.2, mirrors :class:`SheetViewPlacement`): True (default) = the composer DERIVES the anchor (bounds-aware auto-layout), so `position` rides along for persistence but does not drive anchoring; False = the composer HONORS `position` verbatim (the drag-to-place seam). Additive \u2014 an omitted value keeps the auto-layout behaviour byte-identical.",
+            "title": "Auto Place",
+            "type": "boolean"
+          },
           "expected_version": {
             "description": "Optimistic-concurrency guard (design \u00a72.1)",
             "minimum": 0.0,
@@ -6108,6 +6114,12 @@
       "ViewResponse": {
         "description": "A view as stored (design \u00a72.2).",
         "properties": {
+          "auto_place": {
+            "default": true,
+            "description": "Placement mode (mirrors :class:`SheetViewPlacement`): True (default) = the composer auto-places (bounds-aware); False = a persisted drag-to-place position the composer honors verbatim. Survives reload \u2014 the compose/export path threads it into `SheetViewPlacement.auto_place`.",
+            "title": "Auto Place",
+            "type": "boolean"
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
@@ -6230,6 +6242,18 @@
       "ViewUpdate": {
         "description": "Re-frame / re-scale / re-place a view (design \u00a72.2).\n\nEvery field is optional; at least one must be provided. Re-pointing the\nreferenced document is NOT an update (it changes which body the view's\ndimensions resolve against) \u2014 that is a delete + recreate.",
         "properties": {
+          "auto_place": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Placement mode (mirrors :class:`SheetViewPlacement`): set False to PERSIST a dragged position so the composer honors `position` verbatim (the drag-to-place seam \u2014 typically sent alongside `position`); set True to return the view to bounds-aware auto-layout. Null (default) leaves the mode unchanged. At least one of the update fields must be provided.",
+            "title": "Auto Place"
+          },
           "expected_version": {
             "description": "Optimistic-concurrency guard (design \u00a72.1)",
             "minimum": 0.0,
@@ -8196,7 +8220,7 @@
         ]
       },
       "patch": {
-        "description": "Re-frame / re-scale / re-place a view (bumps ``doc_version``).\n\nRe-pointing the referenced document is deliberately NOT an update (it changes\nwhich body the view's dimensions resolve against) \u2014 delete + recreate.",
+        "description": "Re-frame / re-scale / re-place a view (bumps ``doc_version``).\n\nThe drag-to-place write path (drawing-export.md \u00a74.2): a frontend PERSISTS a\ndragged position by patching ``position`` + ``auto_place=false`` \u2014 the position\nthen survives reload and the compose/export path honors it verbatim (threaded\ninto ``SheetViewPlacement.auto_place``) instead of auto-placing. ``auto_place=true``\nreturns the view to bounds-aware auto-layout.\n\nRe-pointing the referenced document is deliberately NOT an update (it changes\nwhich body the view's dimensions resolve against) \u2014 delete + recreate.",
         "operationId": "update_view_api_v1_drawings__drawing_id__views__view_id__patch",
         "parameters": [
           {

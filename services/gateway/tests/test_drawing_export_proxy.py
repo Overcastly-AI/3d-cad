@@ -995,3 +995,170 @@ def test_sheet_drawing_without_views_is_422(db_url: str) -> None:
     assert response.status_code == 422
     assert _envelope(response.json())["code"] == "drawing_not_composable"
     assert geometry_seen == []
+
+
+# --- per-sheet compose/export (Drawings #21 backend: multi-sheet) ----------------
+
+SHEET_TWO = uuid.UUID("00000000-0000-0000-0000-0000000000a2")
+RIGHT_VIEW = uuid.UUID("00000000-0000-0000-0000-0000000000b3")
+
+
+def _two_sheet_drawing_tree() -> DrawingTreeResponse:
+    """A drawing with TWO sheets, each of PART: sheet 0 (front/top) + sheet 1 (a
+    single `right` view) — so composing sheet 1 renders `right`, not sheet 0's views."""
+    tree = _drawing_tree()
+    second = SheetResponse(
+        id=SHEET_TWO,
+        drawing_id=DRAWING,
+        name="Sheet 2",
+        size="A3",
+        orientation="portrait",
+        projection="third_angle",
+        title_block=None,
+        order_index=1,
+        created_at=NOW,  # type: ignore[arg-type]
+        updated_at=NOW,  # type: ignore[arg-type]
+    )
+    right = ViewResponse(
+        id=RIGHT_VIEW,
+        sheet_id=SHEET_TWO,
+        ref_document_id=PART,
+        ref_document_kind="part",
+        ref_pinned_version=None,
+        projection="right",
+        scale=ViewScale(numerator=1, denominator=1),
+        position={"x_mm": 90.0, "y_mm": 70.0},  # type: ignore[arg-type]
+        order_index=0,
+        created_at=NOW,  # type: ignore[arg-type]
+        updated_at=NOW,  # type: ignore[arg-type]
+    )
+    tree.sheets.append(
+        SheetContent(sheet=second, views=[right], dimensions=[], annotations=[])
+    )
+    return tree
+
+
+def _documents_two_sheet(seen: list[httpx.Request]) -> Handler:
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if request.url.path == f"/api/v1/drawings/{DRAWING}":
+            return httpx.Response(
+                200, content=_two_sheet_drawing_tree().model_dump_json()
+            )
+        if request.url.path == f"/api/v1/parts/{PART}/evaluation-request":
+            return httpx.Response(200, content=_evaluation_request().model_dump_json())
+        raise AssertionError(f"unexpected documents path {request.url.path}")
+
+    return handler
+
+
+def test_sheet_query_selects_the_requested_sheet(db_url: str) -> None:
+    """`?sheet=<second sheet id>` composes SHEET TWO's views (`right`) — not the first
+    sheet's (front/top). The regression the multi-sheet switcher needs."""
+    documents_seen: list[httpx.Request] = []
+    geometry_seen: list[httpx.Request] = []
+    with make_client(
+        db_url, _documents_two_sheet(documents_seen), _geometry_sheet(geometry_seen)
+    ) as client:
+        _, bearer = _register(client)
+        response = client.post(
+            f"/api/v1/drawings/{DRAWING}/sheet?sheet={SHEET_TWO}", headers=bearer
+        )
+
+    assert response.status_code == 200, response.text
+    [geometry_req] = geometry_seen
+    relayed = ComposeDrawingRequest.model_validate_json(geometry_req.content)
+    assert relayed.views == ["right"]
+    assert [v.projection for v in relayed.layout.views] == ["right"]
+    assert relayed.layout.size == "A3"
+    assert relayed.layout.orientation == "portrait"
+
+
+def test_sheet_omitted_defaults_to_first_sheet(db_url: str) -> None:
+    """Back-compat: omitting `sheet` composes the FIRST sheet (front/top), unchanged."""
+    documents_seen: list[httpx.Request] = []
+    geometry_seen: list[httpx.Request] = []
+    with make_client(
+        db_url, _documents_two_sheet(documents_seen), _geometry_sheet(geometry_seen)
+    ) as client:
+        _, bearer = _register(client)
+        response = client.post(f"/api/v1/drawings/{DRAWING}/sheet", headers=bearer)
+
+    assert response.status_code == 200, response.text
+    [geometry_req] = geometry_seen
+    relayed = ComposeDrawingRequest.model_validate_json(geometry_req.content)
+    assert relayed.views == ["front", "top"]
+
+
+def test_export_sheet_query_selects_the_requested_sheet(db_url: str) -> None:
+    """The bytes `/export` route honors `?sheet=` the same way as `/sheet`."""
+    documents_seen: list[httpx.Request] = []
+    geometry_seen: list[httpx.Request] = []
+    with make_client(
+        db_url, _documents_two_sheet(documents_seen), _geometry_pdf(geometry_seen)
+    ) as client:
+        _, bearer = _register(client)
+        response = client.post(
+            f"/api/v1/drawings/{DRAWING}/export?format=pdf&sheet={SHEET_TWO}",
+            headers=bearer,
+        )
+
+    assert response.status_code == 200, response.text
+    [geometry_req] = geometry_seen
+    relayed = ComposeDrawingRequest.model_validate_json(geometry_req.content)
+    assert relayed.views == ["right"]
+
+
+def test_unknown_sheet_id_is_404(db_url: str) -> None:
+    """A `sheet` id that is not part of the drawing is a gateway-side `sheet_not_found`
+    404 — no part/compose hop."""
+    documents_seen: list[httpx.Request] = []
+    geometry_seen: list[httpx.Request] = []
+    stray = uuid.UUID("00000000-0000-0000-0000-0000000000ff")
+    with make_client(
+        db_url, _documents_two_sheet(documents_seen), _geometry_sheet(geometry_seen)
+    ) as client:
+        _, bearer = _register(client)
+        response = client.post(
+            f"/api/v1/drawings/{DRAWING}/sheet?sheet={stray}", headers=bearer
+        )
+
+    assert response.status_code == 404
+    assert _envelope(response.json())["code"] == "sheet_not_found"
+    # Only the drawing GET happened; no part hop, no compose.
+    assert [r.url.path for r in documents_seen] == [f"/api/v1/drawings/{DRAWING}"]
+    assert geometry_seen == []
+
+
+def test_auto_place_flag_threaded_into_placement(db_url: str) -> None:
+    """A persisted drag-to-place view (`auto_place=False`) threads that flag into the
+    relayed `SheetViewPlacement`, so the composer honors the authored position verbatim
+    instead of auto-placing. The default `True` stays auto-layout."""
+    documents_seen: list[httpx.Request] = []
+    geometry_seen: list[httpx.Request] = []
+
+    tree = _drawing_tree()
+    tree.sheets[0].views[0].auto_place = False  # front view hand-placed
+    tree.sheets[0].views[1].auto_place = True  # top view auto
+
+    def documents_handler(request: httpx.Request) -> httpx.Response:
+        documents_seen.append(request)
+        if request.url.path == f"/api/v1/drawings/{DRAWING}":
+            return httpx.Response(200, content=tree.model_dump_json())
+        if request.url.path == f"/api/v1/parts/{PART}/evaluation-request":
+            return httpx.Response(200, content=_evaluation_request().model_dump_json())
+        raise AssertionError(f"unexpected documents path {request.url.path}")
+
+    with make_client(
+        db_url, documents_handler, _geometry_sheet(geometry_seen)
+    ) as client:
+        _, bearer = _register(client)
+        response = client.post(f"/api/v1/drawings/{DRAWING}/sheet", headers=bearer)
+
+    assert response.status_code == 200, response.text
+    [geometry_req] = geometry_seen
+    relayed = ComposeDrawingRequest.model_validate_json(geometry_req.content)
+    placements = {v.projection: v for v in relayed.layout.views}
+    assert placements["front"].auto_place is False
+    assert placements["front"].position.x_mm == 50.0  # honored authored position
+    assert placements["top"].auto_place is True

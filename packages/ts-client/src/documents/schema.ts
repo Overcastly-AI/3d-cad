@@ -478,6 +478,12 @@ export interface paths {
          * Update View
          * @description Re-frame / re-scale / re-place a view (bumps ``doc_version``).
          *
+         *     The drag-to-place write path (drawing-export.md §4.2): a frontend PERSISTS a
+         *     dragged position by patching ``position`` + ``auto_place=false`` — the position
+         *     then survives reload and the compose/export path honors it verbatim (threaded
+         *     into ``SheetViewPlacement.auto_place``) instead of auto-placing. ``auto_place=true``
+         *     returns the view to bounds-aware auto-layout.
+         *
          *     Re-pointing the referenced document is deliberately NOT an update (it changes
          *     which body the view's dimensions resolve against) — delete + recreate.
          */
@@ -5173,6 +5179,12 @@ export interface components {
          */
         ViewCreate: {
             /**
+             * Auto Place
+             * @description Placement mode (drawing-export.md §4.2, mirrors :class:`SheetViewPlacement`): True (default) = the composer DERIVES the anchor (bounds-aware auto-layout), so `position` rides along for persistence but does not drive anchoring; False = the composer HONORS `position` verbatim (the drag-to-place seam). Additive — an omitted value keeps the auto-layout behaviour byte-identical.
+             * @default true
+             */
+            auto_place: boolean;
+            /**
              * Expected Version
              * @description Optimistic-concurrency guard (design §2.1)
              */
@@ -5223,6 +5235,12 @@ export interface components {
          * @description A view as stored (design §2.2).
          */
         ViewResponse: {
+            /**
+             * Auto Place
+             * @description Placement mode (mirrors :class:`SheetViewPlacement`): True (default) = the composer auto-places (bounds-aware); False = a persisted drag-to-place position the composer honors verbatim. Survives reload — the compose/export path threads it into `SheetViewPlacement.auto_place`.
+             * @default true
+             */
+            auto_place: boolean;
             /**
              * Created At
              * Format: date-time
@@ -5302,6 +5320,11 @@ export interface components {
          *     dimensions resolve against) — that is a delete + recreate.
          */
         ViewUpdate: {
+            /**
+             * Auto Place
+             * @description Placement mode (mirrors :class:`SheetViewPlacement`): set False to PERSIST a dragged position so the composer honors `position` verbatim (the drag-to-place seam — typically sent alongside `position`); set True to return the view to bounds-aware auto-layout. Null (default) leaves the mode unchanged. At least one of the update fields must be provided.
+             */
+            auto_place?: boolean | null;
             /**
              * Expected Version
              * @description Optimistic-concurrency guard (design §2.1)

@@ -449,6 +449,56 @@ def test_update_view_reframes(client: TestClient) -> None:
     assert view["position"] == {"x_mm": 120.0, "y_mm": 30.0}
 
 
+def test_view_defaults_to_auto_place(client: TestClient) -> None:
+    """A view created without `auto_place` defaults to bounds-aware auto-layout
+    (back-compat) — the flag is present and True on the response."""
+    part = _create_part(client, "p")
+    drawing_id = _create_drawing(client, "auto")
+    sheet_id = _add_sheet(client, drawing_id, 0).json()["sheet"]["id"]
+    view = _add_view(client, drawing_id, sheet_id, part, 1).json()["view"]
+    assert view["auto_place"] is True
+
+
+def test_drag_to_place_position_persists_and_survives_reload(
+    client: TestClient,
+) -> None:
+    """The drag-to-place write path: PATCH position + auto_place=false persists a
+    hand-placed view, and the position + flag survive a fresh tree read (reload)."""
+    part = _create_part(client, "p")
+    drawing_id = _create_drawing(client, "drag")
+    sheet_id = _add_sheet(client, drawing_id, 0).json()["sheet"]["id"]
+    view_id = _add_view(client, drawing_id, sheet_id, part, 1).json()["view"]["id"]
+
+    response = client.patch(
+        f"/api/v1/drawings/{drawing_id}/views/{view_id}",
+        json={
+            "expected_version": 2,
+            "position": {"x_mm": 137.5, "y_mm": 88.25},
+            "auto_place": False,
+        },
+        headers=_headers(),
+    )
+    assert response.status_code == 200, response.text
+    view = response.json()["view"]
+    assert view["position"] == {"x_mm": 137.5, "y_mm": 88.25}
+    assert view["auto_place"] is False
+
+    # Reload: a fresh tree read still carries the authored position + honored flag.
+    reloaded = client.get(f"/api/v1/drawings/{drawing_id}", headers=_headers()).json()
+    reloaded_view = reloaded["sheets"][0]["views"][0]
+    assert reloaded_view["position"] == {"x_mm": 137.5, "y_mm": 88.25}
+    assert reloaded_view["auto_place"] is False
+
+    # And auto_place can be toggled back to auto-layout on its own.
+    back = client.patch(
+        f"/api/v1/drawings/{drawing_id}/views/{view_id}",
+        json={"expected_version": 3, "auto_place": True},
+        headers=_headers(),
+    )
+    assert back.status_code == 200, back.text
+    assert back.json()["view"]["auto_place"] is True
+
+
 def test_delete_view_cascades_dimensions_and_renumbers(client: TestClient) -> None:
     part = _create_part(client, "p")
     drawing_id = _create_drawing(client, "cascade")

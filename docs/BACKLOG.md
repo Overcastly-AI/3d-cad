@@ -836,11 +836,19 @@ Full narrative evidence lives in `docs/ROADMAP.md` (Phase 4/4b sections) and
       undo/redo get a ≥32px comfortable target; a just-saved feature's rebuild
       error mirrors at the editor seat (`rebuild-notice`). e2e + regression green.
       [src: FINDINGS.md #20 / UX-FLOW-AUDIT]
-- [ ] (P2, M) Per-sheet drawing compose/export (`services/gateway` +
-      `services/geometry`). The compose/export aggregation is hardwired to
-      `tree.sheets[0]` (`_aggregate_compose_request`); thread a sheet
-      selector so the FINDINGS #18 switcher can render + export ANY sheet's
-      paper, not just the first. [src: FINDINGS.md #18 follow-up]
+- [x] (P2, M) Per-sheet drawing compose/export + drag-to-place backend
+      (`services/gateway` + `services/documents` + py-kit). BACKEND half done:
+      the gateway `/{id}/export` + `/{id}/sheet` take an optional `sheet`
+      query param (a sheet id from the tree; first sheet when omitted, back-compat;
+      unknown id → `sheet_not_found` 404) threaded through
+      `_aggregate_compose_request`/`_compose_request`, so the FINDINGS #18 switcher
+      renders + exports ANY sheet. View-position persistence: new `auto_place`
+      column (migration 0010, server-default true) + `ViewCreate/Update/Response`
+      field; a PATCH `position` + `auto_place=false` persists a dragged view and
+      survives reload, threaded into `SheetViewPlacement.auto_place` so compose
+      honors it verbatim. `just gen`/`gen-check` clean; documents + gateway
+      pytest + new regressions green. Frontend drag UI consumes this next.
+      [src: FINDINGS.md #18 follow-up]
 - [x] (P2, M) Audit G2 — per-request work bounds (rate limiter caps frequency,
       not cost). Documented schema constants → typed 422s: deflection floors
       1e-3 mm / 1e-2 rad; pattern count ≤ 500 (+ kernel guard); features ≤

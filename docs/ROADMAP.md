@@ -1071,9 +1071,14 @@ flexible sub-assemblies, part-version pinning-as-default.
       reads `0.61 in³`/`5.12 in²`, never raw mm; labels follow. (#18) a sheet
       switcher (tabs + add) on the drawing page moves between sheets and appends
       new ones (real `createSheet`/`createView` routes), each independently
-      set-up-able; paper compose/export stay first-sheet in v1 (gateway
-      `sheets[0]`), a laid-out secondary sheet reports its honest managed state
-      (per-sheet compose filed as a backend follow-up). (#22) creating a part
+      set-up-able; per-sheet compose/export + drag-to-place backend SHIPPED
+      2026-07-25 (backend-builder): gateway `/{id}/export`+`/{id}/sheet` take an
+      optional `sheet` query param (sheet id; first when omitted; unknown →
+      `sheet_not_found` 404) threaded through `_aggregate_compose_request`, and a
+      new `views.auto_place` column (migration 0010) + `ViewUpdate.auto_place`
+      persists a dragged position (`auto_place=false`) that survives reload and is
+      honored in `SheetViewPlacement`. Frontend drag UI consumes it next. (#22)
+      creating a part
       from the register navigates straight into its workspace. (#3-fe) a
       genuinely-unresolvable hole face shows a one-click "Re-pick face" in the
       tree error row (keys off the typed `subshape_unresolved` FeatureError) that
