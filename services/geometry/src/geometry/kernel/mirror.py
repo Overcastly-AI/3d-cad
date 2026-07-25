@@ -52,6 +52,7 @@ from collections.abc import Sequence
 from build123d import Plane, Solid
 
 from geometry.kernel.lumps import assemble_lumps
+from geometry.kernel.removal import removal_reaches_body
 from geometry.kernel.types import BodyShape
 
 
@@ -102,30 +103,6 @@ def mirror_union(body: BodyShape, plane: Plane) -> BodyShape:
     return assemble_lumps(solids)
 
 
-def _reflected_tools_reach_body(body: BodyShape, reflected: Sequence[Solid]) -> bool:
-    """Does any *reflected* removal tool share VOLUME with *body*?
-
-    The discriminator between the two honest mirror readings (below). Purely
-    TOPOLOGICAL — a boolean common that yields at least one SOLID — so it
-    introduces no epsilon (CLAUDE.md): tools that merely touch the body on a face
-    (the exact clearing-plane case, where the reflection sits against the mirror
-    plane) common to a face/shell, never a solid, and correctly read as "does not
-    reach". A probe that raises is answered ``True`` — i.e. keep the established
-    cut path, which guards its own outcome — so an OCCT anomaly can never turn a
-    previously-working mirror into an error.
-    """
-    for tool in reflected:
-        try:
-            # build123d types the boolean common as ShapeList[Unknown] | None (the
-            # OCP wheel ships no stubs); the ignore is scoped to this one call.
-            common = body.intersect(tool)  # pyright: ignore[reportUnknownVariableType]
-        except Exception:  # OCCT failure modes are not a stable taxonomy
-            return True
-        if common is not None and common.solids():
-            return True
-    return False
-
-
 def mirror_cut(body: BodyShape, tools: Sequence[Solid], plane: Plane) -> BodyShape:
     """Reflect the cut *tools* about *plane* and subtract them from *body*.
 
@@ -149,7 +126,8 @@ def mirror_cut(body: BodyShape, tools: Sequence[Solid], plane: Plane) -> BodySha
     unchanged, and the mirror was a SILENT NO-OP (measured: a 40x40x20 block with
     a 10x20x10 pocket mirrored about x=40 stayed 30000 mm^3 at x in [0,40], every
     feature reporting ``ok``). So when the reflected tools do not reach the body
-    (:func:`_reflected_tools_reach_body`) the feature falls back to
+    (:func:`geometry.kernel.removal.removal_reaches_body` — the SHARED predicate
+    the patterned cut and the in-chain cut ask too) the feature falls back to
     :func:`mirror_union` — which is exactly right there, because the reflection of
     an ALREADY-CUT body carries its own pockets/holes: the result is the completed
     80 mm part with a pocket in each half (60000 mm^3), or two pocketed lumps for a
@@ -182,7 +160,7 @@ def mirror_cut(body: BodyShape, tools: Sequence[Solid], plane: Plane) -> BodySha
             f"({type(exc).__name__}); the mirror plane may be degenerate."
         ) from exc
 
-    if not _reflected_tools_reach_body(body, reflected):
+    if not removal_reaches_body(body, reflected):
         # The mirrored removal cannot touch the body — cutting would be a no-op.
         # The user is completing/duplicating the body, not mirroring the cut.
         return mirror_union(body, plane)

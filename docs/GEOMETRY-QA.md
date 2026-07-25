@@ -146,8 +146,23 @@ walk back past non-cut features, or track cut tools per feature, instead of only
 the immediate predecessor. Guard:
 `test_cm1_mirror_keeps_the_hole_across_an_intervening_feature`.
 
-**🔴 CM-2 (P0) — a `pattern` of a cut whose replicated tools ALL land off the
-body is a SILENT NO-OP: the exact defect `fa30220` fixed for `mirror` only.**
+**🟢 CM-2 (P0) — FIXED 2026-07-25 (kernel-architect) — a `pattern` of a cut whose
+replicated tools ALL land off the body was a SILENT NO-OP: the exact defect
+`fa30220` fixed for `mirror` only.**
+FIX: the reachability question is now ONE shared predicate,
+`geometry.kernel.removal.removal_reaches_body` (extracted verbatim from mirror's
+`_reflected_tools_reach_body` — a boolean common yielding a SOLID, no epsilon),
+asked by `mirror_cut`, by `linear_pattern_cut`/`circular_pattern_cut`, and by the
+in-chain cut. When NO replicated tool reaches the body the pattern takes the
+whole-body ADD path (mirror's precedent: the copies already carry the seed cut);
+one copy reaching anywhere keeps the cut path, so every established patterned cut
+is byte-identical. Measured after the fix: pocket source **28800.0** (was
+14400.0), hole source **30994.690350851266** (was 15497.34517542563); the
+80 mm bar carries a pocket in each half (14 faces, 1 shell). Guards:
+`test_linear_pattern_of_a_cut_that_clears_the_body_replicates_the_body`,
+`test_circular_pattern_of_a_cut_that_clears_the_body_replicates_the_body`,
+`test_patterned_cut_keeps_the_cut_path_when_one_copy_reaches` (the boundary), and
+the matrix case below with its `xfail` removed.
 Chain: `40x40x10 plate -> <cut> -> LINEAR PATTERN +X, spacing 40, count 2`. The
 plate is 40 wide, so the replicated tool clears the +X face and can remove
 nothing.

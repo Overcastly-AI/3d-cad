@@ -22,6 +22,19 @@ solid-delta extraction:
   source feature's already-solved profile (evaluate.py), so this kernel is
   mode-agnostic: it is handed the solid(s) to replicate and the placements.
 
+VACUOUS-CUT FALLBACK — the CUT mode's second honest reading (CM-2, 2026-07-25;
+the same reading :func:`geometry.kernel.mirror.mirror_cut` shipped in `fa30220`).
+"Array the removal" is only the user's meaning when a replicated tool can reach
+the body. Replicate a pocketed 40 mm plate at ``+X`` spacing 40 and every copy of
+the TOOL lands beyond the ``+X`` face: ``body.cut(...)`` returned the body
+unchanged and the pattern was a SILENT NO-OP (measured: 14400.0 mm^3 in, 14400.0
+out, every feature ``ok``). So when NO copy reaches the body
+(:func:`geometry.kernel.removal.removal_reaches_body` — the ONE shared predicate,
+purely topological, no epsilon) the pattern reads the request as "replicate the
+BODY", whose copies already carry the seed cut, and takes the ADD path. A copy set
+that reaches the body ANYWHERE keeps the cut path, so every established patterned
+cut is byte-identical.
+
 Documented limitations (GEOMETRY-QA): the ADD mode arrays the WHOLE body-so-far
 (feature-scoped ADD patterning of one boss's tool is future work); the CUT mode
 arrays the immediately-preceding cut feature's tool (an intervening
@@ -47,6 +60,7 @@ from build123d import Axis, Solid, Vector
 from py_kit.schemas.features import MAX_PATTERN_COUNT
 
 from geometry.kernel.lumps import assemble_lumps
+from geometry.kernel.removal import removal_reaches_body
 from geometry.kernel.types import BodyShape
 
 #: Minimum magnitude (mm-agnostic) for a direction/axis vector to define a
@@ -341,17 +355,26 @@ def linear_pattern_cut(
     so a single hole-cut + this pattern removes *count* holes. ``count == 1``
     returns *body* unchanged.
 
+    VACUOUS-CUT FALLBACK (the shared reading — module docstring, CM-2): when NO
+    translated copy can reach the body
+    (:func:`geometry.kernel.removal.removal_reaches_body`) the pattern replicates
+    the WHOLE body instead (:func:`linear_pattern`), exactly as
+    :func:`geometry.kernel.mirror.mirror_cut` does — never a silent no-op.
+
     Raises:
         PatternCountError: ``count < 1``.
         PatternSpacingError: ``spacing_mm <= 0`` (with copies to place).
         PatternDirectionError: the direction vector is (near) zero-length.
-        PatternDisjointError: the cut severed the body into >1 solid.
+        PatternDisjointError: the cut severed the body into >1 solid, or the
+            fallback's whole-body copies do not merge into one lump.
         PatternError: the OCCT cut failed or removed the entire body.
     """
     _check_count(count)
     if count == 1:
         return body
     copies = _linear_copies(tools, direction, spacing_mm, count)
+    if not removal_reaches_body(body, copies):
+        return linear_pattern(body, direction, spacing_mm, count)
     return _cut_and_finalize(body, copies, count)
 
 
@@ -372,15 +395,24 @@ def circular_pattern_cut(
     position at ``angle_deg`` is EXCLUSIVE and a 360° sweep is a clean full ring
     of holes. ``count == 1`` returns *body* unchanged.
 
+    VACUOUS-CUT FALLBACK (the shared reading — module docstring, CM-2): when NO
+    rotated copy can reach the body
+    (:func:`geometry.kernel.removal.removal_reaches_body`) the pattern replicates
+    the WHOLE body instead (:func:`circular_pattern`), exactly as
+    :func:`geometry.kernel.mirror.mirror_cut` does — never a silent no-op.
+
     Raises:
         PatternCountError: ``count < 1``.
         PatternAxisError: the axis direction is (near) zero-length.
         PatternAngleError: ``angle_deg`` outside (0, 360] with copies to place.
-        PatternDisjointError: the cut severed the body into >1 solid.
+        PatternDisjointError: the cut severed the body into >1 solid, or the
+            fallback's whole-body copies do not merge into one lump.
         PatternError: the OCCT cut failed or removed the entire body.
     """
     _check_count(count)
     if count == 1:
         return body
     copies = _circular_copies(tools, axis_point, axis_direction, angle_deg, count)
+    if not removal_reaches_body(body, copies):
+        return circular_pattern(body, axis_point, axis_direction, angle_deg, count)
     return _cut_and_finalize(body, copies, count)

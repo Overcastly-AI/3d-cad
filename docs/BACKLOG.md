@@ -76,17 +76,17 @@ frame refactor are v2/§11. Spike de-collected.
       feature). Guard already committed as `xfail(strict)` —
       `test_cm1_mirror_keeps_the_hole_across_an_intervening_feature`; remove the
       marker with the fix. [src: GEOMETRY-QA 2026-07-25 composition matrix]
-- [ ] (P0, S) **CM-2 — a `pattern` of a cut whose replicated tools ALL clear the
-      body is a SILENT NO-OP: the exact defect `fa30220` fixed for `mirror`
-      only.** `plate 40x40x10 -> pocket -> linear pattern +X/40/2` returns
-      **14400.0** unchanged with every feature `ok` (28800.0 expected by the
-      mirror precedent); hole source **15497.3452** vs 30994.6904. `mirror_cut`
-      guards with `_reflected_tools_reach_body` and falls back to `mirror_union`;
-      `linear_pattern_cut`/`circular_pattern_cut` -> `_cut_and_finalize`
-      (`kernel/pattern.py`) has no reachability check. Union fallback OR a typed
-      `pattern_removed_nothing` — silence is not acceptable. Guard:
-      `test_cm2_pattern_of_a_clearing_translation_is_not_a_silent_no_op`
-      (`xfail(strict)`). [src: GEOMETRY-QA 2026-07-25 composition matrix]
+- [x] (P0, S) **CM-2 — a `pattern` of a cut whose replicated tools ALL clear the
+      body was a SILENT NO-OP: the exact defect `fa30220` fixed for `mirror`
+      only. Fixed 2026-07-25.** The reachability question is now ONE shared
+      predicate (`geometry.kernel.removal.removal_reaches_body`, extracted from
+      mirror's `_reflected_tools_reach_body` — topological, no epsilon); when no
+      replicated tool reaches the body the pattern takes the whole-body ADD path,
+      and one copy reaching anywhere keeps the cut path byte-identical. Measured:
+      pocket source 14400.0 -> **28800.0**, hole source 15497.3452 ->
+      **30994.6904**. `xfail` removed from
+      `test_cm2_pattern_of_a_clearing_translation_is_not_a_silent_no_op`; 3 new
+      guards in `test_pattern.py`. [src: GEOMETRY-QA 2026-07-25 composition matrix]
 - [ ] (P1, S) **CM-3 — an `extrude-cut`/`revolve-cut` that removes nothing
       reports `ok` and returns the input body.** 16000.0 unchanged for a pocket
       beside the part, a cut in free space above it, and **the same pocket cut

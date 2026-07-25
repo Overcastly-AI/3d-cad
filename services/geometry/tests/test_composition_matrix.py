@@ -2278,19 +2278,6 @@ def test_cm1_mirror_keeps_the_hole_across_an_intervening_feature(
     assert props.volume == pytest.approx(expected, abs=CURVED_TOL)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="CM-2 (P0, LIVE on 446a872): a pattern of a cut whose replicated "
-    "tools ALL land off the body is a SILENT NO-OP — the exact defect `fa30220` "
-    "fixed for `mirror` only. `mirror_cut` guards with "
-    "`_reflected_tools_reach_body` and falls back to `mirror_union`; "
-    "`linear_pattern_cut`/`circular_pattern_cut` -> `_cut_and_finalize` "
-    "(kernel/pattern.py) has NO reachability check, so `body.cut(tool)` returns "
-    "the body unchanged and every feature reports ok. Measured: pocket source "
-    "14400.0 obtained vs 28800.0 (the mirror precedent's whole-body replicate); "
-    "hole source 15497.3452 vs 30994.6904. Either the union fallback or a typed "
-    "`pattern_removed_nothing` is acceptable — silence is not.",
-)
 @pytest.mark.parametrize(
     ("label", "cut", "cut_delta"),
     [
@@ -2325,7 +2312,13 @@ def test_cm2_pattern_of_a_clearing_translation_is_not_a_silent_no_op(
     The plate is 40 wide, so the replicated cut tool lands entirely beyond the
     body's +X face and can remove nothing. `mirror` answers this by falling back
     to a whole-body replicate (giving the completed 80 mm part, a copy of the cut
-    in each half); `pattern` silently returns the input body.
+    in each half); `pattern` silently returned the input body.
+
+    FIXED 2026-07-25 (kernel): `linear_pattern_cut` / `circular_pattern_cut` now
+    ask the SHARED `removal_reaches_body` predicate `mirror_cut` already used, and
+    take the whole-body ADD path when NO replicated tool can reach the body.
+    Pre-fix: pocket source 14400.0 (unchanged, every feature `ok`) vs 28800.0
+    expected; hole source 15497.34517542563 vs 30994.690350851266.
     """
     del label
     plate = [rect_sketch(S_BASE, 0.0, 0.0, 40.0, 40.0), extrude(F_BASE, S_BASE, 10.0)]

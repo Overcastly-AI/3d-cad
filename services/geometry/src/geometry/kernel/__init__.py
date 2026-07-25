@@ -106,6 +106,7 @@ from geometry.kernel.pattern import (
 )
 from geometry.kernel.properties import combine_properties, measure_shape
 from geometry.kernel.provenance import attribute_faces
+from geometry.kernel.removal import removal_reaches_body
 from geometry.kernel.revolve import (
     AxisIntersectsProfileError,
     NoAxisError,
@@ -244,6 +245,7 @@ __all__ = [
     "planar_faces",
     "probe_overlap",
     "read_step_assembly",
+    "removal_reaches_body",
     "resolve_axis_line",
     "resolve_edge",
     "resolve_face_plane",

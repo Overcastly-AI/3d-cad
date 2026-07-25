@@ -42,7 +42,11 @@ audited defects are seeded cases that FAIL on the pre-fix behaviour. 198 tests,
 **CM-1** a mirror re-erases a hole when any non-cut feature sits between the cut
 and the mirror (31640.0 vs 29629.3807 — FINDINGS #2 reachable again); **CM-2** a
 pattern of a cut whose tools all clear the body is a silent no-op (14400.0 vs
-28800.0 — the defect `fa30220` fixed for mirror only); **CM-3** extrude-cut /
+28800.0 — the defect `fa30220` fixed for mirror only) — **FIXED 2026-07-25**
+(kernel-architect): one shared, topological `removal_reaches_body` predicate now
+answers the reachability question for mirror, pattern and the in-chain cut alike,
+and an unreachable patterned removal falls back to the whole-body replicate
+(28800.0 / 30994.6904 measured); **CM-3** extrude-cut /
 revolve-cut that removes nothing reports `ok` (Hole correctly errors); **CM-4** a
 pocket+fillet+shell body loses 2 edges across a STEP round-trip. Full evidence,
 coverage table and tolerance rationale in `docs/GEOMETRY-QA.md` (2026-07-25).
