@@ -189,6 +189,31 @@ def _add_view(
     )
 
 
+def test_sheet_create_refuses_over_sheet_ceiling(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """audit H5 — the bound G2 missed. Every read of a drawing serializes its whole
+    sheet tree, and `DrawingTreeResponse.sheets` now carries the matching
+    `max_length`, so persisting past the ceiling would make the drawing
+    unreadable."""
+    import documents.drawings as drawings_module
+
+    monkeypatch.setattr(drawings_module, "MAX_DRAWING_SHEETS", 1)
+    drawing_id, _sheet_id = _drawing_with_sheet(client)  # sheet 1 of 1
+    response = client.post(
+        f"/api/v1/drawings/{drawing_id}/sheets",
+        json={"expected_version": 1, "name": "Sheet 2"},
+        headers=_headers(),
+    )
+    assert _error_code(response) == "sheet_limit_exceeded"
+    assert response.json()["error"]["details"]["max_sheets"] == 1
+
+    # The drawing is still readable, and still holds exactly the one sheet.
+    tree = client.get(f"/api/v1/drawings/{drawing_id}", headers=_headers())
+    assert tree.status_code == 200, tree.text
+    assert len(tree.json()["sheets"]) == 1
+
+
 def test_view_create_refuses_over_view_ceiling(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:

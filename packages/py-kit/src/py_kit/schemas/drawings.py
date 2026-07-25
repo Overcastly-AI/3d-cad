@@ -73,6 +73,15 @@ MAX_DRAWING_DIMENSIONS = 500
 #: work only, same generous scale as dimensions.
 MAX_DRAWING_ANNOTATIONS = 500
 
+#: Ceiling on SHEETS in one drawing (engineering audit H5 — the bound G2 missed).
+#: Every read of a drawing serializes its WHOLE sheet tree (``GET /drawings/{id}``
+#: and the body of every delete route), so an unbounded sheet count is an
+#: unbounded response — one POST per sheet until the document is unreadable and
+#: unrecoverable except by deleting it. A real multi-sheet print set runs a
+#: handful to a few dozen sheets, so 100 is far beyond legitimate use while
+#: keeping the tree read bounded.
+MAX_DRAWING_SHEETS = 100
+
 #: Upper bound for a per-sheet name ("Sheet 1").
 SHEET_NAME_MAX_LENGTH = 200
 
@@ -732,7 +741,14 @@ class DrawingTreeResponse(BaseModel):
 
     drawing: DrawingResponse
     doc_version: int = Field(description="Echoed OCC token (== drawing.doc_version)")
-    sheets: list[SheetContent]
+    sheets: list[SheetContent] = Field(
+        max_length=MAX_DRAWING_SHEETS,
+        description="The drawing's sheets in order_index order, bounded by "
+        "MAX_DRAWING_SHEETS (work bound, audit H5 — every drawing read serializes "
+        "the whole tree). documents refuses to persist past the ceiling "
+        "(`sheet_limit_exceeded` 422), so the bound can never make a stored "
+        "drawing unreadable.",
+    )
 
 
 class SheetMutationResponse(BaseModel):

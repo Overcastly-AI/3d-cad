@@ -3330,7 +3330,10 @@ export interface components {
              */
             doc_version: number;
             drawing: components["schemas"]["DrawingResponse"];
-            /** Sheets */
+            /**
+             * Sheets
+             * @description The drawing's sheets in order_index order, bounded by MAX_DRAWING_SHEETS (work bound, audit H5 — every drawing read serializes the whole tree). documents refuses to persist past the ceiling (`sheet_limit_exceeded` 422), so the bound can never make a stored drawing unreadable.
+             */
             sheets: components["schemas"]["SheetContent"][];
         };
         /**

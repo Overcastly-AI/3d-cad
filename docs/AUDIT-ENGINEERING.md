@@ -1100,7 +1100,20 @@ invisible to `just test`.
 
 ---
 
-### H5 — Sheets-per-drawing is the one work bound G2 missed; `_tree_response` is N+1 over it. **P2 · CONFIRMED**
+### H5 — Sheets-per-drawing is the one work bound G2 missed; `_tree_response` is N+1 over it. **P2 · CONFIRMED · ✅ FIXED**
+
+> **Landed 2026-07-25 (backend-builder).** Exactly the G2 idiom: documented
+> `MAX_DRAWING_SHEETS = 100` in `packages/py-kit/src/py_kit/schemas/drawings.py`
+> + `max_length` on `DrawingTreeResponse.sheets` + the documents write twin
+> (`sheet_limit_exceeded` 422 in `create_sheet`), so a stored drawing can never
+> grow past what its own response model parses. N+1 killed too: the new
+> `_by_sheet` helper reads views / dimensions / annotations with ONE
+> `WHERE sheet_id IN (...)` query each, ordered `(sheet_id, order_index)` and
+> grouped in a single pass — `_tree_response` is now 4 queries for any drawing
+> instead of `1 + 3n`. Coverage: py-kit at-cap-accept / over-cap-reject, the
+> documents write twin (drawing still readable after the refusal), and a
+> multi-sheet grouping regression (no cross-sheet leakage, stored order kept).
+> Contracts regenerated (`maxItems: 100`).
 
 G2 bounded views (32), dimensions (500), annotations (500), features (1000),
 instances (500), mates (2000) — each with a documents-side write twin. **There

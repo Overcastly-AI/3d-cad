@@ -1522,9 +1522,11 @@
             "$ref": "#/components/schemas/DrawingResponse"
           },
           "sheets": {
+            "description": "The drawing's sheets in order_index order, bounded by MAX_DRAWING_SHEETS (work bound, audit H5 \u2014 every drawing read serializes the whole tree). documents refuses to persist past the ceiling (`sheet_limit_exceeded` 422), so the bound can never make a stored drawing unreadable.",
             "items": {
               "$ref": "#/components/schemas/SheetContent"
             },
+            "maxItems": 100,
             "title": "Sheets",
             "type": "array"
           }
@@ -8056,7 +8058,7 @@
     },
     "/api/v1/drawings/{drawing_id}/sheets/{sheet_id}/views": {
       "post": {
-        "description": "Add a view referencing a part / assembly (append at the tip).\n\nEnforces cross-document integrity (\u00a72.2): the referenced document must exist\nand belong to the caller (else ``ref_document_not_found`` 422). No acyclicity\ncheck \u2014 a drawing is a leaf consumer (\u00a72.2). ``ref_pinned_version`` is stored\nNULL: v1 tracks the referenced document's tip (\u00a72.3).",
+        "description": "Add a view referencing a part / assembly (append at the tip).\n\nEnforces cross-document integrity (\u00a72.2): the referenced document must exist\nand belong to the caller (else ``ref_document_not_found`` 422). No acyclicity\ncheck \u2014 a drawing is a leaf consumer (\u00a72.2). ``ref_pinned_version`` is stored\nNULL: v1 tracks the referenced document's tip (\u00a72.3).\n\nAlso enforces the SHEET-consistency invariant (design \u00a72.2 \"one sheet, one\nsource\"; engineering audit H2): every view of a sheet must reference the SAME\ndocument at the SAME scale, because composition threads exactly one source +\none scale per sheet (``ComposeDrawingRequest``). A mismatch is a typed\n``sheet_source_document_mismatch`` / ``sheet_view_scale_mismatch`` 422 \u2014\nthe alternative was silently projecting every view from the first view's part\nat the first view's scale, i.e. a wrong drawing a shop would cut from.",
         "operationId": "create_view_api_v1_drawings__drawing_id__sheets__sheet_id__views_post",
         "parameters": [
           {

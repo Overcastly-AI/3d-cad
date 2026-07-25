@@ -443,6 +443,14 @@ export interface paths {
          *     and belong to the caller (else ``ref_document_not_found`` 422). No acyclicity
          *     check — a drawing is a leaf consumer (§2.2). ``ref_pinned_version`` is stored
          *     NULL: v1 tracks the referenced document's tip (§2.3).
+         *
+         *     Also enforces the SHEET-consistency invariant (design §2.2 "one sheet, one
+         *     source"; engineering audit H2): every view of a sheet must reference the SAME
+         *     document at the SAME scale, because composition threads exactly one source +
+         *     one scale per sheet (``ComposeDrawingRequest``). A mismatch is a typed
+         *     ``sheet_source_document_mismatch`` / ``sheet_view_scale_mismatch`` 422 —
+         *     the alternative was silently projecting every view from the first view's part
+         *     at the first view's scale, i.e. a wrong drawing a shop would cut from.
          */
         post: operations["create_view_api_v1_drawings__drawing_id__sheets__sheet_id__views_post"];
         delete?: never;
@@ -2039,7 +2047,10 @@ export interface components {
              */
             doc_version: number;
             drawing: components["schemas"]["DrawingResponse"];
-            /** Sheets */
+            /**
+             * Sheets
+             * @description The drawing's sheets in order_index order, bounded by MAX_DRAWING_SHEETS (work bound, audit H5 — every drawing read serializes the whole tree). documents refuses to persist past the ceiling (`sheet_limit_exceeded` 422), so the bound can never make a stored drawing unreadable.
+             */
             sheets: components["schemas"]["SheetContent"][];
         };
         /**

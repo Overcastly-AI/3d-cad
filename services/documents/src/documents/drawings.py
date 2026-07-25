@@ -26,6 +26,7 @@ from py_kit.db import SessionDep
 from py_kit.schemas.drawings import (
     MAX_DRAWING_ANNOTATIONS,
     MAX_DRAWING_DIMENSIONS,
+    MAX_DRAWING_SHEETS,
     MAX_DRAWING_VIEWS,
     AngularDimensionParams,
     Annotation,
@@ -394,36 +395,56 @@ def _annotation_response(annotation: db.Annotation) -> AnnotationResponse:
     )
 
 
+async def _by_sheet[SheetScoped: (db.View, db.Dimension, db.Annotation)](
+    session: AsyncSession,
+    model: type[SheetScoped],
+    sheet_ids: list[uuid.UUID],
+) -> dict[uuid.UUID, list[SheetScoped]]:
+    """All of *sheet_ids*' rows of *model*, grouped by sheet, in stored order.
+
+    ONE query for the whole drawing instead of one per sheet (engineering audit
+    **H5**): ``_tree_response`` is the body of ``GET /drawings/{id}`` AND of every
+    delete route, and it used to issue three queries PER SHEET. Ordering by
+    ``(sheet_id, order_index)`` makes each group's insertion order the stored
+    order, so the grouping is a single pass with no per-group sort.
+    """
+    if not sheet_ids:
+        return {}
+    result = await session.execute(
+        select(model)
+        .where(model.sheet_id.in_(sheet_ids))
+        .order_by(model.sheet_id, model.order_index)
+        .execution_options(populate_existing=True)
+    )
+    grouped: dict[uuid.UUID, list[SheetScoped]] = {
+        sheet_id: [] for sheet_id in sheet_ids
+    }
+    for row in result.scalars():
+        grouped[row.sheet_id].append(row)
+    return grouped
+
+
 async def _tree_response(
     session: AsyncSession, drawing: db.Drawing
 ) -> DrawingTreeResponse:
-    sheets = await _ordered(session, db.Sheet, db.Sheet.drawing_id, drawing.id)
-    contents: list[SheetContent] = []
-    for sheet in sheets:
-        assert isinstance(sheet, db.Sheet)
-        views = await _ordered(session, db.View, db.View.sheet_id, sheet.id)
-        dimensions = await _ordered(
-            session, db.Dimension, db.Dimension.sheet_id, sheet.id
+    sheets = [
+        sheet
+        for sheet in await _ordered(session, db.Sheet, db.Sheet.drawing_id, drawing.id)
+        if isinstance(sheet, db.Sheet)
+    ]
+    sheet_ids = [sheet.id for sheet in sheets]
+    views = await _by_sheet(session, db.View, sheet_ids)
+    dimensions = await _by_sheet(session, db.Dimension, sheet_ids)
+    annotations = await _by_sheet(session, db.Annotation, sheet_ids)
+    contents = [
+        SheetContent(
+            sheet=_sheet_response(sheet),
+            views=[_view_response(v) for v in views[sheet.id]],
+            dimensions=[_dimension_response(d) for d in dimensions[sheet.id]],
+            annotations=[_annotation_response(a) for a in annotations[sheet.id]],
         )
-        annotations = await _ordered(
-            session, db.Annotation, db.Annotation.sheet_id, sheet.id
-        )
-        contents.append(
-            SheetContent(
-                sheet=_sheet_response(sheet),
-                views=[_view_response(v) for v in views if isinstance(v, db.View)],
-                dimensions=[
-                    _dimension_response(d)
-                    for d in dimensions
-                    if isinstance(d, db.Dimension)
-                ],
-                annotations=[
-                    _annotation_response(a)
-                    for a in annotations
-                    if isinstance(a, db.Annotation)
-                ],
-            )
-        )
+        for sheet in sheets
+    ]
     return DrawingTreeResponse(
         drawing=DrawingResponse.model_validate(drawing),
         doc_version=drawing.doc_version,
@@ -533,6 +554,17 @@ async def create_sheet(
     drawing = await get_owned_drawing(session, owner_id, drawing_id, for_update=True)
     _ensure_fresh(drawing, request.expected_version)
     position = await _count(session, db.Sheet, db.Sheet.drawing_id, drawing_id)
+    # Write-side twin of `DrawingTreeResponse.sheets`' `max_length` parse bound
+    # (audit H5, the G2 idiom): every read of this drawing serializes the WHOLE
+    # sheet tree, so an unbounded sheet count is an unbounded response — and once
+    # persisted past the DTO ceiling the drawing could not be read back at all.
+    if position >= MAX_DRAWING_SHEETS:
+        raise ValidationApiError(
+            f"A drawing holds at most {MAX_DRAWING_SHEETS} sheets (per-request "
+            "work bound); delete sheets before adding more.",
+            code="sheet_limit_exceeded",
+            details={"max_sheets": MAX_DRAWING_SHEETS},
+        )
     sheet = db.Sheet(
         id=uuid.uuid4(),
         drawing_id=drawing_id,

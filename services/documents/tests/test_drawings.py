@@ -839,3 +839,68 @@ def test_reprojecting_a_view_onto_an_existing_projection_is_422(
         headers=_headers(),
     )
     assert same.status_code == 200, same.text
+
+
+# --- the tree read is grouped, not N+1 (engineering audit H5) ---------------------
+
+
+def test_multi_sheet_tree_groups_children_by_sheet(client: TestClient) -> None:
+    """`_tree_response` now reads views/dimensions/annotations with ONE query each
+    (`WHERE sheet_id IN (...)`) and groups in Python instead of 3 queries PER
+    SHEET. This pins the grouping: no cross-sheet leakage, stored order kept."""
+    part = _create_part(client, "grouped")
+    drawing_id = _create_drawing(client, "grouped-tree")
+    sheet_a = _add_sheet(client, drawing_id, 0).json()["sheet"]["id"]
+    sheet_b = _add_sheet(client, drawing_id, 1, name="Sheet 2").json()["sheet"]["id"]
+
+    version = 2
+    view_ids: dict[str, list[str]] = {sheet_a: [], sheet_b: []}
+    for sheet_id, projections in (
+        (sheet_a, ("front", "top")),
+        (sheet_b, ("right",)),
+    ):
+        for projection in projections:
+            created = _add_view(
+                client, drawing_id, sheet_id, part, version, projection=projection
+            )
+            assert created.status_code == 201, created.text
+            view_ids[sheet_id].append(created.json()["view"]["id"])
+            version = created.json()["doc_version"]
+
+    # One dimension on sheet A's first view, one annotation on sheet B.
+    rd = client.post(
+        f"/api/v1/drawings/{drawing_id}/views/{view_ids[sheet_a][0]}/dimensions",
+        json={
+            "expected_version": version,
+            "dimension": {"type": "diameter", "edge": _edge_sig("circle", 31.4)},
+        },
+        headers=_headers(),
+    )
+    assert rd.status_code == 201, rd.text
+    version = rd.json()["doc_version"]
+    ra = client.post(
+        f"/api/v1/drawings/{drawing_id}/sheets/{sheet_b}/annotations",
+        json={
+            "expected_version": version,
+            "annotation": {
+                "type": "note",
+                "text": "Sheet 2 note",
+                "position": {"x_mm": 10.0, "y_mm": 20.0},
+            },
+        },
+        headers=_headers(),
+    )
+    assert ra.status_code == 201, ra.text
+
+    tree = client.get(f"/api/v1/drawings/{drawing_id}", headers=_headers()).json()
+    first, second = tree["sheets"]
+    assert first["sheet"]["id"] == sheet_a
+    assert [v["id"] for v in first["views"]] == view_ids[sheet_a]
+    assert [v["projection"] for v in first["views"]] == ["front", "top"]
+    assert len(first["dimensions"]) == 1
+    assert first["annotations"] == []
+
+    assert second["sheet"]["id"] == sheet_b
+    assert [v["id"] for v in second["views"]] == view_ids[sheet_b]
+    assert second["dimensions"] == []
+    assert [a["annotation"]["text"] for a in second["annotations"]] == ["Sheet 2 note"]

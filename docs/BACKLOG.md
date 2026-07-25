@@ -772,6 +772,13 @@ Full narrative evidence lives in `docs/ROADMAP.md` (Phase 4/4b sections) and
       3 documents + 2 migration + 3 web regressions. Residue routed to the kernel
       agent: `compose.py::_resolve_view_anchors` still keys anchors by projection.
       [src: AUDIT-ENGINEERING.md 2026-07-25 H3]
+- [x] (P2, S) **H5 — sheets-per-drawing was the one work bound G2 missed**, and
+      `_tree_response` was N+1 over it (3 queries PER SHEET, in the drawing GET and
+      every delete route). `MAX_DRAWING_SHEETS = 100` + `max_length` on
+      `DrawingTreeResponse.sheets` + documents `sheet_limit_exceeded` 422 twin (the
+      G2 idiom); `_by_sheet` collapses the reads to ONE `sheet_id IN (...)` query
+      per child table → 4 queries per tree. Contracts regenerated.
+      [src: AUDIT-ENGINEERING.md 2026-07-25 H5]
 
 ### Recently shipped (2026-07-24 batch)
 
