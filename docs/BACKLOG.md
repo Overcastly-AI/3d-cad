@@ -1362,6 +1362,9 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
+- 2026-07-25 — **TAPPED holes, cosmetic threads (kernel-architect):** `thread:
+  IsoMetricThread | None` on `HoleParamsV1` cuts the ISO tap drill `D - P` and
+  carries the callout; typed `hole_thread_unsupported`/`hole_thread_mismatch`.
 - 2026-07-25 — **jsdom component-test tier (frontend-builder):** `apps/web` +
   `packages/design` now run two vitest projects (`*.test.ts` node, `*.test.tsx`
   jsdom+Testing Library); 46 tests pin the three burn-down UI defects. 882 web.

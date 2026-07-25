@@ -264,6 +264,7 @@ def hole(
     diameter_mm: float,
     depth: dict[str, Any] | None = None,
     hole_type: dict[str, Any] | None = None,
+    thread: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     params: dict[str, Any] = {
         "face": face,
@@ -273,6 +274,8 @@ def hole(
     }
     if hole_type is not None:
         params["type"] = hole_type
+    if thread is not None:
+        params["thread"] = thread
     return {
         "id": str(feature_id),
         "feature": {"type": "hole", "version": 1, "params": params},
@@ -292,6 +295,15 @@ def countersink(diameter_mm: float, angle_deg: float) -> dict[str, Any]:
         "kind": "countersink",
         "csink_diameter_mm": diameter_mm,
         "csink_angle_deg": angle_deg,
+    }
+
+
+def iso_thread(nominal_diameter_mm: float, pitch_mm: float) -> dict[str, Any]:
+    """A cosmetic ISO metric thread callout (makes the hole TAPPED)."""
+    return {
+        "standard": "iso_metric",
+        "nominal_diameter_mm": nominal_diameter_mm,
+        "pitch_mm": pitch_mm,
     }
 
 
@@ -615,7 +627,7 @@ def assert_same_solid(
 S_BASE, F_BASE = _fid(1), _fid(2)
 S_BOSS, F_BOSS, D_BOSS = _fid(11), _fid(12), _fid(13)
 S_POCKET, F_POCKET = _fid(21), _fid(22)
-F_HOLE, F_CBORE, F_CSINK = _fid(31), _fid(32), _fid(33)
+F_HOLE, F_CBORE, F_CSINK, F_TAPPED = _fid(31), _fid(32), _fid(33), _fid(34)
 F_PATTERN_L, F_PATTERN_C = _fid(41), _fid(42)
 D_CLEAR, D_MID, F_MIRROR = _fid(51), _fid(52), _fid(53)
 F_FILLET, F_CHAMFER, F_SHELL, F_DRAFT = _fid(61), _fid(62), _fid(63), _fid(64)
@@ -641,6 +653,11 @@ BOSS_SIDE = 12.0
 BOSS_HEIGHT = 5.0
 POCKET_SIDE = 12.0
 BORE_R = 4.0
+#: The tapped verb's thread and its ISO tap drill D - P = 10 - 1.5 = 8.5 mm
+#: (r = 4.25). A tapped hole is COSMETIC (geometry/kernel/threads.py): the solid
+#: it cuts IS this bore, which is why it takes an ordinary `cut` invariant here.
+TAP_NOMINAL, TAP_PITCH = 10.0, 1.5
+TAPPED_R = (TAP_NOMINAL - TAP_PITCH) / 2.0
 RECESS_R = 8.0
 RECESS_DEPTH = 3.0
 FILLET_R = 4.0
@@ -655,6 +672,9 @@ PATTERN_STEP = 20.0
 BOSS_DV = BOSS_SIDE * BOSS_SIDE * BOSS_HEIGHT  # +720: a 12x12x5 prism on top
 POCKET_DV = -(POCKET_SIDE * POCKET_SIDE * PLATE_THICKNESS)  # -1440: through-slot
 HOLE_DV = -(math.pi * BORE_R**2 * PLATE_THICKNESS)  # -160pi: r4 through-bore
+# A tapped hole removes its TAP-DRILL bore and nothing else (the thread is a
+# callout, not geometry): -pi*4.25^2*10 = -180.625pi.
+TAPPED_DV = -(math.pi * TAPPED_R**2 * PLATE_THICKNESS)
 CBORE_DV = HOLE_DV - math.pi * (RECESS_R**2 - BORE_R**2) * RECESS_DEPTH  # bore + ring
 # A 90-deg INCLUDED countersink tapers r8 -> r4 over (8-4)/tan(45) = 4 mm.
 # Frustum (pi*h/3)(R^2+Rr+r^2) = (4pi/3)(64+32+16) = 448pi/3; the bore already
@@ -703,6 +723,10 @@ def _verbs() -> dict[str, Verb]:
     * HOLE    r4 at (60,20) -> x 56..64, y 16..24 (SE)
     * CBORE   r8 at (60,44) -> x 52..68, y 36..52 (E)
     * CSINK   r8 at (20,44) -> x 12..28, y 36..52 (W)
+    * TAPPED  r4.25 at (60,8) -> x 55.75..64.25, y 3.75..12.25 (S) — the M10x1.5
+      tap drill (D - P = 8.5). NOT on x=40 deliberately: a cut whose tool is
+      symmetric about the mirror midplane reflects onto itself and removes
+      nothing, which is finding CM-3's shape, not a routine cell.
     * FILLET / CHAMFER  the four vertical corners (within 4 mm of a corner)
     * SHELL   the whole body (deliberately global, not disjoint)
     * DRAFT   the +X wall's top 0.875 mm (x > 79.125)
@@ -710,7 +734,10 @@ def _verbs() -> dict[str, Verb]:
     Pairwise clearances (centre-to-centre or centre-to-nearest-point vs the sum
     of extents): HOLE(60,20)-CBORE(60,44) = 24 > 4+8; HOLE-CSINK = 45 > 12;
     CBORE-CSINK = 40 > 16; POCKET-HOLE nearest = 32 > 4; POCKET-CBORE nearest
-    = 35 > 8; POCKET-CSINK = 16 > 8; BOSS is >= 6 mm clear of every disc's
+    = 35 > 8; POCKET-CSINK = 16 > 8; TAPPED(60,8)-HOLE = 12 > 4.25+4;
+    TAPPED-CBORE = 36 > 12.25; TAPPED-POCKET nearest = 32 > 4.25; TAPPED's
+    x-band [55.75,64.25] clears the BOSS square's [34,46] by 9.75 mm (and its
+    y-band by 21.75); BOSS is >= 6 mm clear of every disc's
     bounding band and >= 6 mm from the pocket; every placement's max x (68) is
     clear of the drafted wall (79.125), and every placement is >= 12 mm from
     any corner, so the corner fillet/chamfer never touches one.
@@ -789,6 +816,21 @@ def _verbs() -> dict[str, Verb]:
             ],
             "cut",
             CSINK_DV,
+            curved=True,
+        ),
+        "hole_tapped": Verb(
+            "hole_tapped",
+            [
+                hole(
+                    F_TAPPED,
+                    TOP_FACE,
+                    (60.0, 8.0, PLATE_THICKNESS),
+                    2 * TAPPED_R,
+                    thread=iso_thread(TAP_NOMINAL, TAP_PITCH),
+                )
+            ],
+            "cut",
+            TAPPED_DV,
             curved=True,
         ),
         "pattern_linear": Verb(
@@ -1313,6 +1355,7 @@ ADDITIVE_PAIRS = [
     ("extrude_cut", "hole_countersink"),
     ("hole_simple", "hole_counterbore"),
     ("hole_simple", "hole_countersink"),
+    ("hole_simple", "hole_tapped"),
     ("hole_simple", "fillet"),
     ("hole_simple", "chamfer"),
     ("hole_simple", "draft"),
@@ -1350,15 +1393,26 @@ def test_disjoint_pair_volumes_are_additive(first: str, second: str) -> None:
 
 def test_pattern_of_a_disjoint_cut_removes_exactly_n_times_the_seed() -> None:
     """A pattern of N instances of a CUT removes exactly N x the single removal
-    when the placements are disjoint — for extrude-cut, simple, counterbore and
-    countersink hole sources alike.
+    when the placements are disjoint — for extrude-cut and every hole source
+    alike (simple, counterbore, countersink, TAPPED).
+
+    The tapped case is not redundant: a tapped hole records its cut tools through
+    the same per-feature channel (``record_cut_tools``), so a pattern of one must
+    array the BORE — a thread callout must not divert the source inference back
+    to the whole-body union path (FINDINGS #1's shape).
 
     The generalisation of seed #1 across every cut source the inference
     recognises. Uses the shared layout, whose +Y/20 mm copies are argued
     strictly interior and disjoint from their seed in ``_verbs()``.
     """
     pattern = VERBS["pattern_linear"]
-    for name in ("extrude_cut", "hole_simple", "hole_counterbore", "hole_countersink"):
+    for name in (
+        "extrude_cut",
+        "hole_simple",
+        "hole_counterbore",
+        "hole_countersink",
+        "hole_tapped",
+    ):
         verb = VERBS[name]
         assert verb.delta is not None
         props = properties(
@@ -1575,6 +1629,54 @@ def test_triple_hole_pattern_then_clearing_mirror() -> None:
     assert props.topology.shells == 1
 
 
+def test_mirror_of_a_tapped_hole_keeps_the_hole_and_doubles_the_plate() -> None:
+    """A TAPPED hole is a first-class CUT for the mirror, not a body-wide union.
+
+    Chain: 40x40x10 plate -> M10x1.5 tapped hole (Ø8.5 tap drill) at (10,20) ->
+    datum YZ@0 -> mirror about the clearing plane x=0.
+
+    Analytic: the drilled plate is 16000 - pi*4.25^2*10 = 16000 - 180.625pi; the
+    plane x=0 is the plate's own -X face, so the reflection fuses on it and the
+    result is EXACTLY twice that (two bores, at x = 10 and x = -10).
+
+    This is defect #2's assertion applied to the new hole type: the thread callout
+    must not divert `record_cut_tools`, or the mirror would reflect the whole
+    FILLED body, weld the bore shut and read 2 x 16000 = 32000 (a featureless
+    brick). It is also why a tapped hole needs no mirror/pattern code of its own —
+    it records the same bore tool a simple hole does.
+    """
+    plate = [rect_sketch(S_BASE, 0.0, 0.0, 40.0, 40.0), extrude(F_BASE, S_BASE, 10.0)]
+    top = face_ref(F_BASE, (0.0, 0.0, 1.0), (20.0, 20.0, 10.0), 1600.0)
+    tapped = hole(
+        F_TAPPED,
+        top,
+        (10.0, 20.0, 10.0),
+        2 * TAPPED_R,
+        thread=iso_thread(TAP_NOMINAL, TAP_PITCH),
+    )
+    drilled = 16000.0 - math.pi * TAPPED_R**2 * 10.0
+
+    bored = properties(evaluate([*plate, tapped]), "plate+tapped")
+    assert bored.volume == pytest.approx(drilled, abs=CURVED_TOL)
+
+    props = properties(
+        evaluate(
+            [
+                *plate,
+                tapped,
+                datum_offset(D_CLEAR, "YZ", 0.0),
+                mirror(F_MIRROR, {"kind": "feature", "feature_id": str(D_CLEAR)}),
+            ]
+        ),
+        "tapped+clearing mirror",
+    )
+    assert props.volume == pytest.approx(2.0 * drilled, abs=CURVED_TOL)
+    # Two bores, one lump: 6 plate faces + 2 cylinders (the fused plate keeps its
+    # box faces; the seam plane x=0 is interior and consumed by the fuse).
+    assert props.topology.shells == 1
+    assert props.bounding_box.min.x == pytest.approx(-40.0, abs=PLANAR_TOL)
+
+
 def test_triple_pocket_fillet_shell_is_a_valid_single_lump() -> None:
     """A TRIPLE with no closed form: pocket -> fillet -> shell.
 
@@ -1760,6 +1862,7 @@ def test_pair_matrix_covers_every_shipped_verb() -> None:
 #: (``test_draft_tilts_two_of_the_four_vertical_edges_out_of_the_predicate``).
 COMMUTING_PAIRS = [
     ("extrude_cut", "hole_simple"),
+    ("hole_tapped", "hole_simple"),
     ("hole_simple", "hole_counterbore"),
     ("hole_simple", "hole_countersink"),
     ("hole_simple", "fillet"),
@@ -1810,6 +1913,7 @@ SELF_COMPOSITION_ERRORS = {
     "hole_simple": "hole_off_body",
     "hole_counterbore": "hole_off_body",
     "hole_countersink": "hole_off_body",
+    "hole_tapped": "hole_off_body",
     "fillet": "fillet_failed",
     "chamfer": "chamfer_failed",
     "shell": "shell_failed",

@@ -1105,9 +1105,30 @@ class DraftParamsV1(BaseModel):
 # cone (seats a flat-head screw). The recess is a `HoleType`-discriminated member
 # (:data:`HoleType`) added to `HoleParamsV1` ADDITIVELY — the base bore is
 # unchanged and a legacy hole with no `type` reads `simple`, so NO `param_version`
-# bump (the RevolveAxis / DatumParams / PatternGeometry idiom). Tapped holes (a
-# thread callout, not v1 geometry) and standard drill-size tables remain future
-# additive members.
+# bump (the RevolveAxis / DatumParams / PatternGeometry idiom).
+#
+# SLICE 2 TAIL — TAPPED holes (2026-07-25): a tapped hole is the tap-drill bore
+# PLUS a typed thread callout (`thread`), NOT modelled helical geometry (the
+# COSMETIC representation every incumbent defaults to; the decision, its
+# trade-off, and what would have to change to model threads later are recorded in
+# `geometry.kernel.threads`). Two shape decisions worth stating, because both
+# could reasonably have gone the other way:
+#
+#   * `thread` is its OWN optional field, NOT a fourth `HoleType` member.
+#     Threading is ORTHOGONAL to the recess — a counterbored tapped hole (cap
+#     screw head sunk over a tapped bore) is an everyday feature, and a `tapped`
+#     member of the `type` union would have made those mutually exclusive. It
+#     also keeps the `HoleType` union (and every consumer narrowing on its
+#     `kind`) unchanged.
+#   * The bore stays AUTHORED (`diameter_mm`), and the callout is checked against
+#     it: the drilled hole must lie in `[minor diameter, nominal diameter)` for
+#     the designation (the ISO tap drill `D - P` sits strictly inside), so a shop
+#     table's rounded stock drill is accepted while an M6 callout on a Ø20 bore
+#     is a typed `hole_thread_mismatch`. An unknown (nominal, pitch) pair is a
+#     typed `hole_thread_unsupported`. Neither EVER degrades to a plain hole
+#     carrying a thread callout nobody can cut.
+#
+# Standard drill-size tables remain a future additive member.
 
 
 class HoleThroughAll(BaseModel):
@@ -1215,11 +1236,45 @@ class HoleCountersink(BaseModel):
 #: discriminated on ``kind``. ADDITIVE to :class:`HoleParamsV1` (the base bore is
 #: unchanged; the type only ADDS the recess): a legacy hole with no ``type`` reads
 #: ``simple``, so NO ``param_version`` bump (the RevolveAxis / DatumParams /
-#: PatternGeometry idiom). A future ``tapped`` member (a thread callout, not v1
-#: geometry) joins here additively.
+#: PatternGeometry idiom). A tapped hole is NOT a member here — threading is
+#: orthogonal to the recess (a counterbored tapped hole is an everyday feature),
+#: so it rides on its own :class:`IsoMetricThread` field (see the section comment).
 HoleType = Annotated[
     HoleSimple | HoleCounterbore | HoleCountersink, Field(discriminator="kind")
 ]
+
+
+class IsoMetricThread(BaseModel):
+    """An ISO 261 metric thread callout on a hole (``standard: "iso_metric"``).
+
+    The COSMETIC thread representation: the kernel cuts the tap-drill bore only
+    (``diameter_mm``) and carries this designation as metadata for drawing/BOM/
+    export callouts — it does NOT model helical geometry (decision + rationale +
+    the upgrade path in ``geometry.kernel.threads``). ``standard`` is required so
+    a future thread standard (UNC/UNF, NPT) joins as a discriminated union member
+    without a ``param_version`` bump.
+
+    The pair (``nominal_diameter_mm``, ``pitch_mm``) must be a real ISO 261
+    combination — M10 x 1.5 (coarse) or M10 x 1.25/1/0.75 (fine), say — and the
+    hole's ``diameter_mm`` must be a hole the tap can actually cut, i.e. within
+    ``[D - 1.0825*P, D)``. The ISO recommended tap drill is ``D - P`` (5.0 mm for
+    M6 x 1, 8.5 mm for M10 x 1.5 — the published tables' values). Violations are
+    the typed rebuild errors ``hole_thread_unsupported`` / ``hole_thread_mismatch``
+    — never a silent fallback to an untapped hole.
+    """
+
+    standard: Literal["iso_metric"]
+    nominal_diameter_mm: float = Field(
+        gt=0,
+        description="Nominal (major) thread diameter — the `M` number, mm: 10.0 "
+        "for M10x1.5. Must be an ISO 261 size (a `hole_thread_unsupported` "
+        "rebuild error otherwise)",
+    )
+    pitch_mm: float = Field(
+        gt=0,
+        description="Thread pitch (mm): 1.5 for M10x1.5. Must be a standard pitch "
+        "for that nominal diameter (a `hole_thread_unsupported` otherwise)",
+    )
 
 
 class HoleParamsV1(BaseModel):
@@ -1255,6 +1310,14 @@ class HoleParamsV1(BaseModel):
     ``counterbore`` (a larger cylinder) or ``countersink`` (a cone). A recess
     whose diameter does not exceed the bore is ``hole_cbore_invalid`` /
     ``hole_csink_invalid``; a recess deeper than the material is ``hole_too_deep``.
+
+    ``thread`` (optional, ``None`` = an untapped hole) makes the hole TAPPED: a
+    cosmetic :class:`IsoMetricThread` callout over the tap-drill bore, ORTHOGONAL
+    to ``type`` (a counterbored tapped hole sets both). It adds NO geometry — the
+    solid is byte-identical to the same hole without it — so a tapped hole
+    mirrors, patterns, shells and exports exactly as its bore does. An unknown
+    designation is ``hole_thread_unsupported``; a bore the thread cannot be tapped
+    in is ``hole_thread_mismatch``.
     """
 
     face: SubshapeRef = Field(
@@ -1274,6 +1337,13 @@ class HoleParamsV1(BaseModel):
         description="Hole type: a plain bore (`simple`, the default when omitted "
         "— slice-1 behaviour) or a bore plus a coaxial counterbore / countersink "
         "recess at the face (:data:`HoleType`)",
+    )
+    thread: IsoMetricThread | None = Field(
+        default=None,
+        description="Optional COSMETIC thread callout making this a TAPPED hole "
+        "(`null`/omitted = untapped). Carries the designation for drawing/BOM "
+        "callouts; adds no geometry — `diameter_mm` is the tap-drill bore "
+        "(:class:`IsoMetricThread`)",
     )
 
 

@@ -7,6 +7,75 @@ not "do the tests pass" but **"is the geometry RIGHT?"** (RESEARCH §9,
 decisions recorded here AND in the golden's `expected.json` — never a way to
 go green.
 
+## 2026-07-25 — TAPPED holes: the v1 thread representation is COSMETIC, and the golden that locks it (kernel-architect)
+
+**The decision (recorded in `services/geometry/src/geometry/kernel/threads.py`,
+the schema section comment in `py_kit/schemas/features.py`, and here).** A tapped
+hole is the **ISO tap-drill bore plus a typed thread callout** — NOT modelled
+helical geometry. Reasons, in the order they decided it:
+
+1. **Downstream cost.** One modelled M6x1 through-thread is hundreds of faces
+   where the cosmetic bore is one, and that multiplies through pattern, mirror,
+   tessellation, STEP export and the drawing projector. A plate with 40 tapped
+   holes has to stay interactive; every incumbent defaults to cosmetic for
+   exactly this reason (SolidWorks "Straight Tap", Fusion "Modeled: off").
+2. **It matches manufacture.** The mill cuts the tap drill; the tap cuts the
+   thread. The solid that matches the shop floor IS the bore.
+3. **It keeps the gate analytic.** A swept helix has no closed-form volume; the
+   tap-drill bore does (`π·r²·H`), so the golden asserts a hand-derived number
+   instead of a recorded kernel value.
+
+*Upgrade path if we ever want modelled threads* (additive, non-breaking): a
+`modelled: bool = False` flag on the thread spec, the helical sweep tool in
+`kernel/threads.py`, cut after the bore — and its OWN golden at its own
+tolerance tier, because that body is not analytic. The cosmetic path stays the
+default; nothing above changes.
+
+**Two shape decisions worth the ink.** (a) `thread` is its own optional param,
+**not** a fourth `HoleType` member: threading is orthogonal to the recess, so a
+counterbored tapped hole is one feature (asserted:
+`test_tapped_hole_may_also_be_counterbored`) and no consumer narrowing on
+`HoleType.kind` changes. (b) The bore stays authored and the callout is checked
+against it — the accepted band is `[minor diameter, nominal diameter)`, which
+admits a shop table's rounded stock drill (6.8 mm for M8x1.25, where `D - P` is
+6.75) while rejecting an M10 callout on a Ø12 bore. Both failure modes are typed
+and are checked **before any geometry runs**: `hole_thread_unsupported` (not an
+ISO 261 combination) / `hole_thread_mismatch` (untappable bore). Neither ever
+degrades to a plain hole wearing a thread nobody can cut.
+
+**New golden — `hole-tapped-m10x1.5-40x25x10`** (analytic, tolerance `1e-9`, the
+same tier as the simple/cbore/csink hole goldens):
+
+| quantity | analytic | kernel | residual |
+|---|---|---|---|
+| volume | `10000 - 180.625π` = 9432.549826945344 mm³ | 9432.549826945342 | 2e-12 |
+| surface area | `3300 + 48.875π` = 3453.545340944201 mm² | 3453.5453409442007 | 4e-13 |
+| centroid | (20, 12.5, 5) exactly | (20.000000000000004, 12.5, 5.0) | 4e-15 |
+| topology | 7 faces / 15 edges / 1 shell | same | exact |
+
+Tap drill = `D - P` = 10 − 1.5 = **8.5 mm**, the value the published metric
+tap-drill tables list for M10x1.5 (cross-checked in
+`test_tap_drill_matches_the_published_metric_table` for M3/M4/M5/M6/M8/M10/M12 —
+2.5 / 3.3 / 4.2 / 5.0 / 6.75 / 8.5 / 10.25). The topology is **identical to the
+untapped `hole-through-r5-40x25x10`** counts, which is the cosmetic decision made
+assertable, and the sharpest form of it: the `/evaluate` response for a Ø8.5 hole
+*with* an M10x1.5 thread is **byte-identical** (mesh id included) to the same hole
+without one (`test_tapped_hole_is_byte_identical_to_the_same_bore_untapped`).
+That test fails the day someone turns the tap into geometry without giving it its
+own golden.
+
+**Composition.** New matrix verb `hole_tapped` (M10x1.5 tap drill at (60,8) on the
+shared plate — deliberately off the x=40 midplane, since a cut symmetric about
+the mirror plane reflects onto itself and removes nothing, which is CM-3's shape,
+not a routine cell): 14th composer, +8 cells, `hole_simple`↔`hole_tapped`
+additive in both orders, self-composition → `hole_off_body`, and it joins the
+`N x the seed` cut-array sweep. Plus
+`test_mirror_of_a_tapped_hole_keeps_the_hole_and_doubles_the_plate` — defect #2's
+assertion for the new type: `2 x (16000 - 180.625π)`, because a tapped hole
+records the same bore tool through `record_cut_tools` that a simple hole does
+(had the callout diverted that inference, the mirror would have welded the bore
+shut and read 32000). Matrix runtime 26 s → **28 s**, still an every-commit gate.
+
 ## 2026-07-25 — COMPOSITION MATRIX gate: the standing guard against "feature N reasons wrongly about feature N-1's body" (geometry-qa)
 
 **Why.** In two days of auditing we found **five** silent-wrong-geometry defects
@@ -32,9 +101,9 @@ crosses ~2 min.
 |---|---|---|
 | **Analytic** closed-form volume/area/centroid | wrong geometry outright | 5 seeded-defect cases + 12 analytic composition cases |
 | **Disjoint additivity**: `V(A then B) = V(plate) + dA + dB`, both orders | a composed feature re-deriving its tool from the wrong body, double-counting the seed, or filling a neighbour's void | 17 pairs x 2 orders |
-| **`N x` the seed removal** for a patterned cut | FINDINGS #1 class | 4 cut sources (extrude-cut, simple/cbore/csink hole), linear + circular |
+| **`N x` the seed removal** for a patterned cut | FINDINGS #1 class | 5 cut sources (extrude-cut, simple/cbore/csink/tapped hole), linear + circular |
 | **EXACTLY `2V`** for a mirror about a plane the body does not cross | FINDINGS #2 **and** regression B, in all 8 predecessor contexts | matrix column `mirror_clearing` |
-| **No silent no-op**: the composed body must differ from the pre-B body by byte fingerprint (mesh sha256 + all mass props + exact topology) | a feature reporting `ok` while doing nothing | every one of the 96 matrix cells |
+| **No silent no-op**: the composed body must differ from the pre-B body by byte fingerprint (mesh sha256 + all mass props + exact topology) | a feature reporting `ok` while doing nothing | every one of the 104 matrix cells |
 | **Removes nothing => typed error** | regression-B class | `hole_*` self-composition (passes); extrude-cut/revolve-cut (**CM-3, fails**) |
 | **Order-independence** where order must not matter | a feature reading state it should not | 9 commuting pairs, + 3 *non*-commuting controls so the check has teeth |
 | **suppress(F) / unsuppress(F)** = byte-identical; suppress == delete | stale caches across a composition | 8 composed chains |
@@ -46,24 +115,25 @@ crosses ~2 min.
 
 ### The matrix
 
-8 predecessors (FIRST) x 13 composers (SECOND) = 104 cells; the 8 diagonal
+8 predecessors (FIRST) x 14 composers (SECOND) = 112 cells; the 8 diagonal
 cells are explicitly skipped with a reason (two features cannot share an id) and
-covered instead by `test_self_composition_*`, which re-issues ids — **96 cells
-asserted**. Base body: an 80x80x10 plate; placements are mutually disjoint in
+covered instead by `test_self_composition_*`, which re-issues ids — **104 cells
+asserted**. (13 composers / 96 cells as first filed; the `tapped` column joined
+with the tapped-hole slice later the same day — see the entry above.) Base body: an 80x80x10 plate; placements are mutually disjoint in
 plan and each verb's *patterned and mirrored copies* stay strictly interior (the
 reason for the 80 mm plate and the `+Y` linear step — a `+X` step would smuggle
 finding CM-2's shape into routine cells).
 
-| FIRST \\ SECOND | ext-add | ext-cut | hole | cbore | csink | pat-lin | pat-circ | mir-clear | mir-mid | fillet | chamfer | shell | draft |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| extrude-add | · | + | + | + | + | ✓ | ✓ | **2V** | id | ✓ | ✓ | 🛑`shell_failed` | ✓ |
-| extrude-cut | + | · | +✓ | + | + | **Nx** | **Nx** | **2V** | ✓ | ✓ | ✓ | ✓ | + |
-| hole (simple) | + | +✓ | · | +✓ | +✓ | **Nx** | **Nx** | **2V** | ✓ | +✓ | +✓ | ✓ | +✓ |
-| pattern-linear | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | **2V** | id | ✓ | ✓ | ✓ | ✓ |
-| mirror-midplane | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | **2V** | · | ✓ | ✓ | ✓ | ✓ |
-| fillet | ✓ | ✓ | +✓ | +✓ | ✓ | ✓ | ✓ | **2V** | id | · | 🛑`chamfer_failed` | ✓ | ✓ |
-| shell | 🛑`boolean_failed` | ✓ | ✓ | 🛑`hole_too_deep` | 🛑`hole_too_deep` | ✓ | ✓ | **2V** | id | ✓ | ✓ | · | ✓ |
-| draft | ✓ | + | +✓ | + | + | ✓ | ✓ | **2V** | ✓ | ✓ | ✓ | ✓ | 🛑`subshape_unresolved` |
+| FIRST \\ SECOND | ext-add | ext-cut | hole | cbore | csink | tapped | pat-lin | pat-circ | mir-clear | mir-mid | fillet | chamfer | shell | draft |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| extrude-add | · | + | + | + | + | ✓ | ✓ | ✓ | **2V** | id | ✓ | ✓ | 🛑`shell_failed` | ✓ |
+| extrude-cut | + | · | +✓ | + | + | ✓ | **Nx** | **Nx** | **2V** | ✓ | ✓ | ✓ | ✓ | + |
+| hole (simple) | + | +✓ | · | +✓ | +✓ | +✓ | **Nx** | **Nx** | **2V** | ✓ | +✓ | +✓ | ✓ | +✓ |
+| pattern-linear | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | **2V** | id | ✓ | ✓ | ✓ | ✓ |
+| mirror-midplane | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | **2V** | · | ✓ | ✓ | ✓ | ✓ |
+| fillet | ✓ | ✓ | +✓ | +✓ | ✓ | ✓ | ✓ | ✓ | **2V** | id | · | 🛑`chamfer_failed` | ✓ | ✓ |
+| shell | 🛑`boolean_failed` | ✓ | ✓ | 🛑`hole_too_deep` | 🛑`hole_too_deep` | ✓ | ✓ | ✓ | **2V** | id | ✓ | ✓ | · | ✓ |
+| draft | ✓ | + | +✓ | + | + | ✓ | ✓ | ✓ | **2V** | ✓ | ✓ | ✓ | ✓ | 🛑`subshape_unresolved` |
 
 `+` = analytic additivity · `✓` = kind invariant + no-silent-no-op · `Nx` =
 N-times-the-seed cut array · `2V` = exact doubling · `id` = asserted IDENTITY

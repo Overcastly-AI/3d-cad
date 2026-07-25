@@ -88,6 +88,7 @@ from py_kit.schemas.features import (
     HoleCounterbore,
     HoleCountersink,
     HoleFeature,
+    HoleParamsV1,
     ImportFeature,
     LinearPatternParamsV1,
     LoftFeature,
@@ -148,6 +149,8 @@ from geometry.kernel import (
     SubshapeAmbiguousError,
     SubshapeUnresolvedError,
     SweepError,
+    ThreadBoreMismatchError,
+    ThreadUnsupportedError,
     boolean_bodies,
     bore_hole,
     bore_tool,
@@ -159,6 +162,7 @@ from geometry.kernel import (
     build_revolve_profile_face,
     chamfer_body,
     check_axis_clears_profile,
+    check_tap_drill_bore,
     circular_pattern,
     circular_pattern_cut,
     combine_body,
@@ -182,6 +186,7 @@ from geometry.kernel import (
     resolve_edge,
     resolve_face_plane,
     resolve_faces,
+    resolve_iso_metric_thread,
     revolve_face,
     select_edges,
     shell_body,
@@ -1716,13 +1721,46 @@ def _evaluate_draft(
     return None
 
 
+def _check_hole_thread(params: HoleParamsV1) -> FeatureError | None:
+    """Validate a hole's optional COSMETIC thread callout — typed, never silent.
+
+    ``None`` when the hole is untapped or the callout is honourable; otherwise the
+    per-feature error, mapped 1:1 from the kernel thread taxonomy
+    (``geometry.kernel.threads``):
+
+    * ``hole_thread_unsupported`` — the (nominal, pitch) pair is not an ISO 261
+      combination the kernel knows;
+    * ``hole_thread_mismatch`` — the authored bore is not a hole that thread can
+      be tapped in (outside ``[minor diameter, nominal diameter)``).
+
+    Pure param arithmetic, so it runs BEFORE the face resolves and before any
+    boolean: a hole whose callout cannot be honoured must produce NO body at all,
+    rather than a plain bore wearing a thread designation on the drawing (the
+    silent-wrong class this slice exists to close).
+    """
+    thread = params.thread
+    if thread is None:
+        return None
+    try:
+        resolved = resolve_iso_metric_thread(
+            thread.nominal_diameter_mm, thread.pitch_mm
+        )
+        check_tap_drill_bore(resolved, params.diameter_mm)
+    except ThreadUnsupportedError as exc:
+        return FeatureError(code="hole_thread_unsupported", message=str(exc))
+    except ThreadBoreMismatchError as exc:
+        return FeatureError(code="hole_thread_mismatch", message=str(exc))
+    return None
+
+
 def _evaluate_hole(
     item: EvaluatedFeatureInput, state: EvaluationState
 ) -> FeatureError | None:
     """Drill a cylindrical hole into the current body at a point on a face (§4.3).
 
     The dedicated Hole feature (BACKLOG P2, slice 1 — the simple bore; slice 2 —
-    the optional coaxial counterbore / countersink recess). Like fillet/shell/draft
+    the optional coaxial counterbore / countersink recess, and the optional
+    COSMETIC thread callout that makes the hole TAPPED). Like fillet/shell/draft
     it modifies the implicit single body chain (design §7.6), so it needs a prior
     body-affecting feature (``no_prior_body`` otherwise). The placement FACE is
     resolved by the SAME stage-1 planar-face signature the ``on_face`` datum /
@@ -1737,9 +1775,19 @@ def _evaluate_hole(
     ``hole_off_body`` (the point is off the face / the direction is wrong — no
     material removed), ``hole_too_deep`` (a blind depth OR a recess depth exceeds
     the available material / overhangs the face edge), ``hole_cbore_invalid`` /
-    ``hole_csink_invalid`` (a recess no wider than the bore), or ``boolean_failed``
-    (a kernel cut failure / lump-count change). The active body is only replaced on
-    success (strict-prefix rule tessellates the last-good body, §4.3).
+    ``hole_csink_invalid`` (a recess no wider than the bore),
+    ``hole_thread_unsupported`` / ``hole_thread_mismatch`` (a thread callout the
+    kernel cannot honour), or ``boolean_failed`` (a kernel cut failure /
+    lump-count change). The active body is only replaced on success (strict-prefix
+    rule tessellates the last-good body, §4.3).
+
+    A ``thread`` callout is COSMETIC (``geometry.kernel.threads``): it adds no
+    geometry — the drilled solid is byte-identical to the same hole untapped — so
+    a tapped hole mirrors/patterns/shells exactly as its bore does. It is
+    validated FIRST, before any geometry runs, because it is pure param
+    arithmetic: an unhonourable designation therefore never produces a body, and
+    never silently degrades to a plain hole carrying a thread callout nobody can
+    cut.
     """
     feature = item.feature
     assert isinstance(feature, HoleFeature), "registry dispatches on type='hole'"
@@ -1754,6 +1802,10 @@ def _evaluate_hole(
                 "precedes this one; add a feature that creates a body first."
             ),
         )
+
+    thread_error = _check_hole_thread(params)
+    if thread_error is not None:
+        return thread_error
 
     plane = _resolve_face_datum_plane(params.face, 0.0, state)
     if isinstance(plane, FeatureError):
