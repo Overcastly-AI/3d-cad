@@ -676,8 +676,15 @@ solved assembly to STEP/STL (shared `ExportRow`) and runs an in-app
 interference check surfaced as a "Clash" inspector view (per-pair overlap
 volumes + "No interferences found" empty state) with clashing instances
 flagged red across the tree + viewport; e2e `assembly-inspect.spec.ts` green
-on the real stack. This closes E2 (both halves). **Assembly STEP import SLICE 1
-(geometry XCAF reader) landed 2026-07-23** (P1 — `POST /api/v1/assembly/import`
+on the real stack. This closes E2 (both halves). **Clash schedule made honest
+2026-07-25**: a pair the kernel could not measure (`ClashPair.unresolved`) now
+reads as a distinct UNVERIFIED state — dashed rule + stamp, a parenthesised
+upper-bound magnitude, "at most" caption, plain-language footnote, measured rows
+sorted first, and the states counted apart in the eyebrow — so a known-unknown
+can never pass as a clean bill of health (the tree badge follows; the viewport
+still tints both). The overlap volume also converts through the shared units core
+(`in³` on an inch assembly), retiring the last mm-only readout on that page.
+**Assembly STEP import SLICE 1 (geometry XCAF reader) landed 2026-07-23** (P1 — `POST /api/v1/assembly/import`
 + `kernel/step_assembly.py`, the mirror of the export composer: `STEPCAFControl_
 Reader` walks the XDE product tree into `StepAssemblyImportResult{has_assembly_
 structure, products[{name, placement, mesh_glb_id, properties}]}`; export↔import

@@ -9,7 +9,6 @@ import {
 
 import type { Vec3 } from "../api/tessellate";
 
-const number = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
 const integer = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
 
 /**
@@ -41,14 +40,6 @@ export function formatCount(value: number): string {
   return integer.format(value);
 }
 
-/** 6000 → "6,000" — a raw grouped quantity (unit rendered separately by the
- * cell). Used where the value is already in its display unit and stays there:
- * today only the interference report, which states an overlap in mm³ by
- * design (a clash volume is a kernel diagnostic, not a modelled dimension). */
-export function formatQuantity(value: number): string {
-  return number.format(value);
-}
-
 /**
  * Part mass-props/bbox readouts honor the document unit (FINDINGS #17): the
  * stored value is always canonical mm/mm²/mm³, so these convert at the display
@@ -62,6 +53,25 @@ export function formatQuantity(value: number): string {
 /** A canonical-mm³ volume → the document unit³, thousands-grouped. */
 export function formatVolume(mm3: number, unit: LengthUnit): string {
   return formatIn(fromMmVolume(mm3, unit), unit);
+}
+
+/**
+ * A clash overlap volume → the document unit³ (FINDINGS burn-down 2026-07-25:
+ * the clash schedule was the LAST mm-only readout on an inch page — an overlap
+ * volume is a volume, and a user who set the document to inches should not have
+ * to know one panel is special).
+ *
+ * A genuine but tiny overlap must never round to a misleading "0" on a pair the
+ * panel FLAGS, so a value that would vanish at the unit's readout precision
+ * (`< 10^-digits`) falls back to scientific notation instead. That floor follows
+ * the unit: 0.005 mm³ reads `5.0e-3`, and the same solid in an inch document
+ * (3.05e-7 in³) reads `3.1e-7` rather than `0`.
+ */
+export function formatOverlapVolume(mm3: number, unit: LengthUnit): string {
+  const value = fromMmVolume(mm3, unit);
+  const floor = 10 ** -fractionDigits(unit);
+  if (value > 0 && value < floor) return value.toExponential(1);
+  return formatVolume(mm3, unit);
 }
 
 /** A canonical-mm² area → the document unit², thousands-grouped. */

@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { formatArea, formatExtents, formatVec3, formatVolume } from "./format";
+import {
+  formatArea,
+  formatExtents,
+  formatOverlapVolume,
+  formatVec3,
+  formatVolume,
+} from "./format";
 
 /**
  * The mass-props / bbox readouts honor the document unit (FINDINGS #17). The
@@ -67,5 +73,33 @@ describe("readout precision is unit-aware", () => {
     expect(formatVec3({ x: 1, y: 0, z: 0 }, "m")).toBe("0.001, 0, 0");
     expect(formatVec3({ x: 1, y: 0, z: 0 }, "cm")).toBe("0.1, 0, 0");
     expect(formatVec3({ x: 1, y: 0, z: 0 }, "ft")).toBe("0.00328, 0, 0");
+  });
+});
+
+/**
+ * A clash overlap is a volume like any other, so it converts at the same
+ * display boundary (the panel was the last mm-only readout on an inch page).
+ * The one extra rule: a flagged pair must never read "0", so a value that would
+ * vanish at the unit's precision falls back to scientific notation.
+ */
+describe("clash overlap volume", () => {
+  it("reads in the document unit, not raw mm3", () => {
+    expect(formatOverlapVolume(31391.38, "mm")).toBe("31,391.38");
+    expect(formatOverlapVolume(31391.38, "in")).toBe("1.9156");
+  });
+
+  it("never rounds a genuine tiny overlap to zero (mm)", () => {
+    expect(formatOverlapVolume(0.005, "mm")).toBe("5.0e-3");
+    expect(formatOverlapVolume(0.01, "mm")).toBe("0.01");
+  });
+
+  it("never rounds a genuine tiny overlap to zero in a coarser unit", () => {
+    // 0.02 mm3 is 1.2e-6 in3 — "0" at the inch readout precision.
+    expect(formatOverlapVolume(0.02, "in")).toBe("1.2e-6");
+    expect(formatOverlapVolume(0.02, "mm")).toBe("0.02");
+  });
+
+  it("leaves an exact zero alone", () => {
+    expect(formatOverlapVolume(0, "in")).toBe("0");
   });
 });

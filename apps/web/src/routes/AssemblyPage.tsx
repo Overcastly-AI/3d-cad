@@ -55,6 +55,7 @@ import {
   buildEvaluateAssemblyRequest,
   uniquePartDocumentIds,
 } from "../assembly/evaluateRequest";
+import { clashInstanceIds } from "../assembly/clash";
 import { buildMate, mateToolLabel } from "../assembly/mates";
 import {
   isParametricMate,
@@ -203,16 +204,16 @@ export function AssemblyPage() {
     })();
   }, [evaluateRequest, clashBusy]);
 
-  // The instances flagged by the last check — badged in the tree and edge-lit
-  // red in the viewport (one clash language across DOM + WebGL).
-  const clashingInstanceIds = useMemo(() => {
-    const set = new Set<string>();
-    for (const clash of clashResult?.clashes ?? []) {
-      set.add(clash.instance_a);
-      set.add(clash.instance_b);
-    }
-    return set;
-  }, [clashResult]);
+  // The instances the last check flagged, split by how much the kernel actually
+  // knows (`assembly/clash`): a MEASURED clash badges red in the tree, a pair
+  // whose exact boolean failed badges a quiet dashed UNVERIFIED instead — the
+  // tree must not claim a measurement the kernel never took. The viewport tints
+  // the UNION (`flagged`): its job is "look here", and an unverified pair needs
+  // a human's eyes just as much; the precise language lives in the DOM.
+  const clashIds = useMemo(
+    () => clashInstanceIds(clashResult?.clashes ?? []),
+    [clashResult],
+  );
 
   // Export the WHOLE solved assembly as one STEP/STL file. Bound to the shared
   // ExportRow (the same strip the part page exports from). Disabled until a
@@ -837,7 +838,7 @@ export function AssemblyPage() {
               selectedInstanceId={selectedInstanceId}
               onSelectInstance={selectInstance}
               overlaysByInstance={overlaysByInstance}
-              clashingInstanceIds={clashingInstanceIds}
+              clashingInstanceIds={clashIds.flagged}
             />
           </Viewport>
           <FloatingPanel side="left" title="Components" id="tree">
@@ -846,7 +847,8 @@ export function AssemblyPage() {
               graphError={graphQuery.error}
               evaluation={evaluation}
               selectedInstanceId={selectedInstanceId}
-              clashingInstanceIds={clashingInstanceIds}
+              clashingInstanceIds={clashIds.measured}
+              unverifiedInstanceIds={clashIds.unverifiedOnly}
               onSelectInstance={selectInstance}
               onToggleGrounded={handleToggleGrounded}
               onDeleteInstance={handleDeleteInstance}

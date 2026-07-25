@@ -144,12 +144,19 @@ frame refactor are v2/§11. Spike de-collected.
       unchanged. Contracts + ts-client regenerated (backward-compatible — the web
       clash panel still renders `overlap_volume_mm3`). [src: AUDIT-ENGINEERING.md
       interference review]
-- [ ] (P3, S) Surface the `unresolved` clash state in the web clash panel
-      (`AssemblyClashPanel.tsx`) — a distinct "unresolved · inspect" row style
-      (not the exact-volume red balloon) for `ClashPair.unresolved=true`, so a
-      masked boolean failure reads as "could not verify — inspect" rather than a
-      measured overlap. Schema + generated API already carry the flag
-      (backward-compatible). [src: interference hardening follow-up 2026-07-23]
+- [x] (P3, S) Surface the `unresolved` clash state in the web clash panel.
+      **Shipped 2026-07-25** — an unmeasurable pair reads as UNVERIFIED (dashed
+      left rule + dashed stamp, gauge ink, magnitude parenthesised as a reference
+      upper bound + "at most" caption) with a plain-language footnote; measured
+      rows sort first and the eyebrow counts the states apart
+      (`Interference · 1 · 1 unverified`), so an unverified-only report can never
+      read as clear. Tree badge follows (UNVERIFIED, not the red CLASH claim);
+      viewport still tints both. SAME commit fixed the audit residual: the clash
+      volume now converts through the shared units core (`in³` on an inch
+      assembly — it was the last mm-only readout on the page). New pure
+      `assembly/clash.ts` + `clash.test.ts` + `AssemblyClashPanel.test.tsx` (dom
+      tier) + e2e `assembly-clash-unverified.spec.ts`.
+      [src: interference hardening follow-up 2026-07-23]
 - [x] (P1, M) Assembly STEP import with product structure. **DONE 2026-07-23
       (slices 1+2a+2b) — assembly interop is now BIDIRECTIONAL; the "assembly is
       a one-way street" is closed.** Read AP214
