@@ -75,18 +75,53 @@ frame refactor are v2/§11. Spike de-collected.
       **29834.8674**, both bores present (12 faces). `xfail` removed for those two
       params; +3 guards in `test_mirror.py`.
       [src: GEOMETRY-QA 2026-07-25 composition matrix]
-- [ ] (P2, M) **A mirror does not duplicate material an intervening ADD
-      contributed** (CM-1's re-scoped residual — no longer silent-wrong-geometry:
-      the void survives). `plate -> hole -> boss -> midplane mirror` = 30309.3807
-      (hole mirrored, boss single) where a modeler expects 30629.3807. Unreachable
-      under v1's "reflect the most recent recorded cut" rule, and the alternatives
-      break a lock (union-then-re-subtract welds an earlier pocket: 30400.0 vs
-      29600.0; reflecting every tracked cut gives 28800.0 there). The honest fix is
-      the incumbent semantic — mirror a SELECTED SET of features (a DTO change:
-      `features: [id, ...]`), which also retires the "a crossing mirror erases an
-      asymmetric modifier" limit. Design doc first. Pinned by
-      `CM1_BOSS_UNMIRRORED` in the composition matrix.
-      [src: CM-1 fix 2026-07-25]
+- [ ] (P2, L) **Mirror v2 — mirror a SELECTED SET of features** (CM-1's
+      re-scoped residual; **design DECIDED 2026-07-29, `docs/design/
+      mirror-semantics.md` — implement after `code-reviewer` endorsement**).
+      v1's mirror INFERS intent from the body chain, and three legitimate intents
+      map onto one tree with three volumes (30629.3807 / 29600.0 / 28800.0), so no
+      implicit rule can be right — the fix is an explicit input, as in
+      SolidWorks/Fusion/Onshape. Acceptance criteria:
+      (1) `MirrorParamsV1` gains `scope`, a `kind`-discriminated union — `body`
+      (v1, **retained verbatim**: absent key normalises via a before-validator, so
+      `param_version` stays 1 and every shipped mirror golden is byte-identical
+      *structurally*, on unchanged code) and `features` (`list[FeatureRef]`,
+      `min_length=1`, duplicates = 422); `FeatureRef` so each selection
+      materialises into `feature_dependencies` (409-with-dependents +
+      strict-backward + body-affecting-target 422 for free).
+      (2) `record_cut_tools` widens to `op`-tagged, **opt-in** per-feature tool
+      recording (only ids a `features` mirror names retain tools — the
+      `body_history`/H4 posture, so trees without one pay nothing); **both v1
+      readers (`_mirror_cut_tools`, `_pattern_cut_tools`) must return the SAME
+      tools after the widening** — the highest-risk hunk — proven by the unchanged
+      goldens + `test_mirror.py`/`test_pattern.py` locks; also close the store's
+      coverage gaps (today only extrude-cut + hole record: add revolve/sweep/loft
+      cut, every additive verb, and `pattern`).
+      (3) Per-kind dispatch: reflect the recorded rigid tool + re-apply that
+      feature's own boolean, in **tree order** (never array order — RESEARCH §9).
+      In scope: additive extrude/revolve/sweep/loft/import, all cuts, all four
+      hole types, `pattern` (reflect PLACEMENTS not params — chirality), nested
+      `features`-scope mirror. Typed refusals (`mirror_feature_unsupported` /
+      `_unreachable` / `_other_body` / `_not_evaluated`): fillet/chamfer/shell/
+      draft + sheet-metal folds (no rigid tool — a reflected delta-sliver is
+      silent-wrong-geometry), `body`-scope nested mirror, cross-body, boolean,
+      non-body-affecting. A reflected cut that removes nothing is now an ERROR,
+      not v1's union fallback (explicit intent buys honesty).
+      (4) Three new goldens: `mirror-features-hole-boss-plate-40x40x20`
+      (**30629.3807**, CURVED_TOL), `mirror-features-pocket-b-only-40x40x20`
+      (**29600.0**, 21 faces, PLANAR_TOL), `mirror-features-both-pockets-40x40x20`
+      (**28800.0**, PLANAR_TOL) — no new epsilon.
+      (5) `CM1_BOSS_UNMIRRORED` is cleared by **giving the case an explicit
+      selection**, not by a silent green: it splits into a selection variant
+      asserting 30629.3807 (marker removed) + an implicit variant asserting
+      30309.3807 as the locked `body`-scope semantic. Read `mirror-semantics.md`
+      §5 before touching the marker.
+      **Correction to this item's earlier text:** v2 does **NOT** retire the
+      "a crossing mirror erases an asymmetric modifier" limit — a modifier cannot
+      be named in a selection (design §4.3/§10.1). Also not solved: symbolic
+      "mirror image of face F" refs, extent-derived tools, sheet-metal/assembly
+      mirror. Web authoring for the scope picker is a separate frontend slice.
+      [src: CM-1 fix 2026-07-25; design 2026-07-29]
 - [x] (P0, S) **CM-2 — a `pattern` of a cut whose replicated tools ALL clear the
       body was a SILENT NO-OP: the exact defect `fa30220` fixed for `mirror`
       only. Fixed 2026-07-25.** The reachability question is now ONE shared

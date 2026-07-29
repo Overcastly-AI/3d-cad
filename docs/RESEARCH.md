@@ -228,6 +228,15 @@ Correctness gates no web app needs, run in CI and by the `geometry-qa` agent:
   docs/GEOMETRY-QA.md 2026-07-10).
 - **Solver determinism:** same sketch + constraints → identical solution
   across runs.
+- **Feature-set determinism:** where a feature names a SET of other features,
+  it applies them in **tree order, never request-array order** — an array order
+  is UI-incidental (which item the user ctrl-clicked first) and honouring it
+  would make identical models tessellate to different bytes. First instance: the
+  v2 `features`-scope mirror (decision + rationale in
+  `docs/design/mirror-semantics.md` §8.1, which also records why the mirror's
+  v1 implicit "mirror the body so far" semantic is retained verbatim rather than
+  re-expressed through the new mechanism — byte-identity of the shipped mirror
+  goldens is structural on the unchanged path, not a hoped-for equality).
 - **Performance budgets:** wall-clock ceilings for reference rebuilds and
   tessellation; regressions fail the gate.
 

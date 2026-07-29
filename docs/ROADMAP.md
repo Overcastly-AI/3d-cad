@@ -49,7 +49,16 @@ measured, both bores present) while the pattern keeps its locked
 immediate-predecessor rule; one P2 residual remains (a mirror still does not
 duplicate an intervening ADD's material — the incumbent "mirror selected features"
 semantic, filed with the proof that no single v1 rule satisfies both it and the
-earlier-pocket lock); **CM-2** a
+earlier-pocket lock). **That residual is now DESIGNED (2026-07-29,
+`docs/design/mirror-semantics.md`, awaiting `code-reviewer`):** the ambiguity is
+in the DTO, not the kernel — three legitimate intents (30629.3807 / 29600.0 /
+28800.0) map onto one tree, so v2 adds an explicit `scope` union (`body`, the v1
+semantic retained verbatim so the goldens stay byte-identical on unchanged code,
+plus `features: [FeatureRef]`, reflecting each selected feature's recorded rigid
+tool with its own boolean in tree order). Modifiers (fillet/chamfer/shell/draft)
+are an explicit TYPED REFUSAL in v2, not an approximation — a reflected
+delta-sliver is silent-wrong-geometry. Implementation filed with acceptance
+criteria in BACKLOG. **CM-2** a
 pattern of a cut whose tools all clear the body is a silent no-op (14400.0 vs
 28800.0 — the defect `fa30220` fixed for mirror only) — **FIXED 2026-07-25**
 (kernel-architect): one shared, topological `removal_reaches_body` predicate now
