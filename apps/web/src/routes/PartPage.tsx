@@ -256,6 +256,12 @@ import {
   type HolePointPick,
   type HolePreview,
 } from "../features/hole";
+import {
+  preselectedEdges,
+  preselectedFace,
+  preselectedFaces,
+  usePreselectStore,
+} from "../features/preselect";
 import { SketchDro } from "../components/SketchDro";
 import { SketchStrip } from "../components/SketchStrip";
 import { SolveDiagnostic } from "../components/SolveDiagnostic";
@@ -273,7 +279,12 @@ import {
   resolveDatumBasis,
   resolveDatumPlaneOptions,
 } from "../sketch/plane";
-import { lastBodyFeatureId, onFaceDatumParams } from "../features/face";
+import {
+  faceSignatureKey,
+  isPickableFace,
+  lastBodyFeatureId,
+  onFaceDatumParams,
+} from "../features/face";
 import { isTypingTarget } from "../lib/isTypingTarget";
 import { executeHistoryStep } from "../lib/historyStep";
 import {
@@ -1460,6 +1471,53 @@ export function PartPage() {
     return owned.length > 0 ? owned : null;
   }, [selectionActive, selectedFeatureId, selectionOverlayQuery.data]);
 
+  // ---------------------------------------------------------------------
+  // Pre-selection highlight (UI-W3). A selection you cannot see is a trap: the
+  // next command would prefill itself from something invisible. So the faces
+  // the cursor has picked STAY lit after the editor that picked them closes —
+  // the same feature-localized brass a tree selection lights, on the same
+  // cached overlay (the pick already fetched it, so this costs no request).
+  // A tree selection wins while one is active: one highlight, one meaning.
+  // ---------------------------------------------------------------------
+  const preselectedFaceSet = usePreselectStore((s) => s.faces);
+  const livePreselectedFaces = useMemo(
+    () => preselectedFaces({ faces: preselectedFaceSet }, bodyFeatureId),
+    [preselectedFaceSet, bodyFeatureId],
+  );
+  const preselectHighlightActive =
+    mode === "off" &&
+    !measureActive &&
+    selectedFeatureId === null &&
+    livePreselectedFaces.length > 0;
+  const preselectOverlayQuery = useQuery({
+    queryKey: ["overlay", partId, treeVersion, meshGlbId],
+    queryFn: () =>
+      fetchOverlay(buildEvaluateTree(tree.data as FeatureTreeResponse)),
+    enabled:
+      preselectHighlightActive && tree.data !== undefined && meshGlbId !== null,
+    staleTime: Infinity,
+    retry: false,
+  });
+  const preselectedFaceIndices = useMemo<number[] | null>(() => {
+    if (!preselectHighlightActive) return null;
+    const faces = preselectOverlayQuery.data?.faces;
+    if (faces === undefined) return null;
+    const keys = new Set(
+      livePreselectedFaces.map((face) => faceSignatureKey(face.signature)),
+    );
+    const lit = faces
+      .filter(
+        (face) =>
+          isPickableFace(face) && keys.has(faceSignatureKey(face.signature)),
+      )
+      .map((face) => face.index);
+    return lit.length > 0 ? lit : null;
+  }, [
+    preselectHighlightActive,
+    livePreselectedFaces,
+    preselectOverlayQuery.data,
+  ]);
+
   /** Latest tree version, refetched if the query has none yet. */
   const freshTreeVersion = useCallback(async (): Promise<number> => {
     if (tree.data !== undefined) return tree.data.tree_version;
@@ -1687,29 +1745,48 @@ export function PartPage() {
   // Fillet/chamfer, like a pattern, act on the current BODY via a geometric
   // edge-selector predicate (no sketch profile) — they only need a solid to
   // exist (canModify), so they mirror openCreatePattern's guard.
+  // Both seed from the edges the cursor already has selected (UI-W3): picking
+  // three edges and then choosing Fillet is how a modeller works, and until
+  // now that selection was thrown away at the door. A seeded editor opens in
+  // "pick" mode — the picks ARE the selector — and an empty one keeps the
+  // all-edges rule default.
   const openCreateFillet = useCallback(() => {
+    const picked = preselectedEdges(
+      usePreselectStore.getState(),
+      bodyFeatureId,
+    );
     useMeasureStore.getState().deactivate();
     setEditorError(null);
     setSelectedFeatureId(null);
     setEditor({
       kind: "fillet",
       mode: "create",
-      initial: defaultFilletForm(),
-      initialPicked: [],
+      initial: {
+        ...defaultFilletForm(),
+        ...(picked.length > 0 ? { mode: "pick" as const } : {}),
+      },
+      initialPicked: [...picked],
     });
-  }, []);
+  }, [bodyFeatureId]);
 
   const openCreateChamfer = useCallback(() => {
+    const picked = preselectedEdges(
+      usePreselectStore.getState(),
+      bodyFeatureId,
+    );
     useMeasureStore.getState().deactivate();
     setEditorError(null);
     setSelectedFeatureId(null);
     setEditor({
       kind: "chamfer",
       mode: "create",
-      initial: defaultChamferForm(),
-      initialPicked: [],
+      initial: {
+        ...defaultChamferForm(),
+        ...(picked.length > 0 ? { mode: "pick" as const } : {}),
+      },
+      initialPicked: [...picked],
     });
-  }, []);
+  }, [bodyFeatureId]);
 
   // A shell, like fillet/chamfer/pattern, hollows the current BODY (no sketch
   // profile) — it only needs a solid to exist (canModify), so it mirrors their
@@ -1722,9 +1799,14 @@ export function PartPage() {
       kind: "shell",
       mode: "create",
       initial: defaultShellForm(),
-      initialPickedFaces: [],
+      // The faces the cursor already has selected are the faces to leave open
+      // (UI-W3) — an empty selection still means a sealed hollow.
+      initialPickedFaces: preselectedFaces(
+        usePreselectStore.getState(),
+        bodyFeatureId,
+      ).map((face) => face.signature),
     });
-  }, []);
+  }, [bodyFeatureId]);
 
   // A draft, like shell, tapers the current BODY's picked faces (no sketch
   // profile) — it only needs a solid to exist (canModify), so it mirrors the
@@ -1738,19 +1820,34 @@ export function PartPage() {
       kind: "draft",
       mode: "create",
       initial: defaultDraftForm(),
-      initialPickedFaces: [],
+      // Seeded from the cursor selection (UI-W3); Apply stays gated until at
+      // least one face is chosen either way.
+      initialPickedFaces: preselectedFaces(
+        usePreselectStore.getState(),
+        bodyFeatureId,
+      ).map((face) => face.signature),
     });
-  }, []);
+  }, [bodyFeatureId]);
 
   // A hole, like fillet/shell/draft, modifies the current BODY (no sketch
   // profile) — it only needs a solid to exist (canModify), so it mirrors their
-  // guard. It opens with no face/point chosen; the pick session authors both.
+  // guard.
+  //
+  // UI-W3, and the reason this item exists: the hole opens PLACED on whatever
+  // face the cursor already had selected (drill point seeded to its centre), so
+  // the anchor block reads as confirmation and the modeller types a diameter
+  // and hits Enter. With nothing selected the face pick is ARMED on open, so
+  // clicking a face just takes it — no arming step, which is the other half of
+  // the "must select the same face twice" complaint.
   const openCreateHole = useCallback(() => {
+    const seed = preselectedFace(usePreselectStore.getState(), bodyFeatureId);
     useMeasureStore.getState().deactivate();
     setEditorError(null);
     setSelectedFeatureId(null);
-    setEditor({ kind: "hole", mode: "create", initial: defaultHoleForm() });
-  }, []);
+    setEditor({ kind: "hole", mode: "create", initial: defaultHoleForm(seed) });
+    setHolePickError(null);
+    setHolePick(seed === null ? "face" : null);
+  }, [bodyFeatureId]);
 
   // A mirror, like pattern/fillet/shell, reflects the current BODY about a
   // plane (no sketch profile) — it only needs a solid to exist (canModify), so
@@ -1765,11 +1862,18 @@ export function PartPage() {
   // A datum plane needs no sketch/body — it's a construction plane parallel to
   // an origin datum. Available as soon as the tree exists (its own feature row).
   const openCreateDatum = useCallback(() => {
+    const seed = preselectedFace(usePreselectStore.getState(), bodyFeatureId);
     useMeasureStore.getState().deactivate();
     setEditorError(null);
     setSelectedFeatureId(null);
-    setEditor({ kind: "datum", mode: "create", initial: defaultDatumForm() });
-  }, []);
+    // A selected face means "a plane on THIS" (UI-W3) — the datum opens as an
+    // on_face datum sitting on it, instead of the generic 30 mm-above-XY form.
+    setEditor({
+      kind: "datum",
+      mode: "create",
+      initial: defaultDatumForm(seed),
+    });
+  }, [bodyFeatureId]);
 
   // A base flange thickens a sketch profile to gauge — the sheet-metal part's
   // first body (sheet-metal.md §4.1). Like extrude it needs a solved sketch to
@@ -1798,9 +1902,13 @@ export function PartPage() {
       kind: "edgeFlange",
       mode: "create",
       initial: defaultEdgeFlangeForm(),
-      initialPicked: [],
+      // ONE edge folds a flange, so a multi-edge selection seeds its most
+      // recent member rather than an arbitrary one (UI-W3).
+      initialPicked: [
+        ...preselectedEdges(usePreselectStore.getState(), bodyFeatureId, 1),
+      ],
     });
-  }, []);
+  }, [bodyFeatureId]);
 
   // A closed hem folds ONE picked straight edge 180° back onto the sheet
   // (parity §2). It picks like an edge flange (single-select), so it only needs
@@ -1813,9 +1921,11 @@ export function PartPage() {
       kind: "hem",
       mode: "create",
       initial: defaultHemForm(),
-      initialPicked: [],
+      initialPicked: [
+        ...preselectedEdges(usePreselectStore.getState(), bodyFeatureId, 1),
+      ],
     });
-  }, []);
+  }, [bodyFeatureId]);
 
   // A corner relief notches the shared corner of two edge flanges (parity §4.4).
   // It references two edge-flange FEATURES (not an edge pick), so it seeds the
@@ -2183,6 +2293,33 @@ export function PartPage() {
   }, [editor]);
   // Leaving the workspace tears the face-pick session down.
   useEffect(() => () => useFacePickStore.getState().close(), []);
+
+  // ---------------------------------------------------------------------
+  // Pre-selection mirror (UI-W3). The in-canvas overlays write their picks to
+  // the edge/face pick stores, which are SESSION state — closing the editor
+  // wipes them. These two effects copy the live picks out to the pre-selection
+  // while a session is open, so the selection survives the command that made
+  // it and the next command opens seeded. Guarded on `active`, so the store's
+  // own teardown (`close()` → picked: []) never erases what it just published.
+  // ---------------------------------------------------------------------
+  const shellPickedFaces = useFacePickStore((s) => s.picked);
+  const shellSessionOpen = useFacePickStore((s) => s.active);
+  useEffect(() => {
+    if (!shellSessionOpen || bodyFeatureId === null) return;
+    usePreselectStore.getState().rememberFaces(
+      shellPickedFaces.map((signature) => ({
+        signature,
+        anchorId: bodyFeatureId,
+      })),
+    );
+  }, [shellSessionOpen, shellPickedFaces, bodyFeatureId]);
+
+  const edgePickedEdges = useEdgePickStore((s) => s.picked);
+  const edgeSessionOpen = useEdgePickStore((s) => s.active);
+  useEffect(() => {
+    if (!edgeSessionOpen) return;
+    usePreselectStore.getState().rememberEdges(edgePickedEdges, bodyFeatureId);
+  }, [edgeSessionOpen, edgePickedEdges, bodyFeatureId]);
 
   // The shared save path for either body-affecting feature: read the freshest
   // tree_version, retry once on a stale-version race, then invalidate the tree
@@ -2817,7 +2954,10 @@ export function PartPage() {
   // the signature (origin + deterministic x-axis), matching the kernel's
   // `resolve_sketch_plane` exactly, so the ink lands on the rendered face.
   const authorFacePlane = useCallback(
-    (face: OverlayFace & { signature: PlanarFaceSignature }) => {
+    (
+      face: { signature: PlanarFaceSignature; index?: number },
+      options: { remember?: boolean } = {},
+    ) => {
       const featureList = tree.data?.features ?? [];
       const anchorId = lastBodyFeatureId(featureList);
       if (anchorId === null) {
@@ -2827,10 +2967,15 @@ export function PartPage() {
         return;
       }
       const { signature } = face;
+      // A face clicked in the viewport is remembered for the next command
+      // (UI-W3); a face that CAME from the pre-selection is not re-remembered.
+      if (options.remember !== false) {
+        usePreselectStore.getState().rememberFaces([{ signature, anchorId }]);
+      }
       const nextIndex =
         featureList.filter((f) => f.feature.type === "datum").length + 1;
       setFacePlaneBusy(true);
-      setPendingFaceIndex(face.index);
+      setPendingFaceIndex(face.index ?? null);
       setFacePlaneError(null);
       void (async () => {
         try {
@@ -2878,6 +3023,22 @@ export function PartPage() {
     setFacePicking((armed) => !armed);
   }, []);
 
+  /**
+   * New sketch — ON the pre-selected face when there is one (UI-W3).
+   *
+   * Selecting a face and asking for a sketch is an unambiguous instruction, and
+   * making the user re-pick the face they just picked is exactly the friction
+   * the founder reported. With nothing selected this is the plane picker as
+   * before; the picker is the fallback, not the toll booth.
+   */
+  const startSketch = useCallback(() => {
+    const seed = preselectedFace(usePreselectStore.getState(), bodyFeatureId);
+    handleNewSketch();
+    if (seed !== null) {
+      authorFacePlane({ signature: seed.signature }, { remember: false });
+    }
+  }, [bodyFeatureId, handleNewSketch, authorFacePlane]);
+
   // Datum-editor face picking. Arming a slot highlights the body's planar faces
   // in the viewport (the shared FacePickOverlay); a click resolves to a
   // full-precision signature the editor folds into that slot. The anchor is the
@@ -2914,6 +3075,10 @@ export function PartPage() {
         slot,
         face: { signature: face.signature, anchorId },
       });
+      // Remembered for the next command (UI-W3).
+      usePreselectStore
+        .getState()
+        .rememberFaces([{ signature: face.signature, anchorId }]);
       setDatumFacePick(null);
     },
     [datumFacePick, tree.data],
@@ -2980,6 +3145,11 @@ export function PartPage() {
         nonce: holePickNonce.current,
         face: { signature: face.signature, anchorId },
       });
+      // The pick outlives this editor (UI-W3): cancel the hole and invoke
+      // Datum, or Sketch, and the face is already chosen.
+      usePreselectStore
+        .getState()
+        .rememberFaces([{ signature: face.signature, anchorId }]);
       // A face chosen → disarm (the editor seeds the point to the centre); the
       // user arms the POINT pick next to refine the placement.
       setHolePick(null);
@@ -3400,7 +3570,7 @@ export function PartPage() {
             key: "new-sketch",
             label: "New sketch",
             icon: <SketchIcon />,
-            onSelect: handleNewSketch,
+            onSelect: startSketch,
             "data-testid": "ctx-new-sketch",
           },
           {
@@ -3538,7 +3708,7 @@ export function PartPage() {
               }
               onUndo={triggerUndo}
               onRedo={triggerRedo}
-              onNewSketch={handleNewSketch}
+              onNewSketch={startSketch}
               canImportStep={bodyFeatureId === null}
               importingStep={importing}
               onImportStep={handleImportStep}
@@ -3615,9 +3785,11 @@ export function PartPage() {
               mode === "off" && editor === null && !measureActive
             }
             bodySelected={
-              mode === "off" && selectedFeatureId !== null && !measureActive
+              mode === "off" &&
+              !measureActive &&
+              (selectedFeatureId !== null || preselectedFaceIndices !== null)
             }
-            bodySelectedFaces={selectedFaceIndices}
+            bodySelectedFaces={selectedFaceIndices ?? preselectedFaceIndices}
             hud={
               <>
                 <SketchDro solving={syncPending || evaluation.isFetching} />
@@ -4106,12 +4278,24 @@ export function PartPage() {
             </div>
           </FloatingPanel>
           {showInspector ? (
-            <FloatingPanel side="right" title="Inspector" id="inspector">
-              <BodyInspector
-                properties={bodyProperties}
-                build={build}
-                partId={partId}
-              />
+            // The EXPORT strip is PINNED under the panel, not trailing the
+            // scrolling readouts: the panel's height is clamped (it clears the
+            // reference cube), so whatever sits last in the column is whatever
+            // goes under the fold — and on a 1366x768 frame that was the strip
+            // plus the sentence warning that the file will be marked *partial*
+            // (UI-REVIEW 2026-07-30 P1, a regression of the 48px timeline).
+            // Mass properties scroll; the actions never move.
+            <FloatingPanel
+              side="right"
+              title="Inspector"
+              id="inspector"
+              footer={
+                <Panel className="border-t-0">
+                  <PartExportControls partId={partId} build={build} />
+                </Panel>
+              }
+            >
+              <BodyInspector properties={bodyProperties} build={build} />
             </FloatingPanel>
           ) : showExportOnly ? (
             // No body yet (a sketch-only or rolled-back tree), but the part is

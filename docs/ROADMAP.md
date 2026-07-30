@@ -8,10 +8,15 @@ professional and comparable to Fusion 360 and Plasticity." Design plan in
 travel stop) SHIPPED 2026-07-30** (frontend-builder) — the 1px `ROLLBACK` rule
 inside the tree panel is gone; the build now travels a docked machine way with a
 brass travel stop you drag or arrow-key, chips carrying the real verb glyph, and
-a dashed way past the stop. Still queued: UI-W2 (categorical visibility/opacity/
-isolate — Origin / Sketches / Bodies), UI-W3 (pre-selection prefills editors),
-UI-W4 (editors stop being 12-row mid-frame forms), UI-W5 (entity snapping, Ctrl
-to suppress), and a settings surface.
+a dashed way past the stop. **UI-W3 + UI-W4 (pre-selection prefills editors;
+references pinned, parameters scrolling) SHIPPED 2026-07-30** (frontend-builder)
+— the founder's "placement face looks like a text box? Shouldn't it know based on
+the face I select with the cursor?" is answered: a pick made anywhere outlives
+the command that made it and seeds the next one, the hole opens with its face
+pick already armed, and the hole editor's references sit in a pinned anchor block
+on the right rail while the parameters scroll under them. Still queued: UI-W2
+(categorical visibility/opacity/isolate — Origin / Sketches / Bodies), UI-W5
+(entity snapping, Ctrl to suppress), and a settings surface.
 **#57 material/density — the KERNEL + WIRE half SHIPPED 2026-07-30**
 (kernel-architect; design `docs/design/materials.md`, decision record RESEARCH
 §9a). MASS PROPERTIES could not report mass because nothing in the codebase had
@@ -1424,6 +1429,59 @@ flexible sub-assemblies, part-version pinning-as-default.
       native stack. Founder before/after: `timeline-{before,after}-{1440,1366}
       .png` (same part, same rolled-back state), plus `timeline-{tip,rolled-back}
       -{1440,1366}.png` and `p1-timeline-after-{1440,1280}.png`.
+      **UI-W3 + UI-W4 — PRE-SELECTION AND THE PINNED ANCHOR BLOCK ✅ 2026-07-30
+      (frontend-builder; founder-directed "placement face looks like a text box?
+      Shouldn't it know based on the face I select with the cursor? I feel like
+      the front end is not fully hashed out", design `ui-wave-tool-grade.md`
+      Surface 3):** every pick session in the app was born and died inside one
+      editor — you clicked a face, the editor closed, the pick was gone, and the
+      next command opened empty and asked you to ARM a pick mode and click the
+      SAME face again. Now `features/preselect.ts` remembers what the cursor
+      chose and every face/edge-consuming command seeds from it: hole (opens
+      PLACED, drill point on the face centre), datum (opens as an `on_face`
+      datum on it), sketch (seats straight on it — no plane picker), shell/draft
+      (the picked faces are the open set), fillet/chamfer (the picked edges,
+      opening in `pick` mode), edge-flange/hem (the most recent edge). A pick
+      belongs to the BODY it was taken from — each entry carries its anchor
+      feature and reads as empty once that is no longer the tip — so a stale
+      signature can never prefill a reference that will not resolve. The
+      selection is VISIBLE with no editor open (the picked faces stay lit through
+      the same feature-localized brass a tree selection uses, on the same cached
+      overlay). Arming is now the way to CHANGE a reference: invoking Hole with
+      nothing selected ARMS the face pick, so a click just takes it. UI-W4: the
+      hole editor was 12 stacked rows parked mid-frame with a scrolling body that
+      hid the placement face while showing C'sink angle. Its references now live
+      in a PINNED anchor block (`EditorCard.header`, brass scribe rule, re-pick
+      per row), Ø is the primary handle (`NumberField emphasis="primary"`), the
+      thread block is progressively disclosed (new `Disclosure` primitive,
+      reporting its callout on the summary so a shut block hides no state), and
+      the card docks to the RIGHT rail — one seat, no left/right hop, the
+      viewport keeps its centre, and the card clears the reference cube. Gates:
+      web unit 1087 + design 54, eslint/prettier/tsc clean, e2e `preselection
+      .spec.ts` (3 + 2 shot cases) + hole (18) + body-status + feature-selection
+      + repick-face + datum-face-pick + shell + draft + fillet-edge-pick +
+      fillet-chamfer + sketch-on-face + timeline + measure + full-flow +
+      p1-token-scale green on a live native stack. Founder before/after:
+      `uiw34-hole-{before,after}-{1440,1366}.png`.
+      **UI-REVIEW 2026-07-30 P1/P2/P3 folded in (same commit):** the EXPORT strip
+      had gone under the fold at 1366x768 again (the 48px timeline shrank the
+      frame; 19.5 of 98.5 px visible, the *partial* warning 100% hidden) — fixed
+      at the LAYOUT, not the copy: `FloatingPanel.footer` pins it while the mass
+      properties scroll, guarded by a measured spec that reports `clipped by …`
+      when the strip is put back in the scroll column. Timeline chip borders
+      `hairline`→`etch` (1.54:1 → 3.06:1, so the dashed rolled-back cue is real
+      and the file's redundancy claim is now true); the in-flight rollback's three
+      silent gates fixed (the stop drops its grab cursor, the drop slots use
+      `aria-disabled` instead of the re-introduced native attribute, TO TIP says
+      "Moving the stop…"); `BandActionCell`'s gated reason came off `opacity-40`
+      (2.13:1) and off the last arbitrary `text-[9px]`; chip names get a `title`;
+      Escape aborts a stop drag; `exportGate` says "Rolled back" instead of "No
+      body" when the travel stop is the cause. Found while verifying: a GATED
+      `PanelActionCell` keeps pointer events on purpose, so an editor card
+      overlapping the model made the edge under it UNPICKABLE — the cube's top
+      edge at (10, 0, 20) could not be clicked behind the greyed Apply cell
+      (reproduced at HEAD without this change). Fillet/chamfer now take the right
+      rail while edge picking is armed.
       **"Is broken" — BACKEND SHIPPED 2026-07-30 (backend-builder):** the one
       column the 2026-07-30 UI review said was worth adding to that register now
       has a wire. Migration `0012` adds three nullable `parts.last_eval_*`

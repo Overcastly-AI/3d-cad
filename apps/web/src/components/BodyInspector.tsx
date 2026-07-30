@@ -17,20 +17,19 @@ import {
   formatVolume,
 } from "../lib/format";
 import { useDocumentLengthUnit } from "../units/documentUnit";
-import { PartExportControls } from "./PartExportControls";
 
 export interface BodyInspectorProps {
   /** Mass properties of the last-good body, or null when there is none. */
   properties: ShapeProperties | null;
   /**
-   * What the workspace knows about the body on screen. The STATUS cell and the
-   * EXPORT strip below it are DERIVED from this one object — the same object the
-   * feature tree's SOLVE cell reads — so the three cannot disagree the way they
-   * did when each computed its own answer (AUDIT-ENGINEERING J2).
+   * What the workspace knows about the body on screen. The STATUS cell here and
+   * the EXPORT strip pinned under this panel are DERIVED from this one object —
+   * the same object the feature tree's SOLVE cell reads — so the three cannot
+   * disagree the way they did when each computed its own answer
+   * (AUDIT-ENGINEERING J2). The strip is a sibling rather than a child so the
+   * panel can pin it: see `FloatingPanel.footer`.
    */
   build: PartBuild;
-  /** The part this body belongs to — issued by the EXPORT strip. */
-  partId: string;
 }
 
 /**
@@ -39,11 +38,7 @@ export interface BodyInspectorProps {
  * topology). Reuses the design primitives + readout formatters; it renders
  * the numbers the geometry service computed, never its own.
  */
-export function BodyInspector({
-  properties,
-  build,
-  partId,
-}: BodyInspectorProps) {
+export function BodyInspector({ properties, build }: BodyInspectorProps) {
   const props = properties;
   const em = "—";
   const readout = bodyStatusReadout(build);
@@ -123,9 +118,11 @@ export function BodyInspector({
             built to, and whether the tree has moved since.
 
             The qualifier shares the value's LINE (a title block's `Ø10.000
-            ±0.05`, not a paragraph): the panel is already at its height clamp on
-            a 768px-tall screen, and a second line pushes the EXPORT strip — the
-            control that matters most on a broken part — under the fold. */}
+            ±0.05`, not a paragraph) because that is how a title block reads —
+            NOT, any more, to buy vertical space: the export strip is now pinned
+            by the panel (`FloatingPanel.footer`) instead of trailing this
+            column, so nothing here can push it under the fold. Trimming copy to
+            protect the strip failed twice; the layout protects it now. */}
         <div
           className="border-t border-hairline px-3 py-2"
           data-testid="body-titleblock-footer"
@@ -154,10 +151,6 @@ export function BodyInspector({
             ) : null}
           </span>
         </div>
-
-        {/* Issue the modeled body as a file — the export strip of the title
-            block, gated on the SAME facts the Status cell reports. */}
-        <PartExportControls partId={partId} build={build} />
       </Panel>
     </aside>
   );

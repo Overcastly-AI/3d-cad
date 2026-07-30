@@ -200,6 +200,28 @@ describe("the export gate", () => {
     expect(gate.notice).toContain("partial");
   });
 
+  it("blames the TRAVEL STOP, not a missing body, when the stop is the cause", () => {
+    // UI-REVIEW P3: rolling the stop behind the first body-making feature left
+    // the cell saying "No body" — true of a sketch-only part, misleading here,
+    // where the user has a body and has parked a control in front of it.
+    const behindTheBody = makeBuild({
+      tree: makeTree(["Sketch1", "Extrude1"], {
+        treeVersion: 5,
+        rollbackFeatureId: "f1",
+      }),
+      part: makePart(5),
+      evaluation: makeEvaluation(["ok"], {
+        treeVersion: 5,
+        meshGlbId: null,
+        properties: null,
+      }),
+    });
+    const gate = exportGate(behindTheBody);
+    expect(gate.state).toBe("no-body");
+    expect(gate.blockedReason).toBe("Rolled back");
+    expect(gate.notice).toContain("travel stop");
+  });
+
   it("keeps the two honest states it already had", () => {
     expect(exportGate(cleanCube())).toEqual({
       state: "ready",

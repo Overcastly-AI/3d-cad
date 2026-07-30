@@ -302,4 +302,83 @@ test.describe("body status honesty — 1366x768", () => {
       .soft(overflow.scrollHeight)
       .toBeLessThanOrEqual(overflow.clientHeight);
   });
+
+  test("the EXPORT strip is fully on-frame in every state — it is pinned, not last", async ({
+    page,
+  }) => {
+    /**
+     * The fold this keeps shut (UI-REVIEW 2026-07-30 P1, its SECOND regression):
+     * the inspector's height is clamped so it clears the reference cube, and
+     * whatever sat last in its scrolling column was whatever fell off the
+     * bottom. At 1366x768 with the travel stop moved, 19.5 of the strip's 98.5
+     * px were visible and the sentence warning that the file will be marked
+     * PARTIAL was 100% hidden — the user was told something by a line they
+     * could not see. Copy was trimmed twice to buy the space back; the strip is
+     * now PINNED by `FloatingPanel.footer` instead, so the readouts scroll and
+     * the actions cannot move.
+     *
+     * Measured on the real stack, in the two states QA found clipped.
+     */
+    /**
+     * VISIBLE, not merely laid out. The strip was clipped by the PANEL's own
+     * scroll box, not by the window, so a viewport-bounds check passes on the
+     * broken layout — the probe has to be "is this pixel reachable", i.e. the
+     * element's centre hit-tests to itself (the `p1-token-scale` reachability
+     * idiom) AND its box lies inside its scroll container's client box.
+     */
+    const onFrame = async (testId: string) =>
+      page.evaluate((id) => {
+        const el = document.querySelector(`[data-testid="${id}"]`);
+        if (el === null) return "missing";
+        const r = el.getBoundingClientRect();
+        if (r.width === 0 || r.height === 0) return "collapsed";
+        if (r.bottom > window.innerHeight || r.top < 0) return "off-window";
+        let node = el.parentElement;
+        while (node !== null) {
+          const style = getComputedStyle(node);
+          if (/(auto|scroll)/.test(style.overflowY)) {
+            const box = node.getBoundingClientRect();
+            if (r.bottom > box.bottom + 0.5 || r.top < box.top - 0.5) {
+              return `clipped by ${node.className.slice(0, 24)}`;
+            }
+            break;
+          }
+          node = node.parentElement;
+        }
+        const hit = document.elementFromPoint(
+          r.left + r.width / 2,
+          r.top + r.height / 2,
+        );
+        return hit !== null && (el.contains(hit) || hit.contains(el))
+          ? "visible"
+          : "covered";
+      }, testId);
+
+    const partId = await seedSoundPart(page);
+    await openPart(page, partId, 3);
+    await expect(page.getByTestId("body-status")).toHaveText("Up to date", {
+      timeout: 30_000,
+    });
+    expect(await onFrame("part-export-controls")).toBe("visible");
+
+    // Travel-stop state: the strip grows a notice AND the status cell's
+    // qualifier wraps — the exact combination that clipped it.
+    await page.getByTestId("rollback-slot-1").click();
+    await expect(page.getByTestId("timeline-strip")).not.toHaveAttribute(
+      "data-busy",
+      "true",
+      { timeout: 30_000 },
+    );
+    await expect(page.getByTestId("part-export-status")).toHaveText("Partial");
+    expect(await onFrame("part-export-controls")).toBe("visible");
+    expect(await onFrame("part-export-notice")).toBe("visible");
+
+    // Feature-error state: the third clipped case (21.5 px, measured).
+    const broken = await seedBrokenPart(page);
+    await openPart(page, broken, 4);
+    await expect(page.getByTestId("eval-status")).toHaveText("Failed", {
+      timeout: 30_000,
+    });
+    expect(await onFrame("part-export-controls")).toBe("visible");
+  });
 });

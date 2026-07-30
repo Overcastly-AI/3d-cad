@@ -18,12 +18,19 @@
  *  · way line SOLID through travelled ops, DASHED past the stop, with the seam
  *    exactly under the stop (dashed = "not present" is drafting convention and
  *    already this product's language in the drawings' hidden-line render);
- *  · chips past the stop take a dashed outline AND dim, so the cue is redundant
- *    and never load-bearing alone;
+ *  · chips past the stop take a dashed outline AND dim. For the dash to be a
+ *    real second cue it has to be VISIBLE: the chip border is `etch` (3.06:1 on
+ *    its carbide seat), not `hairline` — measured at 1.54:1, which is below the
+ *    non-text floor and made this file's redundancy claim false while it made
+ *    it (UI-REVIEW 2026-07-30 P2-A). The way's own dash already used `etch`;
+ *    the chip now matches it;
  *  · the travel stop is the ONLY brass in the strip — it is the one position
- *    indicator, so it gets the accent and nothing else does (which is why a
- *    SELECTED chip is marked by the strip's brightest EDGE plus a lifted seat,
- *    not by the brass the tree row uses);
+ *    indicator, so it gets the accent and nothing else does. A SELECTED chip is
+ *    therefore marked by the strip's brightest EDGE (`mist`, 4.31:1 against the
+ *    `etch` its neighbours wear). The seat also lifts to `hairline`, but that
+ *    step is 1.41:1 and is a NUANCE, not a cue — the border carries the state
+ *    on its own, and this comment used to claim a redundancy it did not have
+ *    (P2-B);
  *  · an errored feature takes `flag`, a suppressed one the tree's own struck-
  *    through treatment — same vocabulary, new axis;
  *  · every slot on the way is clickable (it keeps the `rollback-slot-N` hooks),
@@ -185,13 +192,25 @@ export function TimelineStrip({
         setPending(null);
       }
     };
+    // Escape ABORTS the drag — the stop snaps back to where the build actually
+    // is and nothing is written. A scrub gesture that can only be committed is
+    // a gesture you cannot explore with (UI-REVIEW P3).
+    const abort = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setDragging(false);
+      dragAnchors.current = null;
+      setPending(null);
+    };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", end);
     window.addEventListener("pointercancel", end);
+    window.addEventListener("keydown", abort);
     return () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", end);
       window.removeEventListener("pointercancel", end);
+      window.removeEventListener("keydown", abort);
     };
   }, [dragging, committedSlot, features, onMoveRollback, setPending]);
 
@@ -236,8 +255,12 @@ export function TimelineStrip({
     (evaluation?.features ?? []).map((f) => [f.feature_id, f]),
   );
 
-  const toTipCaption =
-    tree === undefined
+  // The caption is the cell's REASON while it is gated, so it has to name the
+  // gate that is actually holding — an in-flight move said "Include all", which
+  // describes what the cell would do if you could press it (UI-REVIEW P2-D).
+  const toTipCaption = busy
+    ? "Moving the stop…"
+    : tree === undefined
       ? "Loading the tree"
       : count === 0
         ? "Nothing built yet"
@@ -311,6 +334,9 @@ export function TimelineStrip({
                   aria-label={`${name} — ${featureTypeLabel(
                     feature.feature.type,
                   )}, step ${index + 1} of ${count}${state}`}
+                  // Chip names truncate at 7.5rem; the pointer gets the full
+                  // one back (the screen reader already had it, above).
+                  title={name}
                   onClick={() => onSelectFeature(feature)}
                   onContextMenu={
                     onChipContextMenu
@@ -334,7 +360,10 @@ export function TimelineStrip({
                       ? "border-flag"
                       : selected
                         ? "border-mist"
-                        : "border-hairline hover:border-etch",
+                        : // Three distinct steps so hover can never be mistaken
+                          // for selection: etch (rest) < gauge (hover) < mist
+                          // (selected).
+                          "border-etch hover:border-gauge",
                   )}
                 >
                   <VerbGlyph
@@ -374,22 +403,37 @@ export function TimelineStrip({
                 >
                   <span aria-hidden className={halfWay(index <= slot)} />
                   <span aria-hidden className={halfWay(index < slot)} />
+                  {/* A drop slot is gated by `aria-disabled`, never the native
+                      attribute: a natively-disabled control leaves the a11y
+                      tree and stops hovering, so "why can't I move the stop?"
+                      has nowhere to appear — the exact trap removed from
+                      `PanelActionCell` on 2026-07-30 and re-introduced here
+                      (UI-REVIEW P2-D). It is inert on activation instead. */}
                   <button
                     type="button"
-                    disabled={busy || active}
+                    aria-disabled={busy || active || undefined}
                     data-testid={`rollback-slot-${index}`}
                     data-active={active || undefined}
                     aria-label={
-                      index >= count - 1
-                        ? "Roll forward to the tip (include all features)"
-                        : `Roll back to after ${name}`
+                      busy
+                        ? "Moving the travel stop — one move at a time"
+                        : index >= count - 1
+                          ? "Roll forward to the tip (include all features)"
+                          : `Roll back to after ${name}`
                     }
-                    onClick={() => travel(index)}
+                    onClick={() => {
+                      if (busy || active) return;
+                      travel(index);
+                    }}
                     className={cx(
                       "absolute inset-0 rounded-none",
                       "motion-safe:transition-colors motion-safe:duration-fast",
                       "focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass",
-                      "enabled:hover:bg-brass/10 disabled:cursor-default",
+                      busy
+                        ? "cursor-progress"
+                        : active
+                          ? "cursor-default"
+                          : "hover:bg-brass/10",
                     )}
                   />
                   {active ? (
@@ -412,15 +456,26 @@ export function TimelineStrip({
                       data-dragging={dragging || undefined}
                       onPointerDown={startDrag}
                       onKeyDown={onStopKeyDown}
+                      title={busy ? "Moving the travel stop…" : undefined}
                       className={cx(
                         "absolute inset-y-0 left-1/2 z-10 w-6 -translate-x-1/2",
-                        "cursor-ew-resize touch-none text-brass",
+                        "touch-none text-brass",
                         "motion-safe:transition-colors motion-safe:duration-fast",
-                        "hover:text-brass-hover",
+                        // A gated stop must LOOK gated: while the move is in
+                        // flight it keeps `aria-disabled` AND drops the grab
+                        // cursor and the hover response, instead of inviting a
+                        // drag it will silently swallow (UI-REVIEW P2-D).
+                        busy
+                          ? "cursor-progress opacity-60"
+                          : "cursor-ew-resize hover:text-brass-hover",
                         // The focus ring is MIST, not the house brass: the
                         // focused control is itself brass, and a brass ring on
                         // a brass blade is not a visible indicator (WCAG 2.4.7).
-                        "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-mist",
+                        // Drawn INSIDE the blade (`-outline-offset-2`): an
+                        // outset ring is clipped by the way's own scroll box
+                        // and by the frame edge, which rendered it as two loose
+                        // vertical bars (UI-REVIEW P3).
+                        "focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-mist",
                       )}
                     >
                       {/* The stop itself: a blade spanning both rails, wedged

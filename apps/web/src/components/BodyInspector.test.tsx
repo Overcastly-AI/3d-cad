@@ -23,6 +23,7 @@ import {
 } from "../test/partBuildFixture";
 import { DocumentUnitProvider } from "../units/documentUnit";
 import { BodyInspector } from "./BodyInspector";
+import { PartExportControls } from "./PartExportControls";
 import type { LengthUnit } from "@loft/design";
 
 /** The same 25.4 × 50.8 × 76.2 mm solid the assembly panel test uses. */
@@ -37,6 +38,13 @@ const PROPERTIES: ShapeProperties = {
   topology: { faces: 6, edges: 12, shells: 1 },
 };
 
+/**
+ * The panel AS THE WORKSPACE COMPOSES IT: the readouts and the export strip are
+ * siblings fed by ONE `PartBuild` (the strip is pinned by `FloatingPanel.footer`
+ * so a clamped panel can never push it under the fold — UI-REVIEW P1). The
+ * honesty this file exists to pin is that the two agree, which is exactly what
+ * asserting across the composed pair proves.
+ */
 function renderInspector(
   unit: LengthUnit,
   properties: ShapeProperties | null = PROPERTIES,
@@ -44,7 +52,8 @@ function renderInspector(
 ) {
   return render(
     <DocumentUnitProvider unit={unit}>
-      <BodyInspector properties={properties} build={build} partId="p1" />
+      <BodyInspector properties={properties} build={build} />
+      <PartExportControls partId="p1" build={build} />
     </DocumentUnitProvider>,
   );
 }

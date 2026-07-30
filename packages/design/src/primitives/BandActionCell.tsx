@@ -12,6 +12,14 @@
  * place for the reason). It is inert on activation: clicks — and so Enter/Space,
  * which dispatch one — are swallowed. Playwright's `toBeDisabled()` honors
  * `aria-disabled`, so gate assertions still hold.
+ *
+ * …and the reason has to be READABLE, which is the whole point of keeping the
+ * cell in the tree. A blanket `opacity-40` on the cell rendered it at 2.13:1
+ * (UI-REVIEW 2026-07-30 P2-C) — the cell was reachable and the sentence was
+ * not. The gated state is now carried by the LABEL dropping to `etch` (an
+ * inactive control, exempt from 1.4.3) while the caption keeps `gauge` at
+ * 7.2:1. The caption also sits on the 10px type floor: `text-[9px]` was the
+ * only arbitrary font size left in the design system.
  */
 import type { ButtonHTMLAttributes, MouseEvent, ReactNode } from "react";
 
@@ -54,7 +62,7 @@ export function BandActionCell({
         "motion-safe:transition-colors motion-safe:duration-fast",
         "focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass",
         isDisabled
-          ? "cursor-not-allowed opacity-40"
+          ? "cursor-not-allowed"
           : accent
             ? "text-brass hover:bg-brass/10"
             : "text-gauge hover:bg-hairline/40 hover:text-mist",
@@ -62,11 +70,16 @@ export function BandActionCell({
       )}
       {...rest}
     >
-      <span className="font-display text-2xs uppercase tracking-[0.18em]">
+      <span
+        className={cx(
+          "font-display text-2xs uppercase tracking-[0.18em]",
+          isDisabled && "text-etch",
+        )}
+      >
         {label}
       </span>
       {caption !== undefined ? (
-        <span className="font-body text-[9px] uppercase tracking-[0.14em] text-gauge">
+        <span className="font-body text-2xs uppercase tracking-[0.14em] text-gauge">
           {caption}
         </span>
       ) : null}

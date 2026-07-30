@@ -458,11 +458,20 @@ export function exportGate(build: PartBuild): ExportGate {
     };
   }
   if (!build.hasBody) {
+    // "No body" is true of a sketch-only part and MISLEADING of a part whose
+    // body has been rolled away by the travel stop: the modeller has a body,
+    // they have parked the stop in front of it, and the fix is a control on
+    // screen (UI-REVIEW 2026-07-30 P3 — a wording bug fixed at the source, so
+    // every cell reading this derivation gets the corrected answer).
+    const byTravelStop = build.rolledBack.length > 0;
     return {
       state: "no-body",
-      blockedReason: "No body",
+      blockedReason: byTravelStop ? "Rolled back" : "No body",
       partial: false,
-      notice: null,
+      notice: byTravelStop
+        ? "The travel stop is before the first feature that makes a body. " +
+          "Move it forward to export."
+        : null,
     };
   }
   if (build.rolledBack.length > 0) {

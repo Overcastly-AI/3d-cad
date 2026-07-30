@@ -24,6 +24,18 @@ export interface FloatingPanelProps {
    * Defaults are side-aware (see below); pass to override.
    */
   maxHeightClassName?: string;
+  /**
+   * An action row pinned below the scrolling body — the panel's answer to the
+   * same problem `EditorCard.footer` solves: the panel's height is clamped, so
+   * whatever sits LAST in a scrolling column is whatever falls under the fold,
+   * and that is never what should be sacrificed. The inspector's EXPORT strip
+   * lives here for exactly that reason (UI-REVIEW 2026-07-30 P1: the 48px
+   * timeline shrank the frame and the strip — including the sentence warning
+   * that a file will be marked *partial* — went off the bottom at 1366x768).
+   *
+   * Trimming the copy above it is not a fix; that had already failed twice.
+   */
+  footer?: ReactNode;
 }
 
 // The reference cube (drei GizmoHelper) always lives bottom-RIGHT, occupying
@@ -45,6 +57,7 @@ export function FloatingPanel({
   id,
   children,
   maxHeightClassName = DEFAULT_CLEARANCE[side],
+  footer,
 }: FloatingPanelProps) {
   const [collapsed, setCollapsed] = useState(false);
 
@@ -94,6 +107,14 @@ export function FloatingPanel({
         {side === "left" ? "◂" : "▸"}
       </button>
       <div className="min-h-0 overflow-y-auto shadow-float">{children}</div>
+      {footer !== undefined ? (
+        <div
+          className="shrink-0 shadow-float"
+          data-testid={`panel-footer-${id}`}
+        >
+          {footer}
+        </div>
+      ) : null}
     </div>
   );
 }

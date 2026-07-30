@@ -107,14 +107,16 @@ test.describe("hole — drill a through-all hole in the UI", () => {
     await expect(page.getByTestId("new-hole")).toBeEnabled({ timeout: 30_000 });
     await page.getByTestId("new-hole").click();
     await expect(page.getByTestId("hole-editor")).toBeVisible();
-    // No face yet → Create is blocked.
+    // No face yet → Create is blocked, and the anchor block asks for a CLICK
+    // rather than reporting an empty field (UI-W3).
     await expect(page.getByTestId("hole-face-empty")).toHaveText(
-      "No face chosen",
+      "Click a face",
     );
     await expect(page.getByTestId("hole-submit")).toBeDisabled();
 
-    // Arm the face pick: the body's six planar faces light up.
-    await page.getByTestId("hole-face-pick").click();
+    // UI-W3: the face pick is ARMED on open — invoking Hole with nothing
+    // selected puts the cursor straight into the pick, so the body's six planar
+    // faces are already live. No arming step.
     await expect(page.getByTestId("hole-face-pick")).toHaveAttribute(
       "aria-pressed",
       "true",
@@ -199,7 +201,12 @@ test.describe("hole — drill a through-all hole in the UI", () => {
 
     // Drill a through-all hole (Ø6, centre of the top face).
     await page.getByTestId("new-hole").click();
-    await page.getByTestId("hole-face-pick").click();
+    // UI-W3: the face pick is ARMED on open — invoking Hole with nothing
+    // selected puts the cursor straight into the pick.
+    await expect(page.getByTestId("hole-face-pick")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
     await clickTopFace(page);
     await expect(page.getByTestId("hole-face")).toContainText("10");
     await page.getByTestId("hole-submit").click();
@@ -240,7 +247,12 @@ test.describe("hole — drill a through-all hole in the UI", () => {
 
     await page.getByTestId("new-hole").click();
     await expect(page.getByTestId("hole-editor")).toBeVisible();
-    await page.getByTestId("hole-face-pick").click();
+    // UI-W3: the face pick is ARMED on open — invoking Hole with nothing
+    // selected puts the cursor straight into the pick.
+    await expect(page.getByTestId("hole-face-pick")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
     await clickTopFace(page);
     await expect(page.getByTestId("hole-face")).toContainText("10");
 
@@ -283,7 +295,12 @@ test.describe("hole — a TAPPED hole in the UI", () => {
     await expect(page.getByTestId("new-hole")).toBeEnabled({ timeout: 30_000 });
     await page.getByTestId("new-hole").click();
     await expect(page.getByTestId("hole-editor")).toBeVisible();
-    await page.getByTestId("hole-face-pick").click();
+    // UI-W3: the face pick is ARMED on open — invoking Hole with nothing
+    // selected puts the cursor straight into the pick.
+    await expect(page.getByTestId("hole-face-pick")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
     await clickTopFace(page);
     await expect(page.getByTestId("hole-face")).toContainText("10");
 
@@ -293,6 +310,8 @@ test.describe("hole — a TAPPED hole in the UI", () => {
 
     // Tick Tapped → the callout stamps and the bore DERIVES to the M6x1 tap
     // drill (D - P = 5). The bore is authored, not locked: it just gets filled.
+    // Thread is progressively disclosed (UI-W4) — open the block, then tap.
+    await page.getByTestId("hole-thread-toggle").click();
     await page.getByTestId("hole-tapped").click();
     await expect(page.getByTestId("hole-thread-designation")).toHaveText(
       "M6x1",
@@ -375,11 +394,18 @@ test.describe("hole — a TAPPED hole in the UI", () => {
 
     await buildBaseBox(page);
     await page.getByTestId("new-hole").click();
-    await page.getByTestId("hole-face-pick").click();
+    // UI-W3: the face pick is ARMED on open — invoking Hole with nothing
+    // selected puts the cursor straight into the pick.
+    await expect(page.getByTestId("hole-face-pick")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
     await clickTopFace(page);
     await expect(page.getByTestId("hole-face")).toContainText("10");
 
     await page.getByTestId("hole-type-counterbore").click();
+    // Thread is progressively disclosed (UI-W4) — open the block, then tap.
+    await page.getByTestId("hole-thread-toggle").click();
     await page.getByTestId("hole-tapped").click();
     await page.getByTestId("hole-thread-size").selectOption("6");
     await expect(page.getByTestId("hole-diameter")).toHaveValue("5");
@@ -406,7 +432,12 @@ test.describe("hole — counterbore + countersink recesses in the UI", () => {
     await expect(page.getByTestId("new-hole")).toBeEnabled({ timeout: 30_000 });
     await page.getByTestId("new-hole").click();
     await expect(page.getByTestId("hole-editor")).toBeVisible();
-    await page.getByTestId("hole-face-pick").click();
+    // UI-W3: the face pick is ARMED on open — invoking Hole with nothing
+    // selected puts the cursor straight into the pick.
+    await expect(page.getByTestId("hole-face-pick")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
     await clickTopFace(page);
     await expect(page.getByTestId("hole-face")).toContainText("10");
   }
@@ -505,28 +536,39 @@ test.describe("hole — founder screenshots", () => {
     await buildBaseBox(page);
     await page.getByTestId("new-hole").click();
     await expect(page.getByTestId("hole-editor")).toBeVisible();
-    await page.getByTestId("hole-face-pick").click();
+    // UI-W3: the face pick is ARMED on open — invoking Hole with nothing
+    // selected puts the cursor straight into the pick.
+    await expect(page.getByTestId("hole-face-pick")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
     await expect(
       page.locator('[data-testid^="plane-pick-face-"]').first(),
     ).toBeVisible({ timeout: 20_000 });
   }
 
   /**
-   * Click the face node furthest from the top-left corner — the editor panel is
-   * anchored there, so the bottom-right-most node is reliably UNOCCLUDED at any
-   * viewport (the top face can project behind the panel on a short laptop). The
-   * founder shot only needs a populated face chip, not a specific face.
+   * Click the face node furthest from the EDITOR CARD — measured, not guessed,
+   * because the card's seat is a design decision that moves (UI-W4 docked it to
+   * the right rail; it used to sit at the left editor inset). The founder shot
+   * only needs a populated face chip, not a specific face, so the reliable rule
+   * is "whichever pick node the panel is not sitting on".
    */
   async function clickUnoccludedFace(page: Page): Promise<void> {
     const nodes = page.locator('[data-testid^="plane-pick-face-"]');
     await expect(nodes.first()).toBeVisible({ timeout: 20_000 });
+    const card = await page.getByTestId("hole-editor-shell").boundingBox();
+    const cardCentre =
+      card === null
+        ? { x: 0, y: 0 }
+        : { x: card.x + card.width / 2, y: card.y + card.height / 2 };
     const count = await nodes.count();
     let bestScore = -Infinity;
     let bestIndex = 0;
     for (let i = 0; i < count; i += 1) {
       const box = await nodes.nth(i).boundingBox();
       if (box === null) continue;
-      const score = box.x + box.y; // furthest from the top-left panel
+      const score = Math.hypot(box.x - cardCentre.x, box.y - cardCentre.y);
       if (score > bestScore) {
         bestScore = score;
         bestIndex = i;
@@ -591,7 +633,12 @@ test.describe("hole — founder screenshots", () => {
     await buildBaseBox(page);
     await page.getByTestId("new-hole").click();
     await expect(page.getByTestId("hole-editor")).toBeVisible();
-    await page.getByTestId("hole-face-pick").click();
+    // UI-W3: the face pick is ARMED on open — invoking Hole with nothing
+    // selected puts the cursor straight into the pick.
+    await expect(page.getByTestId("hole-face-pick")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
     await clickUnoccludedFace(page);
     await expect(page.getByTestId("hole-face")).toBeVisible();
     await page.getByTestId(`hole-type-${type}`).click();
@@ -619,7 +666,12 @@ test.describe("hole — founder screenshots", () => {
     await buildBaseBox(page);
     await page.getByTestId("new-hole").click();
     await expect(page.getByTestId("hole-editor")).toBeVisible();
-    await page.getByTestId("hole-face-pick").click();
+    // UI-W3: the face pick is ARMED on open — invoking Hole with nothing
+    // selected puts the cursor straight into the pick.
+    await expect(page.getByTestId("hole-face-pick")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
     await clickTopFace(page);
     await expect(page.getByTestId("hole-face")).toContainText("10");
     await page.getByTestId(`hole-type-${type}`).click();
@@ -672,9 +724,16 @@ test.describe("hole — founder screenshots", () => {
     await buildBaseBox(page);
     await page.getByTestId("new-hole").click();
     await expect(page.getByTestId("hole-editor")).toBeVisible();
-    await page.getByTestId("hole-face-pick").click();
+    // UI-W3: the face pick is ARMED on open — invoking Hole with nothing
+    // selected puts the cursor straight into the pick.
+    await expect(page.getByTestId("hole-face-pick")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
     await clickUnoccludedFace(page);
     await expect(page.getByTestId("hole-face")).toBeVisible();
+    // Thread is progressively disclosed (UI-W4) — open the block, then tap.
+    await page.getByTestId("hole-thread-toggle").click();
     await page.getByTestId("hole-tapped").click();
     await page.getByTestId("hole-thread-size").selectOption("10");
     await expect(page.getByTestId("hole-thread-designation")).toHaveText(
@@ -710,9 +769,16 @@ test.describe("hole — founder screenshots", () => {
     await page.goto(`/parts/${part.id}`);
     await buildBaseBox(page);
     await page.getByTestId("new-hole").click();
-    await page.getByTestId("hole-face-pick").click();
+    // UI-W3: the face pick is ARMED on open — invoking Hole with nothing
+    // selected puts the cursor straight into the pick.
+    await expect(page.getByTestId("hole-face-pick")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
     await clickTopFace(page);
     await expect(page.getByTestId("hole-face")).toContainText("10");
+    // Thread is progressively disclosed (UI-W4) — open the block, then tap.
+    await page.getByTestId("hole-thread-toggle").click();
     await page.getByTestId("hole-tapped").click();
     await page.getByTestId("hole-thread-size").selectOption("10");
     await expect(page.getByTestId("hole-submit")).toBeEnabled();

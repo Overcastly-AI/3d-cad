@@ -289,8 +289,18 @@ export type DatumForm =
       offsetInput: string;
     };
 
-/** The default new-datum form: 30 mm above XY (the everyday "sketch up" case). */
-export function defaultDatumForm(): DatumForm {
+/**
+ * The default new-datum form: 30 mm above XY (the everyday "sketch up" case).
+ *
+ * `seed` is the face the cursor had ALREADY selected when Datum was invoked
+ * (UI-W3). A selected face is an unambiguous instruction — "a plane on THIS" —
+ * so the form opens as an `on_face` datum sitting on it (offset 0), which is
+ * what the user would have built by hand in four more clicks.
+ */
+export function defaultDatumForm(seed?: DatumFace | null): DatumForm {
+  if (seed != null) {
+    return { kind: "on_face", face: seed, offsetInput: "0" };
+  }
   return { kind: "offset", ...defaultOffsetForm() };
 }
 

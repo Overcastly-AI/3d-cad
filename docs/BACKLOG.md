@@ -114,6 +114,39 @@ frame refactor are v2/§11. Spike de-collected.
       `rollback-slot-N` hooks preserved; `timeline.spec.ts` (7) + 50 regression
       specs green; founder shots `timeline-{before,after}-{1440,1366}.png`.
       [src: founder directive 2026-07-30 · ROADMAP current focus]
+- [x] (P1, L) **UI-W3 + UI-W4 — the cursor's selection prefills the editor, and
+      an editor's references stop scrolling away. SHIPPED 2026-07-30**
+      (frontend-builder; founder-directed "placement face looks like a text box?
+      Shouldn't it know based on the face I select with the cursor?", design
+      `ui-wave-tool-grade.md` Surface 3). `features/preselect.ts` keeps a pick
+      alive past the command that made it; hole / datum / sketch-on-face /
+      shell / draft / fillet / chamfer / edge-flange / hem all seed from it, and
+      a pick is withheld once the body it was taken from is no longer the tip
+      (anchor-scoped, so a stale signature never prefills an unresolvable ref).
+      Invoking Hole with nothing selected ARMS the face pick — arming is now for
+      CHANGING a reference. The picked faces stay LIT with no editor open.
+      UI-W4: references pinned in an `EditorCard.header` anchor block, Ø as
+      `NumberField emphasis="primary"`, the thread block behind a new
+      `Disclosure` primitive that reports its callout when shut, and the card
+      docked to the right rail clear of the reference cube. Web unit 1087 +
+      design 54; `preselection.spec.ts` + 18 hole specs + 12 regression specs
+      green on a live stack; shots `uiw34-hole-{before,after}-{1440,1366}.png`.
+      [src: founder report 2026-07-30 · ROADMAP current focus]
+- [x] (P1, M) **UI-REVIEW 2026-07-30 P1/P2/P3 — the export strip's second fold
+      regression, the timeline's false redundancy claims, and three silent
+      gates. FIXED 2026-07-30** (frontend-builder, folded into UI-W3/W4).
+      `FloatingPanel.footer` PINS the export strip so a clamped panel can never
+      push it (or its *partial* warning) under the fold — measured guard in
+      `body-status.spec.ts`, which reports `clipped by …` on the old layout.
+      Timeline chip border `hairline`→`etch` (1.54:1 → 3.06:1); the lifted-seat
+      claim corrected rather than restated; the in-flight rollback's stop, drop
+      slots and TO TIP now LOOK gated (`aria-disabled`, no grab cursor, honest
+      caption); `BandActionCell`'s reason off `opacity-40` + off `text-[9px]`;
+      chip `title`; Escape aborts a stop drag; `exportGate` blames the travel
+      stop instead of "No body". Plus, found while verifying: a gated
+      `PanelActionCell` keeps pointer events, so an editor card over the model
+      made the edge beneath it UNPICKABLE (reproduced at HEAD) — fillet/chamfer
+      take the right rail while picking. [src: docs/UI-REVIEW.md 2026-07-30]
 - [x] (P0, S) **CM-1 — a `mirror` re-ERASED a cut when ANY non-cut feature sat
       between the cut and the mirror. Fixed 2026-07-25.** Cut tools are now
       TRACKED PER FEATURE (`EvaluationState.record_cut_tools`, with the producing
@@ -1737,6 +1770,12 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 - 2026-07-30 — **UI-W1 bottom timeline (frontend-builder):** rollback is now a
   docked machine way with a draggable/keyboard travel stop, verb-glyph op chips and
   a dashed way past the stop; one shared `VERB_GLYPHS` map serves band + timeline.
+
+- 2026-07-30 — **UI-W3/W4 pre-selection + pinned references (frontend-builder):**
+  a viewport pick outlives its command and seeds the next one (hole/datum/sketch/
+  shell/draft/fillet/chamfer), the hole's face pick arms on open, and its
+  references sit in a pinned anchor block on the right rail. UI-REVIEW P1 (export
+  strip under the fold) fixed by pinning it, not by trimming copy.
 
 - 2026-07-30 — **Last-evaluate record on the part row (backend-builder):**
   migration `0012` + derived `eval_state` (`never`/`ok`/`failed`/`stale`), written

@@ -169,11 +169,17 @@ async function openTallestHoleForm(page: Page): Promise<void> {
   await expect(page.getByTestId("new-hole")).toBeEnabled({ timeout: 30_000 });
   await page.getByTestId("new-hole").click();
   await expect(page.getByTestId("hole-editor")).toBeVisible();
-  await page.getByTestId("hole-face-pick").click();
+  // UI-W3: the face pick is armed on open — no arming step.
+  await expect(page.getByTestId("hole-face-pick")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
   await clickTopFace(page);
   await expect(page.getByTestId("hole-face")).toContainText("10");
   await page.getByTestId("hole-type-countersink").click();
   await page.getByTestId("hole-depth-blind").click();
+  // Thread is progressively disclosed (UI-W4) — open the block, then tap.
+  await page.getByTestId("hole-thread-toggle").click();
   await page.getByTestId("hole-tapped").click();
   await expect(page.getByTestId("hole-thread-designation")).toBeVisible();
 }

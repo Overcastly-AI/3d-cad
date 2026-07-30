@@ -20,6 +20,7 @@ import type {
   FeatureTreeResponse,
 } from "../api/parts";
 import { TimelineStrip } from "./TimelineStrip";
+import { expectGated } from "../test/gated";
 
 function sketch(id: string, name: string): FeatureResponse {
   return {
@@ -335,6 +336,26 @@ describe("TimelineStrip — the travel stop", () => {
     );
   });
 
+  it("LOOKS held too — no grab cursor, and every gate names the in-flight move", () => {
+    // UI-REVIEW P2-D: the stop kept `cursor: ew-resize`, full opacity and its
+    // brass hover while `aria-disabled`, the slots took the NATIVE disabled
+    // attribute, and TO TIP still captioned "Include all". Three controls
+    // advertising an action that was being silently swallowed.
+    const { onMoveRollback } = renderStrip({ busy: true });
+    const stop = screen.getByTestId("timeline-stop");
+    expect(stop.className).not.toContain("cursor-ew-resize");
+    expect(stop.className).not.toContain("hover:text-brass-hover");
+
+    const slot = screen.getByTestId("rollback-slot-0");
+    expectGated(slot);
+    fireEvent.click(slot);
+    expect(onMoveRollback).not.toHaveBeenCalled();
+
+    expect(screen.getByTestId("timeline-to-tip")).toHaveTextContent(
+      "Moving the stop…",
+    );
+  });
+
   it("shows the new position immediately, then snaps back if the write fails", () => {
     const { rerender } = renderStrip();
     expect(screen.getByTestId("timeline-position")).toHaveTextContent("03/03");
@@ -358,10 +379,12 @@ describe("TimelineStrip — slots and the escape hatch", () => {
   });
 
   it("marks the occupied slot active and inert (the stop is already there)", () => {
+    // Gated the product's way — `aria-disabled`, still in the a11y tree — not
+    // the native attribute that made it a disabled trap (UI-REVIEW P2-D).
     renderStrip({ rollbackFeatureId: "f2" });
     const active = screen.getByTestId("rollback-slot-1");
     expect(active).toHaveAttribute("data-active", "true");
-    expect(active).toBeDisabled();
+    expectGated(active);
     expect(screen.getByTestId("rollback-slot-0")).not.toHaveAttribute(
       "data-active",
     );

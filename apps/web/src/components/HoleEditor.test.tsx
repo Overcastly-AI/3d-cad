@@ -20,6 +20,7 @@ import {
   defaultHoleForm,
   formFromHoleParams,
   type HoleForm,
+  type HolePickTarget,
 } from "../features/hole";
 import { DocumentUnitProvider } from "../units/documentUnit";
 import { HoleEditor } from "./HoleEditor";
@@ -39,7 +40,12 @@ const placed = (): HoleForm =>
   applyHoleFace(defaultHoleForm(), { signature: TOP, anchorId: "extrude-1" });
 
 function renderEditor(
-  overrides: { initial?: HoleForm; unit?: LengthUnit } = {},
+  overrides: {
+    initial?: HoleForm;
+    unit?: LengthUnit;
+    activePick?: HolePickTarget | null;
+    onTogglePick?: (target: HolePickTarget) => void;
+  } = {},
 ) {
   const onSubmit = vi.fn<(params: HoleParams) => void>();
   const view = render(
@@ -52,8 +58,8 @@ function renderEditor(
         saving={false}
         error={null}
         canPickFace
-        activePick={null}
-        onTogglePick={vi.fn()}
+        activePick={overrides.activePick ?? null}
+        onTogglePick={overrides.onTogglePick ?? vi.fn()}
         facePick={null}
         pointPick={null}
         pickError={null}
@@ -64,7 +70,19 @@ function renderEditor(
   return { ...view, onSubmit };
 }
 
-const tapped = () => screen.getByTestId("hole-tapped");
+/**
+ * The Tapped toggle — disclosing the Thread block first when it is shut.
+ * Threading is progressively disclosed (UI-W4: it was ~5 of the card's 12 rows
+ * and the everyday hole is a clearance hole), so reaching the toggle on an
+ * untapped hole means opening the block. An already-tapped hole opens with it
+ * showing, and the helper is a no-op there.
+ */
+const tapped = () => {
+  if (screen.queryByTestId("hole-tapped") === null) {
+    fireEvent.click(screen.getByTestId("hole-thread-toggle"));
+  }
+  return screen.getByTestId("hole-tapped");
+};
 const diameter = () => screen.getByTestId("hole-diameter") as HTMLInputElement;
 const size = () => screen.getByTestId("hole-thread-size") as HTMLSelectElement;
 const pitch = () =>
@@ -77,6 +95,106 @@ function submitted(onSubmit: ReturnType<typeof vi.fn>): HoleParams {
   expect(onSubmit).toHaveBeenCalledTimes(1);
   return onSubmit.mock.calls[0]![0] as HoleParams;
 }
+
+describe("HoleEditor — the pinned anchor block (UI-W3 / UI-W4)", () => {
+  it("opens PLACED when the cursor already had a face selected", () => {
+    // The reported defect: you select a face, invoke Hole, and are asked to
+    // select the same face again. Seeded from the pre-selection, the anchor
+    // block reads as confirmation and Create is reachable immediately.
+    const { onSubmit } = renderEditor({
+      initial: defaultHoleForm({ signature: TOP, anchorId: "extrude-1" }),
+    });
+    expect(screen.getByTestId("hole-face")).toHaveTextContent(
+      "Face at 5, 5, 10",
+    );
+    expect(screen.queryByTestId("hole-face-empty")).not.toBeInTheDocument();
+    // …and the drill point came with it (the face centre).
+    expect(screen.getByTestId("hole-position")).toHaveTextContent(
+      "Centre of face",
+    );
+    expect(submitted(onSubmit).position).toEqual({ x: 5, y: 5, z: 10 });
+  });
+
+  it("offers CHANGE, not PICK, once a face is set — arming is the fallback", () => {
+    renderEditor({ initial: placed() });
+    expect(screen.getByTestId("hole-face-pick")).toHaveTextContent("Change");
+  });
+
+  it("says what to do with the cursor while a pick is armed", () => {
+    renderEditor({ initial: defaultHoleForm(), activePick: "face" });
+    expect(screen.getByTestId("hole-face-pick")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByTestId("hole-face-empty")).toHaveTextContent(
+      "Click a face",
+    );
+  });
+
+  it("blames the viewport click, not an arming step, when nothing is placed", () => {
+    renderEditor({ initial: defaultHoleForm() });
+    const gate = submit();
+    expectGated(gate);
+    expect(gate).toHaveAccessibleDescription(
+      "Click a face in the viewport to place the hole.",
+    );
+  });
+
+  it("keeps the gated point pick reachable and self-explaining", () => {
+    // The disabled-trap rule: gated by aria-disabled, still focusable, and the
+    // reason is in the accessible name AND on screen.
+    const onTogglePick = vi.fn();
+    renderEditor({ initial: defaultHoleForm(), onTogglePick });
+    const pick = screen.getByTestId("hole-point-pick");
+    expect(pick).toHaveAttribute("aria-disabled", "true");
+    expect(pick).toHaveAccessibleName(/point is placed on it/);
+    expect(screen.getByTestId("hole-point-pick-reason")).toBeInTheDocument();
+    fireEvent.click(pick);
+    expect(onTogglePick).not.toHaveBeenCalled();
+  });
+
+  it("puts the references OUTSIDE the scrolling body so they cannot scroll away", () => {
+    // UI-W4's structural claim, asserted structurally: the anchor block is a
+    // sibling of the scrolling parameter body, not a row inside it.
+    renderEditor({ initial: placed() });
+    const anchor = screen.getByTestId("hole-anchor");
+    const params = screen.getByTestId("hole-editor");
+    expect(params.contains(anchor)).toBe(false);
+  });
+});
+
+describe("HoleEditor — the disclosed thread block (UI-W4)", () => {
+  it("keeps the thread controls out of the way until they are wanted", () => {
+    renderEditor();
+    expect(screen.queryByTestId("hole-tapped")).not.toBeInTheDocument();
+    expect(screen.getByTestId("hole-thread-toggle")).toHaveTextContent("None");
+  });
+
+  it("opens by itself for a hole that IS tapped — an edit hides nothing", () => {
+    const form = {
+      ...placed(),
+      tapped: true,
+      threadNominalMm: 10,
+      threadPitchMm: 1.5,
+    };
+    renderEditor({ initial: form });
+    expect(screen.getByTestId("hole-tapped")).toBeInTheDocument();
+    expect(screen.getByTestId("hole-thread-designation")).toHaveTextContent(
+      "M10x1.5",
+    );
+  });
+
+  it("reports the callout on the summary line, so a shut block still says what it holds", () => {
+    renderEditor();
+    fireEvent.click(tapped());
+    fireEvent.change(size(), { target: { value: "10" } });
+    fireEvent.click(screen.getByTestId("hole-thread-toggle")); // shut it again
+    expect(screen.queryByTestId("hole-thread-size")).not.toBeInTheDocument();
+    expect(screen.getByTestId("hole-thread-toggle")).toHaveTextContent(
+      "M10x1.5",
+    );
+  });
+});
 
 describe("HoleEditor — the Tapped toggle", () => {
   it("is a toggle beside Type, not a fourth segment inside it", () => {
