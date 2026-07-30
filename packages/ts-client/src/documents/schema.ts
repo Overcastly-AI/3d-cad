@@ -820,6 +820,11 @@ export interface paths {
          *       at a part would be lying about the thing it exists to report. The column's
          *       ``onupdate`` default is suppressed by naming ``updated_at`` explicitly in
          *       the UPDATE.
+         *
+         *     The SCOPE is stored beside the status, derived HERE (audit J3): the caller
+         *     could not supply it if it wanted to — documents applies the rollback bar
+         *     before the evaluate request leaves, so an ``ok`` may be a verdict on a
+         *     two-feature prefix of a nine-feature part, and only documents can say so.
          */
         put: operations["record_last_evaluation_api_v1_parts__part_id__last_evaluation_put"];
         post?: never;
@@ -4037,6 +4042,13 @@ export interface components {
          *     makes staleness derivable instead of assumed. Recording is monotonic in it:
          *     a late-arriving write for an older version is a no-op, never a resurrection
          *     of a superseded claim.
+         *
+         *     The recorded SCOPE (:data:`PartEvalScope`) is deliberately NOT a field here.
+         *     The gateway cannot know it — documents applies the rollback bar before the
+         *     evaluate request ever leaves (feature-tree.md §3), and geometry is never
+         *     told rollback exists — so documents derives it from its own tree at record
+         *     time. One less thing a caller could get wrong, and one less claim a browser
+         *     could make about how much of its part was looked at.
          */
         PartEvaluationRecord: {
             /**
@@ -4066,7 +4078,7 @@ export interface components {
          *     The feature tree itself is not inlined here (it is its own
          *     ``GET /parts/{id}/features`` response, docs/design/feature-tree.md); what
          *     IS here is the fixed-size last-evaluate record (§4.4a) so a register can
-         *     tell the truth about a whole drawer of parts in one query — four scalars per
+         *     tell the truth about a whole drawer of parts in one query — five scalars per
          *     row, never per-feature or per-sheet growth.
          */
         PartResponse: {
@@ -4076,8 +4088,13 @@ export interface components {
              */
             created_at: string;
             /**
+             * Eval Scope
+             * @description How much of the tree the live verdict covers: 'whole' (the entire tree ran) or 'rolled_back' (the travel stop held features out, so `eval_state` describes a PREFIX — an 'ok' here is NOT a claim that the part builds). Null when there is no live verdict to qualify ('never'/'stale') or when the record predates scope tracking; null must not be read as 'whole'. Orthogonal to `eval_state` because the two combine: a rolled-back tree can also fail (see PartEvalScope).
+             */
+            eval_scope?: ("whole" | "rolled_back") | null;
+            /**
              * Eval State
-             * @description Rebuild health a consumer may act on NOW: 'never' (not evaluated), 'ok'/'failed' (evaluated, and that verdict still applies to the current tree), or 'stale' (evaluated, but the tree changed since — status unknown). Derived server-side from the three last_eval_* fields against the part's current tree_version (feature-tree.md §4.4a), so a stale claim is never dressed up as a current one.
+             * @description Rebuild health a consumer may act on NOW: 'never' (not evaluated), 'ok'/'failed' (evaluated, and that verdict still applies to the current tree), or 'stale' (evaluated, but the tree changed since — status unknown). Derived server-side from the last_eval_* fields against the part's current tree_version (feature-tree.md §4.4a), so a stale claim is never dressed up as a current one. It says NOTHING about how much of the tree was evaluated — read `eval_scope` before presenting 'ok' as a verdict on the part.
              * @enum {string}
              */
             eval_state: "never" | "ok" | "failed" | "stale";

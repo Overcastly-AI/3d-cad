@@ -4220,7 +4220,7 @@
         "type": "object"
       },
       "PartEvaluationRecord": {
-        "description": "Record the outcome of an evaluate onto the part row (\u00a74.4a bookkeeping).\n\nWritten by the GATEWAY \u2014 the only place that holds both the verified\nprincipal and geometry's actual answer \u2014 after a real evaluate returned, so\nthe value on a register can never be a browser's claim about its own health.\nThe client never supplies a timestamp: documents stamps ``last_eval_at``\nfrom its own clock, so one clock orders every record.\n\n``tree_version`` is the version of the tree the result BELONGS to (echoed\nthrough :class:`~py_kit.schemas.features.EvaluateTreeResult`), which is what\nmakes staleness derivable instead of assumed. Recording is monotonic in it:\na late-arriving write for an older version is a no-op, never a resurrection\nof a superseded claim.",
+        "description": "Record the outcome of an evaluate onto the part row (\u00a74.4a bookkeeping).\n\nWritten by the GATEWAY \u2014 the only place that holds both the verified\nprincipal and geometry's actual answer \u2014 after a real evaluate returned, so\nthe value on a register can never be a browser's claim about its own health.\nThe client never supplies a timestamp: documents stamps ``last_eval_at``\nfrom its own clock, so one clock orders every record.\n\n``tree_version`` is the version of the tree the result BELONGS to (echoed\nthrough :class:`~py_kit.schemas.features.EvaluateTreeResult`), which is what\nmakes staleness derivable instead of assumed. Recording is monotonic in it:\na late-arriving write for an older version is a no-op, never a resurrection\nof a superseded claim.\n\nThe recorded SCOPE (:data:`PartEvalScope`) is deliberately NOT a field here.\nThe gateway cannot know it \u2014 documents applies the rollback bar before the\nevaluate request ever leaves (feature-tree.md \u00a73), and geometry is never\ntold rollback exists \u2014 so documents derives it from its own tree at record\ntime. One less thing a caller could get wrong, and one less claim a browser\ncould make about how much of its part was looked at.",
         "properties": {
           "status": {
             "description": "'failed' when any evaluated feature returned an error, else 'ok' (feature-tree.md \u00a74.3 strict-prefix rule)",
@@ -4263,15 +4263,31 @@
         "type": "object"
       },
       "PartResponse": {
-        "description": "A part as stored \u2014 identity, ownership, unit, timestamps, rebuild health.\n\nThe feature tree itself is not inlined here (it is its own\n``GET /parts/{id}/features`` response, docs/design/feature-tree.md); what\nIS here is the fixed-size last-evaluate record (\u00a74.4a) so a register can\ntell the truth about a whole drawer of parts in one query \u2014 four scalars per\nrow, never per-feature or per-sheet growth.",
+        "description": "A part as stored \u2014 identity, ownership, unit, timestamps, rebuild health.\n\nThe feature tree itself is not inlined here (it is its own\n``GET /parts/{id}/features`` response, docs/design/feature-tree.md); what\nIS here is the fixed-size last-evaluate record (\u00a74.4a) so a register can\ntell the truth about a whole drawer of parts in one query \u2014 five scalars per\nrow, never per-feature or per-sheet growth.",
         "properties": {
           "created_at": {
             "format": "date-time",
             "title": "Created At",
             "type": "string"
           },
+          "eval_scope": {
+            "anyOf": [
+              {
+                "enum": [
+                  "whole",
+                  "rolled_back"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How much of the tree the live verdict covers: 'whole' (the entire tree ran) or 'rolled_back' (the travel stop held features out, so `eval_state` describes a PREFIX \u2014 an 'ok' here is NOT a claim that the part builds). Null when there is no live verdict to qualify ('never'/'stale') or when the record predates scope tracking; null must not be read as 'whole'. Orthogonal to `eval_state` because the two combine: a rolled-back tree can also fail (see PartEvalScope).",
+            "title": "Eval Scope"
+          },
           "eval_state": {
-            "description": "Rebuild health a consumer may act on NOW: 'never' (not evaluated), 'ok'/'failed' (evaluated, and that verdict still applies to the current tree), or 'stale' (evaluated, but the tree changed since \u2014 status unknown). Derived server-side from the three last_eval_* fields against the part's current tree_version (feature-tree.md \u00a74.4a), so a stale claim is never dressed up as a current one.",
+            "description": "Rebuild health a consumer may act on NOW: 'never' (not evaluated), 'ok'/'failed' (evaluated, and that verdict still applies to the current tree), or 'stale' (evaluated, but the tree changed since \u2014 status unknown). Derived server-side from the last_eval_* fields against the part's current tree_version (feature-tree.md \u00a74.4a), so a stale claim is never dressed up as a current one. It says NOTHING about how much of the tree was evaluated \u2014 read `eval_scope` before presenting 'ok' as a verdict on the part.",
             "enum": [
               "never",
               "ok",
@@ -9855,7 +9871,7 @@
     },
     "/api/v1/parts/{part_id}/last-evaluation": {
       "put": {
-        "description": "Record the outcome of an evaluate on the part row (\u00a74.4a bookkeeping).\n\nINTERNAL, like every documents route, and deliberately without a public\ngateway twin (the same posture as ``GET /{part_id}/evaluation-request``):\nthe gateway calls this itself after geometry has answered, so the stored\nverdict is derived from what geometry actually said and is never a claim a\nbrowser could POST about its own health.\n\nThree guards make the record honest rather than merely present:\n\n- **Monotonic in ``tree_version``.** A late write for an older version is a\n  clean no-op (200, record unchanged), so two concurrent evaluates cannot\n  resurrect a superseded verdict.\n- **``last_eval_at`` is documents' clock**, never the caller's \u2014 one clock\n  orders every record.\n- **``updated_at`` does NOT move**, and neither does ``tree_version``: this\n  is bookkeeping, not a document edit. Opening a part triggers an evaluate,\n  and a register that showed \"last worked: just now\" because someone LOOKED\n  at a part would be lying about the thing it exists to report. The column's\n  ``onupdate`` default is suppressed by naming ``updated_at`` explicitly in\n  the UPDATE.",
+        "description": "Record the outcome of an evaluate on the part row (\u00a74.4a bookkeeping).\n\nINTERNAL, like every documents route, and deliberately without a public\ngateway twin (the same posture as ``GET /{part_id}/evaluation-request``):\nthe gateway calls this itself after geometry has answered, so the stored\nverdict is derived from what geometry actually said and is never a claim a\nbrowser could POST about its own health.\n\nThree guards make the record honest rather than merely present:\n\n- **Monotonic in ``tree_version``.** A late write for an older version is a\n  clean no-op (200, record unchanged), so two concurrent evaluates cannot\n  resurrect a superseded verdict.\n- **``last_eval_at`` is documents' clock**, never the caller's \u2014 one clock\n  orders every record.\n- **``updated_at`` does NOT move**, and neither does ``tree_version``: this\n  is bookkeeping, not a document edit. Opening a part triggers an evaluate,\n  and a register that showed \"last worked: just now\" because someone LOOKED\n  at a part would be lying about the thing it exists to report. The column's\n  ``onupdate`` default is suppressed by naming ``updated_at`` explicitly in\n  the UPDATE.\n\nThe SCOPE is stored beside the status, derived HERE (audit J3): the caller\ncould not supply it if it wanted to \u2014 documents applies the rollback bar\nbefore the evaluate request leaves, so an ``ok`` may be a verdict on a\ntwo-feature prefix of a nine-feature part, and only documents can say so.",
         "operationId": "record_last_evaluation_api_v1_parts__part_id__last_evaluation_put",
         "parameters": [
           {

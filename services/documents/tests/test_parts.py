@@ -120,6 +120,9 @@ def test_create_part_returns_full_dto(client: TestClient) -> None:
         "materials",
         "tree_version",
         "eval_state",
+        # ...and HOW MUCH of the tree that state speaks for (audit J3): a
+        # verdict on a rollback prefix is not a verdict on the part.
+        "eval_scope",
         "last_eval_status",
         "last_eval_at",
         "last_eval_tree_version",
@@ -134,6 +137,7 @@ def test_create_part_returns_full_dto(client: TestClient) -> None:
     # Never evaluated: the record is all-null and the derived state says so
     # (feature-tree.md §4.4a) — a fresh part claims nothing about its health.
     assert body["eval_state"] == "never"
+    assert body["eval_scope"] is None
     assert body["last_eval_status"] is None
     assert body["last_eval_at"] is None
     assert body["last_eval_tree_version"] is None

@@ -31,16 +31,17 @@ from py_kit.schemas.materials import EMPTY_MATERIAL_ASSIGNMENT
 from py_kit.schemas.parts import (
     PRINCIPAL_HEADER,
     PartCreate,
+    PartEvalScope,
     PartEvaluationRecord,
     PartListResponse,
     PartResponse,
     PartUpdate,
 )
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from documents.db import Assembly, Drawing, Instance, Part, Sheet, View
+from documents.db import Assembly, Drawing, Feature, Instance, Part, Sheet, View
 
 _logger = get_logger("documents.parts")
 
@@ -268,6 +269,41 @@ async def section_view_feature_refs(
     return refs
 
 
+async def evaluated_scope(session: AsyncSession, part: Part) -> PartEvalScope:
+    """Does the travel stop hold any feature out of what an evaluate runs?
+
+    ``"rolled_back"`` when at least one feature sits AFTER the rollback bar —
+    i.e. the evaluation prefix (:func:`documents.features.evaluation_prefix`,
+    which applies the bar per feature-tree.md §3) is shorter than the tree —
+    else ``"whole"``.
+
+    Asked at the DB rather than over a loaded tree because its one caller is the
+    record write, which needs a bounded answer and not the whole tree; the rule
+    it encodes is the same one ``features._bar_index`` + the prefix filter apply
+    on the read path (that module cannot be imported here — it imports THIS
+    one). Note what makes both correct: the bar can only move by a tree write,
+    and every tree write bumps ``tree_version``, so a live record's scope is
+    still the scope its evaluate ran under.
+
+    A bar parked on the LAST feature is ``"whole"``, not ``"rolled_back"``: it
+    excludes nothing, so saying otherwise would hedge a part that did fully
+    build — the mirror-image dishonesty of the one this exists to fix.
+    """
+    if part.rollback_feature_id is None:
+        return "whole"
+    bar_order_index = (
+        select(Feature.order_index)
+        .where(Feature.id == part.rollback_feature_id)
+        .scalar_subquery()
+    )
+    excluded = await session.scalar(
+        select(func.count())
+        .select_from(Feature)
+        .where(Feature.part_id == part.id, Feature.order_index > bar_order_index)
+    )
+    return "rolled_back" if excluded else "whole"
+
+
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_part(
     request: PartCreate, owner_id: Principal, session: SessionDep
@@ -410,6 +446,11 @@ async def record_last_evaluation(
       at a part would be lying about the thing it exists to report. The column's
       ``onupdate`` default is suppressed by naming ``updated_at`` explicitly in
       the UPDATE.
+
+    The SCOPE is stored beside the status, derived HERE (audit J3): the caller
+    could not supply it if it wanted to — documents applies the rollback bar
+    before the evaluate request leaves, so an ``ok`` may be a verdict on a
+    two-feature prefix of a nine-feature part, and only documents can say so.
     """
     part = await get_owned_part(session, owner_id, part_id, for_update=True)
     if (
@@ -424,6 +465,7 @@ async def record_last_evaluation(
         )
         return PartResponse.model_validate(part)
 
+    scope = await evaluated_scope(session, part)
     await session.execute(
         update(Part)
         .where(Part.id == part.id)
@@ -431,6 +473,7 @@ async def record_last_evaluation(
             last_eval_status=request.status,
             last_eval_at=datetime.now(UTC),
             last_eval_tree_version=request.tree_version,
+            last_eval_scope=scope,
             # Pin updated_at to itself: present in the SET clause, so the
             # column's onupdate default never fires (docstring above).
             updated_at=Part.updated_at,
@@ -446,6 +489,7 @@ async def record_last_evaluation(
         eval_tree_version=request.tree_version,
         tree_version=part.tree_version,
         eval_state=part.eval_state,
+        eval_scope=scope,
     )
     return PartResponse.model_validate(part)
 

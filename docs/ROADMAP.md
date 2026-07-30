@@ -36,6 +36,17 @@ Remaining: the
 frontend must stop titling the panel MASS PROPERTIES until a material exists,
 render absence as absence, and add `formatMass` to the ONE units seam in
 `packages/design` (materials.md §5/§6).
+**A verdict on a ROLLBACK PREFIX no longer reads as a verdict on the part —
+audit J3 (P1), WIRE half SHIPPED 2026-07-30** (backend-builder). The travel stop
+is applied before the evaluate request leaves documents, so a part rolled back to
+feature 2 of 9 evaluated two features, succeeded, recorded `ok`, and the register
+said "Clean" about seven features nobody looked at. `PartResponse` now carries
+`eval_scope` (`whole`/`rolled_back`/null) as a SECOND, ORTHOGONAL axis beside
+`eval_state` — the two combine, and an `ok` prefix is not a claim that the part
+builds — derived by documents at record time (`parts.last_eval_scope`, migration
+`0014`) because the gateway is deliberately never told rollback exists. Optional
+on the wire, so nothing broke; the audit's zero rollback-coverage gap is closed
+with mutation-verified tests. Remaining: the register cell must spend it (J3b).
 **The part workspace stopped claiming things it did not know — audit J2 (P1) +
 N3 (P0, the UI half) FIXED 2026-07-30** (frontend-builder). On a part with one
 broken feature the same screen said three different things: SOLVE "Failed"

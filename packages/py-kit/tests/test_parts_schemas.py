@@ -20,6 +20,7 @@ from py_kit.schemas.features import EvaluateTreeResult
 from py_kit.schemas.materials import EMPTY_MATERIAL_ASSIGNMENT
 from py_kit.schemas.parts import (
     PartResponse,
+    derive_part_eval_scope,
     derive_part_eval_state,
     is_stale_for_tree,
 )
@@ -123,6 +124,54 @@ def test_a_moved_tree_turns_any_verdict_into_unknown(status: str) -> None:
         )
         == "stale"
     )
+
+
+# --- the second axis: what the verdict is a verdict OF (audit J3) ----------------
+
+
+@pytest.mark.parametrize("state", ["ok", "failed"])
+@pytest.mark.parametrize("scope", ["whole", "rolled_back"])
+def test_a_live_verdict_carries_the_scope_it_was_recorded_with(
+    state: str, scope: str
+) -> None:
+    """All four combinations are legal and none collapses into another: a
+    rolled-back tree can fail, and a whole-tree evaluate can too."""
+    assert (
+        derive_part_eval_scope(
+            eval_state="ok" if state == "ok" else "failed",
+            last_eval_scope="whole" if scope == "whole" else "rolled_back",
+        )
+        == scope
+    )
+
+
+@pytest.mark.parametrize("state", ["never", "stale"])
+def test_a_dead_verdict_is_not_qualified_at_all(state: str) -> None:
+    """There is nothing to scope when the state is not a claim. Reporting
+    ``rolled_back`` next to ``stale`` would invite reading the pair as "we know
+    it built a prefix", which is exactly what ``stale`` denies."""
+    assert (
+        derive_part_eval_scope(
+            eval_state="never" if state == "never" else "stale",
+            last_eval_scope="rolled_back",
+        )
+        is None
+    )
+
+
+def test_an_unscoped_record_stays_unscoped_rather_than_defaulting_to_whole() -> None:
+    """A row written before the column existed does not know its scope. Filling
+    that in as ``whole`` would re-create the over-claim J3 filed."""
+    assert derive_part_eval_scope(eval_state="ok", last_eval_scope=None) is None
+
+
+def test_scope_is_optional_on_the_wire_so_it_broke_no_existing_caller() -> None:
+    """Added as an OPTIONAL field on purpose (the ``ViewCreate.auto_place``
+    lesson): a payload written before it existed still validates, and reads back
+    as the honest "unqualified", never as ``whole``."""
+    payload = _part(tree_version=2, eval_tree_version=2).model_dump(mode="json")
+    del payload["eval_scope"]
+    assert PartResponse.model_validate(payload).eval_scope is None
 
 
 # --- the wire: provenance is comparable without re-deriving anything -------------

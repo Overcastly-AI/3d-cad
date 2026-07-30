@@ -6571,15 +6571,31 @@
         "type": "object"
       },
       "PartResponse": {
-        "description": "A part as stored \u2014 identity, ownership, unit, timestamps, rebuild health.\n\nThe feature tree itself is not inlined here (it is its own\n``GET /parts/{id}/features`` response, docs/design/feature-tree.md); what\nIS here is the fixed-size last-evaluate record (\u00a74.4a) so a register can\ntell the truth about a whole drawer of parts in one query \u2014 four scalars per\nrow, never per-feature or per-sheet growth.",
+        "description": "A part as stored \u2014 identity, ownership, unit, timestamps, rebuild health.\n\nThe feature tree itself is not inlined here (it is its own\n``GET /parts/{id}/features`` response, docs/design/feature-tree.md); what\nIS here is the fixed-size last-evaluate record (\u00a74.4a) so a register can\ntell the truth about a whole drawer of parts in one query \u2014 five scalars per\nrow, never per-feature or per-sheet growth.",
         "properties": {
           "created_at": {
             "format": "date-time",
             "title": "Created At",
             "type": "string"
           },
+          "eval_scope": {
+            "anyOf": [
+              {
+                "enum": [
+                  "whole",
+                  "rolled_back"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How much of the tree the live verdict covers: 'whole' (the entire tree ran) or 'rolled_back' (the travel stop held features out, so `eval_state` describes a PREFIX \u2014 an 'ok' here is NOT a claim that the part builds). Null when there is no live verdict to qualify ('never'/'stale') or when the record predates scope tracking; null must not be read as 'whole'. Orthogonal to `eval_state` because the two combine: a rolled-back tree can also fail (see PartEvalScope).",
+            "title": "Eval Scope"
+          },
           "eval_state": {
-            "description": "Rebuild health a consumer may act on NOW: 'never' (not evaluated), 'ok'/'failed' (evaluated, and that verdict still applies to the current tree), or 'stale' (evaluated, but the tree changed since \u2014 status unknown). Derived server-side from the three last_eval_* fields against the part's current tree_version (feature-tree.md \u00a74.4a), so a stale claim is never dressed up as a current one.",
+            "description": "Rebuild health a consumer may act on NOW: 'never' (not evaluated), 'ok'/'failed' (evaluated, and that verdict still applies to the current tree), or 'stale' (evaluated, but the tree changed since \u2014 status unknown). Derived server-side from the last_eval_* fields against the part's current tree_version (feature-tree.md \u00a74.4a), so a stale claim is never dressed up as a current one. It says NOTHING about how much of the tree was evaluated \u2014 read `eval_scope` before presenting 'ok' as a verdict on the part.",
             "enum": [
               "never",
               "ok",

@@ -44,8 +44,10 @@ from py_kit.schemas.drawings import (
 from py_kit.schemas.features import FEATURE_NAME_MAX_LENGTH
 from py_kit.schemas.parts import (
     PART_NAME_MAX_LENGTH,
+    PartEvalScope,
     PartEvalState,
     PartEvalStatus,
+    derive_part_eval_scope,
     derive_part_eval_state,
 )
 from sqlalchemy.dialects import postgresql
@@ -115,7 +117,7 @@ class Part(Base):
     #: mutation yet). Maintained by :mod:`documents.history` in the same
     #: transaction as every tree write.
     history_cursor: Mapped[int | None] = mapped_column(sa.BigInteger(), nullable=True)
-    #: Last-evaluate record (docs/design/feature-tree.md §4.4a) — three NULLABLE
+    #: Last-evaluate record (docs/design/feature-tree.md §4.4a) — four NULLABLE
     #: columns, all-null meaning "never evaluated", written together by the
     #: gateway's post-evaluate bookkeeping and by nothing else. Evaluation
     #: RESULTS still are not stored (§4.4: they stay derivable and disposable);
@@ -131,6 +133,15 @@ class Part(Base):
     #: The ``tree_version`` the recorded status describes — NOT the current one.
     last_eval_tree_version: Mapped[int | None] = mapped_column(
         sa.BigInteger(), nullable=True
+    )
+    #: How much of the tree that status covers (audit J3): ``'whole'`` or
+    #: ``'rolled_back'``. Derived by DOCUMENTS at record time — it is the only
+    #: service that knows the bar exists — from whether any feature sat past the
+    #: travel stop. NULL on a row written before this column existed; that is
+    #: "unknown", never "whole" (see :func:`~py_kit.schemas.parts.
+    #: derive_part_eval_scope`), and the part's next evaluate rewrites it.
+    last_eval_scope: Mapped[PartEvalScope | None] = mapped_column(
+        sa.String(16), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
         sa.DateTime(timezone=True),
@@ -164,6 +175,22 @@ class Part(Base):
             last_eval_status=self.last_eval_status,
             last_eval_tree_version=self.last_eval_tree_version,
             tree_version=self.tree_version,
+        )
+
+    @property
+    def eval_scope(self) -> PartEvalScope | None:
+        """How much of the tree :attr:`eval_state` speaks for (J3).
+
+        Same posture as :attr:`eval_state` — a plain property over columns the
+        row already has, so the owner-scoped LIST stays exactly one query. Note
+        it reads the STORED scope rather than the part's current
+        ``rollback_feature_id``: the two agree whenever the verdict is live
+        (moving the bar bumps ``tree_version``, which makes the record stale),
+        and the stored one is a fact about the evaluate that ran, which is what
+        the verdict is a claim about.
+        """
+        return derive_part_eval_scope(
+            eval_state=self.eval_state, last_eval_scope=self.last_eval_scope
         )
 
     def __repr__(self) -> str:  # pragma: no cover - debug aid

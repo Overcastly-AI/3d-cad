@@ -50,6 +50,32 @@ PartEvalStatus = Literal["ok", "failed"]
 #: rejected for (docs/design/drawings.md §8a.1).
 PartEvalState = Literal["never", "ok", "failed", "stale"]
 
+#: HOW MUCH OF THE TREE that verdict looked at (audit J3, 2026-07-30). A second,
+#: ORTHOGONAL axis beside :data:`PartEvalState` — never folded into it:
+#:
+#: - ``"whole"``       — the evaluate ran the entire tree; the verdict is about
+#:                       the part.
+#: - ``"rolled_back"`` — the travel stop held features out, so the evaluate ran a
+#:                       PREFIX; the verdict is about that prefix only.
+#:
+#: Why an axis and not a fifth state. ``eval_state`` answers "did what ran
+#: build?"; this answers "how much ran?" — and the two combine freely. A part
+#: rolled back to feature 2 of 9 whose feature 1 errored is BOTH ``failed`` and
+#: ``rolled_back``, and a fifth ``"partial"`` state would have to drop one of
+#: those facts to name the other. Keeping them separate is also what lets the
+#: honest asymmetry be expressed: a ``failed`` prefix still means the part is
+#: broken (a failure found in a prefix is a real failure), while an ``ok``
+#: prefix does NOT mean the part builds — nobody looked at the rest of it. The
+#: register said "Clean" for exactly that case, which is the defect J3 filed:
+#: a verdict on a prefix sold as a verdict on the whole part.
+#:
+#: This mirrors the client-side derivation in ``apps/web/src/features/
+#: partBuild.ts``, which keeps ``solve`` (did it build) and ``scope`` (is the
+#: body a prefix) on separate axes for the same reason, and whose ``exportGate``
+#: depends on telling a DELIBERATE travel stop (export allowed, filename marked
+#: partial) from a FAILURE (export refused).
+PartEvalScope = Literal["whole", "rolled_back"]
+
 
 def is_stale_for_tree(*, built_from_tree_version: int, tree_version: int) -> bool:
     """Does a result BUILT FROM ``built_from_tree_version`` still describe the tree?
@@ -97,6 +123,34 @@ def derive_part_eval_state(
     ):
         return "stale"
     return last_eval_status
+
+
+def derive_part_eval_scope(
+    *,
+    eval_state: PartEvalState,
+    last_eval_scope: PartEvalScope | None,
+) -> PartEvalScope | None:
+    """Qualify a DERIVED state with the scope the recorded evaluate ran over.
+
+    Takes the state as an ARGUMENT rather than the raw record on purpose: the
+    fold that decides ``never``/``ok``/``failed``/``stale`` stays in
+    :func:`derive_part_eval_state` alone (CLAUDE.md DRY — one implementation,
+    and this one structurally cannot re-decide it). This function only answers
+    "is that verdict allowed to speak for the whole part?".
+
+    ``None`` out means the question does not arise or cannot be answered:
+
+    - the state is ``never`` or ``stale`` — there IS no live verdict to qualify,
+      and a scope beside an unknown verdict would only invite reading the pair
+      as a claim;
+    - the stored record predates scope tracking (``last_eval_scope`` NULL on a
+      row written before the column existed). **Null must not be read as
+      ``"whole"``** — that is the over-claim this field exists to prevent. Such
+      a row is rewritten by the part's next evaluate, which every open triggers.
+    """
+    if eval_state not in ("ok", "failed"):
+        return None
+    return last_eval_scope
 
 
 #: Upper bound for a part name — generous for humans, hostile to blobs.
@@ -173,6 +227,13 @@ class PartEvaluationRecord(BaseModel):
     makes staleness derivable instead of assumed. Recording is monotonic in it:
     a late-arriving write for an older version is a no-op, never a resurrection
     of a superseded claim.
+
+    The recorded SCOPE (:data:`PartEvalScope`) is deliberately NOT a field here.
+    The gateway cannot know it — documents applies the rollback bar before the
+    evaluate request ever leaves (feature-tree.md §3), and geometry is never
+    told rollback exists — so documents derives it from its own tree at record
+    time. One less thing a caller could get wrong, and one less claim a browser
+    could make about how much of its part was looked at.
     """
 
     tree_version: int = Field(
@@ -192,7 +253,7 @@ class PartResponse(BaseModel):
     The feature tree itself is not inlined here (it is its own
     ``GET /parts/{id}/features`` response, docs/design/feature-tree.md); what
     IS here is the fixed-size last-evaluate record (§4.4a) so a register can
-    tell the truth about a whole drawer of parts in one query — four scalars per
+    tell the truth about a whole drawer of parts in one query — five scalars per
     row, never per-feature or per-sheet growth.
     """
 
@@ -227,10 +288,21 @@ class PartResponse(BaseModel):
         description="Rebuild health a consumer may act on NOW: 'never' (not "
         "evaluated), 'ok'/'failed' (evaluated, and that verdict still applies "
         "to the current tree), or 'stale' (evaluated, but the tree changed "
-        "since — status unknown). Derived server-side from the three "
-        "last_eval_* fields against the part's current tree_version "
-        "(feature-tree.md §4.4a), so a stale claim is never dressed up as a "
-        "current one."
+        "since — status unknown). Derived server-side from the last_eval_* "
+        "fields against the part's current tree_version (feature-tree.md "
+        "§4.4a), so a stale claim is never dressed up as a current one. It "
+        "says NOTHING about how much of the tree was evaluated — read "
+        "`eval_scope` before presenting 'ok' as a verdict on the part."
+    )
+    eval_scope: PartEvalScope | None = Field(
+        default=None,
+        description="How much of the tree the live verdict covers: 'whole' "
+        "(the entire tree ran) or 'rolled_back' (the travel stop held features "
+        "out, so `eval_state` describes a PREFIX — an 'ok' here is NOT a claim "
+        "that the part builds). Null when there is no live verdict to qualify "
+        "('never'/'stale') or when the record predates scope tracking; null "
+        "must not be read as 'whole'. Orthogonal to `eval_state` because the "
+        "two combine: a rolled-back tree can also fail (see PartEvalScope).",
     )
     last_eval_status: PartEvalStatus | None = Field(
         description="Raw recorded outcome of the last evaluate, or null if the "

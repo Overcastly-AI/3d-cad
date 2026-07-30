@@ -600,6 +600,42 @@ the record is **parts only** — assemblies/drawings keep their own registers an
 would need the same treatment on their own rows. The `export` route evaluates too
 but has no per-feature statuses to read, so it records nothing.
 
+**A third limit, found the hard way — the verdict needs a SCOPE (audit J3,
+2026-07-30).** The four states answer *"did what ran build, and does that still
+apply?"* and say nothing about *how much ran*. Documents applies the rollback bar
+before the evaluate request leaves (§3), so a part rolled back to feature 2 of 9
+evaluates two features, succeeds, and records `ok` — which the register rendered
+as **"Clean"**, a claim about a part whose remaining seven features nobody looked
+at. The cell hedged BODIES meticulously and hedged SCOPE not at all.
+
+The fix is a second, **orthogonal** axis, not a fifth state: the two combine (a
+rolled-back tree can also fail, and a fifth `partial` would have to drop one fact
+to name the other), and the asymmetry matters — a `failed` prefix still means the
+part is broken, while an `ok` prefix does **not** mean the part builds.
+
+```
+parts.last_eval_scope  VARCHAR(16) NULL   -- 'whole' | 'rolled_back'   (0014)
+```
+
+| `eval_scope` | Means |
+|---|---|
+| `whole` | the evaluate ran the entire tree; `eval_state` is about the part |
+| `rolled_back` | the travel stop held features out; `eval_state` is about a PREFIX |
+| `null` | no live verdict to qualify (`never`/`stale`), or a pre-0014 record — **never read as `whole`** |
+
+Derived by **documents**, at record time, from its own tree: the gateway cannot
+supply it (it is never told rollback exists — that is the point of applying the
+bar upstream of it), so `PartEvaluationRecord` deliberately has no scope field
+and no browser can claim one. `py_kit.schemas.parts.derive_part_eval_scope` folds
+it and takes the already-derived state as an argument, so `derive_part_eval_state`
+remains the single implementation of the state fold. A bar parked on the LAST
+feature is `whole`: it excludes nothing, and hedging a part that did fully build
+is the mirror-image dishonesty. Stored rather than re-derived on read because the
+register reads a whole drawer in ONE query — a per-row "is anything past the bar"
+lookup would be the N+1 `cf4e006` removed. The two agree anyway while a verdict
+is live: moving the bar is a tree write, which bumps `tree_version` and makes the
+record `stale`.
+
 ### 4.4b Body provenance — the same discriminator, for the thing on screen (2026-07-30)
 
 §4.4a made the *register* honest. The **viewport** had the same problem one layer

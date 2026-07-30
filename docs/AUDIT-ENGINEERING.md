@@ -1555,7 +1555,7 @@ assertion in both tiers. Longer-term the honest source is the server's
 
 ---
 
-### J3 — With the rollback bar set, "Clean" / `eval_state: "ok"` is a verdict on a PREFIX being sold as a verdict on the part. **P1 · CONFIRMED by code** · the named defect class
+### J3 — With the rollback bar set, "Clean" / `eval_state: "ok"` is a verdict on a PREFIX being sold as a verdict on the part. **P1 · CONFIRMED by code · ✅ WIRE FIXED 2026-07-30 (register cell outstanding)** · the named defect class
 
 `documents.features.evaluation_prefix`
 (`services/documents/src/documents/features.py:289-313`) applies the rollback bar
@@ -1601,6 +1601,34 @@ indeterminacy when the recorded evaluation was truncated, so the register spends
 the dashed indeterminate stamp it already has for UNVERIFIED rather than the
 word "Clean". Either way the gateway is the right writer: it already holds
 `EvaluateTreeRequest.features` length and the tree length.
+
+**✅ Wire fixed 2026-07-30 (backend-builder), diverging from the suggestion in
+two places — both deliberate, see `design/feature-tree.md` §4.4a:**
+
+1. **A second axis, not a fifth state.** `PartResponse.eval_scope`
+   (`whole` | `rolled_back` | null) sits BESIDE `eval_state`, because the two
+   combine — a rolled-back tree can also fail — and because the asymmetry is
+   real: a `failed` prefix still means the part is broken, an `ok` prefix does
+   not mean it builds. Folding it into `eval_state` (or spending `stale`) would
+   have thrown away one of the two facts. `derive_part_eval_state` remains the
+   single implementation of the state fold; `derive_part_eval_scope` consumes
+   its output rather than re-deriving it.
+2. **Documents writes it, not the gateway.** The gateway holds
+   `EvaluateTreeRequest.features` (the prefix) but NOT the tree length — it
+   never fetches the tree, and it is deliberately never told rollback exists.
+   So `PartEvaluationRecord` gains no field (nothing for a caller to get wrong,
+   nothing for a browser to claim) and documents derives the scope at record
+   time from the bar, storing it in `parts.last_eval_scope` (migration `0014`).
+
+Coverage gap closed: `test_last_evaluation.py` now composes the bar with the
+record — the J3 case itself, the bar-at-the-tip case (which must read `whole`,
+the mirror-image dishonesty), scope×status independence, bar-move→`stale`, the
+rename carry-forward, the superseded-write no-op, and the one-query register
+read. Each was mutation-verified (break the branch, watch the named test fail).
+
+**Outstanding:** `HealthCell` (`DocumentRegister.tsx`) still spends the word
+"Clean" without reading `eval_scope` — the wire can now say it, the cell does
+not yet. Filed as the frontend half in BACKLOG.
 
 ---
 

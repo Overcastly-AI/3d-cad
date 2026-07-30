@@ -6095,7 +6095,7 @@ export interface components {
          *     The feature tree itself is not inlined here (it is its own
          *     ``GET /parts/{id}/features`` response, docs/design/feature-tree.md); what
          *     IS here is the fixed-size last-evaluate record (§4.4a) so a register can
-         *     tell the truth about a whole drawer of parts in one query — four scalars per
+         *     tell the truth about a whole drawer of parts in one query — five scalars per
          *     row, never per-feature or per-sheet growth.
          */
         PartResponse: {
@@ -6105,8 +6105,13 @@ export interface components {
              */
             created_at: string;
             /**
+             * Eval Scope
+             * @description How much of the tree the live verdict covers: 'whole' (the entire tree ran) or 'rolled_back' (the travel stop held features out, so `eval_state` describes a PREFIX — an 'ok' here is NOT a claim that the part builds). Null when there is no live verdict to qualify ('never'/'stale') or when the record predates scope tracking; null must not be read as 'whole'. Orthogonal to `eval_state` because the two combine: a rolled-back tree can also fail (see PartEvalScope).
+             */
+            eval_scope?: ("whole" | "rolled_back") | null;
+            /**
              * Eval State
-             * @description Rebuild health a consumer may act on NOW: 'never' (not evaluated), 'ok'/'failed' (evaluated, and that verdict still applies to the current tree), or 'stale' (evaluated, but the tree changed since — status unknown). Derived server-side from the three last_eval_* fields against the part's current tree_version (feature-tree.md §4.4a), so a stale claim is never dressed up as a current one.
+             * @description Rebuild health a consumer may act on NOW: 'never' (not evaluated), 'ok'/'failed' (evaluated, and that verdict still applies to the current tree), or 'stale' (evaluated, but the tree changed since — status unknown). Derived server-side from the last_eval_* fields against the part's current tree_version (feature-tree.md §4.4a), so a stale claim is never dressed up as a current one. It says NOTHING about how much of the tree was evaluated — read `eval_scope` before presenting 'ok' as a verdict on the part.
              * @enum {string}
              */
             eval_state: "never" | "ok" | "failed" | "stale";

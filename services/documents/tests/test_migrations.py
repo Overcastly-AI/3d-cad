@@ -349,6 +349,26 @@ def test_0012_offline_downgrade_drops_the_record(
     assert "ALTER TABLE parts DROP COLUMN last_eval_status" in sql
 
 
+def test_0014_offline_sql_adds_the_nullable_scope(
+    alembic_ini: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sql = _offline_sql(alembic_ini, monkeypatch, "0013:0014")
+    assert "ALTER TABLE parts ADD COLUMN last_eval_scope VARCHAR(16)" in sql
+    # No backfill and no default: a row written before the column existed does
+    # not know its scope, and defaulting it to 'whole' would re-create the
+    # over-claim (audit J3) the column exists to prevent.
+    assert "NOT NULL" not in sql
+    assert "DEFAULT" not in sql
+    assert "UPDATE parts" not in sql
+
+
+def test_0014_offline_downgrade_drops_the_scope(
+    alembic_ini: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sql = _offline_sql(alembic_ini, monkeypatch, "0014:0013", downgrade=True)
+    assert "ALTER TABLE parts DROP COLUMN last_eval_scope" in sql
+
+
 async def _table_names(url: str) -> set[str]:
     engine = create_async_engine(async_dsn(url))
     try:

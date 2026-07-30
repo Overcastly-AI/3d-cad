@@ -4,7 +4,9 @@ What is under test is not "a column can be written" but the *honesty* of the
 claim it makes (docs/design/feature-tree.md §4.4a): a stored status describes ONE
 tree version, so every test below fixes the relationship between the recorded
 version and the part's current one and asserts which of the four states the API
-reports — ``never`` / ``ok`` / ``failed`` / ``stale``. Also gated here: the two
+reports — ``never`` / ``ok`` / ``failed`` / ``stale`` — and, since audit J3, HOW
+MUCH of the tree that state speaks for (``eval_scope``: a verdict on a
+rollback prefix is not a verdict on the part). Also gated here: the two
 properties that make the record safe to put on a dashboard — the write is
 monotonic in ``tree_version`` (a late duplicate cannot resurrect a superseded
 verdict) and it is NOT a document edit (``updated_at`` and ``tree_version`` do
@@ -84,18 +86,42 @@ def _tree_version(client: TestClient, part_id: str) -> int:
     return version
 
 
-def _add_datum(client: TestClient, part_id: str) -> int:
+def _add_datum(client: TestClient, part_id: str, name: str = "Datum1") -> int:
     """Make a real tree edit; returns the new ``tree_version``."""
+    return _add_datum_feature(client, part_id, name)[1]
+
+
+def _add_datum_feature(
+    client: TestClient, part_id: str, name: str = "Datum1"
+) -> tuple[str, int]:
+    """Append a datum; returns ``(feature_id, tree_version)``."""
     response = client.post(
         f"/api/v1/parts/{part_id}/features",
         json={
-            "name": "Datum1",
+            "name": name,
             "feature": DATUM_ENVELOPE,
             "expected_tree_version": _tree_version(client, part_id),
         },
         headers=_headers(),
     )
     assert response.status_code == 201, response.text
+    body = response.json()
+    feature_id: str = body["feature"]["id"]
+    version: int = body["tree_version"]
+    return feature_id, version
+
+
+def _move_bar(client: TestClient, part_id: str, feature_id: str | None) -> int:
+    """Park the travel stop on *feature_id* (None = tip); new ``tree_version``."""
+    response = client.put(
+        f"/api/v1/parts/{part_id}/rollback",
+        json={
+            "expected_tree_version": _tree_version(client, part_id),
+            "rollback_feature_id": feature_id,
+        },
+        headers=_headers(),
+    )
+    assert response.status_code == 200, response.text
     version: int = response.json()["tree_version"]
     return version
 
@@ -212,6 +238,169 @@ def test_a_result_for_a_tree_that_already_moved_records_as_stale_immediately(
     body = _record(client, part["id"], status="ok", tree_version=old_version).json()
     assert body["last_eval_tree_version"] == old_version
     assert body["eval_state"] == "stale"
+
+
+# --- WHAT the verdict is a verdict OF (audit J3) ---------------------------------
+#
+# The four states above answer "did what ran build, and does that still apply?"
+# and say nothing about HOW MUCH ran. Documents applies the rollback bar before
+# the evaluate request leaves (features.evaluation_prefix, §3), so a part rolled
+# back to feature 2 of 9 evaluates two features, succeeds, and records ``ok`` —
+# which the register rendered as "Clean", a claim about seven features nobody
+# looked at. ``eval_scope`` is the second axis that makes the difference sayable.
+
+
+def test_a_whole_tree_evaluate_speaks_for_the_whole_part(client: TestClient) -> None:
+    part = _create_part(client)
+    version = _add_datum(client, part["id"])
+    body = _record(client, part["id"], status="ok", tree_version=version).json()
+    assert body["eval_state"] == "ok"
+    assert body["eval_scope"] == "whole"
+
+
+def test_a_rolled_back_ok_says_it_only_evaluated_a_prefix(client: TestClient) -> None:
+    """THE J3 case: three features, the stop parked on the first. The evaluate
+    is honest about the prefix it ran — but 'ok' alone would be sold as a
+    verdict on the part, so the response says which it is."""
+    part = _create_part(client)
+    first, _ = _add_datum_feature(client, part["id"], "Datum1")
+    _add_datum_feature(client, part["id"], "Datum2")
+    _add_datum_feature(client, part["id"], "Datum3")
+    version = _move_bar(client, part["id"], first)
+
+    body = _record(client, part["id"], status="ok", tree_version=version).json()
+    assert body["eval_state"] == "ok"
+    assert body["eval_scope"] == "rolled_back"
+    # And it survives a re-read — it is stored, not a property of the write.
+    assert _get_part(client, part["id"])["eval_scope"] == "rolled_back"
+
+
+def test_a_bar_on_the_last_feature_excludes_nothing_and_reads_whole(
+    client: TestClient,
+) -> None:
+    """The mirror-image dishonesty, refused too: a travel stop parked at the end
+    of the build holds nothing out, so hedging a part that DID fully build would
+    be just as wrong as the over-claim."""
+    part = _create_part(client)
+    _add_datum_feature(client, part["id"], "Datum1")
+    last, _ = _add_datum_feature(client, part["id"], "Datum2")
+    version = _move_bar(client, part["id"], last)
+
+    body = _record(client, part["id"], status="ok", tree_version=version).json()
+    assert body["eval_state"] == "ok"
+    assert body["eval_scope"] == "whole"
+
+
+def test_scope_and_status_are_independent_axes(client: TestClient) -> None:
+    """A rolled-back tree can ALSO fail — which is why scope is a field beside
+    the state and not a fifth state that would have to drop one of the two."""
+    part = _create_part(client)
+    first, _ = _add_datum_feature(client, part["id"], "Datum1")
+    _add_datum_feature(client, part["id"], "Datum2")
+    version = _move_bar(client, part["id"], first)
+
+    body = _record(client, part["id"], status="failed", tree_version=version).json()
+    assert body["eval_state"] == "failed"
+    assert body["eval_scope"] == "rolled_back"
+
+
+def test_a_never_evaluated_part_has_no_scope_either(client: TestClient) -> None:
+    """Null is not 'whole': there is no verdict to qualify."""
+    part = _create_part(client)
+    assert part["eval_state"] == "never"
+    assert part["eval_scope"] is None
+
+
+def test_moving_the_travel_stop_leaves_the_verdict_stale_and_unscoped(
+    client: TestClient,
+) -> None:
+    """Moving the bar changes what an evaluate MEANS, so it bumps
+    ``tree_version`` — the recorded verdict goes stale and its scope stops being
+    reported with it. A scope beside an unknown verdict would only invite
+    reading the pair as a claim."""
+    part = _create_part(client)
+    first, _ = _add_datum_feature(client, part["id"], "Datum1")
+    _add_datum_feature(client, part["id"], "Datum2")
+    version = _tree_version(client, part["id"])
+    recorded = _record(client, part["id"], status="ok", tree_version=version).json()
+    assert recorded["eval_scope"] == "whole"
+
+    _move_bar(client, part["id"], first)
+
+    after = _get_part(client, part["id"])
+    assert after["eval_state"] == "stale"
+    assert after["eval_scope"] is None
+    # Re-evaluating the rolled-back tree re-qualifies it, now as a prefix.
+    fresh = _record(
+        client, part["id"], status="ok", tree_version=_tree_version(client, part["id"])
+    ).json()
+    assert fresh["eval_state"] == "ok"
+    assert fresh["eval_scope"] == "rolled_back"
+
+
+def test_a_rename_carries_the_scope_forward_with_the_verdict(
+    client: TestClient,
+) -> None:
+    """A header-only PATCH cannot change what the tree evaluates to OR how much
+    of it ran, so the scope follows the carried-forward verdict."""
+    part = _create_part(client)
+    first, _ = _add_datum_feature(client, part["id"], "Datum1")
+    _add_datum_feature(client, part["id"], "Datum2")
+    version = _move_bar(client, part["id"], first)
+    _record(client, part["id"], status="ok", tree_version=version)
+
+    renamed = client.patch(
+        f"/api/v1/parts/{part['id']}",
+        json={"expected_tree_version": version, "name": "Bracket plate"},
+        headers=_headers(),
+    )
+    assert renamed.status_code == 200, renamed.text
+    assert renamed.json()["eval_state"] == "ok"
+    assert renamed.json()["eval_scope"] == "rolled_back"
+
+
+def test_a_superseded_write_does_not_rescope_the_standing_verdict(
+    client: TestClient,
+) -> None:
+    """The monotonic no-op is a no-op for the scope too — a late write must not
+    re-qualify the verdict it failed to replace."""
+    part = _create_part(client)
+    first, older = _add_datum_feature(client, part["id"], "Datum1")
+    _add_datum_feature(client, part["id"], "Datum2")
+    current = _tree_version(client, part["id"])
+    _record(client, part["id"], status="ok", tree_version=current)
+
+    _move_bar(client, part["id"], first)  # the tree (and the bar) moved on
+    late = _record(client, part["id"], status="failed", tree_version=older).json()
+    assert late["last_eval_tree_version"] == current
+    assert late["last_eval_status"] == "ok"
+    # Stale now (the bar move bumped the version), so nothing is claimed at all.
+    assert late["eval_state"] == "stale"
+    assert late["eval_scope"] is None
+
+
+def test_the_register_gets_scope_for_every_row_in_the_same_one_query(
+    client: TestClient,
+) -> None:
+    """Scope must not cost the register an N+1: it is a stored column folded by
+    a plain property, exactly like ``eval_state`` (the `cf4e006` collapse)."""
+    for index in range(2):
+        part = _create_part(client, name=f"Part {index}")
+        first, _ = _add_datum_feature(client, part["id"], "Datum1")
+        _add_datum_feature(client, part["id"], "Datum2")
+        version = (
+            _move_bar(client, part["id"], first)
+            if index
+            else _tree_version(client, part["id"])
+        )
+        _record(client, part["id"], status="ok", tree_version=version)
+
+    with _statements() as seen:
+        response = client.get("/api/v1/parts", headers=_headers())
+    assert response.status_code == 200, response.text
+    parts = response.json()["parts"]
+    assert [row["eval_scope"] for row in parts] == ["whole", "rolled_back"]
+    assert len([sql for sql in seen if "FROM parts" in sql]) == 1
 
 
 # --- the provenance pair a client compares --------------------------------------

@@ -302,6 +302,36 @@ frame refactor are v2/§11. Spike de-collected.
       the same commit. 10 py-kit + 2 documents + 1 gateway regressions; contracts +
       ts-client regenerated. [src: UI-REVIEW 2026-07-30 F2, re-scoped]
 
+- [x] (P1, M) **J3 — a verdict on a ROLLBACK PREFIX stops reading as a verdict on
+      the part. WIRE SHIPPED 2026-07-30** (backend-builder). Documents applies the
+      travel stop before the evaluate request leaves, so a part rolled back to
+      feature 2 of 9 evaluated two features, succeeded, recorded `ok` and the
+      register said **"Clean"** — about seven features nobody looked at. Fixed as a
+      SECOND, ORTHOGONAL axis (`PartResponse.eval_scope`: `whole`/`rolled_back`/
+      null), not a fifth state: the two combine (a rolled-back tree can also fail)
+      and the asymmetry is real — a `failed` prefix still means broken, an `ok`
+      prefix does not mean it builds. `derive_part_eval_state` stays the single
+      state fold; `derive_part_eval_scope` consumes its output. DOCUMENTS derives
+      it at record time (`parts.last_eval_scope`, migration `0014`) — the gateway
+      never learns rollback exists, so `PartEvaluationRecord` gains no field and no
+      caller broke; `eval_scope` is optional on the wire, so `apps/web` typechecks
+      untouched. A bar on the LAST feature reads `whole` (hedging a part that did
+      build is the mirror-image lie). 8 documents + 5 py-kit + 2 migration tests,
+      each mutation-verified; the audit's `grep -c rollback` → 0 gap is closed.
+      FRONTEND FOLLOW-UP filed below. [src: AUDIT-ENGINEERING J3]
+- [ ] (P1, S) **J3b — the register cell must SPEND the scope the wire now carries**
+      (`apps/web`). `HealthCell` (`DocumentRegister.tsx`) still renders "Clean" for
+      `eval_state: "ok"` while ignoring `eval_scope`. Acceptance: (1) an `ok` +
+      `rolled_back` row does NOT read "Clean" — it says the verdict covers a prefix
+      (the cell already hedges bodies in its title; scope belongs in the same
+      breath); (2) `failed` + `rolled_back` still reads Broken (a failure in a
+      prefix is a real failure); (3) `eval_scope: null` renders exactly as today —
+      null is "unqualified", never "whole"; (4) the same treatment wherever else a
+      part's health is claimed from a register row. `partBuild.ts` already models
+      this distinction client-side for the OPEN part (`scope`/`exportGate`); this is
+      the drawer-level equivalent, which has no tree to derive from.
+      [src: AUDIT-ENGINEERING J3, wire half shipped above]
+
 - [x] (P1, M) **J2 + N3 + F2-frontend — the part workspace stopped asserting what
       it did not know. SHIPPED 2026-07-30** (frontend-builder; one slice, because
       they were one defect seen from three cells). ONE derivation
