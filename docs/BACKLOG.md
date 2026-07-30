@@ -874,6 +874,38 @@ frame refactor are v2/§11. Spike de-collected.
 
 ## Next (P2)
 
+- [ ] (P2, S) **Promote the durable EDGE tier into `geometry.kernel.edges`** (kernel
+      territory). N1's two-tier resolver ships in `geometry.drawings.anchor` because
+      the kernel module was held by another agent that batch; the predicate,
+      tolerances and error taxonomy are already the kernel's, so `resolve_edge`
+      should carry the tier and the drawings wrapper should shrink to
+      "resolve + report the tier". Then a picked-edge FILLET/CHAMFER survives the
+      same everyday edits a dimension now does (today they still hard-fail on a
+      resized/moved edge). Acceptance: one resolver, one set of tests, a
+      fillet-on-a-widened-plate regression. [src: topological-naming §11]
+- [ ] (P2, S) **Frontend half of N1/N2 — say it on screen, not only on the print**
+      (frontend). `DrawingSheet.tsx` still renders its own bare-`!` glyph for a
+      broken dimension (the server now ships
+      `ComposedDimensionError.message`/`text`), `ComposedSheet.layout_issues` is not
+      surfaced at all (an overlapping sheet looks fine in-app and only warns once
+      exported), and `MeasuredDimension.anchor.tier == "durable"` is the signal for
+      a "this dimension re-anchored after your edit — confirm it" badge + a
+      one-click "heal the stored ref" using the returned signature. Acceptance:
+      words beside the marker on screen, a sheet-level layout warning strip, and an
+      e2e that resizes a dimensioned part and reads the new value in-app.
+      [src: AUDIT-PRODUCT 2026-07-30 N1/N2]
+- [ ] (P3, S) **A sheet too small for its part is still silent.** The N2 collision
+      check measures view-vs-view, not view-vs-BORDER, so a part that outgrows its
+      sheet hangs over the frame with no diagnostic. Wants the honest pair: a
+      `views_off_sheet` issue AND an auto-fit scale suggestion (the sheet already
+      has a fit-scale control), not just a warning. [src: AUDIT-PRODUCT 2026-07-30]
+- [ ] (P3, S) **A dimension on a corner ROUND's arc cannot re-anchor.** Changing R4
+      -> R6 moves the arc's centre, so the circular invariant (centre + angular
+      station) does not hold and the dimension fails honestly rather than
+      re-measuring a differently-placed arc — the documented limit of stage-1
+      naming. The fix is adjacency ("the arc tangent to these two faces") = stage-2
+      provenance (topological-naming §2d), not a looser epsilon.
+      [src: topological-naming §11]
 - [ ] (P2, M, recurring) Model-a-REAL-part dogfooding gate — once per phase
       (or ~quarterly), an agent models a complete real product end-to-end
       through the actual app + APIs, verifies against closed-form analytics,
@@ -995,6 +1027,14 @@ frame refactor are v2/§11. Spike de-collected.
       collision (showcase F3) — backend behavior is correct (OCCT refuses
       the collision), this is discoverability only. [src: product-auditor
       showcase-QA F3]
+>>> ATTRIBUTION NOTE (orchestrator, 2026-07-30): the three P3 items below were
+>>> filed by kernel-architect as SH-1 follow-ups, but landed in commit `33b1b5a`
+>>> — an orchestrator commit about an unrelated gate — because I ran
+>>> `git add docs/BACKLOG.md` while their uncommitted hunks were in the file.
+>>> The protocol is stage YOUR hunks, never a shared doc wholesale. No work was
+>>> lost; the authorship in git history is simply wrong, and `33b1b5a`'s message
+>>> does not mention these items.
+
 - [ ] (P3, S) A typed `warnings` channel on `FeatureResult` + a distinct
       `shell_pinched_wall` code — the honest follow-up to SH-1 (GEOMETRY-QA
       2026-07-30). A thickness of exactly half an internal wall is refused today
@@ -1140,6 +1180,24 @@ Full narrative evidence lives in `docs/ROADMAP.md` (Phase 4/4b sections) and
 `CHANGELOG.md`; one line per item below per token economy.
 
 ### Recently shipped (2026-07-30)
+
+- **N1 (P0) — revising a part destroyed the dimension that measured it.** Widening
+  100 -> 120 made the overall-length dim `subshape_unresolved` (a 2.6 mm `!`); edges
+  now get the two-tier resolver faces got in FINDINGS #3 (`drawings/anchor.py`,
+  topological-naming §11) — strict, then the curve-kind invariant (line: supporting
+  line + span overlap; circle: centre + angular station). Re-measures **120.000**,
+  reports `anchor.tier: durable`, placement uses the re-anchored name, and an
+  un-re-anchorable ref prints WORDS beside the view in SVG/PDF/DXF. A MOVED hole
+  stays an honest error. Gates: `test_drawings_resize.py` + `test_drawings_anchor.py`.
+
+- **N2 (P0) — auto-layout overlapped four views after a resize and exported it.**
+  6.33 x 60.00 mm iso-over-top with 82.8 mm of sheet empty; the 0.70 mm pre-edit
+  clearance WAS the diagnosis. Iso anchors are now derived from the extents they must
+  clear (**every pair clears the full 24 mm gutter at 100 and 120 mm**), hand-placed
+  views stay honored as intent, and `measure_layout_issues` reports
+  `views_overlap`/`views_crowded` on `ComposedSheet.layout_issues` + a
+  release-blocking banner in all three formats. Five compose byte-goldens
+  regenerated for the clear layout; a clean sheet carries no banner ink.
 
 - **J6 — the body-affecting feature-type set was declared twice, unguarded.**
   Gated rather than merged (the two constants answer different questions and

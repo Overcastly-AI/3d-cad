@@ -304,6 +304,17 @@ on completion with a watchdog fallback (`docs/AUTONOMOUS-LOOP.md` §1.4).
   Never edit, revert, or commit another agent's in-flight files. Foreign
   uncommitted work in shared files: build alongside, stage only your hunks.
 - **Commit protocol:** stage your own files explicitly — never `git add -A`.
+  **And for the HIGH-TRAFFIC SHARED DOCS (`docs/ROADMAP.md`, `docs/BACKLOG.md`),
+  `git add <file>` is not "explicit" enough — stage HUNKS.** Every agent is
+  required to tick both in the same commit, so they are nearly always dirty with
+  somebody else's in-flight text; `git add docs/BACKLOG.md` then silently
+  captures it. Seen 2026-07-30: an orchestrator commit about an unrelated test
+  gate (`33b1b5a`) carried three P3 items another agent had just filed, so the
+  commit message described none of its own contents and the authorship in history
+  is wrong. Nothing was lost, which is exactly why it is easy to miss. Use a
+  filtered `git apply --cached` (or `git add -p`) for these two files, and if you
+  find you have already swept foreign text, annotate the record rather than
+  rewriting shared history that other agents have already rebased onto.
   Push with `git push -u origin <branch>`; on rejection `git pull --rebase`
   and retry. Commit only when your gates are green.
 - **Liveness (orchestrator duty).** On every wakeup, check in-flight agents'
