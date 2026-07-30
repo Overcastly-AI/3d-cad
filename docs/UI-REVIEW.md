@@ -2188,3 +2188,119 @@ checklist now carries a standing item: **at every full audit, measure — assert
 `getBoundingClientRect` on the elements the design docs call signatures, and
 diff the built CSS against the utilities the source asks for.** A design system
 that fails silently needs a gate, not an eye.
+
+## 2026-07-30 — FLOW AUDIT (founder-directed: "keep auditing as I did")
+
+Founder's own pass on 07-30 landed four hits by walking screens and asking what
+a real user hits (timeline placement, component enablement/opacity, "placement
+face looks like a text box", units/mass in settings). Those are filed as
+UI-W1…W5 + #57/#58 with the design record in
+`docs/design/ui-wave-tool-grade.md`. This pass continues in the same method —
+**walk the flow, ask what the user actually experiences** — rather than
+inspecting components in isolation. Read-only on app code.
+
+The recurring defect class this codebase produces is now well established, at
+four instances: **a surface asserting something it does not know.** The false
+CLASH badge, the Tapped checkbox's drawing-note promise, MASS PROPERTIES with
+no mass, and F2 below. Audit for it directly.
+
+### F1 (P1, data loss + an inverted label) — Exit discards a sketch; the caption says Esc does
+
+`SketchStrip.tsx:978-991`. The Exit button renders
+`caption={bound ? "Esc closes" : "Esc discards"}` with
+`aria-label="Exit sketch (discards unsaved entities)"`, and calls
+`onClick={exit}` → `useSketchStore.exit` = `set({ ...INITIAL })`
+(`sketch/store.ts:856`) — every unsaved entity gone, one click, **no
+confirmation**, and no undo path because the sketch was never persisted so the
+history stack has nothing to restore.
+
+The label is **exactly inverted**. `Esc` at rest does NOT discard: the sketch
+cascade (`PartPage.tsx:967-991`) resolves `escapeAction(...)` → `"exit"` only
+when no editor, no pending placement, `tool === "select"` and no selection
+(`sketch/tools.ts:376-387`), and that branch calls **`finishSketch()`** — the
+same callback wired to `onSave` at `PartPage.tsx:3553`. So Esc **saves**.
+
+Both directions harm:
+
+- A user who wants to throw the sketch away presses Esc, believing the caption,
+  and instead **persists a sketch they meant to discard**.
+- A user who wants to keep the work avoids Esc for the same reason, clicks the
+  button labelled Exit, and **loses everything without being asked**.
+
+Fix: make the caption describe the key's real behaviour ("Esc saves"), and put
+a confirm in front of a discard that destroys unpersisted entities — one that
+states the count ("Discard 14 entities?"). This is the only finding in this
+pass that destroys user work.
+
+### F2 (P1, overstated surface — instance #4) — "Up to date" is derived from fetch state, not staleness
+
+`InspectorPanel.tsx:140`:
+`{error ? "Error" : isFetching ? "Meshing…" : "Up to date"}`.
+
+"Up to date" therefore means *"no request is in flight and the last one did not
+error"* — it does **not** mean the body on screen reflects the current feature
+tree. Any path that mutates the tree without the mesh query being in flight
+shows a stale body under a label claiming it is current. In a CAD tool, "the
+geometry you are looking at is current" is precisely the claim a user must be
+able to trust before exporting or dimensioning.
+
+The honest source **already exists and already shipped**: `c98c454` added
+`derive_part_eval_state` (`py_kit/schemas/parts.py`) — a 4-state fold
+(`never | ok | failed | stale`) whose staleness is derived from the monotonic
+`tree_version`, not from timestamps or fetch state — and it is already consumed
+by the register. The part inspector ignores it. Cheap fix, high trust value.
+
+### F3 (P2) — Deleting a feature others consume fires with no warning
+
+`PartPage.tsx:2647`, `deleteFeatureAction`: no confirmation and no dependency
+check. Delete `Sketch1` while `Extrude1` consumes it and the delete simply
+succeeds; the user discovers the consequence when the extrude turns red on the
+next evaluate. Undo exists, so this is recoverable rather than destructive —
+which is why it is P2 and not P1 — but "let them find out" is not how a tool
+of this class behaves. Fusion names the dependents before proceeding. We
+already have the dependency information: the guard added for undo-vs-drawings
+(P2 #16) established that we can reason about what a change breaks.
+
+### F4 (P2) — Keyboard-first, with nowhere to learn the keyboard
+
+The app deliberately trains shortcuts in button captions — `Esc`, `Enter`, `G`
+for snap, `M` for measure, the constraint letters, the undo/redo chords in
+`lib/undoRedoShortcut.ts` — and the design docs call it keyboard-first. There
+is **no shortcut reference anywhere**: no `?` overlay, no help panel, no
+cheatsheet. Every binding is discoverable only by hovering the one control that
+happens to mention it, and the sketch letter vocabulary (where selection
+presence decides whether a letter draws or constrains — `PartPage.tsx:958-960`)
+is not written down in the product at all.
+
+A `?` overlay listing the active surface's bindings is a small, self-contained
+addition, and it is the cheapest single thing that makes the app feel
+professional to a new user rather than opaque.
+
+### Confirmed healthy (checked, not assumed)
+
+Not everything probed was broken; recording the passes so later passes don't
+re-litigate them.
+
+- **Feature rename works** — inline in the tree, Enter commits, Escape
+  abandons (`FeatureTreePanel.tsx:68-73`).
+- **Drawing-from-part is contextual** — `PartPage.tsx:1846` calls
+  `createDrawing`, so the flow does not force a trip to the Drawings register.
+- **Part/drawing delete does confirm** — `DocumentRegister.tsx:354-420`, and
+  the confirm takes the row over rather than firing a modal.
+- **First-run guidance exists** — `NavCue` with a "Got it" dismiss, plus an
+  empty-scene call to action (`PartPage.tsx:3282`).
+- **Grid snap defaults ON** (`sketch/store.ts:282`, `snapEnabled: true`),
+  which is the correct polarity and consistent with the UI-W5 decision that
+  entity snapping should also default on with a modifier to suppress.
+- **Stale-version conflicts are handled** — `deleteFeatureAction` retries once
+  on `StaleTreeVersionError` with a re-fetched `tree_version`.
+
+### Method note for the next pass
+
+The two most valuable findings here (F1, F2) came from **following a control to
+what it actually calls** rather than reading its label — F1 is a caption that
+contradicts its own key binding, F2 is a status string computed from the wrong
+variable. Neither is visible in a screenshot, and neither would fail a test
+that asserts the label renders. The standing measurement item from the 07-30
+pass gets a sibling: **for every status/affordance string, trace the value it is
+derived from and confirm the string is entitled to make that claim.**
