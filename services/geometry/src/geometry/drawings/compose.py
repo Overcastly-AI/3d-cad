@@ -1040,7 +1040,25 @@ _DIM_ERROR_PHRASE: dict[str, str] = {
     "subshape_ambiguous": "REFERENCE AMBIGUOUS - RE-PICK THE EDGE",
     "dimension_wrong_type": "WRONG EDGE TYPE FOR THIS DIMENSION",
     "unmeasured": "NOT MEASURED",
+    "dimension_not_placeable": "CANNOT BE PLACED IN THIS VIEW - RE-PICK IT",
 }
+
+#: The typed code for an authored dimension that MEASURED fine but whose annotation
+#: cannot be drawn on this view (QA-4). Reasons, all one honest bucket because the
+#: fix is the same in every case — re-pick the edge in a view that shows it:
+#: the (re-anchored) model edge is not among the view's projected edges at all; it is
+#: drawn as a primitive this dimension type cannot annotate (a bore rim seen edge-on
+#: projects to a LINE, so there is no circle for a Ø to span); a point-to-point
+#: endpoint has no projected correspondence; or the placement itself is degenerate
+#: (two parallel edges for an angular dimension, a zero-length projected span).
+#:
+#: Before QA-4 every one of those returned ``None`` and the composer SKIPPED the
+#: dimension — the authored dimension vanished from the print with no marker, no
+#: caption and no error anywhere in the artifact, which is the one failure mode a
+#: shop cannot catch: a drawing that has silently lost a dimension looks exactly like
+#: a complete one. It is now a stamped :class:`ComposedDimensionError` like any other
+#: (docs/design/drawings.md §3.4).
+DIMENSION_NOT_PLACEABLE = "dimension_not_placeable"
 
 #: Offset (mm) of the error caption from its marker: clear of the 2.6 mm marker circle
 #: to its right, on the marker's centre line.
@@ -1060,6 +1078,30 @@ def dimension_error_caption(dim_type: str, code: str) -> str:
     the 2.6 mm dashed circle with a bare ``!`` was the whole diagnostic before."""
     phrase = _DIM_ERROR_PHRASE.get(code, code.replace("_", " ").upper())
     return f"{dim_type.upper()} DIM: {phrase}"
+
+
+def _dimension_error(
+    dim_type: str, dim_id: object, marker_at: Vec2, code: str
+) -> ComposedDimensionError:
+    """THE single stamped-error construction (CLAUDE.md DRY): marker + caption.
+
+    Every unmeasurable AND every unplaceable dimension goes through here, so the
+    machine-readable ``code``, the plain-words ``message`` and the caption OFFSET are
+    identical whichever way a dimension failed — one thing for a serializer to draw
+    and one thing for a UI to badge."""
+    return ComposedDimensionError(
+        dimension_id=dim_id,  # type: ignore[arg-type]
+        dimension_type=dim_type,  # type: ignore[arg-type]
+        at=ComposedPoint(x_mm=marker_at.x, y_mm=marker_at.y),
+        code=code,
+        # Words beside the view, not a bare "!" (audit N1) — the dimension-level
+        # twin of the typed per-view reason a failed view stamps (FINDINGS #15).
+        message=dimension_error_caption(dim_type, code),
+        text=ComposedPoint(
+            x_mm=marker_at.x + _DIM_ERROR_TEXT_DX,
+            y_mm=marker_at.y + _DIM_ERROR_TEXT_DY,
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------------
@@ -1336,11 +1378,19 @@ def _build_dimension_annotation_auto(
     obstacles: Sequence[SvgRect],
     sheet: Vec2 | None,
     dim_id: object,
-) -> ComposedDimension | None:
+) -> ComposedDimension:
     """Build the drafting annotation for one measured dimension (dimensions.ts).
 
-    Returns None when the dimension cannot be placed (an unmatched/mismatched edge,
-    parallel angular edges) — the caller lists it, never mis-draws.
+    ALWAYS returns something to draw (QA-4). A dimension that cannot be PLACED — the
+    (re-anchored) edge is not among this view's projected edges, it is drawn as a
+    primitive this dimension type cannot annotate, a point-to-point endpoint has no
+    projected correspondence, or the placement itself is degenerate (parallel angular
+    edges, a zero-length span) — comes back as a stamped
+    :class:`ComposedDimensionError` carrying :data:`DIMENSION_NOT_PLACEABLE`, exactly
+    like a dimension that could not be MEASURED. It used to return ``None`` and the
+    caller SKIPPED it: the authored dimension then vanished from the sheet and from
+    every exported artifact without a mark, which is strictly the worst outcome — a
+    print silently missing a dimension reads as a complete one.
 
     The auto-placement CORE. Honors the authored :class:`DimensionPlacement.offset_mm`
     for a LINEAR dimension (its design-§3.1 meaning — the signed offset of the
@@ -1365,21 +1415,13 @@ def _build_dimension_annotation_auto(
         to_svg(_p2(primary_edge.midpoint)) if primary_edge else to_svg(view_center)
     )
 
+    def unplaceable() -> ComposedDimensionError:
+        """This dimension measured, but there is nothing on this view to draw it on."""
+        return _dimension_error(dim_type, dim_id, marker_at, DIMENSION_NOT_PLACEABLE)
+
     if measured.error is not None or measured.value is None:
         code = measured.error.code if measured.error is not None else "unmeasured"
-        return ComposedDimensionError(
-            dimension_id=dim_id,  # type: ignore[arg-type]
-            dimension_type=dim_type,
-            at=ComposedPoint(x_mm=marker_at.x, y_mm=marker_at.y),
-            code=code,
-            # Words beside the view, not a bare "!" (audit N1) — the dimension-level
-            # twin of the typed per-view reason a failed view stamps (FINDINGS #15).
-            message=dimension_error_caption(dim_type, code),
-            text=ComposedPoint(
-                x_mm=marker_at.x + _DIM_ERROR_TEXT_DX,
-                y_mm=marker_at.y + _DIM_ERROR_TEXT_DY,
-            ),
-        )
+        return _dimension_error(dim_type, dim_id, marker_at, code)
 
     value = measured.value
     label = ("~" if measured.foreshortened else "") + format_dimension_label(
@@ -1395,14 +1437,34 @@ def _build_dimension_annotation_auto(
             edge_a = find_matching_edge(edges, primary_sig) if primary_sig else None
             edge_b = find_matching_edge(edges, sig_b) if sig_b else None
             if edge_a is None or edge_b is None:
-                return None
+                return unplaceable()
             p = _endpoint_projected(edge_a, measurement.a.endpoint)
             q = _endpoint_projected(edge_b, measurement.b.endpoint)
             if p is None or q is None:
-                return None
-            return _place_linear_between(
-                p,
-                q,
+                return unplaceable()
+            return (
+                _place_linear_between(
+                    p,
+                    q,
+                    label,
+                    measured.foreshortened,
+                    view_center,
+                    to_svg,
+                    obstacles,
+                    sheet,
+                    dim_type,
+                    dim_id,
+                    authored_offset,
+                )
+                or unplaceable()
+            )
+        edge = primary_edge
+        if edge is None or edge.primitive != "line":
+            return unplaceable()
+        return (
+            _place_linear_between(
+                _p2(edge.start),
+                _p2(edge.end),
                 label,
                 measured.foreshortened,
                 view_center,
@@ -1413,21 +1475,7 @@ def _build_dimension_annotation_auto(
                 dim_id,
                 authored_offset,
             )
-        edge = primary_edge
-        if edge is None or edge.primitive != "line":
-            return None
-        return _place_linear_between(
-            _p2(edge.start),
-            _p2(edge.end),
-            label,
-            measured.foreshortened,
-            view_center,
-            to_svg,
-            obstacles,
-            sheet,
-            dim_type,
-            dim_id,
-            authored_offset,
+            or unplaceable()
         )
 
     if isinstance(dimension, AngularDimensionParams):
@@ -1435,17 +1483,20 @@ def _build_dimension_annotation_auto(
         edge_a = find_matching_edge(edges, primary_sig) if primary_sig else None
         edge_b = find_matching_edge(edges, sig_b) if sig_b else None
         if edge_a is None or edge_b is None:
-            return None
+            return unplaceable()
         if edge_a.primitive != "line" or edge_b.primitive != "line":
-            return None
-        return _place_angular(
-            edge_a, edge_b, label, measured.foreshortened, to_svg, dim_id
+            return unplaceable()
+        return (
+            _place_angular(
+                edge_a, edge_b, label, measured.foreshortened, to_svg, dim_id
+            )
+            or unplaceable()
         )
 
     # Diameter | Radius (the only remaining members after the branches above).
     edge = primary_edge
     if edge is None or edge.center is None or edge.radius is None:
-        return None
+        return unplaceable()
     c = _p2(edge.center)
     rad = edge.radius
     if isinstance(dimension, DiameterDimensionParams):
@@ -1494,7 +1545,7 @@ def build_dimension_annotation(
     obstacles: Sequence[SvgRect],
     sheet: Vec2 | None,
     dim_id: object,
-) -> ComposedDimension | None:
+) -> ComposedDimension:
     """Build the drafting annotation for one measured dimension (dimensions.ts).
 
     Wraps the auto-placement core (:func:`_build_dimension_annotation_auto`, which
@@ -1506,9 +1557,9 @@ def build_dimension_annotation(
     as-authored and the viewer clips it). ``None`` (the default every shipped
     dimension carries) leaves the auto text position untouched — byte-identical. The
     override touches only the text POSITION; the dimension/extension lines, arrows,
-    stamped value, and text angle are the auto-placed geometry. An unplaceable
-    dimension (``None``) or a typed :class:`ComposedDimensionError` is returned as-is
-    (no text to move).
+    stamped value, and text angle are the auto-placed geometry. A typed
+    :class:`ComposedDimensionError` — unmeasurable OR unplaceable (QA-4) — is returned
+    as-is (its caption sits beside its own marker; there is no measured text to move).
     """
     anno = _build_dimension_annotation_auto(
         dimension, measured, edges, view_center, to_svg, obstacles, sheet, dim_id
@@ -1552,20 +1603,24 @@ def _compose_view(
         to_svg = view_transform(edges, anchor, sheet_h)
         view_center = bounds.center if bounds else Vec2(0.0, 0.0)
         sheet = Vec2(sheet_w, sheet_h)
+        # EVERY authored dimension of this view lands on the sheet — as its drafting
+        # annotation when it can be placed, otherwise as a stamped error marker with
+        # words (QA-4). There is deliberately no "skip" branch here: a dimension the
+        # composer drops is invisible on the paper AND in the exported bytes, so a
+        # print that has lost one looks complete.
         for inp, measured in view_dims:
-            anno = build_dimension_annotation(
-                inp.dimension,
-                measured,
-                edges,
-                view_center,
-                to_svg,
-                obstacles,
-                sheet,
-                inp.id,
+            dims.append(
+                build_dimension_annotation(
+                    inp.dimension,
+                    measured,
+                    edges,
+                    view_center,
+                    to_svg,
+                    obstacles,
+                    sheet,
+                    inp.id,
+                )
             )
-            if anno is None:
-                continue
-            dims.append(anno)
 
     return ComposedView(
         projection=projection,

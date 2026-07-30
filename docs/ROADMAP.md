@@ -264,6 +264,24 @@ suppress** ✅, **Revolve construction-centerline** ✅ — all with in-app
 authoring. **Next in the Ready queue: Drawings assembly views + BOM/balloons**
 (the drawings pillar's assembly gap), then the small tonight-follow-ups.
 
+**QA-4 — a print never loses a dimension in SILENCE (FIXED 2026-07-30,
+kernel-architect; QA wave `748a6ad`).** The composer had a skip branch: a dimension
+that measured fine but could not be PLACED on its view (its edge not drawn there, or
+drawn as a primitive that type cannot annotate — a bore rim seen edge-on has no
+circle for a Ø to span) was returned as `None` and dropped, so the authored dimension
+vanished from the sheet AND from every exported artifact with no marker, no caption
+and no error. A print missing a number reads exactly like a complete one. There is
+now no skip branch: every authored dimension lands, as its annotation or as a stamped
+`dimension_not_placeable` marker with words ("CANNOT BE PLACED IN THIS VIEW - RE-PICK
+IT"), and the gates assert on the EXPORTED BYTES through the shipped route
+(`tests/test_drawings_lost_dimension.py` — SVG/PDF substrings, DXF read back with
+`ezdxf`, plus the structural `placed == authored` invariant) rather than on a
+function's return value. Measured on the way in: the *unmeasurable* half of QA-4 was
+NOT reproducible against geometry — the real gateway export does carry "REFERENCE
+LOST"; the surface that says nothing is the on-screen sheet, which still draws the
+pre-N1 bare `!` (`apps/web`, referred to the frontend owner). Design:
+`docs/design/drawings.md` §3.4; evidence: `docs/GEOMETRY-QA.md` 2026-07-30.
+
 **The DRAWING as a deliverable — audit N1 + N2 (both P0) FIXED 2026-07-30**
 (kernel-architect; product audit `245f4a9`). The 07-30 pass judged the artifact a
 shop receives, not the feature list, and found the associative promise broken at

@@ -63,6 +63,27 @@ even-odd scanline clip) across SVG/PDF/DXF, `views.section_params jsonb` (0008);
 wrong-half + multi-loop + byte-determinism goldens; oblique + the `project_view`
 frame refactor are v2/§11. Spike de-collected.
 
+- [x] (P1, S) **QA-4 — a lost dimension leaves no trace on the print. FIXED
+      2026-07-30** (kernel-architect; QA wave `748a6ad`). The composer SKIPPED any
+      dimension it could not place (edge not drawn in that view, or drawn as a
+      primitive the type cannot annotate) — it vanished from the sheet and from
+      every export with no marker and no words, so a print missing a number read as
+      a complete one. No skip branch now: every authored dimension lands, as its
+      annotation or as a stamped `dimension_not_placeable` marker. Gates assert the
+      EXPORTED BYTES through `POST /api/v1/drawing/compose` (SVG/PDF substrings,
+      DXF read back with ezdxf, `placed == authored` count) — the caption function
+      was already right; nothing called it on this path. Measured en route: the
+      exported SVG DOES carry "REFERENCE LOST" for an unresolvable ref (QA-4's
+      export claim not reproducible); the silent surface is the on-screen sheet,
+      which still draws the pre-N1 bare `!` — filed for the frontend owner below.
+      [src: docs/QA-REVIEW.md 2026-07-30 QA-4 · design drawings.md §3.4]
+- [ ] (P1, S) **QA-4b — the on-screen sheet must say what the export says**
+      (frontend). `DrawingSheet.tsx::DimensionGlyph` renders a 2.6 mm dashed circle
+      with a bare `!` for every `ComposedDimensionError`, ignoring the `message` and
+      `text` the composer has carried since `7fde5d2`. So the engineer looking at
+      the sheet gets less than the machinist holding the PDF. Draw the caption at
+      `dim.text` in the composer's words (no second phrase table client-side); keep
+      the `data-dimension-error` hook. [src: docs/QA-REVIEW.md 2026-07-30 QA-4]
 - [x] (P1, L) **#57 — MASS PROPERTIES can report MASS. Kernel + wire SHIPPED
       2026-07-30** (kernel-architect; founder-raised "units and mass should be
       controlled from a settings page"; design `docs/design/materials.md`,

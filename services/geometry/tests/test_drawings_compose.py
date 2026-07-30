@@ -292,7 +292,13 @@ def test_parity_angular_arc_between_two_edges() -> None:
         assert (line.x1**2 + line.y1**2) ** 0.5 == pytest.approx(13, abs=_ARC_TOL)
 
 
-def test_parity_angular_parallel_edges_is_none() -> None:
+def test_parity_angular_parallel_edges_is_a_stamped_marker() -> None:
+    """Two PARALLEL edges have no vee to dimension, so there is nothing to draw. The
+    TS parity fixture asserted the composer returned `null` (and the caller skipped
+    it); since QA-4 the authored dimension is stamped as a typed marker with words
+    instead of disappearing off the print. The parity source (`dimensions.ts`) is no
+    longer the placement authority — the sheet is composed server-side (DE-1c) — so
+    this is a deliberate, documented divergence, not drift."""
     parallel_sig = EdgeSignature(
         curve="line",
         end_a=_vec(0, 10, 0),
@@ -314,7 +320,9 @@ def test_parity_angular_parallel_edges_is_none() -> None:
         _ok(0, "deg"),
         [_projected_line(), parallel],
     )
-    assert a is None
+    assert isinstance(a, ComposedDimensionError)
+    assert a.code == "dimension_not_placeable"
+    assert a.message == "ANGULAR DIM: CANNOT BE PLACED IN THIS VIEW - RE-PICK IT"
 
 
 def test_parity_point_to_point() -> None:
@@ -339,7 +347,10 @@ def test_parity_point_to_point() -> None:
     assert span == pytest.approx((40**2 + 25**2) ** 0.5, abs=_ARC_TOL)
 
 
-def test_parity_point_to_point_missing_edge_is_none() -> None:
+def test_parity_point_to_point_missing_edge_is_a_stamped_marker() -> None:
+    """The second endpoint's edge is not drawn in this view, so the dimension cannot
+    be placed — and is stamped rather than dropped (QA-4; see the note on the angular
+    parity test above)."""
     a = _build(
         LinearDimensionParams(
             measurement=PointToPointMeasurement(
@@ -350,7 +361,9 @@ def test_parity_point_to_point_missing_edge_is_none() -> None:
         _ok(47.16990566, "mm"),
         [_projected_line()],  # vert edge absent
     )
-    assert a is None
+    assert isinstance(a, ComposedDimensionError)
+    assert a.code == "dimension_not_placeable"
+    assert a.message == "LINEAR DIM: CANNOT BE PLACED IN THIS VIEW - RE-PICK IT"
 
 
 @pytest.mark.parametrize(

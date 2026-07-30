@@ -7,6 +7,44 @@ not "do the tests pass" but **"is the geometry RIGHT?"** (RESEARCH §9,
 decisions recorded here AND in the golden's `expected.json` — never a way to
 go green.
 
+## 2026-07-30 — QA-4: the print never loses a dimension in silence (kernel-architect)
+
+**The defect and its correction, both measured.** QA-4 (docs/QA-REVIEW.md, P1)
+reported that a lost dimension leaves no trace on the print. Driving the REAL
+gateway path (native stack, isolated ports 8010/8011/8012: register → part →
+40x25x10 plate with a Ø10 through hole → drawing → four standard views → Ø
+dimension picked off the top view's rim → thickness 10 → 16 → `POST
+/api/v1/drawings/{id}/export?format=svg`) measured the opposite for the
+*unmeasurable* half: the exported SVG **does** contain
+`DIAMETER DIM: REFERENCE LOST - RE-PICK THE EDGE` and
+`data-testid="drawing-dimension-error"`, and so does `/sheet`. The exported-bytes
+half of QA-4 is therefore NOT reproducible against geometry — the two surfaces that
+genuinely say nothing are the ON-SCREEN sheet (`apps/web` draws the pre-N1 bare
+`!`; `DrawingSheet.tsx::DimensionGlyph` ignores `ComposedDimensionError.message`
+and `.text` — reported to the frontend owner, not this territory) and the case
+below.
+
+**The real silent hole, in this territory.** A dimension that MEASURES fine but
+cannot be PLACED on its view was returned as `None` and skipped by `_compose_view`
+— no marker, no caption, no error, in the sheet model AND in all three exported
+formats. Reachable from the shipped UI: a Ø dimension on a view that draws the bore
+edge-on (the front view of that same plate) measures 10.000 and drew nothing.
+Now stamped: `code: dimension_not_placeable`,
+`DIAMETER DIM: CANNOT BE PLACED IN THIS VIEW - RE-PICK IT`.
+
+**Gates (`tests/test_drawings_lost_dimension.py`, 8 tests).** All go through the
+shipped route `POST /api/v1/drawing/compose` and assert on the returned ARTIFACT
+BYTES — SVG/PDF byte-substring, DXF by reading the entities back with `ezdxf`
+(audit-clean) — for both the unmeasurable and the unplaceable case, plus a control
+(a resolvable reference stamps `10.000` and no caption) and the structural
+invariant `placed == authored` over 8 view/model combinations. The byte level is
+the point: the caption function was already correct, and the gates that covered it
+called it directly.
+
+**No shipped bytes moved.** The four compose byte-goldens, the assembly compose
+goldens and the sheet-metal flat-pattern byte goldens are unchanged — no shipped
+golden contained a dimension the composer had been dropping.
+
 ## 2026-07-30 — MASS: a material with a density, and the numbers that prove absence is not zero (kernel-architect self-report)
 
 **What shipped.** MASS PROPERTIES could not report mass — there was no density and

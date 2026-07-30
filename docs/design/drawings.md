@@ -408,6 +408,48 @@ stage-2 provenance spike reaches maker history). **Where an edge cannot be tied
 back** (silhouette/outline edges, §1.5) it is **undimensionable** in v1 and
 carries no signature — stated, not hidden.
 
+### 3.4 An authored dimension is NEVER silently absent from the print (QA-4, 2026-07-30)
+
+**Problem.** QA drove the shipped flow — plate, drawing, Ø dimension, revise the
+thickness, export — and found "a lost dimension leaves NO trace on the print": the
+Dimensions side panel said `unresolved`, and the sheet a shop reads said nothing.
+Two different doors lead there, and only one of them had been closed:
+
+1. **Unmeasurable** — measurement returns a typed error, the composer stamps a
+   marker + caption ("DIAMETER DIM: REFERENCE LOST - RE-PICK THE EDGE", §11 of
+   `topological-naming.md`). This half works, and the gates now prove it *on the
+   exported bytes through the shipped route* rather than on a function's return
+   value (`tests/test_drawings_lost_dimension.py`) — a caption builder can be
+   perfectly correct while nothing calls it.
+2. **Unplaceable** — the dimension MEASURES fine but there is nothing on its view
+   to draw it on: the (re-anchored) edge is not among that view's projected edges;
+   it is drawn as a primitive the dimension type cannot annotate (a bore rim seen
+   edge-on projects to a LINE, so a Ø has no circle to span); a point-to-point
+   endpoint has no projected correspondence; or the placement is degenerate (two
+   parallel edges for an angular dimension). `build_dimension_annotation` returned
+   `None` for all of these and `_compose_view` **skipped** the dimension.
+
+**Decision: the composer has no skip branch.** Every authored dimension of a placed
+view lands on the sheet — as its drafting annotation when it can be placed,
+otherwise as a `ComposedDimensionError` carrying the typed code
+`dimension_not_placeable` and the words "…DIM: CANNOT BE PLACED IN THIS VIEW -
+RE-PICK IT", stamped by all three serializers exactly like an unmeasurable one.
+One bucket for all four causes, because the fix is the same in every case (re-pick
+the edge in a view that shows it) and false precision on a print is worse than
+none.
+
+**Why this ranks as a defect and not a nicety:** a missing annotation is
+indistinguishable from a drawing that never had one. Every other failure in this
+system is visible — a failed view stamps its reason, a partial export renames the
+file — but a dropped dimension left a *complete-looking* print with a number
+missing, which is exactly the artifact that gets parts made wrong. The structural
+gate is a count (`placed == authored`), not a string: a composer that *can* drop
+one will eventually drop a different one.
+
+**Not covered, deliberately:** dimensions attached to a view that FAILED to project
+are still not stamped individually — that view already prints its own typed reason
+in place of its geometry, so the print is not silently complete.
+
 ---
 
 ## 4. Export — the deliverable
