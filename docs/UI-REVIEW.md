@@ -2304,3 +2304,54 @@ variable. Neither is visible in a screenshot, and neither would fail a test
 that asserts the label renders. The standing measurement item from the 07-30
 pass gets a sibling: **for every status/affordance string, trace the value it is
 derived from and confirm the string is entitled to make that claim.**
+
+### F1 FIXED · F2 CORRECTED AND RE-SCOPED (same-day follow-up)
+
+**F1 shipped.** `Esc` moved to the SAVE button, where the binding actually goes
+(`escapeAction → "exit" → finishSketch`, the `onSave` handler). Exit now states
+what it would destroy (`discards 4`) and asks first when — and only when —
+discarding would lose unpersisted entities; a bound sketch's edits are already
+saved, so it still exits in one click. The prompt is DERIVED
+(`confirmingDiscard && !bound && entityCount > 0`) so saving or deleting the last
+entity behind an armed confirm retracts it, instead of leaving a warning about
+work that no longer exists.
+
+Gated by 9 component tests, **mutation-verified**: reverting the guard to the old
+`onClick={exit}` fails 5 of them, including "does not discard on the first click".
+
+**F2 was mis-filed — correcting it rather than leaving it to mislead.** The
+quoted line (`InspectorPanel.tsx:140`) is real, but `InspectorPanel` is used only
+by `ModelerPage`, the box-primitive demo route. **The part workspace uses
+`BodyInspector`**, fed a typed 4-state `BodyStatus` from `PartPage.tsx:3264`.
+
+The SUBSTANCE survives the correction — that status is still computed from
+request state, not from staleness:
+
+```
+regenFailed ? "error"
+  : regenerating || (meshGlbId !== null && !bodyPresent && body.isFetching) ? "regenerating"
+  : evaluation.isFetching ? "evaluating"
+  : "up-to-date"
+```
+
+But the SEVERITY does not, so P1 was wrong. Every in-app mutation path calls
+`refreshTreeAndBody()`, so the window where "Up to date" is shown over a stale
+body is a transient race between mutation and refetch, not a persistent false
+claim. The real exposure is a change this session did not make — a concurrent
+edit arriving over the gateway's WS fan-out — where nothing invalidates and the
+label would keep asserting currency indefinitely.
+
+Re-scoped to **P2, and it is a contract change, not a frontend patch.** The
+honest fix compares the `tree_version` the displayed body was BUILT from against
+the part's current `tree_version` — the same monotonic discriminator
+`derive_part_eval_state` already uses server-side. The evaluation/tessellation
+response does not currently carry that provenance, so this needs a schema field,
+`just gen`, and then the readout; guessing at a frontend-only fix would produce a
+second status that also does not know what it claims. Filed with that shape
+rather than half-done.
+
+**Method note.** F2 is a reminder for this checklist: `grep` finding a string
+does not establish that the string is on the screen the user is describing. Two
+inspectors exist, one is a demo route, and the panel in the founder's screenshot
+was the other one. Confirm the render path — which route mounts the component —
+before assigning a severity to what it says.

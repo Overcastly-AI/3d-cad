@@ -1070,6 +1070,11 @@ Full narrative evidence lives in `docs/ROADMAP.md` (Phase 4/4b sections) and
 
 ### Recently shipped (2026-07-30)
 
+- **F1 — the sketch Exit destroyed unsaved work while the caption blamed Esc**
+  (which actually SAVES). Esc chip moved to Save; Exit states the count it would
+  discard and asks first; prompt is derived so it cannot outlive the work.
+  9 component tests, mutation-verified (old code fails 5).
+
 - **CM-5 — `body`-scope mirror after a revolve/sweep/loft CUT filled the void**
   (FINDINGS #2 class, silent wrong geometry). One line in the shared `_cut_active`
   funnel; matrix predecessor axis now derived from `FeatureTypeRegistry.models()`

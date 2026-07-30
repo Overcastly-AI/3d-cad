@@ -752,6 +752,13 @@ export function SketchStrip({
   const bound = useSketchStore((state) => state.featureId !== null);
   const exit = useSketchStore((state) => state.exit);
 
+  // Exit-with-unsaved-work confirm (F1). Derived rather than trusted: the prompt
+  // only renders while it is still TRUE that discarding would destroy something,
+  // so saving or deleting the last entity behind an armed confirm dismisses it
+  // instead of leaving a prompt about work that no longer exists.
+  const [confirmingDiscard, setConfirmingDiscard] = useState(false);
+  const discardArmed = confirmingDiscard && !bound && entityCount > 0;
+
   // The dimension verb the current selection unlocks (select-then-D was
   // undiscoverable — FINDINGS #12). Only while drawing, and only when the key
   // would truly open the editor, so the affordance is never a dead promise.
@@ -958,6 +965,14 @@ export function SketchStrip({
               />
             </ToolGroup>
 
+            {/* Esc is on SAVE, not on Exit. The sketch Escape cascade unwinds
+                the most local thing first and, at rest, calls `finishSketch` —
+                the same handler as this button — so Esc SAVES. Until 2026-07-30
+                the chip sat on Exit under the caption "Esc discards", which was
+                the exact opposite of the binding: a user who wanted the sketch
+                gone pressed Esc and PERSISTED it, and a user who wanted to keep
+                it avoided Esc, clicked Exit, and lost everything unasked
+                (UI-REVIEW 2026-07-30 F1). */}
             <ToolGroup eyebrow="Finish" aria-label="Finish sketch">
               <ToolButton
                 icon={<CheckIcon />}
@@ -966,29 +981,73 @@ export function SketchStrip({
                 }
                 caption={
                   bound
-                    ? "edits save live"
-                    : `${entityCount} ${entityCount === 1 ? "entity" : "entities"}`
+                    ? "Esc · edits save live"
+                    : `Esc · ${entityCount} ${entityCount === 1 ? "entity" : "entities"}`
                 }
+                shortcut="Esc"
                 data-testid="sketch-save"
-                aria-label={bound ? "Finish sketch (saved)" : "Save sketch"}
+                aria-label={
+                  bound
+                    ? "Finish sketch (saved; Escape also finishes)"
+                    : "Save sketch (Escape also saves)"
+                }
                 aria-busy={saving}
                 disabled={saving || (!bound && entityCount === 0)}
                 onClick={onSave}
               />
-              <ToolButton
-                icon={<CloseIcon />}
-                label="Exit"
-                caption={bound ? "Esc closes" : "Esc discards"}
-                shortcut="Esc"
-                data-testid="sketch-exit"
-                aria-label={
-                  bound
-                    ? "Exit sketch (saved)"
-                    : "Exit sketch (discards unsaved entities)"
-                }
-                disabled={saving}
-                onClick={exit}
-              />
+              {discardArmed ? (
+                <>
+                  <ToolButton
+                    icon={<CloseIcon />}
+                    label={`Discard ${entityCount}`}
+                    caption="cannot be undone"
+                    data-testid="sketch-discard-confirm"
+                    aria-label={`Discard ${entityCount} unsaved ${entityCount === 1 ? "entity" : "entities"} — this cannot be undone`}
+                    disabled={saving}
+                    onClick={() => {
+                      setConfirmingDiscard(false);
+                      exit();
+                    }}
+                  />
+                  <ToolButton
+                    icon={<CheckIcon />}
+                    label="Keep drawing"
+                    caption="back to the sketch"
+                    active
+                    data-testid="sketch-discard-cancel"
+                    aria-label="Keep drawing — do not discard"
+                    onClick={() => setConfirmingDiscard(false)}
+                  />
+                </>
+              ) : (
+                <ToolButton
+                  icon={<CloseIcon />}
+                  label="Exit"
+                  caption={
+                    bound
+                      ? "keeps saved edits"
+                      : entityCount > 0
+                        ? `discards ${entityCount}`
+                        : "nothing to discard"
+                  }
+                  data-testid="sketch-exit"
+                  aria-label={
+                    bound
+                      ? "Exit sketch (edits are already saved)"
+                      : entityCount > 0
+                        ? `Exit sketch and discard ${entityCount} unsaved ${entityCount === 1 ? "entity" : "entities"} — asks first`
+                        : "Exit sketch (nothing drawn yet)"
+                  }
+                  disabled={saving}
+                  onClick={() => {
+                    // Unpersisted entities have no undo path — the history stack
+                    // has nothing to restore — so this is the one exit that must
+                    // ask. A bound sketch's edits are already saved: no prompt.
+                    if (!bound && entityCount > 0) setConfirmingDiscard(true);
+                    else exit();
+                  }}
+                />
+              )}
             </ToolGroup>
           </>
         ) : null}
