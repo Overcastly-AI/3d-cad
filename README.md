@@ -77,9 +77,12 @@ roadmap is the order they flip in.
   generated TS client (`packages/ts-client`); `just gen-check` fails CI on
   drift.
 - **Quality gates** — `just lint` (ruff + pyright strict + eslint + prettier)
-  and `just test` green: ~2,450 unit tests (1,735 pytest + 712 vitest), plus
-  geometry golden models, STEP round-trips, and determinism gates. CI is
-  GitHub Actions ([`ci.yml`](./.github/workflows/ci.yml)).
+  and `just test` green: several thousand unit tests across pytest and vitest
+  (run `just test` for the count at your commit — a number pinned here goes
+  stale the week it is written), plus a property-based feature-composition
+  matrix, geometry golden models with hand-derived analytic expectations, STEP
+  round-trips, and determinism gates. CI is GitHub Actions
+  ([`ci.yml`](./.github/workflows/ci.yml)).
 - **Compose stack** — Postgres 16 + Redis 7 + MinIO + the three services,
   **proven end to end in CI**: every push builds the images, boots the stack,
   migrates both schemas, and drives a real modeling round-trip (sketch →
@@ -87,11 +90,25 @@ roadmap is the order they flip in.
   gateway port (`deploy-path` workflow, i.e. `just compose-smoke`). The app also
   boots **container-free** for development (SQLite + in-process mesh store).
 
-**What does NOT exist yet** (no sugar-coating): IGES import/export, assembly
-import/export, multi-solid STEP healing, the async job-queue runtime (geometry
-currently evaluates in-request), sub-assemblies (nested mate solve), versioned
-part references (assemblies pin to part TIP, not history), interference/collision
-detection, section/detail views, and the MCP/scripting surface. See
+Three capabilities moved off the "does not exist" list on 2026-07-30 because
+they had in fact shipped and this section had gone stale — recorded rather than
+quietly edited, since a status section that drifts in EITHER direction is the
+defect, and under-claiming is not the safe kind of wrong:
+
+- **Interference/collision detection** — `geometry/kernel/interference.py`,
+  surfaced in the assembly clash inspector, with unmeasured pairs reported as
+  UNVERIFIED rather than silently as clear.
+- **Assembly STEP import/export** — `geometry/assembly/import_step.py` and
+  `export_assembly()`, with real PRODUCT names.
+- **Section views** — `geometry/drawings/section.py` plus the on-sheet author.
+
+**What does NOT exist yet** (no sugar-coating): IGES import/export, multi-solid
+STEP healing, the async job-queue runtime (geometry currently evaluates
+in-request), sub-assemblies (nested mate solve), versioned part references
+(assemblies pin to part TIP, not history), **detail views** (section views ship;
+detail views do not), **material/density — so mass properties report volume,
+area and centroid but NOT mass**, a settings surface, entity snapping (only a
+1 mm grid snap), and the MCP/scripting surface. See
 [`docs/ROADMAP.md`](./docs/ROADMAP.md) for the order they land in.
 
 ## Quickstart
