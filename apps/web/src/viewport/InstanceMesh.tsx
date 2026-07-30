@@ -31,8 +31,15 @@ export interface InstanceMeshProps {
   /** The SOLVED scene-space transform (target of the snap transition). */
   transform: SceneTransform;
   selected: boolean;
-  /** Flagged by the last interference check — edge + surface flush red. */
+  /** MEASURED interference — edge + surface flush red. */
   clashing?: boolean;
+  /**
+   * Flagged by the last check as an UNMEASURABLE pair (the exact boolean
+   * failed): cooled surface + lifted edges, never the alarm flush. The viewport
+   * draws attention without asserting a measurement the kernel declined to
+   * make — the DOM schedule and tree already say "Unverified" in these words.
+   */
+  unverified?: boolean;
   reducedMotion: boolean;
   onSelect?: () => void;
 }
@@ -45,6 +52,7 @@ export function InstanceMesh({
   transform,
   selected,
   clashing = false,
+  unverified = false,
   reducedMotion,
   onSelect,
 }: InstanceMeshProps) {
@@ -74,23 +82,36 @@ export function InstanceMesh({
   // Selection cue: brass edges + a warm surface tint (matcaps have no
   // emissive channel; the tint multiplies the studio sphere toward brass,
   // so the machined read is preserved — boldness stays on the balloon/snap).
-  // An interference flag flushes the body red instead — the alarm reads over
+  // A MEASURED interference flushes the body red instead — the alarm reads over
   // the rest state but yields to an explicit selection (the user's pick wins).
+  // An UNMEASURABLE pair is COOLED and its edges lifted a step: attention, no
+  // assertion (three states, one clash language, three surfaces).
   useEffect(() => {
     const edge = selected
       ? assemblyTokens.selected
       : clashing
         ? assemblyTokens.clash
-        : assemblyTokens.instanceEdge;
+        : unverified
+          ? assemblyTokens.unverified
+          : assemblyTokens.instanceEdge;
     const tint = selected
       ? assemblyTokens.selectedTint
       : clashing
         ? assemblyTokens.clashTint
-        : assemblyTokens.restTint;
+        : unverified
+          ? assemblyTokens.unverifiedTint
+          : assemblyTokens.restTint;
     edgeMaterial.color.set(edge);
     surfaceMaterial.color.set(tint);
     invalidate();
-  }, [selected, clashing, edgeMaterial, surfaceMaterial, invalidate]);
+  }, [
+    selected,
+    clashing,
+    unverified,
+    edgeMaterial,
+    surfaceMaterial,
+    invalidate,
+  ]);
 
   // Adopt a new solved transform. First mount snaps to place (no fly-in from
   // the origin); later changes animate (unless reduced motion is requested).

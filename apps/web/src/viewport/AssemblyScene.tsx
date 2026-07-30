@@ -40,9 +40,17 @@ export interface AssemblySceneProps {
   onSelectInstance: (instanceId: string) => void;
   /** Part overlays by instance id — present only while a face/axis tool is armed. */
   overlaysByInstance: ReadonlyMap<string, OverlayResult>;
-  /** Instances flagged by the last interference check — edge-lit + balloon red. */
+  /** MEASURED interference — edge-lit + balloon red, and said as "interfering". */
   clashingInstanceIds: ReadonlySet<string>;
+  /**
+   * Pairs the kernel could NOT measure. Same three states as the schedule and
+   * the tree: a dashed gauge balloon and an edge-light, never the alarm.
+   */
+  unverifiedInstanceIds: ReadonlySet<string>;
 }
+
+/** How much the last interference check actually knows about an instance. */
+type ClashState = "clash" | "unverified" | "none";
 
 const CORNER = new Vector3();
 const POS = new Vector3();
@@ -145,12 +153,12 @@ function useInstancePools(instances: readonly SceneInstance[]): {
 function Balloon({
   instance,
   selected,
-  clashing,
+  clashState,
   onSelect,
 }: {
   instance: SceneInstance;
   selected: boolean;
-  clashing: boolean;
+  clashState: ClashState;
   onSelect: () => void;
 }) {
   // Anchor at the top-centre of the instance's transformed bounds.
@@ -181,20 +189,34 @@ function Balloon({
         data-solved-y={instance.transform.position[1].toFixed(4)}
         data-solved-z={instance.transform.position[2].toFixed(4)}
         data-grounded={instance.grounded ? "true" : "false"}
-        data-clashing={clashing ? "true" : "false"}
+        // `data-clashing` stays MEASURED-only; the third state is named
+        // separately so no consumer can read "flagged" as "interferes".
+        data-clashing={clashState === "clash" ? "true" : "false"}
+        data-clash-state={clashState}
         aria-label={`${instance.name}${instance.grounded ? ", grounded" : ""}${
-          clashing ? ", interfering" : ""
+          clashState === "clash"
+            ? ", interfering"
+            : clashState === "unverified"
+              ? // The schedule's own words, so the screen reader and the panel
+                // agree: the kernel could not measure this pair.
+                ", overlap unverified"
+              : ""
         }`}
         className={[
           "flex h-6 w-6 items-center justify-center rounded-full border font-display text-2xs tabular-nums",
           "transition-colors duration-fast outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-brass",
           selected
             ? "border-brass bg-brass text-carbide"
-            : clashing
+            : clashState === "clash"
               ? "border-flag bg-anvil text-flag hover:border-flag"
-              : instance.grounded
-                ? "border-brass bg-anvil text-brass"
-                : "border-etch bg-anvil text-mist hover:border-brass hover:text-brass",
+              : clashState === "unverified"
+                ? // Dashed gauge ring — the schedule's UNVERIFIED stamp, drawn
+                  // round. A broken line is the drafting idiom for "not
+                  // established", and it reads as attention without alarm.
+                  "border-dashed border-gauge bg-anvil text-gauge hover:border-mist hover:text-mist"
+                : instance.grounded
+                  ? "border-brass bg-anvil text-brass"
+                  : "border-etch bg-anvil text-mist hover:border-brass hover:text-brass",
         ].join(" ")}
       >
         {instance.grounded ? "⏚" : instance.balloon}
@@ -210,6 +232,7 @@ export function AssemblyScene({
   onSelectInstance,
   overlaysByInstance,
   clashingInstanceIds,
+  unverifiedInstanceIds,
 }: AssemblySceneProps) {
   const { pools, floor } = useInstancePools(instances);
   const tool = useMateAuthoringStore((s) => s.tool);
@@ -226,6 +249,14 @@ export function AssemblyScene({
       : tool !== null && tool !== "lock"
         ? "coincident"
         : null;
+
+  /** Measured clash wins over unverified; both are separate from rest. */
+  const clashStateOf = (instanceId: string): ClashState =>
+    clashingInstanceIds.has(instanceId)
+      ? "clash"
+      : unverifiedInstanceIds.has(instanceId)
+        ? "unverified"
+        : "none";
 
   /** The face/edge index picked on a given instance (overlay highlight). */
   const selectedPickIndex = (instanceId: string): number | null => {
@@ -270,6 +301,7 @@ export function AssemblyScene({
             transform={inst.transform}
             selected={selectedInstanceId === inst.id}
             clashing={clashingInstanceIds.has(inst.id)}
+            unverified={unverifiedInstanceIds.has(inst.id)}
             reducedMotion={reducedMotion}
             onSelect={() =>
               tool === "lock"
@@ -308,7 +340,7 @@ export function AssemblyScene({
           key={`b-${inst.id}`}
           instance={inst}
           selected={selectedInstanceId === inst.id}
-          clashing={clashingInstanceIds.has(inst.id)}
+          clashState={clashStateOf(inst.id)}
           onSelect={() =>
             tool === "lock" ? pickInstance(inst.id) : onSelectInstance(inst.id)
           }

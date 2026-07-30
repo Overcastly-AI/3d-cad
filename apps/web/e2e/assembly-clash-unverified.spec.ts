@@ -166,10 +166,20 @@ test.describe("clash schedule — measured vs unverified (1440)", () => {
     await expect(page.getByTestId(`instance-unverified-${idC}`)).toBeVisible();
     await expect(page.getByTestId(`instance-clash-${idC}`)).toHaveCount(0);
 
-    // The viewport still flags BOTH instances — an unverified pair needs eyes.
-    await expect(
-      page.locator(`[data-testid="assembly-balloon-${idC}"]`),
-    ).toHaveAttribute("data-clashing", "true");
+    // The VIEWPORT keeps the same three states as the schedule and the tree: it
+    // still says "look here" about the unmeasurable pair, but with the
+    // unverified language — never the alarm, and never the word "interfering"
+    // to a screen reader (UI-REVIEW 2026-07-30 P1).
+    const balloonB = page.locator(`[data-testid="assembly-balloon-${idB}"]`);
+    await expect(balloonB).toHaveAttribute("data-clash-state", "clash");
+    await expect(balloonB).toHaveAttribute("data-clashing", "true");
+    await expect(balloonB).toHaveAttribute("aria-label", /interfering/);
+
+    const balloonC = page.locator(`[data-testid="assembly-balloon-${idC}"]`);
+    await expect(balloonC).toHaveAttribute("data-clash-state", "unverified");
+    await expect(balloonC).toHaveAttribute("data-clashing", "false");
+    await expect(balloonC).toHaveAttribute("aria-label", /overlap unverified/);
+    await expect(balloonC).not.toHaveAttribute("aria-label", /interfering/);
   });
 });
 

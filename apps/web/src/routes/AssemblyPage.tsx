@@ -205,11 +205,14 @@ export function AssemblyPage() {
   }, [evaluateRequest, clashBusy]);
 
   // The instances the last check flagged, split by how much the kernel actually
-  // knows (`assembly/clash`): a MEASURED clash badges red in the tree, a pair
-  // whose exact boolean failed badges a quiet dashed UNVERIFIED instead — the
-  // tree must not claim a measurement the kernel never took. The viewport tints
-  // the UNION (`flagged`): its job is "look here", and an unverified pair needs
-  // a human's eyes just as much; the precise language lives in the DOM.
+  // knows (`assembly/clash`): a MEASURED clash badges red, a pair whose exact
+  // boolean failed badges a quiet dashed UNVERIFIED instead — no surface may
+  // claim a measurement the kernel never took. ALL THREE surfaces get the split
+  // — schedule, tree AND viewport: the viewport's job is still "look here", but
+  // it says so with a dashed gauge balloon and an edge-light, keeping red for
+  // facts. Handing the scene the UNION (`flagged`) painted an unmeasured pair
+  // in the alarm colour and told screen readers "interfering" (UI-REVIEW
+  // 2026-07-30 P1).
   const clashIds = useMemo(
     () => clashInstanceIds(clashResult?.clashes ?? []),
     [clashResult],
@@ -838,7 +841,8 @@ export function AssemblyPage() {
               selectedInstanceId={selectedInstanceId}
               onSelectInstance={selectInstance}
               overlaysByInstance={overlaysByInstance}
-              clashingInstanceIds={clashIds.flagged}
+              clashingInstanceIds={clashIds.measured}
+              unverifiedInstanceIds={clashIds.unverifiedOnly}
             />
           </Viewport>
           <FloatingPanel side="left" title="Components" id="tree">

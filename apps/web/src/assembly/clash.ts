@@ -82,16 +82,18 @@ export interface ClashInstanceIds {
   measured: ReadonlySet<string>;
   /** Instances that appear ONLY in unverified pairs — the "Unverified" badge. */
   unverifiedOnly: ReadonlySet<string>;
-  /** Every instance the check wants a human to look at (the union). */
-  flagged: ReadonlySet<string>;
 }
 
 /**
  * Split the report's instances by how much the kernel actually knows. An
  * instance that is in both a measured and an unverified pair IS interfering, so
- * measured wins — `unverifiedOnly` is the honest "we could not tell" set, and
- * `flagged` (the union) is what the viewport tints, since an unverified pair
- * still needs a human's eyes on it.
+ * measured wins; `unverifiedOnly` is the honest "we could not tell" set.
+ *
+ * Both sets go to ALL THREE surfaces (schedule, tree, viewport) — there is no
+ * union set on purpose. A union existed until 2026-07-30 and the viewport used
+ * it, which painted an unmeasured pair in the alarm colour and announced it as
+ * "interfering" (UI-REVIEW P1). "Look here" is said with the unverified
+ * language, not by collapsing two states into one.
  */
 export function clashInstanceIds(
   clashes: readonly ClashPair[],
@@ -106,9 +108,5 @@ export function clashInstanceIds(
   const unverifiedOnly = new Set(
     [...unresolved].filter((id) => !measured.has(id)),
   );
-  return {
-    measured,
-    unverifiedOnly,
-    flagged: new Set([...measured, ...unverifiedOnly]),
-  };
+  return { measured, unverifiedOnly };
 }
