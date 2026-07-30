@@ -437,6 +437,15 @@ def test_pattern_after_an_intervening_fillet_unions_whole_body_not_recut() -> No
     locks the ``isinstance(source, ExtrudeFeature) and operation == "cut"``
     boundary: a non-cut preceding feature => union.
 
+    STILL THE RULE after the 2026-07-30 cut-slot widening (CM-5). What changed is
+    only WHICH verbs can be the recorded cut: revolve/sweep/loft cuts now write the
+    slot too, so the immediate-predecessor rule finally applies to them
+    (``test_composition_matrix.py::test_cm5_pattern_arrays_a_revolve_sweep_or_loft_cut``).
+    The rule itself — and this fallback — are untouched, deliberately: for a
+    pattern the fallback is a different READING of the request, while for a mirror
+    the same shadowing destroyed geometry, which is why only the mirror's rule
+    reaches past intervening features.
+
     Discriminator: a +X linear pattern (spacing 6, count 3) UNIONS three
     overlapping copies of the 60x60 plate → the body EXTENDS to x=42 and GAINS
     material (volume well over one 36000 mm^3 plate). Were the boundary broken

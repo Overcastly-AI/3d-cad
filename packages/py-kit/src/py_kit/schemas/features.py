@@ -15,9 +15,10 @@ millimetres, encoded in field names (``distance_mm``) exactly as
 """
 
 import uuid
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
 from datetime import datetime
+from types import MappingProxyType
 from typing import Annotated, Any, Literal, Self, assert_never, cast, get_args
 
 from pydantic import (
@@ -2669,6 +2670,20 @@ class FeatureTypeRegistry[ModelT: BaseModel]:
                     f"upcast chain for {feature_type!r} has gaps: "
                     f"{sources} does not reach v{current} contiguously"
                 )
+
+    def models(self) -> Mapping[str, type[ModelT]]:
+        """Every registered ``type`` → its CURRENT envelope model (read-only view).
+
+        Exposed so a GATE can enumerate the shipped feature vocabulary instead of
+        hand-listing it. The geometry composition matrix's coverage audit
+        (``test_pair_matrix_covers_every_shipped_verb``) derives its required rows
+        from here, so a new body-affecting verb — in particular a new CUT verb —
+        cannot ship without a matrix row or an explicitly-reasoned exemption
+        (docs/GEOMETRY-QA.md 2026-07-30: a hand-listed axis is exactly how
+        revolve/sweep/loft cuts stayed invisible to the matrix). Read-only: the
+        registry stays the only mutator of its own tables.
+        """
+        return MappingProxyType(self._models)
 
     def current_version(self, feature_type: str) -> int:
         """The current params version of *feature_type* (raises if unknown)."""

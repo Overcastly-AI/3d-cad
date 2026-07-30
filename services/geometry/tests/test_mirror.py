@@ -963,3 +963,243 @@ def test_mirror_plane_referencing_a_non_datum_feature_is_reference_unresolved() 
     assert error is not None
     assert error.code == "reference_unresolved"
     assert error.upstream_feature_id == BODY_ID
+
+
+# --- CM-5: the mirror reflects a REVOLVE / SWEEP / LOFT cut too -----------------------
+#
+# The FINDINGS #2 featureless brick, alive for the three NON-EXTRUDE cuts until
+# 2026-07-30: only extrude-cut and Hole wrote the v1 cut slot, so a `body`-scope
+# mirror after a revolve/sweep/loft cut had no cut on record, took `mirror_union`,
+# and the reflection FILLED the void — the plate came back as the bare brick with
+# every feature `ok`. `record_cut_tools` now also fires in the shared `_cut_active`
+# funnel, which is the ONE place all three verbs cut, so no verb can be forgotten.
+# Measured over the whole suite, neither v1 reader's answer changed on any chain
+# that existed before (docs/GEOMETRY-QA.md 2026-07-30).
+
+REVCUT_DATUM_ID = uuid.UUID("00000000-0000-0000-0000-0000000000c5")
+CUT_SKETCH_ID = uuid.UUID("00000000-0000-0000-0000-0000000000c6")
+CUT_FEATURE_ID = uuid.UUID("00000000-0000-0000-0000-0000000000c7")
+PATH_SKETCH_ID = uuid.UUID("00000000-0000-0000-0000-0000000000c8")
+LOFT_DATUM_ID = uuid.UUID("00000000-0000-0000-0000-0000000000c9")
+LOFT_SKETCH_ID = uuid.UUID("00000000-0000-0000-0000-0000000000ca")
+
+#: The CM-5 fixture plate: [0,40]^2 x 20, mirrored about x=20 — the SAME plate and
+#: plane the hole/CM-1 tests above use, so a reflected r4 bore must land on the
+#: SAME number they assert (61989.3807), whichever verb cut it.
+CM5_PLATE_V = 40.0 * 40.0 * 20.0
+CM5_BORE_R = 4.0
+CM5_BORE_AT = (10.0, 20.0)
+CM5_BORE_DV = -(math.pi * CM5_BORE_R**2 * 20.0)
+#: The loft row: an 8x8 (z=0) -> 6x6 (z=20) tapered through-pocket at the same
+#: place. Prismatoid rule (h/3)(A1 + A2 + sqrt(A1 A2)) — exact for a frustum.
+CM5_LOFT_LOW, CM5_LOFT_HIGH = 8.0, 6.0
+CM5_LOFT_DV = -(
+    20.0
+    / 3.0
+    * (
+        CM5_LOFT_LOW**2
+        + CM5_LOFT_HIGH**2
+        + math.sqrt(CM5_LOFT_LOW**2 * CM5_LOFT_HIGH**2)
+    )
+)
+
+
+def _sketch_on(
+    feature_id: uuid.UUID, entities: list[dict[str, Any]], plane: dict[str, Any]
+) -> dict[str, Any]:
+    """An unconstrained sketch of *entities* on an arbitrary resolved *plane*."""
+    return {
+        "id": str(feature_id),
+        "feature": {
+            "type": "sketch",
+            "version": 1,
+            "params": {
+                "plane": dict(plane),
+                "entities": entities,
+                "constraints": [],
+            },
+        },
+    }
+
+
+def _rect_entities(x0: float, y0: float, x1: float, y1: float) -> list[dict[str, Any]]:
+    corners = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
+    return [_line(f"e{i + 1}", corners[i], corners[(i + 1) % 4]) for i in range(4)]
+
+
+def _revolve_cut_bore() -> list[dict[str, Any]]:
+    """A r4 through-bore at (10,20) cut by a REVOLVE about a vertical axis.
+
+    The axis has to lie in the sketch plane, so the profile is drawn on a datum
+    parallel to YZ at x=10 (u = world +Y, v = world +Z): the construction line at
+    u=20 is the world vertical through (10,20), and the 4x20 rectangle beside it
+    sweeps the full bore.
+    """
+    return [
+        datum_offset_input(REVCUT_DATUM_ID, "YZ", CM5_BORE_AT[0]),
+        _sketch_on(
+            CUT_SKETCH_ID,
+            [
+                *_rect_entities(CM5_BORE_AT[1], 0.0, CM5_BORE_AT[1] + CM5_BORE_R, 20.0),
+                {
+                    **_line("ax", (CM5_BORE_AT[1], 0.0), (CM5_BORE_AT[1], 20.0)),
+                    "construction": True,
+                },
+            ],
+            {"kind": "feature", "feature_id": str(REVCUT_DATUM_ID)},
+        ),
+        {
+            "id": str(CUT_FEATURE_ID),
+            "feature": {
+                "type": "revolve",
+                "version": 1,
+                "params": {
+                    "profile": {
+                        "kind": "feature",
+                        "feature_id": str(CUT_SKETCH_ID),
+                    },
+                    "axis": {"kind": "sketch_line", "entity": "ax"},
+                    "angle_deg": 360.0,
+                    "operation": "cut",
+                },
+            },
+        },
+    ]
+
+
+def _sweep_cut_bore() -> list[dict[str, Any]]:
+    """The same r4 bore, cut by SWEEPING the circle up a straight +Z path.
+
+    The path is a relative trajectory from the profile's own location (the v1
+    sweep limit), so a 25 mm vertical line on XZ takes the XY circle clean through
+    the 20 mm plate.
+    """
+    return [
+        _sketch_on(
+            CUT_SKETCH_ID,
+            [
+                {
+                    "id": "c1",
+                    "kind": "circle",
+                    "center": {"x": CM5_BORE_AT[0], "y": CM5_BORE_AT[1]},
+                    "radius": CM5_BORE_R,
+                }
+            ],
+            XY_PLANE,
+        ),
+        _sketch_on(
+            PATH_SKETCH_ID,
+            [_line("p1", (0.0, 0.0), (0.0, 25.0))],
+            {"kind": "datum_plane", "plane": "XZ"},
+        ),
+        {
+            "id": str(CUT_FEATURE_ID),
+            "feature": {
+                "type": "sweep",
+                "version": 1,
+                "params": {
+                    "profile": {
+                        "kind": "feature",
+                        "feature_id": str(CUT_SKETCH_ID),
+                    },
+                    "path": {"kind": "feature", "feature_id": str(PATH_SKETCH_ID)},
+                    "operation": "cut",
+                },
+            },
+        },
+    ]
+
+
+def _loft_cut_pocket() -> list[dict[str, Any]]:
+    """An 8x8 -> 6x6 tapered through-pocket at (10,20), cut by a LOFT between two
+    parallel sections (XY and a datum XY@20)."""
+    cx, cy = CM5_BORE_AT
+    return [
+        _sketch_on(
+            CUT_SKETCH_ID,
+            _rect_entities(
+                cx - CM5_LOFT_LOW / 2,
+                cy - CM5_LOFT_LOW / 2,
+                cx + CM5_LOFT_LOW / 2,
+                cy + CM5_LOFT_LOW / 2,
+            ),
+            XY_PLANE,
+        ),
+        datum_offset_input(LOFT_DATUM_ID, "XY", 20.0),
+        _sketch_on(
+            LOFT_SKETCH_ID,
+            _rect_entities(
+                cx - CM5_LOFT_HIGH / 2,
+                cy - CM5_LOFT_HIGH / 2,
+                cx + CM5_LOFT_HIGH / 2,
+                cy + CM5_LOFT_HIGH / 2,
+            ),
+            {"kind": "feature", "feature_id": str(LOFT_DATUM_ID)},
+        ),
+        {
+            "id": str(CUT_FEATURE_ID),
+            "feature": {
+                "type": "loft",
+                "version": 1,
+                "params": {
+                    "profiles": [
+                        {"kind": "feature", "feature_id": str(CUT_SKETCH_ID)},
+                        {"kind": "feature", "feature_id": str(LOFT_SKETCH_ID)},
+                    ],
+                    "operation": "cut",
+                },
+            },
+        },
+    ]
+
+
+@pytest.mark.parametrize(
+    ("verb", "cut", "delta", "faces"),
+    [
+        ("revolve", _revolve_cut_bore(), CM5_BORE_DV, 8),
+        ("sweep", _sweep_cut_bore(), CM5_BORE_DV, 8),
+        ("loft", _loft_cut_pocket(), CM5_LOFT_DV, 14),
+    ],
+    ids=["revolve", "sweep", "loft"],
+)
+def test_mirror_reflects_a_revolve_sweep_or_loft_cut(
+    verb: str, cut: list[dict[str, Any]], delta: float, faces: int
+) -> None:
+    """CM-5 (P1): plate -> <revolve|sweep|loft> CUT -> midplane mirror keeps the void.
+
+    This is FINDINGS #2's own fixture with the bore cut by a different VERB: a
+    40x40x20 plate, a Ø8 through-bore at (10,20), a mirror about x=20. So the two
+    bore rows must land on FINDINGS #2's exact numbers — **29989.3807 mm^3**
+    correct versus **32000.0** for the filled brick — which cross-checks the three
+    cut funnels against the hole funnel rather than against themselves. The loft row
+    is the same chain with a tapered pocket (30026.6667 vs 32000.0).
+
+    Pre-fix all three returned 32000.0 with **6 faces / 12 edges** — the bare
+    plate, every feature reporting `ok`.
+    """
+    del verb
+    result = _post(
+        _request(
+            [
+                rect_sketch(SKETCH_ID, 0.0, 0.0, 40.0, 40.0),
+                extrude_input(BODY_ID, SKETCH_ID, 20.0),
+                *cut,
+                datum_offset_input(DATUM_ID, "YZ", 20.0),
+                mirror_input(
+                    MIRROR_ID, {"kind": "feature", "feature_id": str(DATUM_ID)}
+                ),
+            ]
+        )
+    )
+
+    assert [r.status for r in result.features] == ["ok"] * (4 + len(cut))
+    assert result.properties is not None
+    assert result.properties.volume == pytest.approx(
+        CM5_PLATE_V + 2.0 * delta, abs=MIRROR_TOL
+    ), "the mirror FILLED the void (32000.0 is the featureless brick)"
+    assert result.properties.topology.faces == faces
+    assert result.properties.topology.shells == 1
+    bbox = result.properties.bounding_box
+    assert bbox.max.x == pytest.approx(40.0, abs=MIRROR_TOL), (
+        "the mirror unioned the whole BODY instead of reflecting the removal"
+    )

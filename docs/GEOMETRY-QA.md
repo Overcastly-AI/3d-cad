@@ -5211,3 +5211,47 @@ a crash or a phantom/wrong body; topology-changing suppress re-evaluates downstr
 byte-identically to the never-built variant; results are byte-deterministic including
 `mesh_glb_id`. One 🟡 design observation on source-less pattern combine-mode inference under
 intermediate suppress — behaviour is correct and deterministic, flagged for slice-2 docs/UX.
+
+## 2026-07-30 — CM-5: the v1 cut slot was extrude-only, so a `body`-scope mirror after a revolve/sweep/loft cut FILLED the void (kernel-architect)
+
+**The defect.** `EvaluationState.record_cut_tools` — the v1 store a `body`-scope
+mirror and both pattern verbs read to decide "was there a removal here?" — was
+written only by the extrude-cut path and by Hole. Revolve-cut, sweep-cut and
+loft-cut recorded nothing. So on the chain
+`sketch → extrude(add) → <verb>(cut) → datum → mirror(scope=body)` the mirror
+found no cut on record, took `mirror_union`, and **the reflection filled the
+void it was supposed to reflect** — every feature reporting `ok`.
+
+Measured on the 80×80×10 matrix plate: **63999.999999999985 mm³, 6 faces / 12
+edges** — i.e. the bare plate, the literal featureless brick — where
+62994.6904 (revolve) / 62720.0 (sweep) / 61973.3333 (loft) are correct. That is
+the FINDINGS #2 silent-wrong-geometry class, so the rarity of the chain does not
+soften it: the user gets a wrong solid, exported to STEP, with no error anywhere.
+
+**The fix** is one line in `_cut_active`, the single funnel all three non-extrude
+cuts already pass through, so no verb can be forgotten:
+`state.record_cut_tools(feature_id, [tool])` alongside the existing v2
+`record_feature_tools`. Safe for existing trees because it only ADDS records for
+verbs that had none — neither reader's *rule* changes, and both were measured to
+return an identical tool list on every chain the suite exercises.
+
+**Why the matrix was blind to it.** The composition matrix's predecessor axis was
+a HAND-LISTED set of verbs, and revolve/sweep/loft cuts were simply not on it.
+A hand-listed axis cannot fail when the vocabulary grows — it just silently stops
+covering. Durable fix: `FeatureTypeRegistry.models()` now exposes a read-only view
+of the registered vocabulary, and `test_pair_matrix_covers_every_shipped_verb`
+derives its required rows from the registry, so a new body-affecting verb — a new
+CUT verb in particular — cannot ship without a matrix row or an explicitly
+reasoned exemption.
+
+**Gates.** 3 new goldens (`mirror-{revolve,sweep,loft}-cut-*`), hand-derived
+analytic expectations, curved tier tolerance 1e-9 measured first (worst observed
+2.0e-12 mm³ volume, ~500× headroom). Each golden's counts are cross-checked
+against the SAME solid built without the mirror — two explicit cuts — which gives
+identical mass properties, topology and mesh counts; the GLB sha256 differs
+because a mirror hands OCCT a different face ORDER, which is why these goldens
+pin counts and properties rather than a digest. Circle segmentation `N = 126`
+was taken from a trusted shipped golden (`hole-through-r5-40x25x10`, 530/520)
+rather than assumed. Verified at this commit: mirror + pattern 80 passed,
+composition matrix 309 passed, golden + round-trip 385 passed, and the 39
+pre-existing goldens unchanged.

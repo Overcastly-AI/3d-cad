@@ -1,0 +1,48 @@
+{
+  "description": "CM-5 (docs/GEOMETRY-QA.md 2026-07-30) \u2014 a `body`-scope MIRROR reflecting the removal of a revolve CUT. Until 2026-07-30 only extrude-cut and Hole recorded their removal tools, so this exact chain came back as the FEATURELESS BRICK: the mirror found no cut on record, took the reflect-and-union path, and the reflection FILLED the void \u2014 32000.0 mm^3 with 6 faces / 12 edges (the bare plate) with every feature reporting `ok`, the FINDINGS #2 symptom. This golden locks the fix: the shared `_cut_active` funnel now records into the v1 cut slot, so all three non-extrude cuts are reflected instead of filled. Chain: sketch -> extrude(add) -> revolve(cut) -> datum YZ@20 -> mirror. Locks: the widened cut slot, the mirror's cut path over a revolve-produced tool, GProp over two cylindrical walls, curved-face tessellation of the two periodic (seamed) cylinders, and \u2014 via the parametrized round-trip gate \u2014 STEP re-approximation of both bores.",
+  "derivation": [
+    "Expectations are HAND-DERIVED analytic values, not recorded harness output (geometry-gates skill: a golden recorded from buggy output enshrines the bug).",
+    "Base: an unconstrained [0,40]x[0,40] rectangle on the XY datum plane, extruded +Z by 20 -> a 40 x 40 x 20 = 32000 mm^3 plate. Unconstrained means planegcs returns the drawn positions bitwise (zero residual), so every deviation below is the kernel's, never the solver's.",
+    "Cut: a r4 through-bore centred (10,20). Its reflection about the YZ datum at x=20 lands at (30,20), 12 mm clear of the first bore and 6 mm clear of the x=40 wall, so the two bores are disjoint and strictly interior.",
+    "The revolve's axis must lie in its own sketch plane, so the profile is drawn on a datum parallel to YZ at x=10 (whose u axis is world +Y and v axis world +Z): the construction line at u=20 IS the world vertical through (10,20), and the 4 x 20 rectangle beside it sweeps the full bore through the plate. The rectangle's on-axis edge is a real edge AND a construction centerline, the idiom revolve-centerline-cylinder-r12-h20 already locks.",
+    "volume = 32000 - 2 * pi * r^2 * h = 32000 - 2 * pi * 16 * 20 = 32000 - 640*pi = 29989.380701702532 mm^3. The pre-fix (filled) answer is 32000.0 exactly, so this assertion fails by 2010.6 mm^3 if the void is ever filled again.",
+    "surface_area: plate faces 2*(40*40) + 4*(40*20) = 6400 mm^2; each bore removes a disc from the top AND bottom face (-2 * pi * r^2 each, -64*pi for two bores) and adds a lateral cylinder 2*pi*r*h = 160*pi each (+320*pi). area = 6400 - 64*pi + 320*pi = 6400 + 256*pi = 7204.247719318987 mm^2.",
+    "centroid = (20, 20, 10): the two bores are symmetric about x=20 and about y=20 and run the full thickness, so they remove no first moment at all and the centroid stays at the plate centre.",
+    "bounding_box = [0,0,0]..[40,40,20]: both bores are interior to the envelope.",
+    "Topology: 6 plate planar faces + 2 cylindrical bore walls = 8 faces; 12 plate edges + per bore (top circle + bottom circle + 1 cylindrical seam) = 12 + 6 = 18 edges; 1 shell. A filled body reads 6 / 12 / 1.",
+    "Mesh (linear_deflection 0.1): 1036 vertices / 1028 triangles. Derived per face with N = the circle segmentation: 4 plate side rectangles 4*4 = 16 verts / 4*2 = 8 tris; the top and bottom faces are each a square with TWO circular holes -> (4 + 2N) boundary verts and (n + 2h - 2) = 2N + 6 triangles each; each cylinder is a quad strip of N segments -> 2(N+1) verts / 2N tris. Totals: verts = 16 + 2(4 + 2N) + 4(N + 1) = 28 + 8N; tris = 8 + 2(2N + 6) + 4N = 20 + 8N. N is taken from a TRUSTED SHIPPED GOLDEN rather than assumed: hole-through-r5-40x25x10 has one bore and reads 530 / 520, and its own per-face formulas are verts = 26 + 4N and tris = 16 + 4N -> N = 126 from both. N = 126 here gives 28 + 1008 = 1036 and 20 + 1008 = 1028, and the segmentation is radius-independent at this deflection (r5 there, r4 here) because the angular-deflection criterion binds.",
+    "Independent cross-check of the whole artifact: the SAME solid built WITHOUT the mirror \u2014 two explicit revolve cuts at (10,20) and (30,20) \u2014 produces identical mass properties, identical topology and identical mesh counts (1036/1028, same GLB byte length), so the counts encode the geometry rather than the mirror path. The GLB sha256 differs between the two trees because a mirror hands OCCT a different face ORDER, which is why the golden pins counts and mass properties rather than a digest (see assert_same_solid in test_composition_matrix.py)."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "CURVED-GEOMETRY tolerance, measured first, then set (geometry-gates skill: never copy a bound blindly). The two cylindrical bore walls go through OCCT's Gauss-quadrature surface/volume integration in GProp, which converges to machine precision but not exact zero. Measured deviations vs the analytic values (2026-07-30, build123d 0.11.1 / OCCT 7.9, planegcs 0.8.0): volume 2.0e-12 mm^3 (~7e-17 relative at 3e4), surface_area 1.0e-12 mm^2, centroid <= 7.1e-15 mm (x exactly 20.0 for the revolve tree, 3.6e-15 for the sweep tree), AABB exactly 0.0 on all six bounds. Documented ceiling 1e-9 = ~500x the observed worst case, headroom for libm/platform variation in the quadrature's transcendental evaluations across CI hosts \u2014 the same reviewed 1e-9 curved tier the sweep-circle-r8-h30 and revolve-annulus-r10-20-h15 goldens carry, and 100x TIGHTER than the standing 1e-7 kernel linear bound. Loosening this bound requires a reviewed kernel-level justification recorded here and in docs/GEOMETRY-QA.md.",
+  "properties": {
+    "volume": 29989.380701702532,
+    "surface_area": 7204.247719318987,
+    "centroid": {
+      "x": 20.0,
+      "y": 20.0,
+      "z": 10.0
+    },
+    "bounding_box": {
+      "min": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "max": {
+        "x": 40.0,
+        "y": 40.0,
+        "z": 20.0
+      }
+    }
+  },
+  "topology": {
+    "faces": 8,
+    "edges": 18,
+    "shells": 1
+  },
+  "mesh": {
+    "vertices": 1036,
+    "triangles": 1028
+  }
+}

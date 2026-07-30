@@ -627,12 +627,24 @@ def _cut_active(
     honesty the Hole feature has always had (``hole_off_body``), so a revolve /
     sweep / loft cut into free space is never a successful no-op.
 
-    On success the removal tool is RECORDED as this feature's reflectable
-    contribution (opt-in) so a ``features``-scope mirror can reflect it and re-cut —
-    mirror-semantics §4.2 closes the coverage gap §6.2 names (revolve/sweep/loft cuts
-    recorded NOTHING before). It deliberately does NOT touch the v1
-    :meth:`EvaluationState.record_cut_tools` slot, whose two readers' meaning must
-    not move.
+    On success the removal tool is recorded TWICE, into the two stores that answer
+    two different questions (and this is the ONE funnel where all three
+    non-extrude cuts do it, so no verb can be forgotten):
+
+    * :meth:`EvaluationState.record_cut_tools` — the v1 cut slot a ``body``-scope
+      mirror and a ``pattern`` read. **Widened to these three verbs 2026-07-30**
+      (CM-5): while they recorded nothing, a ``body``-scope mirror after a
+      revolve/sweep/loft cut had no cut on record, took ``mirror_union``, and the
+      reflection FILLED the void — measured on the matrix plate as the literal
+      featureless brick (63999.999999999985 mm^3, **6 faces / 12 edges**, i.e. the
+      bare 80x80x10 plate) where 62994.6904 / 62720.0 / 61973.3333 are correct.
+      That is the FINDINGS #2 silent-wrong-geometry class, so rarity of the chain
+      does not soften it. The widening is safe for existing trees because it only
+      ADDS records for verbs that had none: neither reader's RULE changes, and
+      both were measured to return an identical tool list on every chain the suite
+      exercises (docs/GEOMETRY-QA.md 2026-07-30).
+    * :meth:`EvaluationState.record_feature_tools` — the opt-in per-feature v2
+      store a ``features``-scope mirror reflects (mirror-semantics §4.2).
     """
     active = state.active_body
     assert active is not None, "cut without an active body is handled by the caller"
@@ -642,6 +654,7 @@ def _cut_active(
         return FeatureError(code="cut_removed_nothing", message=str(exc))
     except BooleanError as exc:
         return FeatureError(code="boolean_failed", message=str(exc))
+    state.record_cut_tools(feature_id, [tool])
     state.record_feature_tools(feature_id, "cut", [tool])
     return None
 

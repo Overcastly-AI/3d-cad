@@ -669,20 +669,32 @@ def test_rebuilding_the_same_features_scope_mirror_is_byte_deterministic() -> No
 
 
 def test_widening_the_tool_store_leaves_the_v1_readers_untouched() -> None:
-    """§6.2 — ``record_cut_tools`` keeps EXACTLY its v1 write sites and meaning.
+    """§6.2 — the v2 per-feature store never writes the v1 CUT slot.
 
     The v1 cut slot has TWO readers with two different documented rules
     (``_mirror_cut_tools``: the most recent cut however far back;
-    ``_pattern_cut_tools``: the immediate predecessor only). v2 records tools for
-    every mirrorable verb, and
-    if those landed in the v1 slot both rules would silently change meaning — a
-    ``body``-scope mirror after a revolve-cut would start reflecting a tool it never
-    reflected before, moving answers on trees that have shipped goldens.
+    ``_pattern_cut_tools``: the immediate predecessor only), so a v2 store that
+    poured ADDITIVE tools into it would silently change what a ``body``-scope
+    mirror and a pattern replicate. The two stores are therefore separate, and this
+    asserts the separation at the state level: recording an additive tool for a
+    captured feature must not touch ``last_cut_tools`` / ``last_cut_feature_id`` /
+    ``last_cut_body_id``, and a feature NOT in the capture set must not be recorded
+    at all.
 
-    So the v2 store is SEPARATE and OPT-IN. This asserts the separation directly at
-    the state level: recording an additive tool for a captured feature must not
-    touch ``last_cut_tools`` / ``last_cut_feature_id`` / ``last_cut_body_id``, and a
-    feature NOT in the capture set must not be recorded at all.
+    WHAT CHANGED 2026-07-30 (CM-5), and what did not. v2 shipped with the cut slot
+    frozen at its two v1 write sites (extrude-cut + Hole) because widening it was a
+    behaviour change with no golden; the documented cost was that a ``body``-scope
+    mirror after a revolve/sweep/loft cut still FILLED that void — FINDINGS #2 for
+    three verbs, measured as the literal featureless brick. That is now fixed by
+    ADDING those three verbs to the slot in the shared ``_cut_active`` funnel. The
+    invariant this test protects is unchanged and still exactly right: the ADDITIVE
+    v2 records must never reach the cut slot. What is no longer true is only the
+    claim that the cut slot has exactly TWO write sites — it has five (three of them
+    through one funnel), and the "v1 readers return an identical tool list on every
+    pre-existing chain" guarantee moved from structural to MEASURED: 242 reader
+    calls across the mirror/pattern/goldens/multibody/provenance suites, all 42
+    goldens and the ten locked chains, byte-identical before and after
+    (docs/GEOMETRY-QA.md 2026-07-30).
     """
     body_id = _fid(2)
     state = EvaluationState(

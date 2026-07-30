@@ -1,0 +1,47 @@
+{
+  "description": "CM-5 (docs/GEOMETRY-QA.md 2026-07-30) \u2014 a `body`-scope MIRROR reflecting the removal of a loft CUT. Until 2026-07-30 only extrude-cut and Hole recorded their removal tools, so this exact chain came back as the FEATURELESS BRICK: the mirror found no cut on record, took the reflect-and-union path, and the reflection FILLED the void \u2014 32000.0 mm^3 with 6 faces / 12 edges (the bare plate) with every feature reporting `ok`, the FINDINGS #2 symptom. This golden locks the fix: the shared `_cut_active` funnel now records into the v1 cut slot, so all three non-extrude cuts are reflected instead of filled. Chain: sketch -> extrude(add) -> sketch(8x8 at z=0) -> datum XY@20 -> sketch(6x6 at z=20) -> loft(cut) -> datum YZ@20 -> mirror. The removal is a TAPERED through-pocket (the frustum of a pyramid), so unlike the two bore siblings this golden's expectations exercise a z-asymmetric removal: the mirrored body's centroid moves OFF the plate centre in z, which a reflection that filled or mis-placed the void could not reproduce.",
+  "derivation": [
+    "Expectations are HAND-DERIVED analytic values, not recorded harness output (geometry-gates skill: a golden recorded from buggy output enshrines the bug).",
+    "Base: an unconstrained [0,40]x[0,40] rectangle on XY extruded +Z by 20 -> a 40 x 40 x 20 = 32000 mm^3 plate (planegcs returns the drawn positions bitwise, zero residual).",
+    "Cut: a ruled loft from an 8x8 section at z=0 to a 6x6 section at z=20, both centred (10,20) -> the frustum of a pyramid, cut through the plate. Its reflection about the YZ datum at x=20 is centred (30,20); the two pockets are 16 mm apart at their widest and 6 mm clear of the x=40 wall.",
+    "One frustum: V = (h/3)(A1 + A2 + sqrt(A1*A2)) = (20/3)(64 + 36 + 48) = 986.6666666666666 mm^3 (the prismatoid rule, exact for a frustum). volume = 32000 - 2 * 986.6666666666666 = 30026.666666666668 mm^3. The pre-fix (filled) answer is 32000.0 exactly.",
+    "surface_area: plate faces 6400 mm^2; each pocket removes its 8x8 = 64 from the bottom face and its 6x6 = 36 from the top face (-200 for two pockets) and adds 4 planar trapezoid walls. Each wall has parallel sides 8 and 6 and slant height sqrt(20^2 + ((8-6)/2)^2) = sqrt(401), so one wall is ((8+6)/2)*sqrt(401) = 7*sqrt(401) and eight walls are 56*sqrt(401). area = 6400 - 200 + 56*sqrt(401) = 7321.399126092044 mm^2.",
+    "centroid: x = 20 and y = 20 by the mirror symmetry about x=20 and the pockets' own y symmetry. z is NOT 10: one frustum's centroid sits at z = (h/4)(A1 + 2*sqrt(A1*A2) + 3*A2)/(A1 + sqrt(A1*A2) + A2) = 5*(64 + 96 + 108)/148 = 9.054054054054054 mm, i.e. BELOW the plate mid-plane, so removing both pockets lifts the body centroid: z = (32000*10 - 2*986.6666666666666*9.054054054054054) / 30026.666666666668 = 10.062166962699822 mm.",
+    "bounding_box = [0,0,0]..[40,40,20]: both pockets are interior in plan and run the full thickness.",
+    "Topology: 6 plate planar faces + 4 trapezoid walls per pocket = 14 faces; 12 plate edges + per pocket (4 bottom + 4 top + 4 slanted) = 12 + 24 = 36 edges; 1 shell. A filled body reads 6 / 12 / 1.",
+    "Mesh (linear_deflection 0.1): 72 vertices / 52 triangles, all planar and fully hand-derivable. 4 plate side rectangles: 16 verts / 8 tris. 8 trapezoid walls: 32 verts / 16 tris. The bottom face is a 40x40 square with two 8x8 holes and the top face a 40x40 square with two 6x6 holes: each has n = 4 + 4 + 4 = 12 boundary vertices and no interior vertices, so each triangulates into n + 2h - 2 = 12 + 4 - 2 = 14 triangles. verts = 16 + 32 + 12 + 12 = 72; tris = 8 + 16 + 14 + 14 = 52.",
+    "Independent cross-check of the whole artifact: the SAME solid built WITHOUT the mirror \u2014 two explicit loft cuts at (10,20) and (30,20) \u2014 produces identical mass properties, identical topology and identical mesh counts (72/52, same GLB byte length). The GLB sha256 differs because a mirror hands OCCT a different face ORDER, which is why the golden pins counts and mass properties rather than a digest."
+  ],
+  "tolerance": 2e-7,
+  "tolerance_rationale": "AABB-PADDING-limited tolerance, measured first, then set \u2014 the SAME reviewed bound the two shipped loft goldens carry (loft-pyramid-sq20-h30, loft-cylinder-offset-r10-h30), for the same reason and no other: the lofted B-rep is built by OCCT's BRepOffsetAPI_ThruSections, whose faces carry the kernel modeling tolerance (~Precision::Confusion = 1e-7 mm), and the OPTIMAL AABB of the resulting solid is therefore padded outward by ~1e-7. Measured deviations vs the analytic values (2026-07-30, build123d 0.11.1 / OCCT 7.9, planegcs 0.8.0): volume 7.3e-12 mm^3, surface_area exactly 0.0, centroid <= 7.1e-15 mm (z EXACTLY the hand-derived 10.062166962699822), and AABB padded by 1.0e-7 mm on the z bounds (the dominant term; x/y exactly 0.0 because the plate's own extruded faces bound those). Documented ceiling 2e-7 = 2x the observed worst case and exactly 2x the standing kernel linear tolerance. It is looser than the two curved CM-5 siblings' 1e-9 SPECIFICALLY because ThruSections pads the AABB, not because any correctness value is imprecise (volume/area/centroid are machine-exact). Loosening it further requires a reviewed kernel-level justification recorded here and in docs/GEOMETRY-QA.md.",
+  "properties": {
+    "volume": 30026.666666666668,
+    "surface_area": 7321.399126092044,
+    "centroid": {
+      "x": 20.0,
+      "y": 20.0,
+      "z": 10.062166962699822
+    },
+    "bounding_box": {
+      "min": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "max": {
+        "x": 40.0,
+        "y": 40.0,
+        "z": 20.0
+      }
+    }
+  },
+  "topology": {
+    "faces": 14,
+    "edges": 36,
+    "shells": 1
+  },
+  "mesh": {
+    "vertices": 72,
+    "triangles": 52
+  }
+}

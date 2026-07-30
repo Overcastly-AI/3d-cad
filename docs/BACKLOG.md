@@ -1068,6 +1068,13 @@ frame refactor are v2/§11. Spike de-collected.
 Full narrative evidence lives in `docs/ROADMAP.md` (Phase 4/4b sections) and
 `CHANGELOG.md`; one line per item below per token economy.
 
+### Recently shipped (2026-07-30)
+
+- **CM-5 — `body`-scope mirror after a revolve/sweep/loft CUT filled the void**
+  (FINDINGS #2 class, silent wrong geometry). One line in the shared `_cut_active`
+  funnel; matrix predecessor axis now derived from `FeatureTypeRegistry.models()`
+  so a new cut verb cannot ship matrix-blind. 3 goldens, 774 kernel tests green.
+
 ### Recently shipped (2026-07-25 batch — engineering audit H findings)
 
 - [x] (P0, S) **Regression A — the resilient face re-match silently MOVED the

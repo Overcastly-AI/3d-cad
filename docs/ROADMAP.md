@@ -2,10 +2,14 @@
 
 Status legend: ✅ done · 🚧 in progress · ⬜ planned
 
-**Current focus: FOUNDER-DIRECTED — the FINDINGS burn-down is COMPLETE
-(2026-07-25); in flight is Drawings parity #4 (assembly views compose end-to-end;
-the derived-item-number BOM read model landed 2026-07-25, balloons filed as one
-whole slice).**
+**Current focus: FOUNDER-DIRECTED UI WAVE (2026-07-30) — "this needs to look
+professional and comparable to Fusion 360 and Plasticity." Design plan in
+`docs/design/ui-wave-tool-grade.md`; queued as UI-W1 (bottom timeline with a
+draggable travel stop), UI-W2 (categorical visibility/opacity/isolate — Origin /
+Sketches / Bodies), UI-W3 (pre-selection prefills editors), UI-W4 (editors stop
+being 12-row mid-frame forms), UI-W5 (entity snapping, Ctrl to suppress), plus
+material/density so MASS PROPERTIES can report mass, and a settings surface.
+Kernel CM-5 (the revolve/sweep/loft-cut mirror void-fill) landed 2026-07-30.**
 Founder directive 2026-07-24: *"pause all things and fix items in the findings
 report — we should not proceed until all the items are fixed or implemented."*
 All 25 items in `docs/FINDINGS.md` (the consolidated 4-lens hard audit: P0
