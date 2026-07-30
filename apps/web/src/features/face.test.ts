@@ -1,3 +1,7 @@
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { describe, expect, it } from "vitest";
 
 import type {
@@ -18,37 +22,45 @@ import {
 } from "./face";
 
 /**
- * The EXACT membership of `py_kit.schemas.features.BODY_AFFECTING_FEATURE_TYPES`
- * (`packages/py-kit/src/py_kit/schemas/features.py`) — hand-mirrored so a single-
- * side edit (add a body-affecting feature server-side, forget the client) fails
- * this guard loudly. `datum`/`sketch` are NOT body-affecting and must stay out.
- * The set anchors EVERY face/edge pick (`lastBodyFeatureId`), so a missing entry
- * mis-anchors a later pick to the wrong body (subshape_unresolved / bad dep).
- *
- * Follow-up (true DRY): the OpenAPI schema can't express the "body-affecting"
- * subset (it's a semantic flag, not a field), so this can't be derived from the
- * generated contract today. Exposing the set as a generated enum in
- * `packages/contracts` would kill the drift class — filed as a follow-up.
+ * The py-kit module the client set mirrors. The path is deliberate: if the
+ * module moves, this test fails loudly rather than silently stopping guarding
+ * anything (the idiom `thread.test.ts` uses for the kernel's pitch table).
  */
-const EXPECTED_BODY_AFFECTING = [
-  "extrude",
-  "revolve",
-  "sweep",
-  "loft",
-  "fillet",
-  "chamfer",
-  "shell",
-  "draft",
-  "hole",
-  "pattern",
-  "mirror",
-  "import",
-  "sheet_metal_base_flange",
-  "sheet_metal_edge_flange",
-  "sheet_metal_hem",
-  "sheet_metal_corner_relief",
-  "boolean",
-] as const;
+const PY_KIT_FEATURES = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  "../../../../packages/py-kit/src/py_kit/schemas/features.py",
+);
+
+/**
+ * Parse `BODY_AFFECTING_FEATURE_TYPES` out of the py-kit module — THE source of
+ * truth for the set (`packages/py-kit/src/py_kit/schemas/features.py`).
+ *
+ * Comments are stripped before the string literals are read, because the
+ * comments inside that frozenset quote prose (`"sketch on an imported part's
+ * face"`) that would otherwise parse as a member.
+ *
+ * The OpenAPI schema cannot express "body-affecting" (it is a semantic subset,
+ * not a field), so the set cannot come from the generated contract today —
+ * exposing it as a generated enum in `packages/contracts` would retire this
+ * parse entirely, and is filed as a follow-up.
+ */
+function pyKitBodyAffecting(source: string): string[] {
+  const marker = "\nBODY_AFFECTING_FEATURE_TYPES = frozenset(";
+  const start = source.indexOf(marker);
+  expect(
+    start,
+    "py-kit BODY_AFFECTING_FEATURE_TYPES not found",
+  ).toBeGreaterThan(-1);
+  const open = source.indexOf("{", start);
+  const close = source.indexOf("\n)", open);
+  const types: string[] = [];
+  for (const line of source.slice(open + 1, close).split("\n")) {
+    const code = line.split("#")[0] ?? "";
+    const match = /"([a-z_]+)"\s*,/.exec(code);
+    if (match !== null) types.push(match[1] as string);
+  }
+  return types;
+}
 
 /**
  * A minimal feature row whose `feature.type` is set from `type` — the ONLY
@@ -145,19 +157,42 @@ describe("lastBodyFeatureId", () => {
     expect(lastBodyFeatureId([])).toBeNull();
   });
 
-  it("recognises every body-affecting op", () => {
-    for (const type of EXPECTED_BODY_AFFECTING) {
-      expect(lastBodyFeatureId([typed("x", type)])).toBe("x");
-    }
-  });
+  // "recognises every body-affecting op" moved into the drift-guard block
+  // below, where the list comes from py-kit instead of a hand-copy.
 });
 
 describe("BODY_AFFECTING_FEATURE_TYPES — backend drift guard", () => {
+  const source = readFileSync(PY_KIT_FEATURES, "utf8");
+
   it("mirrors py_kit.schemas.features.BODY_AFFECTING_FEATURE_TYPES exactly", () => {
+    // A REAL drift guard (AUDIT-ENGINEERING J5): this reads the py-kit module
+    // and compares the client set to what it actually declares, so adding a
+    // body-affecting feature server-side and forgetting the client fails here.
+    // Until 2026-07-30 it compared a hand-copy in this file to a hand-copy in
+    // `face.ts` — BOTH inside apps/web — so backend drift could not fail it,
+    // while the comment claimed "a member added on ONE side fails here".
+    const pyKit = pyKitBodyAffecting(source);
+    // Non-vacuity: a regex that silently matched nothing (or a set that stopped
+    // being a frozenset literal) would make the equality below vacuously true.
+    expect(pyKit.length).toBeGreaterThan(15);
+    expect(new Set(pyKit).size).toBe(pyKit.length);
     // Order-independent set equality: a member added on ONE side fails here.
-    expect([...BODY_AFFECTING_FEATURE_TYPES].sort()).toEqual(
-      [...EXPECTED_BODY_AFFECTING].sort(),
-    );
+    expect([...BODY_AFFECTING_FEATURE_TYPES].sort()).toEqual([...pyKit].sort());
+  });
+
+  it("recognises every body-affecting type py-kit declares", () => {
+    // The pick-anchor consequence, stated as behaviour: `lastBodyFeatureId`
+    // must anchor to EACH of them, or a later face/edge pick lands on the wrong
+    // body (subshape_unresolved / a bad write-time dependency).
+    for (const type of pyKitBodyAffecting(source)) {
+      expect(lastBodyFeatureId([typed("x", type)])).toBe("x");
+    }
+  });
+
+  it("excludes the types py-kit deliberately leaves out", () => {
+    const pyKit = pyKitBodyAffecting(source);
+    expect(pyKit).not.toContain("sketch");
+    expect(pyKit).not.toContain("datum");
   });
 
   it("excludes the non-body-affecting types", () => {

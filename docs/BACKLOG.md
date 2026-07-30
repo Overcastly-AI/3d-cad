@@ -84,9 +84,25 @@ frame refactor are v2/§11. Spike de-collected.
       A material change marks the last-evaluate record stale (mass depends on
       it), unlike a rename/unit change. FRONTEND FOLLOW-UP filed below.
       [src: founder flow audit 2026-07-30 · UI-REVIEW "overstated surface" class]
-- [ ] (P1, M) **#57b — the mass UI: stop promising mass before there is a
-      material** (`apps/web`, `packages/design`). The wire landed above; the
-      panel has not moved. Acceptance: (1) while `properties.mass_g` is null the
+- [x] (P1, M) **#57b — the mass UI: stop promising mass before there is a
+      material. SHIPPED 2026-07-30** (frontend-builder). The panel is titled
+      PROPERTIES with NO mass row while `properties.mass_g` is null and earns
+      MASS PROPERTIES only when a material gives it one; absence reads as the
+      MATERIAL cell's "No material" + "Assign a material to get a mass", never
+      `0 g`. Picker + density come from `GET /api/v1/materials` through the
+      gateway (nothing client-side knows a density); assignment PATCHes
+      `materials` wholesale under `expected_tree_version` (document default +
+      per-body override rows), retrying once on a stale-version race. Mass rides
+      the ONE units seam (`MASS_G_PER_UNIT` / `formatMass` in
+      `packages/design/src/units.ts`): 21.6 g on a 20 mm aluminium cube, 0.1388
+      lb in an inch document, g->kg above 1000 g. A mixed part shows CENTRE OF
+      MASS apart from the centroid (measured on screen: 32.34 vs 25 mm on the
+      84.56 g two-cube part) and NAMES the body with no material
+      ("Extrude2 has no material, so the part has no total mass.") instead of
+      going quiet. 42 unit/component tests (mutation-verified) +
+      `e2e/materials.spec.ts` (6, real OCCT); shots
+      `docs/screenshots/materials-{before,after,after-assigned}-{1440,1366}.png`
+      + `materials-after-mixed-1440.png`. Original acceptance: (1) while `properties.mass_g` is null the
       panel is NOT titled "MASS PROPERTIES" and shows no mass row — it offers the
       assign-material affordance instead; (2) absence renders as absence (an em
       dash / "no material"), never `0 g`; (3) a material picker reading
@@ -1324,6 +1340,15 @@ Full narrative evidence lives in `docs/ROADMAP.md` (Phase 4/4b sections) and
   `views_overlap`/`views_crowded` on `ComposedSheet.layout_issues` + a
   release-blocking banner in all three formats. Five compose byte-goldens
   regenerated for the clear layout; a clean sheet carries no banner ink.
+
+- **J5 — the "backend drift guard" in `face.test.ts` could not fail for backend
+  drift.** It compared a hand-copy in the test to a hand-copy in `face.ts`, BOTH
+  inside `apps/web`, under a comment promising "a member added on ONE side fails
+  here". It now PARSES `py_kit.schemas.features.BODY_AFFECTING_FEATURE_TYPES`
+  (the `thread.test.ts` pattern: comments stripped first, since that frozenset's
+  comments quote prose) with a non-vacuity guard, and the comment says what the
+  gate actually does. Mutation-verified BOTH ways: a member added on the py-kit
+  side fails it; a regex that matches nothing trips the non-vacuity assert.
 
 - **J6 — the body-affecting feature-type set was declared twice, unguarded.**
   Gated rather than merged (the two constants answer different questions and

@@ -1,5 +1,7 @@
 import { expect, test, type Page } from "./fixtures";
 
+import { rectangleSketch } from "./partSeed";
+
 import {
   createPartViaApi,
   distinctCanvasColors,
@@ -20,68 +22,6 @@ import {
  * touch → a plain union fails; a disjoint union keeps both = 8000 + 8000 =
  * 16000 mm³, two shells (matches the golden `boolean-union-two-disjoint-cubes`).
  */
-
-/** A fully-constrained axis-aligned rectangle at (x0,y0), w×h, on XY. */
-function rectangleSketch(x0: number, y0: number, w: number, h: number) {
-  return {
-    plane: { kind: "datum_plane", plane: "XY" },
-    entities: [
-      {
-        id: "e1",
-        kind: "line",
-        start: { x: x0, y: y0 },
-        end: { x: x0 + w, y: y0 },
-      },
-      {
-        id: "e2",
-        kind: "line",
-        start: { x: x0 + w, y: y0 },
-        end: { x: x0 + w, y: y0 + h },
-      },
-      {
-        id: "e3",
-        kind: "line",
-        start: { x: x0 + w, y: y0 + h },
-        end: { x: x0, y: y0 + h },
-      },
-      {
-        id: "e4",
-        kind: "line",
-        start: { x: x0, y: y0 + h },
-        end: { x: x0, y: y0 },
-      },
-    ],
-    constraints: [
-      {
-        kind: "coincident",
-        a: { entity: "e1", point: "end" },
-        b: { entity: "e2", point: "start" },
-      },
-      {
-        kind: "coincident",
-        a: { entity: "e2", point: "end" },
-        b: { entity: "e3", point: "start" },
-      },
-      {
-        kind: "coincident",
-        a: { entity: "e3", point: "end" },
-        b: { entity: "e4", point: "start" },
-      },
-      {
-        kind: "coincident",
-        a: { entity: "e4", point: "end" },
-        b: { entity: "e1", point: "start" },
-      },
-      { kind: "horizontal", entity: "e1" },
-      { kind: "vertical", entity: "e2" },
-      { kind: "horizontal", entity: "e3" },
-      { kind: "vertical", entity: "e4" },
-      { kind: "distance", entity: "e1", value_mm: w },
-      { kind: "distance", entity: "e2", value_mm: h },
-      { kind: "fixed", point: { entity: "e1", point: "start" } },
-    ],
-  };
-}
 
 /** POST one feature at the tree tip via the real gateway. */
 async function createFeature(

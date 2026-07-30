@@ -145,3 +145,70 @@ export async function evaluateViaApi(
   };
   return body.features.map((f) => f.status);
 }
+
+/**
+ * A fully-constrained axis-aligned rectangle at (x0,y0), w×h, on XY — the
+ * general form of {@link SQUARE_20}, for specs that need a SECOND body offset
+ * from the first. Extracted on the third use (multibody-union,
+ * multibody-disjoint, materials) per the DRY rule.
+ */
+export function rectangleSketch(x0: number, y0: number, w: number, h: number) {
+  return {
+    plane: { kind: "datum_plane", plane: "XY" },
+    entities: [
+      {
+        id: "e1",
+        kind: "line",
+        start: { x: x0, y: y0 },
+        end: { x: x0 + w, y: y0 },
+      },
+      {
+        id: "e2",
+        kind: "line",
+        start: { x: x0 + w, y: y0 },
+        end: { x: x0 + w, y: y0 + h },
+      },
+      {
+        id: "e3",
+        kind: "line",
+        start: { x: x0 + w, y: y0 + h },
+        end: { x: x0, y: y0 + h },
+      },
+      {
+        id: "e4",
+        kind: "line",
+        start: { x: x0, y: y0 + h },
+        end: { x: x0, y: y0 },
+      },
+    ],
+    constraints: [
+      {
+        kind: "coincident",
+        a: { entity: "e1", point: "end" },
+        b: { entity: "e2", point: "start" },
+      },
+      {
+        kind: "coincident",
+        a: { entity: "e2", point: "end" },
+        b: { entity: "e3", point: "start" },
+      },
+      {
+        kind: "coincident",
+        a: { entity: "e3", point: "end" },
+        b: { entity: "e4", point: "start" },
+      },
+      {
+        kind: "coincident",
+        a: { entity: "e4", point: "end" },
+        b: { entity: "e1", point: "start" },
+      },
+      { kind: "horizontal", entity: "e1" },
+      { kind: "vertical", entity: "e2" },
+      { kind: "horizontal", entity: "e3" },
+      { kind: "vertical", entity: "e4" },
+      { kind: "distance", entity: "e1", value_mm: w },
+      { kind: "distance", entity: "e2", value_mm: h },
+      { kind: "fixed", point: { entity: "e1", point: "start" } },
+    ],
+  };
+}

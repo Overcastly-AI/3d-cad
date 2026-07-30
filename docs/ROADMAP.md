@@ -32,10 +32,18 @@ a genuinely MASS-weighted centre of mass: the mixed-material golden measures
 code had been CALLING its volume weighting "mass-weighted". The library read now
 has its GATEWAY twin (backend-builder, 2026-07-30) — `GET /api/v1/materials` is
 auth-gated and proxied, so the picker never has to reach past the gateway.
-Remaining: the
-frontend must stop titling the panel MASS PROPERTIES until a material exists,
-render absence as absence, and add `formatMass` to the ONE units seam in
-`packages/design` (materials.md §5/§6).
+**#57b — the UI half SHIPPED 2026-07-30**
+(frontend-builder): the panel no longer promises what it does not have. With no
+material it is titled PROPERTIES and carries no mass row at all — absence reads
+as "No material" plus the way to fix it, never `0 g` — and it earns the words
+MASS PROPERTIES the moment a material gives it a mass. The picker and the
+density readout come from the served library through the gateway, assignment is
+a wholesale `materials` PATCH under the tree-version guard (document default +
+per-body overrides), mass formats through the ONE units seam (`formatMass` /
+`MASS_G_PER_UNIT` — 21.6 g on a 20 mm aluminium cube, 0.1388 lb in an inch
+document), and a mixed part shows the centre of MASS apart from the centroid
+(32.34 vs 25 mm) while NAMING the body that has no material. Shots:
+`docs/screenshots/materials-{before,after}-1440.png`.
 **A verdict on a ROLLBACK PREFIX no longer reads as a verdict on the part —
 audit J3 (P1), WIRE half SHIPPED 2026-07-30** (backend-builder). The travel stop
 is applied before the evaluate request leaves documents, so a part rolled back to

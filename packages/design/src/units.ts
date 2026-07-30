@@ -156,3 +156,71 @@ export function formatLength(
   const text = trimDecimal(fromMm(mm, unit), maxFractionDigits);
   return unitSuffix ? `${text} ${unit}` : text;
 }
+
+/**
+ * The mass units a readout may use (docs/design/materials.md §5).
+ *
+ * This vocabulary lives HERE and nowhere else, deliberately: the wire carries
+ * canonical grams forever, so py-kit declares no mass-unit enum — a literal on
+ * the contract would be a second declaration of a rule with exactly one
+ * consumer, the display boundary. Length is the mirror image: py-kit owns the
+ * `LengthUnit` vocabulary (documents PERSIST it) and this package owns the
+ * factors; nothing persists a mass unit, so this package owns both.
+ */
+export type MassUnit = "g" | "kg" | "lb";
+
+/**
+ * Exact grams per mass unit. The pound is exact by definition
+ * (1 lb ≡ 453.59237 g), like the inch — never rounded, so a mass never drifts
+ * through a display conversion.
+ */
+export const MASS_G_PER_UNIT: Readonly<Record<MassUnit, number>> = {
+  g: 1,
+  kg: 1000,
+  lb: 453.59237,
+};
+
+/**
+ * The mass unit a document reads in — DERIVED from its length unit, so there is
+ * no second setting to keep in sync (materials.md §5): an imperial document
+ * (`in`/`ft`) reads pounds; every metric one reads grams, promoting to
+ * kilogrammes above 1000 g so a 12 kg weldment never reads as `12000 g`.
+ */
+export function massUnitFor(lengthUnit: LengthUnit, grams: number): MassUnit {
+  if (lengthUnit === "in" || lengthUnit === "ft") return "lb";
+  return Math.abs(grams) >= MASS_G_PER_UNIT.kg ? "kg" : "g";
+}
+
+/** Canonical grams → a display value in `unit`. */
+export function fromGrams(grams: number, unit: MassUnit): number {
+  return grams / MASS_G_PER_UNIT[unit];
+}
+
+/** Options for {@link formatMass}. */
+export interface FormatMassOptions {
+  /** Max digits after the decimal point before trailing zeros are trimmed. */
+  maxFractionDigits?: number;
+  /** Append the unit suffix (`"27 g"`); false yields the bare number (`"27"`). */
+  unitSuffix?: boolean;
+}
+
+/**
+ * Canonical GRAMS → a display string in the document's derived mass unit
+ * (`formatMass(27, "mm") === "27 g"`, `formatMass(27, "in") === "0.0595 lb"`).
+ * The wire stays grams; this is the only place a mass is ever converted.
+ *
+ * There is deliberately no null overload: `mass_g: null` means "nobody has said
+ * what this is made of" (materials.md §1.2), and a formatter that answered it
+ * with a dash would let a caller render absence without deciding what to say
+ * about it. Absence is the CALLER's sentence — and it is never `0 g`.
+ */
+export function formatMass(
+  grams: number,
+  lengthUnit: LengthUnit,
+  opts: FormatMassOptions = {},
+): string {
+  const { maxFractionDigits = 4, unitSuffix = true } = opts;
+  const unit = massUnitFor(lengthUnit, grams);
+  const text = trimDecimal(fromGrams(grams, unit), maxFractionDigits);
+  return unitSuffix ? `${text} ${unit}` : text;
+}

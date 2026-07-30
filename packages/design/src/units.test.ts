@@ -3,11 +3,15 @@ import { describe, expect, it } from "vitest";
 import {
   areaUnitLabel,
   formatLength,
+  formatMass,
+  fromGrams,
   fromMm,
   fromMmArea,
   fromMmVolume,
   LENGTH_UNITS,
   type LengthUnit,
+  MASS_G_PER_UNIT,
+  massUnitFor,
   MM_PER_UNIT,
   parseLength,
   toMm,
@@ -205,5 +209,72 @@ describe("parseLength ∘ formatLength round-trip", () => {
         expect(back as number).toBeCloseTo(mm, 3);
       }
     }
+  });
+});
+
+/**
+ * MASS — the same seam, the same rules (docs/design/materials.md §5). The wire
+ * is canonical GRAMS forever; the display unit DERIVES from the document's
+ * length unit, so there is no second setting and no second conversion path.
+ */
+describe("MASS_G_PER_UNIT", () => {
+  it("uses the exact factors (the pound is exact by definition)", () => {
+    expect(MASS_G_PER_UNIT.g).toBe(1);
+    expect(MASS_G_PER_UNIT.kg).toBe(1000);
+    expect(MASS_G_PER_UNIT.lb).toBe(453.59237);
+    expect(fromGrams(453.59237, "lb")).toBe(1);
+    expect(fromGrams(1000, "kg")).toBe(1);
+    expect(fromGrams(27, "g")).toBe(27);
+  });
+
+  it("covers every MassUnit and nothing else", () => {
+    expect(Object.keys(MASS_G_PER_UNIT).sort()).toEqual(["g", "kg", "lb"]);
+  });
+});
+
+describe("massUnitFor — the mass unit derives from the LENGTH unit", () => {
+  it("reads pounds in an imperial document, at any size", () => {
+    expect(massUnitFor("in", 27)).toBe("lb");
+    expect(massUnitFor("ft", 27)).toBe("lb");
+    // No g→kg-style promotion in imperial: 12 kg of steel is still lb.
+    expect(massUnitFor("in", 12_000)).toBe("lb");
+  });
+
+  it("promotes g to kg above 1000 g in a metric document", () => {
+    for (const unit of ["mm", "cm", "m"] as const) {
+      expect(massUnitFor(unit, 999.9)).toBe("g");
+      expect(massUnitFor(unit, 1000)).toBe("kg");
+      expect(massUnitFor(unit, 12_000)).toBe("kg");
+    }
+  });
+
+  it("uses the magnitude, so a negative never dodges the promotion", () => {
+    expect(massUnitFor("mm", -1500)).toBe("kg");
+  });
+});
+
+describe("formatMass", () => {
+  it("reports the golden masses exactly as the kernel measured them", () => {
+    // materials.md §8: 10000 mm³ of aluminium 6061 = 27.0 g exactly.
+    expect(formatMass(27, "mm")).toBe("27 g");
+    // ...and the mixed-material golden's 84.56 g.
+    expect(formatMass(84.56, "mm")).toBe("84.56 g");
+  });
+
+  it("promotes to kg and converts to lb through the exact factors", () => {
+    expect(formatMass(1000, "mm")).toBe("1 kg");
+    expect(formatMass(2537.5, "cm")).toBe("2.5375 kg");
+    expect(formatMass(453.59237, "in")).toBe("1 lb");
+    expect(formatMass(27, "in")).toBe("0.0595 lb");
+  });
+
+  it("says 0 g only for a real zero — absence is never routed through here", () => {
+    expect(formatMass(0, "mm")).toBe("0 g");
+    expect(formatMass(-0, "mm")).toBe("0 g");
+  });
+
+  it("omits the suffix and respects a custom precision", () => {
+    expect(formatMass(84.56, "mm", { unitSuffix: false })).toBe("84.56");
+    expect(formatMass(84.56, "mm", { maxFractionDigits: 1 })).toBe("84.6 g");
   });
 });

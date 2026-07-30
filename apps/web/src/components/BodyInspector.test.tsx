@@ -9,11 +9,14 @@
  * the pair free to drift again in the other direction, so both are pinned to
  * the same fixture and the same expectations.
  */
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 
+import type { Material } from "../api/materials";
 import type { ShapeProperties } from "../api/tessellate";
+import type { BodyMaterialRow } from "../features/materials";
 import type { PartBuild } from "../features/partBuild";
+import type { MaterialControls } from "./MaterialSection";
 import {
   brokenFillet,
   cleanCube,
@@ -39,6 +42,48 @@ const PROPERTIES: ShapeProperties = {
 };
 
 /**
+ * The library AS SERVED (`GET /api/v1/materials`) — two real entries with their
+ * handbook densities. Nothing in `apps/web` may type a density, so a fixture is
+ * the only place one appears on this side of the wire.
+ */
+const LIBRARY: Material[] = [
+  { key: "aluminium_6061", name: "Aluminium 6061", density_kg_m3: 2700 },
+  { key: "steel_1018", name: "Steel (AISI 1018)", density_kg_m3: 7870 },
+];
+
+function bodyRow(
+  ordinal: number,
+  name: string,
+  material: BodyMaterialRow["material"],
+  massG: number | null,
+  override: BodyMaterialRow["override"] = null,
+): BodyMaterialRow {
+  return {
+    baseFeatureId: `feat-${ordinal}`,
+    name,
+    ordinal,
+    material,
+    massG,
+    override,
+    evaluated: true,
+  };
+}
+
+function controls(over: Partial<MaterialControls> = {}): MaterialControls {
+  return {
+    library: LIBRARY,
+    libraryError: null,
+    assignment: { default_material: null, bodies: [] },
+    rows: [bodyRow(1, "Extrude1", null, null)],
+    busy: false,
+    error: null,
+    onAssignDefault: vi.fn(),
+    onAssignBody: vi.fn(),
+    ...over,
+  };
+}
+
+/**
  * The panel AS THE WORKSPACE COMPOSES IT: the readouts and the export strip are
  * siblings fed by ONE `PartBuild` (the strip is pinned by `FloatingPanel.footer`
  * so a clamped panel can never push it under the fold — UI-REVIEW P1). The
@@ -49,10 +94,15 @@ function renderInspector(
   unit: LengthUnit,
   properties: ShapeProperties | null = PROPERTIES,
   build: PartBuild = cleanCube(),
+  material: MaterialControls = controls(),
 ) {
   return render(
     <DocumentUnitProvider unit={unit}>
-      <BodyInspector properties={properties} build={build} />
+      <BodyInspector
+        properties={properties}
+        build={build}
+        material={material}
+      />
       <PartExportControls partId="p1" build={build} />
     </DocumentUnitProvider>,
   );
@@ -187,5 +237,216 @@ describe("BodyInspector status + export honesty", () => {
       "aria-disabled",
       "true",
     );
+  });
+});
+
+/**
+ * THE MASS HALF (#57b, docs/design/materials.md §6). The wire made `mass_g`
+ * nullable precisely so a surface can tell "nobody said what this is made of"
+ * from "it weighs nothing". These pin the four places that distinction is easy
+ * to collapse: the TITLE, the mass ROW, the glyph absence renders as, and the
+ * name of the body responsible.
+ */
+describe("BodyInspector — mass is claimed only once a material exists", () => {
+  const WITH_MASS: ShapeProperties = {
+    ...PROPERTIES,
+    mass_g: 27,
+    center_of_mass: { x: 25.4, y: 50.8, z: 0 },
+  };
+
+  it("is titled PROPERTIES, with no mass row, while nothing is assigned", () => {
+    renderInspector("mm");
+    expect(screen.getByRole("group", { name: "Properties" })).toBeTruthy();
+    // The exact string the audit found over a panel with no mass in it.
+    expect(screen.queryByRole("group", { name: "Mass properties" })).toBeNull();
+    expect(screen.queryByTestId("prop-mass")).toBeNull();
+  });
+
+  it("renders absence as absence — never `0 g`", () => {
+    const { container } = renderInspector("mm");
+    expect(container.textContent).not.toMatch(/\b0 (g|kg|lb)\b/);
+    expect(screen.getByTestId("material-hint")).toHaveTextContent(
+      "Assign a material to get a mass",
+    );
+    expect(screen.getByTestId("material-default-select")).toHaveValue("");
+  });
+
+  it("earns the MASS PROPERTIES title once a mass exists", () => {
+    renderInspector(
+      "mm",
+      WITH_MASS,
+      cleanCube(),
+      controls({
+        assignment: { default_material: "aluminium_6061", bodies: [] },
+        rows: [bodyRow(1, "Extrude1", "aluminium_6061", 27)],
+      }),
+    );
+    expect(screen.getByRole("group", { name: "Mass properties" })).toBeTruthy();
+    const mass = screen.getByTestId("prop-mass");
+    // materials.md §8: 10000 mm³ of aluminium 6061 = 27.0 g exactly.
+    expect(mass).toHaveTextContent("27");
+    expect(mass).toHaveTextContent("g");
+    expect(screen.queryByTestId("material-hint")).toBeNull();
+    // The density that produced it, straight from the served library.
+    expect(screen.getByTestId("material-density")).toHaveTextContent("2,700");
+  });
+
+  it("reads the mass in POUNDS in an inch document (one units seam)", () => {
+    renderInspector(
+      "in",
+      WITH_MASS,
+      cleanCube(),
+      controls({
+        assignment: { default_material: "aluminium_6061", bodies: [] },
+        rows: [bodyRow(1, "Extrude1", "aluminium_6061", 27)],
+      }),
+    );
+    const mass = screen.getByTestId("prop-mass");
+    expect(mass).toHaveTextContent("0.0595");
+    expect(mass).toHaveTextContent("lb");
+    expect(mass).not.toHaveTextContent(/\bg\b/);
+  });
+
+  it("shows the centre of MASS apart from the volume centroid", () => {
+    // The mixed-material golden's numbers: the centre of mass sits 7.34 mm
+    // toward the steel body, where the volume centroid stays at x=25.
+    renderInspector(
+      "mm",
+      {
+        ...PROPERTIES,
+        mass_g: 84.56,
+        centroid: { x: 25, y: 0, z: 0 },
+        center_of_mass: { x: 32.3368, y: 0, z: 0 },
+      },
+      cleanCube(),
+      controls({
+        assignment: {
+          default_material: "aluminium_6061",
+          bodies: [{ base_feature_id: "feat-2", material: "steel_1018" }],
+        },
+        rows: [
+          bodyRow(1, "Extrude1", "aluminium_6061", 27),
+          bodyRow(2, "Extrude2", "steel_1018", 57.56, "steel_1018"),
+        ],
+      }),
+    );
+    expect(screen.getByTestId("prop-center-of-mass")).toHaveTextContent(
+      "32.34, 0, 0",
+    );
+    expect(screen.getByTestId("prop-centroid")).toHaveTextContent("25, 0, 0");
+    // A mixed part quotes no single density headline — the bodies carry theirs.
+    expect(screen.queryByTestId("material-density")).toBeNull();
+    expect(screen.getByTestId("material-body-mass-2")).toHaveTextContent(
+      "57.56 g",
+    );
+  });
+
+  it("hides the centre-of-mass row when there is no material", () => {
+    renderInspector("mm");
+    expect(screen.queryByTestId("prop-center-of-mass")).toBeNull();
+    expect(screen.getByTestId("prop-centroid")).toHaveTextContent("25.4, 50.8");
+  });
+
+  it("NAMES the body that has no material instead of saying unknown", () => {
+    renderInspector(
+      "mm",
+      PROPERTIES,
+      cleanCube(),
+      controls({
+        assignment: { default_material: null, bodies: [] },
+        rows: [
+          bodyRow(1, "Extrude1", "aluminium_6061", 27),
+          bodyRow(2, "Boss", null, null),
+        ],
+      }),
+    );
+    const notice = screen.getByTestId("material-unassigned");
+    expect(notice).toHaveTextContent(
+      "Boss has no material, so the part has no total mass.",
+    );
+    expect(notice).not.toHaveTextContent("unknown");
+    expect(screen.queryByTestId("prop-mass")).toBeNull();
+    expect(screen.getByTestId("material-body-mass-2")).toHaveTextContent("—");
+  });
+});
+
+describe("BodyInspector — assigning a material", () => {
+  it("writes the document default the user picked", () => {
+    const onAssignDefault = vi.fn();
+    renderInspector(
+      "mm",
+      PROPERTIES,
+      cleanCube(),
+      controls({ onAssignDefault }),
+    );
+    fireEvent.change(screen.getByTestId("material-default-select"), {
+      target: { value: "steel_1018" },
+    });
+    expect(onAssignDefault).toHaveBeenCalledWith("steel_1018");
+  });
+
+  it("clears back to no material (mass becomes unknown again)", () => {
+    const onAssignDefault = vi.fn();
+    renderInspector(
+      "mm",
+      PROPERTIES,
+      cleanCube(),
+      controls({
+        assignment: { default_material: "steel_1018", bodies: [] },
+        onAssignDefault,
+      }),
+    );
+    fireEvent.change(screen.getByTestId("material-default-select"), {
+      target: { value: "" },
+    });
+    expect(onAssignDefault).toHaveBeenCalledWith(null);
+  });
+
+  it("overrides ONE body of a multi-body part", () => {
+    const onAssignBody = vi.fn();
+    renderInspector(
+      "mm",
+      PROPERTIES,
+      cleanCube(),
+      controls({
+        assignment: { default_material: "aluminium_6061", bodies: [] },
+        rows: [
+          bodyRow(1, "Extrude1", "aluminium_6061", 27),
+          bodyRow(2, "Pin", "aluminium_6061", 27),
+        ],
+        onAssignBody,
+      }),
+    );
+    // The body cell offers the document's material as its first choice; the
+    // cell above it is what NAMES that material, so this one stays short
+    // enough not to push the mass readout out of the row.
+    expect(screen.getByTestId("material-body-select-2")).toHaveTextContent(
+      "Default",
+    );
+    fireEvent.change(screen.getByTestId("material-body-select-2"), {
+      target: { value: "steel_1018" },
+    });
+    expect(onAssignBody).toHaveBeenCalledWith("feat-2", "steel_1018");
+  });
+
+  it("disables the picker and says why when the library is unavailable", () => {
+    renderInspector(
+      "mm",
+      PROPERTIES,
+      cleanCube(),
+      controls({
+        library: [],
+        libraryError: "The material library is offline.",
+      }),
+    );
+    expect(screen.getByTestId("material-default-select")).toBeDisabled();
+    expect(screen.getByTestId("material-library-error")).toHaveTextContent(
+      "offline",
+    );
+  });
+
+  it("holds the picker while an assignment is in flight", () => {
+    renderInspector("mm", PROPERTIES, cleanCube(), controls({ busy: true }));
+    expect(screen.getByTestId("material-default-select")).toBeDisabled();
   });
 });
