@@ -264,6 +264,19 @@ Stale docs are a defect (this rule saved Next-Lane repeatedly; see
   cancels. It costs runner minutes, which is the price of the rule. Consequence:
   a `cancelled` run on a branch push is now genuinely anomalous — investigate it
   rather than shrugging.
+- **`cancelled` HAS TWO CAUSES AND GITHUB USES THE SAME WORD FOR BOTH** — a
+  concurrency eviction, and a job hitting `timeout-minutes`. Discriminate by
+  DURATION and by the sibling jobs. Seen 2026-07-30: three runs read `cancelled`
+  *after* the per-SHA fix and I nearly concluded the fix had failed; in fact the
+  `python` job's Pytest step ran **14m31s** and the job was killed at **15m16s**
+  against a 15-minute ceiling, while the other four jobs all passed. An eviction
+  kills a run EARLY and takes ALL its jobs with it; a timeout kills ONE job at
+  almost exactly the configured limit and leaves its siblings green. So read
+  `list_workflow_jobs` for the run and look at per-job conclusions and step
+  durations before naming a cause — the run-level `conclusion` alone cannot tell
+  you which happened. (The python job is now 30 minutes. The suite is ~2958 tests
+  dominated by OCCT geometry and grows with every verb and golden, so expect to
+  revisit it; sharding is the next lever if 30 gets tight.)
 - **A suspiciously FAST green deserves the same scrutiny as a red.** The
   usual cause is a job that skipped its work, and `conclusion: success` is
   emitted when every job is skipped. Discriminate by reading the log for

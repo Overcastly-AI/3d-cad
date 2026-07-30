@@ -69,7 +69,13 @@ concurrency:
 jobs:
   python:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # 30, raised from 15 on 2026-07-30. Pytest alone measured 14m31s at 1a27804
+    # and the job was killed at 15m16s; the run before it squeaked in at 14m55s.
+    # The suite is ~2958 tests dominated by OCCT geometry and it grows every time
+    # a verb or a golden lands, so 15 was going to start failing whatever we did
+    # next. NB a timed-out job is reported `cancelled`, the SAME word GitHub uses
+    # for a concurrency eviction — see CLAUDE.md for telling them apart.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
