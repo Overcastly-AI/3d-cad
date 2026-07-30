@@ -13,6 +13,24 @@ isolate — Origin / Sketches / Bodies), UI-W3 (pre-selection prefills editors),
 UI-W4 (editors stop being 12-row mid-frame forms), UI-W5 (entity snapping, Ctrl
 to suppress), plus material/density so MASS PROPERTIES can report mass, and a
 settings surface.
+**The part workspace stopped claiming things it did not know — audit J2 (P1) +
+N3 (P0, the UI half) FIXED 2026-07-30** (frontend-builder). On a part with one
+broken feature the same screen said three different things: SOLVE "Failed"
+(true), STATUS "Up to date" (from `isFetching`) and EXPORT "Ready" (from "is
+there a mesh id") — and the third was a wrong FILE, since the strict-prefix rule
+returns a mesh for the last-good PREFIX, so a user could download a STEP silently
+missing every feature from the failure onward. All three cells now read ONE
+derivation (`apps/web/src/features/partBuild.ts`) over the provenance the wire
+already carried (`EvaluateTreeResult.tree_version` vs `PartResponse.tree_version`
+through the shared `is_stale_for_tree` rule, `7d0ba8e`): export REFUSES over a
+broken tree and names the feature to fix, a DELIBERATE rollback still exports but
+says `Partial` in the cell and `-partial` in the filename, an unverified
+provenance waits for the rebuild, and the viewport finally spends
+`last_good_feature_id` — "Showing the last good state — built to Extrude1" with a
+SHOW FILLET1 action — instead of presenting a bare brick as the model. Every SKIP
+row names the failure that stranded it. 30 component/unit tests
+(mutation-verified) + `e2e/body-status.spec.ts` (5, real OCCT failure); shots
+`docs/screenshots/body-status-{before,after}-{1440,1366}.png`.
 Kernel CM-5 (the revolve/sweep/loft-cut mirror void-fill) landed 2026-07-30, and
 so did **SH-1** — shelling a rib at exactly 2x the wall thickness left a
 **zero-width slit** (two coincident faces, no material between them) and reported

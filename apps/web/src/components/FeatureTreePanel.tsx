@@ -35,13 +35,25 @@ import {
 } from "../features/featureErrors";
 import { featureTypeLabel } from "../features/featureLabels";
 import { holeThreadDesignation } from "../features/hole";
+import {
+  excludedNote,
+  type PartBuild,
+  skippedReason,
+  solveSummary,
+} from "../features/partBuild";
 import { barSlotIndex } from "../features/rollback";
 
 export interface FeatureTreePanelProps {
   tree: FeatureTreeResponse | undefined;
   treeError: Error | null;
   evaluation: EvaluateTreeResult | undefined;
-  evaluating: boolean;
+  /**
+   * What the workspace knows about this build (`features/partBuild.ts`) — the
+   * SOLVE cell and every SKIP row's reason are derived from it, and so are the
+   * inspector's STATUS cell and the EXPORT gate, so the three cannot drift
+   * apart again (AUDIT-ENGINEERING J2).
+   */
+  build: PartBuild;
   /** Selected feature id (brass left-rule); extrude rows open their editor. */
   selectedFeatureId: string | null;
   onSelectFeature: (feature: FeatureResponse) => void;
@@ -106,7 +118,7 @@ export function FeatureTreePanel({
   tree,
   treeError,
   evaluation,
-  evaluating,
+  build,
   selectedFeatureId,
   onSelectFeature,
   onKeepAsOneBody,
@@ -129,13 +141,12 @@ export function FeatureTreePanel({
     features.length > 0 ? `Feature tree · ${features.length}` : "Feature tree";
   const rollbackId = tree?.rollback_feature_id ?? null;
   const barSlot = barSlotIndex(features, rollbackId);
-  const evalSummary = evaluating
-    ? "Solving…"
-    : evaluation === undefined
-      ? "—"
-      : evaluation.features.some((f) => f.status === "error")
-        ? "Failed"
-        : "Solved";
+  // One derivation, read here and by the inspector's STATUS cell + EXPORT gate.
+  const evalSummary = solveSummary(build);
+  // WHY the rows below the failure say SKIP. The strict-prefix rule stops the
+  // build at the first error, so an INDEPENDENT corner fillet is dropped too —
+  // and a bare "SKIP" badge made that look like a fillet bug (AUDIT-PRODUCT N3).
+  const skipCause = skippedReason(build);
 
   return (
     <aside
@@ -169,6 +180,12 @@ export function FeatureTreePanel({
                   status === "suppressed";
                 const suppressBusy = feature.id === suppressingId;
                 const renaming = feature.id === renamingId;
+                // This row was never attempted — and the cause is a DIFFERENT
+                // feature, so the row has to name it.
+                const blockedBy =
+                  status === "skipped" && !suppressed && !rolledBack
+                    ? (build.failure?.id ?? null)
+                    : null;
                 return (
                   <FeatureRowGroup key={feature.id}>
                     <li
@@ -178,6 +195,7 @@ export function FeatureTreePanel({
                       data-testid="feature-row"
                       data-rolled-back={rolledBack || undefined}
                       data-suppressed={suppressed || undefined}
+                      data-blocked-by={blockedBy ?? undefined}
                       onContextMenu={
                         onRowContextMenu
                           ? (event) => {
@@ -276,14 +294,24 @@ export function FeatureTreePanel({
                         className={`w-8 shrink-0 text-right font-data text-xs ${
                           status === "error" ? "text-flag" : "text-gauge"
                         }`}
+                        // The badge is three glyphs; the CAUSE reaches the
+                        // pointer and the screen reader (N3: a SKIP with no
+                        // reason reads as "this feature is broken").
+                        title={
+                          blockedBy !== null && skipCause !== null
+                            ? `${feature.name}: ${skipCause}`
+                            : undefined
+                        }
                         aria-label={
                           rolledBack
                             ? "rolled back"
                             : suppressed
                               ? "evaluation suppressed"
-                              : status
-                                ? `evaluation ${status}`
-                                : undefined
+                              : blockedBy !== null && skipCause !== null
+                                ? `evaluation skipped: ${skipCause}`
+                                : status
+                                  ? `evaluation ${status}`
+                                  : undefined
                         }
                       >
                         {rolledBack
@@ -340,6 +368,23 @@ export function FeatureTreePanel({
                             {REPICK_FACE_ACTION}
                           </Button>
                         ) : null}
+                      </li>
+                    ) : null}
+                    {/* The casualty list, stated ONCE where the build stopped:
+                        the rows under here were never attempted, and several of
+                        them may have nothing to do with the failure (N3 — the
+                        datum plane and the far-corner dowel hole that vanished
+                        with a bad hole pick). Each of those rows also names this
+                        feature in its own status cell. */}
+                    {feature.id === build.failure?.id &&
+                    build.excluded.length > 0 ? (
+                      <li
+                        className="py-1 pr-3 pl-[26px]"
+                        data-testid="feature-excluded-note"
+                      >
+                        <span className="block font-body text-xs text-gauge">
+                          {excludedNote(build)}
+                        </span>
                       </li>
                     ) : null}
                   </FeatureRowGroup>

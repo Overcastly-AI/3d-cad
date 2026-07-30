@@ -8,6 +8,7 @@ import {
 } from "@loft/design";
 
 import type { ShapeProperties } from "../api/tessellate";
+import { bodyStatusReadout, type PartBuild } from "../features/partBuild";
 import {
   formatArea,
   formatCount,
@@ -18,20 +19,16 @@ import {
 import { useDocumentLengthUnit } from "../units/documentUnit";
 import { PartExportControls } from "./PartExportControls";
 
-/** Solid-render status shown in the title-block footer's Status cell. */
-export type BodyStatus = "up-to-date" | "evaluating" | "regenerating" | "error";
-
-const STATUS_LABEL: Record<BodyStatus, string> = {
-  "up-to-date": "Up to date",
-  evaluating: "Solving…",
-  regenerating: "Regenerating…",
-  error: "Error",
-};
-
 export interface BodyInspectorProps {
   /** Mass properties of the last-good body, or null when there is none. */
   properties: ShapeProperties | null;
-  status: BodyStatus;
+  /**
+   * What the workspace knows about the body on screen. The STATUS cell and the
+   * EXPORT strip below it are DERIVED from this one object — the same object the
+   * feature tree's SOLVE cell reads — so the three cannot disagree the way they
+   * did when each computed its own answer (AUDIT-ENGINEERING J2).
+   */
+  build: PartBuild;
   /** The part this body belongs to — issued by the EXPORT strip. */
   partId: string;
 }
@@ -44,11 +41,12 @@ export interface BodyInspectorProps {
  */
 export function BodyInspector({
   properties,
-  status,
+  build,
   partId,
 }: BodyInspectorProps) {
   const props = properties;
   const em = "—";
+  const readout = bodyStatusReadout(build);
   // Readouts honor the document unit (FINDINGS #17) — stored mm converts at the
   // display boundary through the SAME units seam the input cells use.
   const unit = useDocumentLengthUnit();
@@ -114,10 +112,20 @@ export function BodyInspector({
           </PanelRow>
         </PanelSection>
 
-        {/* Title-block footer: the one cell that MOVES — the solid's render
-            status. UNITS (no unit system exists yet) and KERNEL (a hard-coded
-            brand string, not telemetry) were decorative and are gone
-            (UI-REVIEW 2026-07-16, Track B). */}
+        {/* Title-block footer: the one cell that MOVES — what this solid IS.
+            UNITS (no unit system exists yet) and KERNEL (a hard-coded brand
+            string, not telemetry) were decorative and are gone (UI-REVIEW
+            2026-07-16, Track B).
+
+            The cell used to fall through to "Up to date" whenever no request was
+            in flight, which is a claim about HTTP wearing the words of a claim
+            about the model. It now reports PROVENANCE — which state this body was
+            built to, and whether the tree has moved since.
+
+            The qualifier shares the value's LINE (a title block's `Ø10.000
+            ±0.05`, not a paragraph): the panel is already at its height clamp on
+            a 768px-tall screen, and a second line pushes the EXPORT strip — the
+            control that matters most on a broken part — under the fold. */}
         <div
           className="border-t border-hairline px-3 py-2"
           data-testid="body-titleblock-footer"
@@ -125,19 +133,31 @@ export function BodyInspector({
           <span className="block font-display text-2xs uppercase tracking-[0.14em] text-gauge">
             Status
           </span>
-          <span
-            className="block font-data text-xs text-mist"
-            data-testid="body-status"
-            aria-live="polite"
-          >
-            {STATUS_LABEL[status]}
+          <span className="block">
+            <span
+              className={`font-data text-xs ${
+                readout.tone === "flag" ? "text-flag" : "text-mist"
+              }`}
+              data-testid="body-status"
+              data-body-status={readout.status}
+              aria-live="polite"
+            >
+              {readout.label}
+            </span>
+            {readout.detail !== null ? (
+              <span
+                className="ml-2 font-body text-xs text-gauge"
+                data-testid="body-status-detail"
+              >
+                {readout.detail}
+              </span>
+            ) : null}
           </span>
         </div>
 
         {/* Issue the modeled body as a file — the export strip of the title
-            block, always actionable here because the inspector only shows once
-            a body exists. */}
-        <PartExportControls partId={partId} hasBody={props !== null} />
+            block, gated on the SAME facts the Status cell reports. */}
+        <PartExportControls partId={partId} build={build} />
       </Panel>
     </aside>
   );

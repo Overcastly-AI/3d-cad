@@ -45,6 +45,24 @@ export interface ExportRowProps {
    * an honest "nothing to export" state (e.g. a sketch-only tree, no body).
    */
   disabledReason?: string;
+  /**
+   * Replaces "Ready" while the row IS actionable — for the one case where a
+   * file can be written but is not the whole model ("Partial", from the part
+   * workspace's travel stop). Omit it and an actionable row reads "Ready".
+   */
+  statusLabel?: string;
+  /**
+   * One sentence under the row about the state of the file it would write:
+   * why the row is inert, or what is missing from the artifact if it is not.
+   * `flag` for an exception the user must act on, `quiet` for a fact.
+   */
+  notice?: { text: string; tone: "flag" | "quiet" } | null;
+  /**
+   * QA hook stamped on the row as `data-export-state` — the state name of
+   * whatever gate the caller derived, so a spec asserts the DECISION rather
+   * than the sentence it produced.
+   */
+  state?: string;
 }
 
 /**
@@ -58,6 +76,9 @@ export function ExportRow({
   exporter,
   testIdPrefix,
   disabledReason,
+  statusLabel,
+  notice = null,
+  state,
 }: ExportRowProps) {
   const [busy, setBusy] = useState<ExportFormat | null>(null);
   const [failed, setFailed] = useState<ExportFormat | null>(null);
@@ -82,7 +103,7 @@ export function ExportRow({
       ? "Writing…"
       : failed
         ? "Failed"
-        : "Ready";
+        : (statusLabel ?? "Ready");
 
   return (
     <div
@@ -90,6 +111,7 @@ export function ExportRow({
       aria-label="Export"
       className="border-t border-hairline"
       data-testid={`${testIdPrefix}-controls`}
+      data-export-state={state}
     >
       <div className="grid grid-cols-3 divide-x divide-hairline">
         <div className="px-3 py-2">
@@ -131,6 +153,18 @@ export function ExportRow({
         >
           Export failed — the {failed.toUpperCase()} file could not be written.
           Check that the gateway is running, then try again.
+        </p>
+      ) : notice ? (
+        // What the file WOULD be, stated before the click rather than after the
+        // download (AUDIT-ENGINEERING J2 — "Ready" over a truncated rebuild is a
+        // wrong file, not a wrong label).
+        <p
+          className={`border-t border-hairline px-3 py-2 font-body text-xs ${
+            notice.tone === "flag" ? "text-flag" : "text-gauge"
+          }`}
+          data-testid={`${testIdPrefix}-notice`}
+        >
+          {notice.text}
         </p>
       ) : null}
     </div>

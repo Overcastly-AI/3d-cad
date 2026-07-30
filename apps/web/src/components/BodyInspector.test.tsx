@@ -13,6 +13,14 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { ShapeProperties } from "../api/tessellate";
+import type { PartBuild } from "../features/partBuild";
+import {
+  brokenFillet,
+  cleanCube,
+  rolledBack,
+  strandedDownstream,
+  unverified,
+} from "../test/partBuildFixture";
 import { DocumentUnitProvider } from "../units/documentUnit";
 import { BodyInspector } from "./BodyInspector";
 import type { LengthUnit } from "@loft/design";
@@ -32,10 +40,11 @@ const PROPERTIES: ShapeProperties = {
 function renderInspector(
   unit: LengthUnit,
   properties: ShapeProperties | null = PROPERTIES,
+  build: PartBuild = cleanCube(),
 ) {
   return render(
     <DocumentUnitProvider unit={unit}>
-      <BodyInspector properties={properties} status="up-to-date" partId="p1" />
+      <BodyInspector properties={properties} build={build} partId="p1" />
     </DocumentUnitProvider>,
   );
 }
@@ -81,5 +90,93 @@ describe("BodyInspector", () => {
     renderInspector("in", null);
     expect(screen.getByTestId("prop-volume")).toHaveTextContent("—");
     expect(screen.getByTestId("prop-bbox-min")).toHaveTextContent("—");
+  });
+});
+
+/**
+ * The J2 half: the STATUS cell and the EXPORT strip live in this panel, and both
+ * used to be entitled to nothing — "Up to date" from `isFetching` and "Ready"
+ * from "is there a mesh id". Both are now derived from the same build facts the
+ * feature tree's SOLVE cell reads, so this panel is where the agreement (or the
+ * regression) shows up in one render.
+ */
+describe("BodyInspector status + export honesty", () => {
+  it("says Up to date only for a whole body built from the current tree", () => {
+    renderInspector("mm");
+    expect(screen.getByTestId("body-status")).toHaveTextContent("Up to date");
+    expect(screen.getByTestId("body-status")).toHaveAttribute(
+      "data-body-status",
+      "up-to-date",
+    );
+    expect(screen.queryByTestId("body-status-detail")).toBeNull();
+    expect(screen.getByTestId("part-export-status")).toHaveTextContent("Ready");
+  });
+
+  it("calls a broken tree's body PARTIAL and blocks the export", () => {
+    renderInspector("mm", PROPERTIES, brokenFillet());
+    const status = screen.getByTestId("body-status");
+    expect(status).toHaveTextContent("Partial");
+    expect(status).toHaveAttribute("data-body-status", "partial");
+    // Not "Up to date" — the exact string the audit found on this screen.
+    expect(status).not.toHaveTextContent("Up to date");
+    expect(screen.getByTestId("body-status-detail")).toHaveTextContent(
+      "built to Extrude1",
+    );
+
+    // ...and the file the strip would have written is refused, by name.
+    expect(screen.getByTestId("part-export-status")).toHaveTextContent(
+      "Fillet1 failed",
+    );
+    expect(screen.getByTestId("part-export-step")).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    expect(screen.getByTestId("part-export-stl")).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    // Each format cell carries the reason too (a gated cell a user tabs to has
+    // to explain itself), and the strip adds no fourth copy of it.
+    expect(screen.getByTestId("part-export-step")).toHaveTextContent(
+      "Fillet1 failed",
+    );
+    expect(screen.queryByTestId("part-export-notice")).toBeNull();
+  });
+
+  it("names the failure and the state on screen in ONE register line", () => {
+    // The title block gets a tabular clause, not a paragraph: four lines of
+    // prose here push the EXPORT strip below the fold at 1366x768, and the
+    // gated export is the thing that matters most on a broken part. The full
+    // sentence is the viewport notice's job (asserted in e2e).
+    renderInspector("mm", PROPERTIES, strandedDownstream());
+    expect(screen.getByTestId("body-status-detail")).toHaveTextContent(
+      "Hole 1 failed · built to Base extrude",
+    );
+  });
+
+  it("lets a deliberate rollback export, labelled partial", () => {
+    renderInspector("mm", PROPERTIES, rolledBack());
+    expect(screen.getByTestId("body-status")).toHaveTextContent("Rolled back");
+    expect(screen.getByTestId("part-export-status")).toHaveTextContent(
+      "Partial",
+    );
+    expect(screen.getByTestId("part-export-step")).not.toHaveAttribute(
+      "aria-disabled",
+    );
+    expect(screen.getByTestId("part-export-notice")).toHaveTextContent(
+      "name will say partial",
+    );
+  });
+
+  it("refuses to vouch for a body whose tree has moved on", () => {
+    renderInspector("mm", PROPERTIES, unverified());
+    expect(screen.getByTestId("body-status")).toHaveTextContent("Unverified");
+    expect(screen.getByTestId("part-export-status")).toHaveTextContent(
+      "Unverified",
+    );
+    expect(screen.getByTestId("part-export-step")).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
   });
 });

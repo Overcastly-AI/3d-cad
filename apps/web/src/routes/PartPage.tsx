@@ -117,7 +117,7 @@ import {
   updatePartUnit,
   type LengthUnit,
 } from "../api/parts";
-import { BodyInspector, type BodyStatus } from "../components/BodyInspector";
+import { BodyInspector } from "../components/BodyInspector";
 import { Breadcrumb } from "../components/Breadcrumb";
 import { DocumentUnitSelect } from "../components/DocumentUnitSelect";
 import { DocumentUnitProvider } from "../units/documentUnit";
@@ -188,6 +188,7 @@ import {
   type LoftForm,
 } from "../features/loft";
 import { computeBodies } from "../features/bodies";
+import { derivePartBuild, partialBodySentence } from "../features/partBuild";
 import {
   type BaseFlangeForm,
   canAuthorCornerRelief,
@@ -465,7 +466,15 @@ export function PartPage() {
   const part = useQuery({
     queryKey: ["part", partId],
     queryFn: () => fetchPart(partId),
-    staleTime: Infinity,
+    // NOT `staleTime: Infinity` (it was, until 2026-07-30). The part row is five
+    // scalars — id/name/unit/`tree_version`/`eval_state` — and one of them is the
+    // DENOMINATOR of the staleness comparison the STATUS cell now reports
+    // (`features/partBuild.ts`). A version the client never refreshes cannot
+    // detect the case that motivated the readout: another session edits the tree,
+    // nothing here invalidates, and the workspace would keep asserting currency
+    // indefinitely (UI-REVIEW 2026-07-30 F2). Re-reading five scalars when the
+    // tab regains focus is cheap; being confidently wrong is not.
+    staleTime: 5_000,
   });
   // The document display unit (docs/design/units.md §U2). Edit-form seeds render
   // their canonical mm in this unit; the DocumentUnitProvider carries it to
@@ -3262,13 +3271,36 @@ export function PartPage() {
     editor?.kind === "extrude" &&
     extrudePreview !== null &&
     extrudeGhostLayer !== null;
-  const bodyStatus: BodyStatus = regenFailed
-    ? "error"
-    : regenerating || (meshGlbId !== null && !bodyPresent && body.isFetching)
-      ? "regenerating"
-      : evaluation.isFetching
-        ? "evaluating"
-        : "up-to-date";
+  // THE ONE SET OF FACTS about the body on screen. The feature tree's SOLVE
+  // cell, the inspector's STATUS cell, the EXPORT gate, the SKIP rows and the
+  // partial-body notice below all read this object — they used to compute three
+  // separate answers, and on a part with a broken feature the same screen said
+  // "Failed", "Up to date" and "Ready" at once (AUDIT-ENGINEERING J2).
+  const build = useMemo(
+    () =>
+      derivePartBuild({
+        tree: tree.data,
+        evaluation: evaluation.data,
+        part: part.data,
+        evaluating: evaluation.isFetching,
+        treeFetching: tree.isFetching,
+        regenerating,
+        regenFailed,
+        meshPending: meshGlbId !== null && !bodyPresent && body.isFetching,
+      }),
+    [
+      tree.data,
+      tree.isFetching,
+      evaluation.data,
+      evaluation.isFetching,
+      part.data,
+      regenerating,
+      regenFailed,
+      meshGlbId,
+      bodyPresent,
+      body.isFetching,
+    ],
+  );
   // The inspector appears when there's a body to inspect and we're not
   // sketching — sketch mode keeps the viewport dominant (chrome recedes).
   const showInspector = mode === "off" && bodyProperties !== null;
@@ -3938,6 +3970,41 @@ export function PartPage() {
                       Dismiss
                     </button>
                   </div>
+                ) : editor === null && build.failed && build.hasBody ? (
+                  // WHAT YOU ARE LOOKING AT (AUDIT-PRODUCT N3). The strict-prefix
+                  // rule renders the last-good PREFIX, so one bad pick can turn a
+                  // modelled bracket into a bare brick — and until now nothing on
+                  // screen said the solid was not the part. `last_good_feature_id`
+                  // was on the wire and unused; it names the state being shown.
+                  // NOT dismissible: it describes a live condition, and it leaves
+                  // when the condition does.
+                  <div
+                    role="status"
+                    data-testid="partial-body-notice"
+                    className="absolute left-editor top-3 max-w-sm rounded-sm border border-flag bg-anvil px-3 py-2"
+                  >
+                    <span className="block font-display text-2xs uppercase tracking-[0.18em] text-flag">
+                      Partial body
+                    </span>
+                    <span className="mt-1 block font-body text-xs text-mist">
+                      {partialBodySentence(build)}
+                    </span>
+                    {build.failure !== null ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const failed = features.find(
+                            (f) => f.id === build.failure?.id,
+                          );
+                          if (failed !== undefined) selectFeature(failed);
+                        }}
+                        data-testid="partial-body-show-failure"
+                        className="mt-2 font-display text-2xs uppercase tracking-[0.14em] text-brass focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
+                      >
+                        Show {build.failure.name}
+                      </button>
+                    ) : null}
+                  </div>
                 ) : null}
               </>
             }
@@ -4015,7 +4082,7 @@ export function PartPage() {
                 tree={tree.data}
                 treeError={tree.error}
                 evaluation={evaluation.data}
-                evaluating={evaluation.isFetching}
+                build={build}
                 selectedFeatureId={selectedFeatureId}
                 onSelectFeature={selectFeature}
                 onKeepAsOneBody={keepAsOneBody}
@@ -4042,7 +4109,7 @@ export function PartPage() {
             <FloatingPanel side="right" title="Inspector" id="inspector">
               <BodyInspector
                 properties={bodyProperties}
-                status={bodyStatus}
+                build={build}
                 partId={partId}
               />
             </FloatingPanel>
@@ -4057,7 +4124,7 @@ export function PartPage() {
                 data-testid="part-export-idle"
               >
                 <Panel>
-                  <PartExportControls partId={partId} hasBody={false} />
+                  <PartExportControls partId={partId} build={build} />
                 </Panel>
               </aside>
             </FloatingPanel>

@@ -231,15 +231,26 @@ frame refactor are v2/§11. Spike de-collected.
       the same commit. 10 py-kit + 2 documents + 1 gateway regressions; contracts +
       ts-client regenerated. [src: UI-REVIEW 2026-07-30 F2, re-scoped]
 
-- [ ] (P2, S) **F2 frontend half — a body readout that reports staleness.** Now
-      that the wire carries both numbers, `PartPage`'s `bodyStatus` should derive
-      an out-of-date state (`evaluation.data.tree_version` vs the part row's
-      `tree_version`) instead of returning "up-to-date" by default, and the part
-      query — five scalars, unlike the tree — is cheap enough to refetch on focus
-      so the client can actually LEARN the tree moved. Deliberately not bundled
-      with the wire: `apps/web` was mid-flight on the UI wave, and a status that
-      compares two numbers the client never refreshes would be a second readout
-      that also does not know what it claims. [src: UI-REVIEW 2026-07-30 F2]
+- [x] (P1, M) **J2 + N3 + F2-frontend — the part workspace stopped asserting what
+      it did not know. SHIPPED 2026-07-30** (frontend-builder; one slice, because
+      they were one defect seen from three cells). ONE derivation
+      (`apps/web/src/features/partBuild.ts`) now feeds SOLVE, STATUS, EXPORT, the
+      SKIP rows and a viewport notice, over provenance (`EvaluateTreeResult
+      .tree_version` vs `PartResponse.tree_version`, the shared `is_stale_for_tree`
+      rule from `7d0ba8e`) instead of three local expressions over `isFetching`.
+      Export REFUSES a broken tree naming the feature to fix (it used to say
+      "Ready" and hand over a STEP of the last-good PREFIX — the harm, not just
+      the label); a DELIBERATE travel stop still exports, marked `Partial` in the
+      cell AND `-partial` in the filename; unverified provenance waits for the
+      rebuild. `last_good_feature_id` is finally consumed ("built to Extrude1"),
+      and every SKIP row names its blocker so an independent fillet vanishing no
+      longer reads as a fillet bug. The part query lost `staleTime: Infinity` so
+      the client can LEARN the tree moved. 30 tests (mutation-verified: reverting
+      any single derivation fails its own named test) + `e2e/body-status.spec.ts`
+      (5, real OCCT r50-fillet failure) — the four pre-existing `body-status`
+      assertions were all happy-path, which is why this shipped. Shots
+      `docs/screenshots/body-status-{before,after}-{1440,1366}.png`.
+      [src: AUDIT-ENGINEERING J2, AUDIT-PRODUCT N3, UI-REVIEW 2026-07-30 F2]
 
 - [x] (P2, XS) **The register's sheet number claimed a filing identity and was a
       row ordinal — FIXED 2026-07-30** (frontend-builder). `001/002/003`, doc-
@@ -1665,6 +1676,13 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
       engineering-audit debt items closed. [src: engineering-auditor]
 
 ## Changelog
+
+- 2026-07-30 — **The drawing survives the revision (kernel-architect):** audit N1 —
+  edges get the two-tier resolver faces have (`drawings/anchor.py`) so a widened
+  plate's dimension re-measures 120.000 instead of dying; N2 — iso anchors clear by
+  construction (24 mm at any size) and a colliding sheet stamps a banner, never
+  exports silently. (Ready-queue entries for both landed early in `3f5fc98`, which
+  swept this agent's in-flight BACKLOG hunks.)
 
 - 2026-07-30 — **UI-W1 bottom timeline (frontend-builder):** rollback is now a
   docked machine way with a draggable/keyboard travel stop, verb-glyph op chips and

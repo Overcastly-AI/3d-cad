@@ -4,8 +4,27 @@ import { describe, expect, it } from "vitest";
 import {
   exportBox,
   exportPartTree,
+  markFilenamePartial,
   parseContentDispositionFilename,
 } from "./exportPart";
+
+describe("markFilenamePartial", () => {
+  it("marks the stem, keeping the extension so the file still opens", () => {
+    expect(markFilenamePartial("part-4f2c.step")).toBe(
+      "part-4f2c-partial.step",
+    );
+    expect(markFilenamePartial("bracket.stl")).toBe("bracket-partial.stl");
+  });
+
+  it("handles a dotted stem and an extensionless name", () => {
+    expect(markFilenamePartial("rev.a.bracket.step")).toBe(
+      "rev.a.bracket-partial.step",
+    );
+    expect(markFilenamePartial("bracket")).toBe("bracket-partial");
+    // A dotfile has no stem to mark — never produce "-partial.hidden".
+    expect(markFilenamePartial(".hidden")).toBe(".hidden-partial");
+  });
+});
 
 describe("parseContentDispositionFilename", () => {
   it("parses the quoted form the gateway sends", () => {
