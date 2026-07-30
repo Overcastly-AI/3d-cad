@@ -33,7 +33,13 @@ READINESS_PROBE_TIMEOUT_S = 2.0
 
 
 class DocumentsSettings(BaseServiceSettings):
-    """Documents configuration (env-driven, see ``BaseServiceSettings``)."""
+    """Documents configuration (env-driven, see ``BaseServiceSettings``).
+
+    ``POSTGRES_URL`` is inherited, and so is py-kit's dev-credential guard:
+    constructing these settings with the repo-public compose password
+    embedded in the DSN raises unless ``LOFT_ENV=dev``, so this service
+    refuses to boot against an unsecured store rather than serving from it.
+    """
 
     service_name: str = "documents"
     port: int = 8001

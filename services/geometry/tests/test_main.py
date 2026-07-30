@@ -20,6 +20,44 @@ def test_default_settings() -> None:
     assert settings.web_concurrency == 1  # single-worker default (§7.8 guard)
 
 
+class TestMinioCredentialPosture:
+    """The MinIO root password is the one datastore credential outside a URL.
+
+    Geometry declares it to py-kit's dev-credential guard
+    (``datastore_credential_fields``), so the published compose default is
+    refused unless ``LOFT_ENV=dev`` — same policy as the gateway's JWT
+    posture, one shared ``LOFT_ENV``.
+    """
+
+    def test_published_default_refuses_to_boot(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # LOFT_ENV is deleted explicitly: the gateway suite's conftest sets it
+        # process-wide, and a whole-repo pytest run collects that conftest first.
+        monkeypatch.delenv("LOFT_ENV", raising=False)
+        with pytest.raises(RuntimeError, match="S3_SECRET_ACCESS_KEY"):
+            GeometrySettings(s3_secret_access_key="loft-minio-dev-only")
+        with pytest.raises(RuntimeError, match="MINIO_ROOT_PASSWORD"):
+            GeometrySettings(
+                loft_env="production", s3_secret_access_key="loft-minio-dev-only"
+            )
+
+    def test_dev_allows_the_default(self) -> None:
+        settings = GeometrySettings(
+            loft_env="dev", s3_secret_access_key="loft-minio-dev-only"
+        )
+        assert settings.s3_secret_access_key == "loft-minio-dev-only"
+
+    def test_real_credential_boots(self) -> None:
+        settings = GeometrySettings(s3_secret_access_key="cb6f0a1d9e4f7c2b8a35")
+        assert settings.s3_secret_access_key == "cb6f0a1d9e4f7c2b8a35"
+
+    def test_unset_credential_boots(self) -> None:
+        # Unset = boto3's default credential chain (IAM role, AWS_* env); the
+        # guard demands a credential from nobody, it only judges the one set.
+        assert GeometrySettings().s3_secret_access_key is None
+
+
 def test_build_app_boots_clean_on_single_worker() -> None:
     # The safe default topology stays healthy — the guard never fires at 1.
     service = build_app(GeometrySettings(web_concurrency=1))

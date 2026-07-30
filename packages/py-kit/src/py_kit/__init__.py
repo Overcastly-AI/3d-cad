@@ -7,7 +7,7 @@ client. Every Loft service builds on this package.
 """
 
 from py_kit.app import REQUEST_ID_HEADER, ReadinessCheck, create_app
-from py_kit.config import BaseServiceSettings
+from py_kit.config import DEV_ENV, BaseServiceSettings, is_dev_env
 from py_kit.errors import (
     ApiError,
     ConflictError,
@@ -30,6 +30,7 @@ from py_kit.queue import QueueClient, QueueConfigurationError, redis_settings
 from py_kit.ratelimit import RateLimiter
 
 __all__ = [
+    "DEV_ENV",
     "REQUEST_ID_HEADER",
     "ApiError",
     "BaseServiceSettings",
@@ -51,5 +52,6 @@ __all__ = [
     "error_response",
     "get_logger",
     "install_error_handlers",
+    "is_dev_env",
     "redis_settings",
 ]

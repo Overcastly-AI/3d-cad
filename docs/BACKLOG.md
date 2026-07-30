@@ -1447,6 +1447,16 @@ Full narrative evidence lives in `docs/ROADMAP.md` (Phase 4/4b sections) and
       entities/constraints ≤ 2000/4000; loft ≤ 100; selector refs ≤ 500.
       documents write-side `*_limit_exceeded` twins. 42 new tests.
       [src: AUDIT-ENGINEERING.md 2026-07-24 G2]
+- [x] (P0, M) Fail closed on default datastore credentials (publishing
+      blocker). `loft_env` hoisted into py-kit `BaseServiceSettings` (one
+      posture field for all three services; `gateway.auth.security` now reads
+      `py_kit.is_dev_env`) + one inherited `model_validator`: a publicly-known
+      default or blank password in `POSTGRES_URL`/`REDIS_URL`/`S3_URL`, or in
+      geometry's `S3_SECRET_ACCESS_KEY` (via `datastore_credential_fields`),
+      refuses to boot unless `LOFT_ENV=dev`, where it warns. Error names the
+      variable, the compose knob, and the fix. Compose passes `LOFT_ENV` to
+      all three; `.env.example` gap paragraph rewritten. 48 tests, each branch
+      mutation-verified. [src: cb0dcd0 follow-up / AUDIT-ENGINEERING J4]
 - [x] (P1, S) Compose audit fixes G1/G3/G4 — geometry S3 creds anchor-sourced
       from MinIO's (G1); documents/geometry host ports removed from base compose,
       loopback-bound in dev overlay (G3); stale S3 comment rewritten (G4); new

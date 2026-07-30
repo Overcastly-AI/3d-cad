@@ -7,15 +7,38 @@ paths need a running lifespan and live in tests/test_parts.py.
 
 from typing import Any
 
+import pytest
 from documents.main import DocumentsSettings, app, build_app
 from fastapi.testclient import TestClient
 from py_kit import ConflictError
+
+#: The DSN compose builds from its published default POSTGRES_PASSWORD.
+_DEFAULT_PASSWORD_DSN = "postgresql://loft:loft-dev-only@db:5432/loft_documents"
 
 
 def test_default_settings() -> None:
     settings = DocumentsSettings()
     assert settings.service_name == "documents"
     assert settings.port == 8001
+
+
+def test_refuses_the_published_default_postgres_password(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The parts store holds every user's model data; booting it behind a
+    # password published in this repo is the failure the guard exists for.
+    # LOFT_ENV is deleted explicitly: the gateway suite's conftest sets it
+    # process-wide, and a whole-repo pytest run collects that conftest first.
+    monkeypatch.delenv("LOFT_ENV", raising=False)
+    with pytest.raises(RuntimeError, match="POSTGRES_URL"):
+        DocumentsSettings(postgres_url=_DEFAULT_PASSWORD_DSN)
+    with pytest.raises(RuntimeError, match="POSTGRES_URL"):
+        DocumentsSettings(loft_env="production", postgres_url=_DEFAULT_PASSWORD_DSN)
+
+
+def test_dev_allows_the_published_default_postgres_password() -> None:
+    settings = DocumentsSettings(loft_env="dev", postgres_url=_DEFAULT_PASSWORD_DSN)
+    assert settings.postgres_url == _DEFAULT_PASSWORD_DSN
 
 
 def test_healthz() -> None:

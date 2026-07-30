@@ -539,6 +539,29 @@ carry forward as blocked board items.
       per service, created by `deploy/docker/postgres-init` and guarded by a
       new `check-compose.py` invariant; (2) the compose stack had NO documented
       way to create a schema without a host uv/Python toolchain
+- ✅ Fail closed on default datastore credentials — PUBLISHING BLOCKER CLOSED
+      (2026-07-30, backend-builder). The gateway refused to boot without a
+      real `JWT_SECRET` while NOTHING refused to boot on the compose default
+      `POSTGRES_PASSWORD=loft-dev-only` / `MINIO_ROOT_PASSWORD=
+      loft-minio-dev-only`, both published in this public repo. Closed at ONE
+      seam: `loft_env` hoisted from `GatewaySettings` into py-kit's
+      `BaseServiceSettings` (one posture field, so `gateway.auth.security`
+      and the new guard cannot drift — it now reads `py_kit.is_dev_env`), plus
+      a `model_validator` on that base which every service inherits. It
+      rejects a publicly-known default or blank password embedded in
+      `POSTGRES_URL`/`REDIS_URL`/`S3_URL` — and, via the
+      `datastore_credential_fields` hook, geometry's `S3_SECRET_ACCESS_KEY`
+      (the MinIO root password, the one credential that travels outside a
+      URL) — unless `LOFT_ENV` is exactly `dev`, where it warns instead.
+      Application-level on purpose: compose `${VAR:?}` is interpolated per
+      file BEFORE overlay merge (it would break `just dev`) and covers only
+      compose; this covers compose, k8s and bare uvicorn. The refusal names
+      the offending variable, the compose knob that sets it
+      (`POSTGRES_PASSWORD` / `MINIO_ROOT_PASSWORD`), `openssl rand -hex 32`,
+      and the `LOFT_ENV=dev` opt-out. Compose now passes `LOFT_ENV` to all
+      three services; `.env.example`'s "NOTHING refuses to boot" paragraph is
+      now false and rewritten. 48 new tests (41 py-kit cases + 7 service-level), every
+      branch mutation-verified; contracts unmoved
 - ✅ Compose deploy-config audit fixes (2026-07-24 engineering audit G1/G3/G4,
       platform-builder): geometry now receives `S3_ACCESS_KEY_ID`/
       `S3_SECRET_ACCESS_KEY` anchor-sourced from the MinIO root credentials

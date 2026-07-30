@@ -161,6 +161,12 @@ services:
       #   docker compose run --rm documents \
       #     alembic -c /app/migrations/alembic.ini upgrade head
       POSTGRES_URL: postgresql://${POSTGRES_USER:-loft}:${POSTGRES_PASSWORD:-loft-dev-only}@db:5432/${DOCUMENTS_DB:-loft_documents}
+      # Same posture variable the gateway reads: py-kit refuses to boot on a
+      # publicly-known datastore password (the default above) unless LOFT_ENV
+      # is exactly "dev". This stack opts in explicitly; a real deploy sets
+      # LOFT_ENV=production AND a real POSTGRES_PASSWORD, or documents dies
+      # loudly rather than serving every part behind a repo-public password.
+      LOFT_ENV: ${LOFT_ENV:-dev}
     # NO host port on purpose (audit G3): documents trusts the gateway-verified
     # X-Loft-User principal header with no signature check, so publishing this
     # port on any non-loopback host is forged-header cross-tenant access. Only
@@ -197,6 +203,11 @@ services:
       S3_BUCKET: ${S3_BUCKET:-loft}
       S3_ACCESS_KEY_ID: *minio-user
       S3_SECRET_ACCESS_KEY: *minio-password
+      # As for documents: S3_SECRET_ACCESS_KEY is the MinIO ROOT password, and
+      # py-kit refuses to boot on its publicly-known default unless LOFT_ENV is
+      # exactly "dev". This stack opts in explicitly; a real deploy sets
+      # LOFT_ENV=production AND a real MINIO_ROOT_PASSWORD.
+      LOFT_ENV: ${LOFT_ENV:-dev}
     # NO host port on purpose (audit G3): geometry is internal-only — the
     # gateway proxies /api/v1/geometry/* over the compose network
     # (geometry:8002). Local debugging: docker-compose.dev.yml binds it to

@@ -51,13 +51,14 @@ class GatewaySettings(BaseServiceSettings):
     port: int = 8000
     geometry_url: str = "http://localhost:8002"  # env: GEOMETRY_URL
     documents_url: str = "http://localhost:8001"  # env: DOCUMENTS_URL
-    # Deployment environment posture — NO default, fail-closed: ONLY the
-    # explicitly-set exact value LOFT_ENV=dev permits running without
-    # JWT_SECRET (a fixed, publicly-known fallback is used and a warning
-    # logged). Unset, or anything else, refuses startup without a real
-    # secret — an unconfigured deployment must die loudly, not silently sign
-    # tokens with the repo-public dev constant.
-    loft_env: str | None = None  # env: LOFT_ENV ("dev" opts into the fallback)
+    # `loft_env` is INHERITED from BaseServiceSettings (env: LOFT_ENV) — one
+    # deployment-posture variable for the whole stack, gating both the JWT
+    # fallback below and py-kit's datastore-credential guard. It has no
+    # default: only the explicit LOFT_ENV=dev permits running without
+    # JWT_SECRET (a fixed, publicly-known fallback, with a warning); unset or
+    # anything else refuses startup without a real secret, so an
+    # unconfigured deployment dies loudly instead of signing tokens with the
+    # repo-public dev constant.
     jwt_secret: str | None = None  # env: JWT_SECRET (>= 32 chars when set)
     jwt_ttl_s: int = DEFAULT_TOKEN_TTL_S  # env: JWT_TTL_S
 
