@@ -240,8 +240,9 @@ Stale docs are a defect (this rule saved Next-Lane repeatedly; see
   NB a descendant's green run does verify the *tree* of its ancestors, so a
   cancelled ancestor whose child is green is not an unknown build — it is an
   unverified *commit*. Say which of the two you mean.
-  **CAVEAT, measured the same day — the fix does NOT save a run that has not
-  STARTED yet.** Evidence: with the fix live, `5de225c`'s run stayed
+  **SUPERSEDED 2026-07-30 by a per-SHA group — read this caveat as the reason
+  why.** The PR-only `cancel-in-progress` alone did NOT save a run that had not
+  STARTED yet. Evidence: with the fix live, `5de225c`'s run stayed
   `in_progress` across a later push (the old config would have killed it
   instantly) — but `60ac962` and `cb0dcd0`, also pushed with the fix in their own
   trees, still came back `cancelled`. The difference is that those two were
@@ -250,9 +251,16 @@ Stale docs are a defect (this rule saved Next-Lane repeatedly; see
   `cancel-in-progress`, which only governs runs already holding a slot. So under
   runner contention — which is exactly when several agents are pushing — rapid
   back-to-back pushes can still cost the middle commit its run. Practical rule:
-  the fix removes the routine case, it does not make per-commit CI unconditional,
-  so when a specific commit's own green matters, confirm its run actually reached
-  `in_progress` rather than assuming the policy covered it.
+  the fix removed the routine case but not the mechanism. Under four agents
+  pushing it became the NORM, not an edge: **5 of 8 consecutive runs came back
+  `cancelled`**, including `5794b48` — the fix for the very lint failure an audit
+  had just flagged — so the rule was unenforceable exactly when parallelism made
+  it most valuable. Real fix: the push group is now keyed on `github.sha`
+  (`format('ci-sha-{0}', github.sha)`), giving every commit its own group that
+  nothing can evict; PRs keep a ref-keyed group so a superseded PR push still
+  cancels. It costs runner minutes, which is the price of the rule. Consequence:
+  a `cancelled` run on a branch push is now genuinely anomalous — investigate it
+  rather than shrugging.
 - **A suspiciously FAST green deserves the same scrutiny as a red.** The
   usual cause is a job that skipped its work, and `conclusion: success` is
   emitted when every job is skipped. Discriminate by reading the log for

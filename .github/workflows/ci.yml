@@ -35,7 +35,25 @@ on:
   pull_request:
 
 concurrency:
-  group: ci-${{ github.ref }}
+  # PUSH: group PER COMMIT, so a commit's run can never be evicted by a later
+  # one. PR: group per ref, so a superseded PR push still cancels.
+  #
+  # Keying on the ref for pushes looked harmless and was not. A concurrency group
+  # holds at most one RUNNING plus one PENDING run, so a newer arrival evicts the
+  # pending one — and that happens regardless of cancel-in-progress, which only
+  # governs runs already holding a runner. Under one pusher that is rare. With
+  # four agents pushing (2026-07-30) it became the norm: 5 of 8 consecutive runs
+  # came back `cancelled`, including 5794b48, the fix for the very lint failure
+  # an audit had just flagged. Net effect: the "every commit green on its own"
+  # rule was unenforceable exactly when parallelism made it most valuable, and
+  # `cancelled` reads as noise rather than as the missing evidence it is.
+  #
+  # Per-SHA groups cost more runner minutes. That is the price of the rule, and
+  # the alternative was paying for CI that verifies a minority of commits.
+  group: >-
+    ${{ github.event_name == 'pull_request'
+        && format('ci-pr-{0}', github.ref)
+        || format('ci-sha-{0}', github.sha) }}
   # Cancel superseded runs on PULL REQUESTS only. On branch pushes each commit
   # keeps its own run to completion, because CLAUDE.md's standing rule is that
   # EVERY COMMIT must be green on its own and `cancelled` is explicitly not a
