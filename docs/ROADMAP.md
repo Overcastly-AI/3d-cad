@@ -1312,7 +1312,11 @@ flexible sub-assemblies, part-version pinning-as-default.
       it says more than "unknown" while never dressing it up as current. New
       `Stamp` primitive carries that one vocabulary (three consumers).
       `e2e/p2-register-health.spec.ts` produces all four states from the REAL
-      stack; shots `register-health-{before,after}-{1440,1280}.png`.
+      stack; shots `register-health-{before,after}-{1440,1280}.png`. Same pass:
+      the gutter number stopped claiming to be a filing identity — it was
+      `String(index+1).padStart(3,"0")`, so `001` retargeted on every delete;
+      now an unpadded ordinal under a `#` header with an `sr-only` "Row"
+      (UI-REVIEW 2026-07-30 P2, e2e-proved against a real delete).
       **Cut-aware pattern + mirror ✅ 2026-07-24 (kernel-architect; FINDINGS
       #1–#2, the silent-wrong-geometry pair):** patterning a **Hole** feature no
       longer duplicates the whole body and mirroring a holed plate about its

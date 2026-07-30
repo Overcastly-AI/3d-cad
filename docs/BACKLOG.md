@@ -194,6 +194,24 @@ frame refactor are v2/§11. Spike de-collected.
       stack (OCCT really fails the r50 fillet). [src: UI-REVIEW 2026-07-30
       verdict 1]
 
+- [x] (P2, XS) **The register's sheet number claimed a filing identity and was a
+      row ordinal — FIXED 2026-07-30** (frontend-builder). `001/002/003`, doc-
+      commented "filing identity: stable", computed `String(index+1).padStart(3)`:
+      delete row 1 and `001/002` address different parts, so a user who cited
+      "sheet 002" in a change note held a reference that silently retargeted.
+      The number is a POSITION and is now presented as one — `#` header with an
+      `sr-only` "Row" (the bare `№` glyph also announced as "numero sign"),
+      unpadded, `part-ordinal` hook. Form unchanged. e2e proves the renumber
+      against a real delete. [src: UI-REVIEW 2026-07-30 P2]
+
+- [ ] (P3, M) **Real sheet numbers: a stored per-owner monotonic sequence.** The
+      honest fix above keeps the gutter truthful but a drawing register arguably
+      wants a durable sheet number a person can cite across deletes — that is a
+      `documents` column + backfill (assign on insert, never reuse), plus a
+      decision on whether it is per-owner or per-project. Only worth building if
+      the founder wants citable sheet numbers; the ordinal is not a placeholder
+      for it, it is a different, correct thing. [src: UI-REVIEW 2026-07-30 P2]
+
 - [ ] (P3, S) **Same last-evaluate record for assemblies + drawings.** Parts got
       `0012`; the assembly and drawing registers still cannot say "is broken".
       Assemblies have their own evaluation-request path, so the pattern ports

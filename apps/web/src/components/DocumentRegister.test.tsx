@@ -107,13 +107,52 @@ describe("DocumentRegister — what it reports", () => {
     expect(within(rows[1]!).queryByText(/ago/)).toBeNull();
   });
 
-  it("files each row under a stable sheet number and scribes the next one", () => {
+  it("numbers rows by position, and says so rather than implying an identity", () => {
     renderRegister([worked, unstarted]);
     const rows = screen.getAllByTestId("part-row");
-    expect(within(rows[0]!).getByText("001")).toBeInTheDocument();
-    expect(within(rows[1]!).getByText("002")).toBeInTheDocument();
+    expect(within(rows[0]!).getByTestId("part-ordinal")).toHaveTextContent("1");
+    expect(within(rows[1]!).getByTestId("part-ordinal")).toHaveTextContent("2");
     // The create control IS the next line of the register.
-    expect(screen.getByText("003")).toBeInTheDocument();
+    expect(screen.getByText("3")).toBeInTheDocument();
+    // No zero padding, because `001` is what made a row position read as a
+    // filing identity that a user could cite (UI-REVIEW 2026-07-30 P2)…
+    expect(screen.queryByText("001")).toBeNull();
+    // …and the header names it, for the eye and for a screen reader.
+    const header = screen.getByTestId("parts-ordinal-header");
+    expect(header).toHaveTextContent("#");
+    expect(header).toHaveTextContent("Row");
+  });
+
+  it("re-numbers on delete — which is why it never claims to be an identity", () => {
+    const { rerender } = renderRegister([worked, unstarted]);
+    expect(
+      within(screen.getAllByTestId("part-row")[1]!).getByTestId("part-ordinal"),
+    ).toHaveTextContent("2");
+    // The same document is row 1 once the row above it is gone. A stable
+    // "sheet number" would have to come from the document row in the database.
+    rerender(
+      <DocumentRegister<Doc>
+        idPlural="parts"
+        idSingular="part"
+        copy={COPY}
+        documents={[unstarted]}
+        isLoading={false}
+        isError={false}
+        error={null}
+        openLink={(entry, props) => (
+          <a href={`/parts/${entry.id}`} {...props}>
+            {entry.name}
+          </a>
+        )}
+        onCreate={() => Promise.resolve()}
+        onDelete={() => Promise.resolve()}
+      />,
+    );
+    const row = screen.getAllByTestId("part-row")[0]!;
+    expect(within(row).getByTestId("part-ordinal")).toHaveTextContent("1");
+    expect(within(row).getByTestId("part-open")).toHaveTextContent(
+      "Empty stock",
+    );
   });
 
   it("shows the document unit, and drops the column when there is none", () => {

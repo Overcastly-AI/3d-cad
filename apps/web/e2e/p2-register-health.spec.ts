@@ -135,6 +135,37 @@ test.describe("register rebuild health — 1440x900", () => {
       }),
     );
   });
+
+  test("the gutter number is the row ordinal it actually is", async ({
+    page,
+  }) => {
+    await seedRegisterOfEveryState(page);
+    await openRegister(page);
+
+    const rows = page.getByTestId("part-row");
+    const ordinal = (n: number) =>
+      rows.nth(n).locator('[data-testid="part-ordinal"]');
+
+    // Not a zero-padded filing identity: those renumber on delete, and a user
+    // who cites "sheet 002" is then holding a reference to a different part.
+    await expect(ordinal(0)).toHaveText("1");
+    await expect(ordinal(1)).toHaveText("2");
+    const header = page.getByTestId("parts-ordinal-header");
+    await expect(header).toContainText("#");
+    await expect(header).toContainText("Row");
+
+    // Prove the renumbering against the REAL delete, so the claim the column
+    // makes is checked against the behaviour it has.
+    await rows.nth(0).getByTestId("part-delete").click();
+    await page.getByTestId("part-delete-confirm").click();
+    await expect(page.getByTestId("part-row")).toHaveCount(4, {
+      timeout: 30_000,
+    });
+    await expect(ordinal(0)).toHaveText("1");
+    await expect(rows.nth(0).getByTestId("part-open")).toContainText(
+      "Motor mount",
+    );
+  });
 });
 
 test.describe("register rebuild health — 1280x800", () => {

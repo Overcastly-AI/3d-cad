@@ -49,15 +49,16 @@ import { validatePartName } from "../lib/partName";
  * from the two timestamps it happens to have.
  *
  * FORM. The identity comes from the language the rest of the product already
- * speaks — no new look was invented. The sheet number moves out of the ruled
- * body into a scribed left GUTTER on the carbide ground, the way a drawing's
- * zone indices are printed in its margin; the addressed row takes a brass
- * scribe on that gutter's edge (the only accent, and it marks position across a
- * wide row rather than decorating); the name is the one thing set in body type
- * at reading size while every other cell is quiet tracked data. The create
- * control is no longer a form bolted above a table — it is the NEXT LINE of the
- * register, carrying the next sheet number, because that is what filing a new
- * part is, and its `N` accelerator is finally shown rather than hidden. Below
+ * speaks — no new look was invented. The row ordinal sits in a scribed left
+ * GUTTER on the carbide ground, the way a drawing's zone indices are printed in
+ * its margin (and it is an ordinal, presented as one — see `Gutter`); the
+ * addressed row takes a brass scribe on that gutter's edge (the only accent, and
+ * it marks position across a wide row rather than decorating); the name is the
+ * one thing set in body type at reading size while every other cell is quiet
+ * tracked data. The create control is no longer a form bolted above a table — it
+ * is the NEXT LINE of the register, carrying the next ordinal, because that is
+ * what filing a new part is, and its `N` accelerator is shown rather than
+ * hidden. Below
  * it the drawer's remaining ruled lines run to the bottom of the frame, which
  * is what kills the old "small card adrift in a void" read.
  *
@@ -221,7 +222,7 @@ export function DocumentRegister<T extends RegisterDocument>({
           <ScribeLine
             idSingular={idSingular}
             copy={copy}
-            nextSheetNo={sheetNo(documents.length + 1)}
+            nextOrdinal={documents.length + 1}
             onCreate={onCreate}
           />
           <RuledRemainder />
@@ -231,14 +232,9 @@ export function DocumentRegister<T extends RegisterDocument>({
   );
 }
 
-/** Filing identity: "001". Stable, and the gutter's whole reason to exist. */
-function sheetNo(index: number): string {
-  return String(index).padStart(3, "0");
-}
-
 /** Shared gutter width — the table's first column and the scribe line agree. */
 const COLUMN = {
-  /** Scribed margin carrying the sheet number — the table and the scribe line
+  /** Scribed margin carrying the row ordinal — the table and the scribe line
    *  below it share this width so the log's left edge is one straight rule. */
   gutter: "w-[3.5rem]",
   units: "w-[4.5rem]",
@@ -275,7 +271,16 @@ function RegisterTable<T extends RegisterDocument>({
       <caption className="sr-only">{copy.caption}</caption>
       <thead>
         <tr className="border-b border-hairline">
-          <Th className={`${COLUMN.gutter} bg-carbide text-right`}>№</Th>
+          {/* A POSITION, not a name for the part in it — see `Gutter`. The
+              glyph alone announced as "numero sign"; the word is what a screen
+              reader gets. */}
+          <Th
+            className={`${COLUMN.gutter} bg-carbide text-right`}
+            data-testid={`${idPlural}-ordinal-header`}
+          >
+            <span aria-hidden>#</span>
+            <span className="sr-only">Row</span>
+          </Th>
           <Th>Name</Th>
           {showUnits ? <Th className={COLUMN.units}>Units</Th> : null}
           <Th className={COLUMN.activity}>Last worked</Th>
@@ -293,7 +298,7 @@ function RegisterTable<T extends RegisterDocument>({
             idSingular={idSingular}
             copy={copy}
             entry={entry}
-            sheet={sheetNo(index + 1)}
+            ordinal={index + 1}
             showUnits={showUnits}
             showHealth={showHealth}
             openLink={openLink}
@@ -308,27 +313,30 @@ function RegisterTable<T extends RegisterDocument>({
 function Th({
   children,
   className,
+  ...rest
 }: {
   children: ReactNode;
   className?: string;
+  "data-testid"?: string;
 }) {
   return (
     <th
       className={`px-3 py-2 text-left font-display text-2xs uppercase tracking-[0.16em] text-gauge ${
         className ?? ""
       }`}
+      {...rest}
     >
       {children}
     </th>
   );
 }
 
-/** One filed sheet: gutter number, name, units, activity, health, filed, delete. */
+/** One filed row: ordinal, name, units, activity, health, filed, delete. */
 function RegisterRow<T extends RegisterDocument>({
   idSingular,
   copy,
   entry,
-  sheet,
+  ordinal,
   showUnits,
   showHealth,
   openLink,
@@ -337,7 +345,7 @@ function RegisterRow<T extends RegisterDocument>({
   idSingular: string;
   copy: RegisterCopy;
   entry: T;
-  sheet: string;
+  ordinal: number;
   showUnits: boolean;
   showHealth: boolean;
   openLink: DocumentRegisterProps<T>["openLink"];
@@ -375,7 +383,7 @@ function RegisterRow<T extends RegisterDocument>({
         data-confirming="true"
         className="border-b border-hairline last:border-b-0 bg-carbide"
       >
-        <Gutter sheet={sheet} addressed />
+        <Gutter ordinal={ordinal} idSingular={idSingular} addressed />
         {/* Name + every data cell up to FILED: the confirm takes the row over,
             so the span has to follow whichever optional columns are showing. */}
         <td
@@ -425,7 +433,7 @@ function RegisterRow<T extends RegisterDocument>({
       {...{ [`data-${idSingular}-id`]: entry.id }}
       className="group border-b border-hairline last:border-b-0 hover:bg-carbide focus-within:bg-carbide"
     >
-      <Gutter sheet={sheet} />
+      <Gutter ordinal={ordinal} idSingular={idSingular} />
       <td className="truncate px-3 py-2 align-middle">
         {openLink(entry, {
           className:
@@ -601,12 +609,36 @@ function HealthCell<T extends RegisterDocument>({
 }
 
 /**
- * The scribed margin: the sheet number on the carbide ground, ruled off the
+ * The scribed margin: the ROW ORDINAL on the carbide ground, ruled off the
  * register body. Its left edge carries the brass scribe for the ADDRESSED row
  * (hover / keyboard focus anywhere in it) — the row marker, at the left edge
  * where the eye starts, so a wide row never loses its place.
+ *
+ * It used to render `001` and its own doc comment called that a "filing
+ * identity: stable". It was `String(index + 1).padStart(3, "0")` — a POSITION in
+ * a zero-padded costume, and positions move: file 001/002/003, delete 001, and
+ * 001/002 now address different parts than they did a moment ago. A user who
+ * wrote "sheet 002" in a change note or a message was holding a reference that
+ * silently retargeted (UI-REVIEW 2026-07-30 P2 — the same lens as the false
+ * clash badge, at lower stakes).
+ *
+ * The call: keep the number, drop the claim. A position is genuinely useful in a
+ * dense list ("the third row"), so the column stays — as `#` with an `sr-only`
+ * "Row", and unpadded, because the padding was most of the lie. A REAL sheet
+ * number is a stored per-owner monotonic sequence on the document row, i.e. a
+ * documents-service change, and it is filed as its own item rather than faked
+ * here. The gutter's form (carbide ground, brass scribe, right-aligned tabular
+ * data face) is unchanged — only what it asserts.
  */
-function Gutter({ sheet, addressed }: { sheet: string; addressed?: boolean }) {
+function Gutter({
+  ordinal,
+  idSingular,
+  addressed,
+}: {
+  ordinal: number;
+  idSingular: string;
+  addressed?: boolean;
+}) {
   return (
     <td
       className={`h-10 border-l-2 bg-carbide px-3 py-2 text-right align-middle font-data text-xs tabular-nums text-gauge ${
@@ -615,26 +647,26 @@ function Gutter({ sheet, addressed }: { sheet: string; addressed?: boolean }) {
           : "border-transparent group-hover:border-brass group-focus-within:border-brass"
       }`}
     >
-      {sheet}
+      <span data-testid={`${idSingular}-ordinal`}>{ordinal}</span>
     </td>
   );
 }
 
 /**
- * The next line of the register — where a new sheet gets scribed. It carries
- * the next sheet number in the same gutter, so filing reads as continuing the
- * log rather than operating a form. `N` focuses it from anywhere on the page
- * (previously true but never shown; the chip teaches it).
+ * The next line of the register — where a new row gets scribed. It carries the
+ * next ordinal in the same gutter, so filing reads as continuing the log rather
+ * than operating a form. `N` focuses it from anywhere on the page (previously
+ * true but never shown; the chip teaches it).
  */
 function ScribeLine({
   idSingular,
   copy,
-  nextSheetNo,
+  nextOrdinal,
   onCreate,
 }: {
   idSingular: string;
   copy: RegisterCopy;
-  nextSheetNo: string;
+  nextOrdinal: number;
   onCreate: (name: string) => Promise<void>;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -667,7 +699,7 @@ function ScribeLine({
         className={`${COLUMN.gutter} shrink-0 border-l-2 border-transparent bg-carbide px-3 pt-3 text-right font-data text-xs tabular-nums text-gauge`}
         aria-hidden="true"
       >
-        {nextSheetNo}
+        {nextOrdinal}
       </div>
       <div className="min-w-0 grow px-3 py-3">
         <CreateForm
