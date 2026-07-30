@@ -1321,6 +1321,28 @@ flexible sub-assemblies, part-version pinning-as-default.
       `String(index+1).padStart(3,"0")`, so `001` retargeted on every delete;
       now an unpadded ordinal under a `#` header with an `sr-only` "Row"
       (UI-REVIEW 2026-07-30 P2, e2e-proved against a real delete).
+      **The same discriminator now serves the VIEWPORT — F2 wire half shipped
+      2026-07-30 (backend-builder):** the part workspace's body status was
+      computed from request state (`no request in flight && the last one didn't
+      error` → "Up to date"), which is a different and weaker claim than "the
+      body you are looking at was built from the current tree" — and under a
+      concurrent edit, where nothing invalidates, it asserts currency
+      indefinitely. Rather than patch a second status that also cannot know what
+      it claims, the PROVENANCE went on the wire: `PartResponse.tree_version`
+      serves the part's CURRENT counter (the staleness denominator — the part
+      header row was the only document header lacking its own version, mirroring
+      `AssemblyResponse.doc_version`, so a client previously had to fetch a whole
+      feature tree to learn it), and `EvaluateTreeResult.tree_version` is
+      documented as the version the returned body/mesh was BUILT FROM — it was
+      already echoed by geometry but described as a "cache/correlation key",
+      which entitles no truth claim. The comparison itself is ONE py-kit
+      function, `is_stale_for_tree`, that `derive_part_eval_state` now folds
+      through, so the register's four-state verdict and a body readout cannot
+      drift apart on what "stale" means. Additive: no migration, no new route, no
+      new request field; 10 py-kit + 2 documents + 1 gateway regressions, and the
+      contracts/ts-client regenerated in the same commit. The readout that spends
+      it is filed as the frontend half (`apps/web` was mid-flight on the UI
+      wave).
       **Cut-aware pattern + mirror ✅ 2026-07-24 (kernel-architect; FINDINGS
       #1–#2, the silent-wrong-geometry pair):** patterning a **Hole** feature no
       longer duplicates the whole body and mirroring a holed plate about its

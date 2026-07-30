@@ -600,6 +600,43 @@ the record is **parts only** — assemblies/drawings keep their own registers an
 would need the same treatment on their own rows. The `export` route evaluates too
 but has no per-feature statuses to read, so it records nothing.
 
+### 4.4b Body provenance — the same discriminator, for the thing on screen (2026-07-30)
+
+§4.4a made the *register* honest. The **viewport** had the same problem one layer
+down: `PartPage`'s body status was computed from request state — no request in
+flight and the last one did not error → "Up to date" — which is a strictly weaker
+claim than *"the body you are looking at was built from the current tree"*. Every
+in-app mutation refetches, so the usual window is a transient race; a concurrent
+edit arriving over the gateway's fan-out invalidates nothing, and the label then
+asserts currency indefinitely (`docs/UI-REVIEW.md` 2026-07-30 F2). Before an
+export or a dimension, that is the one claim a user must be able to trust.
+
+The fix is provenance on the wire, not a cleverer local guess. Two numbers, one
+rule:
+
+| Wire field | Meaning |
+|---|---|
+| `EvaluateTreeResult.tree_version` | the version the returned body/mesh/statuses were **BUILT FROM** (composed by documents off that exact tree, echoed by geometry) |
+| `PartResponse.tree_version` | the part's **CURRENT** counter — the staleness denominator |
+
+`py_kit.schemas.parts.is_stale_for_tree` is the single comparison
+(`built_from != current`), and `derive_part_eval_state` folds through it, so the
+register's four-state verdict and any body readout cannot disagree about what
+"stale" means. Notes on the shape:
+
+- **Inequality, not `<`.** An undo/redo restore also bumps the version, and a
+  result stamped with a version the part never reached is as unusable as an old
+  one.
+- **`PartResponse.tree_version` is new, and additive** — the column already
+  existed (§1.2), so no migration. It also removes an absurdity: the part header
+  row was the only document header lacking its own version
+  (`AssemblyResponse.doc_version` always carried one), so a client had to fetch a
+  whole feature tree to learn the current number. Five scalars is cheap enough to
+  refetch on window focus; a tree is not.
+- **No new field on the evaluate result.** The version was always echoed there —
+  it was merely described as a "cache/correlation key", which entitles no truth
+  claim. Duplicating it under a second name would have been the WET answer.
+
 ---
 
 ## 5. Alembic migration plan

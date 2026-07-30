@@ -41,6 +41,9 @@ def _part(owner_id: uuid.UUID, name: str = "Bracket") -> PartResponse:
         name=name,
         owner_id=owner_id,
         length_unit="mm",
+        # A fresh part sits at tree_version 0 — the staleness denominator every
+        # part response now carries (feature-tree.md §1.2).
+        tree_version=0,
         # Never evaluated (feature-tree.md §4.4a): the register's rebuild-health
         # column rides on every part response, and its all-null form is the only
         # claim a part nobody evaluated may make.

@@ -214,6 +214,49 @@ def test_a_result_for_a_tree_that_already_moved_records_as_stale_immediately(
     assert body["eval_state"] == "stale"
 
 
+# --- the provenance pair a client compares --------------------------------------
+
+
+def test_the_part_row_reports_the_live_tree_version(client: TestClient) -> None:
+    """``tree_version`` on the part row is the DENOMINATOR of every staleness
+    check (``is_stale_for_tree``), so it must be the LIVE counter — the same
+    number the feature-tree read reports — and it must be readable WITHOUT
+    fetching the tree. A viewport that must download a whole feature tree to
+    learn the current version cannot afford to ask, which is how "up to date"
+    ends up inferred from request state instead (docs/UI-REVIEW.md F2)."""
+    part = _create_part(client)
+    assert part["tree_version"] == 0
+
+    version = _add_datum(client, part["id"])
+    fetched = _get_part(client, part["id"])
+    assert fetched["tree_version"] == version
+    assert fetched["tree_version"] == _tree_version(client, part["id"])
+
+
+def test_the_pair_a_client_holds_says_stale_before_any_re_evaluate(
+    client: TestClient,
+) -> None:
+    """The F2 capability at the API: a client that evaluated at version N holds a
+    body stamped N; when someone else edits the tree, the part row alone — five
+    scalars, no tree fetch — reports N+1, so the two numbers disagree and the
+    displayed body is KNOWN stale. Note this is true even before the next
+    evaluate is recorded: the derived ``eval_state`` and the raw pair agree."""
+    part = _create_part(client)
+    evaluated_at = _add_datum(client, part["id"])
+    _record(client, part["id"], status="ok", tree_version=evaluated_at)
+
+    current = _get_part(client, part["id"])
+    assert current["tree_version"] == evaluated_at == current["last_eval_tree_version"]
+    assert current["eval_state"] == "ok"
+
+    edited_elsewhere = _add_datum(client, part["id"])
+    after = _get_part(client, part["id"])
+    assert after["tree_version"] == edited_elsewhere
+    assert after["last_eval_tree_version"] == evaluated_at
+    assert after["tree_version"] != after["last_eval_tree_version"]
+    assert after["eval_state"] == "stale"
+
+
 # --- properties that make it safe on a dashboard --------------------------------
 
 

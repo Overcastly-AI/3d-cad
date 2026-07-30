@@ -115,6 +115,7 @@ def test_create_part_returns_full_dto(client: TestClient) -> None:
         "name",
         "owner_id",
         "length_unit",
+        "tree_version",
         "eval_state",
         "last_eval_status",
         "last_eval_at",
@@ -125,6 +126,8 @@ def test_create_part_returns_full_dto(client: TestClient) -> None:
     uuid.UUID(body["id"])  # well-formed id
     assert body["name"] == "Bracket"
     assert body["owner_id"] == OWNER
+    # A part with no tree yet sits at version 0 (feature-tree.md §1.2).
+    assert body["tree_version"] == 0
     # Never evaluated: the record is all-null and the derived state says so
     # (feature-tree.md §4.4a) — a fresh part claims nothing about its health.
     assert body["eval_state"] == "never"

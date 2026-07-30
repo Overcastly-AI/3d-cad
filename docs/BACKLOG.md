@@ -194,6 +194,37 @@ frame refactor are v2/§11. Spike de-collected.
       stack (OCCT really fails the r50 fillet). [src: UI-REVIEW 2026-07-30
       verdict 1]
 
+- [x] (P2, S) **F2 — "Up to date" was computed from request state, not from
+      staleness: the WIRE half SHIPPED 2026-07-30** (backend-builder).
+      `PartPage`'s `BodyStatus` says "up-to-date" whenever no request is in flight
+      and the last one did not error — which is NOT the claim "the body you are
+      looking at was built from the current tree", and under a concurrent edit
+      (nothing invalidates) it asserts currency indefinitely. Provenance is now
+      derivable at the API instead of inferred: `PartResponse.tree_version` serves
+      the part's CURRENT counter (the staleness DENOMINATOR, mirroring
+      `AssemblyResponse.doc_version` — the part header row was the only document
+      header missing its own version, so a client had to download a whole feature
+      tree to learn it), and `EvaluateTreeResult.tree_version` is now DOCUMENTED as
+      the version the returned body/mesh was BUILT FROM (already echoed, but
+      described as a "cache/correlation key", which entitles no truth claim). The
+      comparison is ONE py-kit function — `is_stale_for_tree`, which
+      `derive_part_eval_state` now folds through — so the register's four-state
+      verdict and a body readout cannot drift apart on what "stale" means. Purely
+      additive: no migration (the column exists), no new route, no new REQUEST
+      field; the one new required RESPONSE field's two Python constructors ship in
+      the same commit. 10 py-kit + 2 documents + 1 gateway regressions; contracts +
+      ts-client regenerated. [src: UI-REVIEW 2026-07-30 F2, re-scoped]
+
+- [ ] (P2, S) **F2 frontend half — a body readout that reports staleness.** Now
+      that the wire carries both numbers, `PartPage`'s `bodyStatus` should derive
+      an out-of-date state (`evaluation.data.tree_version` vs the part row's
+      `tree_version`) instead of returning "up-to-date" by default, and the part
+      query — five scalars, unlike the tree — is cheap enough to refetch on focus
+      so the client can actually LEARN the tree moved. Deliberately not bundled
+      with the wire: `apps/web` was mid-flight on the UI wave, and a status that
+      compares two numbers the client never refreshes would be a second readout
+      that also does not know what it claims. [src: UI-REVIEW 2026-07-30 F2]
+
 - [x] (P2, XS) **The register's sheet number claimed a filing identity and was a
       row ordinal — FIXED 2026-07-30** (frontend-builder). `001/002/003`, doc-
       commented "filing identity: stable", computed `String(index+1).padStart(3)`:
@@ -1074,6 +1105,10 @@ Full narrative evidence lives in `docs/ROADMAP.md` (Phase 4/4b sections) and
   (which actually SAVES). Esc chip moved to Save; Exit states the count it would
   discard and asks first; prompt is derived so it cannot outlive the work.
   9 component tests, mutation-verified (old code fails 5).
+
+- **F2 wire half — the body's provenance is on the wire.** `PartResponse.
+  tree_version` (current) + `EvaluateTreeResult.tree_version` (built-from) folded
+  by one shared `is_stale_for_tree`; frontend readout filed as the follow-up.
 
 - **CM-5 — `body`-scope mirror after a revolve/sweep/loft CUT filled the void**
   (FINDINGS #2 class, silent wrong geometry). One line in the shared `_cut_active`

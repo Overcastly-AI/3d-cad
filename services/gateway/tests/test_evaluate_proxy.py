@@ -229,6 +229,35 @@ def test_evaluate_relays_documents_list_to_geometry(db_url: str) -> None:
     assert relayed == _evaluation_request()
 
 
+def test_the_client_gets_the_version_the_body_was_built_from(db_url: str) -> None:
+    """PROVENANCE reaches the browser, not just the bookkeeping write.
+
+    The verdict stamped onto the part row (below) and the ``tree_version`` the
+    CLIENT reads off this response are the same number — the version documents
+    composed the request from. That is what lets a viewport compare the body it
+    is displaying against ``PartResponse.tree_version`` and know whether it is
+    current, instead of concluding "up to date" from the absence of an in-flight
+    request (docs/UI-REVIEW.md F2).
+    """
+    documents_seen: list[httpx.Request] = []
+    geometry_seen: list[httpx.Request] = []
+    with make_client(
+        db_url, _documents_ok(documents_seen), _geometry_ok(geometry_seen)
+    ) as client:
+        _, bearer = _register(client)
+        response = client.post(f"/api/v1/parts/{PART}/evaluate", headers=bearer)
+
+    assert response.status_code == 200, response.text
+    served = response.json()
+    composed_from = _evaluation_request().tree_version
+    assert served["tree_version"] == composed_from
+    # …and the same stamp went onto the row, so the two sides of the comparison
+    # can never disagree about which tree the last body came from.
+    assert _recorded(documents_seen) == [
+        {"tree_version": composed_from, "status": "ok"}
+    ]
+
+
 def test_documents_error_resurfaced_and_geometry_never_called(db_url: str) -> None:
     geometry_seen: list[httpx.Request] = []
 

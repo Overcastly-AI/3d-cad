@@ -1928,7 +1928,8 @@
             "type": "string"
           },
           "tree_version": {
-            "description": "Echoed back; cache/correlation key",
+            "description": "The part tree_version documents composed this request from. Echoed back verbatim on the result, where it is the PROVENANCE stamp of the returned body (EvaluateTreeResult.tree_version) as well as a cache/correlation key.",
+            "minimum": 0.0,
             "title": "Tree Version",
             "type": "integer"
           }
@@ -4206,6 +4207,12 @@
             "title": "Owner Id",
             "type": "string"
           },
+          "tree_version": {
+            "description": "The part's CURRENT monotonic optimistic-concurrency counter (feature-tree.md \u00a71.2) \u2014 bumped in the same transaction as any tree write. Two uses: the `expected_tree_version` a write echoes, and the DENOMINATOR of the staleness comparison (`is_stale_for_tree`) \u2014 a consumer holding a result stamped with the version it was built from (EvaluateTreeResult.tree_version) knows whether what it displays is still current. Mirrors AssemblyResponse.doc_version on the assembly header row.",
+            "minimum": 0.0,
+            "title": "Tree Version",
+            "type": "integer"
+          },
           "updated_at": {
             "format": "date-time",
             "title": "Updated At",
@@ -4217,6 +4224,7 @@
           "name",
           "owner_id",
           "length_unit",
+          "tree_version",
           "eval_state",
           "last_eval_status",
           "last_eval_at",

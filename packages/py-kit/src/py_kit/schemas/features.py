@@ -3342,7 +3342,13 @@ class EvaluateTreeRequest(BaseModel):
     """
 
     part_id: uuid.UUID
-    tree_version: int = Field(description="Echoed back; cache/correlation key")
+    tree_version: int = Field(
+        ge=0,
+        description="The part tree_version documents composed this request from. "
+        "Echoed back verbatim on the result, where it is the PROVENANCE stamp of "
+        "the returned body (EvaluateTreeResult.tree_version) as well as a "
+        "cache/correlation key.",
+    )
     features: list[EvaluatedFeatureInput] = Field(
         max_length=MAX_TREE_FEATURES,
         description="Ordered prefix (rollback already applied), bounded by "
@@ -3495,7 +3501,16 @@ class EvaluateTreeResult(BaseModel):
     the envelope stays reserved for transport/validation failures (§4.3)."""
 
     part_id: uuid.UUID
-    tree_version: int
+    tree_version: int = Field(
+        ge=0,
+        description="PROVENANCE: the part tree_version this result — every "
+        "`features` status, `mesh_glb_id`, and `properties` — was BUILT FROM "
+        "(echoed from the request documents composed off that exact tree). A "
+        "consumer compares it against the part's current "
+        "`PartResponse.tree_version` (the shared `is_stale_for_tree` rule) to "
+        "know whether the body it is displaying still reflects the tree, instead "
+        "of inferring currency from whether a request is in flight.",
+    )
     features: list[FeatureResult] = Field(description="Same order as the request")
     bodies: list[BodyLumpInfo] = Field(
         default_factory=list[BodyLumpInfo],

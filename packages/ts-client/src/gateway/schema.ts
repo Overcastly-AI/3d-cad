@@ -3918,7 +3918,7 @@ export interface components {
             part_id: string;
             /**
              * Tree Version
-             * @description Echoed back; cache/correlation key
+             * @description The part tree_version documents composed this request from. Echoed back verbatim on the result, where it is the PROVENANCE stamp of the returned body (EvaluateTreeResult.tree_version) as well as a cache/correlation key.
              */
             tree_version: number;
         };
@@ -3956,7 +3956,10 @@ export interface components {
             part_id: string;
             /** @description Mass properties of the last-good body */
             properties: components["schemas"]["ShapeProperties"] | null;
-            /** Tree Version */
+            /**
+             * Tree Version
+             * @description PROVENANCE: the part tree_version this result — every `features` status, `mesh_glb_id`, and `properties` — was BUILT FROM (echoed from the request documents composed off that exact tree). A consumer compares it against the part's current `PartResponse.tree_version` (the shared `is_stale_for_tree` rule) to know whether the body it is displaying still reflects the tree, instead of inferring currency from whether a request is in flight.
+             */
             tree_version: number;
         };
         /**
@@ -5902,6 +5905,11 @@ export interface components {
              * @description Owning user id (gateway-verified)
              */
             owner_id: string;
+            /**
+             * Tree Version
+             * @description The part's CURRENT monotonic optimistic-concurrency counter (feature-tree.md §1.2) — bumped in the same transaction as any tree write. Two uses: the `expected_tree_version` a write echoes, and the DENOMINATOR of the staleness comparison (`is_stale_for_tree`) — a consumer holding a result stamped with the version it was built from (EvaluateTreeResult.tree_version) knows whether what it displays is still current. Mirrors AssemblyResponse.doc_version on the assembly header row.
+             */
+            tree_version: number;
             /**
              * Updated At
              * Format: date-time

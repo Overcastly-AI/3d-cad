@@ -2465,7 +2465,7 @@ export interface components {
             part_id: string;
             /**
              * Tree Version
-             * @description Echoed back; cache/correlation key
+             * @description The part tree_version documents composed this request from. Echoed back verbatim on the result, where it is the PROVENANCE stamp of the returned body (EvaluateTreeResult.tree_version) as well as a cache/correlation key.
              */
             tree_version: number;
         };
@@ -3994,6 +3994,11 @@ export interface components {
              * @description Owning user id (gateway-verified)
              */
             owner_id: string;
+            /**
+             * Tree Version
+             * @description The part's CURRENT monotonic optimistic-concurrency counter (feature-tree.md §1.2) — bumped in the same transaction as any tree write. Two uses: the `expected_tree_version` a write echoes, and the DENOMINATOR of the staleness comparison (`is_stale_for_tree`) — a consumer holding a result stamped with the version it was built from (EvaluateTreeResult.tree_version) knows whether what it displays is still current. Mirrors AssemblyResponse.doc_version on the assembly header row.
+             */
+            tree_version: number;
             /**
              * Updated At
              * Format: date-time

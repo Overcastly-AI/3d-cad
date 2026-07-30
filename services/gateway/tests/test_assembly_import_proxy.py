@@ -294,6 +294,9 @@ def test_flat_single_body_fallback_passes_through(db_url: str) -> None:
                 name="Widget",
                 owner_id=uuid.UUID(request.headers[PRINCIPAL_HEADER]),
                 length_unit="mm",
+                # One import feature in, so the tree sits at version 1 (the same
+                # token the sibling `tree_version` below reports).
+                tree_version=1,
                 # A freshly imported part has never been evaluated (§4.4a).
                 eval_state="never",
                 last_eval_status=None,

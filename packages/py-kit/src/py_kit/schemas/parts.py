@@ -50,6 +50,33 @@ PartEvalStatus = Literal["ok", "failed"]
 PartEvalState = Literal["never", "ok", "failed", "stale"]
 
 
+def is_stale_for_tree(*, built_from_tree_version: int, tree_version: int) -> bool:
+    """Does a result BUILT FROM ``built_from_tree_version`` still describe the tree?
+
+    THE staleness rule, in ONE place (CLAUDE.md DRY): a result — a recorded
+    evaluate verdict, an evaluated body/mesh, a projected drawing view — is a
+    claim about the tree AS IT WAS at the version it was computed from. The
+    moment the part's ``tree_version`` moves past that, the result describes a
+    tree that no longer exists: its status is UNKNOWN, not "still fine".
+
+    Staleness is *derived from the recorded version*, never guessed from
+    timestamps — ``tree_version`` is monotonic and bumped in the same
+    transaction as every tree write (feature-tree.md §1.2), so it cannot skew,
+    tie, or go backwards the way two wall clocks can. Inequality (not ``<``) is
+    deliberate: an undo/redo restore also bumps the version, so "different" is
+    the honest test, and a result stamped with an impossible future version is
+    just as unusable as an old one.
+
+    Server-side this backs :func:`derive_part_eval_state`. On the wire the same
+    comparison is available to a client — :attr:`PartResponse.tree_version`
+    (current) against the ``tree_version`` a result carries
+    (:attr:`~py_kit.schemas.features.EvaluateTreeResult.tree_version`) — so a
+    "up to date" readout can be DERIVED from provenance instead of inferred from
+    whether a request happens to be in flight (docs/UI-REVIEW.md F2).
+    """
+    return built_from_tree_version != tree_version
+
+
 def derive_part_eval_state(
     *,
     last_eval_status: PartEvalStatus | None,
@@ -58,16 +85,15 @@ def derive_part_eval_state(
 ) -> PartEvalState:
     """Fold a stored last-evaluate record + the CURRENT tree version into state.
 
-    The SINGLE source of the staleness rule (CLAUDE.md DRY): documents derives
-    :attr:`PartResponse.eval_state` with it and no consumer re-implements the
-    comparison. Staleness is *derived from the recorded version*, never guessed
-    from timestamps — ``tree_version`` is monotonic and bumped in the same
-    transaction as every tree write (feature-tree.md §1.2), so it cannot skew,
-    tie, or go backwards the way two wall clocks can.
+    The single derivation of :attr:`PartResponse.eval_state` (documents calls
+    it; no consumer re-implements the fold), over the shared
+    :func:`is_stale_for_tree` comparison.
     """
     if last_eval_status is None or last_eval_tree_version is None:
         return "never"
-    if last_eval_tree_version != tree_version:
+    if is_stale_for_tree(
+        built_from_tree_version=last_eval_tree_version, tree_version=tree_version
+    ):
         return "stale"
     return last_eval_status
 
@@ -163,6 +189,17 @@ class PartResponse(BaseModel):
     length_unit: LengthUnit = Field(
         description="Document display unit (docs/design/units.md §1); DISPLAY "
         "metadata only — storage stays canonical mm."
+    )
+    tree_version: int = Field(
+        ge=0,
+        description="The part's CURRENT monotonic optimistic-concurrency counter "
+        "(feature-tree.md §1.2) — bumped in the same transaction as any tree "
+        "write. Two uses: the `expected_tree_version` a write echoes, and the "
+        "DENOMINATOR of the staleness comparison (`is_stale_for_tree`) — a "
+        "consumer holding a result stamped with the version it was built from "
+        "(EvaluateTreeResult.tree_version) knows whether what it displays is "
+        "still current. Mirrors AssemblyResponse.doc_version on the assembly "
+        "header row.",
     )
     eval_state: PartEvalState = Field(
         description="Rebuild health a consumer may act on NOW: 'never' (not "
