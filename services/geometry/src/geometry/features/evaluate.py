@@ -57,6 +57,7 @@ including ``mesh_glb_id`` (a content hash of a deterministic GLB).
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Literal
 
 from build123d import Compound, Face, Plane, Solid, Vertex, Wire
 from py_kit.errors import ValidationApiError
@@ -93,6 +94,7 @@ from py_kit.schemas.features import (
     LinearPatternParamsV1,
     LoftFeature,
     MirrorFeature,
+    MirrorFeaturesScope,
     PatternFeature,
     PatternGeometry,
     RevolveFeature,
@@ -129,6 +131,7 @@ from geometry.kernel import (
     ImportParseTimeoutError,
     LoftError,
     MirrorError,
+    MirrorUnreachableError,
     NoAxisError,
     NoEdgesSelectedError,
     PathClosedError,
@@ -165,23 +168,29 @@ from geometry.kernel import (
     check_tap_drill_bore,
     circular_pattern,
     circular_pattern_cut,
+    circular_pattern_placements,
     combine_body,
     combine_properties,
     counterbore_tool,
     countersink_tool,
     cut_counterbore,
     cut_countersink,
+    cut_reflected_tools,
     draft_body,
     extrude_face,
     fillet_body,
+    fuse_reflected_tools,
     linear_pattern,
     linear_pattern_cut,
+    linear_pattern_placements,
     loft_sections,
     measure_shape,
     midplane_between,
     mirror_cut,
     mirror_union,
     offset_plane,
+    reflect_tools,
+    removal_reaches_body,
     resolve_axis_line,
     resolve_edge,
     resolve_face_plane,
@@ -256,6 +265,48 @@ def _step_import_bounds() -> tuple[float, float]:
         settings.step_import_timeout_seconds,
         settings.step_import_wall_timeout_seconds,
     )
+
+
+#: A recorded tool group's boolean: the operation the owning feature applied to the
+#: active body, and therefore the operation a ``features``-scope mirror re-applies
+#: to the reflected tools (docs/design/mirror-semantics.md §4.1/§4.2).
+ToolOp = Literal["fuse", "cut"]
+
+
+@dataclass(frozen=True)
+class RecordedToolGroup:
+    """One (operation, tool solids) pair a feature applied to the active body.
+
+    A plain verb records exactly ONE group — an additive extrude its prism
+    (``fuse``), a hole its bore + recess (``cut``). A ``features``-scope MIRROR
+    records the concatenation of the groups it itself applied, in application
+    order, so a nested (4-fold quadrant) mirror reflects them per group —
+    mirror-semantics §4.6, the "op = per tool" row of §4.7.
+    """
+
+    op: ToolOp
+    tools: list[BodyShape]
+
+
+@dataclass(frozen=True)
+class RecordedFeatureTools:
+    """The reflectable contribution of ONE ok feature (mirror-semantics §2b).
+
+    Captured at the feature's OWN evaluation, from the body it was applied to —
+    never re-derived later against a mutated body (the FINDINGS #1/#3 lesson that
+    :meth:`EvaluationState.record_cut_tools` already encodes, generalised to every
+    mirrorable verb). ``body_id`` is the body the groups were applied to, so a
+    mirror can refuse to reflect body A's material into body B
+    (``mirror_feature_other_body``, §MB-0 / §4.4).
+    """
+
+    body_id: uuid.UUID | None
+    groups: list[RecordedToolGroup]
+
+    @property
+    def tool_count(self) -> int:
+        """Total tool solids across every group (0 == "contributed nothing")."""
+        return sum(len(group.tools) for group in self.groups)
 
 
 @dataclass
@@ -366,6 +417,29 @@ class EvaluationState:
     #: be active, so a cut on body A can never be replicated into body B (§MB-0).
     last_cut_feature_id: uuid.UUID | None = None
     last_cut_body_id: uuid.UUID | None = None
+    #: The ids named by any ``features``-scope mirror in this request — the OPT-IN
+    #: capture set (:func:`_mirror_scope_ids`, mirror-semantics §9). Only these
+    #: features retain their tools in :attr:`feature_tools`, so a tree with no such
+    #: mirror pays nothing. Set once by :func:`evaluate_tree`; never mutated after.
+    mirror_scope_ids: frozenset[uuid.UUID] = frozenset()
+    #: The reflectable contribution of each CAPTURED ok feature, keyed by feature id
+    #: and INSERTION-ORDERED BY EVALUATION ORDER — which is what makes a
+    #: ``features``-scope mirror apply its reflected tools in TREE order rather than
+    #: the UI-incidental array order (mirror-semantics §8.1, a determinism rule a
+    #: caller can observe). Service-internal, like ``bodies``.
+    feature_tools: dict[uuid.UUID, RecordedFeatureTools] = field(
+        default_factory=dict[uuid.UUID, RecordedFeatureTools]
+    )
+    #: The feature TYPE of each CAPTURED feature that evaluated ok, in evaluation
+    #: order. A mirror needs it to tell the three refusals apart: an id absent here
+    #: is not in this prefix (``reference_unresolved``); present with no
+    #: :attr:`feature_tools` entry is a kind with no reflectable contribution
+    #: (``mirror_feature_unsupported`` — every modifier, a ``body``-scope mirror, a
+    #: ``sketch``/``datum``); present WITH tools is reflectable. Only captured ids
+    #: are tracked, so this costs one dict entry per selected feature.
+    scoped_feature_types: dict[uuid.UUID, str] = field(
+        default_factory=dict[uuid.UUID, str]
+    )
 
     def record_cut_tools(self, feature_id: uuid.UUID, tools: list[Solid]) -> None:
         """Record the removal tool(s) an ok CUT feature just subtracted.
@@ -375,10 +449,50 @@ class EvaluationState:
         the exact tools that were cut, from the body they were cut from — rather
         than re-deriving them later. Called only after the cut succeeded, so the
         slot always describes material actually removed from the active body.
+
+        DELIBERATELY UNCHANGED by the v2 mirror (mirror-semantics §6.2 — the single
+        highest-risk hunk of that work). The v1 readers
+        (:func:`_mirror_cut_tools` / :func:`_pattern_cut_tools`) share this ONE slot
+        with two different documented rules, so widening it — e.g. letting the
+        revolve/sweep/loft cuts that record nothing today write here — would
+        silently change what a ``body``-scope mirror or a pattern reflects on trees
+        that have shipped goldens and locks. v2's per-feature store
+        (:meth:`record_feature_tools`) is therefore SEPARATE and additive: this slot
+        keeps exactly today's write sites and exactly today's meaning, which makes
+        the "v1 readers return an identical tool list" guarantee structural rather
+        than measured. (Extending the cut slot to the other subtractive verbs is a
+        real, separate improvement — filed in BACKLOG, not smuggled in here.)
         """
         self.last_cut_tools = tools
         self.last_cut_feature_id = feature_id
         self.last_cut_body_id = self.active_body_id
+
+    def record_feature_tools(
+        self, feature_id: uuid.UUID, op: ToolOp, tools: list[BodyShape]
+    ) -> None:
+        """Record ONE feature's reflectable contribution (mirror-semantics §2b).
+
+        A no-op unless *feature_id* is in the opt-in capture set
+        (:attr:`mirror_scope_ids`), so an ordinary rebuild retains nothing extra.
+        Called by every mirrorable verb AFTER its body op succeeded, so the record
+        always describes material actually applied to :attr:`active_body_id`.
+        """
+        self.record_feature_tool_groups(feature_id, [RecordedToolGroup(op, tools)])
+
+    def record_feature_tool_groups(
+        self, feature_id: uuid.UUID, groups: list[RecordedToolGroup]
+    ) -> None:
+        """:meth:`record_feature_tools` for a feature with SEVERAL ops.
+
+        Only a ``features``-scope mirror needs this: its contribution is the ordered
+        sequence of (op, reflected tools) it applied, which a nested mirror replays
+        per group (§4.6).
+        """
+        if feature_id not in self.mirror_scope_ids:
+            return
+        self.feature_tools[feature_id] = RecordedFeatureTools(
+            body_id=self.active_body_id, groups=groups
+        )
 
     @property
     def active_body(self) -> BodyShape | None:
@@ -439,6 +553,33 @@ class EvaluationState:
 FeatureHandler = Callable[[EvaluatedFeatureInput, EvaluationState], FeatureError | None]
 
 
+def _mirror_scope_ids(request: EvaluateTreeRequest) -> frozenset[uuid.UUID]:
+    """Every feature id named by a ``features``-scope mirror in *request*.
+
+    The OPT-IN pre-pass of docs/design/mirror-semantics.md §9, the same posture
+    ``body_history`` took for per-face provenance (audit H4: only the caller that
+    needs the retained intermediates funds them). v1 retained exactly ONE tool list
+    (the most recent cut); v2 must retain a tool list for every feature some mirror
+    might name, which without a gate would grow with tree length x tool complexity
+    for the whole evaluation. The selection is known BEFORE evaluation starts, so
+    only these ids retain their tools — a tree with no ``features``-scope mirror
+    pays ZERO additional memory, which is also why the widening cannot regress an
+    existing document's rebuild cost.
+
+    Suppressed mirrors are included deliberately: unsuppressing one must not need a
+    different capture set (a rebuild is a pure function of the tree, and this keeps
+    the captured set independent of evaluation outcomes).
+    """
+    ids: set[uuid.UUID] = set()
+    for item in request.features:
+        feature = item.feature
+        if isinstance(feature, MirrorFeature) and isinstance(
+            feature.params.scope, MirrorFeaturesScope
+        ):
+            ids.update(ref.feature_id for ref in feature.params.scope.features)
+    return frozenset(ids)
+
+
 def _add_body(
     item: EvaluatedFeatureInput,
     state: EvaluationState,
@@ -453,6 +594,12 @@ def _add_body(
     keyed by this feature's id (``item.id`` — the base-feature-keyed identity of
     §MB-0 Decision 1). ``state.bodies`` is mutated only on success (last-good
     semantics, §4.3). Shared by extrude/revolve/sweep/loft ADD (CLAUDE.md DRY).
+
+    On success the tool is RECORDED as this feature's reflectable contribution
+    (:meth:`EvaluationState.record_feature_tools`, opt-in) so a ``features``-scope
+    mirror can reflect it and re-fuse — mirror-semantics §4.1. Recorded AFTER the
+    body op so the record names the body the tool actually landed in (a base feature
+    keys its own new body).
     """
     if merge and state.active_body_id is not None:
         active = state.active_body
@@ -462,12 +609,16 @@ def _add_body(
         except BooleanError as exc:
             return FeatureError(code="boolean_failed", message=str(exc))
         state.set_active_body(fused)
+        state.record_feature_tools(item.id, "fuse", [tool])
         return None
     state.start_body(item.id, tool)
+    state.record_feature_tools(item.id, "fuse", [tool])
     return None
 
 
-def _cut_active(state: EvaluationState, tool: Solid) -> FeatureError | None:
+def _cut_active(
+    state: EvaluationState, tool: Solid, *, feature_id: uuid.UUID
+) -> FeatureError | None:
     """Subtract *tool* from the ACTIVE body (a modifying op — §MB-0).
 
     The caller has already verified an active body exists (``no_prior_body``
@@ -475,6 +626,13 @@ def _cut_active(state: EvaluationState, tool: Solid) -> FeatureError | None:
     cannot reach the body is the typed ``cut_removed_nothing`` (CM-3) — the same
     honesty the Hole feature has always had (``hole_off_body``), so a revolve /
     sweep / loft cut into free space is never a successful no-op.
+
+    On success the removal tool is RECORDED as this feature's reflectable
+    contribution (opt-in) so a ``features``-scope mirror can reflect it and re-cut —
+    mirror-semantics §4.2 closes the coverage gap §6.2 names (revolve/sweep/loft cuts
+    recorded NOTHING before). It deliberately does NOT touch the v1
+    :meth:`EvaluationState.record_cut_tools` slot, whose two readers' meaning must
+    not move.
     """
     active = state.active_body
     assert active is not None, "cut without an active body is handled by the caller"
@@ -484,6 +642,7 @@ def _cut_active(state: EvaluationState, tool: Solid) -> FeatureError | None:
         return FeatureError(code="cut_removed_nothing", message=str(exc))
     except BooleanError as exc:
         return FeatureError(code="boolean_failed", message=str(exc))
+    state.record_feature_tools(feature_id, "cut", [tool])
     return None
 
 
@@ -889,6 +1048,7 @@ def _evaluate_extrude_cut(
         return FeatureError(code="boolean_failed", message=str(exc))
     state.set_active_body(body)
     state.record_cut_tools(feature_id, tools)
+    state.record_feature_tools(feature_id, "cut", list(tools))
     return None
 
 
@@ -1345,7 +1505,7 @@ def _evaluate_revolve(
         return FeatureError(code="revolve_failed", message=str(exc))
 
     if params.operation == "cut":
-        return _cut_active(state, tool)
+        return _cut_active(state, tool, feature_id=item.id)
     return _add_body(item, state, tool, merge=params.merge)
 
 
@@ -1434,7 +1594,7 @@ def _evaluate_sweep(
         return FeatureError(code="sweep_failed", message=str(exc))
 
     if params.operation == "cut":
-        return _cut_active(state, tool)
+        return _cut_active(state, tool, feature_id=item.id)
     return _add_body(item, state, tool, merge=params.merge)
 
 
@@ -1520,7 +1680,7 @@ def _evaluate_loft(
         return FeatureError(code="loft_failed", message=str(exc))
 
     if params.operation == "cut":
-        return _cut_active(state, tool)
+        return _cut_active(state, tool, feature_id=item.id)
     return _add_body(item, state, tool, merge=params.merge)
 
 
@@ -1903,6 +2063,7 @@ def _evaluate_hole(
             )
         )
     state.record_cut_tools(item.id, tools)
+    state.record_feature_tools(item.id, "cut", list(tools))
     return None
 
 
@@ -1998,6 +2159,56 @@ def _apply_pattern(
     )
 
 
+def _pattern_placements(
+    sources: list[BodyShape], geometry: PatternGeometry
+) -> list[BodyShape]:
+    """The ``k = 1..count-1`` placements of *sources* — the SAME kernel helpers
+    :func:`_apply_pattern`'s ops use internally (CLAUDE.md DRY), so a recorded
+    contribution can never drift from what the pattern applied."""
+    if isinstance(geometry, LinearPatternParamsV1):
+        direction = (geometry.direction.x, geometry.direction.y, geometry.direction.z)
+        return linear_pattern_placements(
+            sources, direction, geometry.spacing_mm, geometry.count
+        )
+    assert isinstance(geometry, CircularPatternParamsV1)  # closed union
+    axis_point = (geometry.axis_point.x, geometry.axis_point.y, geometry.axis_point.z)
+    axis_direction = (
+        geometry.axis_direction.x,
+        geometry.axis_direction.y,
+        geometry.axis_direction.z,
+    )
+    return circular_pattern_placements(
+        sources, axis_point, axis_direction, geometry.angle_deg, geometry.count
+    )
+
+
+def _pattern_contribution(
+    body: BodyShape, geometry: PatternGeometry, tools: list[Solid] | None
+) -> RecordedToolGroup:
+    """What a SUCCEEDED pattern contributed, as one reflectable group (§4.5).
+
+    A pattern's contribution is its ``count - 1`` PLACED rigid instances — placed
+    tool copies (cut) or placed whole-body copies (add). Recording and reflecting
+    those PLACEMENTS, rather than the pattern's parameters, is what makes a
+    reflected CIRCULAR pattern correct: a reflection reverses handedness, so a
+    re-derived ring with the same positive ``angle_deg`` about the reflected axis
+    would wind backwards (mirror-semantics §4.5). ``count == 1`` yields an empty
+    group — a no-op pattern contributed nothing to reflect.
+
+    Mirrors :func:`_apply_pattern`'s branch structure including its vacuous-cut
+    FALLBACK: when no placed tool copy can reach the body the kernel replicated the
+    WHOLE body instead, so the contribution is those body copies under ``fuse``.
+    Called only after the pattern succeeded, so the shared validation inside the
+    placement helpers cannot raise here. Locked against drift by
+    ``test_recorded_pattern_contribution_reproduces_the_pattern``.
+    """
+    if tools is not None:
+        cut_copies = _pattern_placements(list(tools), geometry)
+        if cut_copies and removal_reaches_body(body, cut_copies):
+            return RecordedToolGroup("cut", cut_copies)
+    return RecordedToolGroup("fuse", _pattern_placements([body], geometry))
+
+
 def _evaluate_pattern(
     item: EvaluatedFeatureInput, state: EvaluationState
 ) -> FeatureError | None:
@@ -2041,7 +2252,7 @@ def _evaluate_pattern(
 
     tools = _pattern_cut_tools(state)
     try:
-        state.set_active_body(_apply_pattern(active, feature.params.pattern, tools))
+        patterned = _apply_pattern(active, feature.params.pattern, tools)
     except PatternCountError as exc:
         return FeatureError(code="pattern_bad_count", message=str(exc))
     except PatternSpacingError as exc:
@@ -2056,7 +2267,180 @@ def _evaluate_pattern(
         return FeatureError(code="pattern_disjoint", message=str(exc))
     except PatternError as exc:
         return FeatureError(code="pattern_failed", message=str(exc))
+    # Record BEFORE the body is replaced: the contribution is derived from the
+    # PRE-pattern body (the source the placements were made from), exactly as a cut
+    # records its tools from the pre-cut body (FINDINGS #1/#3). Opt-in, so an
+    # unreferenced pattern pays neither the placement rebuild nor the retention.
+    if item.id in state.mirror_scope_ids:
+        contribution = _pattern_contribution(active, feature.params.pattern, tools)
+        state.set_active_body(patterned)
+        state.record_feature_tool_groups(item.id, [contribution])
+        return None
+    state.set_active_body(patterned)
     return None
+
+
+#: Feature kinds a ``features``-scope mirror can reflect
+#: (docs/design/mirror-semantics.md §4.7): those whose contribution is a RIGID TOOL
+#: plus one boolean. Everything else is refused with a typed
+#: ``mirror_feature_unsupported`` — every MODIFIER (fillet/chamfer/shell/draft and
+#: the sheet-metal fold/flange/relief family) has a RESULT and no tool, and §4.3
+#: refuses those in writing rather than approximating them with a
+#: ``before.cut(after)`` delta sliver: that sliver is only the right removal where
+#: the reflected side is CONGRUENT to the original, and elsewhere it cuts a groove
+#: that is a fillet of nothing — a valid, closed, plausible, WRONG body (the
+#: silent-retarget failure class, and strictly worse than an error because a user's
+#: own part has no golden). A ``boolean`` is refused because its contribution is a
+#: two-body operation, not a tool. Membership here is necessary, not sufficient: a
+#: reflectable kind must ALSO have recorded tools (a ``body``-scope mirror is a
+#: ``mirror`` that records nothing, §4.6).
+_MIRROR_REFLECTABLE_TYPES: frozenset[str] = frozenset(
+    {"extrude", "revolve", "sweep", "loft", "hole", "pattern", "mirror", "import"}
+)
+
+
+def _mirror_selection_in_tree_order(
+    scope: MirrorFeaturesScope, state: EvaluationState
+) -> list[uuid.UUID]:
+    """The selected ids in EVALUATION order, ignoring the array order (§8.1).
+
+    Array order is UI-incidental (it depends on the order the user ctrl-clicked), so
+    honouring it would make identical models tessellate to different bytes; tree
+    order replays the selected sub-chain in the same relative order the original side
+    was built in, which is what makes composition sound (chain A's hole-then-boss
+    reflects as cut-then-fuse, matching the original). ``scoped_feature_types`` is
+    insertion-ordered by evaluation, so filtering it IS tree order — a total order
+    derived from the tree, hence a pure function of it (RESEARCH §9).
+    """
+    selected = {ref.feature_id for ref in scope.features}
+    return [fid for fid in state.scoped_feature_types if fid in selected]
+
+
+def _evaluate_mirror_features(
+    scope: MirrorFeaturesScope,
+    state: EvaluationState,
+    active: BodyShape,
+    plane: Plane,
+) -> FeatureError | list[RecordedToolGroup]:
+    """Reflect the RECORDED TOOLS of an explicit feature selection (v2, §4).
+
+    The v2 mechanism, uniform across kinds: for each selected feature in TREE order
+    (§8.1), reflect the rigid tool solid(s) it recorded at its OWN evaluation and
+    re-apply THAT feature's own boolean — ``fuse`` for an additive contributor,
+    ``cut`` for a subtractive one. Parameters are never re-derived, which is what
+    keeps a reflected circular pattern correct (§4.5) and what makes this shippable
+    without any topological-naming machinery: no reference is resolved on the
+    reflected side (§7.1), so there is no new ``subshape_unresolved`` /
+    ``subshape_ambiguous`` surface and stage-1's residual silent-retarget hole is not
+    widened.
+
+    Typed per-feature refusals (§8.2), each pinned to the offending SELECTED feature
+    via ``upstream_feature_id`` so the UI can name the true cause:
+
+    * ``reference_unresolved`` — the id is not a feature of this evaluated prefix
+      (documents 422s a forward/self/missing ref at write time; this is the backstop);
+    * ``mirror_feature_unsupported`` — the named kind has no reflectable
+      contribution: a MODIFIER (§4.3), a non-body-affecting ``sketch``/``datum``
+      (§4.4), a ``boolean``, or a ``body``-scope MIRROR (§4.6 — its contribution is a
+      whole-body reflection whose delta is not a tool; converting the inner mirror to
+      a ``features`` scope makes the 4-fold quadrant nesting work);
+    * ``mirror_feature_other_body`` — the tools were recorded against a different
+      body than the active one (§MB-0: material from body A never crosses into B);
+    * ``mirror_feature_unreachable`` — a reflected cut removes nothing. v1 had to
+      fall back to ``mirror_union`` there because it was guessing between two
+      workflows; an explicit selection has nothing to guess, so this is an honest
+      error (§4.2);
+    * ``mirror_feature_not_evaluated`` — nothing was recorded for any selected
+      feature, so the mirror would be a silent no-op (the no-silent-no-op rule that
+      also motivates ``min_length=1``).
+
+    Returns the REFLECTED groups it applied (in application order) so the caller can
+    record them for an OUTER mirror to reflect in turn — a composition of two
+    reflections is an exact isometry, so ``features: [base, hole, mirror1]`` populates
+    all four quadrants exactly (§4.6). The active body is replaced only after EVERY
+    selected feature applied, so a mid-sequence failure leaves the last-good body
+    untouched (§4.3).
+    """
+    for ref in scope.features:
+        if ref.feature_id not in state.scoped_feature_types:
+            return FeatureError(
+                code="reference_unresolved",
+                message=(
+                    "Mirror scope must reference features of this evaluated tree "
+                    "prefix; the named feature is missing, defined later, "
+                    "rolled back, or did not evaluate."
+                ),
+                upstream_feature_id=ref.feature_id,
+            )
+
+    applied: list[RecordedToolGroup] = []
+    body = active
+    for feature_id in _mirror_selection_in_tree_order(scope, state):
+        record = state.feature_tools.get(feature_id)
+        if record is None:
+            kind = state.scoped_feature_types[feature_id]
+            return FeatureError(
+                code="mirror_feature_unsupported",
+                message=(
+                    f"A '{kind}' feature cannot be mirrored: it has no rigid tool "
+                    "to reflect, only a result. Modifiers (fillet, chamfer, shell, "
+                    "draft, sheet-metal folds), booleans and whole-body mirrors are "
+                    "not selectable — reflecting an approximation of one would "
+                    "produce a plausible but wrong body."
+                ),
+                upstream_feature_id=feature_id,
+            )
+        if record.body_id != state.active_body_id:
+            return FeatureError(
+                code="mirror_feature_other_body",
+                message=(
+                    "The selected feature contributed to a different body than the "
+                    "one this mirror acts on, so reflecting it would move material "
+                    "between bodies. Mirror it while its own body is active."
+                ),
+                upstream_feature_id=feature_id,
+            )
+        for group in record.groups:
+            if not group.tools:
+                continue
+            try:
+                reflected = reflect_tools(group.tools, plane)
+                if group.op == "cut":
+                    body = cut_reflected_tools(body, reflected)
+                else:
+                    body = fuse_reflected_tools(body, reflected)
+            except MirrorUnreachableError as exc:
+                return FeatureError(
+                    code="mirror_feature_unreachable",
+                    message=(
+                        f"{exc} The selected feature's removal reflects clear of the "
+                        "body — check the mirror plane and the selection."
+                    ),
+                    upstream_feature_id=feature_id,
+                )
+            except MirrorError as exc:
+                return FeatureError(
+                    code="mirror_failed",
+                    message=str(exc),
+                    upstream_feature_id=feature_id,
+                )
+            # The REFLECTED solids, not the sources: a nested mirror reflects what
+            # this one placed (§4.6). Retained only when some outer mirror named this
+            # feature — the caller checks the opt-in set before using them.
+            applied.append(RecordedToolGroup(group.op, reflected))
+
+    if not applied:
+        return FeatureError(
+            code="mirror_feature_not_evaluated",
+            message=(
+                "None of the selected features recorded any geometry to reflect, so "
+                "this mirror would do nothing. Check the selection (a count-1 "
+                "pattern contributes no instances)."
+            ),
+        )
+
+    state.set_active_body(body)
+    return applied
 
 
 def _evaluate_mirror(
@@ -2072,6 +2456,17 @@ def _evaluate_mirror(
     a plane that names a missing / later / non-datum feature is a
     ``reference_unresolved`` pinned to the referenced feature (documents rejects it
     at write time; geometry re-checks because it must not trust its callers).
+
+    v2 (docs/design/mirror-semantics.md): ``params.scope`` states WHAT is reflected.
+    ``scope.kind == "features"`` dispatches to :func:`_evaluate_mirror_features`;
+    ``scope.kind == "body"`` — which is also what a persisted pre-v2 mirror with no
+    ``scope`` key normalises to — runs the v1 body below VERBATIM. That is why the
+    shipped mirror goldens' byte identity is STRUCTURAL rather than measured (§3.2 /
+    §6.1): the elegant unification ("mirror the body" == "mirror every preceding
+    body-affecting feature") is available and REFUSED, because the goldens assert
+    byte-identical GLB, which is sensitive to B-rep face ORDER, and the two paths
+    hand OCCT different boolean sequences. Keeping both branches costs one ``if``
+    and buys the guarantee.
 
     Two combine modes, chosen from the MOST RECENT cut of this body
     (:func:`_mirror_cut_tools`) — the same cut-awareness the pattern has, but
@@ -2113,6 +2508,16 @@ def _evaluate_mirror(
     plane = resolve_sketch_plane(feature.params.plane, state)
     if isinstance(plane, FeatureError):
         return plane
+
+    scope = feature.params.scope
+    if isinstance(scope, MirrorFeaturesScope):
+        applied = _evaluate_mirror_features(scope, state, active, plane)
+        if isinstance(applied, FeatureError):
+            return applied
+        # Record what this mirror applied so an OUTER `features`-scope mirror can
+        # reflect it (the 4-fold quadrant workflow, §4.6). Opt-in.
+        state.record_feature_tool_groups(item.id, applied)
+        return None
 
     tools = _mirror_cut_tools(state)
     try:
@@ -2183,6 +2588,9 @@ def _evaluate_import(
     # imported body is a bare Solid (one solid) OR a lump-sorted Compound (a
     # multi-solid file → ONE multi-lump body, §MB-4), never N bodies.
     state.start_body(item.id, body)
+    # The imported body IS this feature's rigid contribution, so it reflects and
+    # re-fuses like any additive tool (mirror-semantics §4.1). Opt-in.
+    state.record_feature_tools(item.id, "fuse", [body])
     return None
 
 
@@ -2528,7 +2936,13 @@ def evaluate_tree(
     geometry, only whether the intermediates are kept. Never raises for geometry
     outcomes.
     """
-    state = EvaluationState(linear_deflection=request.linear_deflection)
+    state = EvaluationState(
+        linear_deflection=request.linear_deflection,
+        # OPT-IN tool capture (mirror-semantics §9): only features some
+        # `features`-scope mirror names retain their reflectable tools, so a tree
+        # without one pays zero extra memory and zero extra work.
+        mirror_scope_ids=_mirror_scope_ids(request),
+    )
     results: list[FeatureResult] = []
     last_good_feature_id: uuid.UUID | None = None
     suppressed_ids: set[uuid.UUID] = set()
@@ -2562,6 +2976,13 @@ def evaluate_tree(
                 )
             )
             last_good_feature_id = item.id
+            # Remember the TYPE of every captured feature, in evaluation order: a
+            # `features`-scope mirror reads it to tell "not in this prefix"
+            # (reference_unresolved) from "in the prefix but not reflectable"
+            # (mirror_feature_unsupported), and the insertion order IS the tree order
+            # its reflected tools are applied in (mirror-semantics §8.1).
+            if item.id in state.mirror_scope_ids:
+                state.scoped_feature_types[item.id] = item.feature.type
             # Advance the last ok body-affecting feature id so the NEXT feature (a
             # pattern) can tell whether the recorded cut tools came from its
             # IMMEDIATE predecessor (BACKLOG #3, `_pattern_cut_tools`). Set AFTER

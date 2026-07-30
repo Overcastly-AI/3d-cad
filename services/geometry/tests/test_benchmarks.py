@@ -284,6 +284,17 @@ CASES: list[BenchCase] = [
     BenchCase(
         "tree", "fillet-top-edge", _L, _tree_eval_factory("fillet-top-edge-40x25x10-r5")
     ),
+    # The v2 `features`-scope mirror: k selected features cost k exact reflections
+    # + k booleans (docs/design/mirror-semantics.md §9 asks for a rebuild-time
+    # assertion on the new goldens rather than a claim in prose). This golden is the
+    # heaviest of the three — a cut of a reflected bore plus a fuse of a reflected
+    # prism, on top of the hole and boss the chain already builds.
+    BenchCase(
+        "tree",
+        "mirror-features-hole-boss",
+        _H,
+        _tree_eval_factory("mirror-features-hole-boss-plate-40x40x20"),
+    ),
     # Booleans (union/subtract) + fillet-on-boolean (multi-body).
     BenchCase(
         "boolean",

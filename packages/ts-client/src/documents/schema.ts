@@ -3667,6 +3667,24 @@ export interface components {
             order_index: number;
         };
         /**
+         * MirrorBodyScope
+         * @description ``scope: {"kind": "body"}`` — reflect the CURRENT BODY (the v1 reading).
+         *
+         *     The v1 semantic, NAMED rather than implied (design §3.1): the mirror reflects
+         *     the body that exists at its point in the tree, cut-aware — when the active body
+         *     carries a recorded cut whose reflected tool still reaches it the mirror reflects
+         *     that REMOVAL, otherwise it reflects and unions the whole body. Kept verbatim
+         *     (§6.1): the shipped goldens' byte identity is STRUCTURAL, not measured, because
+         *     this scope dispatches to code the v2 work did not touch.
+         */
+        MirrorBodyScope: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "body";
+        };
+        /**
          * MirrorFeature
          * @description ``{"type": "mirror", "version": 1, "params": {...}}`` envelope.
          *
@@ -3694,6 +3712,44 @@ export interface components {
             version: 1;
         };
         /**
+         * MirrorFeaturesScope
+         * @description ``scope: {"kind": "features", "features": [...]}`` — reflect these features.
+         *
+         *     The v2 reading (design §2b/§4): each selected feature's RECORDED RIGID TOOL
+         *     SOLID(S) are reflected about the plane and that feature's OWN operation
+         *     (``fuse``/``cut``) is re-applied to the active body, in TREE order — never array
+         *     order (§8.1: array order is UI-incidental, so honouring it would make identical
+         *     models tessellate to different bytes). Parameters are never re-derived: a
+         *     reflected circular pattern is correct precisely because its PLACEMENTS are
+         *     reflected, where re-deriving the axis would wind the ring backwards (§4.5).
+         *
+         *     ``features`` names :class:`FeatureRef`s rather than bare UUIDs so each selection
+         *     materialises into ``feature_dependencies`` for free (feature-tree §2.3): deleting
+         *     a mirrored feature is a 409-with-dependents, a reorder re-checks the
+         *     strict-backward rule, and a forward/self reference is a write-time 422. A
+         *     non-body-affecting or non-reflectable kind (``sketch``/``datum``, and every
+         *     MODIFIER — fillet/chamfer/shell/draft and the sheet-metal family, which have a
+         *     RESULT and no tool, §4.3) is refused with the typed per-feature
+         *     ``mirror_feature_unsupported`` at rebuild.
+         *
+         *     ``min_length=1`` because an empty selection is authoring nonsense, not a no-op
+         *     mirror (§3.1), and duplicate ids are a 422 rather than silently deduplicated —
+         *     naming a feature twice leaves the intent (twice? once?) unstated, which is the
+         *     mistake v1 made.
+         */
+        MirrorFeaturesScope: {
+            /**
+             * Features
+             * @description The features to reflect, each a `FeatureRef` to an earlier body-affecting feature of this tree. Applied in TREE order (the array order is ignored — design §8.1); at least one, at most MAX_MIRROR_SCOPE_FEATURES (work bound); duplicates are a 422.
+             */
+            features: components["schemas"]["FeatureRef"][];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "features";
+        };
+        /**
          * MirrorParamsV1
          * @description Reflect the current body about a plane and union the reflection in.
          *
@@ -3719,6 +3775,12 @@ export interface components {
          *     body is unchanged. A degenerate/failed reflection is a per-feature
          *     ``mirror_failed`` rebuild error; a mirror with no prior body is
          *     ``no_target_body`` — never a silently wrong body.
+         *
+         *     ``scope`` (v2, design §3) states WHAT is reflected — the whole ``body`` (the
+         *     reading above, kept verbatim) or an explicit selection of ``features``. It
+         *     defaults to ``body`` and a persisted params blob with no ``scope`` key reads as
+         *     ``body`` (:meth:`_legacy_body_scope`), so every mirror authored before v2
+         *     evaluates on unchanged code.
          */
         MirrorParamsV1: {
             /**
@@ -3726,6 +3788,11 @@ export interface components {
              * @description Mirror plane — an origin datum (XY/XZ/YZ `DatumPlaneRef`) or an earlier `datum` feature (`FeatureRef`); the SAME plane vocabulary a sketch uses (discriminated on `kind`)
              */
             plane: components["schemas"]["DatumPlaneRef"] | components["schemas"]["FeatureRef"];
+            /**
+             * Scope
+             * @description WHAT to reflect (discriminated on `kind`): `body` reflects the current body (the v1 reading — cut-aware, with the reflect-and-union fallback), `features` reflects the recorded tool solids of an explicit tree-ordered selection and re-applies each feature's own boolean. Absent reads `body`, so pre-v2 mirrors are unchanged (design §3.2).
+             */
+            scope?: components["schemas"]["MirrorBodyScope"] | components["schemas"]["MirrorFeaturesScope"];
         };
         /**
          * NoteAnnotationParams

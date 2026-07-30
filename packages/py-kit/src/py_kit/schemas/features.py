@@ -95,6 +95,14 @@ MAX_LOFT_SECTIONS = 100
 #: while bounding the resolve + kernel-op fan-out of one feature.
 MAX_SELECTOR_REFS = 500
 
+#: Ceiling on the features one `features`-scope mirror may name
+#: (docs/design/mirror-semantics.md §3.1/§9). Each selected feature costs one
+#: exact reflection plus one boolean at rebuild, so the bound is the same shape
+#: as MAX_SELECTOR_REFS — far past any real "mirror these features" selection
+#: (a whole part is tens of features) while keeping one mirror's kernel fan-out
+#: bounded. Over the ceiling is a parse-time 422, never a kernel blow-up.
+MAX_MIRROR_SCOPE_FEATURES = 500
+
 #: Non-empty (post-strip), bounded feature name.
 FeatureName = Annotated[
     str,
@@ -105,6 +113,23 @@ FeatureName = Annotated[
 
 #: A JSON object — the shape of a stored params payload before validation.
 JsonObject = dict[str, Any]
+
+
+def _drop_schema_default(schema: dict[str, Any]) -> None:
+    """Strip the ``default`` key from a field's generated JSON schema.
+
+    ``openapi-typescript`` (default ``default-non-nullable``) makes any property
+    that advertises a ``default`` NON-optional in the generated TS type — so a
+    defaulted field would force EVERY existing feature literal in the web app to
+    supply it, defeating the "additive-optional, backward-compatible" contract.
+    Dropping the schema ``default`` (the python default still applies on
+    validation) makes such a field OPTIONAL in the client, so existing callers
+    that omit it keep compiling and the server fills the default in. The
+    ``description`` still documents the absent-reads-<default> behaviour. Shared
+    (CLAUDE.md DRY) by the envelope's ``suppressed`` flag and the mirror's
+    ``scope``.
+    """
+    schema.pop("default", None)
 
 
 # --- §2.1 GeomRef — the reference vocabulary -----------------------------------
@@ -1521,6 +1546,101 @@ class PatternParamsV1(BaseModel):
 # `geometry.kernel.mirror`, surfacing as `mirror_failed` (a degenerate/failed
 # reflection) or `no_target_body` (no prior body) / `reference_unresolved` (the
 # plane names a missing/later/non-datum feature) under the strict-prefix rule.
+#
+# v2 — THE SCOPE (docs/design/mirror-semantics.md, 2026-07-29). The v1 contract is
+# ONE field (`plane`) and the semantic is INFERRED from the body chain; §1 of that
+# design proves with three measured numbers that no inference rule can be right for
+# every chain, because three legitimate intents map onto the SAME tree shape and
+# demand three different volumes (30629.3807 / 29600.0 / 28800.0). The ambiguity is
+# in the INPUT, so `scope` removes it there: a `kind`-discriminated union with
+# exactly two members — `body` (the v1 reading, now NAMED) and `features` (an
+# explicit, non-empty, TREE-ORDERED selection). This is what SolidWorks ("Features
+# to Mirror"), Fusion (Mirror → Type: Features) and Onshape all do.
+#
+# Additive under feature-tree §1.4 (`param_version` stays 1): a persisted mirror
+# with no `scope` key normalises to `{"kind": "body"}` through
+# :meth:`MirrorParamsV1._legacy_body_scope` — the SAME before-validator idiom
+# `DatumFeature._legacy_offset_kind` uses for legacy kind-less datum params — so
+# every existing row and every shipped golden validates AND evaluates on the
+# unchanged v1 code path. There is deliberately NO automatic "mirror everything up
+# to here" default (§3.3: the natural spelling of "everything" returns 28800.0 on a
+# chain that LOCKS 29600.0).
+
+
+class MirrorBodyScope(BaseModel):
+    """``scope: {"kind": "body"}`` — reflect the CURRENT BODY (the v1 reading).
+
+    The v1 semantic, NAMED rather than implied (design §3.1): the mirror reflects
+    the body that exists at its point in the tree, cut-aware — when the active body
+    carries a recorded cut whose reflected tool still reaches it the mirror reflects
+    that REMOVAL, otherwise it reflects and unions the whole body. Kept verbatim
+    (§6.1): the shipped goldens' byte identity is STRUCTURAL, not measured, because
+    this scope dispatches to code the v2 work did not touch.
+    """
+
+    kind: Literal["body"] = "body"
+
+
+class MirrorFeaturesScope(BaseModel):
+    """``scope: {"kind": "features", "features": [...]}`` — reflect these features.
+
+    The v2 reading (design §2b/§4): each selected feature's RECORDED RIGID TOOL
+    SOLID(S) are reflected about the plane and that feature's OWN operation
+    (``fuse``/``cut``) is re-applied to the active body, in TREE order — never array
+    order (§8.1: array order is UI-incidental, so honouring it would make identical
+    models tessellate to different bytes). Parameters are never re-derived: a
+    reflected circular pattern is correct precisely because its PLACEMENTS are
+    reflected, where re-deriving the axis would wind the ring backwards (§4.5).
+
+    ``features`` names :class:`FeatureRef`s rather than bare UUIDs so each selection
+    materialises into ``feature_dependencies`` for free (feature-tree §2.3): deleting
+    a mirrored feature is a 409-with-dependents, a reorder re-checks the
+    strict-backward rule, and a forward/self reference is a write-time 422. A
+    non-body-affecting or non-reflectable kind (``sketch``/``datum``, and every
+    MODIFIER — fillet/chamfer/shell/draft and the sheet-metal family, which have a
+    RESULT and no tool, §4.3) is refused with the typed per-feature
+    ``mirror_feature_unsupported`` at rebuild.
+
+    ``min_length=1`` because an empty selection is authoring nonsense, not a no-op
+    mirror (§3.1), and duplicate ids are a 422 rather than silently deduplicated —
+    naming a feature twice leaves the intent (twice? once?) unstated, which is the
+    mistake v1 made.
+    """
+
+    kind: Literal["features"]
+    features: list[FeatureRef] = Field(
+        min_length=1,
+        max_length=MAX_MIRROR_SCOPE_FEATURES,
+        description="The features to reflect, each a `FeatureRef` to an earlier "
+        "body-affecting feature of this tree. Applied in TREE order (the array "
+        "order is ignored — design §8.1); at least one, at most "
+        "MAX_MIRROR_SCOPE_FEATURES (work bound); duplicates are a 422.",
+    )
+
+    @model_validator(mode="after")
+    def _reject_duplicate_features(self) -> Self:
+        """Duplicate selected ids are a 422 (design §8.1), never deduplicated."""
+        seen: set[uuid.UUID] = set()
+        for ref in self.features:
+            if ref.feature_id in seen:
+                raise ValueError(
+                    f"Mirror scope names feature {ref.feature_id} more than once; "
+                    "a feature is reflected exactly once, so a duplicate leaves "
+                    "the intent unstated. Remove the repeat."
+                )
+            seen.add(ref.feature_id)
+        return self
+
+
+#: The mirror's SCOPE union (design §3.1), discriminated on ``kind``: `body` (v1)
+#: or `features` (v2). A discriminated union rather than
+#: ``features: list[FeatureRef] | None`` deliberately — ``None`` and "mirror the
+#: body" would be two spellings of one meaning, the exact smell that made v1's
+#: semantic implicit. A future third reading (``kind: "bodies"``, multi-body
+#: selection) joins additively with no ``param_version`` bump.
+MirrorScope = Annotated[
+    MirrorBodyScope | MirrorFeaturesScope, Field(discriminator="kind")
+]
 
 
 class MirrorParamsV1(BaseModel):
@@ -1548,6 +1668,12 @@ class MirrorParamsV1(BaseModel):
     body is unchanged. A degenerate/failed reflection is a per-feature
     ``mirror_failed`` rebuild error; a mirror with no prior body is
     ``no_target_body`` — never a silently wrong body.
+
+    ``scope`` (v2, design §3) states WHAT is reflected — the whole ``body`` (the
+    reading above, kept verbatim) or an explicit selection of ``features``. It
+    defaults to ``body`` and a persisted params blob with no ``scope`` key reads as
+    ``body`` (:meth:`_legacy_body_scope`), so every mirror authored before v2
+    evaluates on unchanged code.
     """
 
     plane: GeomRef = Field(
@@ -1555,6 +1681,34 @@ class MirrorParamsV1(BaseModel):
         "an earlier `datum` feature (`FeatureRef`); the SAME plane vocabulary a "
         "sketch uses (discriminated on `kind`)"
     )
+    scope: MirrorScope = Field(
+        default_factory=MirrorBodyScope,
+        description="WHAT to reflect (discriminated on `kind`): `body` reflects the "
+        "current body (the v1 reading — cut-aware, with the reflect-and-union "
+        "fallback), `features` reflects the recorded tool solids of an explicit "
+        "tree-ordered selection and re-applies each feature's own boolean. Absent "
+        "reads `body`, so pre-v2 mirrors are unchanged (design §3.2).",
+        json_schema_extra=_drop_schema_default,
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _legacy_body_scope(cls, data: Any) -> Any:
+        """Read a scope-less (or explicitly null) params blob as the ``body`` scope.
+
+        The v2 additive migration (design §3.2), the SAME idiom
+        :meth:`DatumFeature._legacy_offset_kind` uses: params persisted before
+        ``scope`` existed carry only ``{plane}``, so normalising the missing key to
+        ``{"kind": "body"}`` keeps them valid with NO stored-shape change and NO
+        ``param_version`` bump. ``scope: null`` is normalised too, so a client that
+        round-trips an omitted optional as an explicit null is not a 422.
+        """
+        if not isinstance(data, dict):
+            return data
+        fields = cast("dict[str, Any]", data)
+        if fields.get("scope") is not None:
+            return fields
+        return {**fields, "scope": {"kind": "body"}}
 
 
 # --- Import params — bring an external STEP part in as the base body ------------
@@ -2079,22 +2233,6 @@ class SheetMetalCornerReliefParamsV1(BaseModel):
 
 
 # --- §1.3 Versioned envelopes ----------------------------------------------------
-
-
-def _drop_schema_default(schema: dict[str, Any]) -> None:
-    """Strip the ``default`` key from a field's generated JSON schema.
-
-    ``openapi-typescript`` (default ``default-non-nullable``) makes any property
-    that advertises a ``default`` NON-optional in the generated TS type — so a
-    defaulted envelope field would force EVERY existing feature literal in the
-    web app to supply it, defeating the "additive-optional, backward-compatible"
-    contract. Dropping the schema ``default`` (the python default still applies
-    on validation) makes ``suppressed`` an OPTIONAL ``suppressed?: boolean`` in
-    the client, so existing callers that omit it keep compiling and the server
-    fills in ``False``. The ``description`` still documents the absent-reads-False
-    behaviour.
-    """
-    schema.pop("default", None)
 
 
 class FeatureEnvelopeBase(BaseModel):
@@ -2916,6 +3054,25 @@ def feature_references(feature: FeatureEnvelope) -> tuple[FeatureReference, ...]
                         "plane", feature.params.plane, frozenset({"datum"})
                     )
                 )
+            # v2 `features` scope (mirror-semantics.md §3.1): each selected feature
+            # IS a real dependency — the mirror reflects that feature's recorded
+            # tools — so every ref materialises into feature_dependencies with the
+            # BODY-AFFECTING allowed-target rule (the same constraint the on-face
+            # datum / picked fillet use). Consequences bought for free at write
+            # time: deleting a mirrored feature is a 409-with-dependents, a reorder
+            # re-checks strict-backward, a forward/self reference is a 422, and a
+            # `sketch`/`datum` selection is a 422 long before it could be an
+            # evaluation-time `mirror_feature_unsupported` (§4.4). The `body` scope
+            # carries no refs — tree order remains its only dependency.
+            if isinstance(feature.params.scope, MirrorFeaturesScope):
+                for index, ref in enumerate(feature.params.scope.features):
+                    references.append(
+                        FeatureReference(
+                            f"scope.features[{index}]",
+                            ref,
+                            BODY_AFFECTING_FEATURE_TYPES,
+                        )
+                    )
         case ImportFeature():
             # An import PRODUCES the base body from its own inline STEP params
             # (step-import.md §1) — no picked geometry, no FeatureRef, so it

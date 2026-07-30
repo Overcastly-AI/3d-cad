@@ -90,7 +90,15 @@ from geometry.kernel.interference import (
 )
 from geometry.kernel.loft import LoftError, build_loft_section, loft_sections
 from geometry.kernel.measure import EdgeIndexError, MeasureError, measure_targets
-from geometry.kernel.mirror import MirrorError, mirror_cut, mirror_union
+from geometry.kernel.mirror import (
+    MirrorError,
+    MirrorUnreachableError,
+    cut_reflected_tools,
+    fuse_reflected_tools,
+    mirror_cut,
+    mirror_union,
+    reflect_tools,
+)
 from geometry.kernel.overlay import selection_overlay
 from geometry.kernel.pattern import (
     PatternAngleError,
@@ -102,8 +110,10 @@ from geometry.kernel.pattern import (
     PatternSpacingError,
     circular_pattern,
     circular_pattern_cut,
+    circular_pattern_placements,
     linear_pattern,
     linear_pattern_cut,
+    linear_pattern_placements,
 )
 from geometry.kernel.properties import combine_properties, measure_shape
 from geometry.kernel.provenance import attribute_faces
@@ -183,6 +193,7 @@ __all__ = [
     "LoftError",
     "MeasureError",
     "MirrorError",
+    "MirrorUnreachableError",
     "NoAxisError",
     "NoEdgesSelectedError",
     "OverlapProbe",
@@ -229,12 +240,14 @@ __all__ = [
     "check_tap_drill_bore",
     "circular_pattern",
     "circular_pattern_cut",
+    "circular_pattern_placements",
     "combine_body",
     "combine_properties",
     "counterbore_tool",
     "countersink_tool",
     "cut_counterbore",
     "cut_countersink",
+    "cut_reflected_tools",
     "draft_body",
     "edge_signature_dto",
     "enumerate_edges",
@@ -248,11 +261,13 @@ __all__ = [
     "extrude_face",
     "fillet_body",
     "format_designation",
+    "fuse_reflected_tools",
     "glb_stats",
     "import_step_solid",
     "intersection_volume",
     "linear_pattern",
     "linear_pattern_cut",
+    "linear_pattern_placements",
     "loft_sections",
     "measure_shape",
     "measure_targets",
@@ -264,6 +279,7 @@ __all__ = [
     "planar_faces",
     "probe_overlap",
     "read_step_assembly",
+    "reflect_tools",
     "removal_reaches_body",
     "resolve_axis_line",
     "resolve_edge",

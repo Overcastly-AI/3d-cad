@@ -75,13 +75,24 @@ frame refactor are v2/§11. Spike de-collected.
       **29834.8674**, both bores present (12 faces). `xfail` removed for those two
       params; +3 guards in `test_mirror.py`.
       [src: GEOMETRY-QA 2026-07-25 composition matrix]
-- [ ] (P2, L) **Mirror v2 — mirror a SELECTED SET of features** (CM-1's
-      re-scoped residual; **design DECIDED 2026-07-29, `docs/design/
-      mirror-semantics.md` — implement after `code-reviewer` endorsement**).
-      v1's mirror INFERS intent from the body chain, and three legitimate intents
-      map onto one tree with three volumes (30629.3807 / 29600.0 / 28800.0), so no
-      implicit rule can be right — the fix is an explicit input, as in
-      SolidWorks/Fusion/Onshape. Acceptance criteria:
+- [x] (P2, L) **Mirror v2 — mirror a SELECTED SET of features. SHIPPED
+      2026-07-30** (kernel; design `docs/design/mirror-semantics.md`). CM-1's
+      re-scoped residual is closed by the CONTRACT, not a cleverer heuristic:
+      `MirrorParamsV1.scope` is a `kind`-union (`body` = v1 verbatim, `features` =
+      an explicit tree-ordered selection). Measured, all four: **30629.3807**
+      (`features: [hole, boss]`), **30309.3807** (the same chain with no `scope` —
+      the locked `body` reading), **29600.0** (both spellings agree),
+      **28800.0** (`features: [A, B]`). `body`-path byte identity VERIFIED not
+      assumed: all **39** goldens' GLB sha256 + metadata identical to the pre-v2
+      kernel. New codes `mirror_feature_unsupported` / `_unreachable` /
+      `_other_body` / `_not_evaluated`; 3 new goldens; matrix verb
+      `mirror_features` (+8 cells, 112 asserted); `test_mirror_features.py` (33).
+      One documented divergence: a SUPPRESSED selected feature is
+      `references_suppressed` (the generic ref rule) rather than design §8.2's
+      "skip silently" — locked with its reasoning in
+      `test_a_suppressed_selection_is_references_suppressed`. Follow-ups filed
+      below (web authoring; the v1 cut slot's own coverage gap).
+      Original acceptance criteria, all met:
       (1) `MirrorParamsV1` gains `scope`, a `kind`-discriminated union — `body`
       (v1, **retained verbatim**: absent key normalises via a before-validator, so
       `param_version` stays 1 and every shipped mirror golden is byte-identical
@@ -116,12 +127,37 @@ frame refactor are v2/§11. Spike de-collected.
       asserting 30629.3807 (marker removed) + an implicit variant asserting
       30309.3807 as the locked `body`-scope semantic. Read `mirror-semantics.md`
       §5 before touching the marker.
-      **Correction to this item's earlier text:** v2 does **NOT** retire the
-      "a crossing mirror erases an asymmetric modifier" limit — a modifier cannot
-      be named in a selection (design §4.3/§10.1). Also not solved: symbolic
-      "mirror image of face F" refs, extent-derived tools, sheet-metal/assembly
-      mirror. Web authoring for the scope picker is a separate frontend slice.
-      [src: CM-1 fix 2026-07-25; design 2026-07-29]
+      **Correction to this item's earlier text (STILL TRUE after shipping):** v2
+      does **NOT** retire the "a crossing mirror erases an asymmetric modifier"
+      limit — a modifier cannot be named in a selection (design §4.3/§10.1), and
+      `test_observed_limit_a_crossing_mirror_erases_an_asymmetric_modifier` stays
+      green and unedited. Also not solved: symbolic "mirror image of face F" refs,
+      extent-derived tools, sheet-metal/assembly mirror.
+      [src: CM-1 fix 2026-07-25; design 2026-07-29; shipped 2026-07-30]
+
+- [ ] (P2, M) **Web authoring for the mirror scope** (frontend; unblocked by the
+      kernel above). Two radio buttons ("Mirror: body / features") plus a
+      feature-tree multi-select; `scope` is OPTIONAL in the generated client
+      (`scope?: MirrorBodyScope | MirrorFeaturesScope`), so existing callers are
+      unchanged and only the new UI sends it. Surface the four typed refusals by
+      `upstream_feature_id` (the offending SELECTED feature, so the tree row is
+      highlighted, not the mirror). Defaulting the UI to `features` while the
+      schema defaults to `body` is legitimate and probably right (design §11.2).
+      Open UX question §11.4: warn when a selected feature is suppressed — today
+      that is a typed `references_suppressed` error, so the warning is a
+      pre-flight nicety, not a correctness gap.
+      [src: mirror-semantics §11.2/§11.4]
+
+- [ ] (P3, S) **The v1 cut slot still records only extrude-cut + hole.** v2's
+      per-feature store covers every mirrorable verb, but `record_cut_tools` —
+      which `body`-scope mirror and `pattern` read — was deliberately NOT widened
+      (mirror-semantics §6.2: doing so silently changes what those two reflect on
+      trees with shipped goldens). Consequence: a `body`-scope mirror after a
+      revolve/sweep/loft CUT still takes the reflect-and-union path and can fill
+      that void — the FINDINGS #2 class, for the three non-extrude cuts. Fixing it
+      is a real behaviour change needing its own goldens; the `features` scope
+      already gives users a correct answer today.
+      [src: mirror v2 implementation 2026-07-30]
 - [x] (P0, S) **CM-2 — a `pattern` of a cut whose replicated tools ALL clear the
       body was a SILENT NO-OP: the exact defect `fa30220` fixed for `mirror`
       only. Fixed 2026-07-25.** The reachability question is now ONE shared

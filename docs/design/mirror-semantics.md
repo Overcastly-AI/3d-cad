@@ -1,8 +1,12 @@
 # Mirror Semantics — Design
 
-Status: **design only** (kernel-architect, 2026-07-29, HEAD `edbcee6`). To be
-reviewed by `code-reviewer` **before** implementation (CLAUDE.md: hard problems
-get a design doc first). Scope: the **v2 mirror feature's input contract and
+Status: **IMPLEMENTED** (kernel-architect, 2026-07-30) — designed 2026-07-29 at
+HEAD `edbcee6`, shipped as specified with **one recorded divergence** (§8.2's
+suppressed-selection rule; see the note there) and one deliberate strengthening of
+§6.2 (the v1 cut slot is left byte-for-byte alone rather than shared with an
+`op` tag — same guarantee, structurally). Evidence, measured numbers and the
+byte-identity check live in `docs/GEOMETRY-QA.md` 2026-07-30. Scope: the **v2
+mirror feature's input contract and
 per-feature-kind semantics** — the decision that unblocks the single remaining
 `xfail(strict)` in the geometry suite (`CM1_BOSS_UNMIRRORED`,
 `services/geometry/tests/test_composition_matrix.py`) and retires the last
@@ -470,6 +474,22 @@ unchanged goldens plus the existing `test_mirror.py` / `test_pattern.py` locks �
 notably `test_pattern_after_an_intervening_fillet_unions_whole_body_not_recut`,
 which exists specifically to pin the pattern's narrower rule.
 
+> **IMPLEMENTATION NOTE (2026-07-30) — shipped STRONGER than "one store with an
+> `op` filter".** A single `op`-tagged store satisfies the letter of the paragraph
+> above while still moving behaviour: a revolve/sweep/loft cut is `op == "cut"`, so
+> under a shared store it WOULD enter the slot the v1 readers use, and a
+> `body`-scope mirror after a revolve-cut would begin reflecting a tool it never
+> reflected — a real (probably desirable) change, but one with no golden and no
+> review, on exactly the code path whose byte identity §3.2/§6.1 promise. So the v2
+> store is **separate**: `record_cut_tools` keeps its two v1 write sites
+> (extrude-cut + hole) and its exact v1 meaning, and `record_feature_tools` records
+> every mirrorable verb into an opt-in per-feature store. The "identical tool list"
+> guarantee is then structural rather than argued, asserted at the state level by
+> `test_widening_the_tool_store_leaves_the_v1_readers_untouched`. The cost — a
+> `body`-scope mirror after a revolve/sweep/loft cut can still fill that void, the
+> FINDINGS #2 class for those three verbs — is filed as its own BACKLOG item with
+> its own goldens rather than smuggled in here.
+
 Two coverage gaps to close in the same slice, because §4 claims kinds the store
 does not yet cover: today only **extrude-cut** and **hole** call
 `record_cut_tools`. `revolve`/`sweep`/`loft` cuts (the `_cut_active` funnel), all
@@ -608,6 +628,24 @@ effective set. A `features` scope whose every member is suppressed degrades to
 "reflect nothing," which must therefore be a typed error rather than a silent
 no-op (`mirror_feature_not_evaluated` with a message naming the suppression), by
 the same no-silent-no-op rule as §3.1's `min_length=1`.
+
+> **IMPLEMENTATION DIVERGENCE (2026-07-30) — this paragraph was NOT followed, and
+> the shipped behaviour is a typed `references_suppressed` error instead.** Three
+> reasons, in the order that decided it. (a) The delete analogy does not hold:
+> deleting a feature a mirror names is a write-time **409-with-dependents** (§3.1's
+> own consequence of using `FeatureRef`), so "suppress == delete" cannot mean
+> "silently reflect a smaller set" — there is no delete to be equivalent to.
+> (b) Silently reflecting fewer features than the user named is precisely the
+> plausible-but-wrong-body class this whole document exists to close, and it leaves
+> the intent ("2 of 3 features") unstated — which §11.4 already flags as an open UX
+> question, i.e. the design suspected this. (c) The rule is produced by
+> `_suppressed_reference_error`, which walks EVERY ref kind through
+> `iter_feature_refs`; carving out a per-field exception would break the DRY
+> property that a new ref-bearing field is covered without touching that check.
+> The error is typed, pinned to the suppressed feature, and one click from
+> recovery. Locked with this reasoning in
+> `test_a_suppressed_selection_is_references_suppressed`. Revisit only with a
+> product decision that a partial mirror is what a user means.
 
 ### 8.3 Multi-body
 

@@ -4590,6 +4590,19 @@
         "title": "MirrorAxisPoints",
         "type": "object"
       },
+      "MirrorBodyScope": {
+        "description": "``scope: {\"kind\": \"body\"}`` \u2014 reflect the CURRENT BODY (the v1 reading).\n\nThe v1 semantic, NAMED rather than implied (design \u00a73.1): the mirror reflects\nthe body that exists at its point in the tree, cut-aware \u2014 when the active body\ncarries a recorded cut whose reflected tool still reaches it the mirror reflects\nthat REMOVAL, otherwise it reflects and unions the whole body. Kept verbatim\n(\u00a76.1): the shipped goldens' byte identity is STRUCTURAL, not measured, because\nthis scope dispatches to code the v2 work did not touch.",
+        "properties": {
+          "kind": {
+            "const": "body",
+            "default": "body",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "title": "MirrorBodyScope",
+        "type": "object"
+      },
       "MirrorFeature": {
         "description": "``{\"type\": \"mirror\", \"version\": 1, \"params\": {...}}`` envelope.\n\nA body-affecting feature (design \u00a77.6): it reflects the current body about a\nplane and boolean-unions the reflection into the single body chain \u2014 the\nreflective sibling of :class:`PatternFeature`. ``params`` is\n:class:`MirrorParamsV1`.",
         "properties": {
@@ -4620,8 +4633,34 @@
         "title": "MirrorFeature",
         "type": "object"
       },
+      "MirrorFeaturesScope": {
+        "description": "``scope: {\"kind\": \"features\", \"features\": [...]}`` \u2014 reflect these features.\n\nThe v2 reading (design \u00a72b/\u00a74): each selected feature's RECORDED RIGID TOOL\nSOLID(S) are reflected about the plane and that feature's OWN operation\n(``fuse``/``cut``) is re-applied to the active body, in TREE order \u2014 never array\norder (\u00a78.1: array order is UI-incidental, so honouring it would make identical\nmodels tessellate to different bytes). Parameters are never re-derived: a\nreflected circular pattern is correct precisely because its PLACEMENTS are\nreflected, where re-deriving the axis would wind the ring backwards (\u00a74.5).\n\n``features`` names :class:`FeatureRef`s rather than bare UUIDs so each selection\nmaterialises into ``feature_dependencies`` for free (feature-tree \u00a72.3): deleting\na mirrored feature is a 409-with-dependents, a reorder re-checks the\nstrict-backward rule, and a forward/self reference is a write-time 422. A\nnon-body-affecting or non-reflectable kind (``sketch``/``datum``, and every\nMODIFIER \u2014 fillet/chamfer/shell/draft and the sheet-metal family, which have a\nRESULT and no tool, \u00a74.3) is refused with the typed per-feature\n``mirror_feature_unsupported`` at rebuild.\n\n``min_length=1`` because an empty selection is authoring nonsense, not a no-op\nmirror (\u00a73.1), and duplicate ids are a 422 rather than silently deduplicated \u2014\nnaming a feature twice leaves the intent (twice? once?) unstated, which is the\nmistake v1 made.",
+        "properties": {
+          "features": {
+            "description": "The features to reflect, each a `FeatureRef` to an earlier body-affecting feature of this tree. Applied in TREE order (the array order is ignored \u2014 design \u00a78.1); at least one, at most MAX_MIRROR_SCOPE_FEATURES (work bound); duplicates are a 422.",
+            "items": {
+              "$ref": "#/components/schemas/FeatureRef"
+            },
+            "maxItems": 500,
+            "minItems": 1,
+            "title": "Features",
+            "type": "array"
+          },
+          "kind": {
+            "const": "features",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "features"
+        ],
+        "title": "MirrorFeaturesScope",
+        "type": "object"
+      },
       "MirrorParamsV1": {
-        "description": "Reflect the current body about a plane and union the reflection in.\n\nThe mirror feature (BACKLOG P2): a whole-body reflection about ``plane``,\nboolean-unioned into the single body chain (design \u00a77.6) \u2014 the reflective\nsibling of the ADD pattern (see the module note for the shared \"replicate the\ncurrent body + union\" semantics). Like a fillet/chamfer/pattern it carries NO\nsource ``FeatureRef``: it mirrors the implicit body chain that exists at its\npoint in the tree, so its dependency on the prior body-affecting feature is\ntree order.\n\n``plane`` is a :data:`GeomRef` \u2014 the SAME plane reference a sketch uses (no\nnew plane taxonomy, DRY): a :class:`DatumPlaneRef` (an origin datum XY/XZ/YZ)\nor a :class:`FeatureRef` to an earlier ``datum`` feature (an offset / on-face\n/ midplane plane). A ``FeatureRef`` that does not resolve to a ``datum`` of\nthis prefix is a write-time 422 (the eval-time backstop is\n``reference_unresolved``, pinned to the referenced feature).\n\nThe reflection is a true handedness-reversing isometry, NOT a translation\n(proven by the ``mirror-triangle-prism-2x`` golden). It handles every case\nsanely: a body that CLEARS the plane mirrors to a disjoint TWO-lump body\n(volume ``2V``); an OVERLAPPING reflection merges to one solid; a SYMMETRIC\nbody is unchanged. A degenerate/failed reflection is a per-feature\n``mirror_failed`` rebuild error; a mirror with no prior body is\n``no_target_body`` \u2014 never a silently wrong body.",
+        "description": "Reflect the current body about a plane and union the reflection in.\n\nThe mirror feature (BACKLOG P2): a whole-body reflection about ``plane``,\nboolean-unioned into the single body chain (design \u00a77.6) \u2014 the reflective\nsibling of the ADD pattern (see the module note for the shared \"replicate the\ncurrent body + union\" semantics). Like a fillet/chamfer/pattern it carries NO\nsource ``FeatureRef``: it mirrors the implicit body chain that exists at its\npoint in the tree, so its dependency on the prior body-affecting feature is\ntree order.\n\n``plane`` is a :data:`GeomRef` \u2014 the SAME plane reference a sketch uses (no\nnew plane taxonomy, DRY): a :class:`DatumPlaneRef` (an origin datum XY/XZ/YZ)\nor a :class:`FeatureRef` to an earlier ``datum`` feature (an offset / on-face\n/ midplane plane). A ``FeatureRef`` that does not resolve to a ``datum`` of\nthis prefix is a write-time 422 (the eval-time backstop is\n``reference_unresolved``, pinned to the referenced feature).\n\nThe reflection is a true handedness-reversing isometry, NOT a translation\n(proven by the ``mirror-triangle-prism-2x`` golden). It handles every case\nsanely: a body that CLEARS the plane mirrors to a disjoint TWO-lump body\n(volume ``2V``); an OVERLAPPING reflection merges to one solid; a SYMMETRIC\nbody is unchanged. A degenerate/failed reflection is a per-feature\n``mirror_failed`` rebuild error; a mirror with no prior body is\n``no_target_body`` \u2014 never a silently wrong body.\n\n``scope`` (v2, design \u00a73) states WHAT is reflected \u2014 the whole ``body`` (the\nreading above, kept verbatim) or an explicit selection of ``features``. It\ndefaults to ``body`` and a persisted params blob with no ``scope`` key reads as\n``body`` (:meth:`_legacy_body_scope`), so every mirror authored before v2\nevaluates on unchanged code.",
         "properties": {
           "plane": {
             "description": "Mirror plane \u2014 an origin datum (XY/XZ/YZ `DatumPlaneRef`) or an earlier `datum` feature (`FeatureRef`); the SAME plane vocabulary a sketch uses (discriminated on `kind`)",
@@ -4641,6 +4680,25 @@
               }
             ],
             "title": "Plane"
+          },
+          "scope": {
+            "description": "WHAT to reflect (discriminated on `kind`): `body` reflects the current body (the v1 reading \u2014 cut-aware, with the reflect-and-union fallback), `features` reflects the recorded tool solids of an explicit tree-ordered selection and re-applies each feature's own boolean. Absent reads `body`, so pre-v2 mirrors are unchanged (design \u00a73.2).",
+            "discriminator": {
+              "mapping": {
+                "body": "#/components/schemas/MirrorBodyScope",
+                "features": "#/components/schemas/MirrorFeaturesScope"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/MirrorBodyScope"
+              },
+              {
+                "$ref": "#/components/schemas/MirrorFeaturesScope"
+              }
+            ],
+            "title": "Scope"
           }
         },
         "required": [

@@ -368,9 +368,35 @@ def circular_pattern(
 
 
 def mirror(feature_id: uuid.UUID, plane: dict[str, Any]) -> dict[str, Any]:
+    """A mirror with NO ``scope`` key — exactly what a pre-v2 row carries, which
+    normalises to ``scope: {"kind": "body"}`` (docs/design/mirror-semantics.md §3.2).
+    Every matrix cell that says "mirror" therefore still means the v1 semantic."""
     return {
         "id": str(feature_id),
         "feature": {"type": "mirror", "version": 1, "params": {"plane": plane}},
+    }
+
+
+def mirror_features(
+    feature_id: uuid.UUID, plane: dict[str, Any], selection: list[uuid.UUID]
+) -> dict[str, Any]:
+    """A ``features``-scope mirror (mirror v2): reflect the RECORDED TOOLS of the
+    named features and re-apply each one's own boolean, in tree order (§4/§8.1)."""
+    return {
+        "id": str(feature_id),
+        "feature": {
+            "type": "mirror",
+            "version": 1,
+            "params": {
+                "plane": plane,
+                "scope": {
+                    "kind": "features",
+                    "features": [
+                        {"kind": "feature", "feature_id": str(fid)} for fid in selection
+                    ],
+                },
+            },
+        },
     }
 
 
@@ -630,6 +656,7 @@ S_POCKET, F_POCKET = _fid(21), _fid(22)
 F_HOLE, F_CBORE, F_CSINK, F_TAPPED = _fid(31), _fid(32), _fid(33), _fid(34)
 F_PATTERN_L, F_PATTERN_C = _fid(41), _fid(42)
 D_CLEAR, D_MID, F_MIRROR = _fid(51), _fid(52), _fid(53)
+D_FEAT, F_MIRROR_FEAT = _fid(54), _fid(55)
 F_FILLET, F_CHAMFER, F_SHELL, F_DRAFT = _fid(61), _fid(62), _fid(63), _fid(64)
 
 #: The base plate: [0,80] x [0,80] x [0,10] mm. V = 80*80*10 = 64000 mm^3.
@@ -753,6 +780,14 @@ def _verbs() -> dict[str, Verb]:
       count=3 rather than 4 is deliberate: a 90-deg rotation maps the SQUARE
       plate onto itself, so a 4-up whole-body ring is legitimately an identity
       and could not carry the "a pattern must change the body" invariant.
+    * ``mirror_features`` is the SAME YZ origin plane x=0 with an explicit
+      ``scope: {kind: features, features: [base extrude]}`` — the v2 reading, and the
+      only cell where a mirror reflects a NAMED feature's recorded tool instead of
+      the body. Reflecting the base prism about x=0 lands it at x in [-80,0], which
+      abuts every first-axis body on the shared x=0 face (no verb touches x < 0), so
+      the cell adds exactly one plate volume and stays ONE solid. Kept distinct from
+      the two whole-body mirror columns on purpose: a new mirror SCOPE is a new
+      composer behaviour, and the coverage audit fails if it ships without a row.
     * ``mirror_clearing`` is the YZ origin plane x=0. No first-axis verb ever
       leaves x >= 0 (the linear pattern now moves in +Y), so x=0 touches every
       body without being crossed by it -> the reflection must EXACTLY double
@@ -865,6 +900,30 @@ def _verbs() -> dict[str, Verb]:
             ],
             "replicate",
             x_symmetric=True,
+        ),
+        "mirror_features": Verb(
+            "mirror_features",
+            [
+                datum_offset(D_FEAT, "YZ", 0.0),
+                mirror_features(
+                    F_MIRROR_FEAT,
+                    {"kind": "feature", "feature_id": str(D_FEAT)},
+                    [F_BASE],
+                ),
+            ],
+            # An ``add``, not a ``replicate``: a `features`-scope mirror naming the
+            # BASE extrude reflects that feature's recorded PRISM and re-applies its
+            # own boolean (fuse) — mechanically an ADD of one rigid tool, and the
+            # kind invariant that fits is "volume strictly increases, the bbox never
+            # shrinks". The `replicate` invariants belong to the whole-body readings:
+            # `mirror_clearing`'s EXACTLY-2V and `mirror_midplane`'s <= 2V both
+            # describe a reflection of the BODY, which this deliberately is not — so
+            # those two columns keep meaning exactly what they meant.
+            "add",
+            # On the bare plate the base prism IS the body, and the plane x=0 touches
+            # it without being crossed, so the reflected prism lands disjointly at
+            # x in [-80,0] and abuts on the shared x=0 face: + one whole plate.
+            PLATE_VOLUME,
         ),
         "fillet": Verb(
             "fillet",
@@ -1844,7 +1903,7 @@ def test_pair_matrix_covers_every_shipped_verb() -> None:
         "draft",
     }
     assert families <= set(FIRST_AXIS)
-    # 8 x 13 cells, minus the explicitly-skipped ones.
+    # |FIRST| x |SECOND| cells, minus the explicitly-skipped diagonal.
     assert len(list(pair_ids())) == len(FIRST_AXIS) * len(SECOND_AXIS) - len(PAIR_SKIPS)
 
 
@@ -1929,6 +1988,14 @@ SELF_COMPOSITION_IDENTITIES = {
     ),
     "mirror_midplane": (
         "The plate is already symmetric about x=40, so both mirrors are the identity."
+    ),
+    "mirror_features": (
+        "Both mirrors reflect the SAME recorded tool (the base extrude's prism) about "
+        "the SAME plane x=0, so the second reflection lands exactly where the first "
+        "one already fused it and the fuse is the identity. NB the second instance's "
+        "own ids are re-issued by reid(), but its SELECTION still names the base "
+        "extrude — which is the point: the selection is a reference to a feature, not "
+        "to a position in the tree."
     ),
     "pattern_circular": (
         "A 3-up 120-degree ring about the plate centre leaves a body with exact "
@@ -2310,26 +2377,59 @@ def test_composed_body_survives_a_step_roundtrip(
 # docs/GEOMETRY-QA.md 2026-07-25 as CM-1 .. CM-4.
 
 
-#: The ONE part of CM-1 still open after the 2026-07-25 fix (see the test's
-#: docstring for the proof that it cannot be closed without breaking a locked
-#: semantic): the hole now survives every intervening feature, but a mirror does
-#: not DUPLICATE material an intervening ADD contributed, so the boss case lands
-#: 30309.380701702525 (hole mirrored, boss single) where this parametrization asks
-#: for 30629.3807 (boss mirrored too). Not silent-wrong-geometry any more — the
-#: void is preserved — but a documented v1 limit, filed P2.
-CM1_BOSS_UNMIRRORED = pytest.mark.xfail(
-    strict=True,
-    reason="CM-1 residual (P2, open): the hole IS preserved and mirrored now "
-    "(30309.380701702525 vs the 32640.0 featureless brick before), but v1's mirror "
-    "reflects the recorded CUT, never material an intervening ADD contributed, so "
-    "the 8x8x5 boss is not duplicated (320 mm^3 short of this expectation). "
-    "Mirroring a SELECTED SET of features — the incumbent semantic — is the real "
-    "fix and a v2 item: `test_mirror_preserves_a_cut_that_precedes_the_mirrored_one` "
-    "LOCKS 29600.0 for pocket A + pocket B + midplane mirror, which is only "
-    "reachable by reflecting the last cut and NOT unioning the body, and 30629.3807 "
-    "here is only reachable by union-then-re-subtract, which welds pocket A shut "
-    "(30400.0). The two expectations are mutually exclusive under one rule.",
-)
+#: CM-1's residual, CLOSED 2026-07-29 by mirror v2 (docs/design/mirror-semantics.md)
+#: — and closed the way the design says it must be: by giving the mirror an EXPLICIT
+#: SELECTION, not by making the implicit mirror smarter. The boss row below is
+#: therefore SPLIT in two, and both halves are locked:
+#:
+#: * ``boss (features scope)`` — ``scope: {features: [hole, boss]}`` reflects the
+#:   bore tool and the boss prism in tree order: **30629.3807**, the number the
+#:   ``xfail(strict=True)`` marker used to record as unreachable. Marker removed.
+#: * ``boss (implicit body scope)`` — the SAME chain with a bare ``mirror {plane}``
+#:   still returns **30309.3807** (hole mirrored, boss single), and that value is now
+#:   asserted as the DELIBERATE v1/`body`-scope semantic rather than tolerated as a
+#:   shortfall. §5 of the design: 30629.3807 from an implicit mirror would require
+#:   guessing that the user meant *hole and boss* rather than *hole*, which §1 proves
+#:   cannot be guessed correctly for every chain — a bare mirror has one answer, and
+#:   `test_mirror_preserves_a_cut_that_precedes_the_mirrored_one` (29600.0) pins what
+#:   it has to be.
+#:
+#: A reviewer expecting the marker to vanish with the assertion untouched should read
+#: that second bullet first: the mutual exclusion was never a kernel deficiency, and
+#: the fix is the contract.
+
+
+#: The intervening BOSS chain of CM-1 (§1's chain A), shared by the two locked
+#: readings below: 40x40x20 plate -> HOLE Ø8 @(10,20) -> datum XY@20 -> 8x8x5 boss
+#: at x in [30,38] -> datum YZ@20. The boss is an ADD, not a modifier at all, which
+#: is what proved the original shadowing was about "the predecessor is not a cut"
+#: rather than about modifiers specifically.
+CM1_BOSS_BETWEEN: list[dict[str, Any]] = [
+    datum_offset(D_BOSS, "XY", 20.0),
+    rect_sketch(
+        S_BOSS, 30.0, 30.0, 38.0, 38.0, {"kind": "feature", "feature_id": str(D_BOSS)}
+    ),
+    extrude(F_BOSS, S_BOSS, 5.0),
+]
+
+
+def _cm1_chain(
+    between: list[dict[str, Any]], mirror_feature: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """The CM-1 fixture: plate -> hole -> <between> -> datum YZ@20 -> <mirror>."""
+    return [
+        rect_sketch(S_BASE, 0.0, 0.0, 40.0, 40.0),
+        extrude(F_BASE, S_BASE, 20.0),
+        hole(
+            F_HOLE,
+            face_ref(F_BASE, (0.0, 0.0, 1.0), (20.0, 20.0, 20.0), 1600.0),
+            (10.0, 20.0, 20.0),
+            8.0,
+        ),
+        *between,
+        datum_offset(D_MID, "YZ", 20.0),
+        mirror_feature,
+    ]
 
 
 @pytest.mark.parametrize(
@@ -2343,27 +2443,10 @@ CM1_BOSS_UNMIRRORED = pytest.mark.xfail(
             [fillet(F_FILLET, 3.0)],
             -(20.0 * 4.0 * (3.0**2 - math.pi * 3.0**2 / 4.0)),
         ),
-        # An ADD (a boss) — not a modifier at all, proving the shadowing was about
-        # "the predecessor is not a cut", not about modifiers specifically. The
-        # boss is 8x8x5 = 320 on a datum at z=20; it sits at x in [30,38], so the
-        # mirror about x=20 also reflects it to x in [2,10] -> +2 * 320.
-        pytest.param(
-            "boss",
-            [
-                datum_offset(D_BOSS, "XY", 20.0),
-                rect_sketch(
-                    S_BOSS,
-                    30.0,
-                    30.0,
-                    38.0,
-                    38.0,
-                    {"kind": "feature", "feature_id": str(D_BOSS)},
-                ),
-                extrude(F_BOSS, S_BOSS, 5.0),
-            ],
-            2.0 * (8.0 * 8.0 * 5.0),
-            marks=CM1_BOSS_UNMIRRORED,
-        ),
+        # The BOSS chain under an IMPLICIT mirror: the boss is NOT duplicated
+        # (+320, one boss), which is the locked `body`-scope answer — see the note
+        # above and `test_cm1_boss_is_mirrored_by_an_explicit_selection`.
+        ("boss (implicit body scope)", CM1_BOSS_BETWEEN, 8.0 * 8.0 * 5.0),
     ],
 )
 def test_cm1_mirror_keeps_the_hole_across_an_intervening_feature(
@@ -2372,9 +2455,10 @@ def test_cm1_mirror_keeps_the_hole_across_an_intervening_feature(
     """CM-1 — the FINDINGS #2 fixture with ONE unrelated feature inserted.
 
     Chain: 40x40 plate extruded 20 -> HOLE Ø8 at (10,20) -> <feature> ->
-    datum YZ@20 -> MIRROR. The inserted feature is 20+ mm from the bore, so the
-    correct answer is the seed-2 answer plus that feature's own (mirror-aware)
-    delta: the bore at x=10 must STILL reflect to x=30.
+    datum YZ@20 -> MIRROR (no `scope` key — the v1 semantic, and what every
+    pre-v2 persisted mirror normalises to). The inserted feature is 20+ mm from the
+    bore, so the correct answer is the seed-2 answer plus that feature's own
+    (mirror-aware) delta: the bore at x=10 must STILL reflect to x=30.
 
     Obtained pre-fix: the bore was COMPLETELY FILLED — the volume equalled the
     modified plate with no hole at all, and the topology carried NO cylindrical
@@ -2390,26 +2474,73 @@ def test_cm1_mirror_keeps_the_hole_across_an_intervening_feature(
     (`_pattern_cut_tools`) — its fallback only reads the request differently, and
     two tests lock it. Measured now: chamfer 29629.38070170254, fillet
     29834.867379348696 (both within CURVED_TOL of the analytic values above), each
-    with the two bores present (12 faces). The boss param stays xfail — see
-    `CM1_BOSS_UNMIRRORED`.
+    with the two bores present (12 faces).
+
+    The BOSS row is the one that used to be `xfail(strict=True)` at 30629.3807. It
+    now asserts **30309.3807** — hole mirrored, boss single — as the DELIBERATE
+    `body`-scope semantic (mirror-semantics §5), and its 30629.3807 sibling lives in
+    the test below with an explicit selection. The marker is gone because the
+    CONTRACT changed, not because the assertion was weakened: see the note above
+    `CM1_BOSS_BETWEEN`.
     """
     del label
-    plate = [rect_sketch(S_BASE, 0.0, 0.0, 40.0, 40.0), extrude(F_BASE, S_BASE, 20.0)]
-    top = face_ref(F_BASE, (0.0, 0.0, 1.0), (20.0, 20.0, 20.0), 1600.0)
     props = properties(
         evaluate(
-            [
-                *plate,
-                hole(F_HOLE, top, (10.0, 20.0, 20.0), 8.0),
-                *between,
-                datum_offset(D_MID, "YZ", 20.0),
-                mirror(F_MIRROR, {"kind": "feature", "feature_id": str(D_MID)}),
-            ]
+            _cm1_chain(
+                between, mirror(F_MIRROR, {"kind": "feature", "feature_id": str(D_MID)})
+            )
         ),
         "cm1",
     )
     expected = 32000.0 + between_delta - 2 * math.pi * 4.0**2 * 20.0
     assert props.volume == pytest.approx(expected, abs=CURVED_TOL)
+
+
+def test_cm1_boss_is_mirrored_by_an_explicit_selection() -> None:
+    """CM-1's residual, CLOSED — **30629.3807** with `features: [hole, boss]`.
+
+    The number the `xfail(strict=True)` marker used to record as unreachable, now
+    reached the only way it can be: the tree STATES that both the hole and the boss
+    are to be mirrored (mirror v2, docs/design/mirror-semantics.md §5). In tree order
+    the hole's recorded bore tool reflects to x=30 and is CUT, then the boss's prism
+    reflects to x in [2,10] and is FUSED:
+    31314.6904 -> 30309.3807 -> **30629.3807**.
+
+    Why this is a contract fix and not a kernel fix, stated where the marker used to
+    be: reaching 30629.3807 by INFERENCE requires "union the reflected body then
+    re-subtract every tool set", and that welds chain B's earlier pocket shut
+    (`test_seed4_mirror_does_not_weld_an_earlier_cut_shut`, 29600.0 correct vs
+    30400.0 for that rule). Under one implicit rule the two expectations are mutually
+    exclusive — §1 measured all three numbers. With the intent in the DTO they are
+    simply two different requests, and BOTH are locked: this test and the
+    `boss (implicit body scope)` parametrization above assert 30629.3807 and
+    30309.3807 on the SAME feature chain, 320 mm^3 and 5 faces apart.
+
+    Golden: `mirror-features-hole-boss-plate-40x40x20`. Full v2 coverage (tree order,
+    typed refusals, nesting, pattern placements): `test_mirror_features.py`.
+    """
+    props = properties(
+        evaluate(
+            _cm1_chain(
+                CM1_BOSS_BETWEEN,
+                mirror_features(
+                    F_MIRROR,
+                    {"kind": "feature", "feature_id": str(D_MID)},
+                    [F_HOLE, F_BOSS],
+                ),
+            )
+        ),
+        "cm1 boss, features scope",
+    )
+    boss = 8.0 * 8.0 * 5.0
+    bore = math.pi * 4.0**2 * 20.0
+    assert props.volume == pytest.approx(32000.0 + 2 * boss - 2 * bore, abs=CURVED_TOL)
+    assert props.volume == pytest.approx(30629.380701702532, abs=CURVED_TOL)
+    # 6 plate + 2 bore cylinders + 2 x (4 boss walls + 1 boss top). The implicit
+    # reading reads 13 faces (one boss), so topology discriminates too.
+    assert props.topology.model_dump() == {"faces": 18, "edges": 42, "shells": 1}
+    # Both bores and both bosses straddle the mirror plane symmetrically in x.
+    assert props.centroid.x == pytest.approx(20.0, abs=CURVED_TOL)
 
 
 @pytest.mark.parametrize(

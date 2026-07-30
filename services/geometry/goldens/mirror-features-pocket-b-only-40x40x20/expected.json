@@ -1,0 +1,30 @@
+{
+  "description": "FEATURES-SCOPE MIRROR — \"put pocket B on the other side\" (mirror v2, docs/design/mirror-semantics.md §5, chain B). A 40 x 40 x 20 plate with TWO through-width pockets cut from the XY face — pocket A over x in [4,8] and pocket B over x in [14,18], both y in [10,30], both 10 mm deep — a YZ-parallel datum at x=20, then a MIRROR with `scope: {kind: features, features: [pocket B]}`. Reflecting ONLY B's recorded removal tool about x=20 puts a third notch at x in [22,26] and leaves A untouched: 29600.0 mm^3. The POINT of this golden is that the SAME number is reachable two ways and means the same solid: the `body` scope (v1's most-recent-cut reading) also returns 29600.0 — locked since `fa30220` by `test_mirror_preserves_a_cut_that_precedes_the_mirrored_one` — so the two paths agreeing where they overlap is the strongest evidence the v2 mechanism means what v1 meant. It also pins the OTHER half of the v1 ambiguity: `features: [pocket A, pocket B]` legitimately gives 28800.0 (its own golden, mirror-features-both-pockets-40x40x20), which under v1 was the SYMPTOM of a rejected rule and under v2 is simply the answer to a different request (\"make the plate symmetric\"). Two requests, two answers, no guess.",
+  "derivation": [
+    "Expectations are HAND-DERIVED analytic values, not recorded harness output (geometry-gates skill). Plate: x,y in [0,40] on XY (4 unconstrained lines -> zero solver residual), extruded 20 mm = the box [0,40] x [0,40] x [0,20], volume 32000 mm^3.",
+    "pocket A: a 4 x 20 rectangle x in [4,8], y in [10,30] sketched on XY and extrude-CUT 10 mm along +Z, so the tool spans z in [0,10] -> a BLIND notch open only at the bottom (z=0) face, removing 4*20*10 = 800 mm^3.",
+    "pocket B: the same shape at x in [14,18] -> another 800 mm^3.",
+    "mirror plane: a datum parallel to YZ slid +20 mm -> x=20, the plate's x-midplane.",
+    "mirror, scope features [pocket B]: B's RECORDED removal tool (captured at B's own evaluation from the pre-cut body) reflects about x=20 from x in [14,18] to x in [22,26] and is CUT -> a third notch, -800 mm^3. Pocket A is NOT named, so it is neither reflected nor filled: the cut path never unions material, so every earlier void survives by construction.",
+    "volume = 32000 - 800 (A) - 800 (B) - 800 (B') = 29600.0 mm^3. The union-then-re-subtract alternative v1 rejected returns 30400.0 here (pocket A welded shut), so this value FAILS on that implementation by 800 mm^3.",
+    "surface_area: the un-notched plate is 2*1600 + 4*(40*20) = 6400 mm^2. Each notch is interior in plan (x in [4,8] etc. and y in [10,30] both strictly inside [0,40]) and opens ONLY at z=0, so it removes 4*20 = 80 from the bottom cap and adds a 2*(4+20) = 48 mm perimeter x 10 mm deep wall = 480 plus an 80 mm^2 ceiling: net +480 per notch. Total = 6400 + 3*480 = 7840.0 mm^2.",
+    "centroid: V = 29600 with components plate 32000 @ (20,20,10) minus three 800 mm^3 notches at x = 6, 16, 24 (each y=20, z=5). x = (32000*20 - 800*(6+16+24))/29600 = (640000 - 36800)/29600 = 603200/29600 = 20.378378378378379. y = 20.0 by symmetry (every notch is centred on y=20). z = (320000 - 2400*5)/29600 = 308000/29600 = 10.405405405405405.",
+    "bounding_box = [0,0,0]..[40,40,20]: every notch is interior in plan and opens downward, so the AABB is the un-notched plate's box.",
+    "topology: 21 faces = 6 outer + 5 per notch (4 walls + 1 ceiling) x 3. A welded-shut pocket A would read 16. 48 edges = 12 box + 12 per notch (4 at the bottom opening + 4 around the ceiling + 4 vertical) x 3. 1 shell.",
+    "mesh (linear 0.1 mm, all-planar so deflection is non-binding — every face triangulates to its boundary polygon): bottom cap = 4 outer + 3*4 hole nodes = 16 boundary nodes with 3 holes -> 16 vertices, 16 - 2 + 2*3 = 20 triangles. Top cap = 4 vertices / 2 triangles. 4 plate side walls = 4*(4, 2) = 16 vertices / 8 triangles. Each notch = 4 walls + 1 ceiling = 5*(4, 2) = 20 vertices / 10 triangles; three notches = 60 / 30. Totals = 16 + 4 + 16 + 60 = 96 vertices and 20 + 2 + 8 + 30 = 60 triangles (per-face faceted normals, no vertex sharing).",
+    "GLB byte size is deliberately NOT pinned (see the sibling goldens): determinism is asserted by the runner, absolute size is a glTF-writer detail."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "ALL-PLANAR tolerance: the reviewed planar tier the shipped planar mirror goldens carry (mirror-triangle-prism-2x, mirror-cut-clearing-plane-block-40x40x20) and which the composition matrix reuses as PLANAR_TOL — reused verbatim, no new epsilon. Every face here is planar and every boolean is a box-vs-box cut, so the only residual is float accumulation in GProp's exact planar integration. Measured deviations vs the analytic values (2026-07-29, build123d 0.11.1 / OCCT 7.9): volume |29600.0 - 29600.000000000007| = 7.3e-12, surface_area 1.8e-12, centroid.x 7.1e-15, centroid.y 7.1e-15, centroid.z 1.8e-15, AABB bounds exactly 0.0. The 1e-9 ceiling therefore carries ~137x headroom over the worst residual and is NOT fitted to it. Topology and mesh counts carry NO tolerance (exact-match). Loosening requires a reviewed kernel-level justification recorded here and in docs/GEOMETRY-QA.md.",
+  "properties": {
+    "volume": 29600.0,
+    "surface_area": 7840.0,
+    "centroid": { "x": 20.378378378378379, "y": 20.0, "z": 10.405405405405405 },
+    "bounding_box": {
+      "min": { "x": 0.0, "y": 0.0, "z": 0.0 },
+      "max": { "x": 40.0, "y": 40.0, "z": 20.0 }
+    }
+  },
+  "topology": { "faces": 21, "edges": 48, "shells": 1 },
+  "mesh": { "vertices": 96, "triangles": 60 }
+}

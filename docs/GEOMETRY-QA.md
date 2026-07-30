@@ -7,6 +7,134 @@ not "do the tests pass" but **"is the geometry RIGHT?"** (RESEARCH §9,
 decisions recorded here AND in the golden's `expected.json` — never a way to
 go green.
 
+## 2026-07-30 — Mirror v2 shipped: the four numbers, and byte identity MEASURED not assumed (kernel-architect)
+
+Implements `docs/design/mirror-semantics.md`. The headline is not a kernel
+improvement — it is that **CM-1's residual was a contract defect**, and the fix is
+`MirrorParamsV1.scope`, a `kind`-union of `body` (v1 verbatim) and
+`features: [FeatureRef]` (reflect each selected feature's recorded rigid tool,
+re-apply that feature's own boolean, in TREE order).
+
+**The four numbers, as measured on this commit** (all on the SAME 40x40x20 plate
+chains §1 of the design tabulated — so a reviewer can diff them against that table
+directly):
+
+| chain | spelling | measured | tier |
+|---|---|---|---|
+| A: plate -> hole Ø8@(10,20) -> boss 8x8x5@x∈[30,38] -> datum YZ@20 | `features: [hole, boss]` | **30629.380701702525** (analytic 30629.380701702532, Δ 7.3e-12) | `CURVED_TOL` |
+| A, same tree | bare `mirror {plane}` (= `scope: body`) | **30309.380701702525** — hole mirrored, boss single | `CURVED_TOL` |
+| B: plate -> pocket A x∈[4,8] -> pocket B x∈[14,18] -> datum YZ@20 | `scope: body` | **29600.000000000007** | `PLANAR_TOL` |
+| B, same tree | `features: [pocket B]` | **29600.000000000007** (bit-identical to the `body` reading's value) | `PLANAR_TOL` |
+| B' , same tree | `features: [pocket A, pocket B]` | **28799.999999999996** | `PLANAR_TOL` |
+
+Both chain-B spellings landing on the same value is the strongest evidence
+available that the v2 mechanism means what v1 meant where they overlap; 28800.0
+stops being "the wrong answer" and becomes the answer to a *different* request.
+The implicit 30309.3807 is now **asserted**, not tolerated: an implicit mirror
+cannot guess "hole and boss" over "hole", so a bare mirror has exactly one answer
+and the 29600.0 lock pins what it has to be.
+
+**Byte identity was verified, not argued.** §3.2 claims the shipped goldens are
+byte-identical *structurally* (the `body` scope dispatches to untouched code).
+Structural arguments have been wrong here before, so it was measured: all **39**
+goldens were rebuilt against a `git worktree` at the pre-v2 commit (`3b68016`) and
+against this one, comparing **GLB sha256 + the full metadata JSON**. Result: 39/39
+identical, including `mirror-hole-feature-plate-40x40x20` (`18ffdc7a…`),
+`mirror-cut-clearing-plane-block-40x40x20` (`f381f155…`) and
+`mirror-triangle-prism-2x` (`5ec5e45f…`). The permanent form of that guarantee is
+`test_absent_and_explicit_body_scope_are_byte_identical` — a GLB digest is NOT
+pinned as a constant, because a glTF-writer upgrade would break it for no geometric
+reason (the same reason the goldens never pin `glb_bytes`).
+
+**The highest-risk hunk (§6.2), and how it was de-risked.** The v1 cut slot
+(`record_cut_tools`) has TWO readers with two different documented rules, so
+letting the widening write into it would silently move what a `body`-scope mirror
+and a `pattern` reflect. The v2 store is therefore **separate and opt-in**:
+`record_cut_tools` keeps exactly its v1 write sites (extrude-cut + hole) and
+exactly its v1 meaning, while `record_feature_tools` records every mirrorable verb
+— but only for ids some `features`-scope mirror names, so a tree without one pays
+zero extra memory (the `body_history`/H4 posture). That makes "the v1 readers
+return an identical tool list" structural, and it is asserted directly at the state
+level by `test_widening_the_tool_store_leaves_the_v1_readers_untouched`. **Cost of
+that choice, filed honestly (BACKLOG P3):** a `body`-scope mirror after a
+revolve/sweep/loft CUT still takes the union path and can fill that void — the
+FINDINGS #2 class for the three non-extrude cuts. Widening the v1 slot would fix it
+AND change answers, so it gets its own item and its own goldens rather than riding
+in here.
+
+**Three new goldens** (§6.3), each on an existing documented tier, no new epsilon:
+`mirror-features-hole-boss-plate-40x40x20` (30629.3807, 18/42/1, `CURVED_TOL`
+1e-8), `mirror-features-pocket-b-only-40x40x20` (29600.0, 21/48/1, `PLANAR_TOL`
+1e-9), `mirror-features-both-pockets-40x40x20` (28800.0, 26/60/1, `PLANAR_TOL`).
+Mesh counts were hand-derived per face BEFORE measuring and matched exactly
+(1084/1060, 96/60, 120/76).
+
+**What the tests catch that a volume assertion would not.**
+
+- **Chirality (§4.5).** A reflection reverses handedness, so a mirror that
+  re-derived a circular pattern from its axis + positive `angle_deg` would wind the
+  ring backwards. On a full 360° ring that mistake is INVISIBLE (the reflected and
+  re-derived placement sets coincide), so the test uses a **partial** 90°/3 arc on a
+  60x60 plate: reflected placements give `centroid.y = 30.832691948315738`,
+  re-derived ones give exactly `30.0` — a 0.83 mm discriminator, ~8e7x the
+  tolerance, with the wrong value computed in the test itself so the check is
+  provably not vacuous.
+- **Nesting (§4.6).** The 4-fold quadrant chain (mirror about x=20, then mirror
+  *that* about y=20) gives 4 bores / **27978.761403405057** with the centroid exactly
+  at the plate centre. It only works because a `features`-scope mirror records the
+  tools it applied **as reflected**: recording its sources instead would re-cut the
+  second quadrant and leave the fourth empty (3 bores, 28984.07). That is why
+  `reflect_tools` is split out of the cut/fuse application.
+- **Drift (§4.5).** `_pattern_contribution` mirrors `_apply_pattern`'s branch
+  structure including its vacuous-cut fallback, so the two could diverge silently
+  and a mirror would then reflect something the pattern never applied.
+  `test_recorded_pattern_contribution_reproduces_the_pattern` asserts the invariant
+  (apply the recorded group to the pre-pattern body == the pattern's own result) for
+  add, cut, cut-fallback and circular-cut.
+- **Refusals as VALUES.** `mirror_feature_unsupported` (modifier / non-body-affecting
+  / `body`-scope inner mirror / boolean), `mirror_feature_unreachable` (a reflected
+  cut that removes nothing — with an explicit selection there is nothing to guess,
+  so v1's union fallback becomes an honest error), `mirror_feature_other_body`,
+  `mirror_feature_not_evaluated` (e.g. a count-1 pattern contributes no instances).
+  Each is pinned to the offending SELECTED feature via `upstream_feature_id`, so the
+  UI blames the right tree row. The fillet refusal carries the reason in its
+  message: a modifier has a *result*, not a tool, and the tempting
+  `before.cut(after)` delta-sliver is only correct where the reflected side is
+  congruent — elsewhere it produces a valid, closed, plausible, **wrong** body.
+
+**Divergence from the design, stated rather than smuggled.** §8.2 wants a
+SUPPRESSED selected feature "skipped silently". Shipped behaviour is the generic
+rule instead — `_suppressed_reference_error` walks every ref kind and answers
+`references_suppressed` pinned to the suppressed feature — because (a) the
+suppress==delete analogy does not hold (deleting a feature a mirror names is a
+write-time 409-with-dependents), (b) silently reflecting a SMALLER set is the
+plausible-but-wrong-body class this design exists to close, and (c) carving a
+per-field exception out of the generic walk would break the DRY property that a new
+ref-bearing field is covered for free. Locked with that reasoning in
+`test_a_suppressed_selection_is_references_suppressed`.
+
+**The limitation that did NOT go away.** v2 does **not** retire "a crossing mirror
+erases an asymmetric modifier" — a modifier cannot be named in a selection.
+`test_observed_limit_a_crossing_mirror_erases_an_asymmetric_modifier` is green and
+UNEDITED, and the BACKLOG overclaim the design corrected stays corrected.
+
+**Performance (§9's budget, measured not claimed).** Warm median full-tree rebuild
+(evaluate + measure + tessellate, median of 5 after a warmup):
+`mirror-features-hole-boss-plate-40x40x20` **72.0 ms**,
+`mirror-features-pocket-b-only-40x40x20` **65.1 ms**,
+`mirror-features-both-pockets-40x40x20` **86.7 ms**, against
+`mirror-hole-feature-plate-40x40x20` (the `body`-scope sibling) at **43.7 ms** — so
+the extra k reflections + k booleans cost ~20-40 ms on these chains, an order of
+magnitude inside the 2000 ms CI ceiling. The hole-boss golden is now a `tree` bench
+case, so the budget is a gate and not a note.
+
+**Gates:** composition matrix 221 (was 213; +8 `mirror_features` cells, and the
+`xfail(strict)` marker is GONE because its case now has an explicit selection —
+not because an assertion moved), goldens 39x4, STEP round-trip green,
+`test_mirror_features.py` 33, mirror/pattern/hole/evaluate-tree suites unchanged and
+green, `just gen-check` clean, TS typecheck clean (`scope` is optional in the
+generated client, so no web caller changed).
+
 ## 2026-07-25 — TAPPED holes: the v1 thread representation is COSMETIC, and the golden that locks it (kernel-architect)
 
 **The decision (recorded in `services/geometry/src/geometry/kernel/threads.py`,
@@ -115,31 +243,36 @@ crosses ~2 min.
 
 ### The matrix
 
-8 predecessors (FIRST) x 14 composers (SECOND) = 112 cells; the 8 diagonal
+8 predecessors (FIRST) x 15 composers (SECOND) = 120 cells; the 8 diagonal
 cells are explicitly skipped with a reason (two features cannot share an id) and
-covered instead by `test_self_composition_*`, which re-issues ids — **104 cells
-asserted**. (13 composers / 96 cells as first filed; the `tapped` column joined
-with the tapped-hole slice later the same day — see the entry above.) Base body: an 80x80x10 plate; placements are mutually disjoint in
+covered instead by `test_self_composition_*`, which re-issues ids — **112 cells
+asserted**. (13 composers / 96 cells as first filed; `tapped` joined with the
+tapped-hole slice, and `mir-feat` — the v2 `features`-scope mirror — with mirror v2
+on 2026-07-30. A new mirror SCOPE is a new composer behaviour, so the coverage
+audit would have failed had it shipped without a column.) Base body: an 80x80x10 plate; placements are mutually disjoint in
 plan and each verb's *patterned and mirrored copies* stay strictly interior (the
 reason for the 80 mm plate and the `+Y` linear step — a `+X` step would smuggle
 finding CM-2's shape into routine cells).
 
-| FIRST \\ SECOND | ext-add | ext-cut | hole | cbore | csink | tapped | pat-lin | pat-circ | mir-clear | mir-mid | fillet | chamfer | shell | draft |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| extrude-add | · | + | + | + | + | ✓ | ✓ | ✓ | **2V** | id | ✓ | ✓ | 🛑`shell_failed` | ✓ |
-| extrude-cut | + | · | +✓ | + | + | ✓ | **Nx** | **Nx** | **2V** | ✓ | ✓ | ✓ | ✓ | + |
-| hole (simple) | + | +✓ | · | +✓ | +✓ | +✓ | **Nx** | **Nx** | **2V** | ✓ | +✓ | +✓ | ✓ | +✓ |
-| pattern-linear | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | **2V** | id | ✓ | ✓ | ✓ | ✓ |
-| mirror-midplane | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | **2V** | · | ✓ | ✓ | ✓ | ✓ |
-| fillet | ✓ | ✓ | +✓ | +✓ | ✓ | ✓ | ✓ | ✓ | **2V** | id | · | 🛑`chamfer_failed` | ✓ | ✓ |
-| shell | 🛑`boolean_failed` | ✓ | ✓ | 🛑`hole_too_deep` | 🛑`hole_too_deep` | ✓ | ✓ | ✓ | **2V** | id | ✓ | ✓ | · | ✓ |
-| draft | ✓ | + | +✓ | + | + | ✓ | ✓ | ✓ | **2V** | ✓ | ✓ | ✓ | ✓ | 🛑`subshape_unresolved` |
+| FIRST \\ SECOND | ext-add | ext-cut | hole | cbore | csink | tapped | pat-lin | pat-circ | mir-clear | mir-mid | mir-feat | fillet | chamfer | shell | draft |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| extrude-add | · | + | + | + | + | ✓ | ✓ | ✓ | **2V** | id | **+V** | ✓ | ✓ | 🛑`shell_failed` | ✓ |
+| extrude-cut | + | · | +✓ | + | + | ✓ | **Nx** | **Nx** | **2V** | ✓ | **+V** | ✓ | ✓ | ✓ | + |
+| hole (simple) | + | +✓ | · | +✓ | +✓ | +✓ | **Nx** | **Nx** | **2V** | ✓ | **+V** | +✓ | +✓ | ✓ | +✓ |
+| pattern-linear | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | **2V** | id | **+V** | ✓ | ✓ | ✓ | ✓ |
+| mirror-midplane | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | **2V** | · | **+V** | ✓ | ✓ | ✓ | ✓ |
+| fillet | ✓ | ✓ | +✓ | +✓ | ✓ | ✓ | ✓ | ✓ | **2V** | id | **+V** | · | 🛑`chamfer_failed` | ✓ | ✓ |
+| shell | 🛑`boolean_failed` | ✓ | ✓ | 🛑`hole_too_deep` | 🛑`hole_too_deep` | ✓ | ✓ | ✓ | **2V** | id | **+V** | ✓ | ✓ | · | ✓ |
+| draft | ✓ | + | +✓ | + | + | ✓ | ✓ | ✓ | **2V** | ✓ | **+V** | ✓ | ✓ | ✓ | 🛑`subshape_unresolved` |
 
 `+` = analytic additivity · `✓` = kind invariant + no-silent-no-op · `Nx` =
-N-times-the-seed cut array · `2V` = exact doubling · `id` = asserted IDENTITY
-(x-symmetric body mirrored about its own midplane) · `🛑` = must degrade to that
-exact typed code, with the last-good body proven untouched · `·` = diagonal
-(see above).
+N-times-the-seed cut array · `2V` = exact doubling · `+V` = adds exactly one plate
+volume (a `features`-scope mirror of the BASE extrude reflects that feature's
+recorded prism about x=0 and re-fuses it — an ADD of one rigid tool, deliberately
+NOT a whole-body replicate, so `mir-clear`'s exact-2V and `mir-mid`'s <=2V keep
+meaning exactly what they meant) · `id` = asserted IDENTITY (x-symmetric body
+mirrored about its own midplane) · `🛑` = must degrade to that exact typed code,
+with the last-good body proven untouched · `·` = diagonal (see above).
 
 Also covered: revolve (a non-prismatic base composed with a hole and a 6-up
 rotated cut array, `V = 3690pi`), two triples (hole->pattern->clearing-mirror
