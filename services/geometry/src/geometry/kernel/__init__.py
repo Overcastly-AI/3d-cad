@@ -22,6 +22,7 @@ from geometry.kernel.datum import (
     midplane_between,
     offset_plane,
 )
+from geometry.kernel.degenerate import ZeroWidthSlit, find_zero_width_slits
 from geometry.kernel.draft import DraftError, draft_body
 from geometry.kernel.edges import (
     EdgeRecord,
@@ -222,6 +223,7 @@ __all__ = [
     "ThreadBoreMismatchError",
     "ThreadError",
     "ThreadUnsupportedError",
+    "ZeroWidthSlit",
     "attribute_faces",
     "boolean_bodies",
     "bore_hole",
@@ -260,6 +262,7 @@ __all__ = [
     "export_stl_bytes",
     "extrude_face",
     "fillet_body",
+    "find_zero_width_slits",
     "format_designation",
     "fuse_reflected_tools",
     "glb_stats",

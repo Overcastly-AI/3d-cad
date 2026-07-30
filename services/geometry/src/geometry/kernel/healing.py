@@ -42,6 +42,24 @@ Scope: :mod:`geometry.kernel.shell` is the only op with evidence of producing a
 non-conformal body, so it is the only caller. Other ops adopt this the day a
 gate catches them (DRY: extract on the second real use, not the first imagined
 one) — the helper is deliberately op-agnostic so that is a one-line change.
+
+WHAT THIS IS **NOT** (finding SH-1, docs/GEOMETRY-QA.md 2026-07-30 — the boundary
+between healing and refusing). The CM-4 body carries TWO distinct defects, and
+this module fixes exactly one of them. The T-junction is a topology error and
+``ShapeFix`` repairs it. The **zero-width slit** underneath it — the pinched
+cavity's two coincident faces, 112 mm² of boundary with no material between them
+— is MISSING MATERIAL, and no repair pass removes it: measured on that body,
+``ShapeFix_Shape`` leaves the pair (and splits it into two pairs),
+``ShapeUpgrade_UnifySameDomain`` is a no-op on it, a self-fuse reproduces it and
+``BOPAlgo_Builder`` on the single argument returns zero solids. A body this module
+calls healed can therefore still be degenerate, so ``shell_body`` asks
+:func:`geometry.kernel.degenerate.find_zero_width_slits` FIRST and refuses that
+input rather than laundering it through here. Consequence to keep honest: the
+CM-4 chain at t=2 mm is now a typed feature error, so this module's live evidence
+lives at kernel level in ``tests/test_healing.py`` (raw ``hollow`` output, no
+``shell_body``) — it is defence-in-depth for the next op OCCT surprises us on,
+not dead code, and the fixture test fails loudly if OCCT stops producing the
+non-conformal body at all.
 """
 # pyright: reportMissingTypeStubs=false, reportUnknownMemberType=false
 # pyright: reportUnknownVariableType=false, reportAttributeAccessIssue=false

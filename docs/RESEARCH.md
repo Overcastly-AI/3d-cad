@@ -221,6 +221,19 @@ Correctness gates no web app needs, run in CI and by the `geometry-qa` agent:
   it, so valid bodies keep their exact topology and byte-identical exports —
   and refuses any heal that moves the volume (decision + evidence in
   docs/GEOMETRY-QA.md 2026-07-25).
+- **Degeneracy is REFUSED, not healed, when the body is missing material.** The
+  companion rule to the one above, and the line between them: a **zero-width
+  slit** (two coincident faces of one lump with no material between them, e.g. a
+  `shell` whose thickness is exactly half an internal wall) is not a topology
+  error, so no repair pass removes it — `ShapeFix`, `UnifySameDomain` and a
+  self-fuse were all measured leaving it in place. The op therefore DETECTS it
+  with the one shared predicate
+  `geometry.kernel.degenerate.find_zero_width_slits` and degrades to a typed
+  feature error naming the fix, rather than shipping a cracked body or inventing
+  a warning channel the wire does not model (finding SH-1, decision + evidence
+  in docs/GEOMETRY-QA.md 2026-07-30). Same posture as
+  `removal_reaches_body`: one predicate, asked by every verb that can produce
+  the condition, never re-implemented per verb.
 - **Export byte-determinism:** identical requests → byte-identical STEP/STL
   files. STEP's `FILE_NAME` creation timestamp — the one nondeterministic
   byte range OCCT writes — is pinned kernel-side

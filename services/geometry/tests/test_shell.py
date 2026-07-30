@@ -10,9 +10,14 @@ datum uses; and every shell error path — ``no_prior_body``,
 ``subshape_unresolved``, ``shell_thickness_too_large``, ``shell_failed`` — is a
 per-feature error under the strict-prefix rule (§4.3), never a transport failure.
 
+The last section is the **zero-width-slit threshold** (finding SH-1): a thickness
+of exactly half an internal wall is refused, and the two thicknesses 0.1 mm either
+side of it build sound bodies — the sweep that proves the guard discriminates.
+
 Numeric assertions use the documented golden tolerance (see
-``goldens/shell-open-top-box-40x25x10-t2/expected.json`` — measured-then-set),
-not ad-hoc epsilons.
+``goldens/shell-open-top-box-40x25x10-t2/expected.json`` for the planar box and
+``goldens/shell-pinch-boundary-plate-40x40x10-pocket-t1.9/expected.json`` for the
+curved pinch-boundary body — both measured-then-set), not ad-hoc epsilons.
 """
 
 import json
@@ -21,7 +26,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from build123d import CenterOf, Solid
+from build123d import Axis, CenterOf, Face, Solid, Vector
 from fastapi.testclient import TestClient
 from geometry.kernel import (
     ShellError,
@@ -30,6 +35,7 @@ from geometry.kernel import (
     resolve_faces,
     shell_body,
 )
+from geometry.kernel.degenerate import find_zero_width_slits
 from geometry.kernel.faces import planar_face_signature
 from geometry.main import app
 from py_kit.schemas.features import EvaluateTreeResult, PlanarFaceSignature
@@ -477,3 +483,120 @@ def test_shell_body_offset_failure_raises_shell_error() -> None:
     )
     with pytest.raises(ShellError):
         shell_body(box, [top], 12.5)
+
+
+# --- The zero-width-slit threshold (finding SH-1) ------------------------------------
+#
+# A thickness of exactly HALF an internal wall lands the two inward offsets on the
+# same plane: the wall stays solid and the cavity pinches to zero width, leaving
+# coincident faces with no material between them. The three tests below are one
+# threshold sweep on ONE body — refused at the pinch, sound 0.1 mm either side —
+# so the guard is proved to DISCRIMINATE rather than to blanket-refuse the layout.
+# The sound side below is also the new golden
+# `shell-pinch-boundary-plate-40x40x10-pocket-t1.9` (full hand derivation there).
+
+#: The documented tolerance of that golden (CURVED composition tier, measured
+#: worst residual 5.46e-12; expected.json tolerance_rationale). Not an ad-hoc
+#: epsilon and not the planar SHELL_TOL: this body carries 16 cylindrical faces.
+PINCH_TOL = 1e-8
+
+#: The SH-1 / CM-4 layout: 40x40x10 plate, [4,12]x[10,30] through-pocket, r3 on
+#: every Z-parallel edge. Both r3 roundings cancel in plan (1600 - 9(4-pi) minus
+#: 160 - 9(4-pi) = 1440), so the pre-shell body is exactly 14400 mm^3. The rib
+#: between the outer wall and the pocket wall is 4.0 mm.
+PINCH_BODY_VOLUME = 14400.0
+PINCH_RIB_MM = 4.0
+#: t = rib/2 exactly: the refused thickness.
+PINCH_THICKNESS = 2.0
+#: Sound neighbour BELOW: cavity plan 1120.8 - 22.8pi over a height of 8.1
+#: (derivation in the golden's expected.json) -> 5321.52 + 184.68pi.
+BELOW_THICKNESS = 1.9
+BELOW_VOLUME = 5901.709331264961
+
+
+def _pinch_body() -> Solid:
+    """The SH-1 layout up to (not including) the shell."""
+    plate = Solid.make_box(40.0, 40.0, 10.0)
+    cutter = Solid.make_box(8.0, 20.0, 10.0).translate(Vector(4.0, 10.0, 0.0))
+    pocketed: Solid = (plate - cutter).solids()[0]
+    return pocketed.fillet(3.0, pocketed.edges().filter_by(Axis.Z)).solids()[0]  # pyright: ignore[reportUnknownMemberType]
+
+
+def _pinch_top(body: Solid) -> list[Face]:
+    return [
+        f
+        for f in body.faces()
+        if abs(f.center(CenterOf.MASS).Z - 10.0) < 1e-9
+        and abs(f.normal_at(f.center(CenterOf.MASS)).Z - 1.0) < 1e-9
+    ]
+
+
+def test_thickness_that_pinches_a_rib_to_zero_width_is_refused() -> None:
+    """SH-1: t = exactly half a 4 mm rib is ``shell_thickness_too_large``, and the
+    message tells the user what to change.
+
+    Not a success-with-warning: at this exact value OCCT is unreliable in KIND
+    (the same chain WITHOUT the r3 fillet returns 14172.183 mm^3 where 6308.531 is
+    correct), and no repair pass removes the slit — the reasoning and its measured
+    evidence live on :class:`ShellThicknessError`.
+    """
+    body = _pinch_body()
+    assert body.volume == pytest.approx(PINCH_BODY_VOLUME, abs=PINCH_TOL)
+
+    with pytest.raises(ShellThicknessError) as raised:
+        shell_body(body, _pinch_top(body), PINCH_THICKNESS)
+
+    message = str(raised.value)
+    assert "zero-width slit" in message
+    assert f"{PINCH_RIB_MM} mm" in message, message
+    assert "112 mm^2" in message, message
+    assert "a little thicker" in message, message
+
+
+def test_the_pinch_guard_discriminates_a_tenth_of_a_millimetre() -> None:
+    """Both neighbours build, so the refusal is a knife edge and not a policy.
+
+    BELOW (t=1.9): the cavity survives as a 0.2 mm slot; volume is the analytic
+    5321.52 + 184.68pi (the golden's derivation). ABOVE (t=2.1): the two offsets
+    cross and the rib merges into solid material, so the body is sound with MORE
+    material than the thinner wall left — asserted as the hand-derivable ordering
+    ``below < above < unshelled`` rather than a recorded scalar, because OCCT does
+    not follow the Minkowski erosion where two offsets cross (measured 0.95 mm^3
+    off it on the sharp-cornered variant), so no closed form is honest there.
+    """
+    body = _pinch_body()
+    below = shell_body(body, _pinch_top(body), BELOW_THICKNESS)
+    above = shell_body(body, _pinch_top(body), PINCH_THICKNESS + 0.1)
+
+    assert below.volume == pytest.approx(BELOW_VOLUME, abs=PINCH_TOL)
+    assert not find_zero_width_slits(below)
+    assert not find_zero_width_slits(above)
+    assert BELOW_VOLUME < above.volume < PINCH_BODY_VOLUME
+
+
+def test_the_pinch_gap_is_void_below_the_threshold_and_solid_above() -> None:
+    """What the threshold MEANS geometrically, on a hand-derived probe.
+
+    At the rib, the outer wall offsets to x = t and the pocket wall to x = 4 - t.
+    So the 0.2 mm box ``[1.9,2.1] x [19.9,20.1] x [5.9,6.1]`` (at the pocket's y
+    centre, mid-cavity in z, inside the dilated pocket's flat 14 mm face) is
+    entirely CAVITY at t=1.9 (the slot runs x in [1.9,2.1] there) and entirely
+    MATERIAL at t=2.1 (the walls have merged). At t=2.0 the two boundaries
+    coincide in that box: the slit.
+    """
+    probe = Solid.make_box(0.2, 0.2, 0.2).translate(Vector(1.9, 19.9, 5.9))
+    body = _pinch_body()
+
+    below = shell_body(body, _pinch_top(body), BELOW_THICKNESS)
+    # build123d types the boolean common as ShapeList[Unknown] | None (the OCP
+    # wheel ships no stubs) — the same scoped relaxation kernel/removal.py takes.
+    below_common = below.intersect(probe)  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+    assert below_common is None or not below_common.solids(), (
+        "the 0.2 mm gap at the rib must be VOID below the threshold"
+    )
+
+    above = shell_body(body, _pinch_top(body), PINCH_THICKNESS + 0.1)
+    above_common = above.intersect(probe)  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+    assert above_common is not None
+    solid_volume = sum(s.volume for s in above_common.solids())
+    assert solid_volume == pytest.approx(0.2**3, abs=PINCH_TOL)

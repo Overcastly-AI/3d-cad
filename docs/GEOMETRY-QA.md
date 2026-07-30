@@ -7,6 +7,124 @@ not "do the tests pass" but **"is the geometry RIGHT?"** (RESEARCH §9,
 decisions recorded here AND in the golden's `expected.json` — never a way to
 go green.
 
+## 2026-07-30 — SH-1: shelling a rib at EXACTLY 2x the wall left a zero-width slit and reported `ok` (kernel-architect)
+
+**The defect (BACKLOG #42, filed P3 "UX"; it is silent-wrong-geometry adjacent and
+the evidence below is why it was treated as such).** A uniform inward `shell` walks
+every retained face in by `t`. Where an internal wall is **exactly 2 x t** wide the
+two offsets land on the SAME plane: the wall stays solid, the cavity pinches to zero
+width, and the body ships with **two coincident faces and no material between them**
+— a crack of exactly zero width. The feature reported `ok` with nothing to warn the
+user. This is the body finding **CM-4** healed on 2026-07-25: the heal fixed the
+T-junction (which broke the STEP round-trip) and left the slit underneath it.
+
+**Reference case** (`40x40x10 plate -> [4,12]x[10,30] through-pocket -> r3 on every
+Z-parallel edge -> shell t=2 open-top`; the rib between the outer wall and the pocket
+wall is 4.0 mm): the pinch produces a **112.0 mm²** coincident face on a 272 mm² one
+at x=2 (= 14 mm of the dilated pocket's flat face x 8 mm of cavity height —
+hand-derived, not recorded), centred at (2, 20, 6). After the CM-4 heal there are
+**two** pairs (112.0 and 266.5398163397449 mm²) because `ShapeFix` splits the larger
+face along the T-junction.
+
+**No heal removes it — measured, all three:**
+
+| attempt | result on the CM-4 body | cost |
+|---|---|---|
+| `ShapeFix_Shape` (`conform_solid`) | valid, 37/96/64, **slit survives** (1 pair -> 2) | 7.9 ms |
+| `ShapeUpgrade_UnifySameDomain` | no-op: 37/96/64, same volume, slit survives | 3.1 ms |
+| self-fuse `BRepAlgoAPI_Fuse(s, s)` | reproduces the body, slit and all | 25.9 ms |
+| `BOPAlgo_Builder` on the single argument | **0 solids** | — |
+
+A zero-width void is missing MATERIAL, not a topology error, so topology repair
+cannot address it. The choice was refuse or ship a cracked body.
+
+**Decided: ERROR, not success-with-warning** — `shell_thickness_too_large`, whose
+documented remedy ("reduce below the smallest half-wall") is exactly this boundary.
+The deciding evidence is that **at exactly 2 x t OCCT is unreliable in KIND, not
+just in topology**. The same chain WITHOUT the r3 fillet returns **14172.183138827913
+mm³ where 6308.5309 (= 6208 + 32pi) is correct** — 2.25x the material, only 227.8 of
+8091.5 mm³ of cavity cut. That body is caught today only because `ShapeFix` happens
+to fail on it (`shell_failed`); the material-removed invariant PASSES it, because
+material was removed. A success we cannot distinguish from a 2.25x-too-heavy body is
+not a success. Sweeping the sharp-cornered layouts (pocket at x=3/4/5/6/8 with
+t=x/2, and a stepped ledge) every one of them fails LOUDLY in OCCT
+(`StdFail_NotDone` or an unhealable body) — the silent slit is specific to the
+filleted layout, where the coincidence region is a proper sub-rectangle bounded away
+from the corner tangency. Nothing about the knife edge is predictable.
+
+A `warning` channel would be the better UX (`ok` + advice), but `FeatureResult` has
+no such field and half-inventing one is worse than an honest refusal — filed
+(BACKLOG P3: typed `warnings` on `FeatureResult` + a distinct `shell_pinched_wall`
+code, both py-kit schema changes outside the kernel's territory).
+
+**The user loses nothing: the refusal is a knife edge, proved by the neighbours.**
+
+| t (mm) | outcome | volume (mm³) | topology |
+|---|---|---|---|
+| 1.900 | ok, sound (0.2 mm cavity slot at the rib) | **5901.709331264967** (analytic 5901.709331264961, Δ 5.5e-12) | 36/96/64 |
+| 1.999 | ok, sound | 6168.511389119073 | 36/96/64 |
+| **2.000** | **refused** `shell_thickness_too_large` | — (last-good 14400.0 untouched) | — |
+| 2.001 | ok, walls merged into solid material | 6173.632789728718 | 35/96/64 |
+| 2.100 | ok, walls merged | 6411.437105622895 | 35/96/64 |
+
+The merge side is pinned by hand-derivable INVARIANTS, not a recorded scalar:
+`V(1.9) < V(2.1) < 14400`, slit-free, and a 0.2 mm probe box at
+`[1.9,2.1]x[19.9,20.1]x[5.9,6.1]` that is **entirely void at t=1.9 and entirely
+solid (0.008 mm³) at t=2.1**. No closed form is honest above the pinch: where two
+offsets CROSS, OCCT does not follow the Minkowski erosion (measured **0.95 mm³** off
+it on the sharp-cornered t=2.1 variant), and recording a number we cannot derive is
+what the geometry-gates rule forbids.
+
+**Implementation — ONE shared predicate** (`removal_reaches_body` precedent):
+`geometry.kernel.degenerate.find_zero_width_slits(body)` — planar faces of the same
+LUMP that are antiparallel (`faces.NORMAL_MAX_ANGLE_TOL`, mirrored for opposite
+sense), share a supporting plane within the kernel linear tolerance, and overlap by
+more than `SLIT_AREA_FLOOR_MM2` (one tolerance SQUARE = 1e-8 mm², the area twin of
+`interference.CLASH_VOLUME_FLOOR_MM3`'s tolerance cube). Two deliberate design
+points: (a) a probe that RAISES answers "no slit" — this predicate REFUSES bodies,
+so the safe direction is the opposite of the interference probe's, and there is no
+AABB fallback; (b) a cross-LUMP face touch is not a slit (interference already calls
+a coincident-face touch "no clash"). The kernel's 1e-4 mm linear tolerance is now
+single-sourced in `kernel/tolerances.py` (`interference` had the only copy; a third
+was about to be written).
+
+**Cost** (measured, and it runs on every shelled lump): 0.33 ms on a 6-face box,
+0.56 ms on the 11-face golden tray, 2.0 ms on the 36-face CM-4 layout, worst 3.6 ms
+across all 60 tree goldens (the 54-face hemmed tray) — against 58-82 ms for
+shell+heal. Reading each face's support plane ONCE and doing the O(N²) arithmetic on
+float tuples took it from 30-90 ms (the first cut, which called `normal_at()` /
+`center(MASS)` inside the loop) to that.
+
+**Sibling audit (the brief's "check the other thickness-driven verbs").** All **60**
+feature-tree goldens (44 under `goldens/`, 16 under `goldens-sheet-metal/`) — every
+verb, including every sheet-metal flange / hem / corner-relief / flat-pattern body —
+are slit-free, so the predicate has a
+zero-false-positive baseline and a standing cross-verb gate
+(`test_every_shipped_golden_body_is_slit_free`). ONE live limit found and pinned
+rather than fixed: a **closed hem's air gap is `2 x bend_radius_mm`** and the schema
+only requires `> 0`, so `bend_radius_mm = 1e-6` ships a body whose two layers are
+2e-6 mm apart — 50x BELOW the 1e-4 mm at which this kernel calls two faces the same
+place — and the predicate reports 300 mm² of coincident face while the hem reports
+`ok`. Not reachable by a sane author in mm units, and the honest fix is a schema
+FLOOR on `bend_radius_mm` (py-kit, outside kernel territory), so it is recorded as
+`test_observed_limit_a_sub_tolerance_closed_hem_ships_a_slit` and filed. NB this also
+sharpened the predicate: the overlap boolean only sees EXACTLY coincident faces, so a
+sub-tolerance gap is slid onto the plane first — without that, the stated 1e-4 mm
+bound would have been fiction.
+
+**Gates.** New golden `shell-pinch-boundary-plate-40x40x10-pocket-t1.9` (the sound
+side, fully hand-derived: volume `5321.52 + 184.68pi`, area `5920.8 + 217.2pi`,
+centroid, 36/96/64, tolerance **1e-8** = the documented CURVED tier, measured worst
+residual 5.46e-12 — the closed form itself moves ~2e-12 with summation order, which
+is why the planar 1e-9 tier is not used). Threshold sweep in `test_shell.py`;
+predicate + sibling gate in the new `test_degenerate.py`; the CM-4 matrix test is
+re-targeted (t=2 must now degrade to the typed code with the last-good body proven
+untouched, and gate 2 rides the t=1.9 body of the SAME layout, which is what CM-4 was
+really about); `test_healing.py` keeps the heal's evidence at raw-`hollow` level and
+gains `test_healing_does_not_remove_the_zero_width_slit`, the assertion that stops
+the heal and the refusal from ever fighting — if a future `ShapeFix` DOES remove the
+slit, that test fails and the refusal becomes reviewable.
+
 ## 2026-07-30 — Mirror v2 shipped: the four numbers, and byte identity MEASURED not assumed (kernel-architect)
 
 Implements `docs/design/mirror-semantics.md`. The headline is not a kernel
@@ -499,6 +617,15 @@ body (82.6 ms shell+heal); benchmarks green. Guards:
 assertion now) + 5 kernel tests in `services/geometry/tests/test_healing.py`,
 including one that FAILS if OCCT ever stops emitting the non-conformal body, so
 the heal cannot quietly become dead code.
+
+**AMENDED 2026-07-30 by finding SH-1 (top of this file): healing this body was
+treating the symptom.** Under the T-junction the pinched cavity is a zero-width
+slit (112 mm² of coincident faces with no material between them) that no repair
+pass removes, so `shell` now REFUSES t=2 mm on this layout instead of shipping the
+healed body. Gate 2 rides the same layout at t=1.9 mm (sound, round-trip exact) and
+the t=2 chain is asserted to degrade to `shell_thickness_too_large` with the
+last-good body untouched. `conform_solid` stays as defence-in-depth with its
+evidence at raw-`hollow` level in `test_healing.py`.
 
 ### 🟡 Two observations (locked, NOT filed as defects)
 

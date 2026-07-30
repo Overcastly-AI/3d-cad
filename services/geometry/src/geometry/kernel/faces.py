@@ -65,13 +65,17 @@ _NORMAL_MAX_ANGLE_TOL = 1e-9  # 1 - cos(theta) between unit normals (same sense)
 _CENTROID_TOL_MM = 1e-6  # Euclidean centroid distance (mm)
 _AREA_REL_TOL = 1e-6  # relative area difference
 
-#: Public aliases of the two positional face-match tolerances above, single-sourced
-#: HERE for cross-module reuse (CLAUDE.md DRY — no re-declared epsilons): the
-#: per-face feature-provenance matcher (:mod:`geometry.kernel.provenance`) matches
-#: on the SAME area/centroid invariant class, so it imports these rather than
-#: declaring its own.
+#: Public aliases of the three face-match tolerances above, single-sourced HERE for
+#: cross-module reuse (CLAUDE.md DRY — no re-declared epsilons): the per-face
+#: feature-provenance matcher (:mod:`geometry.kernel.provenance`) matches on the SAME
+#: area/centroid invariant class, and the zero-width-slit probe
+#: (:mod:`geometry.kernel.degenerate`) compares face normals on the same
+#: ``1 - cos(theta)`` scale — mirrored for OPPOSITE sense (two faces with no material
+#: between them point at each other, so it tests ``dot <= -1 + tol``). All import
+#: these rather than declaring their own.
 CENTROID_TOL_MM = _CENTROID_TOL_MM
 AREA_REL_TOL = _AREA_REL_TOL
+NORMAL_MAX_ANGLE_TOL = _NORMAL_MAX_ANGLE_TOL
 
 
 class FaceResolutionError(ValueError):

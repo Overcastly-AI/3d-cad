@@ -3090,22 +3090,43 @@ def test_cm4_pocket_fillet_shell_survives_a_step_roundtrip() -> None:
     stays solid, the cavity pinches to zero width, and OCCT leaves the smaller
     coincident face's corners (y=13, y=27) sitting mid-edge on the larger face's
     34 mm edge instead of splitting it. The STEP reader sews on import and
-    inserts them, hence +2 edges with no new vertices. ``shell_body`` now passes
+    inserts them, hence +2 edges with no new vertices. ``shell_body`` passes
     every hollowed lump through :func:`geometry.kernel.healing.conform_solid`,
-    which no-ops on a valid body and makes this one conformal (36 faces / 97
-    edges / 64 vertices, valid; dV -2.7e-12, dA 0.0) — after which the round-trip
-    is EXACT.
+    which no-ops on a valid body and made this one conformal (36 faces / 97
+    edges / 64 vertices, valid; dV -2.7e-12, dA 0.0).
+
+    RE-TARGETED 2026-07-30 (finding SH-1). Healing that body was treating the
+    symptom: underneath the T-junction the pinched cavity is a **zero-width slit**
+    (112 mm² of coincident faces with no material between them) that no repair
+    pass removes, so ``shell`` now REFUSES t=2 mm on this layout with
+    ``shell_thickness_too_large`` instead of shipping a cracked body — asserted
+    below, with the last-good body proven untouched (the matrix's 🛑 convention).
+    Gate 2 stays on this geometry-specific layout at **t=1.9 mm**, 0.1 mm below
+    the pinch: sound body, and its round-trip must still be topologically exact —
+    which is what CM-4 was really about. The heal keeps its own kernel-level
+    evidence in ``tests/test_healing.py`` (raw ``hollow``, no ``shell_body``).
     """
     plate = [rect_sketch(S_BASE, 0.0, 0.0, 40.0, 40.0), extrude(F_BASE, S_BASE, 10.0)]
     top = face_ref(F_BASE, (0.0, 0.0, 1.0), (20.0, 20.0, 10.0), 1600.0)
+    pocket_and_fillet = [
+        rect_sketch(S_POCKET, 4.0, 10.0, 12.0, 30.0),
+        extrude(F_POCKET, S_POCKET, 10.0, operation="cut"),
+        fillet(F_FILLET, 3.0),
+    ]
+
+    pinched = evaluate([*plate, *pocket_and_fillet, shell(F_SHELL, 2.0, [top])])
+    assert statuses(pinched) == ["ok", "ok", "ok", "ok", "ok", "error"]
+    assert error_codes(pinched) == ["shell_thickness_too_large"]
+    assert pinched.result.last_good_feature_id == F_FILLET
+    last_good = pinched.result.properties
+    assert last_good is not None
+    assert last_good.volume == pytest.approx(14400.0, abs=CURVED_TOL), (
+        "the refused shell must leave the filleted-pocket body untouched "
+        "(1600 - 9(4-pi) outer minus 160 - 9(4-pi) pocket = 1440 mm² x 10)"
+    )
+
     original, reimported = _roundtrip(
-        [
-            *plate,
-            rect_sketch(S_POCKET, 4.0, 10.0, 12.0, 30.0),
-            extrude(F_POCKET, S_POCKET, 10.0, operation="cut"),
-            fillet(F_FILLET, 3.0),
-            shell(F_SHELL, 2.0, [top]),
-        ],
+        [*plate, *pocket_and_fillet, shell(F_SHELL, 1.9, [top])],
         "pocket_fillet_shell",
     )
     assert reimported.volume == pytest.approx(original.volume, abs=ROUNDTRIP_TOL)

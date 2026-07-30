@@ -13,7 +13,14 @@ isolate — Origin / Sketches / Bodies), UI-W3 (pre-selection prefills editors),
 UI-W4 (editors stop being 12-row mid-frame forms), UI-W5 (entity snapping, Ctrl
 to suppress), plus material/density so MASS PROPERTIES can report mass, and a
 settings surface.
-Kernel CM-5 (the revolve/sweep/loft-cut mirror void-fill) landed 2026-07-30.**
+Kernel CM-5 (the revolve/sweep/loft-cut mirror void-fill) landed 2026-07-30, and
+so did **SH-1** — shelling a rib at exactly 2x the wall thickness left a
+**zero-width slit** (two coincident faces, no material between them) and reported
+`ok`. It is now a typed `shell_thickness_too_large` naming both fixes, behind ONE
+shared `find_zero_width_slits` predicate that also gates every other verb: all 60
+tree goldens are slit-free. Full evidence, the measured knife edge (1.999 ok /
+2.000 refused / 2.001 ok) and the reason it is an error rather than a warning are
+in `docs/GEOMETRY-QA.md` (2026-07-30).**
 Founder directive 2026-07-24: *"pause all things and fix items in the findings
 report — we should not proceed until all the items are fixed or implemented."*
 All 25 items in `docs/FINDINGS.md` (the consolidated 4-lens hard audit: P0
@@ -95,7 +102,10 @@ cavity leaves a T-junction, and the STEP reader was healing it on import. New
 `geometry.kernel.healing.conform_solid` (`ShapeFix_Shape`, run only on a body
 `BRepCheck` already rejects, so valid bodies are untouched) makes the shell
 result conformal — dV -2.7e-12, dA 0.0, deterministic and idempotent — after
-which the round-trip is EXACT (36/97/64). Full evidence,
+which the round-trip is EXACT (36/97/64). **AMENDED 2026-07-30 (SH-1): that heal
+was treating the symptom** — under the T-junction the pinched cavity is a
+zero-width slit no repair pass removes, so the shell now REFUSES t=2 mm on that
+layout and gate 2 rides the sound t=1.9 mm body of the same chain. Full evidence,
 coverage table and tolerance rationale in `docs/GEOMETRY-QA.md` (2026-07-25).
 Fixes belong to the kernel agent — QA does not touch `services/geometry/src/**`.
 

@@ -34,22 +34,30 @@ catches BOTH rather than shipping a wrong body:
 
 A THIRD mode (finding CM-4, docs/GEOMETRY-QA.md 2026-07-25): the hollow
 completes, removes the right material, and returns a **non-conformal** solid —
-where two offset faces land on the same plane (a rib whose two walls exactly
-meet, so the cavity pinches to zero width) OCCT leaves the smaller face's
-corners sitting mid-edge on the larger one instead of splitting that edge. The
-geometry is right and ``BRepCheck`` says invalid, and a STEP round-trip does not
-preserve it (the reader sews and gains edges). Every shelled lump therefore goes
-through :func:`~geometry.kernel.healing.conform_solid`, which no-ops on the valid
-bodies (all goldens) and heals that one — see that module for the measured
-evidence.
+OCCT leaves a face's corners sitting mid-edge on a neighbour instead of splitting
+that edge. The geometry is right and ``BRepCheck`` says invalid, and a STEP
+round-trip does not preserve it (the reader sews and gains edges). Every shelled
+lump therefore goes through :func:`~geometry.kernel.healing.conform_solid`, which
+no-ops on the valid bodies (all goldens) and heals that one — see that module for
+the measured evidence.
+
+A FOURTH mode, the one CM-4's heal made survivable rather than sound (finding
+SH-1, docs/GEOMETRY-QA.md 2026-07-30): where an internal wall of the body is
+**exactly 2 x the thickness**, the two inward offsets land on the SAME plane, the
+cavity pinches to zero width, and the result carries a **zero-width slit** — two
+coincident faces with no material between them. That is refused here, before the
+heal, via the shared :func:`~geometry.kernel.degenerate.find_zero_width_slits`
+predicate (see :class:`ShellThicknessError` for why it is an error and not a
+success-with-warning).
 
 Determinism (RESEARCH §9): the OCCT hollow is a pure function of
-``(body, faces, thickness)``; so is the heal (measured byte-identical over three
-fresh builds, and idempotent).
+``(body, faces, thickness)``; so are the slit probe and the heal (measured
+byte-identical over three fresh builds, and idempotent).
 """
 
 from build123d import Compound, Face, Solid
 
+from geometry.kernel.degenerate import find_zero_width_slits
 from geometry.kernel.healing import HealingError, conform_solid
 from geometry.kernel.lumps import assemble_lumps, group_faces_by_lump
 from geometry.kernel.types import BodyShape
@@ -74,12 +82,48 @@ class ShellError(RuntimeError):
 
 
 class ShellThicknessError(ValueError):
-    """The wall thickness collapses / self-intersects the inward cavity.
+    """The wall thickness collapses, self-intersects, or PINCHES the inward cavity.
 
-    Raised when the hollow COMPLETES but the material-removed invariant fails
-    (the walls merged and no cavity remains — OCCT's silent too-thick path). The
-    feature layer maps this onto ``shell_thickness_too_large`` — a legible "the
-    wall is too thick for this body", never a silently wrong solid."""
+    Two measured causes, one user action ("change the thickness"), so one code:
+
+    * the hollow COMPLETES but the material-removed invariant fails (the walls
+      merged and no cavity remains — OCCT's silent too-thick path);
+    * the hollow completes, removes the right material, and leaves a **zero-width
+      slit** because an internal wall is exactly ``2 x thickness`` wide (SH-1,
+      docs/GEOMETRY-QA.md 2026-07-30).
+
+    The feature layer maps both onto ``shell_thickness_too_large`` — a legible "the
+    wall is too thick for this body", never a silently wrong solid.
+
+    WHY THE SLIT IS AN ERROR AND NOT A SUCCESS-WITH-WARNING (the P3-labelled
+    honesty question, decided on measured evidence — GEOMETRY-QA SH-1):
+
+    1. **At exactly 2 x t the hollow is unreliable in KIND, not just in topology.**
+       Two bodies one fillet apart: the CM-4 body (r3 on the Z edges) returns the
+       analytically CORRECT 6171.186 mm^3 with a 112 mm^2 slit, while the same
+       chain without the fillet returns **14172.183 mm^3 where 6308.531 is
+       correct** — 2.25x the material, only 227.8 of 8091.5 mm^3 of cavity cut.
+       That second body is caught today only by luck (``ShapeFix`` happens to fail
+       on it); the material-removed invariant passes it, because material WAS
+       removed. A success we cannot tell apart from a 2.25x-too-heavy body is not
+       a success.
+    2. **We cannot make the body sound.** ``ShapeFix_Shape``, a self-fuse and
+       ``ShapeUpgrade_UnifySameDomain`` all leave the coincident pair in place
+       (measured — :mod:`geometry.kernel.degenerate`), so "succeed and heal" is not
+       on the table; the choice is refuse or ship a cracked body.
+    3. **The user loses nothing.** The knife edge is a single value: on the same
+       CM-4 layout t=1.9 mm gives a sound 0.2 mm cavity (5901.709 mm^3) and
+       t=2.1 mm gives a sound merged rib (6411.437 mm^3) — the two things the user
+       could have meant. The message names both moves.
+
+    A `warning` channel would be the better UX for case 3 (`ok` + advice) but
+    ``FeatureResult`` has no such field, and inventing half of one — a warning
+    smuggled into a success message the frontend does not model — is worse than an
+    honest refusal. Filed instead (BACKLOG P3): a typed ``warnings`` list on
+    ``FeatureResult`` plus a distinct ``shell_pinched_wall`` code, both py-kit
+    schema changes owned outside the kernel. Until then this rides
+    ``shell_thickness_too_large``, whose documented remedy ("reduce below the
+    smallest half-wall") is exactly the boundary being hit."""
 
 
 def shell_body(
@@ -101,7 +145,9 @@ def shell_body(
     Raises:
         ShellThicknessError: the thickness collapses the cavity on some lump (the
             hollow completed but removed no material — OCCT's silent too-thick
-            path).
+            path), or PINCHES it to zero width on some lump (an internal wall
+            exactly ``2 * thickness_mm`` wide, leaving coincident faces with no
+            material between them — SH-1; see that class for why this is an error).
         ShellError: the OCCT hollow failed to complete, or left other than
             exactly one solid per lump (single body chain per lump, design §7.6).
     """
@@ -149,12 +195,36 @@ def _shell_one_lump(
             "in v1 (design §7.6)."
         )
     # clean() removes redundant seam faces/edges the operation can leave behind,
-    # keeping topology counts meaningful (and golden-assertable). conform_solid()
-    # then returns a VALID result untouched and heals the non-conformal
-    # pinched-cavity case (CM-4, module docstring) — never a silent reshape: it
-    # raises if the heal would move material.
+    # keeping topology counts meaningful (and golden-assertable).
+    cleaned = solids[0].clean()
+
+    # Zero-width-slit guard (SH-1), BEFORE the heal for two reasons: the heal
+    # cannot remove a slit (measured - kernel/degenerate.py), so healing first
+    # would only spend a ShapeFix on a body we refuse; and the probe then reports
+    # what OCCT actually produced. Sub-millisecond on a sound body (0.33 ms on the
+    # 6-face box, 0.56 ms on the 11-face golden tray, 2.0 ms on the 36-face CM-4
+    # layout vs 58-82 ms for shell+heal): the antiparallel/coincident-plane test is
+    # float arithmetic, and on a sound body no pair ever reaches the boolean.
+    slits = find_zero_width_slits(cleaned)
+    if slits:
+        worst = slits[0]
+        raise ShellThicknessError(
+            f"Wall thickness {thickness_mm} mm leaves a zero-width slit: an "
+            f"internal wall of this body is exactly {2 * thickness_mm} mm thick "
+            f"(2 x the wall thickness), so the two inward offsets land on the same "
+            f"plane and the cavity pinches to nothing over "
+            f"{worst.area_mm2:.6g} mm^2 around (x {worst.at[0]:.6g}, "
+            f"y {worst.at[1]:.6g}, z {worst.at[2]:.6g}): two coincident faces "
+            f"with no material between them. Change the thickness so it is not "
+            f"exactly half that wall - a little thinner leaves a thin cavity "
+            f"there, a little thicker merges the two walls into solid material."
+        )
+
+    # conform_solid() returns a VALID result untouched and heals the non-conformal
+    # T-junction case (CM-4, module docstring) — never a silent reshape: it raises
+    # if the heal would move material.
     try:
-        shelled = conform_solid(solids[0].clean())
+        shelled = conform_solid(cleaned)
     except HealingError as exc:
         raise ShellError(
             f"Shell produced a body the kernel could not validate ({exc}); the "

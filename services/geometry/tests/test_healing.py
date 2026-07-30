@@ -9,7 +9,11 @@ surfacing three layers up as "the round-trip gained two edges":
   body takes that path, so their topology and byte-identical exports are
   unaffected by the heal existing;
 * the pinched-cavity shell (the CM-4 fixture, built here from raw kernel ops)
-  is INVALID out of OCCT and VALID out of :func:`shell_body`;
+  is INVALID out of OCCT and VALID out of :func:`conform_solid`;
+* healing does NOT remove the zero-width slit that sits under that T-junction
+  (finding SH-1), which is why :func:`shell_body` REFUSES this thickness rather
+  than shipping the healed body — the boundary between the two modules, asserted
+  here so neither can quietly move;
 * healing preserves material — asserted against
   :data:`~geometry.kernel.healing.CONFORM_VOLUME_TOL_MM3`, the planar golden
   tier, never an ad-hoc epsilon — and is deterministic + idempotent (RESEARCH §9).
@@ -23,8 +27,9 @@ posture :mod:`geometry.kernel.healing` itself takes).
 
 import pytest
 from build123d import Axis, Face, Solid, Vector
+from geometry.kernel.degenerate import find_zero_width_slits
 from geometry.kernel.healing import CONFORM_VOLUME_TOL_MM3, conform_solid
-from geometry.kernel.shell import shell_body
+from geometry.kernel.shell import ShellThicknessError, shell_body
 from OCP.BRepCheck import BRepCheck_Analyzer
 
 #: The CM-4 chain, kernel-level: 40x40x10 plate, [4,12]x[10,30] through-pocket,
@@ -113,11 +118,39 @@ def test_healing_is_deterministic_and_idempotent() -> None:
     assert conform_solid(first) is first
 
 
-def test_shell_body_never_returns_a_non_conformal_solid() -> None:
-    """The contract the CM-4 gate depends on: whatever OCCT hands back,
-    ``shell_body`` returns a valid solid — so what we export is what we can
-    re-import."""
+def test_healing_does_not_remove_the_zero_width_slit() -> None:
+    """The boundary between healing and REFUSING (finding SH-1) — the assertion
+    that keeps this module and :mod:`geometry.kernel.degenerate` from fighting.
+
+    Under CM-4's T-junction the same body carries a zero-width slit: the pinched
+    cavity's two coincident faces, with no material between them. ``ShapeFix``
+    repairs topology, not missing material, so the slit SURVIVES the heal — which
+    is why ``shell_body`` refuses the body instead of shipping the healed one. If
+    a future OCCT/ShapeFix ever does remove it, this test fails and the refusal
+    becomes reviewable (we would then prefer healing to refusing)."""
+    raw = _raw_hollow(_pocketed_and_filleted())
+    assert find_zero_width_slits(raw), "the CM-4 fixture is no longer pinched"
+    healed = conform_solid(raw)
+    assert _valid(healed)
+    assert find_zero_width_slits(healed), (
+        "ShapeFix removed the zero-width slit; shell_body's refusal (SH-1) should "
+        "be revisited in favour of healing"
+    )
+
+
+def test_shell_body_refuses_the_pinched_shell_rather_than_healing_it() -> None:
+    """SH-1: the pinched thickness is a typed feature error, not a cracked body.
+
+    Replaces the pre-SH-1 assertion that ``shell_body`` returns a VALID solid for
+    this input — it did (the heal made it conformal) but the returned body still
+    contained the slit. The valid-output contract now rides the SOUND neighbour
+    (0.1 mm thinner), which is also this module's proof that the guard
+    discriminates rather than blanket-refusing the layout."""
     body = _pocketed_and_filleted()
-    shelled = shell_body(body, _top_face(body), _THICKNESS).solids()[0]
-    assert _valid(shelled)
-    assert shelled.volume < body.volume
+    with pytest.raises(ShellThicknessError, match="zero-width slit"):
+        shell_body(body, _top_face(body), _THICKNESS)
+
+    sound = shell_body(body, _top_face(body), _THICKNESS - 0.1).solids()[0]
+    assert _valid(sound)
+    assert not find_zero_width_slits(sound)
+    assert sound.volume < body.volume
