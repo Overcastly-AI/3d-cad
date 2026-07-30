@@ -113,11 +113,15 @@ async def update_part(
     user: CurrentUser,
     http_request: Request,
 ) -> PartResponse:
-    """Rename and/or re-unit one of the caller's parts (bumps ``tree_version``).
+    """Rename, re-unit and/or re-material one of the caller's parts.
 
-    The document-unit selector (docs/design/units.md §U1) changes ``length_unit``
-    through this route; 404 envelope for unknown/foreign ids, 422 on a stale
-    ``expected_tree_version``, 409 on a duplicate name.
+    Bumps ``tree_version``. The document-unit selector (docs/design/units.md
+    §U1) changes ``length_unit`` through this route and the material picker
+    (docs/design/materials.md §2) changes ``materials`` — the latter is the one
+    header edit that invalidates the recorded evaluate, because mass is derived
+    from it. 404 envelope for unknown/foreign ids, 422 on a stale
+    ``expected_tree_version`` or an update naming no field, 409 on a duplicate
+    name.
     """
     upstream = await forward_documents(
         http_request,

@@ -4383,7 +4383,7 @@
         "type": "object"
       },
       "PartUpdate": {
-        "description": "Rename and/or re-unit a part. Bumps ``tree_version`` (any document edit\nbumps \u2014 the feature-tree.md \u00a71.2 pattern applied to the part header).\n\nBoth mutable fields are optional; at least one must be provided. Changing\nthe display unit is a document edit (docs/design/units.md \u00a7U1) \u2014 it does\nNOT convert any stored ``*_mm`` value, only relabels how they render.",
+        "description": "Rename, re-unit and/or re-material a part. Bumps ``tree_version`` (any\ndocument edit bumps \u2014 the feature-tree.md \u00a71.2 pattern applied to the part\nheader).\n\nEvery mutable field is optional; at least one must be provided. Changing\nthe display unit is a document edit (docs/design/units.md \u00a7U1) \u2014 it does\nNOT convert any stored ``*_mm`` value, only relabels how they render.\nChanging the material does more: mass is derived from it, so the recorded\nevaluate stops applying (see ``materials`` below).",
         "properties": {
           "expected_tree_version": {
             "description": "Optimistic-concurrency guard: the tree_version the client last saw; a stale value is rejected 422 (feature-tree.md \u00a71.2)",

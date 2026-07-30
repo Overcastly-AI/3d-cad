@@ -1061,6 +1061,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/materials": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Materials
+         * @description The built-in materials with their densities, in display order.
+         *
+         *     The same table the kernel multiplies by (docs/design/materials.md §1), so a
+         *     picker and a mass readout can never disagree about what "6061-T6" weighs.
+         */
+        get: operations["list_materials_api_v1_materials_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/parts": {
         parameters: {
             query?: never;
@@ -1108,11 +1131,15 @@ export interface paths {
         head?: never;
         /**
          * Update Part
-         * @description Rename and/or re-unit one of the caller's parts (bumps ``tree_version``).
+         * @description Rename, re-unit and/or re-material one of the caller's parts.
          *
-         *     The document-unit selector (docs/design/units.md §U1) changes ``length_unit``
-         *     through this route; 404 envelope for unknown/foreign ids, 422 on a stale
-         *     ``expected_tree_version``, 409 on a duplicate name.
+         *     Bumps ``tree_version``. The document-unit selector (docs/design/units.md
+         *     §U1) changes ``length_unit`` through this route and the material picker
+         *     (docs/design/materials.md §2) changes ``materials`` — the latter is the one
+         *     header edit that invalidates the recorded evaluate, because mass is derived
+         *     from it. 404 envelope for unknown/foreign ids, 422 on a stale
+         *     ``expected_tree_version`` or an update naming no field, 409 on a duplicate
+         *     name.
          */
         patch: operations["update_part_api_v1_parts__part_id__patch"];
         trace?: never;
@@ -5516,6 +5543,31 @@ export interface components {
             order_index: number;
         };
         /**
+         * Material
+         * @description One library material: its key, display name, and density.
+         *
+         *     Density is the ONLY physical property v1 models, because mass is the only
+         *     thing we claim to report. Thermal/elastic properties would be an unbacked
+         *     promise until something computes with them (design §1).
+         */
+        Material: {
+            /**
+             * Density Kg M3
+             * @description Density (kg/m^3). Handbook NOMINAL value — a production part uses its supplier's certificate, not this table.
+             */
+            density_kg_m3: number;
+            /**
+             * Key
+             * @enum {string}
+             */
+            key: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6";
+            /**
+             * Name
+             * @description Display name, e.g. 'Aluminium 6061'
+             */
+            name: string;
+        };
+        /**
          * MaterialAssignment
          * @description What a document is made of: one default + per-body overrides (design §2).
          *
@@ -5539,6 +5591,18 @@ export interface components {
              * @description Material for every body without an override; null means the document has no material, so its mass is UNKNOWN (not zero).
              */
             default_material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6") | null;
+        };
+        /**
+         * MaterialLibraryResponse
+         * @description The built-in material library, served so no client hardcodes a density.
+         *
+         *     The picker needs names + densities, and a second copy of the table in TS
+         *     would be a DRY violation that silently drifts (CLAUDE.md). One table, in
+         *     py-kit, served over the API.
+         */
+        MaterialLibraryResponse: {
+            /** Materials */
+            materials: components["schemas"]["Material"][];
         };
         /**
          * MeasureRequest
@@ -6095,12 +6159,15 @@ export interface components {
         };
         /**
          * PartUpdate
-         * @description Rename and/or re-unit a part. Bumps ``tree_version`` (any document edit
-         *     bumps — the feature-tree.md §1.2 pattern applied to the part header).
+         * @description Rename, re-unit and/or re-material a part. Bumps ``tree_version`` (any
+         *     document edit bumps — the feature-tree.md §1.2 pattern applied to the part
+         *     header).
          *
-         *     Both mutable fields are optional; at least one must be provided. Changing
+         *     Every mutable field is optional; at least one must be provided. Changing
          *     the display unit is a document edit (docs/design/units.md §U1) — it does
          *     NOT convert any stored ``*_mm`` value, only relabels how they render.
+         *     Changing the material does more: mass is derived from it, so the recorded
+         *     evaluate stops applying (see ``materials`` below).
          */
         PartUpdate: {
             /**
@@ -10089,6 +10156,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_materials_api_v1_materials_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaterialLibraryResponse"];
                 };
             };
         };

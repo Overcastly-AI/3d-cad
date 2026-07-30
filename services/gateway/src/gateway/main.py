@@ -6,7 +6,9 @@ talks only to the gateway, CLAUDE.md service boundaries), auth
 RESEARCH §3, backed by its own Postgres schema under ``alembic/``), and the
 parts + feature-tree + assembly-graph aggregation (:mod:`gateway.parts`,
 :mod:`gateway.features`, :mod:`gateway.assemblies` — auth-protected forwarding
-to the documents service with the verified principal attached).
+to the documents service with the verified principal attached), plus the
+material-library read (:mod:`gateway.materials`) that aggregation writes
+against.
 
 Startup is fail-fast on secrets: ``build_app`` resolves the JWT secret
 posture BEFORE assembling the app, so a non-dev deployment without
@@ -29,6 +31,7 @@ from gateway.drawings import router as drawings_router
 from gateway.features import router as features_router
 from gateway.geometry import create_geometry_client
 from gateway.geometry import router as geometry_router
+from gateway.materials import router as materials_router
 from gateway.parts import create_documents_client
 from gateway.parts import router as parts_router
 from gateway.step_import import assembly_router as assembly_import_router
@@ -156,6 +159,7 @@ def build_app(
     app.include_router(geometry_router)
     app.include_router(auth_router)
     app.include_router(parts_router)
+    app.include_router(materials_router)
     app.include_router(features_router)
     app.include_router(assemblies_router)
     app.include_router(drawings_router)

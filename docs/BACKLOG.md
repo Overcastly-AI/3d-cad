@@ -98,6 +98,9 @@ frame refactor are v2/§11. Spike de-collected.
       (5) a mixed-material part shows the centre of MASS distinctly from the
       centroid, and names the body that has no material when the part total is
       null (`BodyLumpInfo.material`/`.mass_g` carry it). [src: materials.md §6]
+      UNBLOCKED 2026-07-30 (backend-builder): `GET /api/v1/materials` now has its
+      GATEWAY twin (`gateway/materials.py`, auth-gated proxy) — the picker in (3)
+      reads it through the gateway instead of 404-ing or reaching past it.
 - [x] (P1, M) **UI-W1 — the bottom TIMELINE strip with a draggable travel stop.
       SHIPPED 2026-07-30** (frontend-builder; founder-directed, design
       `docs/design/ui-wave-tool-grade.md` Surface 1). Rollback left the tree

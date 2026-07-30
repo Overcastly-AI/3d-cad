@@ -126,12 +126,15 @@ class PartCreate(BaseModel):
 
 
 class PartUpdate(BaseModel):
-    """Rename and/or re-unit a part. Bumps ``tree_version`` (any document edit
-    bumps — the feature-tree.md §1.2 pattern applied to the part header).
+    """Rename, re-unit and/or re-material a part. Bumps ``tree_version`` (any
+    document edit bumps — the feature-tree.md §1.2 pattern applied to the part
+    header).
 
-    Both mutable fields are optional; at least one must be provided. Changing
+    Every mutable field is optional; at least one must be provided. Changing
     the display unit is a document edit (docs/design/units.md §U1) — it does
     NOT convert any stored ``*_mm`` value, only relabels how they render.
+    Changing the material does more: mass is derived from it, so the recorded
+    evaluate stops applying (see ``materials`` below).
     """
 
     expected_tree_version: int = Field(

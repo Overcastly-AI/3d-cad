@@ -5832,6 +5832,42 @@
         "title": "MateResponse",
         "type": "object"
       },
+      "Material": {
+        "description": "One library material: its key, display name, and density.\n\nDensity is the ONLY physical property v1 models, because mass is the only\nthing we claim to report. Thermal/elastic properties would be an unbacked\npromise until something computes with them (design \u00a71).",
+        "properties": {
+          "density_kg_m3": {
+            "description": "Density (kg/m^3). Handbook NOMINAL value \u2014 a production part uses its supplier's certificate, not this table.",
+            "exclusiveMinimum": 0.0,
+            "title": "Density Kg M3",
+            "type": "number"
+          },
+          "key": {
+            "enum": [
+              "steel_1018",
+              "stainless_304",
+              "aluminium_6061",
+              "brass_c360",
+              "abs",
+              "pla",
+              "nylon_6"
+            ],
+            "title": "Key",
+            "type": "string"
+          },
+          "name": {
+            "description": "Display name, e.g. 'Aluminium 6061'",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "name",
+          "density_kg_m3"
+        ],
+        "title": "Material",
+        "type": "object"
+      },
       "MaterialAssignment": {
         "description": "What a document is made of: one default + per-body overrides (design \u00a72).\n\nA multi-body part legitimately mixes materials (a steel pin in an aluminium\nhousing), so a single document-level material would be wrong for exactly the\nparts mass matters most on. The resolution rule is one line \u2014 an override\nwins over the default (:func:`resolve_body_material`) \u2014 and lives here so\nevery consumer resolves identically.\n\n``default_material: None`` with no overrides is the HONEST empty state a new\ndocument starts in: no material anywhere, therefore no mass anywhere.",
         "properties": {
@@ -5866,6 +5902,23 @@
           }
         },
         "title": "MaterialAssignment",
+        "type": "object"
+      },
+      "MaterialLibraryResponse": {
+        "description": "The built-in material library, served so no client hardcodes a density.\n\nThe picker needs names + densities, and a second copy of the table in TS\nwould be a DRY violation that silently drifts (CLAUDE.md). One table, in\npy-kit, served over the API.",
+        "properties": {
+          "materials": {
+            "items": {
+              "$ref": "#/components/schemas/Material"
+            },
+            "title": "Materials",
+            "type": "array"
+          }
+        },
+        "required": [
+          "materials"
+        ],
+        "title": "MaterialLibraryResponse",
         "type": "object"
       },
       "MeasureRequest": {
@@ -6638,7 +6691,7 @@
         "type": "object"
       },
       "PartUpdate": {
-        "description": "Rename and/or re-unit a part. Bumps ``tree_version`` (any document edit\nbumps \u2014 the feature-tree.md \u00a71.2 pattern applied to the part header).\n\nBoth mutable fields are optional; at least one must be provided. Changing\nthe display unit is a document edit (docs/design/units.md \u00a7U1) \u2014 it does\nNOT convert any stored ``*_mm`` value, only relabels how they render.",
+        "description": "Rename, re-unit and/or re-material a part. Bumps ``tree_version`` (any\ndocument edit bumps \u2014 the feature-tree.md \u00a71.2 pattern applied to the part\nheader).\n\nEvery mutable field is optional; at least one must be provided. Changing\nthe display unit is a document edit (docs/design/units.md \u00a7U1) \u2014 it does\nNOT convert any stored ``*_mm`` value, only relabels how they render.\nChanging the material does more: mass is derived from it, so the recorded\nevaluate stops applying (see ``materials`` below).",
         "properties": {
           "expected_tree_version": {
             "description": "Optimistic-concurrency guard: the tree_version the client last saw; a stale value is rejected 422 (feature-tree.md \u00a71.2)",
@@ -12879,6 +12932,33 @@
         ]
       }
     },
+    "/api/v1/materials": {
+      "get": {
+        "description": "The built-in materials with their densities, in display order.\n\nThe same table the kernel multiplies by (docs/design/materials.md \u00a71), so a\npicker and a mass readout can never disagree about what \"6061-T6\" weighs.",
+        "operationId": "list_materials_api_v1_materials_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MaterialLibraryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Materials",
+        "tags": [
+          "materials"
+        ]
+      }
+    },
     "/api/v1/parts": {
       "get": {
         "description": "The caller's parts, oldest first.",
@@ -13040,7 +13120,7 @@
         ]
       },
       "patch": {
-        "description": "Rename and/or re-unit one of the caller's parts (bumps ``tree_version``).\n\nThe document-unit selector (docs/design/units.md \u00a7U1) changes ``length_unit``\nthrough this route; 404 envelope for unknown/foreign ids, 422 on a stale\n``expected_tree_version``, 409 on a duplicate name.",
+        "description": "Rename, re-unit and/or re-material one of the caller's parts.\n\nBumps ``tree_version``. The document-unit selector (docs/design/units.md\n\u00a7U1) changes ``length_unit`` through this route and the material picker\n(docs/design/materials.md \u00a72) changes ``materials`` \u2014 the latter is the one\nheader edit that invalidates the recorded evaluate, because mass is derived\nfrom it. 404 envelope for unknown/foreign ids, 422 on a stale\n``expected_tree_version`` or an update naming no field, 409 on a duplicate\nname.",
         "operationId": "update_part_api_v1_parts__part_id__patch",
         "parameters": [
           {

@@ -29,7 +29,10 @@ that absence). Assignment is a document default + per-body overrides
 last-evaluate record stale because mass depends on it. Both roll-ups now compose
 a genuinely MASS-weighted centre of mass: the mixed-material golden measures
 84.56 g at x=32.3368 mm where the volume centroid sits at 25 mm — the assembly
-code had been CALLING its volume weighting "mass-weighted". Remaining: the
+code had been CALLING its volume weighting "mass-weighted". The library read now
+has its GATEWAY twin (backend-builder, 2026-07-30) — `GET /api/v1/materials` is
+auth-gated and proxied, so the picker never has to reach past the gateway.
+Remaining: the
 frontend must stop titling the panel MASS PROPERTIES until a material exists,
 render absence as absence, and add `formatMass` to the ONE units seam in
 `packages/design` (materials.md §5/§6).
