@@ -2411,3 +2411,352 @@ where a 0×0 element and a 16 px button both photographed as "dense and quiet".
 - `p1-rollback-bar-*.png` (4 files) were DELETED rather than refreshed, because
   they documented an element that no longer exists. A screenshot of a deleted
   control is worse than no screenshot: it reads as current.
+
+## 2026-07-30 — MEASUREMENT PASS: the timeline strip (UI-W1, `1a27804`) + the part workspace's status honesty (`b4e075f`)
+
+Independent QA on the two surfaces shipped in the last few hours, by an eye that
+did not build either. **Method: measurement, not photography.** Every number
+below comes from a real browser driving committed HEAD — `getBoundingClientRect`
+and `getComputedStyle` in-page, plus pixel sampling of actual screenshots for
+the colour claims. The standing lesson (a 0x0 signature element and a 16 px
+button both photograph as "dense and quiet") is why: three of the seven findings
+here are invisible in a screenshot and two of them contradict a comment in the
+source that asserts the opposite.
+
+**Rig.** Native container-free stack on isolated ports (geometry :8042,
+documents :8041, gateway :8040, Vite :5183 — the shared :5173/:8000-:8002 were
+left untouched for the concurrent screenshot agent), fresh SQLite, Playwright
+Chromium at 1366x768 and 1280x800, `deviceScaleFactor: 1`. Parts seeded through
+the real gateway: a sound 3-feature part, the broken r50-fillet part
+`body-status.spec.ts` uses, and 9/14-feature builds. All processes started for
+this pass were killed at the end. **Measured vs inferred is labelled on every
+claim.** No PNGs are committed with this pass (the brief scoped writes to this
+file); the harness was temporary and removed — everything reproduces from the
+numbers stated.
+
+### The deferred question, answered: `border-mist` on `bg-hairline` clears, by 3.1x
+
+The 07-30 ruling deliberately left "is a selected chip distinguishable ENOUGH
+from an unselected one at 1280 for a low-vision user" to measurement. Measured,
+at both widths, pixel-sampled from the rendered strip (no opacity, filter or
+blend anywhere in the chain — the sampled pixels equal the token values byte for
+byte, so the tokens ARE the render):
+
+| pair | measured | floor |
+| --- | --- | --- |
+| selected border `mist` vs unselected border `hairline` | **9.38:1** | 3:1 (SC 1.4.11, state info) |
+| selected border `mist` vs the strip ground `anvil` | 13.21:1 | 3:1 |
+| selected border `mist` vs its own `hairline` seat | 9.38:1 | 3:1 |
+
+Identical at 1280x800 and 1366x768 (chip geometry is width-invariant: 32.00 px
+tall, border 1 px, same tokens). **Verdict: the divergence from the tree's brass
+is safe and the ruling stands.** A 9.38:1 step between states is 3.1x the
+non-text floor and larger than most products' selected-state deltas; nothing
+about it needs to change, and it does not need to take brass.
+
+Two caveats that the same measurement produced, and they are findings in their
+own right (P2-A and P2-B below): the reason the delta is so large is that the
+**unselected** chip has effectively no edge at all, and the "lifted seat" that
+was supposed to be the redundant half of the selected cue lifts by 1.41:1.
+
+### P1 — part workspace / EXPORT strip — the gated export is under the fold at 1366x768 again, and the partial-body notice is 100% invisible
+
+MEASURED, at 1366x768, on the floating Inspector panel's scroll box
+(`FloatingPanel` body, `max-h-cube-card` = `calc(100% - 152px)`):
+
+| state | export strip rect | scroll box bottom | visible | hidden content |
+| --- | --- | --- | --- | --- |
+| feature error (`Fillet1 failed`) | y 536.5 -> 601.5 (65 px) | 580 | 43.5 of 65 px | 23 px |
+| travel stop (`partial`) | y 560.5 -> 659 (98.5 px) | 580 | **19.5 of 98.5 px** | **80 px** |
+| same, at 1280x800 | y 536.5 -> 601.5 | 602.5 | all | 0 px |
+
+In the travel-stop case the notice — *"1 feature excluded by the travel stop.
+The file will be the rolled-back body, and its name will say partial."* — sits
+at y 609 -> 659, i.e. **entirely below the fold**, and the STEP/STL cells are cut
+at their first 19 px. That sentence is the whole point of `exportGate`'s
+"allowed, but the artifact is a prefix" branch: it is the only place the product
+warns that the file you are about to download is not the part. It is currently
+unreachable without discovering an unhinted scroll.
+
+Why it regressed, COMPUTED from the measured tokens (labelled as computed): the
+panel box is `main.height - 152`. Docking a 48 px strip shrank `main` from 668 to
+620 at this height, so the box went 516 -> 468 px while the failed-state content
+is 491 px. **It fit with 25 px of headroom before UI-W1 and is clipped by 23 px
+after.** The `1280x800` row proves it is a height regression, not a width one.
+
+The `partBuild.ts` docstring anticipated exactly this failure ("a panel that
+spends four lines on a paragraph pushes the EXPORT strip below the fold at
+1366x768, and the gated export is the most important thing on this panel") and
+spent the one-line register form to avoid it. The measurement says the saving
+was not enough, because the 48 px the strip took was not subtracted from the
+panel clearance in the same change.
+
+System-level fix (either, not both): (a) subtract `layout.timelineHeight` from
+`hudLaneBottom` / `referenceCubeBand` — both were sized when `main` reached the
+window bottom and the reference cube now sits 48 px higher too; or, better,
+(b) **pin the title block's STATUS + EXPORT footer outside the panel's scroll
+box**. A title block's footer is the one row that must never be the thing that
+scrolls away, and pinning it makes the fold immune to the next 48 px anything.
+
+### P2-A — timeline strip — the chip's resting border is 1.54:1, so "solid vs dashed" carries no information
+
+MEASURED (computed styles, confirmed by pixel sampling at x=216, y=24 of the
+rendered strip: border `rgb(44,55,71)`, seat `rgb(15,20,26)`, ground
+`rgb(22,29,39)`):
+
+| pair | measured | floor |
+| --- | --- | --- |
+| unselected chip border `hairline` vs its `carbide` seat | **1.54:1** | 3:1 |
+| unselected chip border `hairline` vs the `anvil` ground | **1.41:1** | 3:1 |
+| the way line's dash, `etch` vs `anvil` | 3.06:1 | 3:1 — passes |
+| the dim cue, `mist` name vs `gauge` name | 1.84:1 | — |
+
+The source comment says: *"chips past the stop take a dashed outline AND dim, so
+the cue is redundant and never load-bearing alone."* Measured, that is **false**.
+The dashed outline is drawn in `hairline` at 1.54:1 against the chip it outlines
+— below the 3:1 floor this repo applies to itself (`etch`'s own docstring:
+*"Interactive control borders (3.06:1 on anvil — WCAG 1.4.11)"*). So the dash is
+not a second cue; the **dim is load-bearing alone**, and it is a 1.84:1
+luminance step on an 11 px name.
+
+The same 48 px strip gets it right on the rail and wrong on the chip: the way
+line's dashes are `etch` and read cleanly; the chips' are `hairline` and do not.
+Answering the founder's question directly — **the dashed-past-the-stop encoding
+does NOT read on the chips without a legend at either width**; what actually
+reads is the way line's dash plus the dim, and only the way line's dash is above
+the contrast floor.
+
+Fix at the token, not the instance: give the chip's resting/rolled-back border
+`etch` instead of `hairline`. That buys the chip a boundary that says "control"
+(3.35:1 on its seat) and a dash that is actually visible, and it costs the
+selection delta nothing that matters — `mist` vs `etch` is still **4.31:1**,
+well above the 3:1 state floor, with the seat and the dim on top. `etch` is
+already the hover value, so hover would need one step of separation (either
+`mist`-at-rest-on-hover, or a seat change on hover).
+
+### P2-B — timeline strip — the selected chip's "lifted seat" lifts by 1.41:1
+
+MEASURED: `bg-hairline` on `bg-anvil` = **1.41:1**; the same seat against an
+unselected chip's `carbide` = 1.54:1. The selection story is documented as
+"brightest EDGE plus a lifted seat"; the seat half contributes essentially
+nothing perceptually. Not a WCAG failure (the edge carries it at 9.38:1), but
+the redundancy claimed in the design record does not exist, and this is the
+second finding in this pass where a comment asserts a redundancy the pixels do
+not have. Fix: the palette has no surface token brighter than `hairline`, so the
+system-level answer is a new raised-surface token (a `bezel` step around
+`#39465A`, ~1.9:1 on anvil) used by every "seated/selected row" in the product,
+rather than a one-off in the strip.
+
+### P2-C — `BandActionCell` (design primitive) — the gated cell's REASON measures 2.13:1 at 9 px
+
+The primitive gates with `aria-disabled` rather than the native attribute
+**specifically so the reason can be read** — its own docstring says so, and the
+07-30 pass filed the same defect against `PanelActionCell`. MEASURED on the
+rendered pixels of TO TIP in its gated state (brightest pixel of each text run
+against the anvil ground; the whole button carries `opacity-40`):
+
+| run | size | measured contrast |
+| --- | --- | --- |
+| label "To tip" (`mist` @ 0.4) | 10 px | 3.05:1 (analytic blend 3.24:1) |
+| caption "Already at the tip" (`gauge` @ 0.4) | **9 px** | **2.13:1** (analytic 2.25:1) |
+
+So the explanation is reachable by mouse and keyboard (verified: `aria-disabled`,
+NOT native `disabled`, focusable, and it swallows activation) and cannot be
+read. Disabled text is technically exempt from SC 1.4.3 — but a reason nobody
+can read defeats the entire purpose of choosing `aria-disabled`, which is the
+standard this component set out for itself.
+
+Also: `text-[9px]` is the **only arbitrary font size in `packages/design`
+primitives or `apps/web/src`** (grepped) and sits below the committed scale floor
+(`fontSize["2xs"] = 10`). Fix in the primitive, which fixes CreateStrip's OK/
+Cancel in the same stroke: drop `opacity-40` for an explicit disabled-foreground
+token that holds >= 4.5:1 on `anvil`, and put the caption on the scale at 10 px.
+
+### P2-D — timeline strip — during a rollback write, three affordances go inert and none of them says why
+
+MEASURED with the rollback response held for 2.5 s (route delay), reading
+computed styles mid-flight:
+
+- the **stop**: `aria-disabled="true"` (good, not native) but `opacity: 1`,
+  `cursor: ew-resize`, and it still brightens to `brass-hover` under the pointer
+  — it looks and feels draggable for the whole write and is inert;
+- the **slots**: native `disabled` = `true`, no `title`, no reason — they leave
+  the tab order entirely, which is the exact pattern the 07-30 pass removed from
+  `PanelActionCell` ("unreachable while the cell was natively disabled");
+- **TO TIP**: gated, caption still reads "Include all" — the caption is the place
+  the reason lives, and during a write it states the wrong one.
+
+Good half, measured: `data-busy` / `aria-busy` are set on the section, and the
+head cell shows the optimistic pending position ("01/03") the instant you drag,
+so the strip does communicate *that* something is happening. Fix: a held visual
+on the stop (cursor + a dimmed blade), `aria-disabled` in place of native on the
+slots, and a busy caption ("Working…") on TO TIP.
+
+### P3 — timeline strip — the travel stop's focus ring renders as two loose bars, not a ring
+
+MEASURED by pixel-diffing the same 44x53 crop focused vs unfocused: exactly four
+pixel columns change (x=427-428 and x=453-454, `rgb(221,228,235)` = `mist`, 47 px
+tall). **No top or bottom segment exists.** Cause: `outline-offset-0` on a
+full-height element inside the way, whose `overflow-x-auto` computes `overflow-y`
+to `auto` and therefore clips at the padding box; and the strip's bottom edge IS
+the window's bottom edge, so the lower segment has nowhere to draw.
+
+Not a 2.4.7 failure — two full-height mist bars at 13.21:1 against the ground are
+a visible indicator — but it is not the ring that was designed. Fix: inset it
+(`-outline-offset-2`), which the slot and TO TIP cells already do, so all four
+sides land inside the clip.
+
+**The mist-over-brass decision is vindicated by measurement, and worth keeping in
+the record:** `mist` on `brass` is **1.67:1** — a brass ring on the brass blade
+would have been invisible exactly as claimed. Against the surface the ring
+actually sits on (`anvil`) it is 13.21:1. The generalised rule from the 07-30
+notes ("focus must contrast with the CONTROL, not merely exist in the palette")
+holds here, and every other new control's brass ring clears too: 8.65:1 on the
+chip seat, 7.93:1 on the ground, and the chip's ring is pixel-verified as a
+complete four-sided rounded rect.
+
+### P3 — timeline strip — a scrolled way gives no sign there is more of the build
+
+MEASURED at 1366x768 with 14 features: `scrollWidth` 1727 vs `clientWidth` 1138;
+on mount the way scrolls the stop into view (`scrollLeft` 589), so chips 01-05
+are off-screen to the left (chip 0 at x = -492) with no fade, arrow, or count
+saying so. The head cell reads "14/14", which describes the stop, not the
+scroll. Fix: a token-coloured edge mask on both ends of the way when
+`scrollLeft`/right allows, plus `scrollbar-width: none`.
+
+INFERRED (could not be measured here): headless Chromium reserved 0 px for the
+horizontal scrollbar (`offsetHeight - clientHeight = 0`). A desktop Chrome with
+classic scrollbars would take ~15 px out of a 48 px strip and collide with the
+32 px chips. The mask fix above closes this too; worth verifying on a real
+desktop browser before assuming it is fine.
+
+### P3 — timeline strip / feature tree — a truncated feature name has no reveal
+
+MEASURED: chip name clamps at `max-w-[7.5rem]` (120 px); a 37-character name
+measures `scrollWidth` 189 and truncates. The full name IS in the accessible
+name (`"A very long feature name for wrapping — fillet, step 3 of 3"` — good),
+but there is no `title`, so a sighted mouse user cannot recover it. The tree row
+has the same shape (`truncate`, no `title`). Fix once, in the shared row/chip
+label, not twice.
+
+### P3 — timeline strip — Escape does not cancel a stop drag, and the slider ignores half its keys
+
+MEASURED: pointer-down on the stop, drag to slot 0, press `Escape` ->
+`data-dragging` stays `"true"` and the pending position stays "01/03"; pointer-up
+commits the rollback. Rolling back is reversible and fully visible, so this is
+not the "Escape destroys work" class — but every other gesture in this product
+answers Escape, and a drag with no abort is a small trust cost on a control whose
+whole job is "how far does the build run". Also `role="slider"` implements
+Left/Right/Home/End only; APG expects Up/Down and PageUp/PageDown as well.
+
+### P3 — part workspace — rolling back below the first solid says "No body" instead of naming the stop
+
+MEASURED: setting the travel stop to a sketch-only prefix drops `hasBody`, the
+Inspector is replaced by the export-only panel, and `exportGate` reaches its
+`!hasBody` branch **before** the `rolledBack` branch — so EXPORT reads "No body".
+True, but it attributes the absence to nothing, when the user's own travel stop
+caused it and the control holding it is 40 px below on screen. By `b4e075f`'s own
+standard (name the cause, never let a surface assert less than it knows), the
+honest reason is "No body at the travel stop". One branch reorder.
+
+### Verified good — measured, no action
+
+- **Nothing in the strip is decorative** (mandate 3c). Head cell position tracks
+  the stop live including the optimistic value during a write; chips select and
+  open the tree's row menu; slots travel; the stop drags and takes keys; TO TIP
+  travels and states its own gate. Every element is wired.
+- **Target sizes all clear the committed floor**: chips 32.00 px (comfortable),
+  slots 24.00 x 47.00, stop 24.00 x 47.00, TO TIP 138.59 x 47.00. The tokens'
+  claim that "nothing in the product now claims the essential exception" holds —
+  the retired 8 px drop slots are genuinely gone, and nothing took their place.
+- **Tab order and focus**: chip0 -> slot0 -> chip1 -> slot1 -> chip2 -> stop ->
+  TO TIP, DOM order, every stop `:focus-visible` with a 2 px ring. (Note for a
+  future pass, not filed as a defect: this is 2N+1 tab stops, so a 20-feature
+  build costs 41 presses to cross — a roving-tabindex composite would be the
+  standard answer if a keyboard user ever complains.)
+- **Keyboard context-menu parity**: Shift+F10 on a focused chip opens the same
+  row menu at the chip (x=144 for a chip centred at 144; flipped up to y=619 to
+  fit) — not at 0,0, which is the usual failure of this pattern.
+- **`prefers-reduced-motion`**: chip, slot and stop all report
+  `transition-duration: 0s` under `reducedMotion: "reduce"`, and the way's
+  `scrollIntoView` drops to `behavior: "auto"`.
+- **Empty and loading states exist and are honest**: "No features yet — start
+  with a sketch." (`gauge` on `anvil` = 7.18:1), position "—", TO TIP caption
+  "Nothing built yet".
+- **The viewport is still the hero at the tightest width.** Canvas 1366x620 =
+  **80.7%** of the frame at 1366x768 (1280x652 = 81.5% at 1280x800); panels
+  float over it; `documentElement.scrollWidth == clientWidth` at both widths, so
+  nothing overflows the root. The 48 px strip costs 6.25% of height at 768 and
+  buys a control that was previously a 1 px dashed rule. **Worth the pixels.**
+- **The status detail does not overflow or truncate at 1366**: right edge 1298.4
+  inside a panel ending at 1354. It WRAPS to 2 lines in the rolled-back case
+  ("Travel stop at Extrude1 · 1 feature excluded") and stays on 1 line in the
+  failed case ("Fillet1 failed · built to Extrude1") — so the "shares the value's
+  line" design holds for the case it was written for and not for the other one,
+  which is where the extra 20 px in the P1 fold measurement comes from.
+- **Token discipline**: no hex literals in either new file; `TimelineStrip`'s SVG
+  blade is sized from `layout.timelineHeight`, so the wedges cannot drift from
+  the strip if the token changes. `partBuild.ts` derives every claim from wire
+  values with request state quarantined in its own axis, exactly as advertised.
+
+### Also measured, filed here so the next pass does not re-discover it
+
+The **feature-tree panel's SOLVE cell is sliced at 1366x768** with 14 features:
+`eval-status` is 16.5 px tall, **5 px visible, 11.5 px clipped** by the panel's
+scroll box (105 px of content hidden). Same defect family as P1 — a title-block
+footer inside a scroll box on a 768 px-tall screen — and the same pinning fix
+covers both. Partially pre-existing (computed: the box was 598 px before the
+strip and the content is 655 px, so it clipped by 57 px then and by 105 px now),
+which is why it is recorded here rather than filed as a regression of UI-W1.
+
+### Component checklist delta from this pass
+
+| component | state |
+| --- | --- |
+| `TimelineStrip` — selection cue (`border-mist` on `bg-hairline`) | audited ✅ 9.38:1, ruling stands |
+| `TimelineStrip` — chip rest/rolled-back border (`hairline`) | needs-work 🔴 P2-A, 1.54:1 |
+| `TimelineStrip` — selected seat (`bg-hairline` on `anvil`) | needs-work 🔴 P2-B, 1.41:1 |
+| `TimelineStrip` — way line solid/dashed (`etch`) | audited ✅ 3.06:1 |
+| `TimelineStrip` — travel stop, drag + keys + `role="slider"` | audited ✅ (P3: no Escape-abort, no Up/Down) |
+| `TimelineStrip` — travel stop focus ring | needs-work 🔴 P3, clipped to two bars |
+| `TimelineStrip` — busy/held state | needs-work 🔴 P2-D, three silent gates |
+| `TimelineStrip` — target sizes, tab order, reduced motion, empty/loading | audited ✅ |
+| `TimelineStrip` — long build (scroll affordance, truncation) | needs-work 🔴 P3 x2 |
+| `BandActionCell` — gated caption legibility | needs-work 🔴 P2-C, 2.13:1 at 9 px |
+| `partBuild.ts` — one derivation feeding SOLVE/STATUS/EXPORT | audited ✅ |
+| `BodyInspector` STATUS cell — qualifier layout at 1366 | audited ✅ (wraps, does not truncate) |
+| `PartExportControls` / `ExportRow` — fold at 1366x768 | needs-work 🔴 P1 |
+| `exportGate` — rolled-back-with-no-body reason | needs-work 🔴 P3 |
+| `FeatureTreePanel` — SOLVE cell fold at 1366x768 | needs-work 🔴 P2 (pre-existing, worsened) |
+
+### Ordered remediation plan
+
+1. **P1** — pin the STATUS + EXPORT footer outside the Inspector's scroll box (or
+   subtract `timelineHeight` from the panel clearance tokens). Verify by
+   asserting `exportBottom <= scrollerBottom` at 1366x768 in BOTH the
+   feature-error and travel-stop states — the partial-state notice is the one
+   that is currently 100% hidden.
+2. **P2-A** — move the chip's resting/rolled-back border from `hairline` to
+   `etch` so the boundary and the dash clear 3:1; re-separate hover.
+3. **P2-C** — replace `opacity-40` in `BandActionCell` with a disabled-foreground
+   token at >= 4.5:1 and put the caption on the 10 px scale (fixes CreateStrip
+   too).
+4. **P2-D** — held state on the stop, `aria-disabled` on the slots, busy caption
+   on TO TIP.
+5. **P2-B** — add the raised-surface token and use it for every seated/selected
+   row, strip included.
+6. **P2 (tree)** — same pin as (1) for the SOLVE cell.
+7. **P3s** — inset the stop's focus ring; edge masks + `scrollbar-width: none` on
+   the way; `title` on truncated names (shared); Escape-aborts-drag and the
+   missing slider keys; reorder `exportGate` so a travel stop that removes the
+   body says so.
+
+**Process note (the founder-is-the-calibrator rule).** Two of this pass's
+findings — P2-A and P2-B — are cases where a source comment asserts a redundancy
+that the pixels do not have ("the cue is redundant and never load-bearing
+alone"; "brightest EDGE plus a lifted seat"). Both were written in good faith and
+both are wrong by measurement. Adding to this checklist for every future pass:
+**when a component's own comment claims two cues, measure both — a stated
+redundancy is a claim, and a claim about contrast is checkable.** Same class as
+the 0x0 signature element: the defect is invisible precisely because the
+documentation says it is not there.
