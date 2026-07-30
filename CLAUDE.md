@@ -223,8 +223,9 @@ Stale docs are a defect (this rule saved Next-Lane repeatedly; see
   print only `head_sha`/`status`/`conclusion` rather than trying to read it;
   (b) `get_workflow_run` on ONE id is small and is the cheap way to re-check a
   known run.
-- **FIXED 2026-07-30 — `cancel-in-progress` is now PR-only, so branch pushes
-  each keep their own run.** History, because the reasoning matters: the
+- **FIXED 2026-07-30 — `cancel-in-progress` is now PR-only, so a branch run
+  that has STARTED is no longer killed by the next push. MEASURED, with one
+  caveat below.** History, because the reasoning matters: the
   concurrency group is keyed on the ref, and with blanket cancellation pushing
   commit B ~3 min after A left A's run `cancelled` — which by the rule above is
   NOT a pass, so A shipped CI-unverified with nothing wrong with it. It hit
@@ -239,6 +240,19 @@ Stale docs are a defect (this rule saved Next-Lane repeatedly; see
   NB a descendant's green run does verify the *tree* of its ancestors, so a
   cancelled ancestor whose child is green is not an unknown build — it is an
   unverified *commit*. Say which of the two you mean.
+  **CAVEAT, measured the same day — the fix does NOT save a run that has not
+  STARTED yet.** Evidence: with the fix live, `5de225c`'s run stayed
+  `in_progress` across a later push (the old config would have killed it
+  instantly) — but `60ac962` and `cb0dcd0`, also pushed with the fix in their own
+  trees, still came back `cancelled`. The difference is that those two were
+  superseded before getting a runner slot: a concurrency group admits one running
+  plus one *pending* run, and a newer arrival evicts the pending one regardless of
+  `cancel-in-progress`, which only governs runs already holding a slot. So under
+  runner contention — which is exactly when several agents are pushing — rapid
+  back-to-back pushes can still cost the middle commit its run. Practical rule:
+  the fix removes the routine case, it does not make per-commit CI unconditional,
+  so when a specific commit's own green matters, confirm its run actually reached
+  `in_progress` rather than assuming the policy covered it.
 - **A suspiciously FAST green deserves the same scrutiny as a red.** The
   usual cause is a job that skipped its work, and `conclusion: success` is
   emitted when every job is skipped. Discriminate by reading the log for
