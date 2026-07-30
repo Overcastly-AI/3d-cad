@@ -56,6 +56,15 @@ export {
   type SegmentOption,
 } from "./primitives/SegmentedControl";
 export * from "./primitives/icons";
+export {
+  VerbGlyph,
+  VERB_GLYPHS,
+  type VerbGlyphProps,
+} from "./primitives/verbGlyph";
+export {
+  BandActionCell,
+  type BandActionCellProps,
+} from "./primitives/BandActionCell";
 export { SketchGlyph, type SketchGlyphProps } from "./primitives/SketchGlyph";
 export { PickNode, type PickNodeProps } from "./primitives/PickNode";
 export { NumberField, type NumberFieldProps } from "./primitives/NumberField";

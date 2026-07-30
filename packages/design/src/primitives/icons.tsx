@@ -694,6 +694,19 @@ export const SuppressIcon = (p: IconProps) => (
   </Icon>
 );
 
+/**
+ * A piece of blank stock — the GENERIC feature mark, used when a feature type
+ * has no verb glyph of its own yet (a kernel verb that landed before its
+ * frontend icon). Drawn as a chamfered blank so it never reads as a specific
+ * operation: it says "a feature", which is exactly what is known about it.
+ */
+export const StockIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M6 5 H15 L18 8 V19 H6 Z" />
+    <path d="M15 5 V8 H18" />
+  </Icon>
+);
+
 // --- Chrome -----------------------------------------------------------------
 
 export const CaretDownIcon = (p: IconProps) => (

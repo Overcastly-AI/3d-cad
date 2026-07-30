@@ -197,8 +197,6 @@ function renderPanel(
       evaluating={false}
       selectedFeatureId={null}
       onSelectFeature={vi.fn()}
-      onMoveRollback={vi.fn()}
-      rollbackBusy={false}
       onToggleSuppress={vi.fn()}
       onRepickFace={onRepickFace}
       onKeepAsOneBody={onKeepAsOneBody}

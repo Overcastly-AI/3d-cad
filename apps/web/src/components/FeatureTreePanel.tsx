@@ -1,12 +1,15 @@
 /**
  * The feature tree as a title block: ruled rows carrying the part's build
  * order (the row number IS the evaluation order — structure encoding truth),
- * per-feature evaluate status/error, a rollback "cut line" the build can be
- * wound back to, and the FEATURES / TREE / SOLVE vitals. The CREATE tools now
- * live in the full-width top band (CreateStrip), not here — the panel is a
- * quiet read-out of the build. Selecting a row hands it up to the workspace
- * (an extrude opens its editor); rolling the bar before a feature marks
- * everything below it inert without deleting it.
+ * per-feature evaluate status/error, and the SOLVE vital. The CREATE tools live
+ * in the full-width top band (CreateStrip) and ROLLBACK now lives in the bottom
+ * TimelineStrip (UI-W1) — the panel is a quiet read-out of the build. Selecting
+ * a row hands it up to the workspace (an extrude opens its editor).
+ *
+ * The panel still SHOWS the travel stop's effect (`data-rolled-back` rows, dashed
+ * "—" status) — it just no longer offers the control: a 1px dashed rule squeezed
+ * between 24px rows was never a scrub control, and the build order is honestly
+ * horizontal (see `TimelineStrip`).
  */
 import {
   Button,
@@ -30,8 +33,9 @@ import {
   offersRepickFace,
   REPICK_FACE_ACTION,
 } from "../features/featureErrors";
+import { featureTypeLabel } from "../features/featureLabels";
 import { holeThreadDesignation } from "../features/hole";
-import { barSlotIndex, rollbackIdForSlot } from "../features/rollback";
+import { barSlotIndex } from "../features/rollback";
 
 export interface FeatureTreePanelProps {
   tree: FeatureTreeResponse | undefined;
@@ -41,9 +45,6 @@ export interface FeatureTreePanelProps {
   /** Selected feature id (brass left-rule); extrude rows open their editor. */
   selectedFeatureId: string | null;
   onSelectFeature: (feature: FeatureResponse) => void;
-  /** Move the rollback bar (null = tip); the workspace re-evaluates. */
-  onMoveRollback: (rollbackFeatureId: string | null) => void;
-  rollbackBusy: boolean;
   /** Guided recovery for a `boolean_disjoint` error (MB-4c): re-run this boolean
    * with `allow_disjoint` on, keeping the disconnected pieces as one multi-lump
    * body. Only offered when the feature is a boolean whose opt-in is still off. */
@@ -81,23 +82,6 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 /**
- * Friendlier type badges for the few feature types whose wire name is
- * snake_case. Everything else (extrude / fillet / …) is already a plain word,
- * so it falls through to the raw type.
- */
-const FEATURE_TYPE_LABEL: Record<string, string> = {
-  sheet_metal_base_flange: "base flange",
-  sheet_metal_edge_flange: "edge flange",
-  sheet_metal_hem: "hem",
-  sheet_metal_corner_relief: "corner relief",
-};
-
-/** The badge text for a feature type — a friendly label, else the raw type. */
-function featureTypeLabel(type: string): string {
-  return FEATURE_TYPE_LABEL[type] ?? type;
-}
-
-/**
  * The row's right-hand badge: what this feature IS. Normally just its type —
  * with one exception the geometry forces. A TAPPED hole's solid is byte-
  * identical to a plain bore (the thread is a cosmetic callout, not modelled
@@ -125,8 +109,6 @@ export function FeatureTreePanel({
   evaluating,
   selectedFeatureId,
   onSelectFeature,
-  onMoveRollback,
-  rollbackBusy,
   onKeepAsOneBody,
   recoveringDisjoint = false,
   onRepickFace,
@@ -154,48 +136,6 @@ export function FeatureTreePanel({
       : evaluation.features.some((f) => f.status === "error")
         ? "Failed"
         : "Solved";
-
-  const renderBar = (slotIndex: number) => {
-    const active = slotIndex === barSlot;
-    const target = rollbackIdForSlot(features, slotIndex);
-    const atTip = slotIndex >= features.length - 1;
-    return (
-      <li key={`slot-${slotIndex}`} className="px-3">
-        <button
-          type="button"
-          disabled={rollbackBusy || active}
-          data-testid={`rollback-slot-${slotIndex}`}
-          data-active={active || undefined}
-          aria-label={
-            atTip
-              ? "Roll forward to the tip (include all features)"
-              : `Roll back to after ${features[slotIndex]?.name ?? "feature"}`
-          }
-          onClick={() => onMoveRollback(target)}
-          className="group flex w-full items-center gap-2 py-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass disabled:cursor-default"
-        >
-          {active ? (
-            <>
-              <span
-                aria-hidden
-                className="h-px grow bg-brass"
-                data-testid="rollback-bar"
-              />
-              <span className="shrink-0 font-display text-2xs uppercase tracking-[0.18em] text-brass">
-                Rollback
-              </span>
-              <span aria-hidden className="h-px w-3 bg-brass" />
-            </>
-          ) : (
-            <span
-              aria-hidden
-              className="h-px grow bg-transparent transition-colors duration-fast group-hover:bg-etch"
-            />
-          )}
-        </button>
-      </li>
-    );
-  };
 
   return (
     <aside
@@ -402,7 +342,6 @@ export function FeatureTreePanel({
                         ) : null}
                       </li>
                     ) : null}
-                    {renderBar(index)}
                   </FeatureRowGroup>
                 );
               })}

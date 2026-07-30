@@ -613,14 +613,16 @@ export const spacing = {
  *    FLOOR, not a target: rows keep their tight rhythm, they just stop going
  *    under it.
  *
- * Two exceptions, both granted by SC 2.5.8 itself, and they are exhaustive:
+ * ONE exception, granted by SC 2.5.8 itself:
  *  1. INLINE — a link inside a sentence of running text takes the sentence's
  *     line height (the spec's "inline" exception).
- *  2. ESSENTIAL — the feature tree's rollback DROP SLOTS (`rollback-slot-N`, 8 px
- *     tall) sit BETWEEN rows and their y-position IS their meaning; growing them
- *     to 24 px would displace the rows they address. Drag targets whose position
- *     carries the semantics are exempt, and every one of them has a keyboard/
- *     click equivalent on the row itself.
+ *
+ * The second exception this comment used to carry — the feature tree's 8 px
+ * rollback drop slots, "drag targets whose y-position IS their meaning" — is
+ * RETIRED, because the element is gone (UI-W1, 2026-07-30): rollback moved to the
+ * bottom timeline strip, where a slot is a 24 x `timelineHeight` target on the
+ * machine way and the travel stop is a 24 px-wide draggable, keyboard-operable
+ * slider. Nothing in the product now claims the essential exception.
  *
  * Anything else under `dense` is a defect. `apps/web/e2e/p1-token-scale.spec.ts`
  * measures the named set with `getBoundingClientRect` plus an `elementFromPoint`
@@ -709,6 +711,20 @@ export const layout = {
    * element is never covered (mandate 3a).
    */
   referenceCubeBand: 140,
+  /**
+   * Height of the bottom TIMELINE strip — the machine way the build travels
+   * along, docked under the viewport (UI-W1, founder-directed 2026-07-30;
+   * `docs/design/ui-wave-tool-grade.md` Surface 1). Like Fusion's timeline it is
+   * chrome IN FLOW, not floating: the bottom of the frame already carries three
+   * floating occupants (the HUD lane, the reference cube, status banners) and a
+   * fourth would fight all of them.
+   *
+   * The SUM of what it holds, not a round number: a `target.comfortable` op chip
+   * (32) + 6 px of seat above and below + the strip's own top rule (1) = 45,
+   * plus 3 px of slack so the chips' focus rings never clip. The travel stop
+   * spans the full height — it is the one element that touches both rails.
+   */
+  timelineHeight: 48,
 } as const;
 
 /**

@@ -63,6 +63,22 @@ even-odd scanline clip) across SVG/PDF/DXF, `views.section_params jsonb` (0008);
 wrong-half + multi-loop + byte-determinism goldens; oblique + the `project_view`
 frame refactor are v2/§11. Spike de-collected.
 
+- [x] (P1, M) **UI-W1 — the bottom TIMELINE strip with a draggable travel stop.
+      SHIPPED 2026-07-30** (frontend-builder; founder-directed, design
+      `docs/design/ui-wave-tool-grade.md` Surface 1). Rollback left the tree
+      panel's 1px `ROLLBACK` rule for a docked 48px machine way: verb-glyph op
+      chips + tabular ordinals, solid way through travelled ops and dashed past
+      the stop, and a brass travel stop that drags AND arrow-keys (`role=slider`,
+      Home/End, focus follows the move) with `TO TIP` as the escape hatch. Chips
+      dim as well as dash; error = `flag`, suppressed = the tree's struck-through
+      treatment. DRY: `features/rollback.ts` ported to the horizontal axis
+      unchanged, ONE `VERB_GLYPHS` map now feeds the command band and the timeline
+      (`CreateStrip` converted, drift-guarded), `BandActionCell` extracted as a
+      shared primitive. The design system's last target-size exception (the 8px
+      drop slots) is retired — every rollback control is 24x47, asserted. All
+      `rollback-slot-N` hooks preserved; `timeline.spec.ts` (7) + 50 regression
+      specs green; founder shots `timeline-{before,after}-{1440,1366}.png`.
+      [src: founder directive 2026-07-30 · ROADMAP current focus]
 - [x] (P0, S) **CM-1 — a `mirror` re-ERASED a cut when ANY non-cut feature sat
       between the cut and the mirror. Fixed 2026-07-25.** Cut tools are now
       TRACKED PER FEATURE (`EvaluationState.record_cut_tools`, with the producing
@@ -1554,6 +1570,10 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
       engineering-audit debt items closed. [src: engineering-auditor]
 
 ## Changelog
+
+- 2026-07-30 — **UI-W1 bottom timeline (frontend-builder):** rollback is now a
+  docked machine way with a draggable/keyboard travel stop, verb-glyph op chips and
+  a dashed way past the stop; one shared `VERB_GLYPHS` map serves band + timeline.
 
 - 2026-07-30 — **Last-evaluate record on the part row (backend-builder):**
   migration `0012` + derived `eval_state` (`never`/`ok`/`failed`/`stale`), written

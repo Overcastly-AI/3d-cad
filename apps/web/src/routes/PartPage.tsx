@@ -258,6 +258,7 @@ import {
 import { SketchDro } from "../components/SketchDro";
 import { SketchStrip } from "../components/SketchStrip";
 import { SolveDiagnostic } from "../components/SolveDiagnostic";
+import { TimelineStrip } from "../components/TimelineStrip";
 import { TopBar } from "../components/TopBar";
 import { TopToolbar } from "../components/TopToolbar";
 import { resolveSketchKey, type SolveInfo } from "../sketch/constraints";
@@ -4017,10 +4018,6 @@ export function PartPage() {
                 evaluating={evaluation.isFetching}
                 selectedFeatureId={selectedFeatureId}
                 onSelectFeature={selectFeature}
-                onMoveRollback={moveRollback}
-                // The bar also holds while a history step is restoring (the
-                // mutual exclusion's visible half — runHistoryStep guards it).
-                rollbackBusy={rollbackBusy || historyStep !== null}
                 onKeepAsOneBody={keepAsOneBody}
                 recoveringDisjoint={disjointRecovering}
                 onRepickFace={repickFace}
@@ -4089,6 +4086,22 @@ export function PartPage() {
             </div>
           ) : null}
         </main>
+        {/* THE TIMELINE — docked along the bottom of the frame, the way the
+            build travels (UI-W1, founder-directed). In flow, not floating: the
+            bottom of the viewport already carries the HUD lane, the reference
+            cube and the status banners, and a fourth floating occupant would
+            fight all three. */}
+        <TimelineStrip
+          tree={tree.data}
+          evaluation={evaluation.data}
+          selectedFeatureId={selectedFeatureId}
+          onSelectFeature={selectFeature}
+          onMoveRollback={moveRollback}
+          // The stop also holds while a history step is restoring (the mutual
+          // exclusion's visible half — runHistoryStep guards it).
+          busy={rollbackBusy || historyStep !== null}
+          onChipContextMenu={openTreeMenu}
+        />
       </div>
       {/* Right-click menus (UI-REVIEW #10) — one primitive, two surfaces. */}
       {viewportMenu !== null ? (

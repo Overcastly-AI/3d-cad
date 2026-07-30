@@ -58,6 +58,7 @@ describe("tailwind utility resolution", () => {
         [
           "h-toolbar",
           "h-band",
+          "h-timeline",
           "w-inspector",
           "w-editor",
           "left-editor",

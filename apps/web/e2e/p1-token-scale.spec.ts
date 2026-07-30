@@ -17,7 +17,11 @@ import {
  *  1. The signature brass scribe on an active tool and an active segment has a
  *     real, non-zero line (`data-scribe`).
  *  2. A command-band tool is a comfortable target, not a bare 16px glyph.
- *  3. The feature tree's rollback bar exists (`rollback-bar` height >= 1).
+ *  3. The bottom TIMELINE is a real instrument: the strip and its way have size,
+ *     and the two controls that used to be the design system's one ESSENTIAL
+ *     target-size exception (the 8px `rollback-slot-N` drop slots wedged between
+ *     tree rows) now MEET the 24px floor as slots on the way plus a draggable
+ *     travel stop (UI-W1 retired that exception — tokens.ts `target`).
  *  4. The measure readout is seated in the BOTTOM HUD lane, below mid-frame and
  *     clear of the command band.
  *  5. The tallest hole form (C'sink + Tapped + Blind) fits the frame at
@@ -177,7 +181,7 @@ async function openTallestHoleForm(page: Page): Promise<void> {
 test.describe("design-system P1 — measured, 1440x900", () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
-  test("scribe, band target, rollback bar and measure HUD have real size", async ({
+  test("scribe, band target, timeline and measure HUD have real size", async ({
     page,
   }) => {
     await partWithBody(page);
@@ -220,17 +224,38 @@ test.describe("design-system P1 — measured, 1440x900", () => {
       .soft(bandFit?.tools.bottom ?? 0)
       .toBeLessThanOrEqual(bandFit?.band.bottom ?? 0);
 
-    // (3) The ROLLBACK BAR exists — it is a hairline rule, so height >= 1.
-    const rollback = await box(page, "rollback-bar");
-    report("rollback bar", rollback);
-    expect.soft(rollback).not.toBeNull();
-    expect.soft(rollback?.height ?? 0).toBeGreaterThanOrEqual(1);
-    expect.soft(rollback?.width ?? 0).toBeGreaterThan(100);
+    // (3) The TIMELINE is a real instrument, and rollback's controls now meet
+    // the target-size floor the old 8px drop slots were excused from.
+    const strip = await box(page, "timeline-strip");
+    report("timeline strip", strip);
+    expect.soft(strip).not.toBeNull();
+    expect.soft(strip?.height ?? 0).toBeGreaterThanOrEqual(44);
+    const way = await box(page, "timeline-way");
+    report("timeline way", way);
+    expect.soft(way?.width ?? 0).toBeGreaterThan(100);
+    const stop = await box(page, "timeline-stop");
+    report("travel stop", stop);
+    expect.soft(stop?.width ?? 0).toBeGreaterThanOrEqual(24);
+    expect.soft(stop?.height ?? 0).toBeGreaterThanOrEqual(24);
+    const slot = await box(page, "rollback-slot-0");
+    report("way slot 0", slot);
+    expect.soft(slot?.width ?? 0).toBeGreaterThanOrEqual(24);
+    expect.soft(slot?.height ?? 0).toBeGreaterThanOrEqual(24);
+    // The strip is docked at the bottom of the frame, under the viewport.
+    const frame = page.viewportSize();
+    expect
+      .soft((strip?.y ?? 0) + (strip?.height ?? 0))
+      .toBeCloseTo(frame?.height ?? 900, 0);
 
     await withStableSessionEmail(page, () =>
       page.screenshot({
-        path: `${SCREENSHOT_DIR}/p1-rollback-bar-${SHOT_TAG}-1440.png`,
-        clip: { x: 0, y: 0, width: 720, height: 520 },
+        path: `${SCREENSHOT_DIR}/p1-timeline-${SHOT_TAG}-1440.png`,
+        clip: {
+          x: 0,
+          y: (frame?.height ?? 900) - 120,
+          width: 900,
+          height: 120,
+        },
       }),
     );
 
@@ -284,14 +309,16 @@ test.describe("design-system P1 — measured, 1280x800", () => {
   test("the same elements hold at laptop width", async ({ page }) => {
     await partWithBody(page);
 
-    const rollback = await box(page, "rollback-bar");
-    report("rollback bar @1280", rollback);
-    expect.soft(rollback?.height ?? 0).toBeGreaterThanOrEqual(1);
+    const strip = await box(page, "timeline-strip");
+    report("timeline strip @1280", strip);
+    expect.soft(strip?.height ?? 0).toBeGreaterThanOrEqual(44);
+    expect.soft(await isOnScreen(page, "timeline-stop")).toBe(true);
+    expect.soft(await isOnScreen(page, "timeline-to-tip")).toBe(true);
 
     await withStableSessionEmail(page, () =>
       page.screenshot({
-        path: `${SCREENSHOT_DIR}/p1-rollback-bar-${SHOT_TAG}-1280.png`,
-        clip: { x: 0, y: 0, width: 720, height: 520 },
+        path: `${SCREENSHOT_DIR}/p1-timeline-${SHOT_TAG}-1280.png`,
+        clip: { x: 0, y: 680, width: 900, height: 120 },
       }),
     );
 

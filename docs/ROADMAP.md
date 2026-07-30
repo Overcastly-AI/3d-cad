@@ -4,11 +4,15 @@ Status legend: ✅ done · 🚧 in progress · ⬜ planned
 
 **Current focus: FOUNDER-DIRECTED UI WAVE (2026-07-30) — "this needs to look
 professional and comparable to Fusion 360 and Plasticity." Design plan in
-`docs/design/ui-wave-tool-grade.md`; queued as UI-W1 (bottom timeline with a
-draggable travel stop), UI-W2 (categorical visibility/opacity/isolate — Origin /
-Sketches / Bodies), UI-W3 (pre-selection prefills editors), UI-W4 (editors stop
-being 12-row mid-frame forms), UI-W5 (entity snapping, Ctrl to suppress), plus
-material/density so MASS PROPERTIES can report mass, and a settings surface.
+`docs/design/ui-wave-tool-grade.md`. **UI-W1 (bottom timeline with a draggable
+travel stop) SHIPPED 2026-07-30** (frontend-builder) — the 1px `ROLLBACK` rule
+inside the tree panel is gone; the build now travels a docked machine way with a
+brass travel stop you drag or arrow-key, chips carrying the real verb glyph, and
+a dashed way past the stop. Still queued: UI-W2 (categorical visibility/opacity/
+isolate — Origin / Sketches / Bodies), UI-W3 (pre-selection prefills editors),
+UI-W4 (editors stop being 12-row mid-frame forms), UI-W5 (entity snapping, Ctrl
+to suppress), plus material/density so MASS PROPERTIES can report mass, and a
+settings surface.
 Kernel CM-5 (the revolve/sweep/loft-cut mirror void-fill) landed 2026-07-30.**
 Founder directive 2026-07-24: *"pause all things and fix items in the findings
 report — we should not proceed until all the items are fixed or implemented."*
@@ -1287,6 +1291,41 @@ flexible sub-assemblies, part-version pinning-as-default.
       `lib/activity.test.ts` (7); every `data-testid`/role preserved, e2e
       parts-home/auth/drawings/assembly-bom green on the live stack; founder
       shots `parts-home-{empty,desktop,laptop}.png` refreshed.
+      **UI-W1 — THE BOTTOM TIMELINE ✅ 2026-07-30 (frontend-builder; founder-
+      directed "should the timeline be at the bottom with the ability to drag the
+      slider to revert?", design `docs/design/ui-wave-tool-grade.md` Surface 1):**
+      rollback was a 1px dashed rule labelled ROLLBACK wedged between 24px tree
+      rows, with 8px invisible drop slots — not a scrub control, and on the wrong
+      axis (feature order is CAUSAL, so it is honestly horizontal). It is now a
+      docked `TimelineStrip` (48px, `layout.timelineHeight`, in flow under the
+      viewport so it fights none of the three floating bottom occupants): op chips
+      carrying the REAL verb glyph + tabular ordinal + name, a way line SOLID
+      through travelled ops and DASHED past the stop with the seam exactly under
+      it, and a brass TRAVEL STOP that is draggable (window-listener drag, pure
+      `nearestSlotIndex` snap) AND keyboard-operable (`role=slider`, ←/→/Home/End,
+      focus follows the stop across a move, mist focus ring because the control is
+      itself brass). Chips past the stop dim as well as dash (redundant cue);
+      errored chips take `flag`, suppressed ones the tree's struck-through
+      treatment; `TO TIP` is the named escape hatch and states its reason when
+      gated. The stop is optimistic then HONEST — it shows the new position
+      immediately and snaps back if the write is rejected. DRY: `features/
+      rollback.ts` ported to the new axis UNCHANGED (+ one new pure function);
+      ONE `VERB_GLYPHS` map in `packages/design` now serves the command band AND
+      the timeline (`CreateStrip` converted; drift-guarded by
+      `featureLabels.test.ts`), `featureTypeLabel` extracted, and `CreateStrip`'s
+      local in-command cell became the shared `BandActionCell` primitive. The
+      design system's ONE remaining target-size exception (those 8px drop slots)
+      is RETIRED: every rollback control now measures 24x47 (asserted in
+      `p1-token-scale.spec.ts`). Every `rollback-slot-N` + `data-active` hook is
+      preserved, so the 4 specs that drive rollback are untouched. Gates: web unit
+      1027 + design 54; eslint/prettier/tsc clean; e2e `timeline.spec.ts` (7:
+      real pointer drag, keyboard travel + focus, computed-style dash encoding,
+      chip select, 1366 fit) + p1-token-scale + extrude-ui + makeover-batch3 +
+      feature-suppress + toolbar-overflow + measure-pattern-qa + feature-selection
+      + nav-chrome + sheet-metal-hem-corner-relief (57 specs) green on a live
+      native stack. Founder before/after: `timeline-{before,after}-{1440,1366}
+      .png` (same part, same rolled-back state), plus `timeline-{tip,rolled-back}
+      -{1440,1366}.png` and `p1-timeline-after-{1440,1280}.png`.
       **"Is broken" — BACKEND SHIPPED 2026-07-30 (backend-builder):** the one
       column the 2026-07-30 UI review said was worth adding to that register now
       has a wire. Migration `0012` adds three nullable `parts.last_eval_*`
