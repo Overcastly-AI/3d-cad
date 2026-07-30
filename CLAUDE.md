@@ -505,8 +505,17 @@ recipe here in the same commit as the fix.**
   harness parses goldens as JSON (whitespace-insensitive) so a stored content
   hash is a string field unaffected by formatting, i.e. `prettier --write` on a
   golden is behaviour-neutral and safe.** Always run the full `just lint` at the
-  batch boundary regardless. **(3) Lint with `uv run ruff …`, NEVER a bare PATH
-  `ruff`.** Seen 2026-07-23 (interference slice `e46db16`): the agent ran a PATH
+  batch boundary regardless. **(2b) `prettier --check .` walks the FILESYSTEM,
+  not the index, so an UNTRACKED scratch file fails lint for every agent at
+  once** — and `.prettierignore` covers `docs/`, `.claude/`, generated dirs and
+  build output, but NOT the repo root. Seen 2026-07-30: an agent left a
+  180-byte `eval1.json` (an evaluate-response dump) at the root; it never would
+  have been committed, and it would still have turned the batch-end `just lint`
+  red for everyone, looking like someone else's regression. Payload dumps,
+  curl output and one-off fixtures go in the session scratchpad, never the repo
+  root. When you find one that is another agent's, tell that agent — do not
+  delete it; it may be in active use. **(3) Lint with `uv run ruff …`, NEVER a
+  bare PATH `ruff`.** Seen 2026-07-23 (interference slice `e46db16`): the agent ran a PATH
   `ruff check` that predated the `RUF002` confusable rule and reported "0 errors,"
   but the locked `uv run ruff check` (0.15.20) flagged 8× `RUF002` (a test file
   using U+00D7 `×`/U+2212 `−` glyphs — every other file uses ASCII `x`/`-`) + 1×
