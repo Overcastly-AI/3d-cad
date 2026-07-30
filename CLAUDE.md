@@ -207,6 +207,32 @@ Stale docs are a defect (this rule saved Next-Lane repeatedly; see
   reads the run and relays `get_job_logs` output back via SendMessage so the
   agent can iterate, or (b) keep CI-verified work in the orchestrator's own
   hands. Do NOT write briefs that assume a subagent can self-verify CI.
+- **CI can ONLY be read through the GitHub MCP tools — never a bash poll, not
+  even in the orchestrator's own session.** `api.github.com` is policy-denied
+  from `Bash` here for the orchestrator too (the bullet above is about
+  subagents, but the block is not subagent-specific), so the natural instinct
+  — arm a `Monitor` that curls the runs endpoint until the conclusion lands —
+  **cannot work**: the monitor fires once with the poll error and exits, which
+  reads like "still running" if you aren't watching for it. Same for
+  `Bash(run_in_background)`. Consequence: **waiting on CI is turn-based.** Push,
+  then read the run with `actions_list` → `list_workflow_runs` (filter by
+  branch) or `actions_get` → `get_workflow_run` on a known run id, and re-read
+  it on a later turn; there is no way to be woken by a CI transition. Two
+  practical notes: (a) `list_workflow_runs` returns ~430 KB and blows the tool
+  limit — it gets spilled to a file, so parse that file with `python3 -c` and
+  print only `head_sha`/`status`/`conclusion` rather than trying to read it;
+  (b) `get_workflow_run` on ONE id is small and is the cheap way to re-check a
+  known run.
+- **`cancel-in-progress: true` means a fast follow-up push destroys the
+  evidence for the commit underneath it.** `ci.yml`'s concurrency group is
+  keyed on the ref, so pushing commit B ~3 min after commit A leaves A's run
+  `cancelled` — and by the rule above that is NOT a pass, so A ships
+  CI-unverified even though nothing was wrong with it (seen 2026-07-30:
+  `6c9c432` cancelled by `8f387fc`). When two commits must each be green on
+  their own — the standing rule — either space the pushes past a run, or push
+  them together so the single run covers the tip and accept that the
+  intermediate commit is verified only by local gates. Say which one happened
+  in the founder update instead of implying both commits were CI-green.
 - **A suspiciously FAST green deserves the same scrutiny as a red.** The
   usual cause is a job that skipped its work, and `conclusion: success` is
   emitted when every job is skipped. Discriminate by reading the log for
