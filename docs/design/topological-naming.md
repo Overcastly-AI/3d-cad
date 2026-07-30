@@ -949,3 +949,90 @@ coincidentally-congruent edge **without erroring** (the residual signature hole,
 **Unlike faces,** edge `subshape_ambiguous` is genuinely REACHABLE — a symmetric
 part has congruent edges (the §1.2 four vertical edges) — so the exactly-one rule
 is load-bearing here, not merely defensive.
+
+---
+
+## 11. Scoping delta — durable EDGE anchors for drawing dimensions (2026-07-30)
+
+**Problem (product audit 2026-07-30, N1 — P0).** A dimension on a bracket's 84 mm
+overall-length edge composed `84.000`. Widening the plate 100 → 120 — one number in
+the base sketch, the part rebuilt clean, all 8 features `ok` — turned that dimension
+into `code:"subshape_unresolved"`, printed as a 2.6 mm dashed circle holding a `!`.
+The Ø10 dimension survived *because its hole did not change*. So the rule was exactly
+inverted from the promise of an associative drawing: **the dimensions destroyed were
+precisely the ones that measured what you changed**, and a print revision became a
+re-dimensioning job.
+
+**Why faces already survived this and edges did not.** §9's planar-face matcher is
+TWO-TIER since FINDINGS #3: the strict signature (normal + centroid + area), then —
+only when that finds nothing — a resilient re-match on the strongest INVARIANT alone
+(same-sense normal + coincident supporting plane), which no in-plane boundary change
+can break, with the origin re-anchored at the stored centroid (`5e685ac`). §10's edge
+matcher has only the strict tier: endpoints AND midpoint AND length, all within
+tolerance. Every field of an edge signature is a function of the edge's own extent, so
+ANY parametric change to the measured edge is fatal — and a dimension is by definition
+attached to the geometry the designer is about to change.
+
+**Decision: give edges the missing tier, in the drawings layer, with no new persisted
+state.** `geometry.drawings.anchor.resolve_anchor_edge`:
+
+1. **Tier 1 — exact.** `geometry.kernel.edges.resolve_edge`, unchanged and untouched.
+   A clean rebuild, or any edit that does not touch the measured edge, resolves here —
+   byte-identically to before (the compose goldens prove it: only the §N2 layout moved
+   them, and the diameter dimension of an unchanged hole still reports `tier: exact`).
+2. **Tier 2 — durable.** Only on a tier-1 *unresolved* (a tier-1 AMBIGUITY still
+   propagates — the invariant tier cannot disambiguate congruent twins), re-match on
+   the rebuild-invariant of the edge's curve kind, both derived from the stored
+   `EdgeSignature` alone:
+   - **line** — the same SUPPORTING LINE (parallel within the documented direction
+     bound, the stored `end_a` on the candidate's line within the documented linear
+     bound) whose span OVERLAPS the stored span. Invariant under the edge growing or
+     shrinking along itself: the widened plate, the moved wall, a re-radiused corner
+     round that shortens the edge between two fillets. Overlap (rather than a shared
+     endpoint) makes it symmetric — a part that grows about its centre moves BOTH
+     endpoints and keeps the midpoint.
+   - **circle** — the same CENTRE and the same ANGULAR STATION: the unit directions
+     from the centre to the stored `end_a`/`end_b`/`midpoint` are all preserved, and
+     closedness matches (a full circle never re-anchors onto an arc). Invariant under
+     a radius change: the resized hole, the boss turned down. The centre is derived
+     from the signature — the seam/opposite-point midpoint for a full circle, the
+     circumcentre of the three stored points for an arc — so nothing new is persisted,
+     and the station directions also pin the circle's PLANE and an arc's sweep.
+   - **other** (spline / ellipse) — no invariant we can state honestly, so it stays an
+     honest `subshape_unresolved` whose message says exactly that.
+
+**What is NOT claimed.** §7.3's residual is unchanged: an invariant-based match can
+still land on a *different* edge that moved into the stored slot while the intended one
+vanished. That is the same geometric (never index-based) retarget stage 1 already
+carries. Three things keep it honest rather than silent: zero candidates errors, two or
+more candidates is `subshape_ambiguous` (two collinear segments left by a slot cut
+through the dimensioned edge — refuse to pick one), and the wire reports WHICH tier
+fired (`MeasuredDimension.anchor.tier` = `exact` | `durable`) so a UI can badge a
+re-anchored dimension. The value is always RE-MEASURED off the current B-rep — never
+re-stamped from the authored number.
+
+**Documented limit.** A corner ROUND's arc is not covered: changing R4 → R6 moves the
+arc's centre (it sits R in from the corner), so a dimension on a fillet arc fails
+honestly instead of re-measuring a differently-placed arc. Re-anchoring it needs
+adjacency ("the arc tangent to these two faces") — i.e. stage-2 provenance, §2d. A
+dimension that silently resolves to the wrong geometry is worse than one that errors,
+so this stays an error until the provenance name exists. Gated by
+`tests/test_drawings_anchor.py::test_a_re_radiused_FILLET_arc_is_an_honest_error_not_a_guess`.
+
+**Placement must use the re-anchored name too.** Re-measuring alone was not enough: the
+composer looks a dimension's projected edge up by signature key, so with the stale
+authored signature the annotation was dropped even when the value was fine. The
+measurement therefore returns the CURRENT signatures (`DimensionAnchor.primary` /
+`.secondary`) and `compose.anchored_signature` prefers them, falling back to the
+authored ones when a caller supplies no anchor (byte-identity for every existing
+sheet). Where a reference genuinely cannot be re-anchored, the sheet now says so in
+words beside the view (`ComposedDimensionError.message` — "LINEAR DIM: REFERENCE LOST -
+RE-PICK THE EDGE" in SVG/PDF/DXF), the dimension-level twin of the typed per-view
+reason FINDINGS #15 stamps.
+
+**Where this should eventually live.** The tier belongs in `geometry.kernel.edges`
+beside `resolve_edge`, so a picked-edge FILLET/CHAMFER survives the same edits a
+dimension now does. It ships in `geometry.drawings` because the kernel module was held
+by another agent in this batch; promoting it (and deleting the drawings-side wrapper)
+is a follow-up on the backlog, not a second naming scheme — the predicate, tolerances
+and error taxonomy are already the kernel's.

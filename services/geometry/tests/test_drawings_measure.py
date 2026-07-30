@@ -39,6 +39,7 @@ from geometry.kernel.edges import EdgeRecord, edge_signature_dto
 from py_kit.schemas.drawings import (
     AngularDimensionParams,
     DiameterDimensionParams,
+    DimensionAnchor,
     DimensionEndpointRef,
     EdgeLengthMeasurement,
     LinearDimensionParams,
@@ -719,8 +720,17 @@ def test_start_is_end_a_is_none_for_non_straight_and_silhouette() -> None:
 
 
 def _typecheck_dimension_value() -> DimensionValue:
-    """Keep the public DimensionValue re-export exercised (import-surface guard)."""
-    return DimensionValue(value=1.0, unit="mm", foreshortened=False)
+    """Keep the public DimensionValue re-export exercised (import-surface guard).
+
+    Carries the `anchor` the two-tier resolver reports (audit N1, topological-naming
+    §11) — an `exact` tier with no re-anchored signatures is the shape a caller-built
+    value takes."""
+    return DimensionValue(
+        value=1.0,
+        unit="mm",
+        foreshortened=False,
+        anchor=DimensionAnchor(tier="exact"),
+    )
 
 
 # NB: the `_unit` zero-vector guard added in this pass (measure.py) defends the

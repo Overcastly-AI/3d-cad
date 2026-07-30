@@ -409,6 +409,52 @@ DimensionParams = (
 #: degrees (angular). Encoded explicitly so a consumer never guesses from `type`.
 DimensionUnit = Literal["mm", "deg"]
 
+#: HOW a dimension's model reference resolved against the rebuilt body
+#: (topological-naming.md §11). ``exact``: the stored stage-1 signature matched
+#: verbatim (a clean rebuild, or an edit that did not touch the measured feature).
+#: ``durable``: the stored signature no longer matched — the edit CHANGED the very
+#: feature being measured (the widened plate's overall-length edge, the resized
+#: hole's rim) — and the reference was re-anchored on the rebuild-INVARIANT of its
+#: curve kind (a straight edge's supporting line + overlapping span; a circular
+#: edge's centre, plane and angular station). Either way the stamped value is
+#: measured off the CURRENT body, so a design change re-measures instead of
+#: destroying the dimension (audit N1).
+DimensionAnchorTier = Literal["exact", "durable"]
+
+
+class DimensionAnchor(BaseModel):
+    """Where a measured dimension's reference(s) landed on the CURRENT body (§11).
+
+    The re-anchoring result: ``tier`` says whether the stored stage-1 signature
+    matched verbatim (``exact``) or had to be re-anchored on its curve-kind
+    invariant (``durable``), and ``primary``/``secondary`` carry the CURRENT
+    signatures of the edges the dimension now names — the primary being the
+    dimension's main edge (the measured edge / the circle / ``edge_a`` / the first
+    point-to-point endpoint's edge) and the secondary the second one where the
+    dimension type has one (``edge_b``, the second endpoint's edge).
+
+    They are what the composer matches against the PROJECTED edges, so an annotation
+    lands on the geometry that is actually there after a rebuild rather than on the
+    stale authored signature (which is exactly why a re-measured dimension used to
+    still vanish from the sheet). A client may also persist them to heal the stored
+    ref, and ``tier == "durable"`` is the honest signal that the reference moved.
+    """
+
+    tier: DimensionAnchorTier = Field(
+        description="'exact' (stored signature matched verbatim) or 'durable' "
+        "(re-anchored on the curve-kind rebuild invariant, §11)"
+    )
+    primary: EdgeSignature | None = Field(
+        default=None,
+        description="Current signature of the dimension's primary edge, or null "
+        "when the dimension names no edge",
+    )
+    secondary: EdgeSignature | None = Field(
+        default=None,
+        description="Current signature of the dimension's second edge (angular "
+        "`edge_b` / the second point-to-point endpoint's edge); null otherwise",
+    )
+
 
 class MeasuredDimension(BaseModel):
     """A dimension's value measured from the MODEL, or a typed resolution error.
@@ -439,6 +485,14 @@ class MeasuredDimension(BaseModel):
         default=None,
         description="Typed resolution failure (`subshape_unresolved` / "
         "`subshape_ambiguous` / `dimension_wrong_type`), or null on success",
+    )
+    anchor: DimensionAnchor | None = Field(
+        default=None,
+        description="Where the dimension's reference(s) landed on the CURRENT body "
+        "(topological-naming §11) — the re-anchored signatures + whether the match "
+        "was `exact` or `durable`. Null when the dimension could not be resolved at "
+        "all (`error` set) or for a caller-synthesised value. Additive: a consumer "
+        "that ignores it reads the same value it always did.",
     )
 
 
@@ -1432,7 +1486,17 @@ class ComposedMeasuredDimension(BaseModel):
 
 
 class ComposedDimensionError(BaseModel):
-    """A placed dimension the model could not measure — an honest marker (§3.3)."""
+    """A placed dimension the model could not measure — an honest marker (§3.3).
+
+    The marker glyph alone was a defect (audit N1): a 2.6 mm dashed circle holding a
+    bare ``!`` tells a machinist nothing, and the exported PDF/DXF carried the same
+    mark. So the placed error also carries ``message`` — a SHORT, upper-case sheet
+    caption in plain words ("LINEAR DIM: REFERENCE LOST - RE-PICK THE EDGE") — and
+    ``text``, where the serializers stamp it beside the marker. This is the
+    dimension-level twin of the typed per-view reason :class:`ComposedView` stamps
+    under a failed view (FINDINGS #15): the machine-readable ``code`` plus the human
+    sentence, on the print itself.
+    """
 
     kind: Literal["error"] = "error"
     dimension_id: uuid.UUID | None = Field(
@@ -1441,6 +1505,17 @@ class ComposedDimensionError(BaseModel):
     dimension_type: DimensionType = Field(description="linear/diameter/radius/angular")
     at: ComposedPoint = Field(description="Marker position (SVG space)")
     code: str = Field(description="Typed measurement-failure code (never a value)")
+    message: str = Field(
+        default="",
+        description="Short plain-language sheet caption for the failure ('LINEAR "
+        "DIM: REFERENCE LOST - RE-PICK THE EDGE'), stamped beside the marker so the "
+        "print says WHY in words (audit N1). Empty = no caption (marker only).",
+    )
+    text: ComposedPoint | None = Field(
+        default=None,
+        description="Where the `message` caption is stamped (SVG space, baseline-"
+        "left); null when there is no caption",
+    )
 
 
 #: A placed dimension — measured (full geometry) or a typed error marker.
@@ -1580,6 +1655,63 @@ class ComposedNote(BaseModel):
     text: str = Field(description="The note body, rendered verbatim")
 
 
+#: Sheet-level layout problem kinds (audit N2). ``views_overlap``: two placed views'
+#: ink boxes intersect — the sheet is unreadable and MUST NOT ship silently.
+#: ``views_crowded``: they clear, but by less than the documented minimum clearance
+#: (:data:`~geometry.drawings.compose.MIN_VIEW_CLEARANCE_MM`) — legible today,
+#: one design change away from colliding (the 0.70 mm near-tangency the audit
+#: measured before the widening).
+LayoutIssueCode = Literal["views_overlap", "views_crowded"]
+
+#: Severity of a :class:`ComposedLayoutIssue`. ``error``: the sheet is not
+#: shop-readable (overlapping views); ``warning``: readable but fragile.
+LayoutIssueSeverity = Literal["error", "warning"]
+
+
+class ComposedLayoutIssue(BaseModel):
+    """Two placed views that collide, or nearly do (audit N2).
+
+    Auto-layout used to pack the standard quartet to near-tangency and then export
+    the collision that the next design change produced — an overlapping print,
+    silently, in SVG/PDF/DXF alike. Composition now MEASURES every pair of placed
+    views and reports what it found here, in millimetres, and the serializers stamp
+    the issues as a banner on the sheet so a colliding print is never silent.
+
+    ``views`` names the two projections; ``overlap_x_mm``/``overlap_y_mm`` are the
+    signed gaps between their ink boxes on each axis — POSITIVE where the boxes
+    overlap on that axis, NEGATIVE (a clearance) where they do not. Boxes overlap
+    only when BOTH are positive; ``clearance_mm`` is then 0.0 and otherwise the true
+    (smallest-axis) white gap between them.
+    """
+
+    code: LayoutIssueCode = Field(description="views_overlap | views_crowded")
+    severity: LayoutIssueSeverity = Field(description="error | warning")
+    views: list[ViewProjection] = Field(
+        min_length=2,
+        max_length=2,
+        description="The two colliding/crowded projections, in canonical order",
+    )
+    overlap_x_mm: float = Field(
+        description="Signed X-axis overlap (mm): positive = the boxes overlap in X, "
+        "negative = that much X clearance"
+    )
+    overlap_y_mm: float = Field(
+        description="Signed Y-axis overlap (mm): positive = overlap, negative = "
+        "clearance"
+    )
+    clearance_mm: float = Field(
+        description="White gap between the two boxes (mm); 0.0 when they overlap"
+    )
+    message: str = Field(
+        description="Plain-language sheet caption ('TOP / ISOMETRIC VIEWS OVERLAP BY "
+        "6.33 x 60.00 MM - REPOSITION BEFORE RELEASE')"
+    )
+    at: ComposedPoint = Field(
+        description="Where the serializers stamp this line of the sheet banner (SVG "
+        "space, baseline-left) — placement stays the composer's job (design §4.2)"
+    )
+
+
 class ComposedSheet(BaseModel):
     """A fully placed drawing sheet — the model the three serializers render (§4.2).
 
@@ -1611,6 +1743,13 @@ class ComposedSheet(BaseModel):
         description="Placed free-text note annotations (design §2.2), each stamped at "
         "its sheet anchor; empty for a sheet with no notes — additive, so a note-free "
         "sheet composes byte-identically to its pre-notes golden.",
+    )
+    layout_issues: list[ComposedLayoutIssue] = Field(
+        default_factory=list["ComposedLayoutIssue"],
+        description="Measured view-collision diagnostics (audit N2): overlapping or "
+        "sub-clearance view pairs, each with millimetre numbers and a plain-language "
+        "message. EMPTY for a clean sheet — additive, so a clean sheet composes "
+        "byte-identically. Non-empty ⇒ the serializers stamp a banner on the print.",
     )
 
 

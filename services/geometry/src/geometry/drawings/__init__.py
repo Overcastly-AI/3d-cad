@@ -14,12 +14,19 @@ neutral :class:`ProjectedEdge` dataclasses, and the API-facing DTO + evaluate
 endpoint are a later slice.
 """
 
+from geometry.drawings.anchor import (
+    ResolvedAnchor,
+    resolve_anchor_edge,
+)
 from geometry.drawings.assembly_project import (
     compose_assembly_body,
     compose_drawing_evaluation,
     evaluate_assembly_drawing_views,
 )
 from geometry.drawings.compose import (
+    MIN_VIEW_CLEARANCE_MM,
+    VIEW_GUTTER_MM,
+    measure_layout_issues,
     place_sheet,
     serialize_dxf,
     serialize_pdf,
@@ -61,11 +68,14 @@ from geometry.drawings.section import (
 
 __all__ = [
     "FLAT_PATTERN_VIEW",
+    "MIN_VIEW_CLEARANCE_MM",
     "SECTION_VIEW",
+    "VIEW_GUTTER_MM",
     "DimensionTypeError",
     "DimensionValue",
     "Point2D",
     "ProjectedEdge",
+    "ResolvedAnchor",
     "SectionCut",
     "SectionEmptyError",
     "SectionError",
@@ -82,8 +92,10 @@ __all__ = [
     "flat_pattern_view_result",
     "measure_dimension",
     "measure_dimension_dto",
+    "measure_layout_issues",
     "place_sheet",
     "project_view",
+    "resolve_anchor_edge",
     "section_cut",
     "section_view_result",
     "serialize_dxf",

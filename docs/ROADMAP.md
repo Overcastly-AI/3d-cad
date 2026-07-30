@@ -218,6 +218,38 @@ suppress** ✅, **Revolve construction-centerline** ✅ — all with in-app
 authoring. **Next in the Ready queue: Drawings assembly views + BOM/balloons**
 (the drawings pillar's assembly gap), then the small tonight-follow-ups.
 
+**The DRAWING as a deliverable — audit N1 + N2 (both P0) FIXED 2026-07-30**
+(kernel-architect; product audit `245f4a9`). The 07-30 pass judged the artifact a
+shop receives, not the feature list, and found the associative promise broken at
+the two places a revision touches. **N1 — a dimension could not survive the edit it
+measured:** widening a plate 100 → 120 turned its overall-length dimension into
+`subshape_unresolved`, printed as a 2.6 mm dashed circle holding a `!`. Cause: a
+picked FACE has had a resilient second matching tier since FINDINGS #3, a picked
+EDGE had only the strict signature (endpoints AND midpoint AND length), and every
+field of that signature is a function of the edge's own extent. Edges now get the
+same two-tier treatment (`geometry.drawings.anchor`, design
+`docs/design/topological-naming.md` §11): strict first, then a re-match on the
+rebuild-invariant of the curve kind — a line's supporting line + overlapping span,
+a circle's centre + angular station — so the dimension **re-measures to 120.000**
+and the wire says it re-anchored (`MeasuredDimension.anchor.tier`). Placement uses
+the re-anchored name too (the value alone re-measuring still left the annotation
+dropped), and a reference that genuinely cannot be re-anchored now prints WORDS
+beside the view ("DIAMETER DIM: REFERENCE LOST - RE-PICK THE EDGE") in SVG/PDF/DXF.
+Refusals stay refusals: a MOVED hole is an honest error, never a re-anchor onto a
+different circle. **N2 — auto-layout overlapped four views after a resize and
+exported it anyway:** measured 6.33 x 60.00 mm of iso-over-top with 82.8 mm of
+sheet empty. The 0.70 mm pre-edit clearance was the diagnosis — the iso anchor was
+derived only from the front/top/right extents, so it shrank as the isometric grew.
+Anchors are now derived from the extents they must clear (**every pair clears the
+full 24 mm gutter at 100 mm AND 120 mm**), hand-placed views stay honored as
+intent, and composition MEASURES the placed sheet: `views_overlap` /
+`views_crowded` on `ComposedSheet.layout_issues` plus a release-blocking banner
+stamped in all three formats, so an unreadable sheet is never silent. Regression
+gates perform the RESIZE (`tests/test_drawings_resize.py`, 11) plus the resolver
+units (`tests/test_drawings_anchor.py`, 11); the five compose byte-goldens were
+regenerated for the new (clear) layout — a clean sheet still composes with no
+banner ink.
+
 **Sheet metal → full incumbent parity (PAUSED 2026-07-23, resumed on founder
 call).** The bar remains **full parity with SolidWorks/Fusion 360, not "good
 enough"**; `docs/design/sheet-metal-parity.md` (vision-steward, 2026-07-19) is

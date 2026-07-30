@@ -1425,6 +1425,15 @@ export interface components {
         /**
          * ComposedDimensionError
          * @description A placed dimension the model could not measure — an honest marker (§3.3).
+         *
+         *     The marker glyph alone was a defect (audit N1): a 2.6 mm dashed circle holding a
+         *     bare ``!`` tells a machinist nothing, and the exported PDF/DXF carried the same
+         *     mark. So the placed error also carries ``message`` — a SHORT, upper-case sheet
+         *     caption in plain words ("LINEAR DIM: REFERENCE LOST - RE-PICK THE EDGE") — and
+         *     ``text``, where the serializers stamp it beside the marker. This is the
+         *     dimension-level twin of the typed per-view reason :class:`ComposedView` stamps
+         *     under a failed view (FINDINGS #15): the machine-readable ``code`` plus the human
+         *     sentence, on the print itself.
          */
         ComposedDimensionError: {
             /** @description Marker position (SVG space) */
@@ -1450,6 +1459,14 @@ export interface components {
              * @enum {string}
              */
             kind: "error";
+            /**
+             * Message
+             * @description Short plain-language sheet caption for the failure ('LINEAR DIM: REFERENCE LOST - RE-PICK THE EDGE'), stamped beside the marker so the print says WHY in words (audit N1). Empty = no caption (marker only).
+             * @default
+             */
+            message: string;
+            /** @description Where the `message` caption is stamped (SVG space, baseline-left); null when there is no caption */
+            text?: components["schemas"]["ComposedPoint"] | null;
         };
         /**
          * ComposedHatch
@@ -1486,6 +1503,63 @@ export interface components {
             y1: number;
             /** Y2 */
             y2: number;
+        };
+        /**
+         * ComposedLayoutIssue
+         * @description Two placed views that collide, or nearly do (audit N2).
+         *
+         *     Auto-layout used to pack the standard quartet to near-tangency and then export
+         *     the collision that the next design change produced — an overlapping print,
+         *     silently, in SVG/PDF/DXF alike. Composition now MEASURES every pair of placed
+         *     views and reports what it found here, in millimetres, and the serializers stamp
+         *     the issues as a banner on the sheet so a colliding print is never silent.
+         *
+         *     ``views`` names the two projections; ``overlap_x_mm``/``overlap_y_mm`` are the
+         *     signed gaps between their ink boxes on each axis — POSITIVE where the boxes
+         *     overlap on that axis, NEGATIVE (a clearance) where they do not. Boxes overlap
+         *     only when BOTH are positive; ``clearance_mm`` is then 0.0 and otherwise the true
+         *     (smallest-axis) white gap between them.
+         */
+        ComposedLayoutIssue: {
+            /** @description Where the serializers stamp this line of the sheet banner (SVG space, baseline-left) — placement stays the composer's job (design §4.2) */
+            at: components["schemas"]["ComposedPoint"];
+            /**
+             * Clearance Mm
+             * @description White gap between the two boxes (mm); 0.0 when they overlap
+             */
+            clearance_mm: number;
+            /**
+             * Code
+             * @description views_overlap | views_crowded
+             * @enum {string}
+             */
+            code: "views_overlap" | "views_crowded";
+            /**
+             * Message
+             * @description Plain-language sheet caption ('TOP / ISOMETRIC VIEWS OVERLAP BY 6.33 x 60.00 MM - REPOSITION BEFORE RELEASE')
+             */
+            message: string;
+            /**
+             * Overlap X Mm
+             * @description Signed X-axis overlap (mm): positive = the boxes overlap in X, negative = that much X clearance
+             */
+            overlap_x_mm: number;
+            /**
+             * Overlap Y Mm
+             * @description Signed Y-axis overlap (mm): positive = overlap, negative = clearance
+             */
+            overlap_y_mm: number;
+            /**
+             * Severity
+             * @description error | warning
+             * @enum {string}
+             */
+            severity: "error" | "warning";
+            /**
+             * Views
+             * @description The two colliding/crowded projections, in canonical order
+             */
+            views: ("front" | "top" | "right" | "iso" | "flat_pattern" | "section")[];
         };
         /**
          * ComposedLineEdge
@@ -1651,6 +1725,11 @@ export interface components {
              * @description Sheet height (mm) — the SVG viewBox height
              */
             height_mm: number;
+            /**
+             * Layout Issues
+             * @description Measured view-collision diagnostics (audit N2): overlapping or sub-clearance view pairs, each with millimetre numbers and a plain-language message. EMPTY for a clean sheet — additive, so a clean sheet composes byte-identically. Non-empty ⇒ the serializers stamp a banner on the print.
+             */
+            layout_issues?: components["schemas"]["ComposedLayoutIssue"][];
             /**
              * Margin Mm
              * @description Border inset from the sheet edge (mm)
@@ -2114,6 +2193,36 @@ export interface components {
              * @enum {string}
              */
             type: "diameter";
+        };
+        /**
+         * DimensionAnchor
+         * @description Where a measured dimension's reference(s) landed on the CURRENT body (§11).
+         *
+         *     The re-anchoring result: ``tier`` says whether the stored stage-1 signature
+         *     matched verbatim (``exact``) or had to be re-anchored on its curve-kind
+         *     invariant (``durable``), and ``primary``/``secondary`` carry the CURRENT
+         *     signatures of the edges the dimension now names — the primary being the
+         *     dimension's main edge (the measured edge / the circle / ``edge_a`` / the first
+         *     point-to-point endpoint's edge) and the secondary the second one where the
+         *     dimension type has one (``edge_b``, the second endpoint's edge).
+         *
+         *     They are what the composer matches against the PROJECTED edges, so an annotation
+         *     lands on the geometry that is actually there after a rebuild rather than on the
+         *     stale authored signature (which is exactly why a re-measured dimension used to
+         *     still vanish from the sheet). A client may also persist them to heal the stored
+         *     ref, and ``tier == "durable"`` is the honest signal that the reference moved.
+         */
+        DimensionAnchor: {
+            /** @description Current signature of the dimension's primary edge, or null when the dimension names no edge */
+            primary?: components["schemas"]["EdgeSignature"] | null;
+            /** @description Current signature of the dimension's second edge (angular `edge_b` / the second point-to-point endpoint's edge); null otherwise */
+            secondary?: components["schemas"]["EdgeSignature"] | null;
+            /**
+             * Tier
+             * @description 'exact' (stored signature matched verbatim) or 'durable' (re-anchored on the curve-kind rebuild invariant, §11)
+             * @enum {string}
+             */
+            tier: "exact" | "durable";
         };
         /**
          * DimensionEndpointRef
@@ -4160,6 +4269,8 @@ export interface components {
          *     :class:`DrawingViewResult` success/error envelope for a single dimension.
          */
         MeasuredDimension: {
+            /** @description Where the dimension's reference(s) landed on the CURRENT body (topological-naming §11) — the re-anchored signatures + whether the match was `exact` or `durable`. Null when the dimension could not be resolved at all (`error` set) or for a caller-synthesised value. Additive: a consumer that ignores it reads the same value it always did. */
+            anchor?: components["schemas"]["DimensionAnchor"] | null;
             /** @description Typed resolution failure (`subshape_unresolved` / `subshape_ambiguous` / `dimension_wrong_type`), or null on success */
             error?: components["schemas"]["FeatureError"] | null;
             /**
