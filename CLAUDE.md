@@ -220,7 +220,10 @@ Stale docs are a defect (this rule saved Next-Lane repeatedly; see
   it on a later turn; there is no way to be woken by a CI transition. Two
   practical notes: (a) `list_workflow_runs` returns ~430 KB and blows the tool
   limit — it gets spilled to a file, so parse that file with `python3 -c` and
-  print only `head_sha`/`status`/`conclusion` rather than trying to read it;
+  print only `head_sha`/`status`/`conclusion` rather than trying to read it.
+  **`per_page` is IGNORED** — asking for 1 still returns 30 runs and the same
+  ~430 KB, so do not bother trying to trim the payload that way; the spill +
+  parse is the only cheap path;
   (b) `get_workflow_run` on ONE id is small and is the cheap way to re-check a
   known run.
 - **FIXED 2026-07-30 — `cancel-in-progress` is now PR-only, so a branch run
