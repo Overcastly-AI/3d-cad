@@ -452,6 +452,13 @@ recipe here in the same commit as the fix.**
   `pnpm --filter @loft/web {typecheck,test}` + `just lint` + geometry `pytest`.
   (Only `just dev` / `docker compose` proper — which build the container images —
   still can't run; use the native boot above instead of the compose stack.)
+- **A long-running native uvicorn on a scratchpad SQLite file starts returning
+  `attempt to write a readonly database` after ~10 minutes, and it reads exactly
+  like a code regression.** Symptom: register -> 500, every spec dies at
+  `seedSession`, while a FRESH process writes the same file fine. Nothing in the
+  app changed; the long-lived connection's handle goes bad. Restarting the three
+  services clears it, so bounce them before each e2e leg rather than debugging the
+  500 — an agent lost time to this on 2026-07-30 chasing a phantom regression.
 - **A `conftest.py` env var leaks ACROSS services, because pytest collects every
   conftest before running any test.** `services/gateway/tests/conftest.py` does
   `os.environ.setdefault("LOFT_ENV", "dev")` so the gateway suite can build

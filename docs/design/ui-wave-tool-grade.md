@@ -82,6 +82,28 @@ index math and orientation-agnostic — it ports unchanged. Backend contract
 `AssemblyTreePanel` have no show/hide, no opacity, no isolate.
 `BodiesPanel`'s own docstring concedes it: "this stays a dense read-out."
 
+**AS-BUILT CORRECTIONS (assembly half shipped `173af39`)** — this section is a
+PLAN; two of its calls did not survive contact and the part half should follow
+the as-built, not the sketch:
+
+1. **The three-stop control discloses for the SELECTED row, not on hover.** The
+   plan said hover-reveal. The assembly panel is 320px and the row already spends
+   most of it on balloon + name + stamp + Ground + Remove, so a row that GREW on
+   hover would reflow the list under the cursor, and reserving the height on every
+   row doubles a deliberately dense list. Selection-disclosure costs nothing at
+   rest and reuses a meaning the panel already has. The eye itself is always
+   visible.
+2. **The ghost glyph is not a hollow pupil.** The first cut distinguished the
+   three eye states by filled-vs-hollow pupil and MEASURED illegible at 16px in
+   the captured screenshot. The shipped forms differ by WHOLE STROKES — pupil
+   punched / lens broken and empty / lens struck through. Generalisable: at 16px,
+   a fill difference is not a difference.
+
+Also as-built and worth copying: `assembly.ghost` references
+`viewport.preview.surfaceOpacity/edgeOpacity` so there is one translucency
+language, but deliberately NOT the preview's brass tint — brass means "about to
+be", while a ghost is committed and merely see-through.
+
 **Restraint applies here.** The timeline gets this wave's boldness. Per the
 CLAUDE.md mandate these panels are "quiet precision instruments," so these
 controls are dense, keyboard-first, and revealed on hover/focus using the idiom
