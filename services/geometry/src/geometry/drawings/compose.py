@@ -518,7 +518,7 @@ def _free_slot_anchor(half: Vec2, occupied: Sequence[_YUpRect], dims: Vec2) -> V
     return Vec2(ux1 + g + half.x, ucy)
 
 
-def _resolve_view_anchors(
+def resolve_view_anchors(
     layout: SheetLayout,
     result_by_proj: dict[ViewProjection, DrawingViewResult],
     dims: Vec2,
@@ -531,7 +531,38 @@ def _resolve_view_anchors(
     (2) any ``auto_place=False`` view — honored verbatim at its authored ``position``
     (the drag-to-place seam); (3) the additive ``auto_place`` views (section /
     flat_pattern) — each dropped into a non-overlapping :func:`_free_slot_anchor`.
+
+    KEYED BY PROJECTION, and that is an assumption this service does not own.
+    Every map here — ``result_by_proj``, ``anchors``, the caller's
+    ``svg_rect_by_proj`` — is keyed on :class:`ViewProjection`, so two views
+    sharing a projection would collide and the LAST one would win SILENTLY: a
+    view simply absent from the print, with no error anywhere. Nothing in this
+    module prevents that. What prevents it today is a unique constraint in
+    ANOTHER SERVICE — ``uq_views_sheet_projection`` on ``documents`` (migration
+    0011) — which geometry never sees and cannot enforce.
+
+    That cross-service invariant is exactly what multi-section sheets relax
+    (BACKLOG #31), so the guard below states the dependency and makes it LOUD.
+    Without it, relaxing that constraint would surface as a view missing from a
+    drawing rather than as a failure pointing here. Same reasoning as the
+    dimension-pairing guard in :func:`place_sheet`: a placement must never
+    silently attach to — or detach from — the wrong thing.
     """
+    counts: dict[ViewProjection, int] = {}
+    for vp in layout.views:
+        counts[vp.projection] = counts.get(vp.projection, 0) + 1
+    repeated = sorted(p for p, n in counts.items() if n > 1)
+    if repeated:
+        raise ValueError(
+            "resolve_view_anchors: the sheet layout repeats a projection "
+            f"({', '.join(repeated)}), but every anchor map in this composer is "
+            "keyed by projection, so one of those views would be dropped from the "
+            "sheet without an error. Composing several views of one projection "
+            "requires re-keying this pipeline on each view's own identity "
+            "(BACKLOG #31); until then documents' uq_views_sheet_projection is "
+            "what makes this unreachable."
+        )
+
     bounds_by_proj: dict[ViewProjection, ViewBounds | None] = {}
     for proj in STANDARD_VIEWS:
         r = result_by_proj.get(proj)
@@ -1694,7 +1725,7 @@ def place_sheet(
     # bounds-aware as before, additive section/flat_pattern views into a NON-OVERLAPPING
     # free slot (never the old dead-centre collision), and any auto_place=False view
     # honored at its authored position.
-    anchors = _resolve_view_anchors(layout, result_by_proj, dims)
+    anchors = resolve_view_anchors(layout, result_by_proj, dims)
 
     svg_rect_by_proj: dict[ViewProjection, SvgRect] = {}
     for proj in STANDARD_VIEWS:
@@ -1742,7 +1773,7 @@ def place_sheet(
 
     # Flat-pattern branch (sheet-metal.md §7) — ADDITIVE to the standard-4 layout
     # above. A flat-pattern sheet holds a single flat blank (already 2D, no HLR): it is
-    # placed at its RESOLVED anchor (`_resolve_view_anchors`) — the historical sheet
+    # placed at its RESOLVED anchor (`resolve_view_anchors`) — the historical sheet
     # centre for a flat-pattern-only sheet (byte-identical), a NON-OVERLAPPING free slot
     # when it shares a sheet with standard views (FINDINGS #6) — via the SAME extent-
     # driven `_compose_view`/`view_to_svg_edges`/`view_bounds` machinery every standard
@@ -1772,7 +1803,7 @@ def place_sheet(
 
     # Section branch (drawings-section.md §5) — ADDITIVE to the standard-4 layout,
     # exactly like flat_pattern: a section view is a single view placed at its RESOLVED
-    # anchor (`_resolve_view_anchors`) — the historical sheet centre for a section-only
+    # anchor (`resolve_view_anchors`) — the historical sheet centre for a section-only
     # sheet (byte-identical), a NON-OVERLAPPING free slot when it shares a sheet with
     # standard quartet (FINDINGS #6 — previously it collided dead-centre with TOP/ISO) —
     # through the SAME `_compose_view` machinery, and its crosshatch rides along,

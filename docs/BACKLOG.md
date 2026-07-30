@@ -63,6 +63,41 @@ even-odd scanline clip) across SVG/PDF/DXF, `views.section_params jsonb` (0008);
 wrong-half + multi-loop + byte-determinism goldens; oblique + the `project_view`
 frame refactor are v2/§11. Spike de-collected.
 
+- [x] (P1, L) **#57 — MASS PROPERTIES can report MASS. Kernel + wire SHIPPED
+      2026-07-30** (kernel-architect; founder-raised "units and mass should be
+      controlled from a settings page"; design `docs/design/materials.md`,
+      decision RESEARCH §9a, numbers GEOMETRY-QA 2026-07-30). The panel was named
+      for a thing it did not have: no density, no material, anywhere — and
+      `ShapeProperties.centroid` was even documented as "centre of mass". Now:
+      a 7-material handbook library in `py_kit.schemas.materials` (served at
+      `GET /api/v1/materials`, never hardcoded client-side); `mass = volume x
+      density` derived in `measure_shape` beside the volume it comes from;
+      assignment = document default + per-body overrides keyed by the §MB-0 base
+      feature id (`parts.materials` JSONB, migration 0013, wholesale PATCH
+      replacement) threaded through the part AND assembly evaluation requests.
+      **Absence is the contract:** no material -> `mass_g: null`, never 0 g and
+      never a defaulted steel; 45 goldens assert it. Both analytic roll-ups
+      compose mass and a genuinely MASS-weighted `center_of_mass` (the assembly
+      had been calling its volume weighting mass-weighted): measured 27.0 g
+      (dev 3.6e-15) single-material, **84.56 g at x=32.3368 mm vs the volume
+      centroid's 25 mm** mixed. GLB bytes identical with and without a material.
+      A material change marks the last-evaluate record stale (mass depends on
+      it), unlike a rename/unit change. FRONTEND FOLLOW-UP filed below.
+      [src: founder flow audit 2026-07-30 · UI-REVIEW "overstated surface" class]
+- [ ] (P1, M) **#57b — the mass UI: stop promising mass before there is a
+      material** (`apps/web`, `packages/design`). The wire landed above; the
+      panel has not moved. Acceptance: (1) while `properties.mass_g` is null the
+      panel is NOT titled "MASS PROPERTIES" and shows no mass row — it offers the
+      assign-material affordance instead; (2) absence renders as absence (an em
+      dash / "no material"), never `0 g`; (3) a material picker reading
+      `GET /api/v1/materials` (document default + per-body override on the Bodies
+      panel, PATCH `materials` wholesale with `expected_tree_version`); (4) mass
+      formats through the SAME units seam lengths use — `MASS_G_PER_UNIT` +
+      `formatMass(g, lengthUnit)` in `packages/design/src/units.ts`, imperial
+      documents reading lb, metric promoting g->kg above 1000 g (materials.md §5);
+      (5) a mixed-material part shows the centre of MASS distinctly from the
+      centroid, and names the body that has no material when the part total is
+      null (`BodyLumpInfo.material`/`.mass_g` carry it). [src: materials.md §6]
 - [x] (P1, M) **UI-W1 — the bottom TIMELINE strip with a draggable travel stop.
       SHIPPED 2026-07-30** (frontend-builder; founder-directed, design
       `docs/design/ui-wave-tool-grade.md` Surface 1). Rollback left the tree
@@ -1191,6 +1226,11 @@ Full narrative evidence lives in `docs/ROADMAP.md` (Phase 4/4b sections) and
 `CHANGELOG.md`; one line per item below per token economy.
 
 ### Recently shipped (2026-07-30)
+
+- **#31 — compose's projection-keyed anchors now REFUSE a repeated projection**
+  instead of silently dropping a view from the print. The invariant that made it
+  unreachable lives in another service's DB constraint; geometry now states and
+  checks its own dependency. Mutation-verified.
 
 - **N1 (P0) — revising a part destroyed the dimension that measured it.** Widening
   100 -> 120 made the overall-length dim `subshape_unresolved` (a 2.6 mm `!`); edges

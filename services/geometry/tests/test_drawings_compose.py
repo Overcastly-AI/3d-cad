@@ -42,6 +42,7 @@ from geometry.drawings.compose import (
     bounds_aware_layout,
     build_dimension_annotation,
     format_dimension_label,
+    resolve_view_anchors,
     sheet_dimensions,
     view_to_svg_edges,
 )
@@ -63,6 +64,9 @@ from py_kit.schemas.drawings import (
     ProjectedPoint,
     ProjectedViewEdge,
     RadiusDimensionParams,
+    SheetLayout,
+    SheetPoint,
+    SheetViewPlacement,
     TitleBlock,
     ViewProjection,
 )
@@ -1380,3 +1384,52 @@ def test_place_sheet_rejects_mismatched_dimension_inputs() -> None:
     shuffled = list(reversed(request.dimensions))
     with pytest.raises(ValueError, match="do not correspond"):
         place_sheet(evaluation, shuffled, request.layout)
+
+
+def test_repeated_projection_in_a_layout_is_refused_not_silently_dropped() -> None:
+    """Two views of one projection must FAIL, not lose one of them (BACKLOG #31).
+
+    `resolve_view_anchors` and every map around it are keyed by
+    `ViewProjection`, so a repeated projection would collide and the last write
+    would win — a view absent from the print with no error raised anywhere. What
+    makes that unreachable in production is a unique constraint in a DIFFERENT
+    service (`uq_views_sheet_projection` on documents, migration 0011), which
+    geometry cannot see or enforce.
+
+    That is precisely the constraint multi-section sheets relax, so this test
+    pins the dependency: whoever relaxes it gets a loud failure naming this
+    pipeline instead of a mystery missing view on a drawing.
+    """
+    layout = SheetLayout(
+        title="Repeated projection",
+        views=[
+            SheetViewPlacement(
+                projection="front", position=SheetPoint(x_mm=100.0, y_mm=100.0)
+            ),
+            SheetViewPlacement(
+                projection="front", position=SheetPoint(x_mm=300.0, y_mm=100.0)
+            ),
+        ],
+    )
+
+    with pytest.raises(ValueError, match="repeats a projection"):
+        resolve_view_anchors(layout, {}, Vec2(420.0, 297.0))
+
+
+def test_a_layout_with_distinct_projections_still_resolves() -> None:
+    """The guard must not fire on an ordinary sheet — non-vacuity for the above."""
+    layout = SheetLayout(
+        title="Ordinary",
+        views=[
+            SheetViewPlacement(
+                projection="front", position=SheetPoint(x_mm=100.0, y_mm=100.0)
+            ),
+            SheetViewPlacement(
+                projection="top", position=SheetPoint(x_mm=300.0, y_mm=100.0)
+            ),
+        ],
+    )
+
+    anchors = resolve_view_anchors(layout, {}, Vec2(420.0, 297.0))
+
+    assert set(anchors) == {"front", "top"}
