@@ -1101,6 +1101,12 @@ Full narrative evidence lives in `docs/ROADMAP.md` (Phase 4/4b sections) and
 
 ### Recently shipped (2026-07-30)
 
+- **J8 — the DoD's "geometry gates" ran 11% of the geometry suite.**
+  `scripts/e2e.sh` leg 1 was a hand-listed two-file allowlist that excluded the
+  309-test composition matrix; now the whole directory. Measured 233 -> 2200
+  tests selected. CI's repo-wide pytest was never blind — the LOCAL pre-commit
+  gate was.
+
 - **F1 — the sketch Exit destroyed unsaved work while the caption blamed Esc**
   (which actually SAVES). Esc chip moved to Save; Exit states the count it would
   discard and asks first; prompt is derived so it cannot outlive the work.

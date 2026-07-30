@@ -79,10 +79,27 @@ start_service() {
   return 1
 }
 
-echo "== e2e leg 1/2: geometry gates (goldens + STEP round-trip) =="
-uv run pytest \
-  services/geometry/tests/test_goldens.py \
-  services/geometry/tests/test_step_roundtrip.py
+# The WHOLE geometry suite, by directory — deliberately not a file list.
+#
+# This was a hand-written two-file allowlist (test_goldens.py +
+# test_step_roundtrip.py) until 2026-07-30. Engineering audit J8 measured what
+# that actually covered: 228 of 2118 geometry tests, and it EXCLUDED the
+# 309-test composition matrix — the suite built specifically to catch silent
+# wrong geometry, which had already found four real defects including two P0s.
+# So "geometry gates green" in our Definition of Done certified ~11% of the
+# suite while skipping the part that finds the P0s, and every new test file
+# landed outside the gate by default.
+#
+# Same defect as the matrix's own hand-listed predecessor axis and G3's
+# hand-listed service names: an enumerated gate cannot fail when the thing it
+# enumerates grows, it just quietly stops covering. A directory can.
+#
+# Note ci.yml's `python` job already runs `uv run pytest` over the whole repo,
+# so CI was never blind here — the gap was in the LOCAL gate an agent runs
+# before committing, which is where a false "geometry verified" is most
+# expensive because it is what the commit message then claims.
+echo "== e2e leg 1/2: geometry gates (full geometry suite) =="
+uv run pytest services/geometry/tests
 
 echo
 echo "== e2e leg 2/2: Playwright suite (@loft/web) =="
