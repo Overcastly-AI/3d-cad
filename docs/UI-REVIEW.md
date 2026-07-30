@@ -1800,3 +1800,391 @@ unstarted + units replace the duplicate date columns) · token discipline ✅.
 41–45 (dense assembly, clash stress, 1280 sketch/editor) regenerated this
 session. Stack :8030–:8032 + Vite :5193 booted and torn down; other
 auditors' stacks untouched.
+
+## 2026-07-30 pass — verification of the 07-25 → 07-29 surfaces + a systemic token defect
+
+**Trigger.** ~25 commits since the 2026-07-24 hard audit; four specific claims
+to verify (registers `9203126`, tapped-hole authoring `a8cf9ec`, honest clash
+schedule `9e7f369`, cut ghost `92c9d5b`), plus a free sweep with the two lenses
+that have historically found the worst defects: *is this chrome element wired*
+and *does the UI assert something the backend never said*.
+
+**Method.** Isolated native stack (gateway :8040, documents :8041, geometry
+:8042 from fresh SQLite; Vite :5194 — all torn down, shared :8000–:8002 left
+alone). Real Chromium at 1280×800, 1366×768, 1440×900, 1600×1000, 1920×1080,
+1024×768; `reducedMotion: reduce` pass; keyboard-only pass on the register;
+CSSOM + `getBoundingClientRect` measurement rather than eyeballing; the app's
+Tailwind build inspected directly (`pnpm exec tailwindcss -c tailwind.config.ts
+-i src/index.css -o …`). Committed founder shots re-read for the four claims.
+No app code touched. Probe specs were temporary and are deleted; every number
+below is reproducible from the repro line on each finding.
+
+### Executive verdict
+
+**Three of the four claims hold; one is overstated. And underneath all of them
+sits a defect nobody has flagged in three audits: the design system silently
+voids ~118 of its own utility classes**, so several *deliberately designed*
+elements — including the feature tree's rollback bar, the tapped hole's thread
+callout rules, and the active-tool brass scribe that the token docs call "the
+accent is a line, never a fill" — **do not render at all**, the primary
+toolbar's tool buttons are 16 px tall instead of the intended 28, and the
+measure HUD renders at the top of the frame instead of above the view rail.
+This is the "fix the primitive" rule failing at the root of the primitive: it
+is one line of `tokens.ts` plus a guard, and it is the highest-leverage change
+available.
+
+Otherwise the burn-down is real and holds up under measurement: the 07-24 P0
+(band width tiers) is properly fixed — the band measures itself
+(`data-band-tier`) and `scrollWidth == clientWidth` at 1280/1440/1600/1920 with
+INSPECT visible at all four; tooltips now win the stacking contest (`z-band`);
+right-click exists; feature-localized face selection landed; a mouse legend
+chip closed the orbit/pan/zoom discoverability gap; `prefers-reduced-motion`
+is clean (zero transitioning transform/opacity/geometry properties under
+`reduce`); focus rings are 2 px solid on every register control and the tab
+order is correct.
+
+### P1 — breaks a shipped surface
+
+- **P1 — DESIGN SYSTEM — the closed `spacing` scale silently deletes ~118
+  utility classes, and five visible elements with them.**
+  `packages/design/src/tailwind-preset.ts:60` sets `spacing: mapPx(spacing)`,
+  *replacing* Tailwind's scale with the closed one at
+  `packages/design/src/tokens.ts:537`, which has no `1.5`, no `2.5` and no
+  `px` step. Tailwind emits **no rule at all** for a utility whose step is
+  absent — no warning, no build error — and Preflight zeroes `button` padding,
+  so the intent just evaporates. Verified against the built CSS: `.py-1\.5`,
+  `.gap-1\.5`, `.px-1\.5`, `.h-px`, `.w-px`, `.inset-x-1\.5`, `.bottom-16`,
+  `.max-h-64`, `.w-24/40/44/48/52`, `.min-w-20/24/28` are **absent**; only
+  `py-0.5 / 1 / 2 / 3 / 6 / 10` exist. 118 usages across 40 files. Confirmed
+  user-visible consequences, each measured in the browser:
+  - **The feature tree's ROLLBACK BAR does not exist.**
+    `FeatureTreePanel.tsx:181,187,192` draw it as `h-px grow bg-brass` +
+    `h-px w-3 bg-brass`, and the *hover* drop hint as `h-px grow
+    bg-transparent group-hover:bg-etch` — all three collapse to 0 px. The word
+    "ROLLBACK" renders with no line, and the drop slots (`rollback-slot-N`,
+    measured 294×8 px) have **no hover affordance whatsoever**. *Scenario:* a
+    Fusion user looks for the rollback bar to step back through the tree,
+    sees a stray label, and concludes history rollback isn't there. Visible in
+    every committed part shot (e.g. `docs/screenshots/hole-tapped-tree-desktop.png`,
+    tree row 03 area — bare "ROLLBACK", no rule).
+  - **The tapped hole's thread callout has no leader tick and no note rule.**
+    `HoleEditor.tsx:633` (`h-px w-3 bg-brass`) and `:642`
+    (`h-px grow bg-brass/40`) measure **12×0** and **223×0**. The code calls
+    this "the one loud line in a quiet card"; it renders as plain brass text.
+    Evidence: `docs/screenshots/hole-tapped-laptop.png` — "M10x1.5" with
+    nothing either side of it.
+  - **The active-tool brass scribe never renders, on the toolbar or in any
+    SegmentedControl.** `ToolButton.tsx:168` and `SegmentedControl.tsx:86` are
+    both `absolute inset-x-1.5 bottom-0.5 h-px bg-brass` — measured **0×0**
+    with `aria-pressed="true"`. Selection is carried by ink colour alone, i.e.
+    the token system's stated signature ("the accent is a line, never a fill")
+    is not on screen anywhere.
+  - **Every tool button in the primary command band is a 32×16 px target.**
+    `ToolButton.tsx:139` `py-1.5` → computed `padding: 0px 8px`, so the button
+    is exactly its 16 px glyph. Identical at 1280/1440/1600/1920. The doc
+    comment two lines up promises "a comfortable ≥32px square hit target".
+    Same cause makes `SegmentedControl` segments 15 px tall
+    (`SegmentedControl.tsx:67`) and the new viewport context menu's rows
+    **222×17 px at 23 px pitch** (`ContextMenu.tsx:237`, `gap-2.5 py-1.5` both
+    dead — which is also why the menu's glyph sits flush against its label;
+    see the cramped menu in the 1440 repro).
+  - **The measure HUD renders at the top of the viewport.**
+    `MeasureReadout.tsx:105,125,174` position it `absolute bottom-16
+    left-1/2`; `bottom-16` is dead → `bottom: auto` → static position.
+    Measured at 1440×900: `top: 90, bottom: 144` in a 900 px window, i.e.
+    pinned under the command band and **partially occluded by the band's own
+    "Measure M" tooltip**, at the opposite end of the frame from the picks the
+    user is making.
+  - **`AddInstancePanel.tsx:61` `max-h-64 overflow-y-auto` never caps or
+    scrolls** — the add-part list is unbounded, so an assembly library of 40
+    parts grows the panel past the frame. That is a missing long-content state
+    created by the same defect.
+  **Fix (primitive, one commit):** add the half-steps the design language
+  actually uses to `tokens.ts` `spacing` — `"1.5": 6, "2.5": 10, px: 1` — and
+  convert the one-off large widths (`w-24/28/40/44/48/52`, `min-w-20/24/28`,
+  `max-h-64`, `bottom-16`) to either named `layout` tokens or arbitrary values
+  (`w-[11rem]`), since those are genuinely outside a closed scale.
+  **Then make it impossible to regress:** a unit test in `packages/design`
+  that greps `apps/web/src` + `packages/design/src` for spacing-family
+  utilities and fails on any step not present in `theme.spacing`. The failure
+  mode is *silent*, so a guard is the deliverable, not the scale edit.
+  *Repro:* `pnpm exec tailwindcss -c apps/web/tailwind.config.ts -i
+  apps/web/src/index.css -o /tmp/built.css && grep -c 'h-px' /tmp/built.css`
+  → 0.
+
+- **P1 — assembly viewport — an UNVERIFIED pair is painted as a measured
+  clash, and told to screen readers as "interfering".** The panel and the tree
+  are honest (`AssemblyClashPanel.tsx:119-141`, dashed rule + UNVERIFIED
+  stamp + parenthesised bound), but `AssemblyPage.tsx:841` hands the scene
+  `clashIds.flagged` — the *union* — while the tree gets `measured` +
+  `unverifiedOnly` separately (`:850-851`). `AssemblyScene.tsx:184-195` then
+  gives that instance `data-clashing="true"`, the flag-red balloon, and
+  `aria-label="…, interfering"`, and `InstanceMesh.tsx:82-88` gives it the
+  full `clashTint`. *Scenario:* the kernel says "I could not measure this
+  pair"; the hero surface says, in the alarm colour, "these parts interfere",
+  and a screen-reader user is told it flatly. This is the same class as the
+  false `CLASH` badge a prior audit caught — two of three surfaces were
+  repaired, the third was not. Evidence:
+  `docs/screenshots/clash-unverified-after-1280.png` — instance 3 is
+  UNVERIFIED in both panels and red in the viewport. **Fix:** plumb a third
+  state through `AssemblyScene`/`InstanceMesh` (`unverifiedInstanceIds`, as
+  the tree already receives): desaturated/gauge edge-light rather than the
+  flag tint, `data-clash-state="unverified"`, and an accessible suffix that
+  matches the panel's words (", overlap unverified"). One clash language,
+  *three* surfaces — for real this time.
+
+- **P1 — hole editor — the tapped + countersink + blind form runs off the
+  bottom of the frame and takes the tap-drill override with it.** Feature
+  editors are bare `absolute top-3 w-editor` cards
+  (`HoleEditor.tsx:396-405`) with no `max-height` and no scroll, unlike
+  `FloatingPanel.tsx:36-37,96` which already encodes the clamp
+  (`max-h-[calc(100%-4.5rem)]` + `min-h-0 overflow-y-auto`). Measured, C'sink
+  + Tapped + Blind depth:
+  | viewport | card bottom | `document.scrollHeight` | consequence |
+  | --- | --- | --- | --- |
+  | 1280×800 | 858 | 858 (> 800) | Cancel/Create off-frame; **root becomes vertically scrollable** |
+  | 1366×768 | 858 | 858 (> 768) | tap-drill chip (770–797) **and** footer (810–857) unreachable |
+  C'sink + Tapped alone already reaches 801 at 1280×800. *Scenario:* on a
+  1366×768 laptop a machinist authors an M10 countersunk blind tapped hole
+  and cannot reach the derived tap-drill chip — the single control the
+  "derived-but-overridable" design exists for — nor Create; the page scrolls
+  the top bar away instead. (Enter and the band's OK cell still commit, which
+  is why this is P1 and not P0.) **Fix (primitive):** route every feature
+  editor through one `EditorCard` built on `FloatingPanel`'s clamp — capped
+  height, scrolling body, action footer pinned — so no editor can ever grow
+  past the frame as verbs keep landing. Add a Playwright guard asserting
+  `document.scrollHeight == clientHeight` with the tallest editor open at
+  1280×800 **and** 1366×768.
+
+- **P1 — hole editor — the Tapped checkbox promises a drawing callout that
+  does not exist anywhere.** `HoleEditor.tsx:616`: *"Drills the tap drill and
+  carries the callout to drawings — no helix is modelled."* The
+  `IsoMetricThread` field is read in exactly one place in the backend —
+  `services/geometry/src/geometry/features/evaluate.py:1901`, to validate the
+  bore — and `grep -n thread` across `services/documents/src/documents/drawings.py`
+  and `services/geometry/src/geometry/drawings/compose.py` returns only the
+  word "threading/threaded" in prose. No sheet annotation, no BOM column, no
+  PDF/DXF note, no STEP attribute. *Scenario:* a user ticks Tapped
+  specifically because the UI told them the callout reaches the drawing,
+  exports the sheet to a shop, and the shop receives a plain Ø8.5 bore with
+  no thread spec — the exact failure mode the byte-identical-mesh problem was
+  supposed to be solved for. **Fix:** either (a) change the copy today to what
+  is true ("carries the M-designation on the feature; the tree shows it — the
+  drawing note is not implemented yet"), or (b) land the sheet note. (a) is a
+  one-line honesty fix and should not wait for (b). File (b) as the BACKLOG
+  item that closes the tapped-hole story.
+
+### P2 — clearly behind the bar
+
+- **P2 — register — the sheet number presents itself as a filing identity and
+  is a row ordinal.** `DocumentRegister.tsx:208-210` documents `sheetNo` as
+  *"Filing identity: '001'. Stable"* but computes `String(index+1)`
+  (`:265`), and the create line's "next sheet number" is `documents.length+1`
+  (`:197`). Measured: rows `001/002/003` for [Bracket plate, Motor mount…,
+  Spindle housing]; delete Bracket plate → `001/002` now address Motor mount
+  and Spindle housing. *Scenario:* a user notes "sheet 002" in a change note
+  or a message, deletes an older part, and 002 silently means a different
+  part. This is a readout claiming more than it knows — the same lens as the
+  false clash badge, at lower stakes. **Fix:** cheapest honest version — make
+  the column an ordinal and say so (`#` header, `sr-only` "Row", and drop
+  "filing identity" from the doc comment); the durable version is a stored
+  per-owner monotonic sequence on the document row, which is a documents-service
+  change and worth filing separately if the founder wants real sheet numbers.
+- **P2 — primitives — `PanelActionCell` is a `pointer-events-none` disabled
+  trap, and so is `PickButton`.** `packages/design/src/primitives/Panel.tsx:101`
+  sets `disabled:opacity-50 disabled:pointer-events-none` on the cell used
+  for **every editor footer action and every export cell**, and it uses the
+  native `disabled` attribute — so a gated Create/Save/Export can be neither
+  hovered nor focused and has nowhere to hang a reason.
+  `HoleEditor.tsx:159-179` `PickButton` does the same (`disabled={!hasFace}`
+  on "Pick a point", `cursor-not-allowed`, no reason). `ToolButton` solved
+  this correctly two audits ago (`aria-disabled` + `aria-describedby` caption,
+  reachable by mouse *and* keyboard — verified live: `aria-label="Hole —
+  create a body first"`). *Scenario:* Create is grey, the user cannot discover
+  why by hover or by Tab. **Fix:** give `PanelActionCell` the `ToolButton`
+  treatment — `aria-disabled`, inert on activation, a `disabledReason`
+  rendered as a described-by caption — and add the same to `PickButton`
+  (or better, promote `PickButton` into the design package, since three
+  editors now hand-roll it).
+- **P2 — assembly — the grounded instance's balloon number is replaced by its
+  state, so the number the clash schedule and BOM cite cannot be found in the
+  viewport.** `AssemblyScene.tsx:200` renders `instance.grounded ? "⏚" :
+  instance.balloon`. In `clash-unverified-after-1280.png` the schedule reads
+  "①1 ✕ ②2" and there is no "1" anywhere on the canvas. *Scenario:* a user
+  reads a clash row, looks for part 1 to move it, and can't locate it.
+  **Fix:** keep the number always; carry "grounded" as an adjacent anchor tick
+  or a brass ring on the balloon. Identity is not a state slot.
+- **P2 — assembly panels — `①`/`②` are decorative glyphs that look like the
+  numbers next to them.** `AssemblyClashPanel.tsx:132` renders
+  `①{a.balloon} ✕ ②{b.balloon}` and `AssemblyTreePanel.tsx:228` the same, so
+  a clash between balloons 3 and 5 reads **"①3 ✕ ②5"** and a screen reader
+  says "circled digit one three multiplication circled digit two five". *Fix:*
+  drop the decorative glyphs (the balloon numbers already are the identity) or
+  make them real circled balloons rendered as a shared `Balloon` primitive the
+  viewport also uses; either way give the pair an `aria-label` such as
+  "balloons 3 and 5".
+- **P2 — pre-pick affordances are still DOM-square blankets** (07-24 P2, not
+  fixed; evidence refreshed this pass at 1440: ~22 white squares and diamonds
+  scattered over a six-face plate the moment Measure is armed, and 7 squares
+  for a hole's face pick). Reads as debug markers; Fusion/Plasticity highlight
+  the topology under the cursor. **Fix unchanged:** raycast hover highlight on
+  real topology; keep the DOM nodes as invisible test hooks.
+- **P2 — touch/tablet ergonomics are unmet product-wide.** Every interactive
+  element measured in the chrome is 15–23 px tall: command-band tools 32×16,
+  register `part-delete` 53×15 and `part-open` 84×18, `breadcrumb-register`
+  39×15, `document-unit-select` 38×19, `feature-select-N` 232×20,
+  `feature-suppress-N` 18×18, `rollback-slot-N` 294×8, `nav-cue-dismiss`
+  60×19, assembly balloons 24×24. Most survive WCAG 2.2 SC 2.5.8 (AA) only
+  via the **spacing exception**, which is nowhere written down as a design
+  decision — and the new context menu (222×17 at 23 px pitch) fails it
+  outright. The design mandate's own floor ("touch targets on tablet-class
+  viewports") is currently not met on any surface. **Fix:** decide and
+  document the target-size policy in `packages/design` (a `--target-min`
+  vertical padding applied by the primitives, plus an explicit "spacing
+  exception, ≥24 px pitch enforced" note), and make the context menu 24 px+
+  per row. Fixing the P1 spacing defect above recovers a large part of this
+  for free (tools 16→28, segments 15→27, menu rows 17→29).
+
+### P3 — polish / taste
+
+- **P3 — register, day one, says the same thing three times.** With a fresh
+  drawer, LAST WORKED is "NOT STARTED" on every row and FILED is the same date
+  on every row — structurally the *same* redundancy the rebuild was made to
+  remove (two identical ISO dates), just with a nicer vocabulary. It resolves
+  itself as soon as work happens, so it is taste, not a defect; but consider
+  suppressing FILED while it is identical across the visible rows, or
+  demoting "Not started" to a quiet gutter dot so the column is empty until
+  it has something to say.
+- **P3 — register row baselines don't agree.** UNITS and FILED sit ~3 px above
+  the NAME/LAST WORKED baseline (`text-xs` data cells with `align-middle`
+  against a `text-md` name); a precision index should have one baseline.
+  Fix in `DocumentRegister.tsx:390-426` with a shared cell class rather than
+  per-cell type sizes.
+- **P3 — `documentActivity` "unknown" renders a bare "—" with no title**
+  (`DocumentRegister.tsx:420`, `lib/activity.ts:39-40`). Rare (unparseable
+  stamp) but it is an em-dash with no meaning attached — the same nit the
+  07-24 pass filed against the empty SOLVE readout. Say "Unknown".
+- **P3 — relative age never refreshes.** `documentActivity(..., Date.now())`
+  is evaluated at render and the query is `staleTime: 30_000` with no
+  interval, so a register left open reads "2 min ago" indefinitely. A 60 s
+  tick (or `refetchInterval`) makes the column true.
+- **P3 — the `№` gutter header is a glyph, not a name.**
+  `DocumentRegister.tsx:248` — screen readers announce "numero sign". Use a
+  visible `№` with `sr-only` "Sheet number" (or "Row", per the P2 above).
+- **P3 — the tapped/counterbore badge asymmetry is defensible but
+  under-serves the tree.** The stated rule ("badge only what the viewport
+  cannot show") is principled and I would not call it inconsistent. It does,
+  however, optimize for the wrong reader: the tree is scanned precisely when
+  the viewport is showing something else — another orientation, a section, a
+  different zoom — or when the recess is on a hidden face. In a 20-feature
+  tree with six holes, "which one is the counterbored one" costs six clicks.
+  A callout-shaped badge is the consistent generalization of what already
+  shipped: `hole · M10x1.5`, `hole · ⌴Ø14`, `hole · ⌵90°`. Cost is ~10 lines
+  in the same formatter that produces the thread badge, no new data. Worth
+  doing; not urgent.
+- **P3 — the register has no search/filter/sort.** Fine at 3 rows; at 100
+  parts (no server limit — `fetchParts` returns the whole list) the create
+  line is a full scroll below the fold and there is no way to find a part by
+  name. Not a defect today; file it before the first user with a real drawer.
+
+### Verdicts on the four claims
+
+1. **Registers "read as a precision index" — HOLDS**, at 1440 and at
+   1280×800 (measured: fits, no root scroll, height 667/800). The gutter +
+   scribe + ruled remainder genuinely kill the centered-card-in-a-void read,
+   and the information change is the right one: LAST WORKED and UNITS are real
+   per-document facts where CREATED/UPDATED were one fact printed twice. Two
+   caveats above (sheet-number honesty P2, day-one redundancy P3) and one
+   ergonomic miss (DELETE is a 53×15 px target). **On the deliberately-omitted
+   columns:** agreed on "has a body" and "has drawings" — a modeler does not
+   scan for those. **"Is broken" is the one I would add**, because the most
+   expensive surprise a returning engineer gets is opening a part whose
+   rebuild fails, and the register is where they choose. It need *not* cost an
+   evaluate-per-row: the honest cheap version is a persisted
+   `last_eval_status` + `last_eval_at` on the document row, written by the
+   gateway whenever an evaluate returns, surfaced as an exception flag in the
+   same column that already carries "Not started" (and stale-marked if
+   `updated_at > last_eval_at`). That is a documents-service migration plus
+   one gateway write — real work, but bounded, and it makes the register the
+   first surface that tells the truth about the drawer's health.
+2. **Tapped-hole authoring — the model HOLDS, the execution has two
+   failures.** Orthogonal toggle rather than a fourth Type segment is right
+   and matches the wire; the derived-but-overridable tap-drill chip with brass
+   "you're on the standard" state is exactly right; the `hole · M10x1.5` tree
+   badge is right and reads well. But: the drawings promise in the checkbox
+   description is **false** (P1), the callout's leader tick and note rule —
+   its whole visual identity — **do not render** (P1 spacing defect), and at
+   1366×768 the tap-drill chip is **off-screen** (P1). "Still legible at
+   1280×800 now that it grew a row": yes for Simple+Tapped (584 px tall,
+   fits); no for C'sink+Tapped (801) or C'sink+Tapped+Blind (858).
+3. **Interference UNVERIFIED reads as indeterminate — HOLDS in the schedule,
+   FAILS in the viewport.** In the panel the work is done by the UNVERIFIED
+   stamp, the parenthesised figure and the "at most" caption, and the
+   plain-language footnote — that trio reads as "not established", not as an
+   error and not as a warning, and the split eyebrow (`Interference · 1 · 1
+   unverified`) is genuinely honest. The dashed 2 px etch left rule
+   contributes almost nothing at that scale (it reads as *absent* rather than
+   as *phantom*); if you want the stroke to carry weight, make it a wider
+   dashed rule or a hatched gutter. And the third surface — the hero one —
+   still says CLASH in red (P1).
+4. **Cut ghost "reads as a subtraction" — OVERSTATED.** What is true and
+   verified: the warm brass metal is gone, and the e2e pixel assertion for
+   that is honest and worth keeping. What is not true: the ghost's
+   **silhouette is identical to the ADD ghost's** — the same full cylinder,
+   same outline, same footprint standing above the plate's top face
+   (`extrude-cut-ghost-before-desktop.png` vs `-after-desktop.png` differ
+   essentially in hue) — so the *shape* still says "a boss" and only the
+   colour temperature says "a cut". Cold grey translucency over bright
+   machined aluminium reads as smoked glass, not as a void; `BackSide` removes
+   the near walls, which takes away the solid read without adding a cavity
+   read. Neither benchmark previews a cut this way: Fusion/Plasticity show the
+   **resulting body** with the material already gone. **Fix, in order of
+   cost:** (a) cheapest real improvement — render the tool volume's
+   silhouette as a dashed hidden-line outline plus a dark inner shadow at its
+   footprint *on the body's face*, so the read is "a hole is coming here";
+   (b) correct — preview the boolean result (the geometry service already
+   evaluates; a debounced preview mesh is the same seam the extrude ghost
+   already owns) or stencil/clip the body with the tool volume client-side.
+   Until then, the honest claim is "a cut no longer previews as added metal",
+   not "a cut reads as a subtraction".
+
+### Running component checklist (this pass)
+
+`packages/design` spacing scale + utility guard 🔴 **(P1, new — root cause of
+five visible defects)** · `PanelActionCell`/`PickButton` disabled reasons 🔴 ·
+feature-editor height clamp 🔴 · `AssemblyScene`/`InstanceMesh` unverified
+state 🔴 · Tapped-hole drawings copy 🔴 · `DocumentRegister` sheet-number
+honesty 🔴 · pre-pick topology highlight 🔴 (07-24 P2, still open) · touch
+target policy 🔴 · `TopToolbar`/`ToolButton` width tiers ✅ (07-24 P0 fixed —
+measured no root scroll and INSPECT visible at 1280/1440/1600/1920) · tooltip
+stacking ✅ (`z-band`) · viewport context menu ✅ (exists; row density is the
+P2) · feature-localized face selection ✅ · orbit/pan/zoom legend ✅ ·
+`prefers-reduced-motion` ✅ (measured clean under `reduce`) · visible focus +
+register tab order ✅ · WCAG-AA contrast ✅ (gauge 7.2:1 / mist 13.2:1 /
+flag 6.5:1 on anvil; no new hex outside `packages/design`) · zero hex literals
+in `apps/web/src` ✅ · registers (identity + information) ✅ · clash schedule
++ tree badges ✅ · viewport atmosphere/grid/ViewCube ✅.
+
+### The five changes that most move the bar now
+
+1. **Fix `spacing` + add the silent-utility guard** (P1). One scale edit plus
+   one test recovers the rollback bar, the thread callout, the active scribe,
+   28 px tool buttons, the measure HUD's position, and a bounded add-part
+   list. Nothing else on this list is close to that ratio.
+2. **Make the viewport tell the truth about UNVERIFIED** (P1) — the third
+   surface of a three-surface language.
+3. **One clamped `EditorCard`** (P1) so no feature editor can outgrow the
+   frame as verbs keep landing, and its footer is always reachable.
+4. **Fix the Tapped copy today; file the drawing note** (P1) — never let the
+   UI promise an output the pipeline doesn't produce.
+5. **Preview the cut as removed material** (claim 4) — the extrude ghost was
+   the first place Loft responds before commit; making it *correct* is what
+   turns it from a colour change into the Fusion/Plasticity read.
+
+**Process note.** Two of the five biggest findings this pass were invisible to
+every previous audit because they were *measurements*, not looks: a 0×0
+element and a 16 px button both photograph as "dense and quiet". This
+checklist now carries a standing item: **at every full audit, measure — assert
+`getBoundingClientRect` on the elements the design docs call signatures, and
+diff the built CSS against the utilities the source asks for.** A design system
+that fails silently needs a gate, not an eye.
