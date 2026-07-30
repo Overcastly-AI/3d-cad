@@ -37,7 +37,7 @@ beforeEach(() => {
 describe("the Esc chip names the key's real behaviour", () => {
   it("puts Esc on SAVE, because the Escape cascade calls finishSketch", () => {
     drawUnsavedRectangle();
-    render(<SketchStrip onSave={vi.fn()} saving={false} />);
+    render(<SketchStrip onSave={vi.fn()} saving={false} saveError={null} />);
 
     // The load-bearing half: Esc is advertised on the button it actually runs.
     expect(screen.getByTestId("sketch-save").textContent).toContain("Esc");
@@ -45,7 +45,7 @@ describe("the Esc chip names the key's real behaviour", () => {
 
   it("never tells the user Esc discards", () => {
     drawUnsavedRectangle();
-    render(<SketchStrip onSave={vi.fn()} saving={false} />);
+    render(<SketchStrip onSave={vi.fn()} saving={false} saveError={null} />);
 
     const exit = screen.getByTestId("sketch-exit");
     // The exact inversion that shipped for months. If someone reintroduces the
@@ -58,7 +58,7 @@ describe("the Esc chip names the key's real behaviour", () => {
 
   it("says how much Exit would destroy, and that it asks first", () => {
     drawUnsavedRectangle();
-    render(<SketchStrip onSave={vi.fn()} saving={false} />);
+    render(<SketchStrip onSave={vi.fn()} saving={false} saveError={null} />);
 
     const exit = screen.getByTestId("sketch-exit");
     expect(exit.textContent).toContain("discards 4");
@@ -69,7 +69,7 @@ describe("the Esc chip names the key's real behaviour", () => {
 describe("exiting with unsaved entities asks before destroying them", () => {
   it("does not discard on the first click — it arms a confirm", () => {
     drawUnsavedRectangle();
-    render(<SketchStrip onSave={vi.fn()} saving={false} />);
+    render(<SketchStrip onSave={vi.fn()} saving={false} saveError={null} />);
 
     fireEvent.click(screen.getByTestId("sketch-exit"));
 
@@ -81,7 +81,7 @@ describe("exiting with unsaved entities asks before destroying them", () => {
 
   it("names the count and the irreversibility on the confirm itself", () => {
     drawUnsavedRectangle();
-    render(<SketchStrip onSave={vi.fn()} saving={false} />);
+    render(<SketchStrip onSave={vi.fn()} saving={false} saveError={null} />);
     fireEvent.click(screen.getByTestId("sketch-exit"));
 
     const confirm = screen.getByTestId("sketch-discard-confirm");
@@ -91,7 +91,7 @@ describe("exiting with unsaved entities asks before destroying them", () => {
 
   it("keeps the drawing when the user backs out", () => {
     drawUnsavedRectangle();
-    render(<SketchStrip onSave={vi.fn()} saving={false} />);
+    render(<SketchStrip onSave={vi.fn()} saving={false} saveError={null} />);
     fireEvent.click(screen.getByTestId("sketch-exit"));
 
     fireEvent.click(screen.getByTestId("sketch-discard-cancel"));
@@ -103,7 +103,7 @@ describe("exiting with unsaved entities asks before destroying them", () => {
 
   it("discards only on explicit confirmation", () => {
     drawUnsavedRectangle();
-    render(<SketchStrip onSave={vi.fn()} saving={false} />);
+    render(<SketchStrip onSave={vi.fn()} saving={false} saveError={null} />);
     fireEvent.click(screen.getByTestId("sketch-exit"));
 
     fireEvent.click(screen.getByTestId("sketch-discard-confirm"));
@@ -118,7 +118,7 @@ describe("the prompt is derived, so it cannot outlive what it warns about", () =
     const store = () => useSketchStore.getState();
     store().begin();
     store().choosePlane("XY");
-    render(<SketchStrip onSave={vi.fn()} saving={false} />);
+    render(<SketchStrip onSave={vi.fn()} saving={false} saveError={null} />);
 
     const exit = screen.getByTestId("sketch-exit");
     expect(exit.textContent).toContain("nothing to discard");
@@ -133,7 +133,7 @@ describe("the prompt is derived, so it cannot outlive what it warns about", () =
   it("dismisses an armed confirm once the sketch is saved under it", () => {
     drawUnsavedRectangle();
     const { rerender } = render(
-      <SketchStrip onSave={vi.fn()} saving={false} />,
+      <SketchStrip onSave={vi.fn()} saving={false} saveError={null} />,
     );
     fireEvent.click(screen.getByTestId("sketch-exit"));
     expect(screen.getByTestId("sketch-discard-confirm")).toBeInTheDocument();
@@ -142,7 +142,7 @@ describe("the prompt is derived, so it cannot outlive what it warns about", () =
     // now would destroy nothing, so the warning must retract itself rather than
     // keep offering to discard saved work.
     useSketchStore.setState({ featureId: "feat-1" });
-    rerender(<SketchStrip onSave={vi.fn()} saving={false} />);
+    rerender(<SketchStrip onSave={vi.fn()} saving={false} saveError={null} />);
 
     expect(screen.queryByTestId("sketch-discard-confirm")).toBeNull();
     expect(screen.getByTestId("sketch-exit").textContent).toContain(
