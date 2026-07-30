@@ -11,6 +11,21 @@ import { envelopeCode, envelopeMessage } from "./envelope";
 export type PartResponse = components["schemas"]["PartResponse"];
 /** Document display unit — the single source is the generated contract. */
 export type LengthUnit = PartResponse["length_unit"];
+/**
+ * The part's REBUILD HEALTH as a verdict the UI may act on now: `never` | `ok` |
+ * `failed` | `stale`. Derived SERVER-SIDE by one shared fold over the stored
+ * record and the part's current `tree_version` (`derive_part_eval_state`,
+ * py-kit) precisely so nobody re-derives it here — a client that compared
+ * timestamps would reinvent the skew bug the version comparison exists to
+ * avoid. Read this field; never recompute it.
+ */
+export type PartEvalState = PartResponse["eval_state"];
+/**
+ * The RAW recorded outcome of the last evaluate. Useful only alongside
+ * `eval_state`: on its own it cannot say whether it still applies to the tree
+ * as it stands, which is the whole reason `eval_state` exists.
+ */
+export type PartLastEvalStatus = PartResponse["last_eval_status"];
 export type FeatureTreeResponse = components["schemas"]["FeatureTreeResponse"];
 export type FeatureResponse = components["schemas"]["FeatureResponse"];
 export type FeatureCreate = components["schemas"]["FeatureCreate"];

@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "./fixtures";
 
+import { createFeature, SQUARE_20 } from "./partSeed";
 import {
   createPartViaApi,
   distinctCanvasColors,
@@ -17,67 +18,6 @@ import {
  * UN-filleted (volume back to 8000), the fillet row reads suppressed/dimmed,
  * and the solve stays green — then UN-suppress and the fillet returns.
  */
-
-/** A 20×20 rectangle fixed at the origin on XY — a clean 20 mm cube when extruded. */
-const SQUARE_20 = {
-  plane: { kind: "datum_plane", plane: "XY" },
-  entities: [
-    { id: "e1", kind: "line", start: { x: 0, y: 0 }, end: { x: 20, y: 0 } },
-    { id: "e2", kind: "line", start: { x: 20, y: 0 }, end: { x: 20, y: 20 } },
-    { id: "e3", kind: "line", start: { x: 20, y: 20 }, end: { x: 0, y: 20 } },
-    { id: "e4", kind: "line", start: { x: 0, y: 20 }, end: { x: 0, y: 0 } },
-  ],
-  constraints: [
-    {
-      kind: "coincident",
-      a: { entity: "e1", point: "end" },
-      b: { entity: "e2", point: "start" },
-    },
-    {
-      kind: "coincident",
-      a: { entity: "e2", point: "end" },
-      b: { entity: "e3", point: "start" },
-    },
-    {
-      kind: "coincident",
-      a: { entity: "e3", point: "end" },
-      b: { entity: "e4", point: "start" },
-    },
-    {
-      kind: "coincident",
-      a: { entity: "e4", point: "end" },
-      b: { entity: "e1", point: "start" },
-    },
-    { kind: "horizontal", entity: "e1" },
-    { kind: "vertical", entity: "e2" },
-    { kind: "horizontal", entity: "e3" },
-    { kind: "vertical", entity: "e4" },
-    { kind: "distance", entity: "e1", value_mm: 20 },
-    { kind: "distance", entity: "e2", value_mm: 20 },
-    { kind: "fixed", point: { entity: "e1", point: "start" } },
-  ],
-};
-
-async function createFeature(
-  page: Page,
-  token: string,
-  partId: string,
-  body: unknown,
-): Promise<{ feature: { id: string }; tree_version: number }> {
-  const response = await page.request.post(`/api/v1/parts/${partId}/features`, {
-    data: body,
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!response.ok()) {
-    throw new Error(
-      `e2e create feature failed: ${response.status()} ${await response.text()}`,
-    );
-  }
-  return (await response.json()) as {
-    feature: { id: string };
-    tree_version: number;
-  };
-}
 
 /** Seed sketch → extrude → fillet(all edges, r5): a rounded 20 mm cube. */
 async function seedFilletedCube(page: Page): Promise<string> {

@@ -1,4 +1,4 @@
-import { Button, Kbd, type LengthUnit, TextField } from "@loft/design";
+import { Button, Kbd, type LengthUnit, Stamp, TextField } from "@loft/design";
 import {
   type FormEvent,
   type ReactNode,
@@ -8,7 +8,8 @@ import {
   useState,
 } from "react";
 
-import { documentActivity } from "../lib/activity";
+import type { PartEvalState, PartLastEvalStatus } from "../api/parts";
+import { documentActivity, relativeAge } from "../lib/activity";
 import { formatDate } from "../lib/format";
 import { validatePartName } from "../lib/partName";
 
@@ -38,10 +39,14 @@ import { validatePartName } from "../lib/partName";
  *   - UNITS — real per-document metadata (`length_unit`), the thing a title
  *     block carries and a generic list does not. Drawings have none, so they
  *     do not render the column rather than render a blank one.
+ *   - REBUILD — the drawer's health, once the record existed to report it (see
+ *     `HealthCell` for the four states and why it is its own column).
  *
- * Not shown, deliberately: "has a body", "has drawings", "is broken". None are
- * on the wire for a LIST; getting them would mean an evaluate per row. A
- * register that guesses is worse than one that reports.
+ * Still not shown, deliberately: "has a body", "has drawings". Neither is on
+ * the wire for a LIST, and a modeler does not scan a register for them. A
+ * register that guesses is worse than one that reports — which is exactly why
+ * REBUILD reports the SERVER'S verdict (`eval_state`) rather than deriving one
+ * from the two timestamps it happens to have.
  *
  * FORM. The identity comes from the language the rest of the product already
  * speaks — no new look was invented. The sheet number moves out of the ruled
@@ -68,6 +73,26 @@ export interface RegisterDocument {
   created_at: string;
   updated_at: string;
   length_unit?: LengthUnit;
+  /**
+   * Rebuild health — the SERVER'S verdict, already folded against the part's
+   * current tree version. Absent on document kinds that have no feature tree
+   * (assemblies, drawings), which drop the column rather than render a blank
+   * one. Read this; never re-derive it (see `PartEvalState`).
+   */
+  eval_state?: PartEvalState;
+  /**
+   * The raw recorded outcome, which the STALE state spends to say "was broken"
+   * instead of a bare "unknown". Never read without `eval_state`.
+   */
+  last_eval_status?: PartLastEvalStatus;
+  /** When that record was written — the relative age in the cell's title. */
+  last_eval_at?: string | null;
+  /**
+   * `last_eval_tree_version` is deliberately NOT taken: a version number is
+   * only meaningful next to the part's CURRENT version, which a register row
+   * does not carry, and printing one alone would be chrome that measures
+   * nothing. The staleness it encodes already reached us as `eval_state`.
+   */
 }
 
 /** Every word this register says. Copy is per-document-kind, structure is not. */
@@ -132,6 +157,7 @@ export function DocumentRegister<T extends RegisterDocument>({
 }: DocumentRegisterProps<T>) {
   const empty = !isLoading && !isError && documents.length === 0;
   const showUnits = documents.some((d) => d.length_unit !== undefined);
+  const showHealth = documents.some((d) => d.eval_state !== undefined);
 
   return (
     <section
@@ -188,6 +214,7 @@ export function DocumentRegister<T extends RegisterDocument>({
             copy={copy}
             documents={documents}
             showUnits={showUnits}
+            showHealth={showHealth}
             openLink={openLink}
             onDelete={onDelete}
           />
@@ -216,6 +243,7 @@ const COLUMN = {
   gutter: "w-[3.5rem]",
   units: "w-[4.5rem]",
   activity: "w-[9rem]",
+  health: "w-[7.5rem]",
   filed: "w-[7rem]",
   action: "w-[5.5rem]",
 } as const;
@@ -226,6 +254,7 @@ function RegisterTable<T extends RegisterDocument>({
   copy,
   documents,
   showUnits,
+  showHealth,
   openLink,
   onDelete,
 }: {
@@ -234,6 +263,7 @@ function RegisterTable<T extends RegisterDocument>({
   copy: RegisterCopy;
   documents: T[];
   showUnits: boolean;
+  showHealth: boolean;
   openLink: DocumentRegisterProps<T>["openLink"];
   onDelete: (document: T) => Promise<void>;
 }) {
@@ -249,6 +279,7 @@ function RegisterTable<T extends RegisterDocument>({
           <Th>Name</Th>
           {showUnits ? <Th className={COLUMN.units}>Units</Th> : null}
           <Th className={COLUMN.activity}>Last worked</Th>
+          {showHealth ? <Th className={COLUMN.health}>Rebuild</Th> : null}
           <Th className={`hidden md:table-cell ${COLUMN.filed}`}>Filed</Th>
           <th className={COLUMN.action}>
             <span className="sr-only">Actions</span>
@@ -264,6 +295,7 @@ function RegisterTable<T extends RegisterDocument>({
             entry={entry}
             sheet={sheetNo(index + 1)}
             showUnits={showUnits}
+            showHealth={showHealth}
             openLink={openLink}
             onDelete={onDelete}
           />
@@ -291,13 +323,14 @@ function Th({
   );
 }
 
-/** One filed sheet: gutter number, name, activity, units, filing date, delete. */
+/** One filed sheet: gutter number, name, units, activity, health, filed, delete. */
 function RegisterRow<T extends RegisterDocument>({
   idSingular,
   copy,
   entry,
   sheet,
   showUnits,
+  showHealth,
   openLink,
   onDelete,
 }: {
@@ -306,6 +339,7 @@ function RegisterRow<T extends RegisterDocument>({
   entry: T;
   sheet: string;
   showUnits: boolean;
+  showHealth: boolean;
   openLink: DocumentRegisterProps<T>["openLink"];
   onDelete: (document: T) => Promise<void>;
 }) {
@@ -342,7 +376,12 @@ function RegisterRow<T extends RegisterDocument>({
         className="border-b border-hairline last:border-b-0 bg-carbide"
       >
         <Gutter sheet={sheet} addressed />
-        <td colSpan={showUnits ? 3 : 2} className="px-3 py-2">
+        {/* Name + every data cell up to FILED: the confirm takes the row over,
+            so the span has to follow whichever optional columns are showing. */}
+        <td
+          colSpan={2 + (showUnits ? 1 : 0) + (showHealth ? 1 : 0)}
+          className="px-3 py-2"
+        >
           <span className="font-body text-sm text-mist">
             Delete <span className="font-data text-flag">{entry.name}</span>?
             This cannot be undone.
@@ -421,6 +460,11 @@ function RegisterRow<T extends RegisterDocument>({
           </span>
         )}
       </td>
+      {showHealth ? (
+        <td className="px-3 py-2 align-middle">
+          <HealthCell idSingular={idSingular} entry={entry} />
+        </td>
+      ) : null}
       <td className="hidden px-3 py-2 align-middle font-data text-xs tabular-nums text-gauge md:table-cell">
         {filed}
       </td>
@@ -436,6 +480,123 @@ function RegisterRow<T extends RegisterDocument>({
         </button>
       </td>
     </tr>
+  );
+}
+
+/**
+ * Relative age of the health record, as a title-clause (" 20 min ago"). Falls
+ * back to the absolute date for anything older than the relative buckets, so
+ * the phrasing matches the FILED column's format.
+ */
+function rebuildAge(iso: string | null | undefined): string {
+  if (iso === undefined || iso === null) return "";
+  const at = Date.parse(iso);
+  if (Number.isNaN(at)) return "";
+  const label = relativeAge(Math.max(0, Date.now() - at));
+  return label === null ? ` on ${formatDate(iso)}` : `, ${label}`;
+}
+
+/**
+ * REBUILD — "would this part rebuild if I opened it?", the one question the
+ * register could not answer until documents started keeping the record
+ * (`c98c454`).
+ *
+ * WHY ITS OWN COLUMN, next to LAST WORKED rather than inside it. The two answer
+ * different questions and are both worth saying at once: "20 min ago" is where
+ * you were, "broken" is what you will walk into. Folding health into the
+ * activity cell would force one of them to be suppressed exactly when both
+ * matter, and it would quietly redefine LAST WORKED — which the backend
+ * deliberately protected by NOT bumping `updated_at` when it records a rebuild,
+ * so that column keeps meaning "someone worked on it" rather than "someone
+ * looked at it". Two facts, two cells; the column sits adjacent so the pair
+ * reads as one clause about the same sitting.
+ *
+ * The four states and their exact claims — this cell is the reason the derived
+ * `eval_state` exists, so it never says more than the server did:
+ *
+ *  - **never** — nothing is known. A quiet dash, and the screen reader is told
+ *    "not evaluated" rather than being left with an em-dash.
+ *  - **ok** — NO FEATURE ERRORED when this tree was last rebuilt. Deliberately
+ *    NOT a tick and deliberately not the word "good": `ok` says nothing about
+ *    whether the part has a body, and the title says so in as many words. It is
+ *    the quietest state on the surface because "it rebuilds" is the expectation.
+ *  - **failed** — a feature errored, and that verdict still applies to the tree
+ *    as it stands. The one loud state: a flag-inked stamp, because this is the
+ *    expensive surprise the column was added for.
+ *  - **stale** — evaluated, then the tree moved. Health is genuinely UNKNOWN, so
+ *    it renders INDETERMINATE: the dashed phantom stamp the clash schedule uses
+ *    for UNVERIFIED, never a tick and never a flag. The raw record is still
+ *    spent — "was broken" / "was clean", past tense, quiet ink — because "the
+ *    last rebuild errored and then you changed something" is more useful than
+ *    "unknown", as long as the surface never dresses it up as current.
+ */
+function HealthCell<T extends RegisterDocument>({
+  idSingular,
+  entry,
+}: {
+  idSingular: string;
+  entry: T;
+}) {
+  const state = entry.eval_state ?? "never";
+  const age = rebuildAge(entry.last_eval_at);
+  const testId = `${idSingular}-health`;
+
+  if (state === "never") {
+    return (
+      <span
+        data-testid={testId}
+        data-health="never"
+        title="This part has not been evaluated, so nothing is known about whether it rebuilds."
+        className="font-data text-xs text-gauge"
+      >
+        <span aria-hidden>—</span>
+        <span className="sr-only">Not evaluated</span>
+      </span>
+    );
+  }
+
+  if (state === "ok") {
+    return (
+      <span
+        data-testid={testId}
+        data-health="ok"
+        title={`No feature errored when this part was last rebuilt${age}. That is not a claim that it has a body.`}
+        className="font-display text-2xs uppercase tracking-[0.14em] text-gauge"
+      >
+        Clean
+      </span>
+    );
+  }
+
+  if (state === "failed") {
+    return (
+      <Stamp
+        tone="flag"
+        data-testid={testId}
+        data-health="failed"
+        title={`A feature errored when this part was last rebuilt${age}. Open it to see which.`}
+      >
+        Broken
+      </Stamp>
+    );
+  }
+
+  const wasBroken = entry.last_eval_status === "failed";
+  return (
+    <Stamp
+      indeterminate
+      data-testid={testId}
+      data-health="stale"
+      title={`The tree changed after the last rebuild${age}, so this part's health is unknown — it ${
+        wasBroken ? "had a feature error" : "was clean"
+      } then.`}
+    >
+      {wasBroken ? "Was broken" : "Was clean"}
+      <span className="sr-only">
+        {" "}
+        — the tree changed since, so its current health is unknown
+      </span>
+    </Stamp>
   );
 }
 

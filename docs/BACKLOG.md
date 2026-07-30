@@ -176,14 +176,23 @@ frame refactor are v2/§11. Spike de-collected.
       asserted still ONE query. Parts only — assemblies/drawings filed below.
       [src: UI-REVIEW 2026-07-30 verdict 1]
 
-- [ ] (P2, S) **Register column for `eval_state`** (frontend; unblocked by the
-      backend above). Surface it in the column that already carries "Not
-      started": an exception flag for `failed`, a quiet indeterminate mark for
-      `stale` ("tree changed since — unknown", never a green tick and never a
-      red one), nothing for `never`/`ok` beyond what LAST WORKED already says.
-      `last_eval_at` gives the relative age ("failed 20 min ago") and
-      `last_eval_tree_version` is available for a tooltip. Note `ok` means "no
-      feature errored", NOT "has a body". [src: UI-REVIEW 2026-07-30 verdict 1]
+- [x] (P2, S) **Register column for `eval_state` — SHIPPED 2026-07-30**
+      (frontend-builder). Its OWN column (REBUILD), adjacent to LAST WORKED
+      rather than inside it: the two answer different questions and are both
+      worth saying at once ("20 min ago" + "broken"), and sharing the cell would
+      have quietly redefined LAST WORKED, which the backend protected by not
+      bumping `updated_at`. Four states, no client-side derivation (`eval_state`
+      is read, never recomputed): `—` + sr-only "not evaluated" for `never`;
+      quiet CLEAN for `ok`, whose title states it is not a claim of a body; a
+      flag-inked BROKEN stamp for `failed`; and for `stale` the dashed
+      indeterminate stamp the clash schedule uses for UNVERIFIED, spending the
+      raw record in past tense (WAS BROKEN / WAS CLEAN) so it says more than
+      "unknown" without dressing it up as current. New `Stamp` primitive is that
+      one vocabulary (extracted on its third use). Evidence:
+      `docs/screenshots/register-health-{before,after}-{1440,1280}.png`;
+      `e2e/p2-register-health.spec.ts` produces all four states from the REAL
+      stack (OCCT really fails the r50 fillet). [src: UI-REVIEW 2026-07-30
+      verdict 1]
 
 - [ ] (P3, S) **Same last-evaluate record for assemblies + drawings.** Parts got
       `0012`; the assembly and drawing registers still cannot say "is broken".

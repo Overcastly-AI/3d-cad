@@ -1301,7 +1301,18 @@ flexible sub-assemblies, part-version pinning-as-default.
       not lie), and carried forward across a rename/re-unit (which cannot change
       what the tree evaluates to). Design `feature-tree.md` §4.4a; 13 documents
       regressions + 6 gateway + 2 migration renders; list stays ONE query
-      (asserted). The register column itself is the frontend follow-up.
+      (asserted). **The COLUMN shipped 2026-07-30 (frontend-builder):** REBUILD,
+      its own column beside LAST WORKED (both facts are worth saying at once, and
+      sharing the cell would have redefined the column the backend deliberately
+      protected by not bumping `updated_at`). It reports the server's verdict and
+      never re-derives it: `—` for `never`, a quiet CLEAN for `ok` whose title
+      states it is not a claim of a body, a flag-inked BROKEN stamp for `failed`,
+      and for `stale` the dashed indeterminate stamp the clash schedule already
+      uses for UNVERIFIED — spending the raw record as WAS BROKEN / WAS CLEAN so
+      it says more than "unknown" while never dressing it up as current. New
+      `Stamp` primitive carries that one vocabulary (three consumers).
+      `e2e/p2-register-health.spec.ts` produces all four states from the REAL
+      stack; shots `register-health-{before,after}-{1440,1280}.png`.
       **Cut-aware pattern + mirror ✅ 2026-07-24 (kernel-architect; FINDINGS
       #1–#2, the silent-wrong-geometry pair):** patterning a **Hole** feature no
       longer duplicates the whole body and mirroring a holed plate about its

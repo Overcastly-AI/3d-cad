@@ -43,6 +43,9 @@ interface Doc {
   created_at: string;
   updated_at: string;
   length_unit?: "mm" | "in";
+  eval_state?: "never" | "ok" | "failed" | "stale";
+  last_eval_status?: "ok" | "failed" | null;
+  last_eval_at?: string | null;
 }
 
 /** Worked: the edit is a day after creation, so it is unambiguously an edit. */
@@ -130,6 +133,95 @@ describe("DocumentRegister — what it reports", () => {
     ]);
     expect(screen.queryByText("Units")).toBeNull();
     expect(screen.queryByText("—")).toBeNull();
+  });
+
+  it("reports the server's rebuild verdict, one state per row", () => {
+    renderRegister([
+      { ...worked, id: "ok", eval_state: "ok", last_eval_status: "ok" },
+      {
+        ...worked,
+        id: "bad",
+        eval_state: "failed",
+        last_eval_status: "failed",
+      },
+      {
+        ...worked,
+        id: "stale-ok",
+        eval_state: "stale",
+        last_eval_status: "ok",
+      },
+      {
+        ...worked,
+        id: "stale-bad",
+        eval_state: "stale",
+        last_eval_status: "failed",
+      },
+      { ...worked, id: "none", eval_state: "never", last_eval_status: null },
+    ]);
+    const cells = screen.getAllByTestId("part-health");
+    expect(cells[0]).toHaveTextContent("Clean");
+    expect(cells[1]).toHaveTextContent("Broken");
+    expect(cells[2]).toHaveTextContent("Was clean");
+    expect(cells[3]).toHaveTextContent("Was broken");
+    expect(cells[4]).toHaveTextContent("Not evaluated");
+
+    // A STALE row is indeterminate — the dashed phantom stamp, never the flag,
+    // even when the record it is reporting says "failed".
+    expect(cells[3]).toHaveAttribute("data-stamp", "indeterminate");
+    expect(cells[1]).toHaveAttribute("data-stamp", "flag");
+
+    // "ok" is not "this part is modelled", and the cell says so where a user
+    // can find it rather than letting the word imply a body.
+    expect(cells[0]?.getAttribute("title")).toMatch(
+      /not a claim that it has a body/,
+    );
+    expect(cells[3]?.getAttribute("title")).toMatch(
+      /tree changed after the last rebuild/,
+    );
+  });
+
+  it("reads the verdict field and never re-derives it from the timestamps", () => {
+    // `updated_at` is 20 min old while the record is 3 days old: a client that
+    // compared stamps would call this stale. The SERVER already folded the tree
+    // versions and said `ok`, and that is what the register reports — the whole
+    // reason `eval_state` is derived server-side (py-kit `derive_part_eval_state`).
+    renderRegister([
+      {
+        ...worked,
+        eval_state: "ok",
+        last_eval_status: "ok",
+        last_eval_at: new Date(Date.now() - 3 * 86_400_000).toISOString(),
+      },
+    ]);
+    expect(screen.getByTestId("part-health")).toHaveTextContent("Clean");
+  });
+
+  it("drops the column for document kinds that have no feature tree", () => {
+    renderRegister([
+      {
+        id: "d",
+        name: "Sheet 1",
+        created_at: worked.created_at,
+        updated_at: worked.updated_at,
+      },
+    ]);
+    expect(screen.queryByText("Rebuild")).toBeNull();
+    expect(screen.queryByTestId("part-health")).toBeNull();
+  });
+
+  it("keeps LAST WORKED meaning 'someone worked on it' after a rebuild is recorded", () => {
+    // The backend deliberately does not bump `updated_at` when it records an
+    // evaluation, so an untouched part that was evaluated is still NOT STARTED.
+    renderRegister([
+      {
+        ...unstarted,
+        eval_state: "ok",
+        last_eval_status: "ok",
+        last_eval_at: new Date().toISOString(),
+      },
+    ]);
+    expect(screen.getByTestId("part-unstarted")).toBeInTheDocument();
+    expect(screen.getByTestId("part-health")).toHaveTextContent("Clean");
   });
 
   it("counts in the document's own noun", () => {
