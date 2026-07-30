@@ -37,6 +37,7 @@ import {
 } from "react";
 
 import { useCommandBridge } from "../features/commandActions";
+import { EditorCard } from "./EditorCard";
 import { useDocumentLengthUnit } from "../units/documentUnit";
 import type { HoleParams } from "../api/parts";
 import {
@@ -393,14 +394,45 @@ export function HoleEditor({
   // the title-block seat once the pick is taken/disarmed.
   const picking = activePick !== null;
   return (
-    <div
+    <EditorCard
       data-testid="hole-editor-shell"
       data-picking={picking ? "true" : "false"}
-      className={cx(
-        "absolute top-3 w-editor max-w-full",
-        picking ? "right-3" : "left-editor",
-      )}
+      seat={picking ? "right" : "left"}
       onKeyDown={onKeyDown}
+      // The tallest form in the app (C'sink + Tapped + Blind reached 858px), so
+      // it is the editor that proves the clamp: the action row is pinned in the
+      // footer while the fields scroll, and the derived tap-drill chip stays
+      // reachable at 1366x768 (UI-REVIEW 2026-07-30 P1).
+      footer={
+        <>
+          {error ? (
+            <p
+              role="alert"
+              data-testid="hole-error"
+              className="border border-b-0 border-flag bg-anvil px-3 py-2 font-body text-xs text-flag"
+            >
+              {error}
+            </p>
+          ) : null}
+          <div className="grid grid-cols-2 divide-x divide-hairline border border-t-0 border-hairline bg-anvil">
+            <PanelActionCell
+              label="Cancel"
+              caption="Esc"
+              data-testid="hole-cancel"
+              disabled={saving}
+              onClick={onCancel}
+            />
+            <PanelActionCell
+              label={saving ? "Saving…" : mode === "create" ? "Create" : "Save"}
+              caption="Enter"
+              data-testid="hole-submit"
+              aria-busy={saving}
+              disabled={!canSubmit}
+              onClick={submit}
+            />
+          </div>
+        </>
+      }
     >
       <Panel aria-label="Hole" data-testid="hole-editor">
         <div className="border-b border-hairline">
@@ -630,7 +662,11 @@ export function HoleEditor({
                     Thread callout
                   </span>
                   <div className="flex items-center gap-2">
-                    <span aria-hidden className="h-px w-3 shrink-0 bg-brass" />
+                    <span
+                      aria-hidden
+                      data-testid="hole-thread-tick"
+                      className="h-px w-3 shrink-0 bg-brass"
+                    />
                     <span
                       data-testid="hole-thread-designation"
                       className="shrink-0 font-display text-lg leading-none tracking-[0.06em] text-brass"
@@ -705,35 +741,7 @@ export function HoleEditor({
             ) : null}
           </div>
         </div>
-
-        <div className="grid grid-cols-2 divide-x divide-hairline">
-          <PanelActionCell
-            label="Cancel"
-            caption="Esc"
-            data-testid="hole-cancel"
-            disabled={saving}
-            onClick={onCancel}
-          />
-          <PanelActionCell
-            label={saving ? "Saving…" : mode === "create" ? "Create" : "Save"}
-            caption="Enter"
-            data-testid="hole-submit"
-            aria-busy={saving}
-            disabled={!canSubmit}
-            onClick={submit}
-          />
-        </div>
       </Panel>
-
-      {error ? (
-        <p
-          role="alert"
-          data-testid="hole-error"
-          className="mt-2 max-w-full border border-flag bg-anvil px-3 py-2 font-body text-xs text-flag"
-        >
-          {error}
-        </p>
-      ) : null}
-    </div>
+    </EditorCard>
   );
 }

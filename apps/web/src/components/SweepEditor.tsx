@@ -34,6 +34,7 @@ import {
   type SweepForm,
   type SweepOperation,
 } from "../features/sweep";
+import { EditorCard } from "./EditorCard";
 
 export interface SweepEditorProps {
   mode: "create" | "edit";
@@ -121,10 +122,7 @@ export function SweepEditor({
   useCommandBridge(submit, canSubmit);
 
   return (
-    <div
-      className="absolute left-editor top-3 w-editor max-w-full"
-      onKeyDown={onKeyDown}
-    >
+    <EditorCard onKeyDown={onKeyDown}>
       <Panel aria-label="Sweep" data-testid="sweep-editor">
         <div className="border-b border-hairline">
           <h2 className="px-3 pb-1 pt-3 font-display text-2xs uppercase tracking-[0.18em] text-gauge">
@@ -220,7 +218,7 @@ export function SweepEditor({
           {error}
         </p>
       ) : null}
-    </div>
+    </EditorCard>
   );
 }
 

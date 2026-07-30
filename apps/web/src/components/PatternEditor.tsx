@@ -35,6 +35,7 @@ import {
   type PatternKind,
   spacingError,
 } from "../features/pattern";
+import { EditorCard } from "./EditorCard";
 
 export interface PatternEditorProps {
   mode: "create" | "edit";
@@ -110,10 +111,7 @@ export function PatternEditor({
   const showCountNote = countError(form.countInput) === null;
 
   return (
-    <div
-      className="absolute left-editor top-3 w-editor max-w-full"
-      onKeyDown={onKeyDown}
-    >
+    <EditorCard onKeyDown={onKeyDown}>
       <Panel aria-label="Pattern" data-testid="pattern-editor">
         <div className="border-b border-hairline">
           <h2 className="px-3 pb-1 pt-3 font-display text-2xs uppercase tracking-[0.18em] text-gauge">
@@ -256,6 +254,6 @@ export function PatternEditor({
           {error}
         </p>
       ) : null}
-    </div>
+    </EditorCard>
   );
 }

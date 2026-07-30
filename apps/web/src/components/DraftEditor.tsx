@@ -34,6 +34,7 @@ import { useCommandBridge } from "../features/commandActions";
 import { useFacePickStore } from "../features/facePickStore";
 import { useDocumentLengthUnit } from "../units/documentUnit";
 import type { DatumPlaneName } from "../sketch/plane";
+import { EditorCard } from "./EditorCard";
 
 export interface DraftEditorProps {
   mode: "create" | "edit";
@@ -118,10 +119,7 @@ export function DraftEditor({
   useCommandBridge(submit, canSubmit);
 
   return (
-    <div
-      className="absolute left-editor top-3 w-editor max-w-full"
-      onKeyDown={onKeyDown}
-    >
+    <EditorCard onKeyDown={onKeyDown}>
       <Panel aria-label="Draft" data-testid="draft-editor">
         <div className="border-b border-hairline">
           <h2 className="px-3 pb-1 pt-3 font-display text-2xs uppercase tracking-[0.18em] text-gauge">
@@ -251,6 +249,6 @@ export function DraftEditor({
           {error}
         </p>
       ) : null}
-    </div>
+    </EditorCard>
   );
 }

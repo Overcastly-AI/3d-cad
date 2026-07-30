@@ -35,6 +35,7 @@ import {
   type RevolveForm,
   type RevolveOperation,
 } from "../features/revolve";
+import { EditorCard } from "./EditorCard";
 
 export interface RevolveEditorProps {
   mode: "create" | "edit";
@@ -151,10 +152,7 @@ export function RevolveEditor({
     profiles.find((p) => p.id === form.profileFeatureId)?.name ?? "—";
 
   return (
-    <div
-      className="absolute left-editor top-3 w-editor max-w-full"
-      onKeyDown={onKeyDown}
-    >
+    <EditorCard onKeyDown={onKeyDown}>
       <Panel aria-label="Revolve" data-testid="revolve-editor">
         <div className="border-b border-hairline">
           <h2 className="px-3 pb-1 pt-3 font-display text-2xs uppercase tracking-[0.18em] text-gauge">
@@ -272,6 +270,6 @@ export function RevolveEditor({
           {error}
         </p>
       ) : null}
-    </div>
+    </EditorCard>
   );
 }

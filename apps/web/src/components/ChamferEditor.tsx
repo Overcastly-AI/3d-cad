@@ -26,6 +26,7 @@ import {
   EDGE_SELECTORS,
   type SelectionMode,
 } from "../features/modify";
+import { EditorCard } from "./EditorCard";
 
 export interface ChamferEditorProps {
   mode: "create" | "edit";
@@ -89,10 +90,7 @@ export function ChamferEditor({
   useCommandBridge(submit, canSubmit);
 
   return (
-    <div
-      className="absolute left-editor top-3 w-editor max-w-full"
-      onKeyDown={onKeyDown}
-    >
+    <EditorCard onKeyDown={onKeyDown}>
       <Panel aria-label="Chamfer" data-testid="chamfer-editor">
         <div className="border-b border-hairline">
           <h2 className="px-3 pb-1 pt-3 font-display text-2xs uppercase tracking-[0.18em] text-gauge">
@@ -217,6 +215,6 @@ export function ChamferEditor({
           {error}
         </p>
       ) : null}
-    </div>
+    </EditorCard>
   );
 }

@@ -31,6 +31,7 @@ import {
   thicknessError,
 } from "../features/sheetMetal";
 import { useDocumentLengthUnit } from "../units/documentUnit";
+import { EditorCard } from "./EditorCard";
 
 export interface BaseFlangeEditorProps {
   mode: "create" | "edit";
@@ -95,10 +96,7 @@ export function BaseFlangeEditor({
     profiles.find((p) => p.id === form.profileFeatureId)?.name ?? "—";
 
   return (
-    <div
-      className="absolute left-editor top-3 w-editor max-w-full"
-      onKeyDown={onKeyDown}
-    >
+    <EditorCard onKeyDown={onKeyDown}>
       <Panel aria-label="Base flange" data-testid="base-flange-editor">
         <div className="border-b border-hairline">
           <h2 className="px-3 pb-1 pt-3 font-display text-2xs uppercase tracking-[0.18em] text-gauge">
@@ -205,6 +203,6 @@ export function BaseFlangeEditor({
           {error}
         </p>
       ) : null}
-    </div>
+    </EditorCard>
   );
 }

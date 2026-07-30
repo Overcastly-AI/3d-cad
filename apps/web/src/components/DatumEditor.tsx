@@ -54,6 +54,7 @@ import {
   refMidplaneSide,
 } from "../features/datum";
 import type { DatumPlaneName } from "../sketch/plane";
+import { EditorCard } from "./EditorCard";
 
 export interface DatumEditorProps {
   mode: "create" | "edit";
@@ -318,10 +319,7 @@ export function DatumEditor({
   const noDatums = datumRefs.length === 0;
 
   return (
-    <div
-      className="absolute left-editor top-3 w-editor max-w-full"
-      onKeyDown={onKeyDown}
-    >
+    <EditorCard onKeyDown={onKeyDown}>
       <Panel aria-label="Datum plane" data-testid="datum-editor">
         <div className="border-b border-hairline">
           <h2 className="px-3 pb-1 pt-3 font-display text-2xs uppercase tracking-[0.18em] text-gauge">
@@ -567,6 +565,6 @@ export function DatumEditor({
           {error}
         </p>
       ) : null}
-    </div>
+    </EditorCard>
   );
 }
