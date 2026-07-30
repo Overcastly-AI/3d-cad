@@ -2355,3 +2355,59 @@ does not establish that the string is on the screen the user is describing. Two
 inspectors exist, one is a demo route, and the panel in the founder's screenshot
 was the other one. Confirm the render path — which route mounts the component —
 before assigning a severity to what it says.
+
+### 2026-07-30 — RULING: selection colour differs between the tree and the timeline (UI-W1 handback)
+
+The timeline agent flagged a deliberate divergence for a ruling rather than
+picking silently, which is the right instinct — recording the decision so it
+does not get re-litigated or quietly "fixed" by a later pass.
+
+**The situation.** A selected feature-tree row takes a brass left-rule. A
+selected timeline chip does NOT: it takes the strip's brightest border
+(`border-mist`) plus a lifted `bg-hairline` seat. Two adjacent surfaces, two
+selection languages, same underlying selection.
+
+**Ruling: keep the divergence.** The design mandate says spend boldness in one
+place, and the operative scope of "one place" is the SURFACE, not the app. Inside
+the strip, brass belongs to the travel stop, because the stop is the only thing
+whose *position carries meaning* — that is the whole metaphor. A brass chip
+beside a brass stop would put the accent on two different kinds of thing at once
+and the stop would stop reading as the position indicator. The tree has no travel
+stop, so brass is unclaimed there and selection can have it.
+
+Stated as a rule for future surfaces: **brass marks the single position/attention
+indicator a surface owns; where a surface has one, selection must find another
+cue.** That is a per-surface budget, not a global palette mapping.
+
+**Why the inconsistency is tolerable in practice, and this is load-bearing to
+the ruling rather than a consolation:** the two selections are SIMULTANEOUS.
+Clicking a chip selects the feature, so the tree row lights at the same moment.
+The user sees both cues co-occur on their first click, which teaches the mapping
+instead of leaving them to infer it. If a future change ever lets the two
+selections diverge in time — one lit without the other — this ruling should be
+revisited, because the teaching mechanism would be gone.
+
+**Not ruled on, deliberately left to frontend-qa:** whether `border-mist` is
+sufficiently distinguishable from the unselected chip border at 1280 for a
+low-vision user. That is a contrast measurement, not a design principle, and it
+should be measured rather than argued — the standing lesson from the 07-30 pass
+where a 0×0 element and a 16 px button both photographed as "dense and quiet".
+
+### Also recorded from UI-W1, so the reasoning is not lost in an agent report
+
+- The plan's stated 44 px strip height was WRONG and was overridden: its own
+  wireframe stacked eyebrow + chip + ordinal + name, which cannot fit 44 px
+  alongside the 32 px touch floor `tokens.ts` had just committed to. 48 px, with
+  single-row chips. A plan that contradicts a policy the same repo just adopted
+  loses to the policy.
+- The travel stop's focus ring is `mist`, not the house brass: a brass ring
+  around a brass blade is not a visible focus indicator (WCAG 2.4.7). Worth
+  generalising — an accent-coloured focus ring is invisible on an
+  accent-coloured control, so focus indication must contrast with the CONTROL,
+  not merely exist in the palette.
+- No `⇥` glyph on TO TIP (tofu risk in Fragment Mono); the label plus an
+  `INCLUDE ALL` caption carry it. Consistent with preferring ASCII outside
+  markdown.
+- `p1-rollback-bar-*.png` (4 files) were DELETED rather than refreshed, because
+  they documented an element that no longer exists. A screenshot of a deleted
+  control is worse than no screenshot: it reads as current.
