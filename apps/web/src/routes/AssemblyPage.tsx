@@ -1,4 +1,13 @@
 import {
+  CloseIcon,
+  ContextMenu,
+  type ContextMenuSection,
+  EyeIcon,
+  EyeOffIcon,
+  FixedIcon,
+  IsolateIcon,
+} from "@loft/design";
+import {
   keepPreviousData,
   useQuery,
   useQueryClient,
@@ -75,8 +84,21 @@ import {
   AssemblyScene,
   type SceneInstance,
 } from "../viewport/AssemblyScene";
+import {
+  EMPTY_VISIBILITY,
+  hiddenInstanceCount,
+  isolateInstance,
+  isolatedInstanceId,
+  showAllInstances,
+  toggleInstanceHidden,
+  visibilityModeOf,
+  withVisibilityMode,
+  type VisibilityMode,
+  type VisibilityState,
+} from "../viewport/instanceVisibility";
 import { useInstanceGeometries } from "../viewport/useInstanceGeometries";
 import { Viewport } from "../viewport/Viewport";
+import { VisibilityStamp } from "../components/VisibilityStamp";
 
 const IDENTITY_QUAT = { w: 1, x: 0, y: 0, z: 0 };
 
@@ -284,6 +306,43 @@ export function AssemblyPage() {
   );
   const { byMeshId } = useInstanceGeometries(meshes);
 
+  // ---------------------------------------------------------------------
+  // Per-instance VIEW state (UI-W2 — `ui-wave-tool-grade.md` Surface 2). Which
+  // components are drawn, and how solidly. Client-only and unversioned by
+  // design: hiding a part must not change what the solver solves, what the
+  // interference check measures, or what an export contains. The scene reads it
+  // (`SceneInstance.visibility`), the tree writes it, and the ISOLATED stamp
+  // derives its claim from it.
+  // ---------------------------------------------------------------------
+  const [visibility, setVisibility] =
+    useState<VisibilityState>(EMPTY_VISIBILITY);
+  const instanceIds = useMemo(() => instances.map((i) => i.id), [instances]);
+  const hiddenCount = hiddenInstanceCount(visibility, instanceIds);
+  const isolatedId = isolatedInstanceId(visibility, instanceIds);
+  const isolatedName =
+    isolatedId === null
+      ? null
+      : (instances.find((i) => i.id === isolatedId)?.name ?? null);
+
+  const toggleVisibility = useCallback((instanceId: string) => {
+    setVisibility((state) => toggleInstanceHidden(state, instanceId));
+  }, []);
+  const setVisibilityMode = useCallback(
+    (instanceId: string, mode: VisibilityMode) => {
+      setVisibility((state) => withVisibilityMode(state, instanceId, mode));
+    },
+    [],
+  );
+  const isolate = useCallback(
+    (instanceId: string) => {
+      setVisibility((state) => isolateInstance(state, instanceIds, instanceId));
+    },
+    [instanceIds],
+  );
+  const showAll = useCallback(() => {
+    setVisibility((state) => showAllInstances(state, instanceIds));
+  }, [instanceIds]);
+
   // The scene instances: graph identity + solved pose + shared geometry.
   const solvedById = useMemo(
     () => new Map((evaluation?.instances ?? []).map((i) => [i.instance_id, i])),
@@ -302,9 +361,10 @@ export function AssemblyPage() {
           grounded: instance.grounded,
           transform: placementToScene(placement),
           geometry: meshGlbId ? (byMeshId.get(meshGlbId) ?? null) : null,
+          visibility: visibilityModeOf(visibility, instance.id),
         };
       }),
-    [instances, solvedById, byMeshId],
+    [instances, solvedById, byMeshId, visibility],
   );
 
   // ---------------------------------------------------------------------
@@ -646,9 +706,23 @@ export function AssemblyPage() {
         setAddOpen((open) => !open);
         return;
       }
-      if (key === "i" && canCheckInterference) {
+      if (key === "i" && !event.shiftKey && canCheckInterference) {
         event.preventDefault();
         runInterference();
+        return;
+      }
+      // V shows/hides the addressed component; Shift+V isolates it — and, when
+      // anything is already hidden, Shift+V is the way BACK (show all), so the
+      // one accelerator can never strand a modeler in a scene with no parts in
+      // it. Both are no-ops with nothing selected and nothing hidden.
+      if (key === "v") {
+        event.preventDefault();
+        if (event.shiftKey) {
+          if (hiddenCount > 0) showAll();
+          else if (selectedInstanceId !== null) isolate(selectedInstanceId);
+        } else if (selectedInstanceId !== null) {
+          toggleVisibility(selectedInstanceId);
+        }
         return;
       }
       if (!canMate) return;
@@ -674,6 +748,11 @@ export function AssemblyPage() {
     addOpen,
     setTool,
     toggleTool,
+    selectedInstanceId,
+    hiddenCount,
+    isolate,
+    showAll,
+    toggleVisibility,
   ]);
 
   // One predicate owns "who holds Ctrl+Z right now": an armed mate tool or the
@@ -711,6 +790,83 @@ export function AssemblyPage() {
   const selectInstance = useCallback((id: string) => {
     setSelectedInstanceId((current) => (current === id ? null : id));
   }, []);
+
+  // ---------------------------------------------------------------------
+  // The component row's right-click menu (UI-W2). Isolate is a VERB, not an
+  // icon — infrequent, destructive to view state — so it lives here with its
+  // accelerator rather than adding a third control to every row. Built on open
+  // so each row reads the freshest state; every item is a wired action.
+  // ---------------------------------------------------------------------
+  const [instanceMenu, setInstanceMenu] = useState<{
+    instance: InstanceResponse;
+    x: number;
+    y: number;
+  } | null>(null);
+
+  const buildInstanceSections = (
+    instance: InstanceResponse,
+  ): ContextMenuSection[] => {
+    const hidden = visibilityModeOf(visibility, instance.id) === "hidden";
+    return [
+      {
+        key: "view",
+        label: instance.name,
+        items: [
+          {
+            key: "hide",
+            label: hidden ? "Show" : "Hide",
+            icon: hidden ? <EyeIcon /> : <EyeOffIcon />,
+            shortcut: "V",
+            onSelect: () => toggleVisibility(instance.id),
+            "data-testid": "instance-ctx-hide",
+          },
+          {
+            key: "isolate",
+            label: "Isolate",
+            icon: <IsolateIcon />,
+            shortcut: "⇧V",
+            disabled: instances.length < 2,
+            disabledReason: "Add a second part before isolating one",
+            onSelect: () => isolate(instance.id),
+            "data-testid": "instance-ctx-isolate",
+          },
+          {
+            key: "show-all",
+            label: "Show all",
+            icon: <EyeIcon />,
+            disabled: hiddenCount === 0,
+            disabledReason: "Every component is already shown",
+            onSelect: showAll,
+            "data-testid": "instance-ctx-show-all",
+          },
+        ],
+      },
+      {
+        key: "edit",
+        items: [
+          {
+            key: "ground",
+            label: instance.grounded ? "Unground" : "Ground",
+            icon: <FixedIcon />,
+            disabled: busy,
+            disabledReason: "Waiting for the current edit…",
+            onSelect: () => void handleToggleGrounded(instance),
+            "data-testid": "instance-ctx-ground",
+          },
+          {
+            key: "remove",
+            label: "Remove",
+            icon: <CloseIcon />,
+            danger: true,
+            disabled: busy,
+            disabledReason: "Waiting for the current edit…",
+            onSelect: () => void handleDeleteInstance(instance),
+            "data-testid": "instance-ctx-remove",
+          },
+        ],
+      },
+    ];
+  };
 
   // Camera fit inputs for the shared Viewport rig. The fit key is the set of
   // instances whose mesh has LOADED — the fit fires when geometry actually
@@ -792,6 +948,13 @@ export function AssemblyPage() {
                     onClose={() => setAddOpen(false)}
                   />
                 ) : null}
+                {/* The way back from an isolate / a hand-hidden scene. Renders
+                    only while something IS hidden — no decorative chrome. */}
+                <VisibilityStamp
+                  isolatedName={isolatedName}
+                  hiddenCount={hiddenCount}
+                  onShowAll={showAll}
+                />
                 <HistoryErrorAlert
                   error={historyError}
                   onDismiss={() => setHistoryError(null)}
@@ -853,6 +1016,12 @@ export function AssemblyPage() {
               selectedInstanceId={selectedInstanceId}
               clashingInstanceIds={clashIds.measured}
               unverifiedInstanceIds={clashIds.unverifiedOnly}
+              visibility={visibility}
+              onToggleVisibility={toggleVisibility}
+              onSetVisibility={setVisibilityMode}
+              onInstanceContextMenu={(instance, x, y) =>
+                setInstanceMenu({ instance, x, y })
+              }
               onSelectInstance={selectInstance}
               onToggleGrounded={handleToggleGrounded}
               onDeleteInstance={handleDeleteInstance}
@@ -882,6 +1051,17 @@ export function AssemblyPage() {
           </FloatingPanel>
         </main>
       </div>
+      {instanceMenu !== null ? (
+        <ContextMenu
+          open
+          x={instanceMenu.x}
+          y={instanceMenu.y}
+          aria-label={`Actions for ${instanceMenu.instance.name}`}
+          data-testid="instance-context-menu"
+          sections={buildInstanceSections(instanceMenu.instance)}
+          onClose={() => setInstanceMenu(null)}
+        />
+      ) : null}
     </DocumentUnitProvider>
   );
 }

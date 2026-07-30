@@ -8,7 +8,7 @@
  * never on a re-solve of the same set (the snap-together motion plays
  * without the camera jumping).
  */
-import { viewport } from "@loft/design/tokens";
+import { assembly as assemblyTokens, viewport } from "@loft/design/tokens";
 import { Html } from "@react-three/drei";
 import { useMemo } from "react";
 import { Box3, Matrix4, Quaternion, Vector3 } from "three";
@@ -19,6 +19,7 @@ import { useMateAuthoringStore } from "../assembly/mateStore";
 import { groundShadowTexture } from "./groundShadow";
 import { InstanceMateOverlay } from "./InstanceMateOverlay";
 import { InstanceMesh } from "./InstanceMesh";
+import type { VisibilityMode } from "./instanceVisibility";
 import type { InstanceGeometry } from "./useInstanceGeometries";
 
 /** One placed instance the scene draws. */
@@ -31,6 +32,18 @@ export interface SceneInstance {
   transform: SceneTransform;
   /** The shared part geometry, or null while it loads / on a bodyless part. */
   geometry: InstanceGeometry | null;
+  /**
+   * The workspace's per-instance view stop (UI-W2). `hidden` draws NOTHING for
+   * this instance — no body, no contact pool, no balloon, no mate overlay: a
+   * balloon floating over an absent part would point at nothing, and geometry
+   * you cannot see must not be pickable. `ghost` draws it translucent.
+   */
+  visibility: VisibilityMode;
+}
+
+/** Is this instance drawn at all this frame? */
+function isDrawn(instance: SceneInstance): boolean {
+  return instance.visibility !== "hidden";
 }
 
 export interface AssemblySceneProps {
@@ -59,8 +72,14 @@ const SCALE = new Vector3(1, 1, 1);
 const MAT = new Matrix4();
 
 /**
- * Union Box3 of every placed instance's LOADED geometry, or null. Consumed by
+ * Union Box3 of every DRAWN instance's LOADED geometry, or null. Consumed by
  * the page to drive the shared Viewport camera rig (fit + contact shadow).
+ *
+ * Hidden instances are excluded, so "Fit to view" after an isolate frames the
+ * part you isolated — Fusion's behaviour. Merely hiding something does NOT move
+ * the camera on its own: the page's fit KEY is the loaded-geometry set, which a
+ * visibility change never touches, so the refit only happens when the user asks
+ * for one.
  */
 export function assemblyBounds(
   instances: readonly SceneInstance[],
@@ -68,6 +87,7 @@ export function assemblyBounds(
   const box = new Box3();
   let any = false;
   for (const inst of instances) {
+    if (!isDrawn(inst)) continue;
     const geom = inst.geometry?.surface;
     if (!geom) continue;
     geom.computeBoundingBox();
@@ -105,6 +125,12 @@ interface InstancePool {
   center: readonly [number, number];
   /** World XZ extent (pool scale before the oversize factor). */
   size: readonly [number, number];
+  /**
+   * A ghosted body casts a ghosted pool. Without this a see-through part sits
+   * on a full-strength shadow, which reads as a solid part you have merely
+   * tinted — the seat has to go translucent with the thing that seats.
+   */
+  ghost: boolean;
 }
 
 function useInstancePools(instances: readonly SceneInstance[]): {
@@ -115,6 +141,7 @@ function useInstancePools(instances: readonly SceneInstance[]): {
     const pools: InstancePool[] = [];
     let floor = 0;
     for (const inst of instances) {
+      if (!isDrawn(inst)) continue;
       const geom = inst.geometry?.surface;
       if (!geom) continue;
       geom.computeBoundingBox();
@@ -143,6 +170,7 @@ function useInstancePools(instances: readonly SceneInstance[]): {
         id: inst.id,
         center: [(minX + maxX) / 2, (minZ + maxZ) / 2],
         size: [Math.max(maxX - minX, 1), Math.max(maxZ - minZ, 1)],
+        ghost: inst.visibility === "ghost",
       });
     }
     return { pools, floor };
@@ -286,7 +314,12 @@ export function AssemblyScene({
             color={viewport.groundShadow}
             map={groundShadowTexture()}
             transparent
-            opacity={viewport.groundShadowOpacity}
+            opacity={
+              pool.ghost
+                ? viewport.groundShadowOpacity *
+                  assemblyTokens.ghost.surfaceOpacity
+                : viewport.groundShadowOpacity
+            }
             depthWrite={false}
             toneMapped={false}
           />
@@ -294,7 +327,7 @@ export function AssemblyScene({
       ))}
 
       {instances.map((inst) =>
-        inst.geometry ? (
+        inst.geometry && isDrawn(inst) ? (
           <InstanceMesh
             key={inst.id}
             geometry={inst.geometry}
@@ -302,6 +335,7 @@ export function AssemblyScene({
             selected={selectedInstanceId === inst.id}
             clashing={clashingInstanceIds.has(inst.id)}
             unverified={unverifiedInstanceIds.has(inst.id)}
+            ghost={inst.visibility === "ghost"}
             reducedMotion={reducedMotion}
             onSelect={() =>
               tool === "lock"
@@ -315,7 +349,7 @@ export function AssemblyScene({
       {overlayTool
         ? instances.map((inst) => {
             const overlay = overlaysByInstance.get(inst.id) ?? null;
-            if (!inst.geometry) return null;
+            if (!inst.geometry || !isDrawn(inst)) return null;
             return (
               <InstanceMateOverlay
                 key={`ov-${inst.id}`}
@@ -335,7 +369,7 @@ export function AssemblyScene({
           })
         : null}
 
-      {instances.map((inst) => (
+      {instances.filter(isDrawn).map((inst) => (
         <Balloon
           key={`b-${inst.id}`}
           instance={inst}

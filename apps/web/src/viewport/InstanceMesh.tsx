@@ -40,6 +40,15 @@ export interface InstanceMeshProps {
    * make — the DOM schedule and tree already say "Unverified" in these words.
    */
   unverified?: boolean;
+  /**
+   * GHOSTED (UI-W2): the middle stop of the per-instance opacity control. The
+   * surface AND its B-rep edges go translucent at the product's established
+   * ghost strengths (`assembly.ghost`), and the surface stops writing depth so
+   * the instances BEHIND it actually show through — which is the whole point of
+   * the stop ("see inside the assembly"). Still selectable and still solved:
+   * ghosting is a view state, not a suppression.
+   */
+  ghost?: boolean;
   reducedMotion: boolean;
   onSelect?: () => void;
 }
@@ -53,6 +62,7 @@ export function InstanceMesh({
   selected,
   clashing = false,
   unverified = false,
+  ghost = false,
   reducedMotion,
   onSelect,
 }: InstanceMeshProps) {
@@ -103,11 +113,25 @@ export function InstanceMesh({
           : assemblyTokens.restTint;
     edgeMaterial.color.set(edge);
     surfaceMaterial.color.set(tint);
+    // The opacity stop. `transparent` is part of the material's program key in
+    // three, so flipping it needs an explicit recompile — without the
+    // `needsUpdate` the first ghost renders opaque and the toggle looks broken.
+    // Depth writing goes off with it so the bodies BEHIND a ghost draw through
+    // it (a translucent surface that still writes depth occludes exactly what
+    // you ghosted it to see).
+    surfaceMaterial.transparent = ghost;
+    surfaceMaterial.opacity = ghost ? assemblyTokens.ghost.surfaceOpacity : 1;
+    surfaceMaterial.depthWrite = !ghost;
+    surfaceMaterial.needsUpdate = true;
+    edgeMaterial.transparent = ghost;
+    edgeMaterial.opacity = ghost ? assemblyTokens.ghost.edgeOpacity : 1;
+    edgeMaterial.needsUpdate = true;
     invalidate();
   }, [
     selected,
     clashing,
     unverified,
+    ghost,
     edgeMaterial,
     surfaceMaterial,
     invalidate,

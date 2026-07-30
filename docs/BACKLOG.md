@@ -151,6 +151,29 @@ frame refactor are v2/§11. Spike de-collected.
       design 54; `preselection.spec.ts` + 18 hole specs + 12 regression specs
       green on a live stack; shots `uiw34-hole-{before,after}-{1440,1366}.png`.
       [src: founder report 2026-07-30 · ROADMAP current focus]
+- [x] (P1, M) **UI-W2 — per-instance visibility, opacity and isolate. ASSEMBLY
+      HALF SHIPPED 2026-07-30** (frontend-builder; founder-directed "what about
+      different components enablement, opacity, etc.", design
+      `ui-wave-tool-grade.md` Surface 2). The product audit measured a
+      21-instance assembly with no way to see inside it. Each component row
+      carries an EYE drawn in our hand (three forms differing by whole strokes,
+      after a hollow-vs-filled pupil measured illegible at 16px); the addressed
+      row discloses SOLID · GHOST · HIDE (`SegmentedControl`, quantized — the
+      320px row cannot hold a slider, and a hover-revealed control would reflow
+      the list under the cursor); ISOLATE is a right-click verb with `V` / `⇧V`,
+      `⇧V` doubling as the way back so no chord can strand you. Mandate 3c is
+      asserted on canvas PIXELS (luminance-banded census; mutation-verified to
+      fail when the WebGL wiring is stubbed). Hidden = nothing drawn (body, pool,
+      balloon, mate overlay) and out of the camera-fit bounds. GHOST references
+      the existing `viewport.preview` translucency but NOT its brass tint. View
+      state is client-only — the solve, the clash check and exports are
+      unchanged. The `ISOLATED` `Stamp` is DERIVED, renders only while something
+      is hidden, and is pointer-inert but for its control. Web unit 1140 + design
+      63; `assembly-visibility.spec.ts` (6) + 18 regression specs green on a live
+      native stack; shots `uiw2-visibility-before-{1440,1366}.png`,
+      `uiw2-{ghost,isolate}-{1440,1366}.png`. NEXT: the PART half (Origin /
+      Sketches / Bodies categories) — another agent holds those panels.
+      [src: founder directive 2026-07-30 · AUDIT-PRODUCT 21-instance assembly]
 - [x] (P1, M) **UI-REVIEW 2026-07-30 P1/P2/P3 — the export strip's second fold
       regression, the timeline's false redundancy claims, and three silent
       gates. FIXED 2026-07-30** (frontend-builder, folded into UI-W3/W4).
@@ -1843,6 +1866,11 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
   shell/draft/fillet/chamfer), the hole's face pick arms on open, and its
   references sit in a pinned anchor block on the right rail. UI-REVIEW P1 (export
   strip under the fold) fixed by pinning it, not by trimming copy.
+
+- 2026-07-30 — **UI-W2 visibility/opacity/isolate, assembly half (frontend-builder):**
+  every component row gets an eye, the addressed one a SOLID · GHOST · HIDE control,
+  isolate a right-click verb with `V`/`⇧V` and an `ISOLATED` stamp as the way back.
+  Asserted on canvas PIXELS, not aria state (mandate 3c).
 
 - 2026-07-30 — **Last-evaluate record on the part row (backend-builder):**
   migration `0012` + derived `eval_state` (`never`/`ok`/`failed`/`stale`), written

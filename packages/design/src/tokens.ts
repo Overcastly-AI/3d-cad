@@ -343,6 +343,31 @@ export const assembly = {
   unverified: color.etch,
   /** Surface tint of an unmeasurable body — cool "held for inspection". */
   unverifiedTint: viewport.unverifiedSurfaceTint,
+  /**
+   * GHOSTED instance (UI-W2 — per-instance visibility/opacity/isolate). The
+   * middle stop of the quantized opacity control: the part is still there, you
+   * just see THROUGH it to the parts behind. That is the founder's "see inside a
+   * 21-instance assembly" case, so the read has to be honestly translucent, not
+   * merely dimmed.
+   *
+   * The two opacities are the product's EXISTING ghost translucency
+   * (`viewport.preview`), referenced rather than re-picked, so a ghosted
+   * instance and a feature preview are the same strength of see-through — one
+   * ghost language, one source.
+   *
+   * What it deliberately does NOT borrow is the preview's brass `surfaceTint`.
+   * Brass means "about to be" (an uncommitted feature); a ghosted instance is
+   * fully committed and merely de-emphasised, so tinting it brass would state
+   * the opposite of the truth. A ghost keeps the resting tint — the SAME
+   * machined aluminum as its solid neighbours, just see-through. Transparency is
+   * the whole cue, which is also why it survives at any zoom.
+   */
+  ghost: {
+    /** Ghost surface opacity — the established translucency (0.42). */
+    surfaceOpacity: viewport.preview.surfaceOpacity,
+    /** Ghost B-rep edge opacity — the silhouette stays readable through it. */
+    edgeOpacity: viewport.preview.edgeOpacity,
+  },
 } as const;
 
 /**

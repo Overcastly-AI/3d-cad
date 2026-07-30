@@ -819,3 +819,65 @@ export const ViewIsoIcon = (p: IconProps) => (
     <path d="M12 12 V20" strokeDasharray="2 2" />
   </Icon>
 );
+
+// --- Visibility -------------------------------------------------------------
+//
+// The eye, deliberately. A novel glyph (aperture square, filled/hollow swatch)
+// would be more "designed" and would fail the novice bar: visibility is a
+// LEARNED symbol, so convention wins and the design contribution is drawing it
+// in our hand — the scribed lens is two circular arcs meeting at sharp corners
+// (square caps, miter joins, 1.6 stroke), not the round-cap Feather/Lucide eye.
+//
+// Three forms, one grammar, because the assembly row has three states and the
+// difference between them must survive at 16px as a SHAPE, not as a tint:
+//   · shown  — closed lens, pupil punched (the filled `Node` mark)
+//   · ghost  — the lens BREAKS into a phantom (dashed) outline and the pupil is
+//              gone: you are looking through the thing, nothing looks back.
+//              Dashed = "not fully present" is already this product's language
+//              (hidden edges on a drawing sheet, the indeterminate `Stamp`).
+//   · hidden — closed lens struck through, the learned "off" mark (the same
+//              redline angle as `SuppressIcon`, which strikes a feature from the
+//              build).
+//
+// The three differ by whole strokes — a dot present/absent, an outline whole or
+// broken, a slash present — deliberately, because a subtler encoding (a hollow
+// vs a filled pupil) measured ILLEGIBLE at the 16px the tree renders them at.
+
+/** The scribed lens both eye forms share — two arcs, sharp corners. */
+const EYE_LENS_PATH = "M3 12 A10.5 10.5 0 0 1 21 12 A10.5 10.5 0 0 1 3 12 Z";
+
+/** Shown — the instance draws at full opacity. */
+export const EyeIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d={EYE_LENS_PATH} />
+    <Node cx={12} cy={12} />
+  </Icon>
+);
+
+/** Ghosted — the instance draws translucent (you see through it). */
+export const EyeGhostIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d={EYE_LENS_PATH} strokeDasharray="3.4 2.6" />
+  </Icon>
+);
+
+/** Hidden — the instance is not drawn at all. */
+export const EyeOffIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d={EYE_LENS_PATH} />
+    <path d="M4 20 L20 4" />
+  </Icon>
+);
+
+/**
+ * Isolate — one component kept, its neighbours struck to phantom. The verb, in
+ * the same dashed-is-absent language the eye's ghost form uses, so the menu row
+ * and the row glyph read as one idea.
+ */
+export const IsolateIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x={9} y={8} width={6} height={9} />
+    <rect x={2} y={8} width={5} height={9} strokeDasharray="2 2" />
+    <rect x={17} y={8} width={5} height={9} strokeDasharray="2 2" />
+  </Icon>
+);

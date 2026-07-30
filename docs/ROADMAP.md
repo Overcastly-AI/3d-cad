@@ -14,9 +14,13 @@ references pinned, parameters scrolling) SHIPPED 2026-07-30** (frontend-builder)
 the face I select with the cursor?" is answered: a pick made anywhere outlives
 the command that made it and seeds the next one, the hole opens with its face
 pick already armed, and the hole editor's references sit in a pinned anchor block
-on the right rail while the parameters scroll under them. Still queued: UI-W2
-(categorical visibility/opacity/isolate — Origin / Sketches / Bodies), UI-W5
-(entity snapping, Ctrl to suppress), and a settings surface.
+on the right rail while the parameters scroll under them. **UI-W2 — the ASSEMBLY
+half (per-instance visibility / opacity / isolate) SHIPPED 2026-07-30**
+(frontend-builder): every component row carries an eye, the addressed one gets a
+SOLID · GHOST · HIDE control, isolate is a right-click verb with `V` / `⇧V`, and
+an `ISOLATED` stamp over the scene is the way back. Still queued: the UI-W2 PART
+half (Origin / Sketches / Bodies categories), UI-W5 (entity snapping, Ctrl to
+suppress), and a settings surface.
 **#57 material/density — the KERNEL + WIRE half SHIPPED 2026-07-30**
 (kernel-architect; design `docs/design/materials.md`, decision record RESEARCH
 §9a). MASS PROPERTIES could not report mass because nothing in the codebase had
@@ -1504,6 +1508,43 @@ flexible sub-assemblies, part-version pinning-as-default.
       edge at (10, 0, 20) could not be clicked behind the greyed Apply cell
       (reproduced at HEAD without this change). Fillet/chamfer now take the right
       rail while edge picking is armed.
+      **UI-W2 — PER-INSTANCE VISIBILITY, OPACITY AND ISOLATE (assembly half)
+      ✅ 2026-07-30 (frontend-builder; founder-directed "what about different
+      components enablement, opacity, etc.", design `ui-wave-tool-grade.md`
+      Surface 2):** the product audit measured a 21-instance assembly, found
+      interference results with nowhere to live, and no way to see inside — the
+      workspace had no show/hide, no opacity and no isolate at all. Assemblies
+      first, because visibility matters most where there are many bodies. Each
+      component row now carries an EYE (the learned symbol, drawn in our hand:
+      a scribed lens of two arcs, square caps, `gauge`→`mist`); the ADDRESSED
+      row discloses a SOLID · GHOST · HIDE `SegmentedControl` (quantized, not a
+      slider — a 0-100 slider in a 320px row is a fiddly target nobody needs
+      mid-model); ISOLATE is a right-click VERB with `V` (show/hide) and `⇧V`
+      (isolate, and the way BACK when anything is hidden, so one chord can never
+      strand you in an empty scene). The eye reports all three stops as a SHAPE
+      — pupil punched / lens broken and empty / lens struck through — after a
+      first draft's hollow-vs-filled pupil measured illegible at 16px in the
+      captured shot. Mandate 3c is the exit gate and it is asserted on PIXELS: a
+      luminance-banded census of the live canvas proves hiding drops the lit
+      band without raising the mid band while ghosting moves the body BETWEEN
+      them (the specs fail when the WebGL wiring is stubbed — mutation-verified).
+      A hidden instance draws nothing at all: no body, no contact pool, no
+      balloon, no mate overlay, and it leaves the camera-fit bounds so `0` frames
+      what you isolated. GHOST reads through the EXISTING ghost translucency
+      (`assembly.ghost` references `viewport.preview`, one ghost language) but
+      deliberately NOT its brass tint — brass means "about to be", and a ghosted
+      component is committed, just see-through. Visibility is VIEW state:
+      client-only, unversioned, and it changes nothing the solver, the
+      interference check or an export sees. The `ISOLATED` `Stamp` is DERIVED
+      from the scene (never a stored flag), renders only while something is
+      hidden, and is pointer-INERT except its one control, so it cannot become
+      the click shield over the model the same day's review found elsewhere.
+      Gates: web unit 1140 + design 63, eslint/prettier/tsc clean on the whole
+      diff; e2e `assembly-visibility.spec.ts` (4 + 2 shot cases) + assembly +
+      assembly-bom + assembly-inspect + assembly-undo-redo + assembly-units +
+      assembly-clash-unverified + p1-token-scale (18 specs) green on a live
+      native stack. Founder before/after: `uiw2-visibility-before-{1440,1366}
+      .png`, `uiw2-{ghost,isolate}-{1440,1366}.png`.
       **"Is broken" — BACKEND SHIPPED 2026-07-30 (backend-builder):** the one
       column the 2026-07-30 UI review said was worth adding to that register now
       has a wire. Migration `0012` adds three nullable `parts.last_eval_*`
