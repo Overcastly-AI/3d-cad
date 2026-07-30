@@ -35,6 +35,12 @@ export interface ContextMenuItem {
   shortcut?: string;
   onSelect: () => void;
   disabled?: boolean;
+  /**
+   * Why the row is gated ("Model a body first"). Reaches the pointer as a
+   * `title` and a screen reader through `aria-describedby`; a gated row is
+   * `aria-disabled` rather than natively disabled, so both are reachable.
+   */
+  disabledReason?: string;
   /** Destructive action (delete) — reads in the flag color. */
   danger?: boolean;
   "data-testid"?: string;
@@ -65,6 +71,21 @@ export interface ContextMenuProps {
 
 /** Estimated menu size for the first paint's clamp (refined after measure). */
 const MENU_MIN_WIDTH = 224;
+
+/**
+ * Can roving focus land here? Gated rows carry `aria-disabled` (they must stay
+ * hoverable to explain themselves), so "enabled" is no longer the DOM `disabled`
+ * property — read the attribute the row actually sets.
+ */
+function isSelectable(
+  el: HTMLButtonElement | null | undefined,
+): el is HTMLButtonElement {
+  return (
+    el !== null &&
+    el !== undefined &&
+    el.getAttribute("aria-disabled") !== "true"
+  );
+}
 
 export function ContextMenu({
   open,
@@ -125,7 +146,7 @@ export function ContextMenu({
   // Focus the first enabled row on open.
   useEffect(() => {
     if (!open) return;
-    const first = itemRefs.current.findIndex((el) => el && !el.disabled);
+    const first = itemRefs.current.findIndex(isSelectable);
     if (first >= 0) itemRefs.current[first]?.focus();
   }, [open]);
 
@@ -150,7 +171,7 @@ export function ContextMenu({
     const count = itemRefs.current.length;
     for (let step = 0; step < count; step++) {
       const el = itemRefs.current[(((index + step) % count) + count) % count];
-      if (el && !el.disabled) {
+      if (isSelectable(el)) {
         el.focus();
         return;
       }
@@ -217,6 +238,9 @@ export function ContextMenu({
           ) : null}
           {section.items.map((item) => {
             const index = flatIndex++;
+            const gated = item.disabled === true;
+            const reasonId = `${menuId}-reason-${item.key}`;
+            const hasReason = gated && item.disabledReason !== undefined;
             return (
               <button
                 key={item.key}
@@ -226,21 +250,32 @@ export function ContextMenu({
                 type="button"
                 role="menuitem"
                 tabIndex={-1}
-                disabled={item.disabled}
+                // `aria-disabled`, not the native attribute: a natively
+                // disabled row leaves the a11y tree and refuses hover, so a
+                // gated verb had nowhere to say why (UI-REVIEW 2026-07-30 P2 —
+                // the same trap `ToolButton` fixed two audits ago). Arrow
+                // navigation still SKIPS gated rows (menu convention — see
+                // `isSelectable`), but the pointer can reach one and read it.
+                aria-disabled={gated || undefined}
+                aria-describedby={hasReason ? reasonId : undefined}
+                title={hasReason ? item.disabledReason : undefined}
                 data-testid={item["data-testid"]}
                 aria-label={item["aria-label"] ?? item.label}
                 onClick={() => {
+                  if (gated) return;
                   item.onSelect();
                   onClose();
                 }}
                 className={cx(
-                  "flex w-full select-none items-center gap-2.5 px-3 py-1.5 text-left",
+                  "flex min-h-target-dense w-full select-none items-center gap-2.5 px-3 py-1.5 text-left",
                   "transition-colors duration-fast",
                   "focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass",
-                  "disabled:pointer-events-none disabled:opacity-40",
-                  item.danger
-                    ? "text-flag hover:bg-flag/10 focus-visible:bg-flag/10"
-                    : "text-mist hover:bg-carbide focus-visible:bg-carbide",
+                  gated
+                    ? "cursor-not-allowed opacity-40"
+                    : item.danger
+                      ? "text-flag hover:bg-flag/10 focus-visible:bg-flag/10"
+                      : "text-mist hover:bg-carbide focus-visible:bg-carbide",
+                  gated && (item.danger ? "text-flag" : "text-mist"),
                 )}
               >
                 <span
@@ -253,6 +288,11 @@ export function ContextMenu({
                   {item.icon}
                 </span>
                 <span className="grow font-body text-xs">{item.label}</span>
+                {hasReason ? (
+                  <span id={reasonId} className="sr-only">
+                    {item.disabledReason}
+                  </span>
+                ) : null}
                 {item.shortcut ? <Kbd>{item.shortcut}</Kbd> : null}
               </button>
             );

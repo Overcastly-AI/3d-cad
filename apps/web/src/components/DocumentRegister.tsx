@@ -58,9 +58,8 @@ import { validatePartName } from "../lib/partName";
  * tracked data. The create control is no longer a form bolted above a table — it
  * is the NEXT LINE of the register, carrying the next ordinal, because that is
  * what filing a new part is, and its `N` accelerator is shown rather than
- * hidden. Below
- * it the drawer's remaining ruled lines run to the bottom of the frame, which
- * is what kills the old "small card adrift in a void" read.
+ * hidden. Below it the drawer's remaining ruled lines run to the bottom of the
+ * frame, which is what kills the old "small card adrift in a void" read.
  *
  * DRY: one component, three thin configs. The three pages were ~410 lines of
  * near-identical code (UI-REVIEW 2026-07-16 flagged the near-dup); a divergence
@@ -437,7 +436,9 @@ function RegisterRow<T extends RegisterDocument>({
       <td className="truncate px-3 py-2 align-middle">
         {openLink(entry, {
           className:
-            "rounded-sm font-body text-md text-mist underline-offset-4 outline-none hover:text-brass hover:underline focus-visible:text-brass focus-visible:underline",
+            // `min-h-target-dense`: the row stays dense, the TAP TARGET does not go
+            // under the 24px floor (design `target` policy; it measured 84x18).
+            "inline-flex min-h-target-dense items-center rounded-sm font-body text-md text-mist underline-offset-4 outline-none hover:text-brass hover:underline focus-visible:text-brass focus-visible:underline",
           "data-testid": `${idSingular}-open`,
         })}
       </td>
@@ -482,7 +483,9 @@ function RegisterRow<T extends RegisterDocument>({
           onClick={() => setConfirming(true)}
           data-testid={`${idSingular}-delete`}
           aria-label={`Delete ${entry.name}`}
-          className="rounded-sm px-1 font-display text-2xs uppercase tracking-[0.14em] text-gauge outline-none transition-colors duration-fast hover:text-flag focus-visible:text-flag focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
+          // 53x15 before the target policy — the one destructive verb in the
+          // register was its smallest control.
+          className="inline-flex min-h-target-dense items-center justify-end rounded-sm px-1 font-display text-2xs uppercase tracking-[0.14em] text-gauge outline-none transition-colors duration-fast hover:text-flag focus-visible:text-flag focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
         >
           Delete
         </button>

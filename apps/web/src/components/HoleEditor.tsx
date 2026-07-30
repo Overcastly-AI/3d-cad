@@ -139,7 +139,17 @@ export interface HoleEditorProps {
   onPreviewChange: (preview: HolePreview | null) => void;
 }
 
-/** A quiet, brass-when-armed toggle to arm a viewport pick (face / point). */
+/**
+ * A quiet, brass-when-armed toggle to arm a viewport pick (face / point).
+ *
+ * A gated pick uses `aria-disabled` and stays hoverable, focusable and
+ * self-explaining — the `ToolButton` treatment, applied here because this button
+ * was the other half of the 2026-07-30 P2 disabled trap: "Pick a point" is
+ * gated until a face exists, and while gated it could be neither hovered nor
+ * tabbed to, so the one thing the user needed ("pick a face first") had nowhere
+ * to appear. The reason is folded into the accessible name AND shown as a quiet
+ * caption, so it does not depend on hovering at all.
+ */
 function PickButton({
   armed,
   onClick,
@@ -148,6 +158,7 @@ function PickButton({
   armedLabel,
   ariaLabel,
   disabled = false,
+  disabledReason,
 }: {
   armed: boolean;
   onClick: () => void;
@@ -156,27 +167,42 @@ function PickButton({
   armedLabel: string;
   ariaLabel: string;
   disabled?: boolean;
+  disabledReason?: string;
 }) {
+  const hasReason = disabled && disabledReason !== undefined;
   return (
-    <button
-      type="button"
-      data-testid={testId}
-      aria-pressed={armed}
-      aria-label={ariaLabel}
-      disabled={disabled}
-      onClick={onClick}
-      className={cx(
-        "self-start rounded-sm border px-2 py-1 font-display text-2xs uppercase tracking-[0.14em] transition-colors duration-fast",
-        "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass",
-        disabled
-          ? "cursor-not-allowed border-etch text-gauge opacity-40"
-          : armed
-            ? "border-brass text-brass"
-            : "border-etch text-gauge hover:border-gauge hover:text-mist",
-      )}
-    >
-      {armed ? armedLabel : label}
-    </button>
+    <span className="flex flex-col items-start gap-0.5">
+      <button
+        type="button"
+        data-testid={testId}
+        aria-pressed={armed}
+        aria-disabled={disabled || undefined}
+        aria-label={hasReason ? `${ariaLabel} — ${disabledReason}` : ariaLabel}
+        onClick={() => {
+          if (disabled) return;
+          onClick();
+        }}
+        className={cx(
+          "self-start rounded-sm border px-2 py-1 font-display text-2xs uppercase tracking-[0.14em] transition-colors duration-fast",
+          "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass",
+          disabled
+            ? "cursor-not-allowed border-etch text-gauge opacity-40"
+            : armed
+              ? "border-brass text-brass"
+              : "border-etch text-gauge hover:border-gauge hover:text-mist",
+        )}
+      >
+        {armed ? armedLabel : label}
+      </button>
+      {hasReason ? (
+        <span
+          data-testid={`${testId}-reason`}
+          className="font-body text-xs text-gauge"
+        >
+          {disabledReason}
+        </span>
+      ) : null}
+    </span>
   );
 }
 
@@ -317,6 +343,21 @@ export function HoleEditor({
   useCommandBridge(submit, canSubmit);
 
   const hasFace = form.face !== null;
+  /**
+   * WHY the footer action is gated, said in the footer itself. The gate is
+   * `buildHoleParams(...) !== null`, i.e. "a face and every field valid", and
+   * until 2026-07-30 the greyed cell could not even be hovered, so a user had to
+   * hunt for the missing piece (UI-REVIEW 2026-07-30 P2). Cheapest honest
+   * version: name the ONE thing that is missing, face first because it is the
+   * only one the fields cannot show inline.
+   */
+  const submitReason = !canSubmit
+    ? saving
+      ? undefined
+      : !hasFace
+        ? "Pick a face to drill into."
+        : "Check the highlighted fields."
+    : undefined;
   const diameterMsg = diameterError(form.diameterInput, unit);
   const depthMsg =
     form.depthMode === "blind" ? depthError(form.depthInput, unit) : null;
@@ -428,6 +469,7 @@ export function HoleEditor({
               data-testid="hole-submit"
               aria-busy={saving}
               disabled={!canSubmit}
+              disabledReason={submitReason}
               onClick={submit}
             />
           </div>
@@ -490,6 +532,7 @@ export function HoleEditor({
                   armedLabel="Picking… (click a point)"
                   ariaLabel="Pick the drill point on the face"
                   disabled={!hasFace}
+                  disabledReason="Pick a face first — the point is placed on it."
                   onClick={() => onTogglePick("point")}
                 />
               ) : null}

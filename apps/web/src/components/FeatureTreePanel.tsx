@@ -292,7 +292,7 @@ export function FeatureTreePanel({
                           aria-pressed={selected}
                           aria-label={`Select ${feature.name}`}
                           data-testid={`feature-select-${index}`}
-                          className="flex grow items-baseline gap-2 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass"
+                          className="flex min-h-target-dense grow items-baseline gap-2 py-0.5 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass"
                         >
                           <span className="w-5 shrink-0 font-data text-xs tabular-nums text-gauge">
                             {String(index + 1).padStart(2, "0")}

@@ -113,6 +113,11 @@ export function ExportRow({
             aria-label={name}
             aria-busy={busy === format}
             disabled={disabled || busy !== null}
+            // The row already knows why it is inert; the CELL is what a user
+            // hovers or tabs to, so the reason belongs on it too (it was
+            // unreachable while the cell was natively disabled — UI-REVIEW
+            // 2026-07-30 P2).
+            disabledReason={disabledReason}
             data-testid={`${testIdPrefix}-${format}`}
             onClick={() => void handleExport(format)}
           />

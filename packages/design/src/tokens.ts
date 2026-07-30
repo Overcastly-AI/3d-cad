@@ -597,6 +597,42 @@ export const spacing = {
 } as const;
 
 /**
+ * TARGET SIZE (px) — the product's written answer to "how small may a control
+ * be", because "dense" had been operating as a licence: in 2026-07 EVERY
+ * interactive element measured in the chrome was 15–23 px tall and the design
+ * mandate's own touch floor was met on no surface (UI-REVIEW 2026-07-30 P2).
+ * WCAG 2.2 SC 2.5.8 (AA) asks 24x24, and the policy is to meet it by SIZE rather
+ * than by leaning on the spacing exception — a 15 px button surrounded by air
+ * passes an audit and still misses under a finger.
+ *
+ *  - `comfortable` (32) — command surfaces: band tools, the view rail, panel
+ *    action cells. Utilities `min-h-target` / `min-w-target`.
+ *  - `dense` (24) — data rows and their inline verbs: a register row's OPEN and
+ *    DELETE, a tree row's select and suppress, a context-menu row, a HUD
+ *    dismiss. Utilities `min-h-target-dense` / `min-w-target-dense`. This is a
+ *    FLOOR, not a target: rows keep their tight rhythm, they just stop going
+ *    under it.
+ *
+ * Two exceptions, both granted by SC 2.5.8 itself, and they are exhaustive:
+ *  1. INLINE — a link inside a sentence of running text takes the sentence's
+ *     line height (the spec's "inline" exception).
+ *  2. ESSENTIAL — the feature tree's rollback DROP SLOTS (`rollback-slot-N`, 8 px
+ *     tall) sit BETWEEN rows and their y-position IS their meaning; growing them
+ *     to 24 px would displace the rows they address. Drag targets whose position
+ *     carries the semantics are exempt, and every one of them has a keyboard/
+ *     click equivalent on the row itself.
+ *
+ * Anything else under `dense` is a defect. `apps/web/e2e/p1-token-scale.spec.ts`
+ * measures the named set with `getBoundingClientRect` plus an `elementFromPoint`
+ * reachability check on every run, because this class of defect is invisible in a
+ * screenshot: a 16 px button and a correct one both photograph as "dense".
+ */
+export const target = {
+  comfortable: 32,
+  dense: 24,
+} as const;
+
+/**
  * Radii (px) — rectilinear, drawing-like; title-block cells are square.
  * `full` is the one exception and it is a drafting convention, not a
  * softening: BALLOONS ARE CIRCLES on an engineering drawing, so the assembly

@@ -1,4 +1,10 @@
-import type { ButtonHTMLAttributes, HTMLAttributes, ReactNode } from "react";
+import type {
+  ButtonHTMLAttributes,
+  HTMLAttributes,
+  MouseEvent,
+  ReactNode,
+} from "react";
+import { useId } from "react";
 
 import { cx } from "../cx";
 
@@ -72,6 +78,14 @@ export interface PanelActionCellProps extends ButtonHTMLAttributes<HTMLButtonEle
    * (brass when selected), one palette.
    */
   icon?: ReactNode;
+  /**
+   * WHY this action is currently gated, in the user's words ("Pick a face
+   * first"). Rendered in place of the caption while disabled AND wired as the
+   * button's `aria-describedby`, so the reason reaches the eye, the pointer and
+   * a screen reader at the same time. Omit it and the cell is still reachable —
+   * it just has nothing to explain.
+   */
+  disabledReason?: string;
 }
 
 /**
@@ -80,6 +94,20 @@ export interface PanelActionCellProps extends ButtonHTMLAttributes<HTMLButtonEle
  * where static cell labels stay gauge: on this panel, mist caps = an action.
  * Hover insets to the carbide ground; the focus ring is drawn inset so it
  * survives the panel's ruled edges.
+ *
+ * A gated cell uses `aria-disabled`, NOT the native `disabled` attribute — the
+ * treatment `ToolButton` has had since 2026-07-16. It was `disabled` +
+ * `disabled:pointer-events-none` here until 2026-07-30, which made every editor
+ * footer action and every export cell a DISABLED TRAP: a greyed Create could be
+ * neither hovered nor focused, so the reason it was grey had nowhere to live and
+ * the user's only recourse was guessing (UI-REVIEW 2026-07-30 P2 — this cell is
+ * used by 12 editors, so it was the widest instance of the defect in the
+ * product). Now it stays in the a11y tree, keeps hover and focus, explains
+ * itself through `disabledReason`, and is inert on activation: clicks — and
+ * therefore Enter/Space, which dispatch one — are swallowed. Playwright's
+ * `toBeDisabled()`/`toBeEnabled()` honour `aria-disabled`, so gate assertions
+ * still hold; jest-dom's `toBeDisabled` does not, so jsdom tests assert
+ * `aria-disabled` (and that the handler never fires).
  */
 export function PanelActionCell({
   label,
@@ -88,17 +116,37 @@ export function PanelActionCell({
   icon,
   className,
   type,
+  disabled,
+  disabledReason,
+  onClick,
+  "aria-describedby": describedByProp,
   ...rest
 }: PanelActionCellProps) {
+  const isDisabled = disabled === true;
+  const reasonId = useId();
+  const hasReason = isDisabled && disabledReason !== undefined;
+  const describedBy =
+    [describedByProp, hasReason ? reasonId : undefined]
+      .filter(Boolean)
+      .join(" ") || undefined;
+  const handleClick = (event: MouseEvent<HTMLButtonElement>) => {
+    if (isDisabled) {
+      event.preventDefault();
+      return;
+    }
+    onClick?.(event);
+  };
   return (
     <button
       type={type ?? "button"}
       aria-pressed={selected}
+      aria-disabled={isDisabled || undefined}
+      aria-describedby={describedBy}
+      onClick={handleClick}
       className={cx(
         "block w-full px-3 py-2 text-left transition-colors duration-fast",
-        "hover:bg-carbide",
         "focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass",
-        "disabled:opacity-50 disabled:pointer-events-none",
+        isDisabled ? "cursor-not-allowed opacity-50" : "hover:bg-carbide",
         className,
       )}
       {...rest}
@@ -124,7 +172,17 @@ export function PanelActionCell({
           >
             {label}
           </span>
-          {caption ? (
+          {/* While gated, the REASON takes the caption's line: "Enter" is not
+              the useful thing to say about an action that cannot be taken. */}
+          {hasReason ? (
+            <span
+              id={reasonId}
+              data-disabled-reason
+              className="block font-data text-xs text-gauge"
+            >
+              {disabledReason}
+            </span>
+          ) : caption ? (
             <span className="block font-data text-xs text-gauge">
               {caption}
             </span>

@@ -53,7 +53,7 @@ export function Breadcrumb({
       <Link
         to={to}
         data-testid="breadcrumb-register"
-        className="shrink-0 rounded-sm font-display text-2xs uppercase tracking-[0.16em] text-gauge outline-none hover:text-mist focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
+        className="inline-flex min-h-target-dense shrink-0 items-center rounded-sm font-display text-2xs uppercase tracking-[0.16em] text-gauge outline-none hover:text-mist focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
       >
         {label}
       </Link>

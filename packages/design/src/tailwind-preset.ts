@@ -13,6 +13,7 @@ import {
   layout,
   radius,
   spacing,
+  target,
   zLayer,
 } from "./tokens";
 
@@ -69,6 +70,20 @@ export const loftPreset = {
       width: {
         inspector: px(layout.inspectorWidth),
         editor: px(layout.editorCardWidth),
+      },
+      /**
+       * The written TARGET-SIZE policy as utilities (`min-h-target`,
+       * `min-w-target-dense`, …) — see `target` in tokens.ts. Named rather than
+       * spelled `min-h-6` at each site so the floor is one decision that can be
+       * audited, and so a reviewer sees the intent rather than a number.
+       */
+      minHeight: {
+        target: px(target.comfortable),
+        "target-dense": px(target.dense),
+      },
+      minWidth: {
+        target: px(target.comfortable),
+        "target-dense": px(target.dense),
       },
       inset: {
         /** HUD-card left anchor clearing the floating tree panel. */

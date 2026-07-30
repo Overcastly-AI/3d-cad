@@ -24,6 +24,7 @@ import {
 import { DocumentUnitProvider } from "../units/documentUnit";
 import { HoleEditor } from "./HoleEditor";
 import type { LengthUnit } from "@loft/design";
+import { expectGated } from "../test/gated";
 
 const TOP = {
   normal: { x: 0, y: 0, z: 1 },
@@ -211,7 +212,7 @@ describe("HoleEditor — hole_thread_mismatch, caught before the round-trip", ()
     expect(screen.getByTestId("hole-editor")).toHaveTextContent(
       "Ø8.5 mm tap drill",
     );
-    expect(submit()).toBeDisabled();
+    expectGated(submit());
     fireEvent.click(submit());
     expect(onSubmit).not.toHaveBeenCalled();
   });
@@ -224,7 +225,7 @@ describe("HoleEditor — hole_thread_mismatch, caught before the round-trip", ()
     expect(screen.getByTestId("hole-editor")).toHaveTextContent(
       "Too wide to tap M10x1.5",
     );
-    expect(submit()).toBeDisabled();
+    expectGated(submit());
   });
 
   it("marks the DIAMETER field invalid — the field that has to change", () => {
@@ -272,7 +273,7 @@ describe("HoleEditor — hole_thread_unsupported, shown and repairable", () => {
     expect(screen.getByTestId("hole-editor")).toHaveTextContent(
       "M7 isn't a standard ISO size",
     );
-    expect(submit()).toBeDisabled();
+    expectGated(submit());
     fireEvent.click(submit());
     expect(onSubmit).not.toHaveBeenCalled();
   });
@@ -307,6 +308,6 @@ describe("HoleEditor — hole_thread_unsupported, shown and repairable", () => {
     expect(screen.getByTestId("hole-editor")).toHaveTextContent(
       "M10 is standardised at 1.5, 1.25, 1, 0.75 mm",
     );
-    expect(submit()).toBeDisabled();
+    expectGated(submit());
   });
 });

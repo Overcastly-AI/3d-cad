@@ -74,7 +74,7 @@ export function NavCue() {
         onClick={dismiss}
         data-testid="nav-cue-dismiss"
         aria-label="Got it, hide this hint"
-        className="ml-1 inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 font-display text-2xs uppercase tracking-[0.12em] text-gauge transition-colors duration-fast hover:text-mist focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
+        className="ml-1 inline-flex min-h-target-dense items-center gap-1 rounded-sm px-1.5 py-0.5 font-display text-2xs uppercase tracking-[0.12em] text-gauge transition-colors duration-fast hover:text-mist focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
       >
         Got it
         <CloseIcon size={12} />

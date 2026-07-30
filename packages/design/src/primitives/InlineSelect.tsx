@@ -53,7 +53,10 @@ export function InlineSelect({
       </span>
       <select
         aria-label={ariaLabel ?? eyebrow}
-        className="cursor-pointer bg-transparent font-data text-md text-mist outline-none"
+        // The SELECT is the target, not the pill around it: a click on the
+        // wrapper's padding hits the div. It measured 38x19 (design `target`
+        // policy, UI-REVIEW 2026-07-30 P2).
+        className="min-h-target-dense cursor-pointer bg-transparent font-data text-md text-mist outline-none"
         {...rest}
       >
         {options.map((option) => (

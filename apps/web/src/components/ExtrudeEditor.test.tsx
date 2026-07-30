@@ -24,6 +24,7 @@ import {
 import { DocumentUnitProvider } from "../units/documentUnit";
 import { ExtrudeEditor } from "./ExtrudeEditor";
 import type { LengthUnit } from "@loft/design";
+import { expectGated } from "../test/gated";
 
 const PROFILES = [{ id: "sk1", name: "Sketch 1" }];
 
@@ -170,7 +171,7 @@ describe("ExtrudeEditor form", () => {
     expect(
       screen.getByText("Distance must be a positive length."),
     ).toBeInTheDocument();
-    expect(screen.getByTestId("extrude-submit")).toBeDisabled();
+    expectGated(screen.getByTestId("extrude-submit"));
   });
 
   it("surfaces a server failure as an alert, not a swallowed error", () => {
