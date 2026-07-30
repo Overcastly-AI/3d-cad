@@ -156,6 +156,16 @@ jobs:
       # "Process completed with exit code 1"). This job had therefore been
       # red since it landed. Wait on the long-running server only, then run
       # the one-shot to completion so its OWN exit code is the gate.
+      # An EPHEMERAL, non-default root password, generated per run and exported
+      # to every later step. This job used to boot MinIO on the compose default
+      # (`loft-minio-dev-only`, published in our own repo) and hand pytest the
+      # same literal, so the store's credential plumbing was only ever exercised
+      # with the one password everybody already knows — a code path that ignored
+      # its configured secret and hardcoded that string would have passed. Same
+      # reasoning as scripts/compose-smoke.sh.
+      - name: Generate an ephemeral MinIO credential
+        run: |
+          echo "MINIO_ROOT_PASSWORD=minio-$(od -An -tx1 -N18 /dev/urandom | tr -d ' \n')" >> "$GITHUB_ENV"
       - name: Boot MinIO
         run: docker compose up -d --wait minio
       - name: Provision the mesh bucket
@@ -165,12 +175,14 @@ jobs:
       - name: Cross-process mesh-store smoke (real MinIO)
         env:
           LOFT_MINIO_SMOKE: "1"
-          # Host-mapped MinIO (compose publishes 9000); creds are the compose
-          # MinIO root user/password defaults, bucket is the S3_BUCKET default.
+          # Host-mapped MinIO (compose publishes 9000). The secret is the
+          # generated one above — compose interpolated the SAME value into the
+          # server, so a mismatch here fails as an auth error, which is exactly
+          # the assertion: both sides read their configuration.
           S3_URL: http://localhost:9000
           S3_BUCKET: loft
           S3_ACCESS_KEY_ID: loft-minio
-          S3_SECRET_ACCESS_KEY: loft-minio-dev-only
+          S3_SECRET_ACCESS_KEY: ${{ env.MINIO_ROOT_PASSWORD }}
         run: uv run pytest services/geometry/tests/test_s3_store.py -v
       - name: Tear down MinIO
         if: always()

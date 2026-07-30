@@ -28,6 +28,43 @@ cd "$(dirname "$0")/.."
 GATEWAY_PORT="${GATEWAY_PORT:-8000}"
 KEEP_STACK="${KEEP_STACK:-0}"
 
+# EPHEMERAL, NON-DEFAULT datastore credentials for this run.
+#
+# Until 2026-07-30 this proof booted on the compose defaults — POSTGRES_PASSWORD
+# `loft-dev-only` and MINIO_ROOT_PASSWORD `loft-minio-dev-only`, both published
+# in our own repo. So step 5's "the MinIO credential path works (audit G1)"
+# claim was only ever exercised with the ONE password every reader of the repo
+# already knows, and a service that ignored its env and hardcoded that literal
+# would have passed this gate silently. A real self-hoster sets their own
+# credentials, so the proof has to run the way they run it.
+#
+# These are generated per run, so they are also non-default in a way nobody can
+# accidentally depend on. Exported (not passed per-command) because compose
+# interpolates them at load for EVERY subsequent `docker compose` call here —
+# up, run, logs, down — and a mismatch mid-run would look like a credential bug
+# in the app rather than in this script.
+rand_secret() {
+  # /dev/urandom via od: no openssl dependency, no base64 padding characters
+  # that a URL-embedded DSN would need escaped.
+  od -An -tx1 -N18 /dev/urandom | tr -d ' \n'
+}
+export POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-pg-$(rand_secret)}"
+export MINIO_ROOT_PASSWORD="${MINIO_ROOT_PASSWORD:-minio-$(rand_secret)}"
+
+# Fail loudly rather than quietly re-testing the known-password path: if a
+# caller (or a stray .env) pins these back to the repo-public defaults, the
+# stronger proof silently weakens back to what it was before.
+for var in POSTGRES_PASSWORD MINIO_ROOT_PASSWORD; do
+  case "${!var}" in
+    loft-dev-only | loft-minio-dev-only)
+      echo "compose-smoke: $var is the repo-public dev default." >&2
+      echo "  This proof must run on credentials a real deploy would use." >&2
+      echo "  Unset it (the script generates one) or set a real value." >&2
+      exit 2
+      ;;
+  esac
+done
+
 # Long-running services only. NEVER name a one-shot (minio-init) in a --wait
 # list: `--wait` treats a container that EXITS as a failure, so the bucket
 # bootstrap succeeding would fail the step. One-shots run separately, where
