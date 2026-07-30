@@ -446,6 +446,18 @@ recipe here in the same commit as the fix.**
   `pnpm --filter @loft/web {typecheck,test}` + `just lint` + geometry `pytest`.
   (Only `just dev` / `docker compose` proper — which build the container images —
   still can't run; use the native boot above instead of the compose stack.)
+- **A `conftest.py` env var leaks ACROSS services, because pytest collects every
+  conftest before running any test.** `services/gateway/tests/conftest.py` does
+  `os.environ.setdefault("LOFT_ENV", "dev")` so the gateway suite can build
+  settings; in a whole-repo `uv run pytest` that dev posture is therefore already
+  in `os.environ` when the documents and geometry suites run. The failure mode is
+  the nasty direction: a test asserting a NON-dev behaviour (e.g. that the
+  datastore-credential guard refuses to boot) passes when its file is run alone
+  and fails in the full sweep — or worse, a test asserting the dev-allow path
+  passes in the sweep for the wrong reason. Any test whose subject depends on
+  `LOFT_ENV` (or any other conftest-seeded variable) must `monkeypatch.delenv`
+  / `monkeypatch.setenv` EXPLICITLY rather than inherit, and should assert the
+  non-dev case by name. Found 2026-07-30 while landing the fail-closed guard.
 - **Stale dev uvicorns poison `just e2e`.** Long-lived service uvicorns (from a
   prior `just dev` or an agent that booted the stack) run **without**
   `--reload`, so after any backend commit their served OpenAPI/routes go stale.
