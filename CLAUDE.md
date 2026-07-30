@@ -334,6 +334,13 @@ on completion with a watchdog fallback (`docs/AUTONOMOUS-LOOP.md` §1.4).
   second time by the person who wrote it: the correct path was fiddly and
   `git add <file>` is four words, and under load the cheap path wins. A rule that
   loses to convenience is not a control; make the correct path the easy one.
+  **It filters at LINE granularity, and it has to.** The first version matched
+  whole hunks, which silently swept a colleague's entry whenever theirs sat
+  beside yours — git merges changes within its context window into ONE hunk, and
+  a blank line between two appended entries is NOT enough to separate them
+  (measured). It reported "left 1 hunk(s) unstaged for their author" while doing
+  it, which is worse than failing. Note `git add -p` is NOT a fallback here:
+  interactive git is unavailable in this container.
   Push with `git push -u origin <branch>`; on rejection `git pull --rebase`
   and retry. Commit only when your gates are green.
 - **Liveness (orchestrator duty).** On every wakeup, check in-flight agents'
