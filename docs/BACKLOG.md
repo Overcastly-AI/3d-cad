@@ -63,6 +63,18 @@ even-odd scanline clip) across SVG/PDF/DXF, `views.section_params jsonb` (0008);
 wrong-half + multi-loop + byte-determinism goldens; oblique + the `project_view`
 frame refactor are v2/§11. Spike de-collected.
 
+- [x] (P1, M) **QA-3 — a diameter dimension the revision never touched was
+      destroyed. FIXED 2026-07-30** (kernel-architect; QA wave `748a6ad`). Tier-2
+      circle re-anchoring keys on the 3-D centre, and a thickness edit slides a bore's
+      rim along its own axis, so the Ø dimension went `unresolved` and left the sheet.
+      Tier 3 frees the offset ALONG THE AXIS only (radius / axis line / angular
+      station still pinned) and — because that alone cannot tell the two congruent
+      rims of a through hole apart — scopes candidates to the model edges the
+      dimension's own VIEW draws, the set the user could have picked from. Re-measures
+      Ø10.000 at the new height; refusals kept for a moved hole, a coaxial counterbore,
+      both-rims-drawn (ambiguous) and no-view-evidence. New revision gate asserts both
+      dimensions in the exported SVG/PDF/DXF bytes.
+      [src: docs/QA-REVIEW.md 2026-07-30 QA-3 · design drawings.md §3.5]
 - [x] (P1, M) **QA-2 — a thickness revision destroyed every hole on the face.
       FIXED 2026-07-30** (kernel-architect; QA wave `748a6ad`). Retyping a bracket's
       thickness 10 → 16 orphaned `Hole1` (`subshape_unresolved`), stranded the three

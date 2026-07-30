@@ -60,6 +60,7 @@ import math
 from dataclasses import dataclass
 
 from build123d import Edge, GeomType, Vector
+from OCP.BRepAdaptor import BRepAdaptor_Curve
 from py_kit.schemas.features import (
     AllEdgesSelector,
     AxisParallelEdgesSelector,
@@ -168,6 +169,23 @@ def edge_signature_dto(edge: Edge) -> EdgeSignature:
     )
 
 
+def circle_axis(edge: Edge) -> tuple[float, float, float]:
+    """The unit axis of a CIRCULAR edge's plane, from the exact B-rep circle.
+
+    The one quantity a circular edge carries that its stage-1
+    :class:`~py_kit.schemas.features.EdgeSignature` cannot: a full circle stores only
+    its seam and the antipodal midpoint (a diameter), which fixes the centre and the
+    radius but NOT the plane. THE single accessor (CLAUDE.md DRY rule), shared by the
+    drawings foreshortening flag (:mod:`geometry.drawings.measure` — a circle reads
+    true-size only with its axis along the view normal) and the durable circle
+    re-anchor (:mod:`geometry.drawings.anchor` — a bore's rim translates ALONG this
+    axis when the face it sits on moves). Caller guarantees ``edge.geom_type`` is
+    ``GeomType.CIRCLE``.
+    """
+    axis = BRepAdaptor_Curve(edge.wrapped).Circle().Axis().Direction()
+    return (axis.X(), axis.Y(), axis.Z())
+
+
 def enumerate_edges(body: BodyShape) -> list[EdgeRecord]:
     """Every edge of *body* in ``body.edges()`` order (deterministic).
 
@@ -193,13 +211,18 @@ def _distance(a: Vec3, b: Vec3) -> float:
     return math.dist((a.x, a.y, a.z), (b.x, b.y, b.z))
 
 
-def _edge_signatures_match(candidate: EdgeSignature, target: EdgeSignature) -> bool:
+def edge_signatures_match(candidate: EdgeSignature, target: EdgeSignature) -> bool:
     """Nearest-within-tolerance match of two edge signatures (§7.2).
 
     Same curve family, both canonically-ordered endpoints within the linear
     tolerance, midpoint within the linear tolerance, and length within a relative
     tolerance. Compared field by field so a lone in-tolerance candidate is a
     unique match and two are an honest ambiguity (never a guess).
+
+    THE single edge-signature comparison (CLAUDE.md DRY rule): the resolvers below
+    and the drawings anchor (:mod:`geometry.drawings.anchor`, which asks whether a
+    body edge is one of the edges a view DRAWS) share it rather than each declaring
+    a point tolerance.
     """
     if candidate.curve != target.curve:
         return False
@@ -229,7 +252,7 @@ def resolve_edge(body: BodyShape, target: EdgeSignature) -> Edge:
     matches = [
         record
         for record in enumerate_edges(body)
-        if _edge_signatures_match(record.signature, target)
+        if edge_signatures_match(record.signature, target)
     ]
     if not matches:
         raise SubshapeUnresolvedError(
@@ -259,7 +282,7 @@ def _resolve_picked_edges(body: BodyShape, selector: PickedEdgesSelector) -> lis
     chosen: dict[int, Edge] = {}
     for ref in selector.refs:
         target = ref.selector.signature
-        matches = [r for r in records if _edge_signatures_match(r.signature, target)]
+        matches = [r for r in records if edge_signatures_match(r.signature, target)]
         if not matches:
             raise SubshapeUnresolvedError(
                 "No edge of the current body matches a picked edge signature "

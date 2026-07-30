@@ -52,10 +52,10 @@ across a restart.
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from build123d import Edge, GeomType
-from OCP.BRepAdaptor import BRepAdaptor_Curve
 from py_kit.schemas.drawings import (
     AngularDimensionParams,
     DiameterDimensionParams,
@@ -79,6 +79,7 @@ from geometry.drawings.anchor import (
     resolve_anchor_edge,
 )
 from geometry.drawings.project import ViewDirection, view_normal
+from geometry.kernel.edges import circle_axis
 from geometry.kernel.faces import SubshapeAmbiguousError, SubshapeUnresolvedError
 from geometry.kernel.types import BodyShape
 
@@ -181,16 +182,10 @@ def _linear_foreshortened(
     return abs(_dot(_unit(direction), normal)) > _FORESHORTEN_SIN_TOL
 
 
-def _circle_axis(edge: Edge) -> tuple[float, float, float]:
-    """The unit axis of a circular edge's plane (from the exact B-rep circle)."""
-    axis = BRepAdaptor_Curve(edge.wrapped).Circle().Axis().Direction()
-    return (axis.X(), axis.Y(), axis.Z())
-
-
 def _circle_foreshortened(edge: Edge, normal: tuple[float, float, float]) -> bool:
     """A circular feature reads true-size only face-on — its axis parallel to the
     view normal; otherwise it foreshortens to an ellipse (design §3.2)."""
-    return abs(_dot(_circle_axis(edge), normal)) < 1.0 - _FORESHORTEN_SIN_TOL
+    return abs(_dot(circle_axis(edge), normal)) < 1.0 - _FORESHORTEN_SIN_TOL
 
 
 def _require_circle(edge: Edge, kind: str) -> None:
@@ -259,9 +254,12 @@ def _measure_linear(
 
 
 def _measure_diameter(
-    params: DiameterDimensionParams, body: BodyShape, normal: tuple[float, float, float]
+    params: DiameterDimensionParams,
+    body: BodyShape,
+    normal: tuple[float, float, float],
+    drawn: Sequence[EdgeSignature],
 ) -> DimensionValue:
-    resolved = resolve_anchor_edge(body, params.edge)
+    resolved = resolve_anchor_edge(body, params.edge, drawn)
     edge = resolved.edge
     _require_circle(edge, "diameter")
     return DimensionValue(
@@ -273,9 +271,12 @@ def _measure_diameter(
 
 
 def _measure_radius(
-    params: RadiusDimensionParams, body: BodyShape, normal: tuple[float, float, float]
+    params: RadiusDimensionParams,
+    body: BodyShape,
+    normal: tuple[float, float, float],
+    drawn: Sequence[EdgeSignature],
 ) -> DimensionValue:
-    resolved = resolve_anchor_edge(body, params.edge)
+    resolved = resolve_anchor_edge(body, params.edge, drawn)
     edge = resolved.edge
     _require_circle(edge, "radius")
     return DimensionValue(
@@ -341,14 +342,28 @@ def _oriented_directions(
 
 
 def measure_dimension(
-    body: BodyShape, dimension: DimensionParams, view: ViewProjection
+    body: BodyShape,
+    dimension: DimensionParams,
+    view: ViewProjection,
+    drawn: Sequence[EdgeSignature] = (),
 ) -> DimensionValue:
     """Measure *dimension* against *body* in *view* — model-true (design §3.1).
 
     Resolves the dimension's model-edge signature(s) against *body* and measures
     the value off the EXACT 3D B-rep (never the projected 2D). *view* supplies the
     projection normal for the §3.2 foreshortening flag ONLY — it never changes the
-    value. Raises:
+    value.
+
+    *drawn* is the set of model-edge signatures THIS VIEW projects (the ``source_edge``
+    of its projected edges). It is used by one thing only: the tier-3 re-anchor for a
+    circle whose face TRANSLATED (a thickness edit moves a bore's rim along its own
+    axis, QA-3), where the invariant alone cannot separate the two congruent rims of a
+    through hole and the set the user could have PICKED from breaks the tie honestly
+    (:func:`geometry.drawings.anchor.resolve_anchor_edge`). Omitting it (a unit test,
+    an older caller) keeps the pre-QA-3 behaviour exactly. It never affects a measured
+    VALUE — the value is always taken off the 3-D edge that resolved.
+
+    Raises:
 
         SubshapeUnresolvedError: a ref no longer matches any edge (design §3.3).
         SubshapeAmbiguousError: a ref matches a congruent twin (refuse to guess).
@@ -358,9 +373,9 @@ def measure_dimension(
     if isinstance(dimension, LinearDimensionParams):
         return _measure_linear(dimension, body, normal)
     if isinstance(dimension, DiameterDimensionParams):
-        return _measure_diameter(dimension, body, normal)
+        return _measure_diameter(dimension, body, normal, drawn)
     if isinstance(dimension, RadiusDimensionParams):
-        return _measure_radius(dimension, body, normal)
+        return _measure_radius(dimension, body, normal, drawn)
     assert isinstance(dimension, AngularDimensionParams)
     return _measure_angular(dimension, body, normal)
 
@@ -379,13 +394,19 @@ def _as_direction(view: ViewProjection) -> ViewDirection:
 
 
 def measure_dimension_dto(
-    body: BodyShape, dimension: DimensionParams, view: ViewProjection
+    body: BodyShape,
+    dimension: DimensionParams,
+    view: ViewProjection,
+    drawn: Sequence[EdgeSignature] = (),
 ) -> MeasuredDimension:
     """:func:`measure_dimension` with the typed errors folded onto the neutral
     :class:`MeasuredDimension` error channel (design §3.3/§5) — never a raise for a
-    resolution outcome, so a bad ref is an honest per-dimension error, not a 500."""
+    resolution outcome, so a bad ref is an honest per-dimension error, not a 500.
+
+    *drawn* (the signatures of the model edges this view projects) is threaded through
+    to the tier-3 circle re-anchor — see :func:`measure_dimension`."""
     try:
-        measured = measure_dimension(body, dimension, view)
+        measured = measure_dimension(body, dimension, view, drawn)
     except SubshapeUnresolvedError as exc:
         return MeasuredDimension(
             error=FeatureError(code="subshape_unresolved", message=str(exc))

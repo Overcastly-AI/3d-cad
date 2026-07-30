@@ -264,6 +264,25 @@ suppress** ✅, **Revolve construction-centerline** ✅ — all with in-app
 authoring. **Next in the Ready queue: Drawings assembly views + BOM/balloons**
 (the drawings pillar's assembly gap), then the small tonight-follow-ups.
 
+**QA-3 — a diameter dimension survives the revision that moved its face (FIXED
+2026-07-30, kernel-architect; QA wave `748a6ad`).** The circle half of the story
+`7fde5d2` told for lines: change a plate's thickness and the Ø dimension on a hole the
+edit never touched went `unresolved` and vanished from the sheet, because the tier-2
+circle re-anchor keys on the 3-D CENTRE and a thickness edit slides a bore's rim along
+its own axis. Tier 3 (`drawings/anchor._translated_circle`, design
+`docs/design/drawings.md` §3.5) frees the offset ALONG THE AXIS and pins the rest —
+radius, axis line, angular station — so the dimension re-measures **Ø10.000** off the
+rim at the plate's new height. The part that makes it honest rather than a coin flip:
+freeing the offset makes the two rims of a through hole indistinguishable (measured:
+(25,12.5,0) and (25,12.5,16), congruent, one axis), so tier 3 restricts its candidates
+to the model edges THAT VIEW DRAWS — the set the user could have picked from, which
+the projector already computes. No view evidence → the pre-fix refusal; both rims
+drawn → `subshape_ambiguous`; a coaxial counterbore or a hole moved ACROSS its face →
+still an honest error with words on the print. New revision gate
+`tests/test_drawings_revision_thickness.py` composes the SAME authored drawing before
+and after the edit and asserts both dimensions in the exported SVG/PDF/DXF bytes;
+evidence: `docs/GEOMETRY-QA.md` 2026-07-30.
+
 **QA-2 — a picked FACE survives its PLANE MOVING (FIXED 2026-07-30,
 kernel-architect; QA wave `748a6ad`).** The commonest revision in CAD destroyed every
 feature on the face it moved: retyping a bracket's thickness 10 → 16 took `Hole1` to

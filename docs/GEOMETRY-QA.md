@@ -7,6 +7,46 @@ not "do the tests pass" but **"is the geometry RIGHT?"** (RESEARCH §9,
 decisions recorded here AND in the golden's `expected.json` — never a way to
 go green.
 
+## 2026-07-30 — QA-3: a diameter dimension survives the thickness edit that moved its face (kernel-architect)
+
+**The defect.** QA-3 (docs/QA-REVIEW.md, P1): a plate + Ø10 hole + a drawing carrying
+a diameter dimension. Thickness 10 → 16, re-project: `diameter · unresolved`, the
+annotation gone from the sheet — on a hole the revision never touched. The LINEAR
+dimension on the edited thickness edge followed the edit correctly (`7fde5d2`'s line
+tier), so this was the circle half: tier 2 keys on the 3-D CENTRE, and the edit slides
+the bore's rim 6 mm along its own axis.
+
+**Measured, before and after** (`tests/test_drawings_revision_thickness.py`, the same
+authored drawing composed against the part before and after the edit):
+
+| dimension | authored (10 mm) | after 10 → 16, BEFORE the fix | AFTER |
+|---|---|---|---|
+| Ø on the hole the edit did not touch | `Ø10.000`, tier `exact` | `subshape_unresolved`, annotation dropped | **`Ø10.000`**, tier `durable`, re-anchored onto the rim at z=**16.0** (x,y = 25.0, 12.5 — the same axis) |
+| linear on the edited thickness edge | `10.000`, tier `exact` | `16.000` (already correct) | `16.000` — unchanged, asserted as the control |
+
+Both are stamped in the exported SVG/PDF/DXF bytes, and the revised sheet composes
+byte-identically twice (RESEARCH §9 on the re-anchored path).
+
+**The tie the invariant CANNOT break, measured.** Enumerating the revised body: the
+bore has TWO rim circles — (25, 12.5, 0) and (25, 12.5, 16) — congruent, coaxial, same
+angular station, radius 5, differing only in the offset the tier frees. Any
+offset-free rule matches both, so the invariant alone can only report an ambiguity.
+What separates them is the projector's own output: the TOP view emits exactly ONE
+circle, whose `source_edge` is the rim at z=10 before the edit and z=16 after — the
+rim the viewer sees, and the only one a user could have picked. Tier 3 therefore
+scopes its candidates to the edges the dimension's view DRAWS. Refusals gated by name:
+no view evidence → unresolved (the pre-fix behaviour, unchanged); both rims drawn →
+`subshape_ambiguous`; a coaxial circle of a DIFFERENT radius (a counterbore) →
+refused; a hole MOVED across its face (x 20 → 28, drawn in the same view) → still
+`subshape_unresolved` with "REFERENCE LOST" on the print.
+
+**One accessor, not two.** The circle AXIS cannot come from a stage-1 signature (a
+full circle stores a seam and its antipode — a diameter, which pins the centre and
+radius but not the plane), so it is read from the exact B-rep. `circle_axis` moved to
+`geometry.kernel.edges` and is now shared by the foreshortening flag and the
+re-anchor; `edge_signatures_match` became public for the same reason (the anchor asks
+whether a body edge is one the view draws) rather than re-declaring a point tolerance.
+
 ## 2026-07-30 — QA-2: a picked FACE survives its plane moving, and the numbers say where it landed (kernel-architect)
 
 **The defect.** QA-2 (docs/QA-REVIEW.md, P1): retyping a bracket's thickness 10 → 16

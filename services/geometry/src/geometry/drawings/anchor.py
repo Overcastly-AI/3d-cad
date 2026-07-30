@@ -64,6 +64,7 @@ instead of choosing.
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from build123d import Edge
@@ -71,7 +72,13 @@ from py_kit.schemas.drawings import DimensionAnchorTier
 from py_kit.schemas.features import EdgeSignature
 from py_kit.schemas.geometry import Vec3
 
-from geometry.kernel.edges import edge_signature_dto, enumerate_edges, resolve_edge
+from geometry.kernel.edges import (
+    circle_axis,
+    edge_signature_dto,
+    edge_signatures_match,
+    enumerate_edges,
+    resolve_edge,
+)
 from geometry.kernel.faces import (
     CENTROID_TOL_MM,
     SubshapeAmbiguousError,
@@ -252,6 +259,71 @@ def _concentric_same_station(candidate: EdgeSignature, target: EdgeSignature) ->
     return True
 
 
+def _translated_circle(
+    candidate: EdgeSignature, candidate_edge: Edge, target: EdgeSignature
+) -> bool:
+    """Tier-3 match for a CIRCULAR edge: the same circle, MOVED along its own axis.
+
+    Invariant under a translation of the face the circle sits on — which is what a
+    thickness / depth edit does to a bore's rim (QA-3). The centre moves, so tier 2's
+    coincident-centre test cannot see it; the radius, the plane's orientation and the
+    angular station do not move, so they carry the identity:
+
+    1. same closedness (a full circle never re-anchors onto an arc);
+    2. the same RADIUS (within the documented linear bound) — a coaxial bore of a
+       different size, e.g. the counterbore above this hole, is NOT this circle;
+    3. the stored centre lies ON the candidate's AXIS LINE, i.e. the displacement
+       between the two centres is parallel to the candidate's axis. This is the test
+       that keeps "moved with its face" apart from "moved across its face": a hole
+       relocated in x/y leaves the axis line and stays an honest refusal. The axis
+       comes from the candidate's exact B-rep (:func:`geometry.kernel.edges.
+       circle_axis`) because a stage-1 signature cannot supply it — a full circle
+       stores a seam and its antipode, a diameter, which pins the centre and radius
+       but NOT the plane;
+    4. the same ANGULAR STATION (the unit directions from centre to
+       ``end_a``/``end_b``/``midpoint`` preserved), which for an arc also pins its
+       sweep.
+
+    Not sufficient ON ITS OWN, and deliberately not used on its own: the two rims of
+    a through hole satisfy every clause above (congruent circles on one axis), so the
+    caller restricts tier-3 candidates to the edges the dimension's own VIEW DRAWS —
+    see :func:`resolve_anchor_edge`."""
+    target_closed = _length(_sub(_t(target.end_a), _t(target.end_b)))
+    candidate_closed = _length(_sub(_t(candidate.end_a), _t(candidate.end_b)))
+    if (target_closed <= ANCHOR_POINT_TOL_MM) != (
+        candidate_closed <= ANCHOR_POINT_TOL_MM
+    ):
+        return False
+    t_centre = _circle_centre(target)
+    c_centre = _circle_centre(candidate)
+    if t_centre is None or c_centre is None:
+        return False
+    t_radius = _length(_sub(_t(target.end_a), t_centre))
+    c_radius = _length(_sub(_t(candidate.end_a), c_centre))
+    if abs(t_radius - c_radius) > ANCHOR_POINT_TOL_MM:
+        return False
+    axis = _unit(circle_axis(candidate_edge))
+    if axis is None:
+        return False
+    offset = _sub(t_centre, c_centre)
+    along = _dot(offset, axis)
+    perpendicular = _sub(offset, _scale(axis, along))
+    if _length(perpendicular) > ANCHOR_POINT_TOL_MM:
+        return False
+    for t_point, c_point in (
+        (target.end_a, candidate.end_a),
+        (target.end_b, candidate.end_b),
+        (target.midpoint, candidate.midpoint),
+    ):
+        t_dir = _unit(_sub(_t(t_point), t_centre))
+        c_dir = _unit(_sub(_t(c_point), c_centre))
+        if t_dir is None or c_dir is None:
+            return False
+        if not _parallel_same_sense(t_dir, c_dir):
+            return False
+    return True
+
+
 def _durable_match(candidate: EdgeSignature, target: EdgeSignature) -> bool:
     """The tier-2 predicate for *target*'s curve kind (see the module docstring)."""
     if candidate.curve != target.curve:
@@ -300,22 +372,85 @@ def _durable_resolve(body: BodyShape, target: EdgeSignature) -> ResolvedAnchor:
     return ResolvedAnchor(edge=record.edge, signature=record.signature, tier="durable")
 
 
-def resolve_anchor_edge(body: BodyShape, target: EdgeSignature) -> ResolvedAnchor:
-    """Resolve a dimension's stored edge signature against *body* — two tiers.
+def _translated_resolve(
+    body: BodyShape, target: EdgeSignature, drawn: Sequence[EdgeSignature]
+) -> ResolvedAnchor:
+    """Tier 3: re-anchor a circle that MOVED ALONG ITS OWN AXIS, among the edges the
+    dimension's view actually DRAWS.
+
+    Why the extra evidence, when tiers 1 and 2 need none: freeing the offset along
+    the axis makes the two rims of a through hole indistinguishable — congruent
+    circles, same axis, same station, differing only in the freed quantity — so the
+    invariant ALONE can only report an ambiguity, and the dimension stays lost. The
+    candidate set is therefore narrowed to the model edges this view PROJECTS, which
+    is exactly the set the user could have picked from: the projector emits one edge
+    per drawn curve, so the rim the viewer sees is a candidate and the one hidden
+    behind it is not. That is evidence about the authored intent, not a tie-break
+    heuristic — and it is the drawing layer's to use, which is why tier 3 lives here
+    and not in the kernel resolver.
+
+    Still refuses rather than guesses: zero candidates is ``subshape_unresolved`` (the
+    caller's message), two or more (two congruent rims genuinely both drawn in one
+    view) is ``subshape_ambiguous``."""
+    matches = [
+        record
+        for record in enumerate_edges(body)
+        if record.signature.curve == "circle"
+        and any(edge_signatures_match(record.signature, sig) for sig in drawn)
+        and _translated_circle(record.signature, record.edge, target)
+    ]
+    if len(matches) > 1:
+        raise SubshapeAmbiguousError(
+            f"{len(matches)} circular edges drawn in this view are equally valid "
+            "re-anchors for the stored edge signature (coaxial circles of the same "
+            "radius at the same angular station, differing only in their position "
+            "along the axis). Refusing to guess which one the dimension meant — "
+            "re-pick the edge."
+        )
+    if not matches:
+        raise SubshapeUnresolvedError(
+            "No edge of the current body matches the stored edge signature, and no "
+            "circle drawn in this view shares its axis, radius and angular station "
+            "either; the referenced edge no longer exists after the rebuild. Re-pick "
+            "the edge, or edit the upstream feature back to a state where it resolves."
+        )
+    record = matches[0]
+    return ResolvedAnchor(edge=record.edge, signature=record.signature, tier="durable")
+
+
+def resolve_anchor_edge(
+    body: BodyShape,
+    target: EdgeSignature,
+    drawn: Sequence[EdgeSignature] = (),
+) -> ResolvedAnchor:
+    """Resolve a dimension's stored edge signature against *body* — three tiers.
 
     Tier 1 is :func:`geometry.kernel.edges.resolve_edge` verbatim (exact signature
     match). Only a tier-1 *unresolved* falls through to the durable re-match; a tier-1
     AMBIGUITY is already honest and propagates unchanged (the invariant tier cannot
-    disambiguate congruent twins).
+    disambiguate congruent twins). Tier 3 (:func:`_translated_resolve`) runs only when
+    tier 2 also finds nothing AND the caller supplied *drawn* — the model-edge
+    signatures this dimension's VIEW projects, which is the candidate set that makes
+    freeing the offset along a circle's axis safe. Callers that supply no *drawn* set
+    (a unit test, an older caller) behave exactly as before.
 
-    Returns the edge, its CURRENT signature, and which tier matched.
+    Returns the edge, its CURRENT signature, and which tier matched. Both re-anchoring
+    tiers report ``durable``: the wire distinction that matters to a client is exact
+    vs re-anchored, and inventing a third value would break every consumer of
+    :class:`~py_kit.schemas.drawings.DimensionAnchorTier` for no gain in what it can
+    DO about it.
 
     Raises:
-        SubshapeUnresolvedError: neither tier found the edge.
-        SubshapeAmbiguousError: either tier found more than one candidate.
+        SubshapeUnresolvedError: no tier found the edge.
+        SubshapeAmbiguousError: some tier found more than one candidate.
     """
     try:
         edge = resolve_edge(body, target)
     except SubshapeUnresolvedError:
-        return _durable_resolve(body, target)
+        try:
+            return _durable_resolve(body, target)
+        except SubshapeUnresolvedError:
+            if not drawn or target.curve != "circle":
+                raise
+            return _translated_resolve(body, target, drawn)
     return ResolvedAnchor(edge=edge, signature=edge_signature_dto(edge), tier="exact")

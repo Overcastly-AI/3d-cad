@@ -32,7 +32,7 @@ from geometry.kernel import (
     selection_overlay,
 )
 from geometry.kernel.edges import (
-    _edge_signatures_match,  # pyright: ignore[reportPrivateUsage]
+    edge_signatures_match,
 )
 from py_kit.schemas.features import (
     AllEdgesSelector,
@@ -161,7 +161,7 @@ def test_curve_kind_discriminates_a_line_from_an_arc() -> None:
     fields are near — curve family is a match field, not a hint here."""
     line_sig = _front_top_edge_signature()
     arc_sig = line_sig.model_copy(update={"curve": "circle"})
-    assert not _edge_signatures_match(line_sig.model_copy(), arc_sig)
+    assert not edge_signatures_match(line_sig.model_copy(), arc_sig)
 
 
 def test_congruent_edges_are_subshape_ambiguous(monkeypatch: Any) -> None:

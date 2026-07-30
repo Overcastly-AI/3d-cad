@@ -236,3 +236,93 @@ def _rim_signature(body: BodyShape, radius: float) -> EdgeSignature:
     )
     assert edge.radius == pytest.approx(radius, abs=1e-7)
     return candidates[0]
+
+
+# --- tier 3: the circle's FACE moved (QA-3, docs/design/drawings.md §3.5) --------
+
+
+def _bored_plate(thickness: float, radius: float = 5.0, x: float = 50.0) -> BodyShape:
+    """A 100 x 60 plate of *thickness* with a through bore of *radius* at (x, 30)."""
+    plate = Pos(50.0, 30.0, thickness / 2) * Box(100.0, 60.0, thickness)
+    return plate - (Pos(x, 30.0, thickness / 2) * Cylinder(radius, thickness))
+
+
+def _rim_at(body: BodyShape, z: float) -> EdgeSignature:
+    """The signature of the bore's rim circle at height *z*."""
+    rims = [
+        record.signature
+        for record in enumerate_edges(body)
+        if record.signature.curve == "circle"
+        and abs(record.signature.end_a.z - z) < _TOL
+    ]
+    assert len(rims) == 1, f"expected one rim at z={z}, got {len(rims)}"
+    return rims[0]
+
+
+def test_a_thickened_plate_re_anchors_the_rim_DRAWN_in_the_view() -> None:
+    """THE QA-3 case at the resolver. A thickness edit 10 -> 16 slides the bore's TOP
+    rim 6 mm along its own axis: endpoints, midpoint and centre all move, so neither
+    the strict tier nor the coincident-centre tier can see it, and a Ø dimension on a
+    hole the revision never touched was destroyed. Tier 3 re-anchors it — onto the rim
+    the top view actually DRAWS, at the plate's new height, with the diameter
+    unchanged because the hole did not change."""
+    stored = _rim_at(_bored_plate(10.0), 10.0)
+    thicker = _bored_plate(16.0)
+    drawn = [_rim_at(thicker, 16.0)]  # what the TOP view projects after the edit
+
+    resolved = resolve_anchor_edge(thicker, stored, drawn)
+    assert resolved.tier == "durable"
+    assert resolved.edge.radius == pytest.approx(5.0, abs=1e-7)
+    assert resolved.signature.end_a.z == pytest.approx(16.0, abs=_TOL)
+    assert (resolved.signature.end_a.x, resolved.signature.end_a.y) == pytest.approx(
+        (55.0, 30.0), abs=_TOL
+    )
+
+
+def test_without_the_view_evidence_the_translated_tier_does_NOT_fire() -> None:
+    """The design, asserted rather than described: freeing the offset along the axis
+    is only safe with the view's drawn set, so a caller that supplies none keeps the
+    pre-QA-3 behaviour exactly (an honest unresolved). This is the difference between
+    the invariant and the evidence — the invariant alone cannot tell the two rims of a
+    through hole apart."""
+    stored = _rim_at(_bored_plate(10.0), 10.0)
+    with pytest.raises(SubshapeUnresolvedError):
+        resolve_anchor_edge(_bored_plate(16.0), stored)
+
+
+def test_two_congruent_rims_drawn_at_once_are_an_honest_ambiguity() -> None:
+    """And when the evidence does NOT single one out — both rims of the through hole
+    drawn in the same view — it refuses. The two are congruent circles on one axis at
+    one station, differing only in the quantity tier 3 freed; picking the nearer one
+    would be a guess dressed as a match."""
+    thicker = _bored_plate(16.0)
+    stored = _rim_at(_bored_plate(10.0), 10.0)
+    drawn = [_rim_at(thicker, 16.0), _rim_at(thicker, 0.0)]
+    with pytest.raises(SubshapeAmbiguousError):
+        resolve_anchor_edge(thicker, stored, drawn)
+
+
+def test_a_coaxial_circle_of_a_DIFFERENT_radius_is_not_this_circle() -> None:
+    """A counterbore sits on the same axis at the same station and moves with the same
+    face — only its radius differs. Freeing the offset must not free the size too, or a
+    Ø6 dimension would re-anchor onto the Ø12 recess above it and stamp a plausible
+    wrong number."""
+    thicker = _bored_plate(16.0)
+    stored = _rim_at(_bored_plate(10.0, radius=5.0), 10.0)
+    counterbore = _bored_plate(16.0, radius=9.0)
+    drawn = [_rim_at(counterbore, 16.0)]
+    with pytest.raises(SubshapeUnresolvedError):
+        resolve_anchor_edge(thicker, stored, drawn)
+
+
+def test_a_hole_that_MOVED_ACROSS_the_face_is_still_a_refusal() -> None:
+    """The refusal QA-3 must not trade away. Tier 3 accepts a displacement ALONG the
+    circle's axis (the face carried it) and nothing else, so a hole relocated in x —
+    drawn in the very same view, same radius, same station — leaves the axis line and
+    stays an honest error rather than re-anchoring onto geometry the user never
+    picked."""
+    stored = _rim_at(_bored_plate(10.0, x=50.0), 10.0)
+    relocated = _bored_plate(16.0, x=70.0)
+    drawn = [_rim_at(relocated, 16.0)]
+    with pytest.raises(SubshapeUnresolvedError):
+        resolve_anchor_edge(relocated, stored, drawn)
