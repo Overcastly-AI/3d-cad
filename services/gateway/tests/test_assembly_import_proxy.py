@@ -294,6 +294,11 @@ def test_flat_single_body_fallback_passes_through(db_url: str) -> None:
                 name="Widget",
                 owner_id=uuid.UUID(request.headers[PRINCIPAL_HEADER]),
                 length_unit="mm",
+                # A freshly imported part has never been evaluated (§4.4a).
+                eval_state="never",
+                last_eval_status=None,
+                last_eval_at=None,
+                last_eval_tree_version=None,
                 created_at=NOW,
                 updated_at=NOW,
             ),

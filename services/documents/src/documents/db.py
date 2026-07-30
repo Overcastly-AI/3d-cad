@@ -42,7 +42,12 @@ from py_kit.schemas.drawings import (
     SHEET_NAME_MAX_LENGTH,
 )
 from py_kit.schemas.features import FEATURE_NAME_MAX_LENGTH
-from py_kit.schemas.parts import PART_NAME_MAX_LENGTH
+from py_kit.schemas.parts import (
+    PART_NAME_MAX_LENGTH,
+    PartEvalState,
+    PartEvalStatus,
+    derive_part_eval_state,
+)
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -96,6 +101,23 @@ class Part(Base):
     #: mutation yet). Maintained by :mod:`documents.history` in the same
     #: transaction as every tree write.
     history_cursor: Mapped[int | None] = mapped_column(sa.BigInteger(), nullable=True)
+    #: Last-evaluate record (docs/design/feature-tree.md §4.4a) — three NULLABLE
+    #: columns, all-null meaning "never evaluated", written together by the
+    #: gateway's post-evaluate bookkeeping and by nothing else. Evaluation
+    #: RESULTS still are not stored (§4.4: they stay derivable and disposable);
+    #: this is only the verdict a register needs, and it is version-stamped so
+    #: :func:`~py_kit.schemas.parts.derive_part_eval_state` can tell a current
+    #: claim from a stale one instead of assuming.
+    last_eval_status: Mapped[PartEvalStatus | None] = mapped_column(
+        sa.String(16), nullable=True
+    )
+    last_eval_at: Mapped[datetime | None] = mapped_column(
+        sa.DateTime(timezone=True), nullable=True
+    )
+    #: The ``tree_version`` the recorded status describes — NOT the current one.
+    last_eval_tree_version: Mapped[int | None] = mapped_column(
+        sa.BigInteger(), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         sa.DateTime(timezone=True),
         nullable=False,
@@ -113,6 +135,22 @@ class Part(Base):
     __table_args__ = (
         sa.UniqueConstraint("owner_id", "name", name="uq_parts_owner_name"),
     )
+
+    @property
+    def eval_state(self) -> PartEvalState:
+        """Rebuild health as of THIS row — the response's ``eval_state``.
+
+        A plain Python property over columns the row already carries, so
+        ``PartResponse.model_validate(part)`` picks it up through
+        ``from_attributes`` and the owner-scoped LIST stays exactly ONE query
+        (no per-row lookup, no N+1 — the collapse `cf4e006` made for drawing
+        trees is not reintroduced here).
+        """
+        return derive_part_eval_state(
+            last_eval_status=self.last_eval_status,
+            last_eval_tree_version=self.last_eval_tree_version,
+            tree_version=self.tree_version,
+        )
 
     def __repr__(self) -> str:  # pragma: no cover - debug aid
         return f"Part(id={self.id!r}, owner_id={self.owner_id!r}, name={self.name!r})"

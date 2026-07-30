@@ -13,6 +13,7 @@ part exists.
 """
 
 import uuid
+from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, status
@@ -29,11 +30,12 @@ from py_kit.schemas.features import FeatureRef
 from py_kit.schemas.parts import (
     PRINCIPAL_HEADER,
     PartCreate,
+    PartEvaluationRecord,
     PartListResponse,
     PartResponse,
     PartUpdate,
 )
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -338,6 +340,16 @@ async def update_part(
     if request.length_unit is not None:
         part.length_unit = request.length_unit
     part.tree_version += 1
+    if part.last_eval_tree_version is not None:
+        # Carry the last-evaluate record FORWARD (feature-tree.md §4.4a): this
+        # route can only change the name and the display unit, and neither can
+        # change what the tree evaluates to (units are presentation metadata —
+        # storage stays canonical mm, units.md §U1). Letting the version bump
+        # mark the record stale would be a false "unknown" — renaming a part
+        # would grey out its health — so the claim follows the version it is
+        # still true of. EVERY other write (features, suppress, rollback,
+        # undo/redo) changes the tree and correctly leaves it behind.
+        part.last_eval_tree_version = part.tree_version
     try:
         await session.commit()
     except IntegrityError:
@@ -347,6 +359,74 @@ async def update_part(
             code="part_name_taken",
         ) from None
     _logger.info("part_updated", part_id=str(part.id), tree_version=part.tree_version)
+    return PartResponse.model_validate(part)
+
+
+@router.put("/{part_id}/last-evaluation")
+async def record_last_evaluation(
+    part_id: uuid.UUID,
+    request: PartEvaluationRecord,
+    owner_id: Principal,
+    session: SessionDep,
+) -> PartResponse:
+    """Record the outcome of an evaluate on the part row (§4.4a bookkeeping).
+
+    INTERNAL, like every documents route, and deliberately without a public
+    gateway twin (the same posture as ``GET /{part_id}/evaluation-request``):
+    the gateway calls this itself after geometry has answered, so the stored
+    verdict is derived from what geometry actually said and is never a claim a
+    browser could POST about its own health.
+
+    Three guards make the record honest rather than merely present:
+
+    - **Monotonic in ``tree_version``.** A late write for an older version is a
+      clean no-op (200, record unchanged), so two concurrent evaluates cannot
+      resurrect a superseded verdict.
+    - **``last_eval_at`` is documents' clock**, never the caller's — one clock
+      orders every record.
+    - **``updated_at`` does NOT move**, and neither does ``tree_version``: this
+      is bookkeeping, not a document edit. Opening a part triggers an evaluate,
+      and a register that showed "last worked: just now" because someone LOOKED
+      at a part would be lying about the thing it exists to report. The column's
+      ``onupdate`` default is suppressed by naming ``updated_at`` explicitly in
+      the UPDATE.
+    """
+    part = await get_owned_part(session, owner_id, part_id, for_update=True)
+    if (
+        part.last_eval_tree_version is not None
+        and request.tree_version < part.last_eval_tree_version
+    ):
+        _logger.info(
+            "part_eval_record_superseded",
+            part_id=str(part.id),
+            provided=request.tree_version,
+            recorded=part.last_eval_tree_version,
+        )
+        return PartResponse.model_validate(part)
+
+    await session.execute(
+        update(Part)
+        .where(Part.id == part.id)
+        .values(
+            last_eval_status=request.status,
+            last_eval_at=datetime.now(UTC),
+            last_eval_tree_version=request.tree_version,
+            # Pin updated_at to itself: present in the SET clause, so the
+            # column's onupdate default never fires (docstring above).
+            updated_at=Part.updated_at,
+        )
+        .execution_options(synchronize_session=False)
+    )
+    await session.commit()
+    await session.refresh(part)
+    _logger.info(
+        "part_eval_recorded",
+        part_id=str(part.id),
+        status=request.status,
+        eval_tree_version=request.tree_version,
+        tree_version=part.tree_version,
+        eval_state=part.eval_state,
+    )
     return PartResponse.model_validate(part)
 
 

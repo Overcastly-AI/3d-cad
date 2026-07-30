@@ -41,6 +41,13 @@ def _part(owner_id: uuid.UUID, name: str = "Bracket") -> PartResponse:
         name=name,
         owner_id=owner_id,
         length_unit="mm",
+        # Never evaluated (feature-tree.md §4.4a): the register's rebuild-health
+        # column rides on every part response, and its all-null form is the only
+        # claim a part nobody evaluated may make.
+        eval_state="never",
+        last_eval_status=None,
+        last_eval_at=None,
+        last_eval_tree_version=None,
         created_at=NOW,
         updated_at=NOW,
     )

@@ -6239,17 +6239,69 @@
         "type": "object"
       },
       "PartResponse": {
-        "description": "A part as stored \u2014 identity, ownership, unit, and timestamps.\n\nThe feature tree is NOT here yet: it lands as its own tables per\ndocs/design/feature-tree.md once the implementation item ships.",
+        "description": "A part as stored \u2014 identity, ownership, unit, timestamps, rebuild health.\n\nThe feature tree itself is not inlined here (it is its own\n``GET /parts/{id}/features`` response, docs/design/feature-tree.md); what\nIS here is the fixed-size last-evaluate record (\u00a74.4a) so a register can\ntell the truth about a whole drawer of parts in one query \u2014 four scalars per\nrow, never per-feature or per-sheet growth.",
         "properties": {
           "created_at": {
             "format": "date-time",
             "title": "Created At",
             "type": "string"
           },
+          "eval_state": {
+            "description": "Rebuild health a consumer may act on NOW: 'never' (not evaluated), 'ok'/'failed' (evaluated, and that verdict still applies to the current tree), or 'stale' (evaluated, but the tree changed since \u2014 status unknown). Derived server-side from the three last_eval_* fields against the part's current tree_version (feature-tree.md \u00a74.4a), so a stale claim is never dressed up as a current one.",
+            "enum": [
+              "never",
+              "ok",
+              "failed",
+              "stale"
+            ],
+            "title": "Eval State",
+            "type": "string"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "last_eval_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When that evaluate was recorded (documents' clock); null if never evaluated. For display ('failed 20 min ago'), NOT for deciding staleness.",
+            "title": "Last Eval At"
+          },
+          "last_eval_status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "ok",
+                  "failed"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Raw recorded outcome of the last evaluate, or null if the part was never evaluated. Read `eval_state` for the verdict \u2014 this field alone cannot say whether it still applies.",
+            "title": "Last Eval Status"
+          },
+          "last_eval_tree_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The tree_version the recorded status describes; null if never evaluated. Differs from the part's current tree_version exactly when `eval_state` is 'stale'.",
+            "title": "Last Eval Tree Version"
           },
           "length_unit": {
             "description": "Document display unit (docs/design/units.md \u00a71); DISPLAY metadata only \u2014 storage stays canonical mm.",
@@ -6284,6 +6336,10 @@
           "name",
           "owner_id",
           "length_unit",
+          "eval_state",
+          "last_eval_status",
+          "last_eval_at",
+          "last_eval_tree_version",
           "created_at",
           "updated_at"
         ],
@@ -12718,7 +12774,7 @@
     },
     "/api/v1/parts/{part_id}/evaluate": {
       "post": {
-        "description": "Evaluate the part's current feature tree (feature-tree design \u00a74).\n\nThe full loop behind one authenticated call: documents serves the\nevaluation-ready list (rollback bar applied, params upcast \u2014 \u00a74.2), the\ngateway forwards it verbatim to the stateless geometry service, and the\ntyped result comes back with per-feature statuses and solved-sketch\n``data`` payloads (\u00a77.10). Feature failures are a 200 with per-feature\nerrors (\u00a74.3); the error envelope here means the aggregation itself\nfailed (404 unknown part, 502 unreachable upstream, ...).",
+        "description": "Evaluate the part's current feature tree (feature-tree design \u00a74).\n\nThe full loop behind one authenticated call: documents serves the\nevaluation-ready list (rollback bar applied, params upcast \u2014 \u00a74.2), the\ngateway forwards it verbatim to the stateless geometry service, and the\ntyped result comes back with per-feature statuses and solved-sketch\n``data`` payloads (\u00a77.10). Feature failures are a 200 with per-feature\nerrors (\u00a74.3); the error envelope here means the aggregation itself\nfailed (404 unknown part, 502 unreachable upstream, ...).\n\nA 200 also records the verdict on the part row for the registers' rebuild-\nhealth column (\u00a74.4a) \u2014 in a background task, after the response, so the\nbookkeeping can neither slow this call down nor fail it\n(:func:`record_last_evaluation`).",
         "operationId": "evaluate_part_api_v1_parts__part_id__evaluate_post",
         "parameters": [
           {

@@ -5,9 +5,17 @@ real auth over SQLite), extended with a mocked geometry upstream: the route
 must fetch the evaluation-ready list from documents (principal attached),
 relay it verbatim to geometry (NO principal — geometry is identity-free),
 and type the result back — resurfacing either upstream's envelope on failure.
+
+It also owns the last-evaluate BOOKKEEPING (feature-tree.md §4.4a): the gateway
+writes the verdict back to documents because it is the only participant holding
+both the verified principal and geometry's actual answer. The tests below pin
+the two properties that make that safe — the verdict is DERIVED from the
+per-feature statuses (never taken from a caller), and a bookkeeping failure of
+any kind leaves the user's evaluate a clean 200.
 """
 
 import asyncio
+import json
 import uuid
 from collections.abc import Callable
 from pathlib import Path
@@ -23,6 +31,7 @@ from py_kit.schemas.features import (
     EvaluatedFeatureInput,
     EvaluateTreeRequest,
     EvaluateTreeResult,
+    FeatureError,
     FeatureResult,
     SketchFeature,
     SolvedSketchData,
@@ -140,12 +149,30 @@ def _envelope(body: dict[str, Any]) -> dict[str, Any]:
     return error
 
 
-def _documents_ok(seen: list[httpx.Request]) -> Handler:
+def _documents_ok(seen: list[httpx.Request], *, record_status: int = 200) -> Handler:
+    """Documents: the evaluation-ready list, plus the bookkeeping PUT.
+
+    ``record_status`` lets a test make ONLY the bookkeeping write fail. The
+    gateway never parses that response body (it is fire-and-forget), so the
+    happy path answers a bare 200.
+    """
+
     def handler(request: httpx.Request) -> httpx.Response:
         seen.append(request)
+        if request.url.path.endswith("/last-evaluation"):
+            return httpx.Response(record_status, json={})
         return httpx.Response(200, content=_evaluation_request().model_dump_json())
 
     return handler
+
+
+def _recorded(seen: list[httpx.Request]) -> list[dict[str, Any]]:
+    """The bodies of the bookkeeping writes documents saw."""
+    return [
+        json.loads(request.content)
+        for request in seen
+        if request.url.path.endswith("/last-evaluation")
+    ]
 
 
 def _geometry_ok(seen: list[httpx.Request]) -> Handler:
@@ -188,7 +215,7 @@ def test_evaluate_relays_documents_list_to_geometry(db_url: str) -> None:
     assert result.features[0].data is not None
     assert result.features[0].data.dof == 0
 
-    [documents_request] = documents_seen
+    documents_request = documents_seen[0]
     assert documents_request.method == "GET"
     assert documents_request.url.path == f"/api/v1/parts/{PART}/evaluation-request"
     assert documents_request.headers[PRINCIPAL_HEADER] == user_id
@@ -249,6 +276,152 @@ def test_geometry_error_envelope_resurfaced(db_url: str) -> None:
 
     assert response.status_code == 422
     assert _envelope(response.json())["code"] == "validation_error"
+
+
+def test_a_clean_evaluate_records_ok_against_the_version_it_ran_on(
+    db_url: str,
+) -> None:
+    """The bookkeeping write (§4.4a): documents' own route, the verified
+    principal attached, stamped with the tree_version geometry echoed back — so
+    the stored verdict names the tree it describes and cannot be forged by a
+    browser."""
+    documents_seen: list[httpx.Request] = []
+    geometry_seen: list[httpx.Request] = []
+    with make_client(
+        db_url, _documents_ok(documents_seen), _geometry_ok(geometry_seen)
+    ) as client:
+        user_id, bearer = _register(client)
+        response = client.post(f"/api/v1/parts/{PART}/evaluate", headers=bearer)
+
+    assert response.status_code == 200, response.text
+    [record] = [
+        request
+        for request in documents_seen
+        if request.url.path.endswith("/last-evaluation")
+    ]
+    assert record.method == "PUT"
+    assert record.url.path == f"/api/v1/parts/{PART}/last-evaluation"
+    assert record.headers[PRINCIPAL_HEADER] == user_id
+    assert json.loads(record.content) == {"tree_version": 4, "status": "ok"}
+
+
+def test_a_feature_error_records_failed(db_url: str) -> None:
+    """'failed' is DERIVED from the per-feature statuses, not reported."""
+    documents_seen: list[httpx.Request] = []
+
+    def geometry_with_failure(_request: httpx.Request) -> httpx.Response:
+        result = _evaluation_result()
+        result.features = [
+            FeatureResult(
+                feature_id=SKETCH,
+                status="error",
+                error=FeatureError(
+                    code="sketch_conflicting", message="over-constrained"
+                ),
+            )
+        ]
+        return httpx.Response(200, content=result.model_dump_json())
+
+    with make_client(db_url, _documents_ok(documents_seen), geometry_with_failure) as (
+        client
+    ):
+        _, bearer = _register(client)
+        response = client.post(f"/api/v1/parts/{PART}/evaluate", headers=bearer)
+
+    assert response.status_code == 200, response.text
+    assert _recorded(documents_seen) == [{"tree_version": 4, "status": "failed"}]
+
+
+def test_a_suppressed_or_skipped_feature_is_not_a_failure(db_url: str) -> None:
+    """Only ``error`` is a failure (§4.3): a deliberately suppressed feature, and
+    a downstream ``skipped`` one, must not paint a part broken."""
+    documents_seen: list[httpx.Request] = []
+
+    def geometry_mixed(_request: httpx.Request) -> httpx.Response:
+        result = _evaluation_result()
+        result.features = [
+            FeatureResult(feature_id=SKETCH, status="suppressed"),
+            FeatureResult(feature_id=uuid.uuid4(), status="skipped"),
+        ]
+        return httpx.Response(200, content=result.model_dump_json())
+
+    with make_client(db_url, _documents_ok(documents_seen), geometry_mixed) as client:
+        _, bearer = _register(client)
+        assert (
+            client.post(f"/api/v1/parts/{PART}/evaluate", headers=bearer).status_code
+            == 200
+        )
+
+    assert _recorded(documents_seen) == [{"tree_version": 4, "status": "ok"}]
+
+
+def test_a_rejected_bookkeeping_write_still_leaves_a_clean_200(db_url: str) -> None:
+    """A successful rebuild must never surface as an error because a status
+    column could not be written."""
+    documents_seen: list[httpx.Request] = []
+    geometry_seen: list[httpx.Request] = []
+    with make_client(
+        db_url,
+        _documents_ok(documents_seen, record_status=500),
+        _geometry_ok(geometry_seen),
+    ) as client:
+        _, bearer = _register(client)
+        response = client.post(f"/api/v1/parts/{PART}/evaluate", headers=bearer)
+
+    assert response.status_code == 200, response.text
+    assert EvaluateTreeResult.model_validate(response.json()).features[0].status == "ok"
+    assert len(_recorded(documents_seen)) == 1
+
+
+def test_an_unreachable_documents_after_the_fact_still_leaves_a_clean_200(
+    db_url: str,
+) -> None:
+    """The transport failure that would be a 502 on the aggregation hop is
+    swallowed on the bookkeeping hop — the result is already on the wire."""
+    calls: list[httpx.Request] = []
+
+    def documents_then_dead(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        if request.url.path.endswith("/last-evaluation"):
+            raise httpx.ConnectError("connection refused")
+        return httpx.Response(200, content=_evaluation_request().model_dump_json())
+
+    geometry_seen: list[httpx.Request] = []
+    with make_client(
+        db_url, documents_then_dead, _geometry_ok(geometry_seen)
+    ) as client:
+        _, bearer = _register(client)
+        response = client.post(f"/api/v1/parts/{PART}/evaluate", headers=bearer)
+
+    assert response.status_code == 200, response.text
+    assert len(calls) == 2  # the read hop, then the attempted write
+
+
+def test_a_failed_evaluate_records_nothing(db_url: str) -> None:
+    """No answer from geometry means no verdict to store — the previous record
+    stands (and reads ``stale`` once the tree moves), rather than being
+    overwritten with a guess."""
+    documents_seen: list[httpx.Request] = []
+
+    def geometry_500(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            500,
+            json={
+                "error": {
+                    "code": "internal_error",
+                    "message": "boom",
+                    "details": None,
+                    "request_id": "upstream-id",
+                }
+            },
+        )
+
+    with make_client(db_url, _documents_ok(documents_seen), geometry_500) as client:
+        _, bearer = _register(client)
+        response = client.post(f"/api/v1/parts/{PART}/evaluate", headers=bearer)
+
+    assert response.status_code == 500
+    assert _recorded(documents_seen) == []
 
 
 def test_geometry_unreachable_is_502(db_url: str) -> None:

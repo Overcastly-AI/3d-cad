@@ -323,6 +323,32 @@ def test_0011_offline_downgrade_drops_projection_unique(
     assert "DROP CONSTRAINT uq_views_sheet_projection" in sql
 
 
+def test_0012_offline_sql_adds_the_nullable_last_evaluate_record(
+    alembic_ini: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sql = _offline_sql(alembic_ini, monkeypatch, "0011:0012")
+    # feature-tree.md §4.4a — three NULLABLE columns; all-NULL IS the "never
+    # evaluated" state, so there is deliberately NO server default to invent a
+    # verdict for a part nobody ever evaluated.
+    assert "ALTER TABLE parts ADD COLUMN last_eval_status VARCHAR(16)" in sql
+    assert "ALTER TABLE parts ADD COLUMN last_eval_at TIMESTAMP WITH TIME ZONE" in sql
+    assert "ALTER TABLE parts ADD COLUMN last_eval_tree_version BIGINT" in sql
+    assert "NOT NULL" not in sql
+    assert "DEFAULT" not in sql
+    # The version stamp is what makes staleness DERIVABLE rather than assumed;
+    # a status column on its own would be the stored-BOM-number failure mode.
+    assert sql.index("last_eval_status") < sql.index("last_eval_tree_version")
+
+
+def test_0012_offline_downgrade_drops_the_record(
+    alembic_ini: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sql = _offline_sql(alembic_ini, monkeypatch, "0012:0011", downgrade=True)
+    assert "ALTER TABLE parts DROP COLUMN last_eval_tree_version" in sql
+    assert "ALTER TABLE parts DROP COLUMN last_eval_at" in sql
+    assert "ALTER TABLE parts DROP COLUMN last_eval_status" in sql
+
+
 async def _table_names(url: str) -> set[str]:
     engine = create_async_engine(async_dsn(url))
     try:

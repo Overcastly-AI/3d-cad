@@ -4076,6 +4076,32 @@
         "title": "PartCreate",
         "type": "object"
       },
+      "PartEvaluationRecord": {
+        "description": "Record the outcome of an evaluate onto the part row (\u00a74.4a bookkeeping).\n\nWritten by the GATEWAY \u2014 the only place that holds both the verified\nprincipal and geometry's actual answer \u2014 after a real evaluate returned, so\nthe value on a register can never be a browser's claim about its own health.\nThe client never supplies a timestamp: documents stamps ``last_eval_at``\nfrom its own clock, so one clock orders every record.\n\n``tree_version`` is the version of the tree the result BELONGS to (echoed\nthrough :class:`~py_kit.schemas.features.EvaluateTreeResult`), which is what\nmakes staleness derivable instead of assumed. Recording is monotonic in it:\na late-arriving write for an older version is a no-op, never a resurrection\nof a superseded claim.",
+        "properties": {
+          "status": {
+            "description": "'failed' when any evaluated feature returned an error, else 'ok' (feature-tree.md \u00a74.3 strict-prefix rule)",
+            "enum": [
+              "ok",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "tree_version": {
+            "description": "The part tree_version this result was computed from (EvaluateTreeResult.tree_version); older-than-stored is ignored",
+            "minimum": 0.0,
+            "title": "Tree Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "tree_version",
+          "status"
+        ],
+        "title": "PartEvaluationRecord",
+        "type": "object"
+      },
       "PartListResponse": {
         "description": "The caller's parts, oldest first (wrapper leaves room for pagination).",
         "properties": {
@@ -4094,17 +4120,69 @@
         "type": "object"
       },
       "PartResponse": {
-        "description": "A part as stored \u2014 identity, ownership, unit, and timestamps.\n\nThe feature tree is NOT here yet: it lands as its own tables per\ndocs/design/feature-tree.md once the implementation item ships.",
+        "description": "A part as stored \u2014 identity, ownership, unit, timestamps, rebuild health.\n\nThe feature tree itself is not inlined here (it is its own\n``GET /parts/{id}/features`` response, docs/design/feature-tree.md); what\nIS here is the fixed-size last-evaluate record (\u00a74.4a) so a register can\ntell the truth about a whole drawer of parts in one query \u2014 four scalars per\nrow, never per-feature or per-sheet growth.",
         "properties": {
           "created_at": {
             "format": "date-time",
             "title": "Created At",
             "type": "string"
           },
+          "eval_state": {
+            "description": "Rebuild health a consumer may act on NOW: 'never' (not evaluated), 'ok'/'failed' (evaluated, and that verdict still applies to the current tree), or 'stale' (evaluated, but the tree changed since \u2014 status unknown). Derived server-side from the three last_eval_* fields against the part's current tree_version (feature-tree.md \u00a74.4a), so a stale claim is never dressed up as a current one.",
+            "enum": [
+              "never",
+              "ok",
+              "failed",
+              "stale"
+            ],
+            "title": "Eval State",
+            "type": "string"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "last_eval_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When that evaluate was recorded (documents' clock); null if never evaluated. For display ('failed 20 min ago'), NOT for deciding staleness.",
+            "title": "Last Eval At"
+          },
+          "last_eval_status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "ok",
+                  "failed"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Raw recorded outcome of the last evaluate, or null if the part was never evaluated. Read `eval_state` for the verdict \u2014 this field alone cannot say whether it still applies.",
+            "title": "Last Eval Status"
+          },
+          "last_eval_tree_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The tree_version the recorded status describes; null if never evaluated. Differs from the part's current tree_version exactly when `eval_state` is 'stale'.",
+            "title": "Last Eval Tree Version"
           },
           "length_unit": {
             "description": "Document display unit (docs/design/units.md \u00a71); DISPLAY metadata only \u2014 storage stays canonical mm.",
@@ -4139,6 +4217,10 @@
           "name",
           "owner_id",
           "length_unit",
+          "eval_state",
+          "last_eval_status",
+          "last_eval_at",
+          "last_eval_tree_version",
           "created_at",
           "updated_at"
         ],
@@ -9557,6 +9639,78 @@
         "summary": "Suppress Feature",
         "tags": [
           "features"
+        ]
+      }
+    },
+    "/api/v1/parts/{part_id}/last-evaluation": {
+      "put": {
+        "description": "Record the outcome of an evaluate on the part row (\u00a74.4a bookkeeping).\n\nINTERNAL, like every documents route, and deliberately without a public\ngateway twin (the same posture as ``GET /{part_id}/evaluation-request``):\nthe gateway calls this itself after geometry has answered, so the stored\nverdict is derived from what geometry actually said and is never a claim a\nbrowser could POST about its own health.\n\nThree guards make the record honest rather than merely present:\n\n- **Monotonic in ``tree_version``.** A late write for an older version is a\n  clean no-op (200, record unchanged), so two concurrent evaluates cannot\n  resurrect a superseded verdict.\n- **``last_eval_at`` is documents' clock**, never the caller's \u2014 one clock\n  orders every record.\n- **``updated_at`` does NOT move**, and neither does ``tree_version``: this\n  is bookkeeping, not a document edit. Opening a part triggers an evaluate,\n  and a register that showed \"last worked: just now\" because someone LOOKED\n  at a part would be lying about the thing it exists to report. The column's\n  ``onupdate`` default is suppressed by naming ``updated_at`` explicitly in\n  the UPDATE.",
+        "operationId": "record_last_evaluation_api_v1_parts__part_id__last_evaluation_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Part Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PartEvaluationRecord"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Record Last Evaluation",
+        "tags": [
+          "parts"
         ]
       }
     },

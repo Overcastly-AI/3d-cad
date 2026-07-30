@@ -1137,6 +1137,11 @@ export interface paths {
          *     ``data`` payloads (§7.10). Feature failures are a 200 with per-feature
          *     errors (§4.3); the error envelope here means the aggregation itself
          *     failed (404 unknown part, 502 unreachable upstream, ...).
+         *
+         *     A 200 also records the verdict on the part row for the registers' rebuild-
+         *     health column (§4.4a) — in a background task, after the response, so the
+         *     bookkeeping can neither slow this call down nor fail it
+         *     (:func:`record_last_evaluation`).
          */
         post: operations["evaluate_part_api_v1_parts__part_id__evaluate_post"];
         delete?: never;
@@ -5843,10 +5848,13 @@ export interface components {
         };
         /**
          * PartResponse
-         * @description A part as stored — identity, ownership, unit, and timestamps.
+         * @description A part as stored — identity, ownership, unit, timestamps, rebuild health.
          *
-         *     The feature tree is NOT here yet: it lands as its own tables per
-         *     docs/design/feature-tree.md once the implementation item ships.
+         *     The feature tree itself is not inlined here (it is its own
+         *     ``GET /parts/{id}/features`` response, docs/design/feature-tree.md); what
+         *     IS here is the fixed-size last-evaluate record (§4.4a) so a register can
+         *     tell the truth about a whole drawer of parts in one query — four scalars per
+         *     row, never per-feature or per-sheet growth.
          */
         PartResponse: {
             /**
@@ -5855,10 +5863,31 @@ export interface components {
              */
             created_at: string;
             /**
+             * Eval State
+             * @description Rebuild health a consumer may act on NOW: 'never' (not evaluated), 'ok'/'failed' (evaluated, and that verdict still applies to the current tree), or 'stale' (evaluated, but the tree changed since — status unknown). Derived server-side from the three last_eval_* fields against the part's current tree_version (feature-tree.md §4.4a), so a stale claim is never dressed up as a current one.
+             * @enum {string}
+             */
+            eval_state: "never" | "ok" | "failed" | "stale";
+            /**
              * Id
              * Format: uuid
              */
             id: string;
+            /**
+             * Last Eval At
+             * @description When that evaluate was recorded (documents' clock); null if never evaluated. For display ('failed 20 min ago'), NOT for deciding staleness.
+             */
+            last_eval_at: string | null;
+            /**
+             * Last Eval Status
+             * @description Raw recorded outcome of the last evaluate, or null if the part was never evaluated. Read `eval_state` for the verdict — this field alone cannot say whether it still applies.
+             */
+            last_eval_status: ("ok" | "failed") | null;
+            /**
+             * Last Eval Tree Version
+             * @description The tree_version the recorded status describes; null if never evaluated. Differs from the part's current tree_version exactly when `eval_state` is 'stale'.
+             */
+            last_eval_tree_version: number | null;
             /**
              * Length Unit
              * @description Document display unit (docs/design/units.md §1); DISPLAY metadata only — storage stays canonical mm.

@@ -759,6 +759,46 @@ export interface paths {
         patch: operations["suppress_feature_api_v1_parts__part_id__features__feature_id__suppress_patch"];
         trace?: never;
     };
+    "/api/v1/parts/{part_id}/last-evaluation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Record Last Evaluation
+         * @description Record the outcome of an evaluate on the part row (§4.4a bookkeeping).
+         *
+         *     INTERNAL, like every documents route, and deliberately without a public
+         *     gateway twin (the same posture as ``GET /{part_id}/evaluation-request``):
+         *     the gateway calls this itself after geometry has answered, so the stored
+         *     verdict is derived from what geometry actually said and is never a claim a
+         *     browser could POST about its own health.
+         *
+         *     Three guards make the record honest rather than merely present:
+         *
+         *     - **Monotonic in ``tree_version``.** A late write for an older version is a
+         *       clean no-op (200, record unchanged), so two concurrent evaluates cannot
+         *       resurrect a superseded verdict.
+         *     - **``last_eval_at`` is documents' clock**, never the caller's — one clock
+         *       orders every record.
+         *     - **``updated_at`` does NOT move**, and neither does ``tree_version``: this
+         *       is bookkeeping, not a document edit. Opening a part triggers an evaluate,
+         *       and a register that showed "last worked: just now" because someone LOOKED
+         *       at a part would be lying about the thing it exists to report. The column's
+         *       ``onupdate`` default is suppressed by naming ``updated_at`` explicitly in
+         *       the UPDATE.
+         */
+        put: operations["record_last_evaluation_api_v1_parts__part_id__last_evaluation_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/parts/{part_id}/redo": {
         parameters: {
             query?: never;
@@ -3862,6 +3902,35 @@ export interface components {
             name: string;
         };
         /**
+         * PartEvaluationRecord
+         * @description Record the outcome of an evaluate onto the part row (§4.4a bookkeeping).
+         *
+         *     Written by the GATEWAY — the only place that holds both the verified
+         *     principal and geometry's actual answer — after a real evaluate returned, so
+         *     the value on a register can never be a browser's claim about its own health.
+         *     The client never supplies a timestamp: documents stamps ``last_eval_at``
+         *     from its own clock, so one clock orders every record.
+         *
+         *     ``tree_version`` is the version of the tree the result BELONGS to (echoed
+         *     through :class:`~py_kit.schemas.features.EvaluateTreeResult`), which is what
+         *     makes staleness derivable instead of assumed. Recording is monotonic in it:
+         *     a late-arriving write for an older version is a no-op, never a resurrection
+         *     of a superseded claim.
+         */
+        PartEvaluationRecord: {
+            /**
+             * Status
+             * @description 'failed' when any evaluated feature returned an error, else 'ok' (feature-tree.md §4.3 strict-prefix rule)
+             * @enum {string}
+             */
+            status: "ok" | "failed";
+            /**
+             * Tree Version
+             * @description The part tree_version this result was computed from (EvaluateTreeResult.tree_version); older-than-stored is ignored
+             */
+            tree_version: number;
+        };
+        /**
          * PartListResponse
          * @description The caller's parts, oldest first (wrapper leaves room for pagination).
          */
@@ -3871,10 +3940,13 @@ export interface components {
         };
         /**
          * PartResponse
-         * @description A part as stored — identity, ownership, unit, and timestamps.
+         * @description A part as stored — identity, ownership, unit, timestamps, rebuild health.
          *
-         *     The feature tree is NOT here yet: it lands as its own tables per
-         *     docs/design/feature-tree.md once the implementation item ships.
+         *     The feature tree itself is not inlined here (it is its own
+         *     ``GET /parts/{id}/features`` response, docs/design/feature-tree.md); what
+         *     IS here is the fixed-size last-evaluate record (§4.4a) so a register can
+         *     tell the truth about a whole drawer of parts in one query — four scalars per
+         *     row, never per-feature or per-sheet growth.
          */
         PartResponse: {
             /**
@@ -3883,10 +3955,31 @@ export interface components {
              */
             created_at: string;
             /**
+             * Eval State
+             * @description Rebuild health a consumer may act on NOW: 'never' (not evaluated), 'ok'/'failed' (evaluated, and that verdict still applies to the current tree), or 'stale' (evaluated, but the tree changed since — status unknown). Derived server-side from the three last_eval_* fields against the part's current tree_version (feature-tree.md §4.4a), so a stale claim is never dressed up as a current one.
+             * @enum {string}
+             */
+            eval_state: "never" | "ok" | "failed" | "stale";
+            /**
              * Id
              * Format: uuid
              */
             id: string;
+            /**
+             * Last Eval At
+             * @description When that evaluate was recorded (documents' clock); null if never evaluated. For display ('failed 20 min ago'), NOT for deciding staleness.
+             */
+            last_eval_at: string | null;
+            /**
+             * Last Eval Status
+             * @description Raw recorded outcome of the last evaluate, or null if the part was never evaluated. Read `eval_state` for the verdict — this field alone cannot say whether it still applies.
+             */
+            last_eval_status: ("ok" | "failed") | null;
+            /**
+             * Last Eval Tree Version
+             * @description The tree_version the recorded status describes; null if never evaluated. Differs from the part's current tree_version exactly when `eval_state` is 'stale'.
+             */
+            last_eval_tree_version: number | null;
             /**
              * Length Unit
              * @description Document display unit (docs/design/units.md §1); DISPLAY metadata only — storage stays canonical mm.
@@ -7182,6 +7275,44 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FeatureMutationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    record_last_evaluation_api_v1_parts__part_id__last_evaluation_put: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
+                "X-Loft-User"?: string | null;
+            };
+            path: {
+                part_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PartEvaluationRecord"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PartResponse"];
                 };
             };
             /** @description Validation Error */

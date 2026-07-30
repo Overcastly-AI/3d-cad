@@ -1283,6 +1283,25 @@ flexible sub-assemblies, part-version pinning-as-default.
       `lib/activity.test.ts` (7); every `data-testid`/role preserved, e2e
       parts-home/auth/drawings/assembly-bom green on the live stack; founder
       shots `parts-home-{empty,desktop,laptop}.png` refreshed.
+      **"Is broken" — BACKEND SHIPPED 2026-07-30 (backend-builder):** the one
+      column the 2026-07-30 UI review said was worth adding to that register now
+      has a wire. Migration `0012` adds three nullable `parts.last_eval_*`
+      columns (status / timestamp / **the `tree_version` the result belongs to**)
+      and `PartResponse` serves a DERIVED four-state `eval_state`:
+      `never` / `ok` / `failed` / `stale`. The fourth state is the design — a
+      bare stored status is a claim about a tree that has since moved, the
+      "confidently wrong" failure mode stored BOM item numbers were rejected for
+      (`drawings.md` §8a.1) — so staleness is DERIVED from the recorded version,
+      not guessed from timestamps. The **gateway** writes it (the only
+      participant holding both the verified principal and geometry's real answer;
+      a client-reported status would be forgeable), in a background task after
+      the response, with every failure logged and dropped — bookkeeping can
+      neither slow an evaluate nor fail one. Also monotonic in `tree_version`,
+      does not move `updated_at` (opening a part evaluates it; LAST WORKED must
+      not lie), and carried forward across a rename/re-unit (which cannot change
+      what the tree evaluates to). Design `feature-tree.md` §4.4a; 13 documents
+      regressions + 6 gateway + 2 migration renders; list stays ONE query
+      (asserted). The register column itself is the frontend follow-up.
       **Cut-aware pattern + mirror ✅ 2026-07-24 (kernel-architect; FINDINGS
       #1–#2, the silent-wrong-geometry pair):** patterning a **Hole** feature no
       longer duplicates the whole body and mirroring a holed plate about its

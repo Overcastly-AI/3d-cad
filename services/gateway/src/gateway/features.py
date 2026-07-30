@@ -16,13 +16,20 @@ it to the geometry service, and the typed ``EvaluateTreeResult`` — solved
 sketch payloads included — returns to the caller. This keeps "the web app
 talks only to the gateway" true for feature evaluation without documents ever
 calling geometry itself.
+
+That same route owns the last-evaluate BOOKKEEPING (feature-tree.md §4.4a).
+The gateway is the only participant holding both the verified principal and
+geometry's real answer, so it — not the browser — writes the verdict a register
+reads; it does so in a background task after the response, so the write can
+neither delay nor fail the evaluate.
 """
 
 import uuid
 from typing import Annotated
 
 import httpx2 as httpx
-from fastapi import APIRouter, Query, Request, Response, status
+from fastapi import APIRouter, BackgroundTasks, Query, Request, Response, status
+from py_kit import get_logger
 from py_kit.schemas.features import (
     EvaluateTreeRequest,
     EvaluateTreeResult,
@@ -38,11 +45,15 @@ from py_kit.schemas.features import (
     UndoRedoRequest,
 )
 from py_kit.schemas.geometry import EXPORT_MEDIA_TYPES, ExportFormat, export_responses
+from py_kit.schemas.parts import PartEvaluationRecord
 
 from gateway.auth import CurrentUser
+from gateway.db import User
 from gateway.parts import forward_documents
 from gateway.ratelimit import COMPUTE_RATE_LIMIT
 from gateway.upstream import forward, raise_upstream_error
+
+_logger = get_logger("gateway.features")
 
 #: Human-readable upstream name for shared error surfaces.
 _SERVICE = "Documents"
@@ -193,9 +204,70 @@ async def reorder_features(
     return FeatureTreeResponse.model_validate_json(upstream.content)
 
 
+async def record_last_evaluation(
+    http_request: Request,
+    user: User,
+    part_id: uuid.UUID,
+    result: EvaluateTreeResult,
+) -> None:
+    """Persist the evaluate verdict on the part row — best effort, never fatal.
+
+    Runs as a Starlette background task AFTER the evaluate response has been
+    sent, for two reasons that are requirements, not conveniences
+    (docs/design/feature-tree.md §4.4a):
+
+    - **It cannot slow an evaluate down.** The user's result is already on the
+      wire; the bookkeeping round-trip is off the critical path.
+    - **It cannot fail an evaluate.** Every exception is swallowed and logged
+      (``forward`` raises a 502 ``ApiError`` on an unreachable documents, and a
+      raced tree edit can answer 404) — a successful rebuild must never surface
+      as an error because a status column could not be written. The cost of a
+      lost write is bounded and self-healing: the record simply stays at its
+      previous value, which ``eval_state`` already reports as ``stale`` once the
+      tree moves on, and the next evaluate rewrites it.
+
+    The verdict is read from geometry's own answer — ``failed`` iff some feature
+    returned ``error`` (the strict-prefix rule, §4.3; a ``suppressed`` or
+    downstream ``skipped`` feature is not a failure) — and stamped with
+    ``result.tree_version``, the version documents built the request from, so
+    the record names the tree it describes.
+    """
+    record = PartEvaluationRecord(
+        tree_version=result.tree_version,
+        status="failed"
+        if any(feature.status == "error" for feature in result.features)
+        else "ok",
+    )
+    try:
+        upstream = await forward_documents(
+            http_request,
+            user,
+            "PUT",
+            f"/api/v1/parts/{part_id}/last-evaluation",
+            record.model_dump_json(),
+        )
+    # Deliberately broad: NOTHING here may escape into the evaluate's task group.
+    except Exception as exc:
+        _logger.warning(
+            "eval_status_record_failed",
+            part_id=str(part_id),
+            reason=type(exc).__name__,
+        )
+        return
+    if upstream.status_code != status.HTTP_200_OK:
+        _logger.warning(
+            "eval_status_record_rejected",
+            part_id=str(part_id),
+            upstream_status=upstream.status_code,
+        )
+
+
 @router.post("/{part_id}/evaluate", dependencies=[COMPUTE_RATE_LIMIT])
 async def evaluate_part(
-    part_id: uuid.UUID, user: CurrentUser, http_request: Request
+    part_id: uuid.UUID,
+    user: CurrentUser,
+    http_request: Request,
+    background_tasks: BackgroundTasks,
 ) -> EvaluateTreeResult:
     """Evaluate the part's current feature tree (feature-tree design §4).
 
@@ -206,6 +278,11 @@ async def evaluate_part(
     ``data`` payloads (§7.10). Feature failures are a 200 with per-feature
     errors (§4.3); the error envelope here means the aggregation itself
     failed (404 unknown part, 502 unreachable upstream, ...).
+
+    A 200 also records the verdict on the part row for the registers' rebuild-
+    health column (§4.4a) — in a background task, after the response, so the
+    bookkeeping can neither slow this call down nor fail it
+    (:func:`record_last_evaluation`).
     """
     upstream = await forward_documents(
         http_request, user, "GET", f"/api/v1/parts/{part_id}/evaluation-request"
@@ -225,7 +302,11 @@ async def evaluate_part(
     )
     if evaluated.status_code != status.HTTP_200_OK:
         raise_upstream_error(evaluated, service=_GEOMETRY)
-    return EvaluateTreeResult.model_validate_json(evaluated.content)
+    result = EvaluateTreeResult.model_validate_json(evaluated.content)
+    background_tasks.add_task(
+        record_last_evaluation, http_request, user, part_id, result
+    )
+    return result
 
 
 _EXPORT_RESPONSES = export_responses(

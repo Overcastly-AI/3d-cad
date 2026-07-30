@@ -158,6 +158,39 @@ frame refactor are v2/§11. Spike de-collected.
       is a real behaviour change needing its own goldens; the `features` scope
       already gives users a correct answer today.
       [src: mirror v2 implementation 2026-07-30]
+
+- [x] (P2, M) **"Is broken" on the parts register — BACKEND SHIPPED 2026-07-30**
+      (backend-builder; design `docs/design/feature-tree.md` §4.4a). The one
+      column the 07-30 UI review argued back in. Migration `0012` adds nullable
+      `parts.last_eval_status` / `last_eval_at` / **`last_eval_tree_version`**,
+      and `PartResponse` serves a derived `eval_state` of
+      `never` / `ok` / `failed` / `stale` — the fourth state exists because a
+      bare status is a claim about a tree that moved (the stored-BOM-number
+      failure mode, `drawings.md` §8a.1), so staleness is derivable at the API,
+      not guessed from `updated_at > last_eval_at`. The **gateway** writes it
+      after a successful evaluate (a client-reported status is forgeable and this
+      lands on a dashboard), in a background task with all failures logged and
+      dropped — bookkeeping never slows or fails an evaluate. Monotonic in
+      `tree_version`; does not move `updated_at`; carried forward across a
+      rename/re-unit. 13 documents + 6 gateway + 2 migration tests; list endpoint
+      asserted still ONE query. Parts only — assemblies/drawings filed below.
+      [src: UI-REVIEW 2026-07-30 verdict 1]
+
+- [ ] (P2, S) **Register column for `eval_state`** (frontend; unblocked by the
+      backend above). Surface it in the column that already carries "Not
+      started": an exception flag for `failed`, a quiet indeterminate mark for
+      `stale` ("tree changed since — unknown", never a green tick and never a
+      red one), nothing for `never`/`ok` beyond what LAST WORKED already says.
+      `last_eval_at` gives the relative age ("failed 20 min ago") and
+      `last_eval_tree_version` is available for a tooltip. Note `ok` means "no
+      feature errored", NOT "has a body". [src: UI-REVIEW 2026-07-30 verdict 1]
+
+- [ ] (P3, S) **Same last-evaluate record for assemblies + drawings.** Parts got
+      `0012`; the assembly and drawing registers still cannot say "is broken".
+      Assemblies have their own evaluation-request path, so the pattern ports
+      directly (`doc_version` in place of `tree_version`); a drawing's health is
+      really its source documents' plus compose, so decide what it claims before
+      building it. [src: feature-tree.md §4.4a stated limit]
 - [x] (P0, S) **CM-2 — a `pattern` of a cut whose replicated tools ALL clear the
       body was a SILENT NO-OP: the exact defect `fa30220` fixed for `mirror`
       only. Fixed 2026-07-25.** The reachability question is now ONE shared
@@ -1442,6 +1475,9 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
+- 2026-07-30 — **Last-evaluate record on the part row (backend-builder):**
+  migration `0012` + derived `eval_state` (`never`/`ok`/`failed`/`stale`), written
+  by the gateway post-evaluate; staleness derived from `tree_version`, not guessed.
 - 2026-07-25 — **Tapped-hole authoring (frontend-builder):** `Tapped` checkbox +
   ISO designation picker in `HoleEditor` derives the tap drill without locking
   it; the tree row carries `hole · M10x1.5` — the only place a tap is visible.
