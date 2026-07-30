@@ -36,7 +36,17 @@ on:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # Cancel superseded runs on PULL REQUESTS only. On branch pushes each commit
+  # keeps its own run to completion, because CLAUDE.md's standing rule is that
+  # EVERY COMMIT must be green on its own and `cancelled` is explicitly not a
+  # pass. Those two cannot both hold under blanket cancellation: on 2026-07-30
+  # three consecutive commits (6c9c432, 8f387fc, and very nearly fe2e5cb) each
+  # had their run killed by the next push minutes later, so all three shipped
+  # CI-unverified with nothing actually wrong with them — and the risk scales
+  # with the number of agents pushing in parallel, which is exactly when the
+  # per-commit signal matters most. A PR's superseded run genuinely is waste
+  # (only the head matters for merge), so cancellation stays there.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   python:

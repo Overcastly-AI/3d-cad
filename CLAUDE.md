@@ -223,16 +223,22 @@ Stale docs are a defect (this rule saved Next-Lane repeatedly; see
   print only `head_sha`/`status`/`conclusion` rather than trying to read it;
   (b) `get_workflow_run` on ONE id is small and is the cheap way to re-check a
   known run.
-- **`cancel-in-progress: true` means a fast follow-up push destroys the
-  evidence for the commit underneath it.** `ci.yml`'s concurrency group is
-  keyed on the ref, so pushing commit B ~3 min after commit A leaves A's run
-  `cancelled` — and by the rule above that is NOT a pass, so A ships
-  CI-unverified even though nothing was wrong with it (seen 2026-07-30:
-  `6c9c432` cancelled by `8f387fc`). When two commits must each be green on
-  their own — the standing rule — either space the pushes past a run, or push
-  them together so the single run covers the tip and accept that the
-  intermediate commit is verified only by local gates. Say which one happened
-  in the founder update instead of implying both commits were CI-green.
+- **FIXED 2026-07-30 — `cancel-in-progress` is now PR-only, so branch pushes
+  each keep their own run.** History, because the reasoning matters: the
+  concurrency group is keyed on the ref, and with blanket cancellation pushing
+  commit B ~3 min after A left A's run `cancelled` — which by the rule above is
+  NOT a pass, so A shipped CI-unverified with nothing wrong with it. It hit
+  three commits in a row (`6c9c432`, `8f387fc`, nearly `fe2e5cb`), including
+  the commit that first *documented* the trap, and the exposure scales with the
+  number of agents pushing in parallel — precisely when per-commit signal
+  matters most. Blanket cancellation and "every commit green on its own" cannot
+  both hold, so cancellation now applies only to `pull_request` (where just the
+  head matters for merge). Two things follow: (a) don't "fix" a red-looking
+  board by re-enabling it; (b) a `cancelled` run on a branch push is now a real
+  anomaly worth investigating, not the routine noise it used to be.
+  NB a descendant's green run does verify the *tree* of its ancestors, so a
+  cancelled ancestor whose child is green is not an unknown build — it is an
+  unverified *commit*. Say which of the two you mean.
 - **A suspiciously FAST green deserves the same scrutiny as a red.** The
   usual cause is a job that skipped its work, and `conclusion: success` is
   emitted when every job is skipped. Discriminate by reading the log for
