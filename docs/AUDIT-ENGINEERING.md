@@ -1329,3 +1329,759 @@ instances both named "Bolt"), which the round trip must not merge.
 Before acting on the table above, the groomer should confirm the in-flight
 `just lint && just test && just e2e` result and reconcile it with H6 — if that
 sweep is red, its failures take precedence over everything here.
+
+---
+
+## 2026-07-30 — Pass 4: post-composition-matrix / eval_state / mirror-v2 batch
+
+**Scope.** Branch `claude/open-source-3d-cad-o7hl49`. The tree moved under me
+during the pass (four other agents in flight), so every measurement below names
+the SHA it was taken at:
+
+| Measurement | Taken at |
+|---|---|
+| `just lint` | `fe2e5cb` (clean tree; only `.github/workflows/ci.yml` + `CLAUDE.md` modified, neither typechecked) |
+| `just test` | started at `fe2e5cb`, finished after the tree went dirty — see the caveat in the table below |
+| Code reads / route sweeps / license sweep | `5de225c` working tree unless a `git show <sha>:` is quoted |
+
+`git stash list` empty throughout. No app file was edited by this pass.
+
+Audited ground per the brief: the composition matrix + its coverage audit,
+`removal_reaches_body`, `conform_solid`, mirror v2, the DocumentRegister
+consolidation, the 4-state `eval_state` / `derive_part_eval_state`, CM-5
+(`6c9c432`), the disabled-trap pass (`8f387fc`), the sketch discard confirm
+(`fe2e5cb`).
+
+### Gate re-verification (ran myself)
+
+| Gate | Result | Evidence |
+|------|--------|----------|
+| `uv run ruff check .` | **green** | `All checks passed!` |
+| `uv run ruff format --check .` | **green** | `270 files already formatted` |
+| `uv run pyright` | **green** | `0 errors, 0 warnings, 0 informations` |
+| `eslint . && prettier --check .` | **green** | `All matched files use Prettier code style!` |
+| `pnpm -r typecheck` (part of `just lint`) | **RED — 10 errors** | see J1 |
+| **`just lint` overall** | **RED, exit 2** | `error: recipe 'lint' failed on line 40 with exit code 2` |
+| `just test` | **RED (exit 1) — but NOT attributable to HEAD; see J14** | `2 failed, 2942 passed, 1 skipped, 1 deselected in 1457.70s`; both failures trace to a sibling agent's **untracked** `degenerate.py` mid-edit, and both pass on re-run |
+| Gateway route auth sweep (mine, not a repo gate) | **posture correct** | 71 `APIRoute`s, 4 unauthed: `POST /api/v1/auth/{login,register}`, `GET /healthz`, `GET /readyz` |
+| Documents route principal sweep (mine) | **posture correct** | 50 `APIRoute`s, 2 unauthed (`/healthz`, `/readyz`); all 48 others carry `get_principal` |
+| License sweep, npm transitive closure | **clean** | `pnpm licenses list --json` → 0 GPL/AGPL/SSPL/CDDL/EPL/MPL; 323 MIT / 27 Apache-2.0 / 16 ISC / 12 BSD / 2 OFL-1.1 |
+| License sweep, Python installed set | **clean, 2 notes** | only `planegcs` LGPL-2.1-or-later (reviewed, RESEARCH §2/§8) and `certifi` MPL-2.0 (see J12); `ocpsvg` reports no metadata license but ships Apache-2.0 |
+
+### What I verified is genuinely solid (so the groomer can trust it)
+
+- **The composition matrix's new coverage audit has real teeth.**
+  `_material_removing_feature_types()`
+  (`services/geometry/tests/test_composition_matrix.py:2209-2231`) introspects
+  `FEATURE_REGISTRY.models()` for an `operation` `Literal` admitting
+  `"cut"`/`"subtract"`, and `test_pair_matrix_covers_every_shipped_verb`
+  (`:2233-2281`) asserts set EQUALITY against the FIRST axis minus a reasoned
+  `CUT_ROW_EXEMPT`. I confirmed the registry has 19 types, that
+  `FEATURE_HANDLERS` covers exactly those 19 with no diff either way, and that
+  the derivation is not comparing the axes to themselves. This is the correct
+  fix for the hand-listed-axis class.
+- **`derive_part_eval_state` is the right design and correctly single-sourced.**
+  One implementation (`packages/py-kit/src/py_kit/schemas/parts.py:53-71`),
+  consumed as a plain column property (`services/documents/src/documents/db.py:140-152`)
+  so the owner-scoped LIST stays one query, written only by the gateway
+  (`services/gateway/src/gateway/features.py:207-260`) from geometry's own
+  answer, monotonic in `tree_version` with a superseded-write no-op
+  (`services/documents/src/documents/parts.py:394-405`), and `updated_at`
+  deliberately pinned so LAST WORKED cannot be moved by someone merely LOOKING
+  at a part (`:415-417`). 13 tests in
+  `services/documents/tests/test_last_evaluation.py`, including the stale, the
+  already-moved, the superseded and the rename-carries-forward cases. The one
+  gap is J3.
+- **`conform_solid` verifies instead of claiming.** It re-checks
+  `BRepCheck_Analyzer` on the healed result, asserts exactly one solid, and
+  enforces the volume bound rather than trusting it
+  (`services/geometry/src/geometry/kernel/healing.py:88-125`), returning the
+  input by IDENTITY when already valid so every existing golden's bytes are
+  untouched. The docstring states measured deltas, not adjectives. (One
+  scale caveat: J10.)
+- **The thread table has a real cross-language drift gate.**
+  `apps/web/src/features/thread.test.ts:29-72` PARSES
+  `services/geometry/src/geometry/kernel/threads.py` and compares — with a
+  non-vacuity guard (`expect(Object.keys(kernel).length).toBeGreaterThan(20)`)
+  so a regex that silently matched nothing cannot make the equality true. This
+  is the pattern J5/J6 should be held to; it already exists in-repo.
+- **Golden discovery is derived, not listed.** `test_goldens.py:105`
+  `GOLDENS_DIR.glob("*/model.json")` plus a non-empty assertion (`:127`) and a
+  directory-vs-`model.json` cross-check (`:132`) — a new golden runs with no
+  edit, and a golden directory missing its manifest fails.
+- **Typing discipline holds.** Zero `as any` / `: any` / `@ts-ignore` /
+  `eslint-disable` in `apps/web/src` + `packages/design/src` (the single grep
+  hit is the word "any" in prose). 49 Python `type: ignore` / `pyright: ignore`
+  comments, all in the OCP-adjacent kernel layer where the upstream stubs are
+  genuinely missing, and `pyright` is clean at strict.
+- **Assembly `remaining_dof` is measured, not counted.**
+  `services/geometry/src/geometry/assembly/solver.py:507`
+  `remaining_dof = n - _numeric_rank(jac)` — a rank, so redundant mates cannot
+  inflate it. This is what the surfaces in J2 are NOT doing.
+- **Drawing dimension values are measured, and hedge when they are not.**
+  `compose.py:1121-1131` renders a typed `unmeasured` marker on
+  `measured.error`, and prefixes `~` when `measured.foreshortened`. Correct
+  posture for this class.
+- **Prior finding H2 is genuinely closed, and that is what entitles a claim I
+  went looking to break.** The composed title block stamps ONE sheet scale from
+  `layout.views[0].scale` (`services/geometry/src/geometry/drawings/compose.py:1575`)
+  — a first-element claim about the whole sheet, which is the shape of this
+  pass's hunt. It is legal only because documents refuses the mixed case at the
+  write boundary with typed 422s
+  (`services/documents/src/documents/drawings.py:236-286`:
+  `sheet_view_scale_mismatch` / `sheet_source_document_mismatch`). This is the
+  correct resolution pattern for the class: either the surface learns the fact,
+  or the invariant is enforced where the data is written.
+
+---
+
+### J1 — `just lint` is RED at committed HEAD, and has been for four consecutive commits. **P0 · CONFIRMED (reproduced, exit 2)** · process
+
+The commit that shipped the sketch discard confirm added a NEW test file that
+does not compile:
+
+```
+apps/web typecheck: src/components/SketchStrip.test.tsx(40,13): error TS2741:
+  Property 'saveError' is missing in type '{ onSave: Mock<Procedure>; saving: false; }'
+  but required in type 'SketchStripProps'
+  ... x10 (lines 40, 48, 61, 72, 84, 94, 106, 121, 136, 145)
+ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  @loft/web@0.0.0 typecheck: `tsc --noEmit`
+error: recipe `lint` failed on line 40 with exit code 2
+```
+
+Reproduced with the tree clean at `fe2e5cb` (only `ci.yml` + `CLAUDE.md`
+modified, neither of which `tsc` reads). Confirmed against the committed blob
+rather than the working copy:
+
+```
+$ git show fe2e5cb:apps/web/src/components/SketchStrip.test.tsx | grep -c saveError
+0
+$ git show fe2e5cb:apps/web/src/components/SketchStrip.test.tsx | grep -n "render(<SketchStrip"
+40:    render(<SketchStrip onSave={vi.fn()} saving={false} />);
+```
+
+`saveError: string | null` is a REQUIRED prop
+(`apps/web/src/components/SketchStrip.tsx:330`), added back in `fe2befa`; the
+new test file simply never passes it. Nothing in `fe2e5cb..5de225c` touches
+that file, so **`fe2e5cb`, `60ac962`, `cb0dcd0` and `5de225c` are each red on
+their own** — the exact rule CLAUDE.md states ("every commit must be green on
+its own"). At the time of writing an in-flight agent has an uncommitted fix
+(`git status` shows `M apps/web/src/components/SketchStrip.test.tsx`, now with
+10 `saveError` occurrences), so the defect is being closed — the finding is the
+*process*, not the line.
+
+Why it got through: `vitest` does not typecheck. `fe2e5cb`'s message says "9
+component tests, mutation-verified: restoring the old `onClick={exit}` fails 5"
+— that is `pnpm --filter @loft/web test`, which passes. This is the TypeScript
+twin of CLAUDE.md's own hard-won bullet *"`ruff check` + `pyright` is NOT the
+lint gate — `just lint` is"*, and of the `ViewCreate.auto_place` lesson (a
+required-field DTO change landing apart from its callers). The recipe list
+already documents the trap; the pattern recurred anyway.
+
+**Fix.** (1) The uncommitted fix lands. (2) Since exhortation has now failed
+twice on the same seam, make it mechanical: a pre-commit hook or a `just gate`
+recipe that runs `just lint` and refuses on non-zero, and — cheaper —
+`vitest --typecheck` on the web project so the tier that "proved" the tests
+cannot pass while the file does not compile. (3) Note for the groomer: three of
+the four red commits are *docs/CI* commits, so the ROADMAP/CLAUDE additions
+they carry were themselves pushed onto a red build.
+
+---
+
+### J2 — The part workspace shows "Up to date" and "Ready" for a part whose own Solve cell says "Failed". Three title-block cells, one screen, two of them entitled to nothing. **P1 · CONFIRMED by code (not observed in a browser this pass)** · the named defect class
+
+`apps/web/src/routes/PartPage.tsx:3264` (HEAD line number; `:3265` in the
+current dirty tree):
+
+```ts
+const bodyStatus: BodyStatus = regenFailed
+  ? "error"
+  : regenerating || (meshGlbId !== null && !bodyPresent && body.isFetching)
+    ? "regenerating"
+    : evaluation.isFetching
+      ? "evaluating"
+      : "up-to-date";
+```
+
+Trace each input back:
+
+- `regenFailed` (`:506`, set only at `:513`) is **exclusively** about a
+  `MeshNotFoundError` — the LRU evicted the GLB and the re-generate retry
+  already ran once. It says nothing about feature health.
+- `regenerating` (`:505`) — same mesh-refetch machinery.
+- `evaluation.isFetching` — a TanStack Query in-flight flag.
+
+So `"up-to-date"` is the fall-through of "no request is in flight", and
+`BodyInspector` renders it verbatim as **"Up to date"**
+(`apps/web/src/components/BodyInspector.tsx:25`, `data-testid="body-status"`).
+The variable knows about HTTP; the label claims currency of the model.
+
+That claim is wrong on a reachable path, because the strict-prefix rule
+(`services/geometry/src/geometry/features/evaluate.py:9-11`: *"the FIRST failure
+is marked `error`, every subsequent feature `skipped`, and the artifact fields
+reflect the last-good state"*) returns a `mesh_glb_id` for the last-good PREFIX
+body. So with a broken feature the page renders a partial solid and:
+
+| Cell | Component | Says | Derived from |
+|---|---|---|---|
+| Solve | `FeatureTreePanel.tsx:150-156` | **"Failed"** | `evaluation.features.some(f => f.status === "error")` — correct |
+| Status | `BodyInspector.tsx:25` via `PartPage.tsx:3264` | **"Up to date"** | request state — **unentitled** |
+| Export | `ExportRow.tsx:85` via `PartExportControls.tsx:29` | **"Ready"** | `hasBody ? undefined : "No body"` — **unentitled** |
+
+Two of the three are wrong at the same moment, and the third proves the correct
+value was already in scope one component away. Worse, the register next door now
+stamps that same part **"Broken"** from `eval_state`
+(`DocumentRegister.tsx:569-591`) — the product contradicts itself between two of
+its own surfaces, and the honest one is the list view.
+
+The `Ready` half also invites the concrete harm: a user reads "Ready", exports,
+and receives a STEP of a body that is missing every feature from the failure
+onward, with no marker on the file or the screen.
+
+**Coverage gap (this is why it survived).** `grep -rn "body-status" apps/web`
+returns four assertions, all `toHaveText("Up to date")` on the happy path
+(`e2e/hole.spec.ts:635,724`, `e2e/feature-selection.spec.ts:217,230`). There is
+**no** test — unit or e2e — that asserts what the cell says when a feature
+errors. The same is true of the export status.
+
+**Fix.** `bodyStatus` gains a fourth input, the one the sibling panel already
+computes: `evaluation.data.features.some(f => f.status === "error")` → a
+`"failed"` state whose label names it ("Feature error" / "Partial body"), and
+`PartExportControls` takes a `disabledReason` of "Tree has a feature error" (or
+at minimum a marker) rather than "Ready". Then add the missing negative
+assertion in both tiers. Longer-term the honest source is the server's
+`eval_state`, which the part page does not read at all today
+(`grep -n eval_state apps/web/src/routes/PartPage.tsx` → no hits).
+
+---
+
+### J3 — With the rollback bar set, "Clean" / `eval_state: "ok"` is a verdict on a PREFIX being sold as a verdict on the part. **P1 · CONFIRMED by code** · the named defect class
+
+`documents.features.evaluation_prefix`
+(`services/documents/src/documents/features.py:289-313`) applies the rollback bar
+before the request leaves documents:
+
+```python
+if bar_index is None or feature.order_index <= bar_index
+```
+
+The gateway then records `status = "failed" if any(f.status == "error" for f in
+result.features) else "ok"`
+(`services/gateway/src/gateway/features.py:235-239`) — over the features it was
+sent, i.e. the prefix. Features BELOW the bar were never evaluated, so nothing
+is known about them; the record says `ok`, `derive_part_eval_state` returns
+`"ok"`, and `HealthCell` renders **"Clean"** with the title *"No feature errored
+when this part was last rebuilt"*
+(`apps/web/src/components/DocumentRegister.tsx:569-578`).
+
+Roll a 40-feature part back to feature 2, evaluate (the workspace evaluates on
+open), and the register says the part is clean on the strength of two features.
+The bar is fully reachable from the UI —
+`apps/web/src/components/FeatureTreePanel.tsx:158-183` renders a
+`rollback-slot-N` button per slot, `apps/web/src/api/parts.ts:941-960` PUTs it,
+`services/gateway/src/gateway/features.py:422-435` proxies it. Moving the bar
+bumps `tree_version` (`features.py:697`), so the record does not survive a bar
+move — but it is rewritten by the very next evaluate, at the new (still
+truncated) tree.
+
+The cell's doc comment is meticulous about the ONE thing it does hedge (*"That is
+not a claim that it has a body"* — `DocumentRegister.tsx:574`, doc comment `:531-535`), which is what
+makes the un-hedged half a finding rather than an oversight: the surface was
+audited for entitlement and this axis was not considered.
+
+**Coverage gap.** `git show HEAD:services/documents/tests/test_last_evaluation.py
+| grep -c rollback` → **0**. No test anywhere composes a rollback bar with the
+last-evaluation record.
+
+**Fix.** The record must carry the scope it describes. Cheapest honest option:
+add `rolled_back: bool` (or `evaluated_feature_count`) to
+`PartEvaluationRecord` + the part row, and give `derive_part_eval_state` a fifth
+verdict — or, simpler, make `eval_state` return `"stale"`-class
+indeterminacy when the recorded evaluation was truncated, so the register spends
+the dashed indeterminate stamp it already has for UNVERIFIED rather than the
+word "Clean". Either way the gateway is the right writer: it already holds
+`EvaluateTreeRequest.features` length and the tree length.
+
+---
+
+### J4 — The documented self-host compose publishes Postgres, Redis and MinIO on `0.0.0.0` with credentials committed in the repo; the compose gate checks the three services by hand-listed name and never looks at the datastores. **P1 · CONFIRMED (config read)** · security + the gate-cannot-fail class
+
+`docker-compose.yml` — the file `scripts/compose-smoke.sh:2` calls "the
+DOCUMENTED SELF-HOST PATH" and whose own header calls it the "dev /
+**small-self-host** stack":
+
+```yaml
+db:      ports: ["${DB_PORT:-5432}:5432"]           # POSTGRES_PASSWORD: ${...:-loft-dev-only}
+redis:   ports: ["${REDIS_PORT:-6379}:6379"]        # no password at all
+minio:   ports: ["${MINIO_PORT:-9000}:9000",
+                 "${MINIO_CONSOLE_PORT:-9001}:9001"] # MINIO_ROOT_PASSWORD: ${...:-loft-minio-dev-only}
+```
+
+(lines 36-37, 59-60, 75-77; credentials at `:30` and the `x-minio-credentials`
+anchor `:21-22`.) No `host_ip`, so every one binds the wildcard. The passwords
+are published in this repository. Consequence on any non-loopback host:
+`psql` from the internet gives read/write on **every tenant's** parts, feature
+trees, drawings and assemblies plus the gateway's `users` table (bypassing all
+of the authn/authz work that IS correct — see the two clean route sweeps above);
+the MinIO console gives the mesh/artifact bucket; Redis is the rate limiter's
+store.
+
+This is finding **G3 with the datastores substituted for the services.** G3's
+reasoning — "documents trusts a header with no signature, therefore its port
+must not be published" — applies more strongly to a Postgres whose password is
+in the README-adjacent compose file. G3 was fixed for `documents`/`geometry`
+(neither has a `ports:` block now) and gated:
+
+```
+scripts/check-compose.py:125  check(not ports(base["documents"]), "documents has NO host port")
+scripts/check-compose.py:126  check(not ports(base["geometry"]),  "geometry has NO host port")
+scripts/check-compose.py:127  check(bool(ports(base["gateway"])), "gateway is host-published")
+```
+
+Three services, addressed **by literal name**. `db`, `redis` and `minio` are
+never examined, and a service added to compose tomorrow is not either. That is
+the same shape as the matrix's old hand-listed predecessor axis: the gate reads
+as "compose port posture is guarded" and guards three names.
+
+The mitigation on the record is `docker-compose.yml:8` ("Defaults here are for
+LOCAL DEV ONLY — override them for any real deploy"). That sentence tells a
+self-hoster to change the *passwords*; nothing tells them to change the *bind*,
+and the bind is the part that turns a weak default into an exposure.
+
+**Fix.** (1) `127.0.0.1:${DB_PORT:-5432}:5432` (and the same for redis/minio) in
+the base file — the datastores have no host consumer in the base stack; the
+`docker-compose.dev.yml` precedent for loopback-binding debug ports already
+exists. (2) Invert `check-compose.py`'s port check from an allowlist of three
+names to a sweep over ALL rendered services: exactly one service (`gateway`) may
+publish a wildcard-bound port; every other published port must be
+`127.0.0.1`-bound. That version cannot silently stop covering. (3) While there:
+`redis` has no `requirepass` at all.
+
+---
+
+### J5 — `face.test.ts`'s "backend drift guard" compares a hand-copy in the test to a hand-copy in the source, both inside `apps/web`. It cannot fail for the drift it is named after. **P2 · CONFIRMED (both files read; no cross-language read anywhere)** · the gate-cannot-fail class
+
+`apps/web/src/features/face.ts:31-62` hand-mirrors the Python constant:
+
+```ts
+/** ... Mirrors the kernel's canonical `BODY_AFFECTING_FEATURE_TYPES`
+ *  (`py_kit.schemas.features`) exactly ... */
+export const BODY_AFFECTING_FEATURE_TYPES: ReadonlySet<string> = new Set([...17 strings]);
+```
+
+`apps/web/src/features/face.test.ts:33-51` declares a SECOND hand copy and
+asserts them equal:
+
+```ts
+const EXPECTED_BODY_AFFECTING = [ ...the same 17 strings... ] as const;
+// :155
+describe("BODY_AFFECTING_FEATURE_TYPES — backend drift guard", () => {
+  it("mirrors py_kit.schemas.features.BODY_AFFECTING_FEATURE_TYPES exactly", () => {
+    // Order-independent set equality: a member added on ONE side fails here.
+    expect([...BODY_AFFECTING_FEATURE_TYPES].sort()).toEqual([...EXPECTED_BODY_AFFECTING].sort());
+```
+
+The inline comment — *"a member added on ONE side fails here"* — is false for the
+sides that matter. Both operands live in `apps/web`. Ship a new body-affecting
+feature type in
+`packages/py-kit/src/py_kit/schemas/features.py:2782` and touch neither web file
+and the suite is green; the guard fires only if you edit `face.ts` and forget
+`face.test.ts`, which is not a drift class anyone has. It is named for the
+backend and reads the backend nowhere:
+`grep -n "readFileSync\|features.py" apps/web/src/features/face.test.ts` → no
+hits.
+
+The stakes are stated by the source file itself (`face.ts:43-47`): a missing
+entry makes `lastBodyFeatureId` skip the newest body feature and **mis-anchor
+the next face/edge pick to the pre-feature body** — `subshape_unresolved`, or a
+reference silently bound to the wrong feature. That is the FINDINGS #3 class.
+
+I verified the three copies are in sync **today**:
+
+```
+$ uv run python -c "...compare the three sets..."
+registry n= 19
+handlers == registry: True diff [] []
+geom _BODY_AFFECTING == pykit: True []
+```
+
+So there is no live drift — the finding is that nothing would tell us if there
+were. The follow-up note at `face.test.ts:28-31` already identifies the true fix
+("Exposing the set as a generated enum in `packages/contracts` would kill the
+drift class — filed as a follow-up") and dismisses the cheap one ("this can't be
+derived from the generated contract today"). But the cheap one exists and is
+already in this repo: `apps/web/src/features/thread.test.ts:29-72` PARSES
+`services/geometry/src/geometry/kernel/threads.py` from the test, with an
+explicit non-vacuity assertion. Same seven lines, applied to
+`features.py:2782`, converts this guard from decorative to real today, with the
+contract enum as the eventual cleanup.
+
+---
+
+### J6 — `_BODY_AFFECTING_TYPES` is a THIRD verbatim copy of the same set, in geometry, with no gate of any kind — and py-kit's copy is directly importable. **P2 · CONFIRMED** · DRY + gate-cannot-fail
+
+`services/geometry/src/geometry/features/evaluate.py:2707-2726` re-declares the
+17-member frozenset that `packages/py-kit/src/py_kit/schemas/features.py:2782`
+already exports — and `evaluate.py` **already imports from that module**
+(`from py_kit.schemas.features import ...`). Nothing asserts the two agree:
+`grep -rn "_BODY_AFFECTING_TYPES" services/geometry/tests` → no hits (the only
+test references are to the py-kit name, in per-feature `assert "x" in
+BODY_AFFECTING_FEATURE_TYPES` spot-checks in three sheet-metal files).
+
+Consequence of a one-sided edit: `state.prev_body_feature` (`:3004`) skips the
+new verb, so `_pattern_cut_tools` infers its combine mode from the WRONG
+predecessor — CM-1/CM-2's failure mode exactly, reintroduced without a red
+gate. The composition matrix would probably catch it via a `pattern`-after-X
+cell, but only if the new verb also reached the FIRST axis, which is a separate
+hand-maintained decision (see J13's `INHERENTLY_SUBTRACTIVE` note).
+
+**Fix.** Delete the geometry copy and import the py-kit one — a one-line change
+with an identical value, verified above. Then `apps/web`'s copy (J5) is the only
+duplicate left, and one drift gate covers it.
+
+Related, same file, weaker: `_MIRROR_REFLECTABLE_TYPES` (`:2310`) is a
+deliberately narrower hand-listed subset with an excellent multi-paragraph
+justification for every exclusion — the right posture — but no gate asserts
+that a NEW body-affecting type is triaged into it or explicitly out.
+`BODY_AFFECTING_FEATURE_TYPES - _MIRROR_REFLECTABLE_TYPES` is currently
+`{boolean, chamfer, draft, fillet, shell, sheet_metal_*}`, all argued in the
+docstring; a 20th type would default to "not reflectable" silently. The
+matrix's `CUT_ROW_EXEMPT` idiom (be a row, or be an exempt entry with a written
+reason, asserted by set equality) is the pattern to copy.
+
+---
+
+### J7 — No route-sweep authn gate: 71 gateway routes, per-route hand-written 401 tests. A new route shipped without `CurrentUser` fails nothing. **P2 · CONFIRMED (posture correct today, by my sweep — no repo gate)** · gate-cannot-fail
+
+I flattened both apps' routers (FastAPI 0.139 includes them lazily via
+`_IncludedRouter`, so `app.routes` alone reads as 2 routes — worth knowing) and
+walked each route's dependant tree:
+
+```
+gateway:   total APIRoutes=71 unauthed=4
+             POST /api/v1/auth/login       deps=['get_auth_config','get_session']
+             POST /api/v1/auth/register    deps=['get_auth_config','get_session']
+             GET  /healthz    GET /readyz
+documents: total APIRoutes=50 unauthed=2   (/healthz, /readyz)
+```
+
+The posture is exactly right, and the per-file discipline is real —
+`grep -rn "unauthenticated_401_and_nothing_forwarded" services/gateway/tests`
+finds the pattern in the assemblies, assembly-evaluate, assembly-export,
+assembly-import, assembly-interference and other proxy suites, each also
+asserting **nothing was forwarded upstream**. But every one of those is written
+per router by hand. `services/gateway/tests/test_main.py` has five tests and
+none of them sweep; `test_auth.py`'s 401 cases are all about `/auth/me`. So the
+protection against "route 72 forgot its dependency" is reviewer memory.
+
+**Fix.** One test, ~15 lines, in `test_main.py`: flatten the app's routes,
+require an auth dependency on each, and allowlist exactly the four paths above
+— with the allowlist as a literal set so adding to it is a visible, reviewed
+act. Same for documents (`get_principal`, allowlist the two health paths). This
+is the single highest coverage-per-line security gate available in the repo
+right now, and unlike the per-file tests it cannot stop covering.
+
+---
+
+### J8 — "Geometry gates" in the definition of done is a hand-listed 2-file allowlist: 228 of 2118 geometry tests. It has not grown while the geometry suite has. **P2 · CONFIRMED (counts measured)**
+
+`scripts/e2e.sh:83-85`, the whole of leg 1:
+
+```bash
+uv run pytest \
+  services/geometry/tests/test_goldens.py \
+  services/geometry/tests/test_step_roundtrip.py
+```
+
+Measured:
+
+```
+$ uv run pytest <those two files> --collect-only        → 228 tests collected
+$ uv run pytest services/geometry/tests --collect-only  → 2118/2119 collected (1 deselected)
+$ uv run pytest services/geometry/tests/test_composition_matrix.py --collect-only → 309 tests
+```
+
+CLAUDE.md's definition of done says "geometry gates green (when
+kernel-adjacent)", and `just e2e`'s own banner calls leg 1 "geometry gates
+(goldens + STEP round-trip)". A kernel agent who runs `just e2e` and reports
+"geometry gates green" has run **10.8%** of the geometry suite — and has NOT run
+the composition matrix, the thing the ROADMAP calls "the standing gate" for the
+class that produced all five of this week's silent-wrong-geometry findings.
+
+Not a coverage hole today: `just test` collects all 2118, so the matrix does run
+per-commit. The defect is the phrase and the allowlist. `services/geometry/tests`
+holds 71 test files; the leg-1 list holds 2 and nothing makes it grow, so its
+share of the suite shrinks with every kernel feature. Meanwhile it duplicates
+work `just test` already did in the same batch.
+
+**Fix.** Either (a) rename leg 1 to what it is ("golden + round-trip gate") and
+make the DoD phrase "geometry gates" point at `uv run pytest
+services/geometry/tests`, or (b) change leg 1 to the directory and drop the
+duplication with `just test`. (a) is cheaper and preserves the fast pre-e2e
+signal. Either way the DoD sentence and the recipe should name the same thing.
+
+---
+
+### J9 — `compose-smoke.sh` documents a step 6 it does not have. **P3 · CONFIRMED · doc-honesty (the invariant IS covered elsewhere)**
+
+`scripts/compose-smoke.sh:11-19`:
+
+```
+# What it proves, in order:
+#   1. ... 5. a genuine modeling round-trip ...
+#   6. documents/geometry are unreachable from the host (audit G3).
+```
+
+The script's own step banners run `1/5` … `5/5` (`:101`, `:105`, `:110`, `:122`,
+`:126`) and `grep -in "8001\|8002\|unreach" scripts/compose-smoke.sh` finds only
+comments. There is no probe. The G3 invariant is genuinely gated — by
+`scripts/check-compose.py:125-134`, in the cheap `compose` CI job — so this is
+an overstated header rather than an uncovered invariant, which is why it is P3
+and not higher. It still matters: a reader (human or agent) closing out a
+compose change trusts the enumerated list, and this is the same "asserting what
+it does not know" shape applied to a script's own docstring.
+
+**Fix.** Delete item 6 and point at `check-compose.py`, or add the four-line
+probe (`curl -sf -m2 http://127.0.0.1:8001/healthz && exit 1`). Given J4 wants
+`check-compose.py` widened anyway, deleting the claim and citing the real gate is
+the honest minimum.
+
+---
+
+### J10 — `CONFORM_VOLUME_TOL_MM3` is an ABSOLUTE 1e-9 mm³ bound justified on one 6171 mm³ body; GProp float noise scales with volume. **P3 · PLAUSIBLE, NOT MEASURED (no large non-conformal fixture exists to test with)**
+
+`services/geometry/src/geometry/kernel/healing.py:59-66` sets the heal's
+geometry-preservation bound to `1e-9` mm³ absolute, argued as "~370x the
+measured worst case" where the measured case is a 40x40x10 plate
+(6171 mm³, ΔV = -2.7e-12).
+
+Double-precision GProp volume noise is proportional to the volume: at
+V ≈ 6.2e3 the residual is ~1e-12 (consistent with what the docstring measured,
+~1e-16 relative). Extrapolating the same relative error, a 215 mm cube
+(V ≈ 1e7 mm³) lands at ~1e-9 — the bound itself — and a 500 mm part
+(V ≈ 1.25e8) exceeds it by ~10x. A healed-but-perfectly-correct large body
+would then raise `HealingError` and surface as `shell_failed`
+(`services/geometry/src/geometry/kernel/shell.py` is the only caller), i.e. an
+honest-looking typed error on a shell that in fact worked.
+
+**Confidence, stated plainly:** the extrapolation is arithmetic, not
+observation. I did not build a large non-conformal fixture, and I do not know
+that one is reachable — `conform_solid` only runs on a body
+`BRepCheck_Analyzer` already rejects (`:90-91`), which is rare, so likelihood is
+low. Rate this as a scale-robustness item, not a live bug.
+
+**Fix.** Make the bound relative with an absolute floor — e.g.
+`max(1e-9, 1e-12 * before)` — documented in the same style, and add one large
+(≥100 mm) shelled fixture to the healing suite so the claim is measured at
+another decade instead of extrapolated. That also satisfies CLAUDE.md's
+"documented per-model tolerances, never ad-hoc epsilons" more literally: today
+one model's residual is generalised to all models.
+
+---
+
+### J11 — The Tailwind dead-utility guard's two escape hatches are hand lists (honestly documented). **P3 · CONFIRMED**
+
+`507364f` is a model fix — it landed the guard as the deliverable, with a
+negative fixture proving the detector has teeth, and it measured before/after
+pixel sizes rather than asserting improvement. Two residuals of the same class
+it was created to kill:
+
+1. `apps/web/src/test/tailwindUtilities.ts:38-82` — `SPACING_FAMILIES` is a
+   hand-listed 44-entry array. Comprehensive today; a utility family it omits
+   (`border-*`, `basis-*`, `leading-*`, `outline-offset-*`, `stroke-*`,
+   `ring-*`, `scale-*`) is not harvested, so a missing step in one of those
+   scales is silently dead again.
+2. `apps/web/src/test/tailwindUtilities.test.ts:51-80` — named token utilities
+   ("can't be told apart from `data-testid=\"top-toolbar\"` by shape") are
+   covered by a **curated 18-item list**: `h-toolbar`, `h-band`, `w-inspector`,
+   `bottom-hud-lane`, `max-h-hud-card`, `z-hud`, … The list asserts those
+   resolve. It does not assert that every named utility USED in source
+   resolves — which is the direction the original bug came from
+   (`bottom-16` / `rounded-full` were used and emitted nothing).
+
+The source comments state both limits explicitly, which is why this is P3 and
+credited rather than filed as a miss.
+
+**Fix.** Derive the named-vocabulary expectation from the preset's own token
+keys (`layout`, `commandBandHeight`, `radius`, `zIndex`, …) so a token added to
+`tokens.ts` is automatically expected to emit; and harvest the used-but-named
+direction by whitelisting the known non-utility attribute values (`data-testid`
+strings are enumerable from the same walk) instead of whitelisting the
+utilities. Both turn a curated list into a derived one.
+
+---
+
+### J12 — License audit: clean, with two housekeeping notes. **P3**
+
+Nothing in this batch's dependency delta is copyleft. The only manifest change
+since the last audit is `5f60785` (`test(web): jsdom component-test tier`),
+adding four dev deps, all **MIT** (confirmed from the installed
+`package.json`s): `@testing-library/dom` 10.4.1, `@testing-library/jest-dom`
+6.9.1, `@testing-library/react` 16.3.2, `jsdom` 29.1.1. Full npm transitive
+closure: 0 GPL/AGPL/SSPL/CDDL/EPL/MPL.
+
+Two notes, both about the policy rather than a package:
+
+1. **`certifi` is MPL-2.0**, and `docs/RESEARCH.md:203` says "Allowed deps:
+   MIT/BSD/Apache, LGPL (dynamic), OCCT's LGPL-with-exception" — MPL is not on
+   the list. `certifi` is a universal transitive of `httpx`/`requests` and
+   MPL-2.0's file-level copyleft imposes no obligation on unmodified use, so the
+   correct fix is to **add MPL-2.0 to §8's allowed list** with that reasoning,
+   not to remove the package. Right now a strict reading of our own policy
+   fails our own tree.
+2. **There is no automated license gate.** `git show HEAD:.github/workflows/ci.yml
+   | grep -i licens` → nothing; the only workflows are `ci.yml` and
+   `deploy-path.yml`. A P0-severity rule (RESEARCH §8: no GPL/AGPL) is enforced
+   only by an auditor remembering to sweep. A ~10-line CI step
+   (`pnpm licenses list --json` + `importlib.metadata` over the uv env, failing
+   on a GPL/AGPL/SSPL match with an explicit allowlist for `planegcs`) makes it
+   structural. Note `ocpsvg` 0.6.0 publishes **no** license metadata field at all
+   while shipping an Apache-2.0 `LICENSE` file, so any such gate needs a
+   "no metadata" bucket that fails loudly rather than passing by default.
+
+---
+
+### J14 — `just test` went red for ~20 minutes on an UNTRACKED file, poisoning the whole geometry suite for every concurrent agent. Committed HEAD is unaffected. **P2 · CONFIRMED (captured the run, then reproduced the recovery)** · loop health
+
+My `just test` (started with the tree clean at `fe2e5cb`) finished red:
+
+```
+FAILED services/geometry/tests/test_goldens.py::test_rebuild_is_deterministic_across_interpreter_restart[sweep-circle-r8-h30]
+FAILED services/geometry/tests/test_imports.py::test_cpu_limit_kills_a_real_cpu_burn_regardless_of_wall_clock
+2 failed, 2942 passed, 1 skipped, 1 deselected in 1457.70s (0:24:17)
+```
+
+Both are ONE cause, and it is not in the repository:
+
+```
+NameError: name 'Vector' is not defined
+  File ".../geometry/kernel/degenerate.py", line 124, in _PlanarFace
+  File ".../geometry/kernel/shell.py", line 60, in <module>
+      from geometry.kernel.degenerate import find_zero_width_slits
+```
+
+```
+$ git ls-files --error-unmatch services/geometry/src/geometry/kernel/degenerate.py
+error: pathspec ... did not match any file(s) known to git
+$ git show HEAD:services/geometry/src/geometry/kernel/shell.py | grep -n "^from geometry.kernel.degenerate"
+(no output — HEAD's shell.py does not import it)
+```
+
+So an in-flight agent (the kernel shell-warning slice) had written a new
+untracked module and wired the tracked, SHARED `shell.py` to import it, and my
+run caught it in the window before the module's `from build123d import ... Vector`
+line existed. `degenerate.py:67` now has that import, and both tests pass on
+re-run:
+
+```
+$ uv run pytest <the two node ids>
+2 passed in 14.55s
+```
+
+Two things worth recording:
+
+1. **Honest accounting for this pass:** `just test` at committed HEAD is
+   **not independently verified** by me. The evidence is fully consistent with
+   green — 2942 passed, the 2 failures have a proven foreign cause that HEAD
+   cannot reach, and they pass on re-run — but I did not obtain a clean run of
+   the whole suite against a HEAD-only tree, and I am not going to round that up
+   to "green".
+2. **The territory protocol does not bound this blast radius.** File territories
+   keep agents from editing each other's files; they do not stop a NEW module in
+   `geometry/kernel/` from being imported by the shared `kernel/shell.py` and
+   `kernel/__init__.py`, at which point a half-written file takes down every
+   geometry test — including `test_rebuild_is_deterministic_across_interpreter_restart`,
+   which spawns a FRESH interpreter and so re-imports the broken module even
+   for goldens that have nothing to do with shells. For ~20 minutes any agent or
+   auditor running the suite got a red that looks like a kernel regression.
+
+**Fix / recipe worth appending to CLAUDE.md's environment section.** (a) The
+discriminator: **an `ImportError`/`NameError` naming a file that
+`git ls-files --error-unmatch` rejects is by construction NOT a HEAD regression
+— check the traceback's file against the index before bisecting anything.**
+(b) The prevention: an agent adding a new module to a shared package should
+write the module complete (imports first) before wiring the shared `__init__`/
+caller import, or keep the wiring in the same edit — the same "a required change
+and its callers belong together" rule CLAUDE.md already states for commits,
+applied to the working tree while siblings are running.
+
+---
+
+### J13 — Smaller items, filed for completeness
+
+- **`docs/ROADMAP.md:18-21` still asserts "Certified at each batch boundary" and
+  names `43d7eda` as the last full sweep with a later sweep "in flight".**
+  `43d7eda` is dated 2026-07-24 22:26 and there are **59 commits** since
+  (`git log --oneline 43d7eda..HEAD | wc -l`). The sweep described as in flight
+  landed or died five days ago and the sentence was never resolved. This is
+  finding H6 recurring in a milder form, and it is now demonstrably false in the
+  strong direction too: `just lint` is red at HEAD (J1), so the current batch
+  boundary was not certified. The `docs/.last-sweep` mechanism H6 recommended
+  was not adopted. *Fix:* resolve the sentence to what actually happened, and
+  adopt the machine-written sweep record so the claim cannot be typed by hand.
+- **`docker-compose.yml:12-13`**: "The web app joins this stack with the 'Web
+  shell + first light' backlog item …; until then the stack is datastores +
+  services." First light shipped long ago and there is still no `web` service in
+  either compose file (`db documents gateway geometry minio minio-init redis` /
+  `documents gateway geometry`). Meanwhile **CLAUDE.md's Commands section says
+  `just dev` = "compose up db/redis/minio + services + **web** (hot reload)"** —
+  it does not; `just dev` brings up no web. Two stale statements about the same
+  gap, one of them in the file every agent reads. P3, doc-syncer.
+- **`INHERENTLY_SUBTRACTIVE` (`test_composition_matrix.py:2222-2228`) is the
+  residual hand-list inside the otherwise-derived coverage audit.** The audit
+  derives material-removing types from an `operation` `Literal`, and falls back
+  to this 2-entry hand list for types with no discriminator (`hole`,
+  `sheet_metal_corner_relief`). A future always-subtractive verb with no
+  `operation` field (a `groove`, a `pocket`) is invisible to
+  `_material_removing_feature_types()`, so check #2 will not demand a FIRST-axis
+  row for it — check #3 still demands a catalogue verb, so it becomes a column
+  but not a row. Honest, documented, and much smaller than the hole it replaced;
+  worth a comment naming the residual so the next author knows the fallback is
+  where their new verb lands.
+- **`FIRST_AXIS` (`:1188-1202`) is described as "one representative of every
+  body-affecting family that can precede another"** but the coverage audit only
+  enforces the CUT families as rows. A new *modifier* family (a `thicken`, a
+  `wrap`) becomes a column with no row, so "does the new verb's OUTPUT get
+  reasoned about correctly by the 13 composers" stays unasked. Lower value than
+  the cut axis (which is where CM-1/CM-2/CM-5 lived) — file, don't rush.
+- **`eval_state` is not read anywhere in `apps/web/src/routes/PartPage.tsx`.**
+  The server now computes the honest verdict and the workspace — the surface
+  where the user is actually editing — derives its own from request state (J2).
+  When J2 is fixed, prefer plumbing `eval_state` over recomputing.
+- **MASS PROPERTIES still reports no mass** (`BodyInspector.tsx:63`,
+  `InspectorPanel.tsx:63`; `grep -rni density services packages apps/web/src`
+  finds only prose). Already queued on `docs/ROADMAP.md:10` ("plus
+  material/density so MASS PROPERTIES can report mass"), so this is a
+  confirmation that the item is still open, not a new finding.
+- **`InspectorPanel.tsx:140`** carries the same
+  `error ? "Error" : isFetching ? "Meshing…" : "Up to date"` shape as J2. It is
+  defensible in isolation — the component is only mounted on the `/first-light`
+  demo route (`apps/web/src/router.tsx:46-49`) where the subject is a
+  parametric box with no feature tree and therefore no staleness axis — but it
+  is the template J2's version was copied from, and the two should be fixed
+  together so the pattern does not seed a third.
+
+---
+
+### Prioritized recommendations for the groomer
+
+| # | Sev | Item | Why now |
+|---|-----|------|---------|
+| 1 | **P0** | **J1** — land the `SketchStrip.test.tsx` fix, then make the gate mechanical (`vitest --typecheck` and/or a `just gate` pre-push recipe) | HEAD is red on four consecutive commits and every one violates "green on its own". The exhortation in CLAUDE.md has now failed twice on the same seam; the third attempt should be a machine. |
+| 2 | **P1** | **J2** — give `bodyStatus` the feature-error input its sibling panel already computes, and stop calling a broken tree's export "Ready"; add the missing negative assertions | The product contradicts itself on one screen and the honest value is one component away. Reachable, and the export half hands the user a silently partial STEP. |
+| 3 | **P1** | **J4** — loopback-bind db/redis/minio in the base compose, and invert `check-compose.py`'s port check to a sweep over all services | G3's own reasoning, unapplied to the datastore whose password is committed. The gate that closed G3 addresses three service names by hand. |
+| 4 | **P1** | **J3** — make the last-evaluation record carry the scope it describes, so a rollback-truncated evaluate cannot read as "Clean" | The 4-state design exists precisely so a verdict never outlives what it covers; this is the one axis it does not cover. Cheap while the schema is fresh. |
+| 5 | **P2** | **J5 + J6** — one drift gate for `BODY_AFFECTING_FEATURE_TYPES` (copy `thread.test.ts`'s file-parse pattern) and delete geometry's third copy by importing py-kit's | Three copies, one guard, and the guard compares two copies that live in the same package. The in-repo pattern that does this correctly is seven lines. |
+| 6 | **P2** | **J7** — a route-sweep authn gate in `test_main.py` for both gateway and documents, with a literal 4-path / 2-path allowlist | Highest security coverage per line available. Posture is correct today (I swept it); nothing keeps it correct. |
+| 7 | **P2** | **J8** — make the DoD phrase "geometry gates" and `scripts/e2e.sh` leg 1 name the same thing | 228 of 2118 tests are being reported as "the geometry gates", and the share shrinks with every kernel feature. |
+| 8 | **P2** | **J14** — append the untracked-file discriminator to CLAUDE.md's environment recipes; ask slice agents to complete a new shared-package module before wiring its importer | Cost me a 24-minute suite run and would read as a kernel regression to anyone who did not check `git ls-files`. Cheap recipe, high recurrence. |
+| 9 | **P3** | **J9** (delete the phantom step 6), **J10** (relative heal tolerance + a large fixture), **J11** (derive the two Tailwind hand-lists), **J12** (add MPL-2.0 to RESEARCH §8; add a CI license step), **J13** (ROADMAP certification sentence, the two stale compose/`just dev` statements, the matrix's residual hand-lists) | Honesty + robustness polish; batch into one grooming slice. J13's ROADMAP item should go with recommendation 1, since J1 is the proof the sentence is wrong. |
+
+**Confidence ledger for this pass.** J1 reproduced (command output above, plus a
+`git show` against the committed blob). J4, J5, J6, J7, J8, J9, J12 confirmed by
+reading the artifact and, where a count is quoted, by running the command that
+produces it. J2, J3 confirmed by tracing code paths end to end — **not observed
+in a running browser this pass** (no stack was booted; the brief scoped me to
+audit, and four agents were mid-flight). J10 is arithmetic extrapolation from
+one measured data point and is labelled PLAUSIBLE, not confirmed. J11, J13 are
+readings of source that documents its own limits. J14 is captured run output plus a reproduced recovery. **`just test` at HEAD is NOT verified by this pass** — see J14 for exactly what I did and did not establish.
