@@ -7,6 +7,68 @@ not "do the tests pass" but **"is the geometry RIGHT?"** (RESEARCH §9,
 decisions recorded here AND in the golden's `expected.json` — never a way to
 go green.
 
+## 2026-07-30 — QA-2: a picked FACE survives its plane moving, and the numbers say where it landed (kernel-architect)
+
+**The defect.** QA-2 (docs/QA-REVIEW.md, P1): retyping a bracket's thickness 10 → 16
+— the commonest revision in CAD — took `Hole1` to `subshape_unresolved`, stranded
+the three features after it and left a featureless **38,400 mm³** brick with the
+export blocked. Cause (design `docs/design/topological-naming.md` §12): both face
+matching tiers PIN THE PLANE, and a depth edit changes nothing about the face except
+translating that plane.
+
+**Measured, on QA's own bracket** (60x40 plate → Ø6 hole at (15,20) on the top face →
+linear pattern x3 @ 60 → mirror about XZ → R1 on all edges):
+
+| thickness | features | volume | analytic |
+|---|---|---|---|
+| 10 (before the edit) | 6 ok | **142,020.953199 mm³** | — (QA measured 142,020.953 in the browser: same part) |
+| 16, BEFORE the fix | hole `subshape_unresolved`, 3 skipped | 38,400 | — |
+| 16, AFTER | **6 ok** | **227,397.926735 mm³** | — |
+| 16, AFTER, at the MIRROR stage (no fillet, so closed-form) | 5 ok | 227,685.6639472984 | 180·80·16 − 6·π·9·16 = 227,685.66394729842 → **dev 2.9e-11 mm³** |
+
+The fillet stage is the only one without a closed form, which is why the analytic
+check is taken one feature earlier; QA's "expected ≈227,000" is met.
+
+**Golden `revise-thickness-hole-on-moved-face-60x40x16`** — the first REVISION
+golden: its `model.json` is a tree in the state a document is actually left in after
+the edit (extrude 16, hole's stored face signature and position still at z=10), so
+it fails on the pre-fix kernel and nowhere else. Hand-derived, tolerance 1e-9:
+
+| quantity | analytic | measured deviation |
+|---|---|---|
+| volume | 38400 − 144π = **37,947.61065788307 mm³** | 7.3e-12 |
+| surface area | 8000 + 78π = **8,245.044226980004 mm²** | 1.8e-12 |
+| centroid x (bore OFF-CENTRE at x=15) | (38400·30 − 144π·15)/(38400 − 144π) = **30.178821275282164 mm** | 7.1e-15 |
+| topology | 7 faces / 15 edges / 1 shell | exact |
+
+The off-centre bore is the load-bearing part: it makes the CENTROID the assertion
+that the re-anchored plane put the drill back on the picked station — a hole
+re-anchored to the face centre would move it 5.7e-2 mm, seven orders of magnitude
+outside the tolerance.
+
+**Mesh counts cross-checked, not recorded.** The same tree with the face signature
+authored at the CURRENT plane (z=16 — a tier-1 strict match that never touches the
+new tier) produces **byte-identical GLB** (sha256 `568b5c19…`), identical topology
+and identical mass properties. So the translated re-anchor lands on exactly the body
+an exact pick would have made.
+
+**What the fix must NOT do, gated by name** (`tests/test_faces.py`): a thickened
+plate's hole never re-anchors onto the BOTTOM face (identical area, identical
+in-plane centroid — the same-sense normal is the only thing separating them, and it
+is a full flip); a parallel face of a different area or at a different in-plane
+station is refused; two stacked congruent faces are `subshape_ambiguous`, never a
+"nearest plane" guess; and a face that both moved AND changed shape stays an honest
+`subshape_unresolved`.
+
+**A finding worth recording about the SUITE, not the code.** Four shipped tests
+across `test_hole` / `test_shell` / `test_evaluate_tree` encoded "this face is gone"
+as *the same face at a different z* (the +Z plane moved to z=99, same area, same
+station). That is precisely the reference QA-2 says must resolve, so all four went
+green-to-red and had to be re-fixtured to differ in the FACE (a 900 mm² face the
+body does not have) rather than in its offset. The codebase's canonical example of
+an unresolvable reference was the case the user's commonest edit produces — which is
+a fair explanation of how the defect survived this long.
+
 ## 2026-07-30 — QA-4: the print never loses a dimension in silence (kernel-architect)
 
 **The defect and its correction, both measured.** QA-4 (docs/QA-REVIEW.md, P1)

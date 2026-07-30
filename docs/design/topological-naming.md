@@ -1036,3 +1036,101 @@ dimension now does. It ships in `geometry.drawings` because the kernel module wa
 by another agent in this batch; promoting it (and deleting the drawings-side wrapper)
 is a follow-up on the backlog, not a second naming scheme — the predicate, tolerances
 and error taxonomy are already the kernel's.
+
+---
+
+## 12. Scoping delta — a picked FACE survives the plane MOVING (2026-07-30)
+
+**Problem (QA wave 2026-07-30, QA-2 — P1).** The commonest revision in CAD
+destroys every feature on the face it moves. A bracket (sketch → extrude → Ø6
+hole on the top face → linear pattern → mirror → R1 fillet) solving at
+142,020.953 mm³ was revised the way every revision arrives — retype Extrude1's
+distance, 10 → 16. `Hole1` came back `subshape_unresolved` ("No planar face of
+the current body matches the stored face signature"), the three features after it
+stranded, and the body collapsed to a featureless 38,400 mm³ brick with the export
+blocked.
+
+**Why the existing two tiers could not see it.** §9's face matcher is strict
+(normal + centroid + area), and FINDINGS #3 added a resilient tier on the
+strongest planar invariant ALONE — same-sense normal + coincident supporting plane
+(`centroid · normal`). Both PIN THE PLANE. A depth edit does not change anything
+*about* the face — same area 2400 mm², same +Z normal, same (x, y) outline — it
+**translates the plane itself**, z 10 → 16, and that is precisely the one quantity
+both tiers require to be unchanged. So the tier that was built to survive in-plane
+boundary changes had exactly the blind spot §11 had just removed from edges: it
+survives a change *within* the plane and not a move *of* the plane.
+
+**Decision: a third tier, freeing the offset along the normal and nothing else.**
+`geometry.kernel.faces.translated_signatures_match`, reached only when tiers 1 and
+2 both find NOTHING:
+
+| quantity | tier 1 (strict) | tier 2 (coplanar) | tier 3 (translated) |
+|---|---|---|---|
+| same-sense normal | required | required | **required** |
+| supporting-plane offset `centroid · n` | required | required | **FREE** |
+| area | required | free | **required** |
+| centroid position IN the plane | required | free | **required** |
+
+Read across: each tier frees exactly the quantities the edit it models actually
+changes, and holds every other one. Tier 2 models "the boundary of this face
+changed" (a sibling hole resized) — area and in-plane centroid move, the plane
+does not. Tier 3 models "this face moved along its own normal" (a thickness,
+depth, or offset edit) — the plane moves, the face's own shape and its in-plane
+station do not. An edit that does BOTH matches neither tier and stays an honest
+`subshape_unresolved`; that is the conservative choice on purpose, because
+inventing a match across two simultaneous changes is where a matcher starts
+guessing.
+
+**What tier 3 must NOT match — the part that makes it safe.** A looser matcher
+that re-anchors a hole onto the WRONG face is silent wrong geometry, strictly
+worse than the visible failure it replaces. Three separate guards keep it tight,
+and the *first* is the load-bearing one:
+
+1. **The opposite face is excluded by the NORMAL SENSE.** A plate's bottom face
+   has the identical area and the identical in-plane centroid as its top face —
+   the two differ ONLY in the offset tier 3 just freed, and in the sense of the
+   normal. `PlanarFaceSignature` stores an ORIENTED outward normal, so +Z never
+   matches −Z (the `1 − cos θ ≤ 1e-9` bound is a full-flip apart from a match).
+   Drill the top of a plate, thicken it, and the tool cannot land on the bottom.
+2. **A parallel face of a different size, or at a different in-plane station, is
+   excluded by area and by the in-plane centroid** — a step, a boss top, a pocket
+   floor, the flange of an L-bracket.
+3. **Two stacked faces that agree on all of the above are an honest
+   `subshape_ambiguous`**, never a nearest-plane guess. "Prefer the closest one
+   along the normal" was considered and rejected: it is right for a small edit and
+   silently wrong for a large one (thicken 10 → 30 and the *original* offset is
+   nearer the untouched far face), and a rule that depends on the size of the edit
+   is not an invariant.
+
+**The origin rule already existed and is reused verbatim.** A tier-3 match means
+the face is somewhere else in space, so the stored centroid — the point the
+reference was authored against — now sits at the plane's OLD offset, inside the
+solid. `_anchored_plane`, written for tier 2, already does the right thing: keep the
+matched face's orientation, and sit at the STORED centroid PROJECTED onto the
+matched supporting plane. Under a translation that is the same in-plane station
+(which tier 3 pinned) at the face's new place. Everything seated on the face then
+follows the move for free, because each consumer projects its own point onto that
+plane: a hole authored at (15, 20, 10) on a plate thickened to 16 drills at
+(15, 20, 16) (`hole._drill_axis`), and a sketch on the face travels with it. That is
+what a modeller expects from having picked a FACE rather than a datum at a fixed
+offset — and it is asserted, not assumed: the golden's off-centre bore fixes the
+part centroid at x = 30.178821275282164, which no other drill point reproduces.
+
+**The offset is freed WITHOUT a bound, deliberately.** A 10 mm plate retyped to
+160 mm re-anchors exactly as one retyped to 16 mm. Bounding the travel would need an
+epsilon with no geometric meaning (CLAUDE.md forbids ad-hoc ones) and would make
+resolution depend on the SIZE of the user's edit rather than on an invariant. The
+consequence is stated where it bites: a stored signature whose area and in-plane
+station match a face at a *wildly* different offset now resolves to it. That is the
+same best-effort §7.3 posture stage 1 has always had, one degree of freedom wider.
+
+**Blast radius.** The tier lives in the shared `_match_face_records`, so every
+picked-face consumer inherits it at once: hole placement, `on_face` datums (and so
+sketches), shell's removed faces, and the sheet-metal base-face split. That is
+deliberate — they resolve one kind of reference and should not disagree about what
+it means — and it is the same posture §11 took for edges.
+
+**Measured (docs/GEOMETRY-QA.md 2026-07-30).** The QA-2 bracket rebuilds at 16 mm
+instead of stranding; golden `revise-thickness-hole-on-face-40x25x16` locks the
+analytic volume of the revised plate against a hand-derived closed form, and
+`test_faces.py` gates the three refusals above by name.

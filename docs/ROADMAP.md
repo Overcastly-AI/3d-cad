@@ -264,6 +264,32 @@ suppress** ✅, **Revolve construction-centerline** ✅ — all with in-app
 authoring. **Next in the Ready queue: Drawings assembly views + BOM/balloons**
 (the drawings pillar's assembly gap), then the small tonight-follow-ups.
 
+**QA-2 — a picked FACE survives its PLANE MOVING (FIXED 2026-07-30,
+kernel-architect; QA wave `748a6ad`).** The commonest revision in CAD destroyed every
+feature on the face it moved: retyping a bracket's thickness 10 → 16 took `Hole1` to
+`subshape_unresolved`, stranded the pattern/mirror/fillet after it and left a
+featureless 38,400 mm³ brick with the export blocked. The face matcher had two tiers
+and BOTH pin the plane — the strict signature and FINDINGS #3's coplanar re-match —
+while a depth edit changes nothing *about* the face (same area, same +Z normal, same
+outline) and everything about where its plane is. So the tier built to survive
+changes *within* the plane had exactly the blind spot `7fde5d2` had just removed from
+edges. A third tier (`translated_signatures_match`, design
+`docs/design/topological-naming.md` §12) frees the offset along the normal and pins
+everything else — same-sense normal, same area, same in-plane centroid — so the
+bracket now rebuilds **6/6 ok at 227,397.93 mm³** (analytic at the mirror stage:
+227,685.66394729842, deviation 2.9e-11). Freeing the offset is only safe because the
+oriented normal then carries the identity: a plate's bottom face has the identical
+area and in-plane centroid, so the same-sense test is what stops a hole drilled in
+the top from re-anchoring underneath — gated by name, along with the refusals for a
+different area, a different in-plane station, two stacked congruent faces
+(`subshape_ambiguous`, never a nearest-plane guess) and a face that moved AND
+changed shape. First REVISION golden: `revise-thickness-hole-on-moved-face-60x40x16`
+holds the tree in the state the edit actually leaves it in (extrude 16, face
+signature still z=10) and locks 37,947.61065788307 mm³ / 8,245.044226980004 mm² /
+centroid x 30.178821275282164 (deviations ≤7.3e-12), with mesh counts cross-checked
+byte-identical against an exact-pick build of the same part. Evidence:
+`docs/GEOMETRY-QA.md` 2026-07-30.
+
 **QA-4 — a print never loses a dimension in SILENCE (FIXED 2026-07-30,
 kernel-architect; QA wave `748a6ad`).** The composer had a skip branch: a dimension
 that measured fine but could not be PLACED on its view (its edge not drawn there, or

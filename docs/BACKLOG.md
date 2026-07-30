@@ -63,6 +63,20 @@ even-odd scanline clip) across SVG/PDF/DXF, `views.section_params jsonb` (0008);
 wrong-half + multi-loop + byte-determinism goldens; oblique + the `project_view`
 frame refactor are v2/§11. Spike de-collected.
 
+- [x] (P1, M) **QA-2 — a thickness revision destroyed every hole on the face.
+      FIXED 2026-07-30** (kernel-architect; QA wave `748a6ad`). Retyping a bracket's
+      thickness 10 → 16 orphaned `Hole1` (`subshape_unresolved`), stranded the three
+      features after it and left a featureless 38,400 mm³ brick with the export
+      blocked. Both face-matching tiers pin the PLANE; a depth edit translates it and
+      changes nothing else. Third tier (`translated_signatures_match`,
+      topological-naming.md §12) frees the offset along the normal and pins the
+      normal SENSE, the area and the in-plane centroid — the sense being what stops a
+      top-face hole re-anchoring onto the congruent bottom face. Bracket rebuilds
+      6/6 ok at 227,397.93 mm³ (mirror-stage analytic dev 2.9e-11); first REVISION
+      golden `revise-thickness-hole-on-moved-face-60x40x16`. Four shipped tests had
+      encoded "the face is gone" as "the same face at a different z" — the very case
+      this fixes — and were re-fixtured.
+      [src: docs/QA-REVIEW.md 2026-07-30 QA-2 · GEOMETRY-QA 2026-07-30]
 - [x] (P1, S) **QA-4 — a lost dimension leaves no trace on the print. FIXED
       2026-07-30** (kernel-architect; QA wave `748a6ad`). The composer SKIPPED any
       dimension it could not place (edge not drawn in that view, or drawn as a

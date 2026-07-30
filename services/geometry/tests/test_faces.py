@@ -15,7 +15,7 @@ planar-exact in OCCT, so deviation from analytic is round-off only.
 from typing import Any
 
 import pytest
-from build123d import Solid
+from build123d import Compound, Solid
 from geometry.kernel import (
     SubshapeAmbiguousError,
     SubshapeUnresolvedError,
@@ -29,6 +29,7 @@ from geometry.kernel.faces import (
     face_signature_dto,
     planar_face_signature,
     planar_signatures_match,
+    translated_signatures_match,
 )
 from geometry.kernel.hole import bore_hole
 from geometry.kernel.types import BodyShape
@@ -126,11 +127,17 @@ def test_resolve_is_deterministic_across_rebuilds() -> None:
 
 def test_unmatched_signature_is_subshape_unresolved() -> None:
     """A signature no planar face matches (wrong area) is an honest error, not a
-    wrong plane — the face 'no longer exists after the rebuild' path (§5)."""
+    wrong plane — the face 'no longer exists after the rebuild' path (§5).
+
+    NB the fixture states a wrong AREA, not merely a wrong offset: since tier 3
+    (QA-2) a +Z face of the right area at the right in-plane station resolves at
+    WHATEVER z it now sits at, deliberately and unboundedly (see
+    ``test_a_translated_match_is_not_bounded_by_how_far_the_plane_moved``). Area
+    900 mm^2 exists on no face of this box at any offset."""
     stale = PlanarFaceSignature(
         normal=Vec3(x=0.0, y=0.0, z=1.0),
-        centroid=Vec3(x=0.0, y=0.0, z=99.0),  # no face at z=99
-        area_mm2=1600.0,
+        centroid=Vec3(x=0.0, y=0.0, z=99.0),  # no face at z=99 ...
+        area_mm2=900.0,  # ... and no 900 mm^2 face anywhere on the box
     )
     with pytest.raises(SubshapeUnresolvedError):
         resolve_face_plane(_box(), stale, 0.0)
@@ -227,6 +234,137 @@ def test_resilient_rematch_still_fails_honestly_when_the_plane_is_gone() -> None
     )
     with pytest.raises(SubshapeUnresolvedError):
         resolve_face_plane(_box(), gone, 0.0)
+
+
+# --- tier 3: the face's PLANE MOVED (QA-2, topological-naming.md §12) ------------
+
+
+def _plate(thickness: float) -> Solid:
+    """A 60x40 plate of *thickness*, corner at the origin — the QA-2 bracket base."""
+    return Solid.make_box(60.0, 40.0, thickness)
+
+
+def _plate_top_signature(thickness: float) -> PlanarFaceSignature:
+    """The analytic +Z top-face signature of :func:`_plate` (area 2400)."""
+    return PlanarFaceSignature(
+        normal=Vec3(x=0.0, y=0.0, z=1.0),
+        centroid=Vec3(x=30.0, y=20.0, z=thickness),
+        area_mm2=2400.0,
+    )
+
+
+def test_a_face_reference_survives_the_plane_being_TRANSLATED() -> None:
+    """THE QA-2 gate at the resolver. Retyping a plate's thickness 10 -> 16 moves
+    the top face 6 mm along its own normal without changing anything ABOUT it —
+    same area, same +Z normal, same (x,y) outline. Both earlier tiers pin the
+    plane, so the reference was orphaned (`subshape_unresolved`) and every feature
+    on that face stranded. Tier 3 resolves it, at the face's NEW plane."""
+    stored = _plate_top_signature(10.0)
+    thicker = planar_faces(_plate(16.0))
+    current = next(r.signature for r in thicker if r.signature.normal.z > 0.5)
+
+    # Neither shipped tier can see it: both require the supporting plane to hold.
+    assert not planar_signatures_match(current, stored)
+    assert not coplanar_signatures_match(current, stored)
+    # The translated tier does, and the resolved plane sits at z=16.
+    assert translated_signatures_match(current, stored)
+    plane = resolve_face_plane(_plate(16.0), stored, 0.0)
+    assert tuple(plane.z_dir) == pytest.approx((0.0, 0.0, 1.0), abs=TOL)
+    assert tuple(plane.origin)[2] == pytest.approx(16.0, abs=TOL)
+
+
+def test_a_translated_face_resolves_ON_the_face_not_at_the_stale_plane() -> None:
+    """Where it resolves to, not just that it resolves (the audit-regression-A
+    lesson applied to tier 3). The stored centroid sits at the OLD z, which after the
+    edit is a point inside the solid; the resolver projects it onto the matched
+    supporting plane, so the returned origin is the same in-plane station at the
+    face's NEW place. A drill started at the stale plane would cut a blind pocket
+    from mid-material instead of a through hole."""
+    stored = _plate_top_signature(10.0)
+    plane = resolve_face_plane(_plate(16.0), stored, 0.0)
+    assert tuple(plane.origin) == pytest.approx((30.0, 20.0, 16.0), abs=TOL)
+    # ... and an offset datum on that face offsets from the NEW plane, not the old.
+    offset = resolve_face_plane(_plate(16.0), stored, 5.0)
+    assert tuple(offset.origin) == pytest.approx((30.0, 20.0, 21.0), abs=TOL)
+
+
+def test_a_translated_match_is_not_bounded_by_how_far_the_plane_moved() -> None:
+    """Stated because it is a real consequence, not an oversight: tier 3 frees the
+    offset ENTIRELY. A 10 mm plate retyped to 160 mm re-anchors exactly as one
+    retyped to 16 mm. Bounding the move would need an epsilon with no geometric
+    meaning (CLAUDE.md forbids ad-hoc ones) and would make resolution depend on the
+    SIZE of the user's edit, which is not an invariant. The identity is carried by
+    the normal sense, the area and the in-plane station instead."""
+    stored = _plate_top_signature(10.0)
+    plane = resolve_face_plane(_plate(160.0), stored, 0.0)
+    assert tuple(plane.origin) == pytest.approx((30.0, 20.0, 160.0), abs=TOL)
+
+
+def test_a_translated_face_reference_NEVER_lands_on_the_OPPOSITE_face() -> None:
+    """The guard that makes freeing the offset safe. A plate's bottom face has the
+    IDENTICAL area and the IDENTICAL in-plane centroid as its top face — the two
+    differ only in the quantity tier 3 just freed and in the SENSE of the normal. So
+    a hole drilled in the top of a plate must not re-anchor onto the bottom when the
+    plate is thickened, which would drill from the wrong side."""
+    top = _plate_top_signature(10.0)
+    bottom = next(
+        r.signature for r in planar_faces(_plate(16.0)) if r.signature.normal.z < -0.5
+    )
+    assert bottom.area_mm2 == pytest.approx(top.area_mm2, abs=TOL)
+    assert (bottom.centroid.x, bottom.centroid.y) == pytest.approx(
+        (top.centroid.x, top.centroid.y), abs=TOL
+    )
+    assert not translated_signatures_match(bottom, top)
+    # And the resolved plane is the top one, outward +Z — never the -Z twin.
+    plane = resolve_face_plane(_plate(16.0), top, 0.0)
+    assert tuple(plane.z_dir) == pytest.approx((0.0, 0.0, 1.0), abs=TOL)
+
+
+def test_a_translated_match_still_requires_the_SAME_FACE_shape_and_station() -> None:
+    """The other two guards, so tier 3 cannot drift onto a different parallel face.
+    A parallel face of a different AREA (a step, a boss top, a pocket floor) and one
+    of the same area at a different in-plane STATION are both refused — the offset
+    is free, nothing else is."""
+    stored = _plate_top_signature(10.0)
+    bigger = PlanarFaceSignature(
+        normal=Vec3(x=0.0, y=0.0, z=1.0),
+        centroid=Vec3(x=30.0, y=20.0, z=16.0),
+        area_mm2=2400.0 * 1.01,
+    )
+    moved = PlanarFaceSignature(
+        normal=Vec3(x=0.0, y=0.0, z=1.0),
+        centroid=Vec3(x=45.0, y=20.0, z=16.0),  # same face, shifted 15 mm in-plane
+        area_mm2=2400.0,
+    )
+    assert not translated_signatures_match(bigger, stored)
+    assert not translated_signatures_match(moved, stored)
+
+
+def test_two_stacked_congruent_faces_are_ambiguous_not_a_nearest_guess() -> None:
+    """Refuse to guess (§7.2) rather than prefer the nearest plane. Two same-facing
+    faces of equal area at the same in-plane station (here a plate with a second
+    plate stacked on it, both 60x40) are equally valid translated re-anchors; the
+    resolver must error instead of picking one, because "nearest along the normal"
+    is right for a small edit and silently wrong for a large one."""
+    lower = _plate(10.0)
+    upper = _plate(6.0).translate((0.0, 0.0, 20.0))
+    # A two-solid compound (the multi-body §MB-0 shape), so the body genuinely
+    # carries two +Z faces of equal area at the same station — z=10 and z=26.
+    stacked = Compound([lower, upper])
+    stored = _plate_top_signature(4.0)  # neither plane — forces tier 3
+    with pytest.raises(SubshapeAmbiguousError):
+        resolve_face_plane(stacked, stored, 0.0)
+
+
+def test_a_face_that_moved_AND_changed_shape_stays_an_honest_error() -> None:
+    """The documented conservative limit: each tier frees exactly what its edit
+    changes. An edit that BOTH translates the plane AND alters the face (thicken the
+    plate and enlarge it in x) matches no tier, and inventing a match across two
+    simultaneous changes is where a matcher starts guessing. Honest error."""
+    stored = _plate_top_signature(10.0)
+    grown = Solid.make_box(80.0, 40.0, 16.0)
+    with pytest.raises(SubshapeUnresolvedError):
+        resolve_face_plane(grown, stored, 0.0)
 
 
 def test_two_matching_faces_is_subshape_ambiguous(monkeypatch: Any) -> None:

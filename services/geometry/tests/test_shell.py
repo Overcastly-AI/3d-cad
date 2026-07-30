@@ -279,11 +279,7 @@ def test_picked_face_that_no_longer_exists_is_subshape_unresolved() -> None:
                 shell_input(
                     SHELL_ID,
                     2.0,
-                    [
-                        _face_ref(
-                            EXTRUDE_ID, (0.0, 0.0, 1.0), (20.0, 12.5, 99.0), 1000.0
-                        )
-                    ],
+                    [_face_ref(EXTRUDE_ID, (0.0, 0.0, 1.0), (20.0, 12.5, 99.0), 900.0)],
                 ),
             ]
         )
@@ -431,11 +427,14 @@ def test_resolve_faces_empty_targets_is_empty() -> None:
 
 def test_resolve_faces_unresolved_raises() -> None:
     """A signature matching no current face is an honest SubshapeUnresolvedError,
-    never a silent wrong-face retarget."""
+    never a silent wrong-face retarget. The signature names a face of an area this
+    body does not have — since tier 3 (QA-2) a stale OFFSET alone is a resolvable
+    reference (a thickness edit moves the plane and nothing else), so an
+    unresolvable one must differ in the face itself."""
     stale = PlanarFaceSignature(
         normal=Vec3(x=0.0, y=0.0, z=1.0),
         centroid=Vec3(x=20.0, y=12.5, z=99.0),
-        area_mm2=1000.0,
+        area_mm2=900.0,
     )
     with pytest.raises(SubshapeUnresolvedError):
         resolve_faces(_box(), [stale])

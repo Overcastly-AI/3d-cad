@@ -1,0 +1,26 @@
+{
+  "description": "THE REVISION GOLDEN (QA-2, docs/QA-REVIEW.md 2026-07-30). A 60x40 plate extruded 16 mm with a Ø6 through-hole drilled at (15, 20) on its top (+Z) face — and the hole's stored face signature/position still say z=10, exactly the state a document is left in when a user retypes Extrude1's distance from 10 to 16. Every other golden builds once and never revises, so none of them could see the defect this locks: the picked-face reference did not survive its plane MOVING, so the hole (and everything downstream) was orphaned by the commonest edit in CAD and the part collapsed to a featureless brick. Resolution goes through the tier-3 translated re-match (geometry.kernel.faces.translated_signatures_match, topological-naming.md §12), whose anchoring rule must carry the picked point along the move: the hole is drilled at (15, 20, 16), NOT at the face centre and NOT at the stale z=10 plane inside the solid.",
+  "derivation": [
+    "Plate: 60 x 40 x 16 = 38400 mm^3.",
+    "Through-hole cylinder removed: pi * r^2 * h = pi * 3^2 * 16 = 144*pi = 452.3893421169302 mm^3.",
+    "Volume = 38400 - 144*pi = 37947.61065788307 mm^3 (measured deviation 3.6e-12).",
+    "Surface area: plate faces 2*(60*40 + 60*16 + 40*16) = 8000 mm^2; the top and bottom faces each lose a disc pi*r^2 = 9*pi, so -18*pi; the bore adds a lateral cylinder 2*pi*r*h = 2*pi*3*16 = 96*pi. Area = 8000 + 78*pi = 8245.044226980004 mm^2 (measured deviation 2e-12).",
+    "Centroid: the bore is OFF-CENTRE at x=15, which is the point — a hole re-anchored to the face's centre (or to any wrong place on the face) moves this number, so the centroid is the assertion that the tier-3 anchoring rule kept the picked station. Removing 144*pi at x=15 from a plate whose own centroid is x=30: x = (38400*30 - 144*pi*15) / (38400 - 144*pi) = 30.178821275282164 mm. y = 20 and z = 8 by symmetry (the hole is on the plate's y centreline and runs the full depth).",
+    "AABB unchanged by the bore: (0,0,0)-(60,40,16). A hole drilled from the STALE z=10 plane instead of the resolved face would still reach the bottom (through_all) but the max z would be unchanged too, so the bbox alone cannot catch a mis-anchored drill — the centroid can, and does.",
+    "Topology: 6 plate planar faces + 1 cylindrical bore face = 7 faces; 12 plate edges + 2 bore circle edges (top+bottom) + 1 cylindrical seam edge = 15 edges; 1 shell.",
+    "Mesh (linear_deflection 0.1): 530 vertices / 520 triangles. INDEPENDENTLY CROSS-CHECKED rather than recorded: the same tree with the hole's face signature authored at the CURRENT plane (centroid z=16, position z=16 — a tier-1 STRICT match that never exercises the re-anchor) produces byte-identical GLB (sha256 568b5c19...), identical topology and identical mass properties. So the translated re-anchor lands on exactly the body an exact pick would have made."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "The bore is a pure boolean cut of a right cylinder from a box, so GProp integrates the analytic quadric exactly; measured deviation from the closed forms above is 3.6e-12 mm^3 (volume), 2e-12 mm^2 (area) and 6e-15 mm (centroid) — machine precision. The 1e-9 ceiling matches the sibling hole-through-r5-40x25x10 golden and the kernel's 1e-7 m linear posture; it is 2-3 orders of magnitude above the observed residual and orders of magnitude below any mis-anchoring this golden exists to catch (drilling at the face centre instead of the picked point moves the centroid by 5.7e-2 mm, i.e. 7 orders of magnitude outside it).",
+  "properties": {
+    "volume": 37947.61065788307,
+    "surface_area": 8245.044226980004,
+    "centroid": { "x": 30.178821275282164, "y": 20.0, "z": 8.0 },
+    "bounding_box": {
+      "min": { "x": 0.0, "y": 0.0, "z": 0.0 },
+      "max": { "x": 60.0, "y": 40.0, "z": 16.0 }
+    }
+  },
+  "topology": { "faces": 7, "edges": 15, "shells": 1 },
+  "mesh": { "vertices": 530, "triangles": 520 }
+}

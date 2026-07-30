@@ -743,7 +743,14 @@ def test_hole_unresolved_face_is_subshape_unresolved() -> None:
     """A face signature whose supporting PLANE exists on no current face degrades
     exactly as the on_face datum does — subshape_unresolved. The +Z plane at z=99
     matches nothing, so neither the strict signature nor the resilient coplanar
-    re-match (FINDINGS #3) resolves it — an honest error, never a wrong face."""
+    re-match (FINDINGS #3) resolves it — an honest error, never a wrong face.
+
+    The fixture also states a DIFFERENT AREA (900 vs the top face's 1000), and it
+    has to: since tier 3 (QA-2, topological-naming.md §12) a same-area, same-station
+    +Z face resolves at whatever offset it now sits at — that is the whole point of
+    the tier, because a thickness edit moves the plane and nothing else. A face
+    reference is unresolvable when the FACE is gone, not merely when its z changed.
+    """
     result = _post(
         _request(
             [
@@ -751,7 +758,7 @@ def test_hole_unresolved_face_is_subshape_unresolved() -> None:
                 extrude_add(EXTRUDE_ID, SKETCH_ID, 10.0),
                 hole_input(
                     HOLE_ID,
-                    ((0.0, 0.0, 1.0), (20.0, 12.5, 99.0), 1000.0),
+                    ((0.0, 0.0, 1.0), (20.0, 12.5, 99.0), 900.0),
                     (20.0, 12.5, 10.0),
                     10.0,
                     THROUGH,

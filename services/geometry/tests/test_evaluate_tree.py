@@ -655,10 +655,17 @@ def test_on_face_datum_with_stale_signature_is_subshape_unresolved() -> None:
     """When the rebuilt body has no face on the stored signature's supporting
     PLANE (here the +Z plane shifted to z=99), the datum fails honestly —
     subshape_unresolved, never a silent wrong plane — and downstream features are
-    skipped (topo-naming §5). A merely-wrong AREA on the SAME plane is NOT a
-    failure: the resilient coplanar re-match (FINDINGS #3) resolves it, so the
-    stale signature here moves the plane, not just the area."""
-    stale_sig = {**_TOP_FACE_SIG, "centroid": {"x": 0.0, "y": 0.0, "z": 99.0}}
+    skipped (topo-naming §5). Two near-misses are deliberately NOT failures, so the
+    fixture has to miss on both at once: a merely-wrong AREA on the SAME plane
+    resolves through the resilient coplanar re-match (FINDINGS #3), and a merely-
+    moved PLANE with the same area and station resolves through the translated
+    re-match (QA-2, §12 — a thickness edit is exactly that). This signature moves
+    the plane AND names an area no face of the body has."""
+    stale_sig = {
+        **_TOP_FACE_SIG,
+        "centroid": {"x": 0.0, "y": 0.0, "z": 99.0},
+        "area_mm2": 137.0,
+    }
     result = _post(
         _request(
             [
