@@ -636,16 +636,21 @@ export function HoleEditor({
               </div>
             ) : null}
 
-            {/* Tapped — a thread callout over the bore. ORTHOGONAL to Type (a
-                counterbored tapped hole is one feature), so it is a toggle, not
-                a fourth segment. The thread adds no geometry: the kernel cuts
-                the tap drill and carries the designation for drawings/BOM, and
-                the description says so rather than leaving the modeler to
-                wonder why the viewport shows no helix. */}
+            {/* Tapped — a thread designation over the bore. ORTHOGONAL to Type
+                (a counterbored tapped hole is one feature), so it is a toggle,
+                not a fourth segment. The thread adds no geometry: the kernel
+                cuts the tap drill and records the designation on the feature.
+                The description says EXACTLY that and no more — it used to
+                promise "carries the callout to drawings", and no drawing note,
+                BOM column, PDF/DXF or STEP path reads the thread field at all
+                (the kernel reads it in one place, to validate the bore). A UI
+                that promises a downstream artifact it does not produce is the
+                dead-capability class (UI-REVIEW 2026-07-30 P1); the sheet note
+                is a separate geometry/drawings item. */}
             <Checkbox
               label="Tapped"
               data-testid="hole-tapped"
-              description="Drills the tap drill and carries the callout to drawings — no helix is modelled."
+              description="Drills the tap drill and records the designation on the feature — the tree shows it. No helix is modelled, and the drawing note is not built yet."
               checked={form.tapped}
               onChange={(tapped) =>
                 setForm((f) => applyTapped(f, tapped, unit))
