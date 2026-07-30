@@ -995,6 +995,30 @@ frame refactor are v2/§11. Spike de-collected.
       collision (showcase F3) — backend behavior is correct (OCCT refuses
       the collision), this is discoverability only. [src: product-auditor
       showcase-QA F3]
+- [ ] (P3, S) A typed `warnings` channel on `FeatureResult` + a distinct
+      `shell_pinched_wall` code — the honest follow-up to SH-1 (GEOMETRY-QA
+      2026-07-30). A thickness of exactly half an internal wall is refused today
+      under `shell_thickness_too_large` because the wire has no way to say
+      "built, but read this"; the kernel already computes the slit's area and
+      position, so the only missing piece is the schema. py-kit + generated
+      clients + tree-panel copy — NOT a kernel change. [src: kernel-architect,
+      SH-1]
+- [ ] (P3, S) Kernel: bucket `find_zero_width_slits` by support plane if a shell
+      of a many-FACE body ever becomes a real workflow. The pair test is O(N^2)
+      float arithmetic — measured ~1.2 us/pair (0.56 ms on the 11-face golden
+      tray, 6.3 ms on a 102-face comb), so a few hundred faces is still cheap
+      next to `MakeThickSolid`, but an imported STEP part with thousands would
+      not be. Bucketing must not quantise the comparison bounds (a missed
+      bucket = a missed slit). [src: kernel-architect, SH-1]
+- [ ] (P3, S) Sheet metal: floor `SheetMetalHemParamsV1.bend_radius_mm` at the
+      kernel linear tolerance (1e-4 mm). A closed hem's air gap is `2 x radius`
+      and the schema only requires `> 0`, so radius 1e-6 ships a body whose two
+      layers are 2e-6 mm apart — a zero-width slit by the kernel's own tolerance
+      (300 mm² measured), reported `ok`. Pinned live by
+      `test_observed_limit_a_sub_tolerance_closed_hem_ships_a_slit`; not
+      reachable by a sane author in mm units, and the fix belongs in the py-kit
+      schema (a validation 422), not a per-verb kernel probe. [src:
+      kernel-architect, SH-1 sibling audit]
 - [ ] (P3, M) Shell: partial-shell / add-a-flange-after-shell workflow —
       needs a design note first (what "a selected region" means for
       `MakeThickSolid`). Not urgent: showcase routed around it. [src:
@@ -1116,6 +1140,19 @@ Full narrative evidence lives in `docs/ROADMAP.md` (Phase 4/4b sections) and
 `CHANGELOG.md`; one line per item below per token economy.
 
 ### Recently shipped (2026-07-30)
+
+- **J6 — the body-affecting feature-type set was declared twice, unguarded.**
+  Gated rather than merged (the two constants answer different questions and
+  coincide non-tautologically); the gate also asserts every member is a
+  REGISTERED verb, which is what catches a rename. Mutation-verified.
+
+- **#42 — shelling a rib at EXACTLY 2x the wall left a zero-width slit and
+  reported `ok`** (SH-1). Now a typed `shell_thickness_too_large` naming both
+  fixes, via ONE shared `kernel/degenerate.find_zero_width_slits` predicate;
+  no heal removes a slit (ShapeFix / UnifySameDomain / self-fuse all measured).
+  Knife edge proved: 1.999 ok / **2.000 refused** / 2.001 ok; new hand-derived
+  golden `shell-pinch-boundary-...-t1.9`; all 60 tree goldens slit-free (new
+  cross-verb gate). Evidence: GEOMETRY-QA 2026-07-30.
 
 - **J8 — the DoD's "geometry gates" ran 11% of the geometry suite.**
   `scripts/e2e.sh` leg 1 was a hand-listed two-file allowlist that excluded the
