@@ -328,6 +328,12 @@ on completion with a watchdog fallback (`docs/AUTONOMOUS-LOOP.md` §1.4).
   filtered `git apply --cached` (or `git add -p`) for these two files, and if you
   find you have already swept foreign text, annotate the record rather than
   rewriting shared history that other agents have already rebased onto.
+  **Use `python3 scripts/stage-doc-hunks.py <file> "<marker>"`** — it stages only
+  hunks that ADD a line containing your marker and leaves the rest unstaged for
+  their author. It exists because this rule was broken TWICE in one day, the
+  second time by the person who wrote it: the correct path was fiddly and
+  `git add <file>` is four words, and under load the cheap path wins. A rule that
+  loses to convenience is not a control; make the correct path the easy one.
   Push with `git push -u origin <branch>`; on rejection `git pull --rebase`
   and retry. Commit only when your gates are green.
 - **Liveness (orchestrator duty).** On every wakeup, check in-flight agents'

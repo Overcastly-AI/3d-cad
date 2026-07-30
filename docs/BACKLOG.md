@@ -1260,6 +1260,15 @@ Full narrative evidence lives in `docs/ROADMAP.md` (Phase 4/4b sections) and
 
 ### Recently shipped (2026-07-30)
 
+> ATTRIBUTION NOTE (orchestrator): the `#57` materials entry below was filed by
+> kernel-architect but landed in commit `3248ad8` — an orchestrator commit about
+> the drawings projection guard — because I ran `git add docs/BACKLOG.md` while
+> its hunks were in the file. Second occurrence in one day of the same mistake,
+> after I had written the recipe against it. Annotated rather than rewritten:
+> agents have already rebased onto that commit. `scripts/stage-doc-hunks.py`
+> now exists so the correct path is the easy one.
+
+
 - **#31 — compose's projection-keyed anchors now REFUSE a repeated projection**
   instead of silently dropping a view from the print. The invariant that made it
   unreachable lives in another service's DB constraint; geometry now states and
