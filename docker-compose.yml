@@ -34,7 +34,7 @@ services:
       GATEWAY_DB: ${GATEWAY_DB:-loft_gateway}
       DOCUMENTS_DB: ${DOCUMENTS_DB:-loft_documents}
     ports:
-      - "${DB_PORT:-5432}:5432"
+      - "${BIND_IP:-127.0.0.1}:${DB_PORT:-5432}:5432"
     volumes:
       - db-data:/var/lib/postgresql/data
       - ./deploy/docker/postgres-init:/docker-entrypoint-initdb.d:ro
@@ -57,7 +57,7 @@ services:
   redis:
     image: redis:7
     ports:
-      - "${REDIS_PORT:-6379}:6379"
+      - "${BIND_IP:-127.0.0.1}:${REDIS_PORT:-6379}:6379"
     volumes:
       - redis-data:/data
     healthcheck:
@@ -73,8 +73,8 @@ services:
       MINIO_ROOT_USER: *minio-user
       MINIO_ROOT_PASSWORD: *minio-password
     ports:
-      - "${MINIO_PORT:-9000}:9000"
-      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+      - "${BIND_IP:-127.0.0.1}:${MINIO_PORT:-9000}:9000"
+      - "${BIND_IP:-127.0.0.1}:${MINIO_CONSOLE_PORT:-9001}:9001"
     volumes:
       - minio-data:/data
     healthcheck:
