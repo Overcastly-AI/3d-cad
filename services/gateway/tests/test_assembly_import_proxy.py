@@ -33,6 +33,7 @@ from py_kit.schemas.assemblies import (
     Quat,
 )
 from py_kit.schemas.geometry import Vec3
+from py_kit.schemas.materials import EMPTY_MATERIAL_ASSIGNMENT
 from py_kit.schemas.parts import PRINCIPAL_HEADER, PartResponse
 from py_kit.schemas.step_import import (
     MAX_IMPORT_ASSEMBLY_PRODUCTS,
@@ -294,6 +295,7 @@ def test_flat_single_body_fallback_passes_through(db_url: str) -> None:
                 name="Widget",
                 owner_id=uuid.UUID(request.headers[PRINCIPAL_HEADER]),
                 length_unit="mm",
+                materials=EMPTY_MATERIAL_ASSIGNMENT,
                 # One import feature in, so the tree sits at version 1 (the same
                 # token the sibling `tree_version` below reports).
                 tree_version=1,

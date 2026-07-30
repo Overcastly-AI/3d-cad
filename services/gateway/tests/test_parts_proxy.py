@@ -19,6 +19,7 @@ from gateway.db import Base
 from gateway.main import GatewaySettings, build_app
 from py_kit import REQUEST_ID_HEADER
 from py_kit.db import async_dsn
+from py_kit.schemas.materials import EMPTY_MATERIAL_ASSIGNMENT
 from py_kit.schemas.parts import (
     PRINCIPAL_HEADER,
     PartCreate,
@@ -41,6 +42,7 @@ def _part(owner_id: uuid.UUID, name: str = "Bracket") -> PartResponse:
         name=name,
         owner_id=owner_id,
         length_unit="mm",
+        materials=EMPTY_MATERIAL_ASSIGNMENT,
         # A fresh part sits at tree_version 0 — the staleness denominator every
         # part response now carries (feature-tree.md §1.2).
         tree_version=0,

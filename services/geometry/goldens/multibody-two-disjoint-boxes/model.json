@@ -160,5 +160,14 @@
       }
     }
   ],
-  "linear_deflection": 0.1
+  "linear_deflection": 0.1,
+  "materials": {
+    "default_material": "aluminium_6061",
+    "bodies": [
+      {
+        "base_feature_id": "00000000-0000-0000-0000-0000000d0004",
+        "material": "steel_1018"
+      }
+    ]
+  }
 }

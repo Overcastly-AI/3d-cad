@@ -27,6 +27,7 @@ from py_kit import (
 from py_kit.db import SessionDep
 from py_kit.schemas.drawings import SectionViewParams
 from py_kit.schemas.features import FeatureRef
+from py_kit.schemas.materials import EMPTY_MATERIAL_ASSIGNMENT
 from py_kit.schemas.parts import (
     PRINCIPAL_HEADER,
     PartCreate,
@@ -312,17 +313,24 @@ async def update_part(
     owner_id: Principal,
     session: SessionDep,
 ) -> PartResponse:
-    """Rename and/or re-unit a part (bumps ``tree_version``; uniform 404).
+    """Rename, re-unit and/or re-material a part (bumps ``tree_version``; 404).
 
     Changing the display unit is a document edit (docs/design/units.md §U1) —
     it bumps ``tree_version`` like any header mutation but touches no stored
-    ``*_mm`` value (storage stays canonical mm). Stale ``expected_tree_version``
-    is a 422 (mirroring the feature-tree write guard); 409 stays reserved for a
-    duplicate-name conflict.
+    ``*_mm`` value (storage stays canonical mm). Changing the MATERIAL is a
+    different animal (docs/design/materials.md §2): mass is derived from it, so
+    the previous evaluate's answer is genuinely out of date and the
+    last-evaluate record is deliberately NOT carried forward. Stale
+    ``expected_tree_version`` is a 422 (mirroring the feature-tree write guard);
+    409 stays reserved for a duplicate-name conflict.
     """
-    if request.name is None and request.length_unit is None:
+    if (
+        request.name is None
+        and request.length_unit is None
+        and request.materials is None
+    ):
         raise ValidationApiError(
-            "Provide at least one of name or length_unit.",
+            "Provide at least one of name, length_unit or materials.",
             code="empty_part_update",
         )
     part = await get_owned_part(session, owner_id, part_id, for_update=True)
@@ -339,16 +347,28 @@ async def update_part(
         part.name = request.name
     if request.length_unit is not None:
         part.length_unit = request.length_unit
+    if request.materials is not None:
+        # Wholesale replacement (materials.md §2). An assignment that names
+        # nothing is stored as NULL so "cleared" and "never set" are one state
+        # in the database as well as on the wire.
+        part.materials = (
+            None
+            if request.materials == EMPTY_MATERIAL_ASSIGNMENT
+            else request.materials.model_dump(mode="json")
+        )
     part.tree_version += 1
-    if part.last_eval_tree_version is not None:
-        # Carry the last-evaluate record FORWARD (feature-tree.md §4.4a): this
-        # route can only change the name and the display unit, and neither can
-        # change what the tree evaluates to (units are presentation metadata —
-        # storage stays canonical mm, units.md §U1). Letting the version bump
-        # mark the record stale would be a false "unknown" — renaming a part
-        # would grey out its health — so the claim follows the version it is
-        # still true of. EVERY other write (features, suppress, rollback,
-        # undo/redo) changes the tree and correctly leaves it behind.
+    if request.materials is None and part.last_eval_tree_version is not None:
+        # Carry the last-evaluate record FORWARD (feature-tree.md §4.4a) for a
+        # rename or a unit change: neither can change what the tree evaluates to
+        # (units are presentation metadata — storage stays canonical mm, units.md
+        # §U1). Letting the version bump mark the record stale would be a false
+        # "unknown" — renaming a part would grey out its health — so the claim
+        # follows the version it is still true of. A MATERIAL change is excluded
+        # from that carry-forward on purpose: the evaluated mass is derived from
+        # the material, so the recorded result really does describe a state that
+        # no longer holds, and 'stale' is the honest verdict. EVERY other write
+        # (features, suppress, rollback, undo/redo) changes the tree and
+        # correctly leaves it behind.
         part.last_eval_tree_version = part.tree_version
     try:
         await session.commit()

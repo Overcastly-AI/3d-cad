@@ -115,6 +115,9 @@ def test_create_part_returns_full_dto(client: TestClient) -> None:
         "name",
         "owner_id",
         "length_unit",
+        # What the part is made of (docs/design/materials.md) — always present,
+        # empty until assigned, because mass is derived from it.
+        "materials",
         "tree_version",
         "eval_state",
         "last_eval_status",

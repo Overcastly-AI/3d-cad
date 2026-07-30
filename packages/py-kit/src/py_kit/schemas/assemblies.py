@@ -40,6 +40,7 @@ from py_kit.schemas.geometry import (
     ShapeProperties,
     Vec3,
 )
+from py_kit.schemas.materials import MaterialAssignment
 from py_kit.schemas.units import DEFAULT_LENGTH_UNIT, LengthUnit
 
 #: Upper bound for a user-facing assembly name ("Gearbox", "Bracket Stack").
@@ -716,6 +717,14 @@ class EvaluatedInstance(BaseModel):
         max_length=MAX_TREE_FEATURES,
         description="The part's ordered feature prefix (feature-tree §4 "
         "contract), bounded by MAX_TREE_FEATURES (work bound, audit G2)",
+    )
+    materials: MaterialAssignment | None = Field(
+        default=None,
+        description="The instanced PART's material assignment (docs/design/"
+        "materials.md), forwarded verbatim into that part's evaluation so the "
+        "assembly rolls up a real mass. Null = the part has no material, so it "
+        "contributes no mass and the assembly total is null (never zero). Two "
+        "instances share a part_key and therefore a part, so they share this.",
     )
     placement: Placement = Field(
         default=IDENTITY_PLACEMENT, description="Authored seed pose (§2.3)"

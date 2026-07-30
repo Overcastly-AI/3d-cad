@@ -17,6 +17,7 @@ from datetime import UTC, datetime
 
 import pytest
 from py_kit.schemas.features import EvaluateTreeResult
+from py_kit.schemas.materials import EMPTY_MATERIAL_ASSIGNMENT
 from py_kit.schemas.parts import (
     PartResponse,
     derive_part_eval_state,
@@ -34,6 +35,7 @@ def _part(*, tree_version: int, eval_tree_version: int | None) -> PartResponse:
         name="Bracket",
         owner_id=uuid.uuid4(),
         length_unit="mm",
+        materials=EMPTY_MATERIAL_ASSIGNMENT,
         tree_version=tree_version,
         eval_state=derive_part_eval_state(
             last_eval_status=None if eval_tree_version is None else "ok",

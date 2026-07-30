@@ -1835,6 +1835,41 @@ export interface components {
              * @description Number of disjoint connected solids (lumps) of this body; 1 for a single-lump body, >1 for a disjoint union / multi-solid import.
              */
             lumps: number;
+            /**
+             * Mass G
+             * @description This body's mass (g) = its volume x its material's density, or null when it has no material. The whole-part `properties.mass_g` is null as soon as ONE body is null; this says which (materials.md §4).
+             */
+            mass_g?: number | null;
+            /**
+             * Material
+             * @description The material RESOLVED for this body (its own override, else the document default); null = none assigned, so no mass.
+             */
+            material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6") | null;
+        };
+        /**
+         * BodyMaterialAssignment
+         * @description A per-BODY material override, keyed by the body's §MB-0 identity.
+         *
+         *     ``base_feature_id`` is the id of the feature that CREATED the body — the
+         *     same key ``EvaluationState.bodies`` and
+         *     :class:`~py_kit.schemas.features.BodyLumpInfo` use — so an override survives
+         *     edits to other features the way any body reference does. An override naming
+         *     a body the tree no longer produces is inert (it matches nothing); it is not
+         *     an error, because a rolled-back tree legitimately hides the body for a while.
+         */
+        BodyMaterialAssignment: {
+            /**
+             * Base Feature Id
+             * Format: uuid
+             * @description Id of the feature that created the body (its MB-0 identity)
+             */
+            base_feature_id: string;
+            /**
+             * Material
+             * @description Material for THIS body only
+             * @enum {string}
+             */
+            material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6";
         };
         /**
          * BomLine
@@ -4020,6 +4055,8 @@ export interface components {
              * @default 0.1
              */
             linear_deflection: number;
+            /** @description What the part's bodies are made of (docs/design/materials.md): a document default plus per-body overrides. Omitted / null = no material, so the result reports NO mass (absent, not zero). Unlike length units — presentation metadata the kernel never sees — material is an INPUT to evaluation, because mass is derived from it. */
+            materials?: components["schemas"]["MaterialAssignment"] | null;
             /**
              * Part Id
              * Format: uuid
@@ -4115,6 +4152,8 @@ export interface components {
              * @description Instance identity (result keying)
              */
             instance_id: string;
+            /** @description The instanced PART's material assignment (docs/design/materials.md), forwarded verbatim into that part's evaluation so the assembly rolls up a real mass. Null = the part has no material, so it contributes no mass and the assembly total is null (never zero). Two instances share a part_key and therefore a part, so they share this. */
+            materials?: components["schemas"]["MaterialAssignment"] | null;
             /**
              * Name
              * @description Human-readable instance name ('Bracket <1>'), threaded into the STEP export as the PRODUCT name so a Loft->STEP->Loft round trip preserves part identity instead of writing the instance UUID (FINDINGS #7). Optional: evaluate/interference ignore it; the export path falls back to the instance id when absent (a nameless request stays valid).
@@ -5477,6 +5516,31 @@ export interface components {
             order_index: number;
         };
         /**
+         * MaterialAssignment
+         * @description What a document is made of: one default + per-body overrides (design §2).
+         *
+         *     A multi-body part legitimately mixes materials (a steel pin in an aluminium
+         *     housing), so a single document-level material would be wrong for exactly the
+         *     parts mass matters most on. The resolution rule is one line — an override
+         *     wins over the default (:func:`resolve_body_material`) — and lives here so
+         *     every consumer resolves identically.
+         *
+         *     ``default_material: None`` with no overrides is the HONEST empty state a new
+         *     document starts in: no material anywhere, therefore no mass anywhere.
+         */
+        MaterialAssignment: {
+            /**
+             * Bodies
+             * @description Per-body overrides; at most one entry per base_feature_id.
+             */
+            bodies?: components["schemas"]["BodyMaterialAssignment"][];
+            /**
+             * Default Material
+             * @description Material for every body without an override; null means the document has no material, so its mass is UNKNOWN (not zero).
+             */
+            default_material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6") | null;
+        };
+        /**
          * MeasureRequest
          * @description Measure the nearest distance between two targets (stateless, one-shot).
          *
@@ -6008,6 +6072,8 @@ export interface components {
              * @enum {string}
              */
             length_unit: "mm" | "cm" | "m" | "in" | "ft";
+            /** @description What the part is made of (docs/design/materials.md §2). Always present; an assignment with `default_material: null` and no overrides is the honest empty state — no material, therefore no mass. A stored NULL reads back as that empty assignment so a consumer has ONE shape to render, never null-vs-empty. */
+            materials: components["schemas"]["MaterialAssignment"];
             /** Name */
             name: string;
             /**
@@ -6047,6 +6113,8 @@ export interface components {
              * @description New document display unit (metadata only)
              */
             length_unit?: ("mm" | "cm" | "m" | "in" | "ft") | null;
+            /** @description Replace the part's WHOLE material assignment (default + per-body overrides, docs/design/materials.md §2). Omitted/null leaves it untouched; send an EMPTY assignment ({}) to clear it back to 'no material', which makes mass unknown again. Wholesale replacement, not a merge, so the request states the full intended state and two concurrent edits cannot interleave into an assignment neither sent. Unlike a rename or a unit change this DOES invalidate the recorded evaluate: mass is derived from it. */
+            materials?: components["schemas"]["MaterialAssignment"] | null;
             /**
              * Name
              * @description New part name
@@ -6617,11 +6685,26 @@ export interface components {
         /**
          * ShapeProperties
          * @description Mass properties + topology of the evaluated B-rep shape.
+         *
+         *     Two fields are honestly nullable (docs/design/materials.md): ``mass_g`` and
+         *     ``center_of_mass`` are ``null`` whenever ANY contributing body has no
+         *     material assigned. ``null`` means *unknown*, never zero — a body nobody has
+         *     said the material of has no mass to report, and inventing one (0 g, or a
+         *     default steel) is the overstated-surface defect this field exists to avoid.
+         *     A consumer must render absence as absence and must not title a panel "mass"
+         *     on the strength of a null.
          */
         ShapeProperties: {
             bounding_box: components["schemas"]["BoundingBox"];
-            /** @description Centre of mass (mm) */
+            /** @description Genuinely mass-weighted centre of mass (mm), or null when any contributing body has no material. For a single-material shape it equals `centroid`; for mixed materials it does not. */
+            center_of_mass?: components["schemas"]["Vec3"] | null;
+            /** @description Centroid of VOLUME (mm) — the geometric centre. Equal to the centre of mass only when the whole shape is one material; for a multi-material roll-up read `center_of_mass` instead. */
             centroid: components["schemas"]["Vec3"];
+            /**
+             * Mass G
+             * @description Mass (g) = volume x density, or null when a contributing body has NO material assigned. Null is 'unknown', NOT zero.
+             */
+            mass_g?: number | null;
             /**
              * Surface Area
              * @description Total surface area (mm^2)

@@ -86,6 +86,9 @@ export function makePart(treeVersion: number): PartResponse {
     name: "Motor mount",
     owner_id: "u1",
     length_unit: "mm",
+    // No material assigned — the honest empty assignment every part starts
+    // with (docs/design/materials.md), which reports NO mass rather than 0 g.
+    materials: { default_material: null, bodies: [] },
     tree_version: treeVersion,
     eval_state: "ok",
     last_eval_status: "ok",

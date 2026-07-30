@@ -37,6 +37,7 @@ from py_kit.schemas.geometry import (
     ShapeProperties,
     Vec3,
 )
+from py_kit.schemas.materials import MaterialAssignment, MaterialKey
 from py_kit.schemas.sketch import (
     EntityId,
     SketchConstraintDiagnosis,
@@ -3360,6 +3361,14 @@ class EvaluateTreeRequest(BaseModel):
         description="Presentation parameter (mm), NEVER persisted per feature "
         "(design §8.3). Floored at MIN_LINEAR_DEFLECTION (work bound, audit G2).",
     )
+    materials: MaterialAssignment | None = Field(
+        default=None,
+        description="What the part's bodies are made of (docs/design/"
+        "materials.md): a document default plus per-body overrides. Omitted / "
+        "null = no material, so the result reports NO mass (absent, not zero). "
+        "Unlike length units — presentation metadata the kernel never sees — "
+        "material is an INPUT to evaluation, because mass is derived from it.",
+    )
 
 
 class ExportTreeRequest(EvaluateTreeRequest):
@@ -3492,6 +3501,17 @@ class BodyLumpInfo(BaseModel):
         ge=1,
         description="Number of disjoint connected solids (lumps) of this body; "
         "1 for a single-lump body, >1 for a disjoint union / multi-solid import.",
+    )
+    material: MaterialKey | None = Field(
+        default=None,
+        description="The material RESOLVED for this body (its own override, "
+        "else the document default); null = none assigned, so no mass.",
+    )
+    mass_g: float | None = Field(
+        default=None,
+        description="This body's mass (g) = its volume x its material's density, "
+        "or null when it has no material. The whole-part `properties.mass_g` is "
+        "null as soon as ONE body is null; this says which (materials.md §4).",
     )
 
 

@@ -56,6 +56,10 @@ def _utcnow() -> datetime:
     return datetime.now(UTC)
 
 
+#: JSONB on Postgres, plain JSON on SQLite (tests) — same Python dict either way.
+_JSON_VARIANT = sa.JSON().with_variant(postgresql.JSONB(), "postgresql")
+
+
 class Base(DeclarativeBase):
     """Declarative base for all documents-owned tables."""
 
@@ -84,6 +88,16 @@ class Part(Base):
     #: pre-units rows backfill to mm (the migration adds the same default).
     length_unit: Mapped[str] = mapped_column(
         sa.String(8), nullable=False, default="mm", server_default=sa.text("'mm'")
+    )
+    #: What the part's bodies are made of (docs/design/materials.md §2): a
+    #: serialized :class:`~py_kit.schemas.materials.MaterialAssignment` — one
+    #: document default plus per-body overrides. NULL is the honest "nobody has
+    #: said", which every pre-materials row backfills to and which reports NO
+    #: mass (never 0 g, never a default steel). Unlike ``length_unit`` this is an
+    #: INPUT to evaluation (mass is derived from it), so a write bumps
+    #: ``tree_version`` AND leaves the last-evaluate record behind as stale.
+    materials: Mapped[dict[str, Any] | None] = mapped_column(
+        _JSON_VARIANT, nullable=True
     )
     #: Monotonic optimistic-concurrency counter — bumped in the same
     #: transaction as ANY tree mutation (feature-tree.md §1.2).
@@ -154,10 +168,6 @@ class Part(Base):
 
     def __repr__(self) -> str:  # pragma: no cover - debug aid
         return f"Part(id={self.id!r}, owner_id={self.owner_id!r}, name={self.name!r})"
-
-
-#: JSONB on Postgres, plain JSON on SQLite (tests) — same Python dict either way.
-_JSON_VARIANT = sa.JSON().with_variant(postgresql.JSONB(), "postgresql")
 
 
 class Feature(Base):

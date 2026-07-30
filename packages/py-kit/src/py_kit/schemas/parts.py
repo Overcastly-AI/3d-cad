@@ -16,8 +16,9 @@ import uuid
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
+from py_kit.schemas.materials import EMPTY_MATERIAL_ASSIGNMENT, MaterialAssignment
 from py_kit.schemas.units import DEFAULT_LENGTH_UNIT, LengthUnit
 
 #: Internal header carrying the authenticated user id (gateway → documents).
@@ -142,6 +143,17 @@ class PartUpdate(BaseModel):
     length_unit: LengthUnit | None = Field(
         default=None, description="New document display unit (metadata only)"
     )
+    materials: MaterialAssignment | None = Field(
+        default=None,
+        description="Replace the part's WHOLE material assignment (default + "
+        "per-body overrides, docs/design/materials.md §2). Omitted/null leaves "
+        "it untouched; send an EMPTY assignment ({}) to clear it back to 'no "
+        "material', which makes mass unknown again. Wholesale replacement, not "
+        "a merge, so the request states the full intended state and two "
+        "concurrent edits cannot interleave into an assignment neither sent. "
+        "Unlike a rename or a unit change this DOES invalidate the recorded "
+        "evaluate: mass is derived from it.",
+    )
 
 
 class PartEvaluationRecord(BaseModel):
@@ -190,6 +202,13 @@ class PartResponse(BaseModel):
         description="Document display unit (docs/design/units.md §1); DISPLAY "
         "metadata only — storage stays canonical mm."
     )
+    materials: MaterialAssignment = Field(
+        description="What the part is made of (docs/design/materials.md §2). "
+        "Always present; an assignment with `default_material: null` and no "
+        "overrides is the honest empty state — no material, therefore no mass. "
+        "A stored NULL reads back as that empty assignment so a consumer has "
+        "ONE shape to render, never null-vs-empty."
+    )
     tree_version: int = Field(
         ge=0,
         description="The part's CURRENT monotonic optimistic-concurrency counter "
@@ -227,6 +246,19 @@ class PartResponse(BaseModel):
     )
     created_at: datetime
     updated_at: datetime
+
+    @field_validator("materials", mode="before")
+    @classmethod
+    def _empty_when_unset(cls, value: object) -> object:
+        """A stored NULL is the EMPTY assignment, not a missing field.
+
+        The column is nullable so "never assigned" needs no sentinel row value,
+        but the wire should carry one shape: an assignment object that happens
+        to name no material. Null-vs-empty on the wire would invite a consumer
+        to treat one of them as "unknown" and the other as "none", when they are
+        the same honest state (docs/design/materials.md §2).
+        """
+        return EMPTY_MATERIAL_ASSIGNMENT if value is None else value
 
 
 class PartListResponse(BaseModel):

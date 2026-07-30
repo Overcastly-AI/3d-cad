@@ -232,6 +232,39 @@
             "minimum": 1.0,
             "title": "Lumps",
             "type": "integer"
+          },
+          "mass_g": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "This body's mass (g) = its volume x its material's density, or null when it has no material. The whole-part `properties.mass_g` is null as soon as ONE body is null; this says which (materials.md \u00a74).",
+            "title": "Mass G"
+          },
+          "material": {
+            "anyOf": [
+              {
+                "enum": [
+                  "steel_1018",
+                  "stainless_304",
+                  "aluminium_6061",
+                  "brass_c360",
+                  "abs",
+                  "pla",
+                  "nylon_6"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The material RESOLVED for this body (its own override, else the document default); null = none assigned, so no mass.",
+            "title": "Material"
           }
         },
         "required": [
@@ -239,6 +272,37 @@
           "lumps"
         ],
         "title": "BodyLumpInfo",
+        "type": "object"
+      },
+      "BodyMaterialAssignment": {
+        "description": "A per-BODY material override, keyed by the body's \u00a7MB-0 identity.\n\n``base_feature_id`` is the id of the feature that CREATED the body \u2014 the\nsame key ``EvaluationState.bodies`` and\n:class:`~py_kit.schemas.features.BodyLumpInfo` use \u2014 so an override survives\nedits to other features the way any body reference does. An override naming\na body the tree no longer produces is inert (it matches nothing); it is not\nan error, because a rolled-back tree legitimately hides the body for a while.",
+        "properties": {
+          "base_feature_id": {
+            "description": "Id of the feature that created the body (its MB-0 identity)",
+            "format": "uuid",
+            "title": "Base Feature Id",
+            "type": "string"
+          },
+          "material": {
+            "description": "Material for THIS body only",
+            "enum": [
+              "steel_1018",
+              "stainless_304",
+              "aluminium_6061",
+              "brass_c360",
+              "abs",
+              "pla",
+              "nylon_6"
+            ],
+            "title": "Material",
+            "type": "string"
+          }
+        },
+        "required": [
+          "base_feature_id",
+          "material"
+        ],
+        "title": "BodyMaterialAssignment",
         "type": "object"
       },
       "BooleanFeature": {
@@ -2878,6 +2942,17 @@
             "title": "Linear Deflection",
             "type": "number"
           },
+          "materials": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MaterialAssignment"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What the part's bodies are made of (docs/design/materials.md): a document default plus per-body overrides. Omitted / null = no material, so the result reports NO mass (absent, not zero). Unlike length units \u2014 presentation metadata the kernel never sees \u2014 material is an INPUT to evaluation, because mass is derived from it."
+          },
           "part_id": {
             "format": "uuid",
             "title": "Part Id",
@@ -3102,6 +3177,17 @@
             "format": "uuid",
             "title": "Instance Id",
             "type": "string"
+          },
+          "materials": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MaterialAssignment"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The instanced PART's material assignment (docs/design/materials.md), forwarded verbatim into that part's evaluation so the assembly rolls up a real mass. Null = the part has no material, so it contributes no mass and the assembly total is null (never zero). Two instances share a part_key and therefore a part, so they share this."
           },
           "name": {
             "anyOf": [
@@ -3357,6 +3443,17 @@
             "minimum": 0.001,
             "title": "Linear Deflection",
             "type": "number"
+          },
+          "materials": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MaterialAssignment"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What the part's bodies are made of (docs/design/materials.md): a document default plus per-body overrides. Omitted / null = no material, so the result reports NO mass (absent, not zero). Unlike length units \u2014 presentation metadata the kernel never sees \u2014 material is an INPUT to evaluation, because mass is derived from it."
           },
           "part_id": {
             "format": "uuid",
@@ -4457,6 +4554,42 @@
           "signature"
         ],
         "title": "MateFaceRef",
+        "type": "object"
+      },
+      "MaterialAssignment": {
+        "description": "What a document is made of: one default + per-body overrides (design \u00a72).\n\nA multi-body part legitimately mixes materials (a steel pin in an aluminium\nhousing), so a single document-level material would be wrong for exactly the\nparts mass matters most on. The resolution rule is one line \u2014 an override\nwins over the default (:func:`resolve_body_material`) \u2014 and lives here so\nevery consumer resolves identically.\n\n``default_material: None`` with no overrides is the HONEST empty state a new\ndocument starts in: no material anywhere, therefore no mass anywhere.",
+        "properties": {
+          "bodies": {
+            "description": "Per-body overrides; at most one entry per base_feature_id.",
+            "items": {
+              "$ref": "#/components/schemas/BodyMaterialAssignment"
+            },
+            "title": "Bodies",
+            "type": "array"
+          },
+          "default_material": {
+            "anyOf": [
+              {
+                "enum": [
+                  "steel_1018",
+                  "stainless_304",
+                  "aluminium_6061",
+                  "brass_c360",
+                  "abs",
+                  "pla",
+                  "nylon_6"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Material for every body without an override; null means the document has no material, so its mass is UNKNOWN (not zero).",
+            "title": "Default Material"
+          }
+        },
+        "title": "MaterialAssignment",
         "type": "object"
       },
       "MeasureRequest": {
@@ -5747,14 +5880,37 @@
         "type": "object"
       },
       "ShapeProperties": {
-        "description": "Mass properties + topology of the evaluated B-rep shape.",
+        "description": "Mass properties + topology of the evaluated B-rep shape.\n\nTwo fields are honestly nullable (docs/design/materials.md): ``mass_g`` and\n``center_of_mass`` are ``null`` whenever ANY contributing body has no\nmaterial assigned. ``null`` means *unknown*, never zero \u2014 a body nobody has\nsaid the material of has no mass to report, and inventing one (0 g, or a\ndefault steel) is the overstated-surface defect this field exists to avoid.\nA consumer must render absence as absence and must not title a panel \"mass\"\non the strength of a null.",
         "properties": {
           "bounding_box": {
             "$ref": "#/components/schemas/BoundingBox"
           },
+          "center_of_mass": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Vec3"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Genuinely mass-weighted centre of mass (mm), or null when any contributing body has no material. For a single-material shape it equals `centroid`; for mixed materials it does not."
+          },
           "centroid": {
             "$ref": "#/components/schemas/Vec3",
-            "description": "Centre of mass (mm)"
+            "description": "Centroid of VOLUME (mm) \u2014 the geometric centre. Equal to the centre of mass only when the whole shape is one material; for a multi-material roll-up read `center_of_mass` instead."
+          },
+          "mass_g": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Mass (g) = volume x density, or null when a contributing body has NO material assigned. Null is 'unknown', NOT zero.",
+            "title": "Mass G"
           },
           "surface_area": {
             "description": "Total surface area (mm^2)",

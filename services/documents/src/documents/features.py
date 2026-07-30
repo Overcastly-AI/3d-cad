@@ -43,6 +43,7 @@ from py_kit.schemas.features import (
     UndoRedoRequest,
     feature_references,
 )
+from py_kit.schemas.materials import MaterialAssignment
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -315,6 +316,20 @@ async def evaluation_prefix(
     ]
 
 
+def part_materials(part: db.Part) -> MaterialAssignment | None:
+    """The part's stored material assignment, or ``None`` when it has none.
+
+    The ONE read of the ``parts.materials`` column (CLAUDE.md DRY): the part
+    evaluation-request and the assembly evaluation-request both go through here,
+    so an instanced part is evaluated with exactly the materials the part itself
+    is evaluated with. ``None`` out means no material anywhere in the document,
+    which geometry reports as NO mass — not zero (docs/design/materials.md §2).
+    """
+    if not part.materials:
+        return None
+    return MaterialAssignment.model_validate(part.materials)
+
+
 @router.get("/{part_id}/evaluation-request")
 async def get_evaluation_request(
     part_id: uuid.UUID, owner_id: Principal, session: SessionDep
@@ -326,13 +341,16 @@ async def get_evaluation_request(
     bar is applied HERE (only the prefix up to and including the bar is
     returned, §3), params are upcast to current versions on read (§1.4), and
     the order is the total ``order_index`` order. ``tree_version`` rides
-    along as the cache/correlation key.
+    along as the cache/correlation key, and the part's material assignment
+    rides along because mass is derived from it (materials.md §2) — the one
+    thing on this request that is not pure geometry intent.
     """
     part = await get_owned_part(session, owner_id, part_id)
     return EvaluateTreeRequest(
         part_id=part.id,
         tree_version=part.tree_version,
         features=await evaluation_prefix(session, part),
+        materials=part_materials(part),
     )
 
 

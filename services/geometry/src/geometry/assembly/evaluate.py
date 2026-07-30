@@ -21,10 +21,14 @@ Pipeline (design §4):
    solve rather than failing the whole evaluation (§4 error posture).
 3. **Solve** (the shipped :class:`~geometry.assembly.solver.RigidBodyAssemblySolver`)
    → a solved world :class:`Placement` per instance (grounded held fixed).
-4. **Compose mass properties analytically** — Σ volumes, mass-weighted centroid,
-   transformed-bbox union, summed topology — NO re-meshing, NO boolean (§4
-   step 4). The solved transform is applied at RENDER time (per-instance
-   transform over the shared mesh), never baked into the GLB (§4).
+4. **Compose mass properties analytically** — Σ volumes, VOLUME-weighted
+   centroid, plus (when every part has a material) Σ masses and a genuinely
+   MASS-weighted centre of mass, transformed-bbox union, summed topology — NO
+   re-meshing, NO boolean (§4 step 4). The solved transform is applied at RENDER
+   time (per-instance transform over the shared mesh), never baked into the GLB
+   (§4). NB the pre-materials code called its volume-weighted centroid
+   "mass-weighted", which was only true when every body shared one density
+   (docs/design/materials.md §3).
 
 Error posture (design §4, mirroring feature-tree §4.3): a dangling / bodyless
 part, an unresolvable mate (``subshape_unresolved`` / ``subshape_ambiguous`` from
@@ -188,6 +192,12 @@ def _evaluate_unique_parts(request: EvaluateAssemblyRequest) -> dict[str, _PartR
             tree_version=request.version,
             features=inst.features,
             linear_deflection=request.linear_deflection,
+            # The instanced part's material assignment rides into ITS evaluation
+            # (materials.md §3) so each part's mass is derived from its own
+            # volume by the one kernel path. Cached per ``part_key`` with the
+            # rest of the evaluation: a part_key names one part at one version,
+            # so every instance of it shares one assignment by construction.
+            materials=inst.materials,
         )
         evaluation = evaluate_tree(tree_request)
         error = (
@@ -262,19 +272,30 @@ def _combine_properties(
 ) -> ShapeProperties | None:
     """Analytic combined mass-property roll-up over placed instances (§4 step 4).
 
-    Total volume = Σ part volumes; combined centroid = volume-weighted Σ of each
-    part's centroid transformed by its SOLVED placement; combined AABB = union of
-    the eight transformed corners of each part's local AABB (exact for
+    Total volume = Σ part volumes; combined ``centroid`` = VOLUME-weighted Σ of
+    each part's centroid transformed by its SOLVED placement; combined AABB =
+    union of the eight transformed corners of each part's local AABB (exact for
     translation / axis-aligned poses, a tight over-approximation under an
     off-axis rotation); surface area + topology counts are summed. NO re-meshing,
     NO boolean (design §4). Deterministic: a fixed instance-order reduction of
     float64 ops.
+
+    Mass composes the same analytic way (docs/design/materials.md §3): total
+    ``mass_g`` = Σ per-part masses and ``center_of_mass`` is weighted by MASS —
+    genuinely, which the pre-materials code only *called* it. That distinction is
+    the point of the field: an assembly of a steel pin and an aluminium housing
+    does not balance where its volume does, and the two coincide only in the
+    degenerate case where every part shares one density. Both mass fields are
+    ``None`` unless EVERY placed instance has a material: a partial sum would
+    silently under-report the assembly's mass.
     """
     if not items:
         return None
     total_volume = 0.0
     total_area = 0.0
     weighted_centroid = np.zeros(3, dtype=np.float64)
+    total_mass: float | None = 0.0
+    mass_weighted_centre = np.zeros(3, dtype=np.float64)
     faces = edges = shells = 0
     mins = np.full(3, np.inf, dtype=np.float64)
     maxs = np.full(3, -np.inf, dtype=np.float64)
@@ -283,6 +304,13 @@ def _combine_properties(
         total_volume += props.volume
         total_area += props.surface_area
         weighted_centroid += props.volume * pose.apply_point(as_vector(props.centroid))
+        if props.mass_g is None or props.center_of_mass is None:
+            total_mass = None
+        elif total_mass is not None:
+            total_mass += props.mass_g
+            mass_weighted_centre += props.mass_g * pose.apply_point(
+                as_vector(props.center_of_mass)
+            )
         faces += props.topology.faces
         edges += props.topology.edges
         shells += props.topology.shells
@@ -293,10 +321,21 @@ def _combine_properties(
     centroid = (
         weighted_centroid / total_volume if total_volume != 0.0 else weighted_centroid
     )
+    center_of_mass: Vec3 | None = None
+    if total_mass is not None:
+        # Zero total mass implies zero total volume (densities are > 0), where a
+        # mass-weighted average is undefined — fall back to the volume centroid
+        # rather than dividing by zero.
+        centre = mass_weighted_centre / total_mass if total_mass != 0.0 else centroid
+        center_of_mass = Vec3(
+            x=float(centre[0]), y=float(centre[1]), z=float(centre[2])
+        )
     return ShapeProperties(
         volume=total_volume,
         surface_area=total_area,
         centroid=Vec3(x=float(centroid[0]), y=float(centroid[1]), z=float(centroid[2])),
+        mass_g=total_mass,
+        center_of_mass=center_of_mass,
         bounding_box=BoundingBox(
             min=Vec3(x=float(mins[0]), y=float(mins[1]), z=float(mins[2])),
             max=Vec3(x=float(maxs[0]), y=float(maxs[1]), z=float(maxs[2])),

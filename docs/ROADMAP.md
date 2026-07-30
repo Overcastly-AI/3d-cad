@@ -11,8 +11,23 @@ brass travel stop you drag or arrow-key, chips carrying the real verb glyph, and
 a dashed way past the stop. Still queued: UI-W2 (categorical visibility/opacity/
 isolate — Origin / Sketches / Bodies), UI-W3 (pre-selection prefills editors),
 UI-W4 (editors stop being 12-row mid-frame forms), UI-W5 (entity snapping, Ctrl
-to suppress), plus material/density so MASS PROPERTIES can report mass, and a
-settings surface.
+to suppress), and a settings surface.
+**#57 material/density — the KERNEL + WIRE half SHIPPED 2026-07-30**
+(kernel-architect; design `docs/design/materials.md`, decision record RESEARCH
+§9a). MASS PROPERTIES could not report mass because nothing in the codebase had
+a density. Bodies now carry a material (7 handbook densities, served from
+`GET /api/v1/materials` so nothing hardcodes one), `mass = volume x density` is
+derived beside the volume it comes from, and a body with NO material reports
+**no mass at all — null, not 0 g and not a defaulted steel** (45 goldens assert
+that absence). Assignment is a document default + per-body overrides
+(`parts.materials`, migration 0013), rides the evaluation request, and marks the
+last-evaluate record stale because mass depends on it. Both roll-ups now compose
+a genuinely MASS-weighted centre of mass: the mixed-material golden measures
+84.56 g at x=32.3368 mm where the volume centroid sits at 25 mm — the assembly
+code had been CALLING its volume weighting "mass-weighted". Remaining: the
+frontend must stop titling the panel MASS PROPERTIES until a material exists,
+render absence as absence, and add `formatMass` to the ONE units seam in
+`packages/design` (materials.md §5/§6).
 **The part workspace stopped claiming things it did not know — audit J2 (P1) +
 N3 (P0, the UI half) FIXED 2026-07-30** (frontend-builder). On a part with one
 broken feature the same screen said three different things: SOLVE "Failed"

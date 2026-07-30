@@ -208,8 +208,11 @@ a later phase (see ROADMAP). OpenTelemetry hooks reserved in `py-kit`.
 Correctness gates no web app needs, run in CI and by the `geometry-qa` agent:
 
 - **Golden-model suite:** reference parts rebuilt from their feature trees;
-  assert mass properties (volume, area, centroid) within tolerance and
-  topology counts (faces/edges/shells) exactly.
+  assert mass properties (volume, area, centroid — and mass + the mass-weighted
+  centre of mass when the model assigns a material, §9a) within tolerance and
+  topology counts (faces/edges/shells) exactly. A model that assigns NO material
+  asserts the other half of that contract: mass comes back **absent**, never
+  `0` and never a defaulted density (docs/design/materials.md §6/§8).
 - **Round-trip fidelity:** model → STEP export → re-import → compare mass
   properties and topology. Runs at two levels: kernel (build123d I/O) and
   endpoint (`POST /api/v1/export` over HTTP). **A body must be conformal
@@ -252,6 +255,33 @@ Correctness gates no web app needs, run in CI and by the `geometry-qa` agent:
   goldens is structural on the unchanged path, not a hoped-for equality).
 - **Performance budgets:** wall-clock ceilings for reference rebuilds and
   tessellation; regressions fail the gate.
+
+## 9a. Materials, density, and mass — decision record (2026-07-30)
+
+**Decision:** bodies carry a **material with a density**, mass is **derived**
+from it in the kernel (`mass = volume x density`, computed beside the volume it
+comes from), and a body with **no material reports NO mass — null, never 0 g
+and never a defaulted steel**. Assignment is a per-document default plus
+per-body overrides keyed by the body's §MB-0 base feature id. Full design +
+rationale: `docs/design/materials.md`; the library (7 handbook densities) lives
+in `py_kit.schemas.materials` and is SERVED (`GET /api/v1/materials`) rather
+than duplicated client-side.
+
+**Why it is an architecture decision, not a field:** it is the first input to
+evaluation that is not pure geometry intent. Length units are presentation
+metadata the kernel never sees (§units.md); material must reach the kernel,
+because mass is derived from it — so it rides `EvaluateTreeRequest.materials`,
+a material change bumps `tree_version` AND marks the last-evaluate record
+stale, and canonical mass is **grams** (what `mm^3 x kg/m^3` yields), mirroring
+canonical mm. Display units (g/kg/lb) stay in `packages/design` with the length
+factors — one units seam, not two.
+
+**Consequence for the roll-ups:** the multi-body and assembly composers now
+report a genuinely MASS-weighted `center_of_mass` alongside the (always
+volume-weighted) `centroid`; the pre-materials code called its volume weighting
+"mass-weighted", which is true only when every body shares one density. A
+roll-up is null unless EVERY contributor has a material — a partial sum would
+under-report while looking complete.
 
 ## 10. Assemblies — document model, mates, and the 3D mate solver
 

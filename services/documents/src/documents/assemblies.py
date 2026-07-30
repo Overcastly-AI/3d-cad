@@ -49,6 +49,7 @@ from py_kit.schemas.assemblies import (
     mate_instance_ids,
 )
 from py_kit.schemas.features import EvaluatedFeatureInput
+from py_kit.schemas.materials import MaterialAssignment
 from pydantic import TypeAdapter
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
@@ -60,7 +61,7 @@ from documents.assembly_history import (
     ordered_instances,
     ordered_mates,
 )
-from documents.features import evaluation_prefix
+from documents.features import evaluation_prefix, part_materials
 from documents.history_core import Direction
 from documents.parts import (
     Principal,
@@ -274,10 +275,16 @@ def _instance_part_key(instance: db.Instance) -> str:
     return f"{instance.ref_document_id}@{version}"
 
 
-async def _instance_feature_prefix(
+async def _instance_part_inputs(
     session: AsyncSession, owner_id: uuid.UUID, instance: db.Instance
-) -> list[EvaluatedFeatureInput]:
-    """The instanced part's evaluation-ready feature prefix, or an empty list.
+) -> tuple[list[EvaluatedFeatureInput], MaterialAssignment | None]:
+    """The instanced part's evaluation-ready feature prefix AND its materials.
+
+    Both come from the SAME part row read (one query, not two) and both are what
+    the part's own evaluation-request carries, so an instance evaluates to the
+    identical body and the identical mass as opening that part does
+    (docs/design/materials.md §3). An empty prefix pairs with ``None`` materials:
+    a part that contributes no body contributes no mass either.
 
     A PART instance resolves to its referenced part's rollback-applied, upcast prefix
     (:func:`documents.features.evaluation_prefix`, reused VERBATIM — one rollback/upcast
@@ -294,11 +301,11 @@ async def _instance_feature_prefix(
     Owner-scoping is defense-in-depth (references are same-owner enforced at write).
     """
     if instance.ref_document_kind != "part":
-        return []  # nested sub-assembly flatten deferred (v1) — geometry no_body
+        return [], None  # nested sub-assembly flatten deferred (v1) — no_body
     part = await session.get(db.Part, instance.ref_document_id)
     if part is None or part.owner_id != owner_id:
-        return []  # deleted / foreign referenced part → typed no_body downstream
-    return await evaluation_prefix(session, part)
+        return [], None  # deleted / foreign referenced part → typed no_body
+    return await evaluation_prefix(session, part), part_materials(part)
 
 
 async def build_evaluate_assembly_request(
@@ -317,22 +324,30 @@ async def build_evaluate_assembly_request(
     """
     instances = await ordered_instances(session, assembly.id)
     mates = await ordered_mates(session, assembly.id)
-    return EvaluateAssemblyRequest(
-        assembly_id=assembly.id,
-        version=assembly.doc_version,
-        instances=[
+    evaluated: list[EvaluatedInstance] = []
+    for instance in instances:
+        features, materials = await _instance_part_inputs(
+            session, assembly.owner_id, instance
+        )
+        evaluated.append(
             EvaluatedInstance(
                 instance_id=instance.id,
                 part_key=_instance_part_key(instance),
                 name=instance.name,
-                features=await _instance_feature_prefix(
-                    session, assembly.owner_id, instance
-                ),
+                features=features,
+                # The instanced part's OWN materials (materials.md §3) — the
+                # assembly has no material of its own; its mass is the sum of
+                # what its parts are made of, and is unknown while any part has
+                # no material.
+                materials=materials,
                 placement=Placement.model_validate(instance.placement),
                 grounded=instance.grounded,
             )
-            for instance in instances
-        ],
+        )
+    return EvaluateAssemblyRequest(
+        assembly_id=assembly.id,
+        version=assembly.doc_version,
+        instances=evaluated,
         mates=[
             EvaluatedMate(
                 mate_id=mate.id,

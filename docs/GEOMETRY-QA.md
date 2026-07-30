@@ -7,6 +7,62 @@ not "do the tests pass" but **"is the geometry RIGHT?"** (RESEARCH §9,
 decisions recorded here AND in the golden's `expected.json` — never a way to
 go green.
 
+## 2026-07-30 — MASS: a material with a density, and the numbers that prove absence is not zero (kernel-architect self-report)
+
+**What shipped.** MASS PROPERTIES could not report mass — there was no density and
+no material anywhere in the codebase. Bodies now carry a material (7-entry handbook
+library, `py_kit.schemas.materials`), mass is derived in
+`kernel/properties.measure_shape` beside the volume it comes from, and both analytic
+roll-ups (multi-body part, assembly) compose it. Design + rationale:
+`docs/design/materials.md`; decision record RESEARCH §9a.
+
+**Measured — single material** (`sketch-extrude-40x25x10` + aluminium 6061,
+2700 kg/m^3 over an analytic 10000 mm^3):
+
+| quantity | analytic | measured deviation |
+|---|---|---|
+| `mass_g` | 27.0 g exactly (10 cm^3 x 2.70 g/cm^3) | **3.6e-15 g** |
+| `center_of_mass` | (20, 12.5, 5) mm = the volume centroid | **<= 3.6e-15 mm** |
+
+**Measured — MIXED materials, the case the volume centroid cannot answer**
+(`multibody-two-disjoint-boxes`: two 8000 mm^3 cubes, document default aluminium
+6061 on body A, a per-body steel 1018 override on body B):
+
+| quantity | analytic | measured deviation |
+|---|---|---|
+| `mass_g` | 21.6 + 62.96 = **84.56 g** exactly | **2.8e-14 g** |
+| `center_of_mass.x` | **34180/1057 = 32.3368022705771 mm** (= (270*10 + 787*40)/1057 in exact rationals) | **0.0** |
+| `center_of_mass.y/z` | 10 mm by symmetry | y 1.8e-15 mm, z **0.0** |
+| `centroid.x` (volume) | 25.0 mm — **7.34 mm away from the centre of mass** | unchanged from before |
+
+That 7.34 mm gap is the point of the slice: the assembly roll-up already **called**
+its centroid "mass-weighted" while computing a volume weighting, which is true only
+when every body shares one density. It is now genuinely mass-weighted, and the
+volume-weighted number keeps the honest name.
+
+**Tolerance: no new bound, and the reason is derivable rather than fitted.** Mass and
+centre of mass ride each model's existing documented `tolerance` (1e-9 for both
+goldens above). Justification: `mass = volume x density` and every library density is
+< 1 expressed in g/mm^3 (steel 1018, the densest, is 7.87e-3), so the propagated mass
+error is strictly SMALLER than the volume error the same bound already covers.
+Worst observed is 2.8e-14 g, ~3.6e4x inside the ceiling. The premise is itself
+asserted (`test_every_library_density_is_under_one_gram_per_cubic_mm`), so adding a
+denser material fails loudly instead of silently widening the claim.
+
+**Absence is asserted, not assumed — 45 goldens' worth.** The runner now requires
+`mass_g is None` AND `center_of_mass is None` for every golden whose model assigns no
+material. "0 g" would be a claim about a real massless body and a defaulted steel
+would be a worse one; a future helpful default fails 45 goldens at once, which is the
+gate the previous overstated surfaces (false CLASH badge, phantom drawing note) never
+had.
+
+**Geometry is untouched, MEASURED not assumed.** Both modified goldens rebuilt with
+and without their material assignment produce a **byte-identical GLB**
+(sha256 equal), and the ONLY metadata fields that differ are `mass_g` and
+`center_of_mass`. Assigning a material changes what we can say about a body, never
+the body. Full golden suite: 186 passed, including the in-process and
+fresh-interpreter determinism legs.
+
 ## 2026-07-30 — SH-1: shelling a rib at EXACTLY 2x the wall left a zero-width slit and reported `ok` (kernel-architect)
 
 **The defect (BACKLOG #42, filed P3 "UX"; it is silent-wrong-geometry adjacent and

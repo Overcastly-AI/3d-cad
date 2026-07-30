@@ -110,6 +110,11 @@ from py_kit.schemas.features import (
     iter_feature_refs,
 )
 from py_kit.schemas.geometry import MeshStats, ShapeProperties
+from py_kit.schemas.materials import (
+    MaterialKey,
+    density_kg_m3,
+    resolve_body_material,
+)
 from py_kit.schemas.sketch import classify_overconstraint
 
 from geometry.kernel import (
@@ -3027,6 +3032,14 @@ def evaluate_tree(
     glb: bytes | None = None
     mesh: MeshStats | None = None
     shape: BodyShape | None = None
+    # Material per body (docs/design/materials.md §2): the per-body override if
+    # the request carries one, else the document default, else None = "nobody has
+    # said what this is made of", which is reported as no mass at all.
+    body_materials: dict[uuid.UUID, MaterialKey | None] = {
+        base_id: resolve_body_material(request.materials, base_id)
+        for base_id in state.bodies
+    }
+    body_measures: dict[uuid.UUID, ShapeProperties] = {}
     if state.bodies:
         # Tree/insertion-ordered body set (§MB-0): a part with ONE body measures
         # and tessellates that bare solid — byte-identical to the pre-multi-body
@@ -3034,24 +3047,29 @@ def evaluate_tree(
         # (Σ over the body set, no re-mesh/boolean — the assembly pattern) and
         # tessellates a COMPOUND of all bodies in the fixed base-order, which
         # ``glb_stats`` sums over. Both are deterministic (RESEARCH §9).
-        body_list = list(state.bodies.values())
         # The tessellated shape — a bare solid (one body) or a FLATTENED Compound
         # of every body's lumps (§MB-4). Same construction the provenance
         # snapshots use (:func:`_snapshot_shape`), so the final faces match the
         # last snapshot exactly (CLAUDE.md DRY).
         shape = _snapshot_shape(state.bodies)
-        if len(body_list) == 1:
-            # ONE body — which may itself be a multi-lump Compound (a disjoint
-            # boolean / multi-solid import, §MB-4): measure it directly (GProp +
-            # .shells() count across its lumps), byte-identical to the single-solid
-            # path when it is a bare Solid.
-            properties = measure_shape(body_list[0])
-        else:
-            # >1 body: roll up mass properties ANALYTICALLY per body (no re-mesh/
-            # boolean — the assembly pattern). Flattening the Compound avoids a
-            # nested Compound (a body that is itself a Compound), which would give
-            # ``glb_stats`` a nondeterministic traversal.
-            properties = combine_properties([measure_shape(b) for b in body_list])
+        # Each body is measured with ITS OWN material's density (override, else
+        # the document default, else none — docs/design/materials.md §2), so a
+        # part that mixes materials rolls up a genuinely mass-weighted centre of
+        # mass. A body with no material measures to mass_g=None and the whole
+        # part's mass is then None: absent, never zero.
+        for base_id, body in state.bodies.items():
+            body_measures[base_id] = measure_shape(
+                body, density_kg_m3=density_kg_m3(body_materials[base_id])
+            )
+        measured = list(body_measures.values())
+        # ONE body — which may itself be a multi-lump Compound (a disjoint
+        # boolean / multi-solid import, §MB-4) — reports its own measurement
+        # verbatim (GProp + .shells() across its lumps). >1 body rolls up mass
+        # properties ANALYTICALLY per body (no re-mesh, no boolean — the
+        # assembly pattern); the flattened Compound tessellated above avoids a
+        # nested Compound, which would give ``glb_stats`` a nondeterministic
+        # traversal.
+        properties = measured[0] if len(measured) == 1 else combine_properties(measured)
         glb, mesh = tessellate_glb(shape, request.linear_deflection)
         mesh_glb_id = store_mesh_glb(glb)
 
@@ -3060,8 +3078,17 @@ def evaluate_tree(
     # The whole-part ``properties.topology.shells`` aggregate cannot distinguish a
     # disjoint-union / multi-solid-import body (one body, several lumps) from a
     # single-lump one, so this carries the honest per-body count for the consumer.
+    # ``material`` / ``mass_g`` ride along per body (docs/design/materials.md §4):
+    # the whole-part ``properties.mass_g`` goes null as soon as ONE body lacks a
+    # material, and without this a consumer could not say WHICH body is missing
+    # one. ``mass_g`` here is the very value measured above, never recomputed.
     bodies = [
-        BodyLumpInfo(base_feature_id=base_id, lumps=lump_count(body))
+        BodyLumpInfo(
+            base_feature_id=base_id,
+            lumps=lump_count(body),
+            material=body_materials[base_id],
+            mass_g=body_measures[base_id].mass_g,
+        )
         for base_id, body in state.bodies.items()
     ]
 
