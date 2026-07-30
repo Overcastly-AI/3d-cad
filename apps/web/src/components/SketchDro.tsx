@@ -44,7 +44,7 @@ export function SketchDro({ solving }: SketchDroProps) {
       className="absolute bottom-3 left-3 inline-grid grid-flow-col auto-cols-auto divide-x divide-hairline"
     >
       {(["x", "y"] as const).map((axis) => (
-        <div key={axis} className="min-w-24 px-3 py-2">
+        <div key={axis} className="min-w-[6rem] px-3 py-2">
           <span className="block font-display text-2xs uppercase tracking-[0.18em] text-gauge">
             {axis} · mm
           </span>

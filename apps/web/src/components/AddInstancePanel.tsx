@@ -58,7 +58,7 @@ export function AddInstancePanel({
             </p>
           ) : (
             <div
-              className="max-h-64 overflow-y-auto"
+              className="max-h-[16rem] overflow-y-auto"
               data-testid="add-instance-list"
             >
               {list.map((part) => (

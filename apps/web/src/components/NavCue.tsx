@@ -13,6 +13,8 @@
 import { CloseIcon } from "@loft/design";
 import { useCallback, useState } from "react";
 
+import { useMeasureStore } from "../measure/store";
+
 const STORAGE_KEY = "loft.nav-cue-dismissed";
 
 function readDismissed(): boolean {
@@ -37,6 +39,11 @@ function Gesture({ gesture, action }: { gesture: string; action: string }) {
 
 export function NavCue() {
   const [dismissed, setDismissed] = useState(readDismissed);
+  // The bottom-centre HUD lane belongs to an ARMED TOOL first: while the
+  // measure readout is seated there, the cue steps aside rather than stacking
+  // two centred cards. It is guidance for idle exploration, and the user who
+  // has armed a tool is past that.
+  const measuring = useMeasureStore((s) => s.active);
   const dismiss = useCallback(() => {
     setDismissed(true);
     try {
@@ -46,14 +53,14 @@ export function NavCue() {
     }
   }, []);
 
-  if (dismissed) return null;
+  if (dismissed || measuring) return null;
 
   return (
     <div
       data-testid="nav-cue"
       role="note"
       aria-label="How to move the view"
-      className="absolute bottom-[84px] left-1/2 flex -translate-x-1/2 items-center gap-3 border border-hairline bg-anvil/90 px-3 py-1.5 shadow-float backdrop-blur-sm"
+      className="absolute bottom-hud-lane left-1/2 flex -translate-x-1/2 items-center gap-3 border border-hairline bg-anvil/90 px-3 py-1.5 shadow-float backdrop-blur-sm"
     >
       <span className="font-display text-2xs uppercase tracking-[0.16em] text-brass">
         Move the view

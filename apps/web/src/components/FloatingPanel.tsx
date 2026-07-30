@@ -28,13 +28,15 @@ export interface FloatingPanelProps {
 
 // The reference cube (drei GizmoHelper) always lives bottom-RIGHT, occupying
 // roughly the 64–144px band above the frame's bottom edge. A tall right panel
-// at the default 4.5rem clearance would draw its opaque body over that band and
-// hide a table-stakes nav element (mandate 3a). Right panels therefore clear the
-// cube band; left panels keep the tight default (nothing but the DRO sits
-// bottom-left, and that lives below any panel).
+// at the default clearance would draw its opaque body over that band and hide a
+// table-stakes nav element (mandate 3a). Right panels therefore clear the cube
+// band; left panels keep the tight default (nothing but the DRO sits
+// bottom-left, and that lives below any panel). Both clamps are token-derived
+// (`maxHeight.hud-card` / `.cube-card`) so the feature-editor cards can use the
+// same one instead of inventing a second clamp.
 const DEFAULT_CLEARANCE = {
-  left: "max-h-[calc(100%-4.5rem)]",
-  right: "max-h-[calc(100%-9.5rem)]",
+  left: "max-h-hud-card",
+  right: "max-h-cube-card",
 } as const;
 
 export function FloatingPanel({
@@ -75,9 +77,7 @@ export function FloatingPanel({
       )}
     >
       {/* Collapse tab — pinned to the heading row's empty right corner (the
-          eyebrow text is left-aligned, so no content is ever covered). NB:
-          the preset's closed spacing scale has no `px` step — only scale
-          values (`top-0`/`right-0`) compile. */}
+          eyebrow text is left-aligned, so no content is ever covered). */}
       <button
         type="button"
         data-testid={`panel-collapse-${id}`}

@@ -204,7 +204,7 @@ function DimensionEditor({ basis }: { basis: PlaneBasis }) {
       center
       zIndexRange={GLYPH_Z_RANGE}
     >
-      <Panel className="w-52 space-y-2 p-2" data-testid="dimension-editor">
+      <Panel className="w-[13rem] space-y-2 p-2" data-testid="dimension-editor">
         <form onSubmit={onSubmit} className="space-y-2">
           {isDriving ? (
             <ExpressionField
@@ -368,7 +368,7 @@ function OffsetEditor({ basis }: { basis: PlaneBasis }) {
       center
       zIndexRange={GLYPH_Z_RANGE}
     >
-      <Panel className="w-48 p-2" data-testid="offset-editor">
+      <Panel className="w-[12rem] p-2" data-testid="offset-editor">
         <form onSubmit={onSubmit}>
           <NumberField
             label="Offset"
@@ -482,7 +482,7 @@ function CornerEditor({ basis }: { basis: PlaneBasis }) {
       center
       zIndexRange={GLYPH_Z_RANGE}
     >
-      <Panel className="w-48 p-2" data-testid="corner-editor">
+      <Panel className="w-[12rem] p-2" data-testid="corner-editor">
         <form onSubmit={onSubmit}>
           <NumberField
             label={isFillet ? "Fillet radius" : "Chamfer distance"}

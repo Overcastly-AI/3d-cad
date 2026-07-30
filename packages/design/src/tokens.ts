@@ -100,6 +100,15 @@ export const viewport = {
    * red-flushed but still metal. The single source `assembly.clashTint` reads. */
   clashSurfaceTint: "#F2C9C9",
   /**
+   * Surface tint of a body the interference check could NOT measure. Cooled and
+   * held a step down from the rest identity: the part reads "set aside for
+   * inspection" against its warm-neutral neighbours, WITHOUT the alarm the flag
+   * tint asserts. Deliberately cool — every "committed" state in this product is
+   * warm (brass select, red clash), so cool is unmistakably "not established".
+   * Read by `assembly.unverifiedTint` (one tint, one source).
+   */
+  unverifiedSurfaceTint: "#C6D3E2",
+  /**
    * Atmosphere — the DOM half of the scene (the canvas is transparent and the
    * wrapper paints depth behind it; the vignette overlays it). One palette,
    * two renderers: the WebGL grid fades into these exact inks.
@@ -321,6 +330,19 @@ export const assembly = {
    * tint, one source (never a raw hex duplicated here).
    */
   clashTint: viewport.clashSurfaceTint,
+  /**
+   * A pair the kernel could NOT measure (`unresolved` — the exact boolean
+   * failed and only an AABB upper bound exists). The viewport still says "look
+   * here", but red is reserved for a measurement that was actually taken, so
+   * the body is COOLED rather than flushed and its edges are lifted one step
+   * (never to gauge — a light edge on a light aluminum body disappears, which
+   * is the opposite of attention). Paired with the dashed gauge balloon, this
+   * is the schedule's UNVERIFIED stamp rendered in three dimensions
+   * (UI-REVIEW 2026-07-30 P1).
+   */
+  unverified: color.etch,
+  /** Surface tint of an unmeasurable body — cool "held for inspection". */
+  unverifiedTint: viewport.unverifiedSurfaceTint,
 } as const;
 
 /**
@@ -533,12 +555,38 @@ export const fontSize = {
   xl: 20,
 } as const;
 
-/** Spacing scale (px) — 4px grid. */
+/**
+ * Spacing scale (px) — 4px grid, with the two half-steps and the hairline the
+ * dense chrome actually uses.
+ *
+ * CLOSED on purpose (the preset *replaces* Tailwind's scale), which makes it a
+ * loaded gun: Tailwind emits **no rule at all** for a step that is missing —
+ * no warning, no build error — so the element silently has no size. Until
+ * 2026-07-30 the scale was missing `1.5`, `2.5` and `px`, which deleted ~118
+ * utilities and with them the feature tree's rollback bar (`h-px`), the tapped
+ * hole's thread-note rules, the active-tool brass scribe, the command band's
+ * vertical padding and the measure HUD's anchor — all invisible in review
+ * because a 0px element photographs as absent-by-design (UI-REVIEW 2026-07-30
+ * P1). Guarded now by `apps/web/src/test/tailwindUtilities.test.ts`.
+ *
+ * `px` (1) is not a rhythm step — it is the HAIRLINE, the drafting language's
+ * primary mark (rules, leader ticks, the active scribe). It belongs here
+ * because the design draws lines with `h-px`/`w-px`, not with borders.
+ *
+ * Steps outside this scale stay outside it: use an arbitrary value
+ * (`max-h-[16rem]`) or a named `layout` token instead of reopening the scale.
+ */
 export const spacing = {
   "0": 0,
+  /** Hairline — a ruled line, not a gap. */
+  px: 1,
   "0.5": 2,
   "1": 4,
+  /** Half-step: the dense chrome's vertical rhythm (band rows, menu rows). */
+  "1.5": 6,
   "2": 8,
+  /** Half-step: icon↔label gap where 8 crowds and 12 drifts apart. */
+  "2.5": 10,
   "3": 12,
   "4": 16,
   "5": 20,
@@ -548,11 +596,17 @@ export const spacing = {
   "12": 48,
 } as const;
 
-/** Radii (px) — rectilinear, drawing-like; title-block cells are square. */
+/**
+ * Radii (px) — rectilinear, drawing-like; title-block cells are square.
+ * `full` is the one exception and it is a drafting convention, not a
+ * softening: BALLOONS ARE CIRCLES on an engineering drawing, so the assembly
+ * balloon, the tree's item chip and pick nodes are round.
+ */
 export const radius = {
   none: 0,
   sm: 2,
   md: 4,
+  full: 9999,
 } as const;
 
 /** Motion durations (ms). Respect `prefers-reduced-motion` at use sites. */
@@ -571,8 +625,15 @@ export const layout = {
    * encodes in `role=group`s reads on screen (UI-REVIEW 2026-07-16, Track C
    * P2). Fixed so swapping its contents by mode (sketch tools ⇄ feature-create
    * tools) never reflows the r3f canvas beneath it.
+   *
+   * It is the SUM of what it holds, not a round number: group padding (2x4) +
+   * eyebrow (13) + a 32px tool target + the band's own bottom rule (1) = 54,
+   * plus 2px of slack. It was 46 while every tool was silently 16px tall
+   * (`py-1.5` was a dead class — UI-REVIEW 2026-07-30 P1); with real targets the
+   * band has to be tall enough to hold them, and `e2e/p1-token-scale.spec.ts`
+   * asserts no tool spills out of this frame.
    */
-  commandBandHeight: 46,
+  commandBandHeight: 56,
   inspectorWidth: 320,
   /**
    * Fixed width of a HUD feature-editor card (the datum/extrude/… panels that
@@ -588,6 +649,30 @@ export const layout = {
    * floating tree panel: panel inset (12) + panel width + gutter (12).
    */
   editorInset: 12 + 320 + 12,
+  /** Inset of every floating card from the frame edge (== `spacing.3`). */
+  cardInset: spacing["3"],
+  /**
+   * Height of the view rail: a 32px `ToolButton` target inside its 1px frame.
+   * Not decorative arithmetic — it defines the bottom HUD lane below.
+   */
+  viewRailHeight: 34,
+  /**
+   * The bottom-centre HUD lane: where a centred instrument (the measure
+   * readout, the nav cue) sits so it clears the view rail — rail inset + rail
+   * height + a gutter. One lane, one anchor: `bottom-hud-lane`.
+   *
+   * The measure readout asked for `bottom-16` before 2026-07-30, which the
+   * closed spacing scale silently dropped, so it rendered STATIC at the top of
+   * the frame under the command band — the opposite end of the viewport from
+   * the picks it was reporting on.
+   */
+  hudLaneBottom: spacing["3"] + 34 + spacing["3"],
+  /**
+   * Bottom band occupied by the in-canvas reference cube (drei GizmoHelper,
+   * bottom-RIGHT). A right-side panel clamps above it so a table-stakes nav
+   * element is never covered (mandate 3a).
+   */
+  referenceCubeBand: 140,
 } as const;
 
 /**

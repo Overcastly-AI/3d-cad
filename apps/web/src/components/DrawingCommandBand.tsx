@@ -119,7 +119,7 @@ export function DrawingCommandBand({
             value={selectedPartId ?? ""}
             disabled={noParts || busy}
             data-testid="drawing-part-select"
-            className="w-44"
+            className="w-[11rem]"
             onChange={(event) => onSelectPart(event.currentTarget.value)}
           />
         )}
@@ -136,7 +136,7 @@ export function DrawingCommandBand({
             value={sizeValue}
             disabled={busy}
             data-testid="drawing-size-select"
-            className="w-40"
+            className="w-[10rem]"
             onChange={(event) =>
               onSelectSize(event.currentTarget.value as SheetSize)
             }
@@ -155,7 +155,7 @@ export function DrawingCommandBand({
             value={scaleValue}
             disabled={busy}
             data-testid="drawing-scale-select"
-            className="w-24"
+            className="w-[6rem]"
             onChange={(event) => onSelectScale(event.currentTarget.value)}
           />
         )}
