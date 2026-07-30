@@ -762,3 +762,348 @@ screenshots).
 - **P2 — Multi-sheet UI:** sheet tabs + per-sheet compose/export (#9).
 - **P3 — "New part" opens the part; assembly clash markers in-viewport;
   matcap/ground-shadow shading pass; refresh COMPETITIVE.md Loft column.**
+
+---
+
+## Pass 2026-07-30 — bracket → print → 21-instance assembly, live stack (`fe2e5cb`)
+
+**What I ran.** Native container-free boot on ISOLATED ports (geometry :8022,
+documents :8021, gateway :8020, fresh SQLite) — the Docker registry is blocked
+here and a frontend agent held :5173/:8000-:8002. All three `/healthz` +
+`/readyz` → 200. **Every live number below is against `fe2e5cb`**: uvicorn ran
+without `--reload`, so HEAD advancing to `7d0ba8e` mid-pass (a concurrent
+agent's commit) did not change what I exercised. Code claims are quoted from
+`git show fe2e5cb:…`, not from the working tree (which was dirty with four
+agents' in-flight work). No browser session this pass — the UI half is read
+from committed screenshots + `fe2e5cb` source, and every such claim is labelled
+**(inferred)** below; everything else is **(verified live)**.
+
+**The job.** A motor-mount bracket a shop would actually cut: 100×60×10 plate →
+Ø8 bolt hole → linear pattern ×3 @30 mm → offset datum → mirror the bolt row →
+Ø5 blind dowel hole → R8 corner fillets → STEP out → STEP back in → A3
+third-angle drawing (front/top/right/iso) with a linear + a diameter dimension
+→ SVG/PDF/DXF → then the change request (**make it 120 wide**) → then a 21-
+instance bolt-up assembly (1 bracket + 20 dowel pins) with interference, BOM
+and assembly STEP.
+
+### First: four of the last pass's walls are actually closed (verified live)
+
+Credit where the geometry now holds. Every figure is exact against the
+analytic value, not "close":
+
+| Last pass | Now | Evidence |
+|---|---|---|
+| **#1 P0 pattern × Hole = silently wrong body** | **FIXED** | Ø8 hole + linear pattern ×3 @30 → `58492.035526` vs analytic `60000 − 3·π·16·10 = 58492.04`; bbox unchanged 100×60×10; faces 9. The bolt-circle verb composes with the Hole feature. |
+| **#2 P0 mirror × cut = silently erases the feature** | **FIXED** | mirror v2 `scope:{kind:"features"}` over `[Hole 1, Bolt row x3]` about a YZ+45 datum → `56984.071053` vs analytic 6 holes `56984.07`. The #1 real-world mirror use works. |
+| **#3 P1 edit hole 1, lose holes 2..N** | **FIXED for the everyday case** | Ø5 blind dowel picked on the *post-mirror* top face (area 5698.407), then Hole 1 Ø8→Ø10 → all 7 holes survive: `55169.801295` vs analytic `55169.80`. `onRepickFace` repair also exists in `FeatureTreePanel`. |
+| **#5 P1 assembly STEP carries UUIDs** | **mostly fixed** | `PRODUCT('Bracket <1>')`, `PRODUCT('Dowel Pin 8x24 <17>')` — instance names are in the file. Residual in **N4** below (root product + filename). |
+| **#8 P2 units are input-deep only** | **FIXED** | `InspectorPanel`/`BodyInspector` call `formatVolume(props.volume, unit)` at `fe2e5cb` (inferred, but the unit tests assert "not mm" in `in` mode). |
+| **#9 P2 multi-sheet is API-only** | **FIXED** | `DrawingPage` has `activeSheetIndex` + a tab strip at `fe2e5cb` (inferred). |
+| **#6 P2 composed sheet flattens typed errors** | **half fixed** | Per-dimension typed errors DO reach the sheet as `ComposedDimensionError`. What they render as is **N1** below. |
+
+Also verified sound this pass: STEP round-trip is exact (93,052 B out →
+reimport → `54620.420593403265` vs `54620.42059340316`, **Δ 1.0e-10 mm³**);
+`/geometry/overlay` works on an imported body so a vendor STEP is genuinely
+modifiable; a too-large fillet says *"the radius (40.0 mm) may be too large for
+an adjacent face"*; deleting a referenced feature is a 409 naming the dependent;
+rollback + insert-at-the-bar puts the new feature at `order_index 4` and
+advances the bar; reorder is a clean 200; the 21-instance BOM rolls 20 identical
+pins into **one line, quantity 20**. Compute is not the problem anywhere:
+part evaluate 65–433 ms, assembly evaluate 411 ms, interference over 210 pairs
+985 ms, sheet compose 642–1229 ms, PDF 536 ms, DXF 593 ms.
+
+### The walls I hit this pass
+
+**N1 — P0 — A drawing dimension cannot survive the design change it measures.**
+(verified live) I dimensioned the bracket's 84 mm top edge; it composed as
+`84.000`. Then the change request every engineer gets: widen the plate 100→120
+(one number in the base sketch). The part rebuilt perfectly — `66620.420593`,
+all 8 features `ok`. Recomposed the sheet: that dimension came back
+`kind:"error", code:"subshape_unresolved"`, and on the sheet it is a 2.6 mm
+dashed `#B23A2E` circle containing a **`!`** — no value, no reason, no name of
+what broke. The exported PDF and DXF carry the same `!`. The Ø10 dimension
+survived, *because its hole didn't change*. So the rule is exactly inverted from
+the promise of a parametric drawing: **the dimensions destroyed are precisely
+the ones that measured what you changed.** A print revision is therefore a
+re-dimensioning job, and the machinist's copy silently loses the overall length
+and gains a drafting mark that means nothing to him. This is the single biggest
+gap between Loft and Fusion/Onshape/SolidWorks that I found this pass — in all
+three, an overall-length dimension re-measures and re-stamps itself.
+
+**N2 — P0 — Auto-layout collides with FOUR standard views after an ordinary
+resize, and ships the collision to PDF/DXF.** (verified live, measured from the
+exported SVG) On the same A3 sheet, after the 100→120 widening:
+
+```
+front    x[  92.84, 212.84] y[ 189.96, 199.96]
+top      x[  92.84, 212.84] y[ 105.96, 165.96]
+right    x[ 236.84, 296.84] y[ 189.96, 199.96]
+iso      x[ 206.51, 327.16] y[  98.40, 173.51]
+  top / iso   *** OVERLAP 6.33 x 60.00 mm
+```
+
+The isometric sits *on top of* the top view for 60 mm of its height while
+**82.8 mm of sheet width to the right sits empty**. Before the widening the same
+four views cleared by 0.70 mm — i.e. the layout does not re-flow when the part
+changes size, it just starts overlapping. The last pass filed this needing a
+5th (section) view; it now reproduces with the four views every drawing starts
+with, from a one-number edit. No drag-to-place exists, and `auto_place` defaults
+true. A machinist hands this print back.
+
+**N3 — P0 — One broken feature blanks six good ones, and the viewport doesn't
+say so.** (verified live + inferred UI) I moved Hole 1's point off the body — a
+one-pixel-off pick, the most ordinary mistake there is. Result:
+
+```
+Base profile           ok
+Base extrude           ok
+Hole 1                 error    hole_off_body :: "The hole removed no material…"
+Bolt row x3            skipped
+Mirror plane x=45      skipped     <- a datum. Nothing to do with Hole 1.
+Mirror bolt row        skipped
+Dowel hole             skipped     <- an independent hole on the far corner.
+Corner fillets R8      skipped
+  properties: volume 72000.0   (the bare brick)
+  last_good_feature_id: 06ef43c8  (= Base extrude)
+```
+
+Six features of work vanish for one bad pick, including a datum plane and a
+fillet that have no dependency on the failure. Worse: the viewport shows a plain
+72000 mm³ brick and **nothing tells the user that is not their part**.
+`last_good_feature_id` is returned by the API and appears nowhere in
+`apps/web/src` at `fe2e5cb` except two test fixtures — the field that would let
+the app say *"showing the model as of Base extrude"* is already on the wire and
+unused. The five `skipped` rows get a grey `SKIP` badge whose only accessible
+text is `"evaluation skipped"` — no reason, no link to the blocking feature.
+Fusion/SolidWorks keep independent downstream features alive and mark the one
+failure; here the engineer's screen just becomes a different, simpler part.
+
+**N4 — P1 — The deliverable file is named after a UUID.** (verified live)
+`Content-Disposition: attachment; filename="part-ddc5d49d-f98f-4f34-868f-67f3aba37937.step"`,
+and `apps/web/src/api/exportPart.ts` states the server is authoritative for the
+name, so that is what lands in Downloads. Inside: `#7 = PRODUCT('SOLID','SOLID','',(#8));`
+— the string "Motor Mount Bracket" appears nowhere in the file the vendor
+receives. Assembly export is worse in one way and better in another: instance
+names are correct now (see the credit table) but the **root** product is the
+assembly UUID (`PRODUCT('721b20d2-…')`) and the download is literally
+`assembly.step` for **every** assembly — export two and the second silently
+overwrites the first. Drawings already do this right (`mmb-001-bracket-rev-a.pdf`,
+slugified from the drawing name), which proves the fix is a one-liner per
+endpoint. Where an engineer hits it: quoting a job means emailing five files,
+and today that means five hand-renames before you can attach them.
+
+**N5 — P1 — The print is missing the fields a shop needs, and prints grey.**
+(verified live from the exported SVG) The complete set of text on the sheet:
+`FRONT · ! · Ø10.000 · TOP · RIGHT · ISOMETRIC · TITLE · <drawing name> ·
+LOFT · PART DRAWING · SCALE · 1:1 · SIZE · A3 · DRAWN · J. Engineer · DATE ·
+2026-07-30 · NOTES · ALL DIMS mm`. Absent: **part number, revision, material,
+finish, general-tolerance block, the third/first-angle projection symbol** (the
+convention IS stored on the sheet and is never drawn), and **SHEET n OF m** now
+that multi-sheet exists. The `TitleBlock` DTO carries only
+`title/author/date/notes`, so you cannot even *type* a revision. Two more:
+rows sit on a 3.0 mm baseline pitch with 2.1–3.4 mm glyphs (title value 3.4 mm
+at y≈270 vs `DRAWN` at y=273.5 — they touch), so a scanned or faxed copy is
+marginal; and the page rect is `fill="#ECEFF2"`, so every PDF you send the shop
+is a **grey A3**. `LOFT · PART DRAWING` occupies a title-block row where PART
+NO / MATERIAL / REV belong — by the CLAUDE.md rule that every element earns its
+place, that row is spending the scarcest real estate on branding.
+
+**N6 — P1 — 20 instances is 20 dialogs, 40 mates, and no way to say "these go
+in those holes."** (verified live) I built 1 bracket + 20 dowel pins. Each
+instance is its own POST carrying the current `doc_version`, so the inserts are
+strictly serial: 20 POSTs, 1422 ms, mean 71 ms. The solve is honest —
+`under_constrained`, `remaining_dof: 120` (6 per free pin), *"Add mates to
+remove the remaining degrees of freedom"* — which correctly describes ~40
+hand-authored mates (concentric + coincident per pin), each needing two edge
+picks. There is **no assembly-level pattern, no instance duplicate, no mate
+copy**, and the components list is single-select (`selectedInstanceId` is one
+id). The part-level pattern that generated the six holes cannot drive the
+fasteners that go in them. Compute is fine; the **authoring** is the wall, and
+it is the wall at any fastener count above about three. Onshape/SolidWorks/
+Fusion all answer this with a component pattern or "fasten to hole pattern".
+
+**N7 — P1 — Interference gives you the number and never the place.** (verified
+live + committed screenshot `assembly-clash-found-laptop.png`) My 21-instance
+check returned **20 clash rows** in 985 ms, each with an exact overlap volume
+and both instance names resolved — good reporting. But in the viewport, the
+committed shot shows two interfering instances tinted pink **over their whole
+bodies**, rendering as one shape, with the overlap (9,214.6 mm³) as a panel
+readout only. There is no overlap-volume geometry, no zoom-to-clash, no
+section-through-the-clash. At 20 clashes that is a list of 20 numbers with
+nothing to look at; SolidWorks draws the interference solid in the graphics area
+and lets you step through them.
+
+**N8 — P2 — Assembly STEP duplicates identical geometry per instance instead of
+instancing it.** (verified live) 21 instances of **2** unique parts produced
+`21 MANIFOLD_SOLID_BREP`, `22 PRODUCT_DEFINITION_FORMATION`,
+`21 NEXT_ASSEMBLY_USAGE_OCCURRENCE`, **`0 MAPPED_ITEM`**, 216,689 bytes. The
+receiving CAD/PLM therefore sees twenty *distinct* products named
+`Dowel Pin 8x24 <1..20>` where the truth is one part used twenty times — so the
+BOM your customer derives from your STEP has 20 line items where Loft's own BOM
+correctly says qty 20. Size scales linearly (≈1 MB at 100 fasteners).
+
+**N9 — P2 — There is no workspace: one flat namespace, globally unique names, no
+search, no copy.** (verified live) A second `POST /parts {"name":"Motor Mount
+Bracket"}` → `409 part_name_taken`, *"A part named 'Motor Mount Bracket' already
+exists."* There are no folders/projects anywhere in the API; `GET /parts?q=…`
+returns everything (no search parameter exists); and there is **no
+duplicate/copy/save-as route** for a part, assembly or drawing. Three week-one
+consequences: you cannot have a "Bracket" in two different jobs; you cannot make
+Rev B by copying Rev A; and you cannot make the 120 mm variant of a bracket
+without re-authoring all eight features. The register's `eval_state` /
+`last_eval_status` columns (nice, recent) make the flat list *honest* but not
+*navigable* — at 200 parts it is one alphabetical wall.
+
+**N10 — P2 — Every through-hole's rim is two semicircles, and that leaks into
+authoring.** (verified live via `/geometry/overlay`) The finished bracket has 34
+`curve:"circle"` edges of which **only two are closed**. The six Ø10 holes
+present as **12 open 15.708 mm arcs** — the same length as the one closed Ø5
+dowel circle, so length alone cannot tell "half a Ø10 hole" from "all of a Ø5
+hole". Consequences a user feels: a diameter dimension is authored against half
+a hole (it *did* compose correctly as `Ø10.000` — credit); a concentric mate
+axis is picked from half a hole; and "pick the hole edge" is two different
+pickable entities depending which side of the seam the cursor lands on. Nothing
+is wrong geometrically; the modelling *vocabulary* leaks B-rep seams at the
+user.
+
+**N11 — P2 — The title block's TITLE is not the title you typed.** (verified
+live) The sheet was authored with `title_block.title = "MOTOR MOUNT BRACKET"`;
+`GET /drawings/{id}` confirms it is stored verbatim; the composed sheet and all
+three exports print the **drawing name** (`MMB-001 Bracket rev A`) instead.
+`author`/`date`/`notes` survive; only `title` is silently overridden. A field
+that is accepted, persisted and ignored is worse than a missing field.
+
+**N12 — P3 — The dependency guard calls sibling features "documents".**
+(verified live) Deleting the base extrude: *"Feature 'Base extrude' is
+referenced by 1 other document(s) (features and/or drawing views); delete or
+re-point them first"* — with `dependents: [{name: "Hole 1"}]`. Hole 1 is a
+feature in the same part. The count and the noun disagree with the payload.
+
+**N13 — P3 — Tool feel: the ViewCube is clipped, six view buttons are
+identical, and the body floats.** (inferred from committed shots at 1280 and
+1366) In `assembly-clash-found-laptop.png` (1280) and `p1-hole-editor-after-1366.png`
+the ViewCube's RIGHT face is cut off by the window edge in both — a persistent
+navigation affordance that is physically clipped reads as a rendering bug. The
+bottom view-nav is **six near-identical unlabeled cube glyphs**; nothing but
+hover distinguishes "front" from "top" from "iso". And bodies still cast **no
+contact shadow** under flat diffuse shading, so where the part sits on the grid
+is ambiguous — this is the same residual the last pass named, and it is the
+whole remaining distance to Plasticity's look. The rest of the viewport
+(grid to horizon, atmosphere, in-command modality with per-item reasons) is
+genuinely good and reads as a tool.
+
+### Where the product makes the user do the tool's bookkeeping
+
+Collected, because the pattern matters more than the instances: rename every
+exported STEP (N4); re-dimension the print after every revision (N1); hand-check
+that auto-layout didn't overlap before sending the PDF (N2); remember which
+feature is really failing when six rows say SKIP (N3); type a revision into the
+NOTES field because there is no revision field (N5); insert and mate each
+fastener individually (N6); imagine where a clash is from a volume number (N7);
+invent globally-unique names like "Bracket-JOB412-revB" because the namespace is
+flat (N9); and keep the feature name honest yourself (my "Corner fillets R8"
+happily kept its name after I edited it to R40).
+
+### Recovery: can the user diagnose and fix without knowing our architecture?
+
+Mostly yes at the **feature** level — typed codes with plain-language messages
+(`hole_off_body`, `fillet_failed`, `references_suppressed`), a 409 that names
+dependents, a re-pick-face repair, and a "keep as one body" recovery button are
+all genuinely better than FreeCAD and competitive with Fusion. Two holes:
+(a) **`skipped` has no explanation and the viewport does not admit it is showing
+a stale body** (N3) — the user's mental model breaks before any error text
+helps; (b) **on the sheet, a broken dimension is a bare `!`** (N1) — the typed
+reason exists server-side and is thrown away at the last inch, so the person
+holding the print cannot diagnose anything.
+
+### Ratings (1–5 daily-driver readiness, Δ vs the 07-24 pass)
+
+| Capability | Rating | Δ | Note |
+|---|---|---|---|
+| Sketching + constraints + expressions | **5** | = | Not re-stressed this pass; solver landed every analytic figure exactly. |
+| Part features (extrude/revolve/loft/sweep/fillet/shell/draft/hole) | **5** | +1 | Same-face edit resilience closed the last held-down seam; 8-feature bracket rebuilt exactly through 6 edits. |
+| Pattern / mirror / suppress | **4** | **+2** | Both P0s verified closed with exact volumes. Held off 5 only by the absence of a *feature*-scope pattern (pattern is still whole-body + union). |
+| Part interop (STEP two-way) | **4** | = | Round-trip Δ 1e-10 mm³; overlay/picking works on imported bodies. Held by N4 (UUID filename, `PRODUCT('SOLID')`). |
+| Drawings (views/section/dims/export) | **2** | **−1** | Three formats, dims, sections, sheet tabs all real — but N1 (dims die on the edit they measure) + N2 (4-view collision reaching the PDF) + N5 (no part no/rev/material/tolerance/projection symbol, grey page) make the *deliverable* unshippable without hand-repair. Downgraded because the artifact, not the feature list, is what a shop judges. |
+| Assemblies (mates/solve/diagnosis) | **3** | −1 | Honest solve + BOM qty rollup + named clashes; but N6 makes any real fastener count impractical, and single-select + truncated rows make 21 components hard to manage. |
+| Assembly validation (interference) | **3** | −1 | Exact and fast (20 clashes / 210 pairs / 985 ms) but non-spatial (N7). |
+| Assembly interop (STEP out/in) | **3** | = | Instance names fixed; N4 root-UUID + `assembly.step` filename + N8 no instancing remain. |
+| Units | **4** | +1 | Display-side conversion landed. |
+| Failure recovery / diagnosis | **3** | new | Excellent per-feature errors; N3 (silent stale body + reasonless SKIP) is the hole. |
+| Document/workspace management | **1** | new | No folders, no search, no copy/save-as, globally-unique names (N9). |
+| Undo/redo/versioning trust | **3** | = | Ring works; still no named versions/checkpoints. |
+| UI / tool feel | **4** | = | Instrument-grade and distinctly *not* a dashboard; clipped ViewCube, six identical view buttons, no contact shadow (N13) are the remaining distance to Plasticity. |
+| Copy/paste of features/sketches/bodies | **0** | = | Absent (and N9 makes document-level copy absent too). |
+
+**Answer to the operating question:** for a *one-off* part that stays in Loft —
+**yes**, and more confidently than at the last pass; the modelling core is now
+producing exact geometry through pattern, mirror, hole edits and a STEP
+round-trip. For a part that must leave Loft as a **drawing** or get **revised**,
+or for an assembly with more than a handful of fasteners — **not yet**, and the
+reasons are N1, N2, N5, N6 rather than any missing modelling verb.
+
+### Scorecard rows — stale-check against VISION.md
+
+- **Part modeling ✅ — now genuinely true**, and its residuals should be
+  rewritten: the pattern×hole and mirror×cut caveats the last pass added are
+  **closed** (verified exact). New honest residual: a failed feature skips all
+  downstream features (N3).
+- **Drawings ➖ — holds ➖, but for different reasons than the row says.**
+  Section views, assembly views, multi-sheet UI, three export formats and typed
+  per-dimension errors all shipped. The row's residuals should now read:
+  dimensions don't survive model edits (N1), auto-layout collides at four views
+  (N2), title block lacks part no/rev/material/tolerances/projection symbol
+  (N5), no drag-place, no hole callouts/GD&T, no BOM balloons on sheets.
+- **Assemblies ➖ — correct, and the residual list should lead with authoring
+  scale** (no component pattern / instance duplicate / mate copy, N6) and
+  non-spatial interference (N7) ahead of exploded views.
+- **Interop ➖ — credit instance-name-preserving assembly STEP** (verified) and
+  name the remaining defects: UUID download filenames + `PRODUCT('SOLID')`
+  (N4), no instancing in assembly STEP (N8).
+- **A "Workspace / document management" row does not exist and should.** Today
+  it would be ❌ (N9): flat namespace, globally unique names, no search, no
+  copy. It is the least glamorous ❌ on the board and the one a new user meets
+  in the first hour.
+- **Price ✅, Sketching ✅, Sheet metal ➖ — hold** (sheet metal not exercised).
+
+### Prioritized recommendations (P0–P3, one line each, buildable)
+
+- **P0 — Make drawing dimensions survive the edit they measure:** re-resolve a
+  dimension's `EdgeSignature` after a rebuild by geometric re-match (same
+  face pair / same direction / nearest length) before declaring
+  `subshape_unresolved`, and re-stamp the new value (N1).
+- **P0 — Auto-layout must never overlap:** lay the standard views out from each
+  view's *computed* bounds with a minimum gutter and re-flow on every compose
+  (the four-view A3 case overlaps top/iso by 6.33×60 mm after a resize), and
+  fail loudly rather than emitting an overlapping PDF (N2).
+- **P0 — Tell the user the viewport is stale:** when any feature errors, use the
+  `last_good_feature_id` already on the wire to banner "showing the model as of
+  <feature>", and give every `skipped` row the name of the feature that blocked
+  it (N3).
+- **P1 — Only skip what actually depends on the failure:** rebuild downstream
+  features that have no dependency path to the errored one, so one bad pick
+  can't blank six good features (N3).
+- **P1 — Name the files a customer receives:** slugified document name for part
+  and assembly STEP downloads, part/assembly name as the STEP root `PRODUCT`
+  (drawings already do this) (N4).
+- **P1 — Title block a shop can accept:** add part number, revision, material,
+  finish and a general-tolerance field to `TitleBlock`; draw the
+  third/first-angle symbol and `SHEET n OF m`; stop overriding the authored
+  `title` with the document name; white page fill on export (N5, N11).
+- **P1 — Assembly-level pattern + instance duplicate:** replicate an instance
+  (with its mates) linearly/circularly or along a selected hole set, so 20
+  fasteners is one command instead of 20 inserts and 40 mates (N6).
+- **P1 — Show the interference, don't just count it:** render each overlap
+  volume in the viewport with click-to-zoom from the clash list (N7).
+- **P2 — Workspace basics:** folders or a project field, name-search on the
+  registers, per-owner name uniqueness scoped to the folder, and a
+  duplicate/save-as for part/assembly/drawing (N9).
+- **P2 — Instance the geometry in assembly STEP:** one `PRODUCT` per unique part
+  referenced N times (`MAPPED_ITEM` / shared representation) so a 100-fastener
+  export isn't 100 B-reps and 100 BOM lines (N8).
+- **P2 — Treat a hole rim as one pickable entity:** merge seam-split circular
+  arcs into a single logical circle for picking, hover highlight, dimensions and
+  mate axes (N10).
+- **P3 — Say "feature" when you mean feature** in the dependency-guard message
+  (N12); un-clip the ViewCube at 1280/1366 and label or reduce the six view
+  buttons; add a contact shadow / matcap pass so bodies sit on the grid (N13).
