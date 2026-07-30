@@ -2704,7 +2704,7 @@ def _evaluate_boolean(
 #: so a pattern can infer its combine mode from the immediately-preceding
 #: body-affecting feature (BACKLOG #3, :func:`_pattern_cut_tools`). Sketch/datum
 #: are absent — they produce input geometry / a plane, never a body.
-_BODY_AFFECTING_TYPES: frozenset[str] = frozenset(
+BODY_AFFECTING_TYPES: frozenset[str] = frozenset(
     {
         "extrude",
         "revolve",
@@ -3001,7 +3001,7 @@ def evaluate_tree(
             # IMMEDIATE predecessor (BACKLOG #3, `_pattern_cut_tools`). Set AFTER
             # dispatch, so a pattern reads the feature BEFORE it, then this
             # advances to the pattern itself.
-            if item.feature.type in _BODY_AFFECTING_TYPES:
+            if item.feature.type in BODY_AFFECTING_TYPES:
                 state.prev_body_feature_id = item.id
                 # Snapshot the body set for per-face feature provenance
                 # (FINDINGS #9): each final face is attributed to the earliest

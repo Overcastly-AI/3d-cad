@@ -2,7 +2,7 @@
 
 Engineering audit J6 (2026-07-30): geometry re-declares the body-affecting
 feature types as a hand-written frozenset
-(:data:`geometry.features.evaluate._BODY_AFFECTING_TYPES`) while py-kit already
+(:data:`geometry.features.evaluate.BODY_AFFECTING_TYPES`) while py-kit already
 owns :data:`py_kit.schemas.features.BODY_AFFECTING_FEATURE_TYPES`. Both listed
 the same 17 members and nothing checked that they still did.
 
@@ -29,7 +29,7 @@ matrix's coverage audit, which derives its rows from ``FEATURE_REGISTRY.models()
 after a hand-listed axis silently stopped covering (CM-5).
 """
 
-from geometry.features.evaluate import _BODY_AFFECTING_TYPES
+from geometry.features.evaluate import BODY_AFFECTING_TYPES
 from py_kit.schemas.features import (
     BASE_BODY_AFFECTING_FEATURE_TYPES,
     BODY_AFFECTING_FEATURE_TYPES,
@@ -48,12 +48,12 @@ def test_geometry_and_py_kit_agree_on_body_affecting_types() -> None:
     A `frozenset ==` on both sides, so a member added to ONE side fails here —
     which is the property audit J6 found missing.
     """
-    assert _BODY_AFFECTING_TYPES == BODY_AFFECTING_FEATURE_TYPES, (
-        "geometry's _BODY_AFFECTING_TYPES has drifted from py-kit's "
+    assert BODY_AFFECTING_TYPES == BODY_AFFECTING_FEATURE_TYPES, (
+        "geometry's BODY_AFFECTING_TYPES has drifted from py-kit's "
         "BODY_AFFECTING_FEATURE_TYPES. Only geometry.features.evaluate:"
-        f"{sorted(_BODY_AFFECTING_TYPES - BODY_AFFECTING_FEATURE_TYPES)}; "
+        f"{sorted(BODY_AFFECTING_TYPES - BODY_AFFECTING_FEATURE_TYPES)}; "
         "only py_kit.schemas.features: "
-        f"{sorted(BODY_AFFECTING_FEATURE_TYPES - _BODY_AFFECTING_TYPES)}. If the "
+        f"{sorted(BODY_AFFECTING_FEATURE_TYPES - BODY_AFFECTING_TYPES)}. If the "
         "divergence is deliberate, name the member here and say why."
     )
 
@@ -65,7 +65,7 @@ def test_the_agreement_is_not_vacuous() -> None:
     constructor — would satisfy the equality above and read as green.
     """
     assert len(BODY_AFFECTING_FEATURE_TYPES) >= 10
-    assert "extrude" in _BODY_AFFECTING_TYPES
+    assert "extrude" in BODY_AFFECTING_TYPES
     assert not (NON_BODY_AFFECTING & BODY_AFFECTING_FEATURE_TYPES), (
         "sketch/datum produce input geometry and a plane, never a body"
     )
