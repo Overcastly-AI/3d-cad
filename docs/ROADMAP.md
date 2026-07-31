@@ -2,8 +2,27 @@
 
 Status legend: ✅ done · 🚧 in progress · ⬜ planned
 
-**Current focus: FOUNDER-DIRECTED UI WAVE (2026-07-30) — "this needs to look
-professional and comparable to Fusion 360 and Plasticity." Design plan in
+**Current focus: OPEN-SOURCE SELF-HOSTED RELEASE READINESS (2026-07-31,
+founder-directed: "Yes open sourced self hosted").** The bar is a stranger
+cloning this and modelling something, so the work is backups, observability,
+licensing and an honest front door — not features. Landed today: a tested
+restore that destroys the volumes and demands the rebuilt part match to the
+byte (`a40bf31`), `/metrics` instrumented for CAD failure modes rather than
+generic HTTP (`0ba93b3`), and a licensing audit that found we ship a GPL
+library and cleared two of three images to publish (`c7f23dd`). OPEN: LIC-1,
+stripping jbigkit from the geometry image, which is what still blocks
+publishing it.
+
+Preceded today by a PERFORMANCE wave off the first big-part benchmark
+(`docs/PERF.md`): the wall was ~50 features and every route rebuilt the world,
+so an edit on a 200-feature part cost 27 s. Now 1.0 s, a repeat measure/export
+162 ms, and a 2 006-face STEP import 18.6 s → 3.5 s. Cold open is still ~26 s —
+the N^1.85 curve is untouched and needs incremental topology.
+
+**COMPLETE — FOUNDER-DIRECTED UI WAVE (2026-07-30/31)** — "this needs to look
+professional and comparable to Fusion 360 and Plasticity." All four of the
+founder's questions are answered (timeline, component enablement, pre-selection
+prefill, snapping, planes/sketches/bodies). Design plan in
 `docs/design/ui-wave-tool-grade.md`. **UI-W1 (bottom timeline with a draggable
 travel stop) SHIPPED 2026-07-30** (frontend-builder) — the 1px `ROLLBACK` rule
 inside the tree panel is gone; the build now travels a docked machine way with a
