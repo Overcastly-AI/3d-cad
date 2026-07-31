@@ -7,7 +7,7 @@ The system layout at Phase 0. For rationale and design decisions, see
 
 ```
 apps/web            React 19 + Vite SPA (viewport + UI)
-services/gateway    FastAPI: REST aggregation, geometry proxy, auth, WebSocket fan-out
+services/gateway    FastAPI: REST aggregation, geometry proxy, auth
 services/geometry   OCCT workers (OCP + build123d): feature evaluation, tessellation, export
 services/documents  Parts/assemblies, feature trees, versioning (Postgres)
 packages/py-kit     Shared service kit (config, logging, health, errors, queue)

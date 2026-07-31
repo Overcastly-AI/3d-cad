@@ -94,7 +94,7 @@ and intentional** — never templated. Standing rules:
 
 ```
 apps/web            React SPA (viewport + UI)
-services/gateway    FastAPI: auth, REST aggregation, WebSocket fan-out
+services/gateway    FastAPI: auth, REST aggregation, geometry/document proxy
 services/geometry   OCCT workers: feature eval, tessellation, export (stateless)
 services/documents  Parts/assemblies, feature trees, versioning (Postgres)
 packages/py-kit     Shared Python service kit (config, logging, health, queue, errors)
