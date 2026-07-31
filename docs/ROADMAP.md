@@ -845,6 +845,41 @@ carry forward as blocked board items.
       three services; `.env.example`'s "NOTHING refuses to boot" paragraph is
       now false and rewritten. 48 new tests (41 py-kit cases + 7 service-level), every
       branch mutation-verified; contracts unmoved
+- ✅ **OPS-1 — backup, restore, and a RESTORE PROVEN BY RESTORING IT** — the
+      open-source-release blocker: a self-hoster is their own ops team, and the
+      repo had no backup, no restore and no restore test, so a lost volume was
+      a lost company (a STEP export is a lossy snapshot, not a backup). SHIPPED
+      2026-07-31 (platform-builder). `scripts/backup.sh` (`just backup`) dumps
+      BOTH databases (`pg_dump -Fc`, online, one transaction each, through
+      `docker compose exec db` so there is no host client to install) with a
+      manifest carrying each one's alembic revision, EXACT per-table row counts
+      and sha256s, and verifies each archive's `pg_restore -l` TOC actually
+      contains `users` / `parts`+`features`+`assemblies`+`drawings` before
+      calling it a backup. `scripts/restore.sh` (`just restore`) works FROM
+      NOTHING, restores with `--single-transaction` (without it pg_restore logs
+      errors, continues, and **exits 0** — the silent partial restore), then
+      re-checks the restored revision and row counts against the manifest
+      before believing it (exit 4 if not). VERSION SKEW is answered before
+      anything is written: at head → restore only; an ANCESTOR of head →
+      restore then `alembic upgrade head` printing `MIGRATED <svc>: A -> B`; a
+      revision UNKNOWN to this image's tree (backup from a NEWER Loft) →
+      REFUSED, exit 3, nothing changed. **The object store is deliberately NOT
+      backed up** — it holds only content-addressed derived artifacts
+      (`meshes/sha256/*.glb`, composed drawings) that are pure functions of the
+      feature trees; restore-time cost is one cold rebuild per part (0.23 s at
+      10 features … 27 s at 200, docs/PERF.md). The gate is
+      `scripts/backup-restore-drill.sh` (`just backup-drill`, CI job
+      `backup-restore-drill` in `deploy-path.yml`): seed a user + part with a
+      feature tree + assembly + drawing through the real API → back up →
+      `docker compose down -v` **and assert the volumes are gone** → boot from
+      nothing and assert the seeded user CANNOT log in → restore → log in
+      again, confirm the old mesh 404s, and **re-evaluate the part demanding
+      the same volume AND the same `mesh_glb_id`** (a SHA-256 of the GLB — a
+      bit-identical solid). New `docs/OPERATIONS.md` covers backup, restore,
+      upgrade and SIZING (~1 GiB + ~500 MiB OCCT baseline per geometry worker;
+      the rebuild cache is a PER-PROCESS LRU of 8, so `--scale geometry=N`
+      divides the hit rate instead of multiplying throughput — there is no
+      session affinity)
 - ✅ Compose deploy-config audit fixes (2026-07-24 engineering audit G1/G3/G4,
       platform-builder): geometry now receives `S3_ACCESS_KEY_ID`/
       `S3_SECRET_ACCESS_KEY` anchor-sourced from the MinIO root credentials

@@ -116,6 +116,24 @@ frame refactor are v2/§11. Spike de-collected.
       `mesh_glb_id` depend on cache state. Serves APPEND + REPEAT; a mid-tree edit
       still misses (frontier-only checkpoints — PERF-1b filed). docs/PERF.md
       "2026-07-31c". [geometry-qa PERF-1]
+- [x] (P0, M) **OPS-1 — there was no backup, no restore, and no restore test.**
+      SHIPPED 2026-07-31 (platform-builder), the release blocker for self-hosting:
+      Postgres holds every feature tree and a lost volume lost everything.
+      `just backup` (both DBs, `pg_dump -Fc` online, manifest with alembic revision
+      + exact per-table row counts + sha256, TOC-verified), `just restore`
+      (works from nothing; `--single-transaction` so a failed restore leaves an
+      EMPTY database instead of a half-populated one reported as success; re-checks
+      revision + row counts against the manifest, exit 4 on drift), and version
+      skew answered before anything is written — at head → nothing; ancestor →
+      `MIGRATED <svc>: A -> B`; unknown revision (newer Loft) → REFUSED exit 3.
+      Object storage deliberately NOT backed up (content-addressed derived
+      artifacts; restore cost is one cold rebuild per part). Gate:
+      `just backup-drill` / CI `backup-restore-drill` seeds real data, destroys
+      the volumes (and asserts they are gone), restores, and demands the same
+      volume AND the same `mesh_glb_id` from a re-evaluate. `docs/OPERATIONS.md`
+      adds sizing: ~500 MiB OCCT baseline per geometry worker and a PER-PROCESS
+      8-entry rebuild cache, so `--scale geometry=N` divides the hit rate.
+      [founder / open-source release]
 - [ ] (P2, M) **PERF-1b — a mid-tree edit still pays a full rebuild.** PERF-1's
       cache keeps ONE checkpoint per lineage (the frontier) because an intermediate
       ladder needs copies and a copy is not byte-transparent (evidence in

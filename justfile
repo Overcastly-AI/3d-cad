@@ -28,6 +28,28 @@ smoke base_port="8000":
 compose-smoke:
     scripts/compose-smoke.sh
 
+# Back up a RUNNING stack: pg_dump -Fc of both databases + a manifest carrying
+# each one's alembic revision, exact per-table row counts and dump checksums.
+# The object store is NOT included (it holds only derived, content-addressed
+# meshes/drawing artifacts) — docs/OPERATIONS.md. Default destination:
+# backups/loft-<UTC timestamp>/
+backup dest="":
+    scripts/backup.sh {{dest}}
+
+# Restore a backup taken by `just backup`. Refuses (exit 3) if the backup came
+# from a NEWER Loft than this one; migrates forward LOUDLY if it came from an
+# older one; verifies the restored row counts against the manifest before
+# declaring success. Add --force to overwrite non-empty databases.
+restore dir *flags:
+    scripts/restore.sh {{dir}} {{flags}}
+
+# The proof: seed real data → back up → DESTROY every volume → boot from
+# nothing → restore → re-evaluate the part and demand the same volume and the
+# same content-addressed mesh id. Needs a docker daemon; CI runs the same
+# script (the `deploy-path` workflow).
+backup-drill:
+    scripts/backup-restore-drill.sh
+
 # Lint + typecheck: ruff (lint + format), pyright strict, eslint + prettier,
 # and TS typecheck (tsc) across the pnpm workspace. The TS typecheck is here so
 # a backend change that regenerates packages/ts-client and breaks a frontend

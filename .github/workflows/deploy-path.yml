@@ -1,4 +1,5 @@
-# Loft deploy-path proof — the documented self-host install, on a real daemon.
+# Loft deploy-path proofs — the documented self-host install AND the documented
+# disaster recovery, both on a real daemon.
 #
 # ci.yml checks the compose files as TEXT (`docker compose config -q` +
 # scripts/check-compose.py). This workflow RUNS them: it builds the three
@@ -56,6 +57,34 @@ jobs:
         run: scripts/compose-smoke.sh
       # The script tears the stack down in its own EXIT trap; this catches the
       # case where the job is killed before the trap runs (e.g. job timeout).
+      - name: Tear down
+        if: always()
+        run: docker compose down -v --remove-orphans
+
+  # A backup nobody has restored is not a backup. This job is the only thing
+  # entitled to call ours one: it seeds REAL data through the API (a user, a
+  # part with a feature tree, an assembly, a drawing), backs up, DESTROYS every
+  # volume, boots from nothing, restores, and then drives the API again to prove
+  # the data is there — ending on the assertion that the restored feature tree
+  # re-evaluates to the SAME volume and the SAME `mesh_glb_id` (a SHA-256 of the
+  # tessellated GLB), i.e. a bit-identical solid.
+  #
+  # Its own job, not a step of the one above, so a backup regression and a
+  # deploy-path regression are distinguishable at a glance and each gets a clean
+  # stack and its own teardown. It re-builds the images rather than sharing a
+  # layer cache across jobs; the two run in parallel, so wall-clock is unchanged.
+  #
+  # Two things make a SKIPPED run of this job impossible to mistake for a pass:
+  # the drill asserts the named volumes are actually gone after `down -v`, and
+  # it asserts the freshly-booted install REJECTS the seeded login before the
+  # restore. A no-op cannot produce either.
+  backup-restore-drill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Backup → destroy the volumes → restore → re-evaluate the part
+        run: scripts/backup-restore-drill.sh
       - name: Tear down
         if: always()
         run: docker compose down -v --remove-orphans

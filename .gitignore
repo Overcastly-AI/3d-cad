@@ -14,6 +14,10 @@ dist/
 *.tsbuildinfo
 .pnpm-store/
 
+# Local backups (scripts/backup.sh default destination). Never committed:
+# they hold real user data and password hashes.
+backups/
+
 # Test / e2e artifacts
 playwright-report/
 test-results/
