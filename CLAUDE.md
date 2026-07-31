@@ -341,6 +341,25 @@ on completion with a watchdog fallback (`docs/AUTONOMOUS-LOOP.md` §1.4).
   (measured). It reported "left 1 hunk(s) unstaged for their author" while doing
   it, which is worse than failing. Note `git add -p` is NOT a fallback here:
   interactive git is unavailable in this container.
+  **When you are ready to commit and ANOTHER agent already has files staged, do
+  not touch their index — build your commit against an isolated one.** The
+  staging protocol above assumes the index is yours to arrange, and under four
+  parallel agents it frequently is not: a `git reset` to clear someone else's
+  staged work, or a commit that sweeps it in, are both the same defect (a commit
+  whose message describes none of its own contents). `GIT_INDEX_FILE` gives you a
+  private index for the duration:
+  ```bash
+  export GIT_INDEX_FILE=$(mktemp -u /tmp/idx.XXXX)
+  git read-tree HEAD                     # start from HEAD, not from their index
+  git add <your files only>              # stage-doc-hunks.py still applies to ROADMAP/BACKLOG
+  git commit -m "…"                      # commits YOUR tree; their index is untouched
+  unset GIT_INDEX_FILE
+  ```
+  Used first on 2026-07-31 by the perf agent, which found ~40 of a sibling's
+  files staged when its own work was ready; nothing of theirs was swept and their
+  commit landed as its parent. Verify afterwards with `git show --stat HEAD` that
+  the commit contains only your paths — the isolated index protects their work,
+  not you from your own `git add`.
   Push with `git push -u origin <branch>`; on rejection `git pull --rebase`
   and retry. Commit only when your gates are green.
 - **Liveness (orchestrator duty).** On every wakeup, check in-flight agents'
