@@ -34,9 +34,12 @@ duplication.
   metal (bend chains + corner relief + closed hem + edge-flange WIDTH EXTENTS
   + auto bend-end relief shipped, all click-authorable in-app; still no open/
   teardrop/rolled hems, miters, tabs, or gauge tables).
-- **❌ rows (untouched, no design doc yet):** Performance (benchmark-suite
-  infra shipped, no real-part corpus yet), Collaboration & versioning (Phase
-  3, unstarted), Extensibility/scripting + MCP (Phase 5, unstarted).
+- **❌ rows (untouched, no design doc yet):** Performance — **the real-part
+  corpus now EXISTS and has been measured** (`docs/PERF.md`, geometry-qa
+  2026-07-31: the wall is ~50 features, unusable at 200; PERF-1..PERF-5 filed) —
+  so the row is ❌ on *substance*, not on ignorance, and has a numbered fix list;
+  Collaboration & versioning (Phase 3, unstarted), Extensibility/scripting + MCP
+  (Phase 5, unstarted).
 - **Stale VISION note (unchanged since last pass, still unfixed):** VISION's
   Interop row Notes still call "the untrusted-parse wall-clock/DoS bound" a
   tracked P1 fast-follow — closed twice over (`483d5ae` 2026-07-13 hard bound,
@@ -62,6 +65,56 @@ single-body part by principal / axis-aligned-offset datum reference —
 even-odd scanline clip) across SVG/PDF/DXF, `views.section_params jsonb` (0008);
 wrong-half + multi-loop + byte-determinism goldens; oblique + the `project_view`
 frame refactor are v2/§11. Spike de-collected.
+
+- [ ] (P1, L) **PERF-1 — `evaluate_tree` has NO rebuild cache, so every route
+      re-runs the whole tree from feature 0.** Measured (docs/PERF.md 2026-07-31):
+      a realistic 200-feature tray rebuilds in **27.3 s**; editing feature #199
+      costs the same as #1, one face pick costs **29.2 s** (`/overlay` = full
+      rebuild + history), and `/measure` `/tessellate` `/export` + drawings compose
+      each pay their own. Rebuild grows `N^1.85` (263/628/2098/7456/27269 ms at
+      N=10/25/50/100/200) because face count is linear in N and every op is a
+      whole-body pass. Fix: content-addressed body cache keyed on the feature-prefix
+      hash (the tree is already required deterministic, RESEARCH §9). Expected
+      append/pick 27 s → ~0.2 s. **Loft's wall is ~50 features and hard by 100.**
+      [geometry-qa PERF-1]
+- [ ] (P1, M) **PERF-2 — the CM-6 validity gate is O(features x faces): 22 % of a
+      big-part rebuild.** A/B counterfactual, same protocol (docs/PERF.md): N=200
+      25 331 ms as shipped vs **19 680 ms** with `body_is_valid` stubbed — 5.65 s in
+      **125 whole-body `BRepCheck_Analyzer` passes at ~53 ms each**
+      (`features/evaluate.py:529` `_admit`). DO NOT delete it (QA-1/CM-6 guard);
+      make it incremental over the boolean's `Modified`/`Generated` faces and keep
+      the publish-time whole-body check (`evaluate.py:3117`). Same class:
+      `healing.clean_shape`'s two GProp integrations per boolean = another 5.3 %,
+      and its docstring's "~1.3 ms" is toy-measured (5.8 ms/integration at 442
+      faces). [geometry-qa PERF-2]
+- [ ] (P1, M) **PERF-3 — STEP import of Loft's OWN export is at 92 % of the DoS
+      ceiling, and import scales `faces^2.4`.** Through the real bounded worker
+      (`import_step_solid`): 1 030 faces → 3.66 s, 2 006 faces → **18.44 s** against
+      `DEFAULT_STEP_IMPORT_CPU_TIMEOUT_S = 20.0` (`kernel/imports.py:100`). A part
+      ~4 % larger is refused as `import_parse_timeout` — a **wrong refusal**, not a
+      slow import. That ceiling's docstring claims "~20x headroom" from the 10-23 ms
+      toy goldens; real headroom is **1.08x**. Re-derive the bound against a
+      real-part corpus AND root-cause the 10.7x export/import asymmetry.
+      [geometry-qa PERF-3]
+- [ ] (P2, S) **PERF-4 — the mesh route ships uncompressed; there is no
+      `GZipMiddleware` anywhere** in geometry/gateway/py-kit (`api.py:529` returns a
+      raw `Response(content=glb, ...)`). Measured gzip-6: 1 117 KiB → **216 KiB**
+      (tray N=200, 5.2x) and 1 064 KiB → **90 KiB** (2 006-face sink, 11.8x). One
+      line on the hottest binary route. Companion (P2, M): `tessellate_glb` emits one
+      glTF primitive per B-rep face, measured at **~425 bytes of JSON per face** (+
+      one draw call per face — 2 006 on the sink); the split is required for picking,
+      so carry the face id as a vertex attribute instead of splitting primitives.
+      [geometry-qa PERF-4]
+- [ ] (P2, M) **PERF-5 — per-face provenance goes dark at ~110 features and its
+      docstring says it never will.** `MAX_PROVENANCE_FACES`'s budget sums faces over
+      EVERY snapshot, so it is `O(features x faces)`: measured 91 % of 8 000 at
+      N=100, **200 % at N=150**, after which selecting a feature silently stops
+      highlighting its faces. `py_kit/schemas/overlay.py:55-57` claims "an authored
+      part is nowhere near the bound (tens of features x tens-to-low-hundreds of
+      faces)" — that product is 7 500 of 8 000. Fix the docstring now; then keep
+      `list[fingerprint]` per snapshot instead of `list[BodyShape]`
+      (`kernel/provenance.py:180`), which also drops the retained B-reps.
+      [geometry-qa PERF-5]
 
 - [ ] (P1, S) **Audit N4 tail — SET the export `name` at the callers.** The
       geometry service now names the exported STEP PRODUCT and derives the download

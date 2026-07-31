@@ -5766,3 +5766,77 @@ was taken from a trusted shipped golden (`hole-through-r5-40x25x10`, 530/520)
 rather than assumed. Verified at this commit: mirror + pattern 80 passed,
 composition matrix 309 passed, golden + round-trip 385 passed, and the 39
 pre-existing goldens unchanged.
+
+## 2026-07-31 — PERF-1: first benchmark against a genuinely big part — the wall is at ~50 features (geometry-qa)
+
+Founder item: *"performance on a genuinely big part, since we've never measured
+against one."* Full evidence, tables and ranked fix list in **`docs/PERF.md`**;
+this is the summary.
+
+**What was measured.** Two new parts (`tests/_big_part_builders.py`) on two
+independent axes, swept by `tests/test_scaling_benchmarks.py` (opt-in: the
+`benchmark` marker AND `LOFT_SCALING_BENCH=1`, so it is NOT a CI timing gate and
+must not become one). Axis A: a 360x240x20 shelled tray lid in a realistic mixed
+vocabulary (pockets, through/blind holes, picked-edge fillets, shell, revolves,
+a pattern-cut vent, a `features`-scope mirror), N = 10/25/50/100/200, every
+point a strict PREFIX of every larger one. Axis B: a finned heat sink at a FIXED
+six features, 8..500 fins (500 = `MAX_PATTERN_COUNT`), so topology scales while
+tree length does not. 3 samples/point, median, nproc=4 / 15.7 GiB.
+
+**Rebuild is quadratic in feature count.** 263 / 628 / 2 098 / 7 456 / 27 269 ms
+at N = 10/25/50/100/200 — exponent 1.74 → 1.83 → 1.87 across successive
+doublings, i.e. `N^1.85`. Face count grows linearly in N (28 → 442) and every
+op is a whole-body pass, so per-feature cost grows linearly too. Marginal cost
+of the 200th feature: **198 ms**, 8x the 25th. Face count is NOT the wall:
+2 006 faces rebuild in 9.8 s from six features, and the matcher/tessellation are
+near-linear. **Verdict: fine at 25, a modeller waits at 50 (2.1 s — at the
+RESEARCH §9 ceiling), painful at 100 (7.5 s), unusable at 200 (27 s).**
+
+**Correctness under size is CLEAN — no tolerance was widened.** At the largest
+point of each axis: 0 features not `ok`, `BRepCheck`-valid, GLB and mass
+properties byte-identical across rebuilds, and STEP round-trip Δvolume
+**3.03e-09 mm³** (tray, 4.9e-15 relative) and **exactly 0.0** (sink), topology
+identical both ways — inside the shared `ROUNDTRIP_TOL` 1e-7. Loft gives correct
+answers slowly, which is the right failure mode: every fix below is pure
+performance with no correctness trade-off. Four unmarked correctness-at-size
+gates (valid solid / round-trip / determinism / provenance-budget arithmetic)
+now run in the DEFAULT suite at the small end (29 features, 32 fins, ~6 s).
+
+**Four defects filed (BACKLOG PERF-1..PERF-5), evidence first:**
+
+* 🔴 **No rebuild cache at all.** `evaluate_tree` re-runs the whole tree from
+  feature 0 for every route. Editing feature #199 of a 200-feature part costs
+  the same 27 s as editing #1; one face pick costs 29 s (`/overlay` = full
+  rebuild + history). The single biggest multiplier in the product.
+* 🔴 **The CM-6 validity gate is O(N x faces).** A/B counterfactual, same
+  protocol: N=200 25 331 ms as shipped vs 19 680 ms with `body_is_valid`
+  stubbed — **5.65 s, 22 %** of the rebuild, 125 whole-body
+  `BRepCheck_Analyzer` passes at ~53 ms each (`evaluate.py:529` `_admit`).
+  DO NOT delete it (it is the QA-1/CM-6 guard); make it incremental over the
+  boolean's `Modified`/`Generated` faces, keeping the publish-time whole-body
+  check. `clean_shape`'s two GProp integrations per boolean add another 5.3 %,
+  and that function's docstring quotes a toy-measured "~1.3 ms" that is 5.8 ms
+  per integration at 442 faces.
+* 🔴 **STEP import of Loft's OWN export is at 92 % of its DoS ceiling.** Through
+  the real bounded worker: 1 030 faces → 3.66 s, 2 006 faces → **18.44 s**
+  against `DEFAULT_STEP_IMPORT_CPU_TIMEOUT_S = 20.0`. Import scales `faces^2.4`,
+  so a part ~4 % larger is refused as `import_parse_timeout` — a *wrong
+  refusal*, not a slow import. The ceiling's docstring claims "~20x headroom",
+  derived from the 10-23 ms toy goldens; real headroom is **1.08x**.
+* 🟡 **`MAX_PROVENANCE_FACES` goes dark at ~110 features, and its docstring says
+  it never will.** The budget sums faces over EVERY snapshot, so it is
+  `O(features x faces)`: 91 % of 8 000 at N=100, 200 % at N=150. Past the
+  crossing, selecting a feature silently stops highlighting its faces.
+  `overlay.py:55-57` says "an authored part is nowhere near the bound (tens of
+  features x tens-to-low-hundreds of faces)" — that product is 7 500 of 8 000.
+* 🟡 **Payload.** Fitting the two largest points: **~30 B/triangle + ~425 B of
+  glTF JSON per B-rep FACE** (one primitive per face → 2 006 primitives and
+  ~850 KiB of JSON on the heat sink). And there is **no `GZipMiddleware`
+  anywhere** in geometry/gateway/py-kit: measured gzip-6 would cut the mesh
+  route 5.2x (tray) to 11.8x (sink) for one line of code.
+
+**Not bottlenecks, measured, leave them alone:** tessellation (3.4 % of an N=200
+rebuild), the audit-H4 hash-indexed face matcher (0.93 ms/face, linear — it did
+its job and still is), the sketch solver (57 sketches, 64 ms, 0.2 %), memory
+(619 MiB at N=200 over an ~500 MiB OCCT baseline), STL export (exactly
+50 B/triangle).

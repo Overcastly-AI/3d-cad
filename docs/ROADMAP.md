@@ -668,6 +668,22 @@ asserted CI DoS/regression tripwires + an opt-in `-m benchmark` median/p95
 baseline table; `just bench` / `docs/GEOMETRY-QA.md`) — this closes the
 benchmark-suite half of Performance ❌ but not the row (VISION also names "no
 real reference-part corpus yet"), so ❌ holds pending that corpus.
+**The real-part corpus SHIPPED 2026-07-31** (geometry-qa, founder item "we've
+never measured against a genuinely big part"): `docs/PERF.md` + an opt-in
+scaling sweep (`services/geometry/tests/test_scaling_benchmarks.py`, `benchmark`
+marker AND `LOFT_SCALING_BENCH=1` — deliberately NOT a CI timing gate) over two
+axes, a 200-feature shelled tray lid and a 2 006-face heat sink. ❌ still holds,
+but now on SUBSTANCE rather than ignorance: rebuild is `N^1.85`, so the tray is
+0.63 s at 25 features, **2.1 s at 50 (the RESEARCH §9 ceiling), 7.5 s at 100 and
+27 s at 200** — the wall is ~50 features and hard by 100, while 2 006 faces are
+comfortable. Correctness at size is CLEAN (valid solids, STEP round-trip Δvolume
+3.03e-09 mm³ / exactly 0.0, byte-deterministic; four unmarked
+correctness-at-size gates now run in the default suite). Five ranked defects
+filed — PERF-1 no rebuild cache (every route rebuilds from feature 0; a face
+pick costs 29 s), PERF-2 the CM-6 validity gate is 22 % of a big rebuild,
+PERF-3 STEP import of Loft's own export sits at 92 % of its 20 s DoS ceiling,
+PERF-4 the mesh route ships uncompressed (5-12x gzip win), PERF-5 provenance
+goes dark at ~110 features.
 
 Phase 2 (parametric core)
 **converged 2026-07-15**: Sketching and Part modeling both flipped their
