@@ -84,6 +84,7 @@ from geometry.assembly.resolve import (
 from geometry.assembly.solver import RigidBodyAssemblySolver
 from geometry.assembly.transform import Pose, as_vector
 from geometry.features import evaluate_tree
+from geometry.features.evaluate import TreeEvaluation
 from geometry.kernel.faces import SubshapeAmbiguousError, SubshapeUnresolvedError
 from geometry.kernel.types import BodyShape
 
@@ -107,12 +108,22 @@ class _PartResult:
     ``body`` is the kernel solid (service-internal, never serialized). ``error``
     is set only when the part produced no body — the failing feature error or an
     honest ``no_body`` — so every instance of that part reports the same reason.
+
+    ``evaluation`` is retained for ONE reason and must not be dropped as
+    "unused": a ``TreeEvaluation`` is the ownership handle on the kernel shapes
+    it produced (see its docstring, docs/PERF.md fix #1). The rebuild cache
+    offers a tree's state as a resume point only once its evaluation is
+    unreachable, and a resuming rebuild MUTATES those shapes in place — so
+    keeping ``body`` while dropping the evaluation would let a concurrent
+    rebuild of the same part tree modify a body this assembly is still placing,
+    measuring and exporting.
     """
 
     body: BodyShape | None
     mesh_glb_id: str | None
     properties: ShapeProperties | None
     error: FeatureError | None
+    evaluation: TreeEvaluation | None = None
 
 
 def _part_no_body_error(result: EvaluateTreeResult) -> FeatureError:
@@ -206,6 +217,7 @@ def _evaluate_unique_parts(request: EvaluateAssemblyRequest) -> dict[str, _PartR
             else _part_no_body_error(evaluation.result)
         )
         cache[inst.part_key] = _PartResult(
+            evaluation=evaluation,
             body=evaluation.body,
             mesh_glb_id=evaluation.result.mesh_glb_id,
             properties=evaluation.result.properties,

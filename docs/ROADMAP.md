@@ -710,7 +710,20 @@ per wire — never a face-count law); disabling it is byte-identical and takes a
 at the 16 MiB upload cap instead of 1.08x. **PERF-5a fixed 2026-07-31**:
 provenance crossed its budget at N ~= 103 (measured, not bracketed);
 `MAX_PROVENANCE_FACES` 8 000 → 30 000 crosses at N ~= 207 — PERF-5b (fingerprint
-snapshots instead of retaining B-reps) still open.
+snapshots instead of retaining B-reps) still open. **PERF-1 + PERF-2 fixed
+2026-07-31** (kernel-architect): `evaluate_tree` has a rebuild cache
+(`geometry/rebuild_cache.py`) keyed on the rolling hash of the feature PREFIX,
+with entries OWNED rather than copied — every re-materialisation of an OCCT
+shape keeps the volume bit-identical and still moves the GLB by a ULP, so a copy
+would have made `mesh_glb_id` depend on cache state. On the N=200 tray, adding a
+feature is **27 s → 1.0 s (26x)** and a repeat `/measure` `/tessellate` `/export`
+is **27 s → 0.16 s (164x)**; at N=100, 0.43 s and 0.06 s. The CM-6 validity gate
+is now proportional to the faces an op created (21.5 → 6.3 ms per feature, flat
+in body size). **The COLD rebuild is unchanged and the exponent is still
+`N^1.8`** — a first open of a 200-feature part still costs 26 s, and a mid-tree
+edit still misses (frontier-only checkpoints; PERF-1b filed with the prefetch
+seam that fixes it). So ❌ stands: the tool is now usable to KEEP modelling a big
+part, not yet to open one.
 
 Phase 2 (parametric core)
 **converged 2026-07-15**: Sketching and Part modeling both flipped their

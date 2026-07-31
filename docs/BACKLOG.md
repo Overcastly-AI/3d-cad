@@ -66,27 +66,35 @@ even-odd scanline clip) across SVG/PDF/DXF, `views.section_params jsonb` (0008);
 wrong-half + multi-loop + byte-determinism goldens; oblique + the `project_view`
 frame refactor are v2/§11. Spike de-collected.
 
-- [ ] (P1, L) **PERF-1 — `evaluate_tree` has NO rebuild cache, so every route
-      re-runs the whole tree from feature 0.** Measured (docs/PERF.md 2026-07-31):
-      a realistic 200-feature tray rebuilds in **27.3 s**; editing feature #199
-      costs the same as #1, one face pick costs **29.2 s** (`/overlay` = full
-      rebuild + history), and `/measure` `/tessellate` `/export` + drawings compose
-      each pay their own. Rebuild grows `N^1.85` (263/628/2098/7456/27269 ms at
-      N=10/25/50/100/200) because face count is linear in N and every op is a
-      whole-body pass. Fix: content-addressed body cache keyed on the feature-prefix
-      hash (the tree is already required deterministic, RESEARCH §9). Expected
-      append/pick 27 s → ~0.2 s. **Loft's wall is ~50 features and hard by 100.**
-      [geometry-qa PERF-1]
-- [ ] (P1, M) **PERF-2 — the CM-6 validity gate is O(features x faces): 22 % of a
-      big-part rebuild.** A/B counterfactual, same protocol (docs/PERF.md): N=200
-      25 331 ms as shipped vs **19 680 ms** with `body_is_valid` stubbed — 5.65 s in
-      **125 whole-body `BRepCheck_Analyzer` passes at ~53 ms each**
-      (`features/evaluate.py:529` `_admit`). DO NOT delete it (QA-1/CM-6 guard);
-      make it incremental over the boolean's `Modified`/`Generated` faces and keep
-      the publish-time whole-body check (`evaluate.py:3117`). Same class:
-      `healing.clean_shape`'s two GProp integrations per boolean = another 5.3 %,
-      and its docstring's "~1.3 ms" is toy-measured (5.8 ms/integration at 442
-      faces). [geometry-qa PERF-2]
+- [x] (P1, L) **PERF-1 — `evaluate_tree` had NO rebuild cache, so every route
+      re-ran the whole tree from feature 0.** SHIPPED 2026-07-31 (kernel-architect):
+      `geometry/rebuild_cache.py`, a bounded thread-safe in-process LRU keyed on the
+      rolling content hash of the feature PREFIX, holding the evaluator state.
+      Entries are OWNED, not copied — a hit hands over the very shapes a cold
+      rebuild would have built — because every re-materialisation of an OCCT shape
+      (`BRepBuilderAPI_Copy` in all 4 flag combinations, BREP round-trip) keeps the
+      volume bit-identical and still moves the GLB by a ULP, which would make
+      `mesh_glb_id` depend on cache state. Serves APPEND + REPEAT; a mid-tree edit
+      still misses (frontier-only checkpoints — PERF-1b filed). docs/PERF.md
+      "2026-07-31c". [geometry-qa PERF-1]
+- [ ] (P2, M) **PERF-1b — a mid-tree edit still pays a full rebuild.** PERF-1's
+      cache keeps ONE checkpoint per lineage (the frontier) because an intermediate
+      ladder needs copies and a copy is not byte-transparent (evidence in
+      docs/PERF.md 2026-07-31c). The prefetch seam that fixes it already ships:
+      `warm_rebuild_cache()` (bounded, cancellable, returns an int so it cannot
+      publish). Wire a background re-warm of the prefix an edit consumed.
+      [kernel-architect PERF-1]
+- [x] (P1, M) **PERF-2 — the CM-6 validity gate was O(features x faces): 22 % of a
+      big-part rebuild.** SHIPPED 2026-07-31 (kernel-architect): `_admit` now checks
+      only the faces the op CREATED (`healing.new_geometry_is_valid`) — sound because
+      OCCT shape identity is TShape identity, so an unchanged face cannot have
+      changed verdict — keeping the whole-body check for a body being STARTED and at
+      publish. Measured 21.5 → 6.3 ms per body-affecting feature at 219 faces, and
+      flat in N. NOT taken: neighbour expansion (docs/PERF.md — one big top face
+      borders every pocket, so it pulled in 71 % of the body and measured 27 %
+      SLOWER) and `clean_shape`'s two GProp integrations (they bracket an in-place
+      mutation; its toy-measured "~1.3 ms" docstring is corrected instead).
+      [geometry-qa PERF-2]
 - [x] (P1, M) **PERF-3 — STEP import of Loft's OWN export was at 92 % of the DoS
       ceiling. Done 2026-07-31 (kernel-architect).** Root cause was NOT a face-count
       law: OCCT's transfer runs `ShapeFix_Shape` after building the topology, and

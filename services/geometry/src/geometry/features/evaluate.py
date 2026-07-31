@@ -54,8 +54,9 @@ functions of their inputs — the same request yields an identical result,
 including ``mesh_glb_id`` (a content hash of a deterministic GLB).
 """
 
+import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -207,10 +208,17 @@ from geometry.kernel import (
     sweep_profile,
     tessellate_glb,
 )
-from geometry.kernel.healing import body_is_valid
+from geometry.kernel.healing import body_is_valid, new_geometry_is_valid
 from geometry.kernel.lumps import lump_count
 from geometry.kernel.types import BodyShape
 from geometry.mesh_store import store_mesh_glb
+from geometry.rebuild_cache import (
+    REBUILD_CACHE_CAPACITY,
+    CacheStats,
+    PrefixCache,
+    drop_triangulation,
+    prefix_keys,
+)
 from geometry.sheet_metal import (
     BendProvenance,
     CornerRelief,
@@ -526,7 +534,7 @@ class EvaluationState:
             return None
         return self.bodies[self.active_body_id]
 
-    def _admit(self, shape: BodyShape) -> BodyShape:
+    def _admit(self, shape: BodyShape, *consumed: BodyShape) -> BodyShape:
         """The INVALID-BODY GATE (CM-6) — every body enters ``bodies`` through here.
 
         A body OCCT itself calls invalid used to be tessellated into the viewport,
@@ -538,13 +546,23 @@ class EvaluationState:
         funnel and not in each of the twenty-odd kernel ops or at the export
         boundary.
 
+        *consumed* names the operand body(-ies) this op transformed, and is what
+        makes the gate PROPORTIONAL rather than O(features x faces): the check runs
+        over the faces the op actually produced plus their neighbours
+        (:func:`~geometry.kernel.healing.new_geometry_is_valid`, docs/PERF.md fix
+        #2 — 22 % of an N=200 rebuild). Passing nothing keeps the whole-body check,
+        which is what a body being STARTED (first extrude / ``merge=False`` /
+        import) gets. The publish-time whole-body re-check in
+        :func:`evaluate_tree` is unchanged and is what still makes "no invalid body
+        reaches the viewport, mass properties or STEP" absolute.
+
         Raises:
             InvalidBodyError: ``BRepCheck`` rejects *shape*. :func:`_dispatch`
                 turns it into a typed per-feature ``invalid_body`` error, so the
                 tree stops at the offending feature and the last-good body — which
                 this method has NOT overwritten — is what the viewport shows.
         """
-        if not body_is_valid(shape):
+        if not new_geometry_is_valid(shape, consumed):
             raise InvalidBodyError(
                 "This feature produced a body OCCT rejects as an invalid solid "
                 "(BRepCheck), so its volume, mesh and STEP export cannot be "
@@ -561,7 +579,9 @@ class EvaluationState:
         Compound (§MB-4). Gated by :meth:`_admit` (CM-6).
         """
         assert self.active_body_id is not None, "no active body to modify"
-        self.bodies[self.active_body_id] = self._admit(shape)
+        self.bodies[self.active_body_id] = self._admit(
+            shape, self.bodies[self.active_body_id]
+        )
 
     def start_body(self, base_id: uuid.UUID, shape: BodyShape) -> None:
         """Insert a NEW body keyed by its base feature id and make it active.
@@ -589,7 +609,9 @@ class EvaluationState:
         a single solid or a multi-lump Compound (a disjoint boolean, §MB-4). Gated
         by :meth:`_admit` (CM-6).
         """
-        self.bodies[target_id] = self._admit(shape)
+        self.bodies[target_id] = self._admit(
+            shape, self.bodies[target_id], self.bodies[tool_id]
+        )
         del self.bodies[tool_id]
         self.active_body_id = target_id
 
@@ -2866,6 +2888,19 @@ class TreeEvaluation:
     a single :class:`~build123d.Solid`, or a :class:`~build123d.Compound` of a
     multi-body part's disjoint solids (§MB-0); never serialized), and the
     tessellation artifact ``glb``/``mesh`` that ``mesh_glb_id`` addresses.
+
+    **OWNERSHIP — this object is the handle on its kernel shapes, so a caller
+    that keeps a shape must keep the evaluation** (docs/PERF.md fix #1). The
+    rebuild cache offers this evaluation's prefix as a resume point only once
+    THIS object is unreachable, because a resuming rebuild mutates those shapes
+    in place (OCCT booleans rewrite their arguments' subshapes — CM-6b). So
+    ``body = evaluate_tree(request).body`` is a bug: it drops the handle while
+    keeping the thing it protects, and a concurrent rebuild of the same tree may
+    then modify that body underneath you. Keep the evaluation for as long as you
+    use anything it gave you (``assembly/evaluate.py`` retains it for exactly
+    this reason). The claim cannot be moved onto the shapes themselves — the
+    checkpoint holds them, so a token pinned there is never collectable; see
+    :meth:`geometry.rebuild_cache.PrefixCache.store_on_release`.
     """
 
     result: EvaluateTreeResult
@@ -3007,48 +3042,144 @@ def _blame_invalidated_body(
     ]
 
 
-def evaluate_tree(
-    request: EvaluateTreeRequest, *, record_history: bool = False
-) -> TreeEvaluation:
-    """Evaluate an ordered feature prefix under the strict-prefix rule (§4.3).
+@dataclass
+class _PublishedArtifacts:
+    """Everything :func:`evaluate_tree` derives AFTER the dispatch loop.
 
-    Suppressed features (§4.3a) are SKIPPED: the body is built from the
-    non-suppressed prefix and each subsequent non-suppressed feature evaluates
-    off the last non-suppressed body. A non-suppressed feature that references a
-    suppressed one is a typed ``references_suppressed`` error
-    (:func:`_suppressed_reference_error`), never a raise.
-
-    *record_history* (OPT-IN, audit H4) turns on the per-feature body snapshots
-    that feed per-face provenance (:attr:`TreeEvaluation.body_history`). It is off
-    by default because ONLY the overlay service consumes them, while
-    ``evaluate_tree`` has nine call sites — tessellate, export, measure, drawing
-    compose, per-instance assembly evaluation, the golden harness. Recording
-    unconditionally made every one of those retain an intermediate B-rep per
-    body-affecting feature (up to ``MAX_TREE_FEATURES``, and per unique part in an
-    assembly) plus, for a multi-body part, CONSTRUCT a fresh ``Compound`` per
-    feature — real OCCT work on the tessellate hot path, funded by callers that
-    never read the result. With it off, each intermediate body dies as the next
-    feature supersedes it, exactly as before provenance existed.
-
-    Deterministic: same request → identical statuses, identical solved
-    positions, byte-identical GLB and therefore identical ``mesh_glb_id``
-    (RESEARCH §9) — and *record_history* changes NOTHING about the evaluated
-    geometry, only whether the intermediates are kept. Never raises for geometry
-    outcomes.
+    Memoised on a checkpoint so a repeat of the SAME tree — the ``/measure``,
+    ``/tessellate``, ``/export`` and drawings-compose calls that follow an
+    ``/evaluate``, each of which used to pay its own full rebuild (docs/PERF.md)
+    — skips the re-measure and the re-tessellation too, not just the rebuild.
+    Reused ONLY when the resume consumed zero further features AND the resolved
+    per-body material is unchanged, because that is exactly the input the
+    measurement (and therefore ``mass_g``) depends on; everything else these
+    values derive from is already pinned by the prefix key.
     """
-    state = EvaluationState(
-        linear_deflection=request.linear_deflection,
-        # OPT-IN tool capture (mirror-semantics §9): only features some
-        # `features`-scope mirror names retain their reflectable tools, so a tree
-        # without one pays zero extra memory and zero extra work.
-        mirror_scope_ids=_mirror_scope_ids(request),
-    )
-    results: list[FeatureResult] = []
-    last_good_feature_id: uuid.UUID | None = None
-    suppressed_ids: set[uuid.UUID] = set()
-    failed = False
 
-    for item in request.features:
+    body_materials: dict[uuid.UUID, MaterialKey | None]
+    body_measures: dict[uuid.UUID, ShapeProperties]
+    properties: ShapeProperties
+    shape: BodyShape
+    glb: bytes
+    mesh: MeshStats
+
+
+@dataclass
+class _Checkpoint:
+    """One cached prefix: the evaluator state, plus what it had produced.
+
+    The cache owns this EXCLUSIVELY (see :mod:`geometry.rebuild_cache`) — nothing
+    is copied on the way in or out, which is what makes a resumed rebuild
+    byte-identical to a cold one.
+    """
+
+    state: EvaluationState
+    results: list[FeatureResult]
+    last_good_feature_id: uuid.UUID | None
+    suppressed_ids: frozenset[uuid.UUID]
+    artifacts: _PublishedArtifacts | None
+
+    def detach(self) -> None:
+        """Drop the triangulation the producing request left on these shapes.
+
+        Required for byte-exactness, not hygiene: a body that still carries a
+        ``Poly_Triangulation`` from a previous tessellate/STL/STEP call meshes
+        DIFFERENTLY once a further boolean has been applied to it (measured on
+        the docs/PERF.md tray: appending one feature to an already-tessellated
+        body moved the final GLB; ``BRepTools::Clean`` on the stored bodies made
+        it byte-exact again at every prefix length tried). Everything the state
+        can hand to a mesher is cleaned — a new shape-bearing field on
+        :class:`EvaluationState` belongs in this list.
+        """
+        for shape in (
+            *self.state.bodies.values(),
+            self.state.sheet_metal_unfold_body,
+            *(self.state.last_cut_tools or ()),
+            *(
+                tool
+                for recorded in self.state.feature_tools.values()
+                for group in recorded.groups
+                for tool in group.tools
+            ),
+        ):
+            if shape is not None:
+                drop_triangulation(shape)
+
+
+#: The per-worker rebuild cache (docs/PERF.md fix #1). Process-global like the
+#: mesh and STEP-parse caches, and like them a pure performance optimisation:
+#: every miss is answered by evaluating the tree.
+_REBUILD_CACHE: PrefixCache[_Checkpoint] = PrefixCache(REBUILD_CACHE_CAPACITY)
+
+
+def reset_rebuild_cache() -> None:
+    """Empty the rebuild cache (test isolation seam; production never calls it).
+
+    A test that asserts a COLD rebuild — a timing, a determinism gate, or a miss
+    path — must not be served a checkpoint warmed by an earlier test in the same
+    process.
+    """
+    _REBUILD_CACHE.clear()
+
+
+def rebuild_cache_stats() -> CacheStats:
+    """Hit/miss counters of the per-worker rebuild cache (tests + diagnostics)."""
+    return _REBUILD_CACHE.stats
+
+
+def _published_artifacts(
+    body_materials: dict[uuid.UUID, MaterialKey | None],
+    body_measures: dict[uuid.UUID, ShapeProperties],
+    properties: ShapeProperties | None,
+    shape: BodyShape | None,
+    glb: bytes | None,
+    mesh: MeshStats | None,
+) -> _PublishedArtifacts | None:
+    """The memoisable artifact set, or ``None`` for a tree that published none.
+
+    A body-less prefix (sketches only, or a first extrude that failed) has
+    nothing to memoise and nothing to save — the publish step for it is already
+    free.
+    """
+    if shape is None or properties is None or glb is None or mesh is None:
+        return None
+    return _PublishedArtifacts(
+        body_materials=body_materials,
+        body_measures=body_measures,
+        properties=properties,
+        shape=shape,
+        glb=glb,
+        mesh=mesh,
+    )
+
+
+def _dispatch_prefix(
+    features: Sequence[EvaluatedFeatureInput],
+    state: EvaluationState,
+    results: list[FeatureResult],
+    suppressed_ids: set[uuid.UUID],
+    last_good_feature_id: uuid.UUID | None,
+    *,
+    record_history: bool,
+    stop: Callable[[], bool] | None = None,
+) -> tuple[uuid.UUID | None, bool, int]:
+    """The ordered dispatch pass (§4.2/§4.3), shared by evaluate and warm.
+
+    Mutates *state*, *results* and *suppressed_ids* in place and returns
+    ``(last_good_feature_id, failed, consumed)``. *stop* is polled BEFORE each
+    feature: a warm that is cancelled or out of budget stops cleanly on a feature
+    boundary, having produced a genuine (shorter) prefix — there is no way to
+    interrupt one OCCT call, and pretending otherwise would be a lie about the
+    bound. ONE implementation on purpose: a speculative warm that dispatched
+    features differently from a real evaluation would eventually cache a state a
+    real evaluation would not have produced.
+    """
+    failed = False
+    consumed = 0
+    for item in features:
+        if not failed and stop is not None and stop():
+            break
+        consumed += 1
         if failed:
             results.append(FeatureResult(feature_id=item.id, status="skipped"))
             continue
@@ -3103,6 +3234,172 @@ def evaluate_tree(
                 FeatureResult(feature_id=item.id, status="error", error=error)
             )
             failed = True
+    return last_good_feature_id, failed, consumed
+
+
+def warm_rebuild_cache(
+    request: EvaluateTreeRequest,
+    *,
+    record_history: bool = False,
+    budget_s: float | None = None,
+    cancelled: Callable[[], bool] | None = None,
+) -> int:
+    """Evaluate *request*'s prefix into the cache WITHOUT publishing anything.
+
+    The prefetch seam (docs/PERF.md / :mod:`geometry.rebuild_cache`): it returns
+    the number of features now cached and **cannot** return a body, a mesh id or
+    mass properties, so a speculative rebuild can never be served as an answer —
+    a later request gets it only by hashing to the identical prefix, through the
+    ordinary key. Nothing else in the service calls this yet; it exists so the
+    prefetch that will want it does not have to reach for ``evaluate_tree`` and
+    throw the result away.
+
+    Bounded and cancellable: *budget_s* (wall clock from entry) and *cancelled*
+    are polled BETWEEN features, so a warm stops within one feature's work of
+    being asked to — up to ~200 ms on a 442-face body, which is the honest
+    granularity of an uninterruptible OCCT call. A stopped warm still caches what
+    it evaluated; a warm whose tree FAILS caches nothing (see
+    :func:`evaluate_tree` for why a failed prefix is not a resume point).
+
+    Returns 0 when nothing was cached (a failed tree, or cancelled before the
+    first feature).
+    """
+    deadline = None if budget_s is None else time.monotonic() + budget_s
+
+    def stop() -> bool:
+        if deadline is not None and time.monotonic() >= deadline:
+            return True
+        return cancelled is not None and cancelled()
+
+    keys = prefix_keys(
+        request,
+        capture_scope=_mirror_scope_ids(request),
+        record_history=record_history,
+    )
+    resume = _REBUILD_CACHE.take(keys)
+    start, checkpoint = resume if resume is not None else (0, None)
+    if checkpoint is None:
+        state = EvaluationState(
+            linear_deflection=request.linear_deflection,
+            mirror_scope_ids=_mirror_scope_ids(request),
+        )
+        results: list[FeatureResult] = []
+        last_good: uuid.UUID | None = None
+        suppressed: set[uuid.UUID] = set()
+    else:
+        state = checkpoint.state
+        results = list(checkpoint.results)
+        last_good = checkpoint.last_good_feature_id
+        suppressed = set(checkpoint.suppressed_ids)
+
+    last_good, failed, consumed = _dispatch_prefix(
+        request.features[start:],
+        state,
+        results,
+        suppressed,
+        last_good,
+        record_history=record_history,
+        stop=stop,
+    )
+    prefix_len = start + consumed
+    if failed or prefix_len == 0:
+        return 0
+    # The warm owns this state exclusively — nothing was published — so it can be
+    # stored directly rather than on the release of a caller's evaluation.
+    _REBUILD_CACHE.store(
+        keys[prefix_len],
+        _Checkpoint(
+            state=state,
+            results=results,
+            last_good_feature_id=last_good,
+            suppressed_ids=frozenset(suppressed),
+            artifacts=None,
+        ),
+    )
+    return prefix_len
+
+
+def evaluate_tree(
+    request: EvaluateTreeRequest, *, record_history: bool = False
+) -> TreeEvaluation:
+    """Evaluate an ordered feature prefix under the strict-prefix rule (§4.3).
+
+    Suppressed features (§4.3a) are SKIPPED: the body is built from the
+    non-suppressed prefix and each subsequent non-suppressed feature evaluates
+    off the last non-suppressed body. A non-suppressed feature that references a
+    suppressed one is a typed ``references_suppressed`` error
+    (:func:`_suppressed_reference_error`), never a raise.
+
+    *record_history* (OPT-IN, audit H4) turns on the per-feature body snapshots
+    that feed per-face provenance (:attr:`TreeEvaluation.body_history`). It is off
+    by default because ONLY the overlay service consumes them, while
+    ``evaluate_tree`` has nine call sites — tessellate, export, measure, drawing
+    compose, per-instance assembly evaluation, the golden harness. Recording
+    unconditionally made every one of those retain an intermediate B-rep per
+    body-affecting feature (up to ``MAX_TREE_FEATURES``, and per unique part in an
+    assembly) plus, for a multi-body part, CONSTRUCT a fresh ``Compound`` per
+    feature — real OCCT work on the tessellate hot path, funded by callers that
+    never read the result. With it off, each intermediate body dies as the next
+    feature supersedes it, exactly as before provenance existed.
+
+    Deterministic: same request → identical statuses, identical solved
+    positions, byte-identical GLB and therefore identical ``mesh_glb_id``
+    (RESEARCH §9) — and *record_history* changes NOTHING about the evaluated
+    geometry, only whether the intermediates are kept. Never raises for geometry
+    outcomes.
+
+    REBUILD CACHE (docs/PERF.md fix #1). A request whose leading features hash
+    identically to a cached prefix RESUMES there and evaluates only what is new,
+    so appending to a 200-feature tree costs one feature instead of 27 s, and the
+    ``/measure`` / ``/tessellate`` / ``/export`` / drawings calls that follow an
+    ``/evaluate`` of the same tree reuse both the state and the artifacts. The
+    cache is transparent by construction — a hit hands over the very shapes a
+    cold rebuild would have built, never a copy (see
+    :mod:`geometry.rebuild_cache` for the measurement that forced that) — and a
+    miss is only slower. NOT cached: a tree that failed (its last-good state is
+    not a resume point, and a failed op may have rewritten its argument in place
+    — CM-6b), and a tree whose publish-time re-check found the body invalidated.
+    """
+    keys = prefix_keys(
+        request,
+        capture_scope=_mirror_scope_ids(request),
+        record_history=record_history,
+    )
+    resume = _REBUILD_CACHE.take(keys)
+    start, checkpoint = resume if resume is not None else (0, None)
+    if checkpoint is None:
+        state = EvaluationState(
+            linear_deflection=request.linear_deflection,
+            # OPT-IN tool capture (mirror-semantics §9): only features some
+            # `features`-scope mirror names retain their reflectable tools, so a
+            # tree without one pays zero extra memory and zero extra work.
+            mirror_scope_ids=_mirror_scope_ids(request),
+        )
+        results: list[FeatureResult] = []
+        last_good_feature_id: uuid.UUID | None = None
+        suppressed_ids: set[uuid.UUID] = set()
+    else:
+        state = checkpoint.state
+        results = list(checkpoint.results)
+        last_good_feature_id = checkpoint.last_good_feature_id
+        suppressed_ids = set(checkpoint.suppressed_ids)
+
+    last_good_feature_id, failed, _consumed = _dispatch_prefix(
+        request.features[start:],
+        state,
+        results,
+        suppressed_ids,
+        last_good_feature_id,
+        record_history=record_history,
+    )
+    # A resume that consumed NOTHING is the same tree again, so the artifacts the
+    # earlier call derived are still the right answer — provided nothing outside
+    # the prefix key feeds them (materials; checked below).
+    unchanged = (
+        checkpoint.artifacts
+        if checkpoint is not None and start == len(request.features)
+        else None
+    )
 
     # PUBLISH-TIME RE-CHECK (CM-6b, docs/GEOMETRY-QA.md 2026-07-30). Every body
     # was valid when :meth:`EvaluationState._admit` let it in, so an invalid one
@@ -3142,7 +3439,22 @@ def evaluate_tree(
         for base_id in state.bodies
     }
     body_measures: dict[uuid.UUID, ShapeProperties] = {}
-    if state.bodies and not body_invalidated:
+    if (
+        state.bodies
+        and not body_invalidated
+        and unchanged is not None
+        and unchanged.body_materials == body_materials
+    ):
+        # The same tree, again, made of the same stuff: this IS the previous
+        # call's answer, reused byte-for-byte rather than re-derived (a re-measure
+        # + re-tessellation is ~1 s of the 27 s an N=200 `/measure` used to cost).
+        # The mesh id is re-PUT because the mesh store is a bounded cache that may
+        # have evicted the payload; the put is content-addressed and idempotent,
+        # so the id is the same one.
+        shape, glb, mesh = unchanged.shape, unchanged.glb, unchanged.mesh
+        properties, body_measures = unchanged.properties, unchanged.body_measures
+        mesh_glb_id = store_mesh_glb(glb)
+    elif state.bodies and not body_invalidated:
         # Tree/insertion-ordered body set (§MB-0): a part with ONE body measures
         # and tessellates that bare solid — byte-identical to the pre-multi-body
         # path. A part with >1 body rolls up its mass properties ANALYTICALLY
@@ -3195,7 +3507,7 @@ def evaluate_tree(
         if not body_invalidated
     ]
 
-    return TreeEvaluation(
+    evaluation = TreeEvaluation(
         result=EvaluateTreeResult(
             part_id=request.part_id,
             tree_version=request.tree_version,
@@ -3205,7 +3517,7 @@ def evaluate_tree(
             properties=properties,
             last_good_feature_id=last_good_feature_id,
         ),
-        solved_sketches=state.solved_sketches,
+        solved_sketches=dict(state.solved_sketches),
         body=shape,
         glb=glb,
         mesh=mesh,
@@ -3216,3 +3528,27 @@ def evaluate_tree(
         datum_planes=dict(state.datum_planes),
         body_history=list(state.body_history),
     )
+
+    # Offer this prefix as a resume point — but only once *evaluation* is dead,
+    # because it is the object that hands these very shapes to the caller
+    # (`body`, `unfold_body`, the sketch dict) and a resuming rebuild MUTATES
+    # them. See :mod:`geometry.rebuild_cache`: ownership transfer is what makes a
+    # hit byte-identical, and the `weakref` hand-back is what makes it safe under
+    # the FastAPI threadpool. NOT offered when anything failed (a failed op may
+    # have rewritten its argument in place — CM-6b) or when the publish-time
+    # re-check found the body invalidated: neither is a state to build on.
+    if not failed and not body_invalidated:
+        _REBUILD_CACHE.store_on_release(
+            evaluation,
+            keys[len(request.features)],
+            _Checkpoint(
+                state=state,
+                results=results,
+                last_good_feature_id=last_good_feature_id,
+                suppressed_ids=frozenset(suppressed_ids),
+                artifacts=_published_artifacts(
+                    body_materials, body_measures, properties, shape, glb, mesh
+                ),
+            ),
+        )
+    return evaluation

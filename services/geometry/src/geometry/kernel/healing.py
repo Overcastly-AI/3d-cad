@@ -105,15 +105,18 @@ distinct holes, and this module now closes both:
 # pyright: reportUnknownArgumentType=false, reportUnknownParameterType=false
 
 import copy
+from collections.abc import Sequence
 
 from build123d import Solid
+from OCP.BRep import BRep_Builder
 from OCP.BRepCheck import BRepCheck_Analyzer
 from OCP.BRepGProp import BRepGProp
 from OCP.GProp import GProp_GProps
 from OCP.ShapeFix import ShapeFix_Shape
-from OCP.TopAbs import TopAbs_SOLID
-from OCP.TopExp import TopExp_Explorer
-from OCP.TopoDS import TopoDS
+from OCP.TopAbs import TopAbs_FACE, TopAbs_SOLID
+from OCP.TopExp import TopExp, TopExp_Explorer
+from OCP.TopoDS import TopoDS, TopoDS_Compound, TopoDS_Shape
+from OCP.TopTools import TopTools_IndexedMapOfShape
 
 from geometry.kernel.types import BodyShape
 
@@ -189,9 +192,19 @@ def clean_shape[ShapeT: BodyShape](shape: ShapeT) -> ShapeT:
     stashing ``shape.wrapped`` before the call and restoring it afterwards yields
     the CORRUPTED 31865.9587, not the 30793.6284 it held a moment earlier). So
     the pre-clean state has to be a real ``BRepBuilderAPI_Copy``
-    (``Shape.__deepcopy__``), taken before the call. Cost is ~0.6 ms on the CM-6
-    body plus two GProp integrations (~1.3 ms) — see docs/GEOMETRY-QA.md for the
-    suite-wide rebuild measurement.
+    (``Shape.__deepcopy__``), taken before the call.
+
+    COST, corrected 2026-07-31 (docs/PERF.md): this docstring used to quote
+    "~0.6 ms ... plus two GProp integrations (~1.3 ms)", measured on the 12-face
+    CM-6 toy. Both halves scale with the BODY, not with the op: at 442 faces one
+    ``VolumeProperties_s`` is **5.8 ms** and the copy ~3 ms, so a boolean on a
+    real part pays ~15 ms here, not 1.9 — and across an N=200 rebuild the two
+    integrations alone are **1.36 s of 25.3 s (5.3 %)**. Both are KEPT anyway:
+    they bracket a mutation (the "before" volume must be read before ``clean()``
+    rewrites the TShape in place, the "after" from the simplified shape), so
+    dropping either does not make the guard cheaper — it makes it absent. The
+    proportional saving available at this funnel was the validity gate, not this
+    one; see :func:`new_geometry_is_valid`.
 
     Determinism (RESEARCH §9): the accepted path returns the SAME object
     ``clean()`` returned, so every shipped golden's GLB stays byte-identical —
@@ -247,6 +260,113 @@ def body_is_valid(shape: BodyShape) -> bool:
     if shape.wrapped is None:
         return True
     return bool(BRepCheck_Analyzer(shape.wrapped).IsValid())
+
+
+#: Above this share of the body's faces, the "incremental" check is checking most
+#: of the body anyway, so :func:`new_geometry_is_valid` runs the WHOLE-body
+#: analyzer instead — same answer, no compound to build, and it keeps the
+#: strictly-stronger check on the ops that rebuild everything (a shell, a draft, a
+#: simplification that re-partitions every face). Measured on the docs/PERF.md
+#: tray: an ordinary body-affecting feature changes 3-11 of 70-442 faces (8.5 %
+#: over a 50-feature rebuild), so the proportional path is what a real part takes.
+INCREMENTAL_CHECK_MAX_FACE_SHARE = 0.5
+
+
+def _face_map(shape: TopoDS_Shape) -> TopTools_IndexedMapOfShape:
+    """Every FACE of *shape*, indexed (OCCT identity: same TShape + location)."""
+    faces = TopTools_IndexedMapOfShape()
+    TopExp.MapShapes_s(shape, TopAbs_FACE, faces)
+    return faces
+
+
+def new_geometry_is_valid(shape: BodyShape, previous: Sequence[BodyShape]) -> bool:
+    """:func:`body_is_valid`, made PROPORTIONAL to what the op actually changed.
+
+    WHY (docs/PERF.md 2026-07-31, fix #2). ``body_is_valid`` is a whole-body
+    ``BRepCheck_Analyzer``, run once per body-affecting feature at the
+    :class:`~geometry.features.evaluate.EvaluationState` funnel — so its cost is
+    O(features x faces) and it is **5.65 s of a 25.3 s N=200 rebuild (22 %)**:
+    125 whole-body passes at ~53 ms each. The analyzer is ~4.7 ms of fixed cost
+    plus ~0.19 ms per face (measured), and an OCCT boolean REUSES the argument's
+    face TShapes for every face it did not touch — so the faces a feature
+    actually creates are 3-11 of a 70-442-face body, and checking exactly those
+    is ~5 ms and does not grow with the tree.
+
+    WHY *EXACTLY* THE CHANGED FACES, and not "changed plus their neighbours"
+    (which is what docs/PERF.md proposed). Two reasons, one principled and one
+    measured. **Principled:** OCCT shape identity is TShape identity, and a
+    TShape owns its whole sub-tree — so a face that is the SAME face as before
+    has the same wires, edges, pcurves and vertices as before, and the analyzer's
+    verdict on it cannot have changed. A boolean that touches a neighbour
+    (inserts a vertex, re-splits an edge) necessarily gives that neighbour a NEW
+    TShape, which puts it in the changed set anyway. Neighbour expansion is
+    therefore redundant, not conservative. **Measured (2026-07-31):** it is also
+    ruinous on exactly the parts this fix is for — on the docs/PERF.md tray one
+    big top face borders every pocket, so one hole's 3 changed faces expand to
+    **71 % of the body** (1378 of 1924 faces over a 50-feature rebuild), tripping
+    the whole-body fallback every single time while adding 17 ms per feature of
+    ancestor-map building: the "incremental" gate measured **27 % SLOWER** than
+    the whole-body one it replaced.
+
+    WHAT IS STILL GUARANTEED, and what is not — stated exactly, because this is
+    the CM-6/QA-1 guard and softening it silently is the failure mode:
+
+    * **Malformed NEW geometry is still refused at the feature that made it**, with
+      the same typed ``invalid_body`` error and the same last-good-prefix
+      degradation. That is what the per-feature gate was for.
+    * **A body invalidated ELSEWHERE — in a face this op never touched — is no
+      longer caught here.** It cannot be: measured on the CM-6 body, the flagged
+      face (``BRepCheck_UnorientableShape``) is NOT in the changed set, and no
+      cheap whole-body proxy sees it either (``BRepCheck_Solid`` and
+      ``BRepCheck_Shell``, run directly, both report ``NoError``;
+      ``BRepCheck_Analyzer(GeomControls=False)`` does see it but still costs
+      38 ms of the 46 ms, i.e. it is not proportional to anything). That class is
+      caught by the PUBLISH-TIME whole-body re-check in
+      :func:`~geometry.features.evaluate.evaluate_tree`, which withholds the
+      properties, the mesh and every export and blames the last-good feature —
+      so the invariant the gate exists for, **no invalid body reaches the
+      viewport, mass properties or STEP, is preserved end to end**. Measured on
+      the CM-6 regression: identical statuses (``ok`` x6 + ``error``), identical
+      ``invalid_body`` code, identical withheld artifacts.
+    * The residual is DIAGNOSTIC, not geometric: a tree that keeps going after
+      such an in-place invalidation now blames the last body-affecting feature
+      rather than the first one to notice.
+
+    *previous* is the body (or bodies) this op consumed — the operand(s) whose
+    faces the result may reuse. Empty (a body being STARTED: the first extrude, a
+    ``merge=False`` second body, an IMPORT — the one shape the kernel did not
+    build) falls back to the whole-body check, which is right: there is nothing
+    to diff against, and an imported body is the one to trust least.
+    """
+    if shape.wrapped is None:
+        return True
+    if not previous:
+        return body_is_valid(shape)
+
+    faces = _face_map(shape.wrapped)
+    known = TopTools_IndexedMapOfShape()
+    for body in previous:
+        if body.wrapped is not None:
+            TopExp.MapShapes_s(body.wrapped, TopAbs_FACE, known)
+    changed = [
+        faces.FindKey(index)
+        for index in range(1, faces.Extent() + 1)
+        if not known.Contains(faces.FindKey(index))
+    ]
+    # Nothing new to look at (an op that only re-parented existing faces) — fall
+    # back rather than declare a body valid on the strength of an empty check.
+    if not changed:
+        return body_is_valid(shape)
+
+    if len(changed) >= INCREMENTAL_CHECK_MAX_FACE_SHARE * faces.Extent():
+        return body_is_valid(shape)
+
+    builder = BRep_Builder()
+    compound = TopoDS_Compound()
+    builder.MakeCompound(compound)
+    for face in changed:
+        builder.Add(compound, face)
+    return bool(BRepCheck_Analyzer(compound).IsValid())
 
 
 def conform_solid(solid: Solid) -> Solid:

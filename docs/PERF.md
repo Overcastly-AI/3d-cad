@@ -584,6 +584,10 @@ Wall-clock ceilings to track over time. A >10 % regression against the
 
 | operation | part | measured 2026-07-31 | note |
 | --- | --- | ---: | --- |
+| **append a feature** | tray N=200 | **1 019 ms** | warm (PERF-1, 2026-07-31c); 26x |
+| **append a feature** | tray N=100 | **430 ms** | warm; 16x |
+| **repeat evaluate / measure / export** | tray N=200 | **162 ms** | warm; 164x |
+| **repeat evaluate / measure / export** | tray N=100 | **63 ms** | warm; 109x |
 | rebuild | tray N=25 | 628 ms | under the RESEARCH §9 2 s ceiling |
 | rebuild | tray N=50 | 2 098 ms | **at** the 2 s ceiling |
 | rebuild | tray N=100 | 7 456 ms | 3.7x over |
@@ -777,3 +781,190 @@ retained snapshot memory with it. That change lives in
 `features/evaluate.py` (`EvaluationState.body_history` at :380 / :2907, appended
 at :3099) — another agent's territory this slice, so it is filed with the exact
 call sites rather than half-done here.
+
+---
+
+## 2026-07-31c — PERF-1 + PERF-2 landed: the rebuild cache, and a proportional validity gate
+
+Two fixes from the RANKED list above, measured on the same parts, the same
+harness and the same machine as the 2026-07-31 baseline. **That baseline is the
+"before" column and is not rewritten.**
+
+### What shipped
+
+* **PERF-2 — the CM-6 validity gate is now proportional to what changed.**
+  `EvaluationState._admit` ran a whole-body `BRepCheck_Analyzer` per
+  body-affecting feature (O(features × faces), measured at 22 % of an N=200
+  rebuild). It now checks only the faces the op CREATED
+  (`geometry.kernel.healing.new_geometry_is_valid`), with the whole-body check
+  kept for a body being started (first extrude / `merge=False` / import) and at
+  publish time.
+* **PERF-1 — `evaluate_tree` has a rebuild cache.** A bounded, thread-safe,
+  in-process LRU (`geometry.rebuild_cache`) keyed on the rolling content hash of
+  the feature prefix, holding the evaluator's own state. A request whose leading
+  features hash identically resumes there.
+
+### The cache in one paragraph, because the design is the interesting part
+
+Entries are **owned, not copied**: a hit REMOVES the entry and hands the
+resuming evaluation the very shapes a cold rebuild would have built, and a
+checkpoint is only offered back to the cache when the `TreeEvaluation` that owns
+those shapes is released (a `weakref.finalize`), so no second request can ever
+resume from shapes a first is still reading. That is not fastidiousness, it is
+forced by measurement — see "why a copy is not an option" below — and it has one
+honest consequence: the cache holds **one checkpoint per lineage** (the
+frontier), so it serves APPEND and REPEAT and does **not** serve an edit in the
+middle of a long tree.
+
+### Why a copy is not an option (measured, on the N=25 tray)
+
+The natural design — store a copy, hand out copies — was tried first and
+rejected on evidence:
+
+| re-materialisation | volume | STEP bytes | GLB bytes |
+| --- | --- | --- | --- |
+| `BRepBuilderAPI_Copy` (build123d `deepcopy`) | **bit-identical** (ΔV = 0.0) | identical | **differs** (16 B of 155 800: one accessor bound, `0.02` vs `0.020000000000000004`) |
+| the same, `copyGeom`/`copyMesh` in all 4 combinations | bit-identical | — | differs, and all four agree with each other |
+| BREP write→read (the `step_cache` idiom) | **bit-identical** (ΔV = 0.0) | — | **differs** (68 B) |
+| ownership transfer (what shipped) | bit-identical | identical | **identical** |
+
+Two controls rule out the easy explanations: two fresh rebuilds separated by
+heavy OCCT churn stay byte-identical (so it is not allocation nondeterminism),
+and the drift persists when the copy shares its geometry handles (`copyGeom=False`),
+so it is not surface copying either. Resuming from a copy would therefore make
+`mesh_glb_id` — a documented content hash of a deterministic GLB — depend on
+**cache state**. That is a determinism regression traded for speed, and the
+trade is refused.
+
+One more thing had to be true, and was not at first: a checkpoint's bodies are
+`BRepTools::Clean`ed on the way into the cache. A body still carrying the
+triangulation its previous consumer's tessellate/STL/STEP call left on it meshes
+DIFFERENTLY once another boolean is applied — measured, appending one feature to
+an already-tessellated N=25 body moved the final GLB; cleaning made it byte-exact
+at every prefix length tried.
+
+### What is in the key, and what is deliberately not
+
+In: every feature of the prefix verbatim (id, type, params, `suppressed`) and
+their order; `linear_deflection` (handlers read it); the **mirror capture scope**
+(a `features`-scope mirror makes earlier features retain their tools, so the
+state after *k* features genuinely depends on the suffix — found by measurement:
+a prefix evaluated without it turns the later mirror into
+`reference_unresolved`); `record_history` (a prefix with no snapshots cannot
+serve per-face provenance, and two keys let the evaluate and overlay lineages
+BOTH stay cached instead of ping-ponging); a version salt.
+
+Out, under one rule — *a checkpoint stores only evaluator state, and every
+artifact is re-derived on every call, so anything consulted after the dispatch
+loop cannot change what a hit means*: `part_id`, `tree_version` (keying on it
+would defeat the cache entirely — it changes on every edit — while protecting
+nothing) and `materials` (densities, read only by the post-loop measurement; the
+memoised artifacts are additionally guarded on the resolved per-body material).
+
+### Not cached, and why
+
+* **A tree that failed.** A failed op may have rewritten its argument in place
+  (CM-6b), so its last-good state is not something to build on.
+* **A tree whose publish-time re-check found the body invalidated.** Same reason,
+  plus it is a state that publishes nothing.
+* **Mid-tree edits.** Only frontier checkpoints exist (see above). The follow-up
+  is filed: `warm_rebuild_cache()` — the prefetch seam that ships with this,
+  bounded and cancellable, returning an `int` so a speculative body can never be
+  published — is exactly what a background re-warm of the consumed prefix would
+  use.
+* **Anything durable.** Per worker, in memory, never a correctness dependency:
+  a miss re-evaluates.
+
+### Axis A re-run — the cold rebuild, same points, same harness
+
+`LOFT_SCALING_BENCH=1 uv run pytest services/geometry/tests/test_scaling_benchmarks.py
+-m benchmark -s`, 3 samples per point, median, one untimed warmup — and the
+harness now empties the prefix cache before every sample (`_cold_rebuild`), or
+every sample after the first would be a cache hit and the table would report
+artifact reuse as though it were a rebuild.
+
+| feats | rebuild ms 2026-07-31 (before) | rebuild ms now (after) | change |
+| ---: | ---: | ---: | ---: |
+| 10 | 263 | 220 | −16 % |
+| 25 | 628 | 626 | −0.3 % |
+| 50 | 2 098 | 2 361 | **+13 %** |
+| 100 | 7 456 | 6 577 | −12 % |
+| 200 | 27 269 | 25 711 | −6 % |
+
+**Say it plainly: the cold rebuild did not materially improve, and the exponent
+did not move.** Per-doubling exponents after: 1.92 (25→50), 1.48 (50→100), 1.97
+(100→200) — mean **1.79**, against 1.81 before. N=50 came back *slower*. Every
+one of these deltas is inside the ±8 % run-to-run spread this document already
+documents (the baseline's own N=200 median was measured at 27 269 / 25 331 /
+25 677 ms across one session), so the sweep cannot resolve PERF-2's saving at
+all. The saving is real and is measured directly instead, in the same process,
+alternating implementations on the same tree: **21.5 ms → 6.3 ms per
+body-affecting feature at 219 faces**, i.e. 1 310 ms → 385 ms over an N=100
+rebuild. It is ~13 % of a rebuild, it is flat in body size where the old gate
+was linear in it — and it is nowhere near enough to matter on its own.
+
+**Loft's wall is still `N^1.8`, and PERF-2 moved the constant by about a
+tenth.** That is the disappointing half of this run and it is the half a reader
+needs first.
+
+### What DID move: what a modeller pays per interaction
+
+`LOFT_SCALING_BENCH=1 uv run pytest services/geometry/tests/test_rebuild_cache_benchmarks.py
+-m benchmark -s`, same machine, same quiet window, 3 samples per point, median.
+**append** = the tree evaluated at N−1 and released, then evaluated at N (add one
+feature). **repeat** = the same tree again — the `/measure`, `/tessellate`,
+`/export` or drawings call that follows an `/evaluate`.
+
+| feats | cold rebuild ms | append ms | repeat ms | append | repeat |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 10 | 232 | 66 | 6 | 3.5x | 40x |
+| 25 | 632 | 136 | 18 | 4.6x | 35x |
+| 50 | 1 967 | 216 | 38 | 9.1x | 51x |
+| 100 | 6 896 | 430 | 63 | 16x | 109x |
+| 200 | 26 587 | **1 019** | **162** | **26x** | **164x** |
+
+Against the VERDICT table above, which said a 100-feature part is "painful and
+no longer a tool" at 7.5 s and a 200-feature part is "unusable" at 27 s:
+
+| part size | rebuild (unchanged) | add a feature | measure / export / re-tessellate |
+| --- | ---: | ---: | ---: |
+| 50 features | 2.0 s | **0.22 s** | **0.04 s** |
+| 100 features | 6.9 s | **0.43 s** | **0.06 s** |
+| 200 features | 26.6 s | **1.0 s** | **0.16 s** |
+
+The append floor is not the rebuild any more — at N=200 the one new feature is
+~200 ms and the other ~800 ms is **tessellating the 442-face result**, which
+every evaluate must do. So the next lever on append is the mesh path (RANKED-3b),
+not the tree. The repeat floor (162 ms at N=200) is the publish-time whole-body
+`BRepCheck` (~53 ms) plus hashing 200 features' JSON for the prefix key.
+
+What this does NOT fix, stated as plainly as the wins: **the first rebuild of a
+tree the worker has not seen** (a page load, a cold worker, a document opened by
+another user) still costs the full 27 s, and **a mid-tree edit** — change feature
+#39 of 200 — still misses, because only frontier checkpoints exist. Face picks
+alternate on their own lineage, so the first pick after an edit is cold and every
+pick after that is warm.
+
+### Memory
+
+The cache is bounded at 8 checkpoints. Measured at N=100 (219 faces) with eight
+distinct lineages resident: **+2 MiB of RSS per retained checkpoint** past the
+first, so a full cache is tens of MiB against OCCT's ~500 MiB baseline
+(extrapolating the 442-face body, ~4 MiB each at N=200). RSS does not fall when
+the cache is cleared — glibc keeps the arena — so the number is measured as a
+marginal cost, which is the honest way to state it.
+
+### Correctness — what was run
+
+* The full geometry suite (`uv run pytest services/geometry`) green, including the
+  CM-6/QA-1 regressions: the welded-void chain still fails closed with identical
+  statuses (`ok` x6 + `error`), the identical `invalid_body` code, and every
+  artifact withheld.
+* `tests/test_rebuild_cache.py` (new, always-on, 22 gates): a feature mutated
+  DEEP in a warm tree is never served from a stale prefix; suppress / delete /
+  reorder / deflection / a later scoped mirror each invalidate; appends at three
+  lengths are byte-identical to a cold rebuild including `mesh_glb_id`; a failed
+  tree is not a resume point; an entry is never lent while its evaluation is
+  alive; three concurrent rebuilds of one tree all return the cold answer.
+* Goldens unchanged, byte-for-byte — a cache that moved one would be a bug in the
+  cache.

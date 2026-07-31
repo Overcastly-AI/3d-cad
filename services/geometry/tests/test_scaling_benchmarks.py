@@ -60,6 +60,7 @@ from build123d import (
 )
 from geometry.features import evaluate as evaluate_module
 from geometry.features import evaluate_tree
+from geometry.features.evaluate import reset_rebuild_cache
 from geometry.kernel import measure_shape
 from geometry.kernel.export import export_step_bytes, export_stl_bytes
 from geometry.kernel.healing import body_is_valid
@@ -136,6 +137,20 @@ def _time_once(thunk: Callable[[], object]) -> float:
     start = time.perf_counter()
     thunk()
     return (time.perf_counter() - start) * 1000.0
+
+
+def _cold_rebuild(request: EvaluateTreeRequest) -> object:
+    """One rebuild with the prefix cache EMPTIED first (docs/PERF.md fix #1).
+
+    The sweep times the same request repeatedly, so without this every sample
+    after the first would be a cache HIT and the table would report ~20 ms of
+    artifact reuse as though it were a rebuild. The reset is a dict clear
+    (microseconds) and stays inside the timed region rather than complicating the
+    harness. Warm numbers are measured separately and deliberately, in
+    ``test_rebuild_cache_benchmarks.py``.
+    """
+    reset_rebuild_cache()
+    return evaluate_tree(request)
 
 
 def _median_ms(thunk: Callable[[], object], samples: int = SAMPLES) -> float:
@@ -216,7 +231,7 @@ def _measure(
     mesh = evaluation.mesh
     assert body is not None and properties is not None and mesh is not None
 
-    rebuild_ms = _median_ms(lambda: evaluate_tree(request))
+    rebuild_ms = _median_ms(lambda: _cold_rebuild(request))
     tessellate_ms = _median_ms(
         lambda: tessellate_glb(body, request.linear_deflection or 0.1)
     )
@@ -233,7 +248,9 @@ def _measure(
 
     overlay_request = OverlayRequest(tree=request)
     overlay = evaluate_overlay(overlay_request)
-    overlay_ms = _median_ms(lambda: evaluate_overlay(overlay_request))
+    overlay_ms = _median_ms(
+        lambda: (reset_rebuild_cache(), evaluate_overlay(overlay_request))[1]
+    )
     attributed = any(face.feature_id is not None for face in overlay.faces)
 
     by_type = _profile_by_feature_type(request, monkeypatch)
@@ -381,7 +398,14 @@ def test_big_part_rebuild_is_deterministic(
     byte-identical GLB and identical mass properties. Determinism is where a big
     part is most at risk — more booleans, more unordered kernel containers."""
     request = _request(payload_fn(size))
-    first, second = evaluate_tree(request), evaluate_tree(request)
+    first = evaluate_tree(request)
+    # Both rebuilds must be REAL ones: the prefix cache (docs/PERF.md fix #1)
+    # would otherwise let the second call resume the first's state, and a gate
+    # that compares an answer to itself proves nothing. (It would miss anyway
+    # while `first` is alive — a checkpoint is only offered once its evaluation
+    # is released — but a determinism gate should not rest on that.)
+    reset_rebuild_cache()
+    second = evaluate_tree(request)
     assert first.glb is not None and second.glb is not None
     assert first.glb == second.glb, f"{label}({size}): GLB differs between rebuilds"
     assert first.result.properties == second.result.properties
