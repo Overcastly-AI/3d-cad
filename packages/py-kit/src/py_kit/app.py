@@ -78,6 +78,16 @@ def create_app(
     # can emit a correct ``Content-Length``. Outside the request-id
     # BaseHTTPMiddleware it would only ever see a stream and fall back to
     # chunked, dropping the length the browser uses for download progress.
+    #
+    # WHEN THE FIRST STREAMING RESPONSE LANDS, READ THIS. Every response in the
+    # product is buffered today, which is the only reason the placement above is
+    # unambiguously right. A ``StreamingResponse`` or SSE endpoint inverts the
+    # trade: gzip would buffer it to compress, destroying the incrementality that
+    # was the point of streaming, and a long-lived SSE stream would simply never
+    # flush. Starlette's gzip has no per-route opt-out, so the exemption has to be
+    # explicit — send ``Content-Encoding: identity`` from that route, or move the
+    # streaming endpoints onto a sub-application without this middleware. Do not
+    # "fix" it by relaxing ``minimum_size``; the size is not the variable.
     app.add_middleware(
         GZipMiddleware,
         minimum_size=COMPRESSION_MINIMUM_SIZE,
