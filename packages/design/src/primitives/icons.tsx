@@ -625,6 +625,52 @@ export const GridSnapIcon = (p: IconProps) => (
   </Icon>
 );
 
+// --- Sketch snap marks ------------------------------------------------------
+//
+// The mark that names WHICH snap the cursor is about to take, drawn AT the
+// candidate point in the sketch viewport. Deliberately the AutoCAD/Fusion
+// object-snap vocabulary (square = endpoint, triangle = midpoint, circled
+// cross = centre, X = intersection) rather than an invented dialect: a snap
+// mark is a LEARNED symbol, so convention wins and the design contribution is
+// drawing it in our hand — 1.6 scribe stroke, square caps, `currentColor`.
+// Tangent and perpendicular reuse `TangentIcon` / `PerpendicularIcon`, which
+// already ARE those conventions (one glyph, one source).
+//
+// Every form is OPEN (no fill) so the geometry under the mark stays visible,
+// and the four differ by WHOLE STROKES — 4 axis-aligned sides / 3 sides with an
+// apex / a curve with an internal cross / two bare diagonals. That constraint
+// is not stylistic: a fill-only difference measured ILLEGIBLE at 16px when the
+// eye set was cut (`ui-wave-tool-grade.md` Surface 2, as-built correction 2).
+
+/** Endpoint — the square, engineering's end-of-line mark. */
+export const SnapEndpointIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x={6} y={6} width={12} height={12} />
+  </Icon>
+);
+
+/** Midpoint — the triangle, apex up. */
+export const SnapMidpointIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M12 5.5 L19 18 H5 Z" />
+  </Icon>
+);
+
+/** Centre — the drafting centre mark: a circle crossed through its middle. */
+export const SnapCenterIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <circle cx={12} cy={12} r={7} />
+    <path d="M12 7 V17 M7 12 H17" />
+  </Icon>
+);
+
+/** Intersection — two bare crossing scribes, no enclosure. */
+export const SnapIntersectionIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M5 5 L19 19 M19 5 L5 19" />
+  </Icon>
+);
+
 // --- Export -----------------------------------------------------------------
 
 /** STEP = an exact B-rep solid (an isometric cube — every edge is real). */

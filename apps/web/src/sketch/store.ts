@@ -26,18 +26,24 @@ import {
 import { toggleCornerPick, type CornerOp } from "./corner";
 import { toggleMirrorTarget, type MirrorAxis } from "./mirror";
 import type { DatumPlaneName, Point2D, SketchPlaneSpec } from "./plane";
-import { snapPoint } from "./plane";
 import { pickCandidates, toggleSelection, type SketchPick } from "./pick";
+import { resolveSnap, type SnapCandidate, type SnapResolution } from "./snap";
 import {
   escapeAction,
   finishPlacement as finishPlacementSequence,
   placePoint,
+  placesPoints,
   type SketchEntity,
   type SketchTool,
 } from "./tools";
 
-/** Default grid snap (mm) — toggled with G, not adjustable yet. */
-export const SNAP_STEP_MM = 1;
+/**
+ * Grid snap step (mm) the sketch opens with. The LIVE step is
+ * `snapStepMm` on the store and is set with `setSnapStep` — this is only the
+ * starting value, so a settings surface has one number to write to rather than
+ * a literal to fight (UI-W5).
+ */
+export const DEFAULT_SNAP_STEP_MM = 1;
 
 export type SketchMode = "off" | "plane" | "draw";
 
@@ -57,7 +63,27 @@ export interface SketchState {
   constraints: SketchConstraint[];
   /** Next sketch-local id index (`e1`, `e2`, …). */
   nextIdIndex: number;
+  /** GRID snap toggle (G). Entity snapping is always live — Ctrl/Cmd suppresses. */
   snapEnabled: boolean;
+  /** Live grid step (mm) — configurable, see `DEFAULT_SNAP_STEP_MM`. */
+  snapStepMm: number;
+  /** Ctrl/Cmd held: every snap off, freehand placement (UI-W5 polarity). */
+  snapSuppressed: boolean;
+  /** Shift held: the aim is locked to an axis through the placement anchor. */
+  axisLock: boolean;
+  /**
+   * What the current aim actually took — endpoint / midpoint / centre /
+   * intersection / tangent / perpendicular / axis lock — so the viewport can
+   * NAME it before the click commits. Null for a grid or freehand point.
+   */
+  snapCandidate: SnapCandidate | null;
+  /**
+   * The last RAW (unsnapped) pointer point and its px→mm tolerance. Held so a
+   * modifier pressed while the pointer is stationary re-resolves the aim
+   * immediately, instead of lying until the next mouse move.
+   */
+  aimRaw: Point2D | null;
+  aimToleranceMm: number;
   /** Pointer position in plane mm, already snapped; null when off-plane. */
   cursor: Point2D | null;
   /** Plane under the pointer / focused cell during plane pick. */
@@ -159,9 +185,25 @@ export interface SketchState {
   setTool: (tool: SketchTool) => void;
   setHoveredPlane: (plane: DatumPlaneName | null) => void;
   setCursor: (point: Point2D | null) => void;
+  /** Toggle the GRID snap (G). Entity snapping is unaffected — it is always on. */
   toggleSnap: () => void;
-  /** Apply the current snap setting to a raw plane-space point. */
-  snap: (point: Point2D) => Point2D;
+  /** Set the grid step in mm (a settings-surface seam; <= 0 is rejected). */
+  setSnapStep: (stepMm: number) => void;
+  /** Record the live modifier state and re-resolve the aim under it. */
+  setSnapModifiers: (modifiers: {
+    suppressed: boolean;
+    axisLock: boolean;
+  }) => void;
+  /**
+   * Resolve a raw plane point into the point a click would take, recording the
+   * cursor and the named snap candidate. THE one aim path: hover and click both
+   * go through it, so what the mark promises is what the click places.
+   */
+  aim: (
+    point: Point2D,
+    toleranceMm: number,
+    modifiers: { suppressed: boolean; axisLock: boolean },
+  ) => Point2D;
   /** Place the next point of the active tool's sequence. */
   placeAt: (point: Point2D) => void;
   /**
@@ -280,6 +322,12 @@ const INITIAL = {
   constraints: [],
   nextIdIndex: 1,
   snapEnabled: true,
+  snapStepMm: DEFAULT_SNAP_STEP_MM,
+  snapSuppressed: false,
+  axisLock: false,
+  snapCandidate: null,
+  aimRaw: null,
+  aimToleranceMm: 0,
   cursor: null,
   hoveredPlane: null,
   selection: [],
@@ -302,10 +350,43 @@ const INITIAL = {
   cornerRequest: null,
 };
 
+/**
+ * A fresh session that PRESERVES the snap preferences. Grid on/off and the
+ * grid step are settings the user chose; wiping them on exit would silently
+ * undo a choice, so they survive `begin` / `exit` / the Escape cascade.
+ */
+const freshSession = (state: SketchState) => ({
+  ...INITIAL,
+  snapEnabled: state.snapEnabled,
+  snapStepMm: state.snapStepMm,
+});
+
+/** The one aim resolution — shared by `aim` and the modifier re-resolve. */
+function resolveAim(
+  state: SketchState,
+  point: Point2D,
+  toleranceMm: number,
+  modifiers: { suppressed: boolean; axisLock: boolean },
+): SnapResolution {
+  return resolveSnap({
+    point,
+    entities: state.entities,
+    // The placement anchor: the last point of the open sequence. Tangent and
+    // perpendicular are defined relative to where the curve comes FROM, and
+    // the axis lock pivots on it.
+    from: state.pending[state.pending.length - 1] ?? null,
+    toleranceMm,
+    gridStepMm: state.snapEnabled ? state.snapStepMm : 0,
+    suppressed: modifiers.suppressed,
+    axisLock: modifiers.axisLock,
+    entitySnap: placesPoints(state.tool),
+  });
+}
+
 export const useSketchStore = create<SketchState>()((set, get) => ({
   ...INITIAL,
 
-  begin: () => set({ ...INITIAL, mode: "plane" }),
+  begin: () => set((state) => ({ ...freshSession(state), mode: "plane" })),
   choosePlane: (plane) =>
     set({
       mode: "draw",
@@ -338,9 +419,55 @@ export const useSketchStore = create<SketchState>()((set, get) => ({
       editNote: null,
     }),
   setHoveredPlane: (hoveredPlane) => set({ hoveredPlane }),
-  setCursor: (cursor) => set({ cursor }),
+  // Leaving the plane drops the aim entirely: a mark left behind would name a
+  // snap for a cursor that is no longer there.
+  setCursor: (cursor) =>
+    set(
+      cursor === null
+        ? { cursor: null, snapCandidate: null, aimRaw: null }
+        : { cursor },
+    ),
   toggleSnap: () => set((state) => ({ snapEnabled: !state.snapEnabled })),
-  snap: (point) => snapPoint(point, get().snapEnabled ? SNAP_STEP_MM : 0),
+  setSnapStep: (stepMm) => {
+    if (!Number.isFinite(stepMm) || stepMm <= 0) return;
+    set({ snapStepMm: stepMm });
+  },
+
+  setSnapModifiers: ({ suppressed, axisLock }) => {
+    const state = get();
+    if (state.snapSuppressed === suppressed && state.axisLock === axisLock) {
+      return;
+    }
+    // Re-resolve from the last raw point so a modifier pressed with the mouse
+    // held still takes effect NOW — the mark must never outlive its truth.
+    if (state.aimRaw === null) {
+      set({ snapSuppressed: suppressed, axisLock });
+      return;
+    }
+    const resolution = resolveAim(state, state.aimRaw, state.aimToleranceMm, {
+      suppressed,
+      axisLock,
+    });
+    set({
+      snapSuppressed: suppressed,
+      axisLock,
+      cursor: resolution.at,
+      snapCandidate: resolution.candidate,
+    });
+  },
+
+  aim: (point, toleranceMm, modifiers) => {
+    const resolution = resolveAim(get(), point, toleranceMm, modifiers);
+    set({
+      cursor: resolution.at,
+      snapCandidate: resolution.candidate,
+      snapSuppressed: modifiers.suppressed,
+      axisLock: modifiers.axisLock,
+      aimRaw: point,
+      aimToleranceMm: toleranceMm,
+    });
+    return resolution.at;
+  },
 
   placeAt: (point) => {
     const { tool, pending, nextIdIndex, entities, revision } = get();
@@ -848,10 +975,10 @@ export const useSketchStore = create<SketchState>()((set, get) => ({
         set({ selection: [], selectedConstraint: null, hint: null });
         return;
       case "exit":
-        set({ ...INITIAL });
+        set(freshSession(get()));
         return;
     }
   },
 
-  exit: () => set({ ...INITIAL }),
+  exit: () => set(freshSession(get())),
 }));

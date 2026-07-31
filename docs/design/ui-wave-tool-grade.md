@@ -186,6 +186,54 @@ becomes the fallback for CHANGING a reference, not the way to set one.
 
 ---
 
+## Surface 4 — snapping (UI-W5, as-built 2026-07-31)
+
+**What was wrong:** the sketcher had exactly one snap — a grid, hardcoded at
+1 mm (`sketch/store.ts`). No endpoint, no midpoint, no centre. Drawings had a
+vertex snap for dimensions, so the concept existed in the product but not where
+you draw.
+
+**The polarity call, which is the interesting one.** The founder's phrasing was
+"with control or command?", i.e. hold a key to snap. Built the other way round:
+**snapping is on and the modifier suppresses it.** A precision you have to hold
+a key to reach is a precision you only get once you know the feature exists, and
+a novice never finds it; inverted, precision is the default and you opt out for
+the rare freehand placement. Fusion agrees. Ctrl/Cmd (not Alt — window managers
+and browser menu focus fight for Alt+drag) turns off *everything*, grid
+included: a half-escape is not an escape. Shift is the axis lock, the convention
+the other hands already have.
+
+**The signature move is honesty, not the snap.** A snap that silently grabs the
+wrong thing is worse than no snap, because the sketch ends up subtly wrong and
+nothing said so. So the mark at the candidate carries the WORD as well as a
+form — `ENDPOINT`, `MIDPOINT`, `CENTRE`, `INTERSECTION` — where every competitor
+shows a symbol alone. That is this surface's one deliberate risk: a symbol only
+informs someone who already learned it, and the founder's bar includes "could my
+grandpa follow it".
+
+Two rules carried over from the wave's earned lessons:
+
+- **Forms differ by whole strokes**, never by fill: square (4 axis-aligned
+  sides) / triangle (3, apex up) / circled cross / two bare diagonals. Same
+  constraint that had to recut the eye set (Surface 2, correction 2), asserted
+  in `snapIcons.test.tsx` on path structure rather than eyeballed.
+- **Contrast is measured and the ratio is in the comment.** Mark `brass-hover`
+  on carbide 11.80:1, and 5.49:1 in the worst case of sitting on a major grid
+  line; the word `mist` on anvil 13.21:1.
+
+**Restraint:** no new palette, no new accent, four new glyphs and no more —
+tangent and perpendicular reuse the CONSTRAINT glyphs of the same names, because
+the snap and the constraint mean the same relation. And the accessory removed:
+the brass crosshair stands down while a mark is up. Measured on the captured
+frames, its arms poked through every form and turned the centre mark (a circled
+cross) into two crosses. One aim, one indicator.
+
+**Division of labour in the chrome:** the DRO's SNAP cell reports the MODE
+(what is armed, what `G` toggles, "held off" while Ctrl is down); the mark at
+the cursor reports the live CANDIDATE. One job each.
+
+---
+
 ## Quality floor (unstated, enforced)
 
 WCAG-AA contrast on every new pair, visible focus on the travel stop and every

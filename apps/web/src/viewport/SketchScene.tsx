@@ -4,10 +4,21 @@
  * un-tonemapped so the canvas shows the EXACT token hex — one palette, two
  * renderers (verified by the e2e pixel probe).
  */
+import {
+  PerpendicularIcon,
+  SnapCenterIcon,
+  SnapEndpointIcon,
+  SnapIntersectionIcon,
+  SnapMidpointIcon,
+  TangentIcon,
+  HorizontalIcon,
+  VerticalIcon,
+  type IconProps,
+} from "@loft/design";
 import { sketch, viewport } from "@loft/design/tokens";
-import { useCursor } from "@react-three/drei";
+import { Html, useCursor } from "@react-three/drei";
 import { useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import {
   BufferGeometry,
   Float32BufferAttribute,
@@ -37,8 +48,13 @@ import {
   type PlaneBasis,
 } from "../sketch/plane";
 import { axisLinePoints, reflectEntity } from "../sketch/mirror";
+import { SNAP_LABELS, SNAP_TOLERANCE_PX, type SnapKind } from "../sketch/snap";
 import { useSketchStore } from "../sketch/store";
-import { previewEntities, type SketchEntity } from "../sketch/tools";
+import {
+  placesPoints,
+  previewEntities,
+  type SketchEntity,
+} from "../sketch/tools";
 import { AdaptiveGrid } from "./AdaptiveGrid";
 import { ConstraintGlyphs } from "./ConstraintGlyphs";
 
@@ -250,7 +266,7 @@ function DatumSheet({ plane }: { plane: DatumPlaneName }) {
  */
 function PointerCatcher({ basis }: { basis: PlaneBasis }) {
   const setCursor = useSketchStore((state) => state.setCursor);
-  const snap = useSketchStore((state) => state.snap);
+  const aim = useSketchStore((state) => state.aim);
   const placeAt = useSketchStore((state) => state.placeAt);
   const selectAt = useSketchStore((state) => state.selectAt);
   const setHoverPick = useSketchStore((state) => state.setHoverPick);
@@ -263,16 +279,28 @@ function PointerCatcher({ basis }: { basis: PlaneBasis }) {
     e: ThreeEvent<PointerEvent> | ThreeEvent<MouseEvent>,
   ) => worldToPlane(basis, [e.point.x, e.point.y, e.point.z]);
 
-  /** Screen px → plane mm at this event's depth (perspective camera). */
-  const toleranceMm = (
-    e: ThreeEvent<PointerEvent> | ThreeEvent<MouseEvent>,
-  ) => {
+  /** One screen pixel in plane mm at this event's depth (perspective camera). */
+  const worldPerPx = (e: ThreeEvent<PointerEvent> | ThreeEvent<MouseEvent>) => {
     const fov =
       "fov" in camera && typeof camera.fov === "number" ? camera.fov : 40;
-    const worldPerPx =
-      (2 * e.distance * Math.tan((fov * Math.PI) / 360)) / heightPx;
-    return PICK_TOLERANCE_PX * worldPerPx;
+    return (2 * e.distance * Math.tan((fov * Math.PI) / 360)) / heightPx;
   };
+  const toleranceMm = (e: ThreeEvent<PointerEvent> | ThreeEvent<MouseEvent>) =>
+    PICK_TOLERANCE_PX * worldPerPx(e);
+  /** The snap magnet is a hair wider than the pick tolerance (see snap.ts). */
+  const snapToleranceMm = (
+    e: ThreeEvent<PointerEvent> | ThreeEvent<MouseEvent>,
+  ) => SNAP_TOLERANCE_PX * worldPerPx(e);
+  /**
+   * Modifier state read from the EVENT — authoritative at the instant of the
+   * click, where a keyboard-tracked flag can be one repaint stale. Ctrl/Cmd
+   * suppresses every snap; Shift locks the aim to an axis. Alt is deliberately
+   * unused: window managers and browser menus fight for Alt+drag.
+   */
+  const modifiers = (e: ThreeEvent<PointerEvent> | ThreeEvent<MouseEvent>) => ({
+    suppressed: e.nativeEvent.ctrlKey || e.nativeEvent.metaKey,
+    axisLock: e.nativeEvent.shiftKey,
+  });
 
   return (
     <mesh
@@ -280,21 +308,16 @@ function PointerCatcher({ basis }: { basis: PlaneBasis }) {
       quaternion={quaternion}
       onPointerMove={(e) => {
         const raw = rawPlanePoint(e);
-        setCursor(snap(raw));
+        // ONE aim path (store.aim): it resolves the entity snap / axis lock /
+        // grid AND records which one it took, so the mark the user reads and
+        // the point a click places are the same number by construction.
+        aim(raw, snapToleranceMm(e), modifiers(e));
         // Read the tool at EVENT time: the render-subscribed value is a
         // stale closure for the frame right after a keyboard tool switch
         // (zustand commit → React render → r3f handler swap), which loses
         // the first click of a fast key-then-click sequence.
         const aimTool = useSketchStore.getState().tool;
-        if (
-          aimTool === "select" ||
-          aimTool === "trim" ||
-          aimTool === "extend" ||
-          aimTool === "offset" ||
-          aimTool === "mirror" ||
-          aimTool === "fillet" ||
-          aimTool === "chamfer"
-        ) {
+        if (!placesPoints(aimTool)) {
           const all = pickCandidates(
             useSketchStore.getState().entities,
             raw,
@@ -378,7 +401,9 @@ function PointerCatcher({ basis }: { basis: PlaneBasis }) {
             target !== null && target.kind === "entity" ? target.id : null,
           );
         } else {
-          placeAt(snap(rawPlanePoint(e)));
+          placeAt(
+            store.aim(rawPlanePoint(e), snapToleranceMm(e), modifiers(e)),
+          );
         }
         invalidate();
       }}
@@ -399,11 +424,19 @@ function PointerCatcher({ basis }: { basis: PlaneBasis }) {
   );
 }
 
-/** Snap-cursor crosshair (brass, world-mm arms). */
+/**
+ * Snap-cursor crosshair (brass, world-mm arms) — the aim indicator for a FREE
+ * or grid-snapped point. It stands down while a snap mark is up: the mark is
+ * then the aim indicator, and measured on the captured shots the crosshair's
+ * arms poked through every form and turned the centre mark (a circled cross)
+ * into two crosses. One aim, one indicator — Chanel's "remove one accessory",
+ * applied where it was actually costing legibility.
+ */
 function Crosshair({ basis }: { basis: PlaneBasis }) {
   const cursor = useSketchStore((state) => state.cursor);
+  const marked = useSketchStore((state) => state.snapCandidate !== null);
   const positions = useMemo(() => {
-    if (cursor === null) return new Float32Array(0);
+    if (cursor === null || marked) return new Float32Array(0);
     const a = sketch.cursorArmMm;
     const arms = [
       [
@@ -421,8 +454,127 @@ function Crosshair({ basis }: { basis: PlaneBasis }) {
       out.set(planeToWorld(basis, arm[1] ?? { x: 0, y: 0 }), i * 6 + 3);
     });
     return out;
-  }, [cursor, basis]);
+  }, [cursor, marked, basis]);
   return <InkSegments positions={positions} color={sketch.cursor} />;
+}
+
+/** Keep the snap mark under the HUD strips, like the constraint glyphs. */
+const SNAP_Z_RANGE: [number, number] = [20, 0];
+
+/**
+ * Snap mark size (px). 24 rather than the toolbar's 16: measured on the
+ * captured frames, a 16px form sat inside the entity's own brass point dot and
+ * the four shapes stopped being tellable apart at a glance — which is the one
+ * thing this mark exists to do.
+ */
+const SNAP_MARK_PX = 24;
+
+/**
+ * One mark per snap kind. Tangent and perpendicular reuse the CONSTRAINT
+ * glyphs of the same names — the snap and the constraint mean the same
+ * relation, so they get the same mark (one glyph, one source).
+ */
+const SNAP_MARKS: Record<SnapKind, (props: IconProps) => ReactElement> = {
+  endpoint: SnapEndpointIcon,
+  midpoint: SnapMidpointIcon,
+  center: SnapCenterIcon,
+  intersection: SnapIntersectionIcon,
+  tangent: TangentIcon,
+  perpendicular: PerpendicularIcon,
+  "axis-h": HorizontalIcon,
+  "axis-v": VerticalIcon,
+};
+
+/**
+ * THE honesty cue (UI-W5): a mark at the candidate NAMING which snap this
+ * click will take, before it is taken. A snap that silently grabs the wrong
+ * thing is worse than no snap — the sketch ends up subtly wrong and nothing on
+ * screen ever said so — so the mark carries both a distinct form and the WORD.
+ * Competitors show the symbol alone; the word is the deliberate extra, because
+ * a symbol only informs someone who already learned it.
+ *
+ * Measured contrast on the carbide viewport ground (#0F141A): the mark in
+ * `brass-hover` reads 11.80:1, and 5.49:1 in the worst case of sitting on a
+ * major grid line (#3E4D61) — both clear of WCAG-AA. The word sits on the
+ * anvil chip ground (#161D27) in `mist` at 13.21:1. Ratios are stated because
+ * a "redundant" cue in this codebase once measured 1.54:1 while its comment
+ * claimed otherwise; eyeballing a dark-on-dark pair does not work.
+ *
+ * Pointer-inert: the mark floats over the pointer catcher and must never eat
+ * the click it is describing.
+ */
+function SnapMarker({ basis }: { basis: PlaneBasis }) {
+  const candidate = useSketchStore((state) => state.snapCandidate);
+  if (candidate === null) return null;
+  const Mark = SNAP_MARKS[candidate.kind];
+  const label = SNAP_LABELS[candidate.kind];
+  return (
+    <Html
+      position={planeToWorld(basis, candidate.at)}
+      center
+      zIndexRange={SNAP_Z_RANGE}
+      style={{ pointerEvents: "none" }}
+    >
+      <div
+        className="relative"
+        data-testid="snap-marker"
+        data-snap-kind={candidate.kind}
+        data-snap-entities={
+          candidate.entities.length > 0
+            ? candidate.entities.join(" ")
+            : undefined
+        }
+        role="img"
+        aria-label={`Snapping to ${label.toLowerCase()}`}
+      >
+        <Mark size={SNAP_MARK_PX} className="block text-brass-hover" />
+        {/* The word is a callout, offset clear of the mark's own strokes —
+            derived from the mark size so the two can never grow into each
+            other (the first cut had the chip corner sitting ON the square). */}
+        <span
+          className="absolute whitespace-nowrap border border-hairline bg-anvil px-1.5 py-px font-display text-2xs uppercase tracking-[0.16em] text-mist"
+          style={{ left: SNAP_MARK_PX + 4, bottom: SNAP_MARK_PX + 4 }}
+        >
+          {label}
+        </span>
+      </div>
+    </Html>
+  );
+}
+
+/**
+ * Live modifier state for the aim. The pointer handlers already read Ctrl /
+ * Cmd / Shift off each event, but a modifier pressed with the mouse HELD STILL
+ * would otherwise leave the mark asserting a snap the next click will not take
+ * — so the keyboard drives a re-resolve of the last raw aim too.
+ */
+function useSnapModifiers(active: boolean) {
+  const setSnapModifiers = useSketchStore((state) => state.setSnapModifiers);
+  const invalidate = useThree((state) => state.invalidate);
+  useEffect(() => {
+    if (!active) return;
+    const sync = (event: KeyboardEvent) => {
+      setSnapModifiers({
+        suppressed: event.ctrlKey || event.metaKey,
+        axisLock: event.shiftKey,
+      });
+      invalidate();
+    };
+    const clear = () => {
+      setSnapModifiers({ suppressed: false, axisLock: false });
+      invalidate();
+    };
+    window.addEventListener("keydown", sync);
+    window.addEventListener("keyup", sync);
+    // A chord that takes focus away (⌘Tab) never delivers its keyup, which
+    // would strand the aim in freehand until the next modifier press.
+    window.addEventListener("blur", clear);
+    return () => {
+      window.removeEventListener("keydown", sync);
+      window.removeEventListener("keyup", sync);
+      window.removeEventListener("blur", clear);
+    };
+  }, [active, setSnapModifiers, invalidate]);
 }
 
 /** The mm grid on the active sketch plane (cell = the 1 mm snap step). */
@@ -579,6 +731,7 @@ function DrawLayer({ basis }: { basis: PlaneBasis }) {
       <InkSegments positions={preview} color={sketch.preview} dashed />
       <InkSegments positions={ghostPositions} color={sketch.preview} dashed />
       <Crosshair basis={basis} />
+      <SnapMarker basis={basis} />
       <ConstraintGlyphs basis={basis} />
     </group>
   );
@@ -765,6 +918,7 @@ export function SketchScene({ solved, facePicking = false }: SketchSceneProps) {
     () => (plane === null ? null : resolveSpecBasis(plane)),
     [plane],
   );
+  useSnapModifiers(mode === "draw");
   return (
     <group>
       {solved.map((layer) => (

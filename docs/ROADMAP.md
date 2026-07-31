@@ -18,9 +18,17 @@ on the right rail while the parameters scroll under them. **UI-W2 — the ASSEMB
 half (per-instance visibility / opacity / isolate) SHIPPED 2026-07-30**
 (frontend-builder): every component row carries an eye, the addressed one gets a
 SOLID · GHOST · HIDE control, isolate is a right-click verb with `V` / `⇧V`, and
-an `ISOLATED` stamp over the scene is the way back. Still queued: the UI-W2 PART
-half (Origin / Sketches / Bodies categories), UI-W5 (entity snapping, Ctrl to
-suppress), and a settings surface.
+an `ISOLATED` stamp over the scene is the way back. **UI-W5 (entity snapping in the sketcher) SHIPPED 2026-07-31**
+(frontend-builder) — the last of the founder's four original questions ("what
+about snapping to a face or point? With control or command?") is answered, and
+deliberately INVERTED: snapping is ON and Ctrl/Cmd suppresses it, because a
+precision you must hold a key to get is a precision a novice never finds.
+Endpoint / midpoint / centre / intersection / tangent / perpendicular-foot all
+snap, Shift locks the aim to an axis, `G` still toggles only the grid — whose
+step is now a store value a settings surface can write. The honesty half is the
+point: a distinct mark at the candidate NAMES the snap ("ENDPOINT") before the
+click, so a snap can never silently grab the wrong thing. Still queued: the
+UI-W2 PART half (Origin / Sketches / Bodies categories) and a settings surface.
 **#57 material/density — the KERNEL + WIRE half SHIPPED 2026-07-30**
 (kernel-architect; design `docs/design/materials.md`, decision record RESEARCH
 §9a). MASS PROPERTIES could not report mass because nothing in the codebase had

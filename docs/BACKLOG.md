@@ -241,6 +241,32 @@ frame refactor are v2/§11. Spike de-collected.
       `uiw2-{ghost,isolate}-{1440,1366}.png`. NEXT: the PART half (Origin /
       Sketches / Bodies categories) — another agent holds those panels.
       [src: founder directive 2026-07-30 · AUDIT-PRODUCT 21-instance assembly]
+- [x] (P1, M) **UI-W5 — entity snapping in the sketcher, with a mark that says
+      WHICH snap you are about to take. SHIPPED 2026-07-31**
+      (frontend-builder; founder question "what about snapping to a face or
+      point? With control or command?"). The sketcher had ONE snap — a grid
+      hardcoded at 1 mm. Now `sketch/snap.ts` resolves endpoint / midpoint /
+      centre / intersection / tangent / perpendicular-foot analytically (exact
+      line/circle/arc crossings, not chord approximations; splines fall back to
+      the sampled ink), Shift locks the aim to an axis through the placement
+      anchor, and the grid step is a store value (`snapStepMm` / `setSnapStep`)
+      for the settings surface rather than a literal. **Polarity is inverted
+      from the phrasing on purpose: snapping is ON and Ctrl/Cmd SUPPRESSES it**
+      (all of it, grid included) — a precision you must hold a key to reach is
+      one a novice never finds; Alt is avoided (window managers fight for it).
+      The honesty half: a mark at the candidate names it before the click, four
+      new glyphs differing by WHOLE STROKES (square / triangle / circled cross /
+      bare X — a fill difference is not a difference at 16px), tangent and
+      perpendicular reusing the constraint glyphs of the same names. Measured,
+      not eyeballed: mark `brass-hover` on carbide 11.80:1, 5.49:1 worst case
+      over a major grid line; the word `mist` on anvil 13.21:1. The crosshair
+      stands down while a mark is up (it was poking through every form). e2e
+      proves the chain end-to-end — with the grid OFF, a click 6 px off a corner
+      persists as exactly (40, 25). web unit 1218 + design 66;
+      `sketch-snap.spec.ts` (6) + 55 sketch/flow regression specs green on a
+      live native stack; shots `uiw5-snap-before-{1440,1366}.png` and
+      `uiw5-snap-{endpoint,midpoint,center,intersection}-{1440,1366}.png`.
+      [src: founder question 2026-07-30 · ROADMAP current focus]
 - [x] (P1, M) **UI-REVIEW 2026-07-30 P1/P2/P3 — the export strip's second fold
       regression, the timeline's false redundancy claims, and three silent
       gates. FIXED 2026-07-30** (frontend-builder, folded into UI-W3/W4).
@@ -1954,6 +1980,11 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
   every component row gets an eye, the addressed one a SOLID · GHOST · HIDE control,
   isolate a right-click verb with `V`/`⇧V` and an `ISOLATED` stamp as the way back.
   Asserted on canvas PIXELS, not aria state (mandate 3c).
+
+- 2026-07-31 — **UI-W5 entity snapping (frontend-builder):** endpoint / midpoint /
+  centre / intersection / tangent / perpendicular snap by default; Ctrl-Cmd
+  SUPPRESSES (inverted on purpose), Shift axis-locks, `G` still owns the grid.
+  A named mark says which snap you get before the click.
 
 - 2026-07-30 — **Last-evaluate record on the part row (backend-builder):**
   migration `0012` + derived `eval_state` (`never`/`ok`/`failed`/`stale`), written
