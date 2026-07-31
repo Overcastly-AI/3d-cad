@@ -80,6 +80,9 @@ export interface paths {
         /**
          * Delete Assembly
          * @description Delete an owned assembly (204; 409 when instanced as a sub-assembly).
+         *
+         *     The refusal NAMES the referencing documents in ``details.dependents``
+         *     (:data:`~gateway.parts.DEPENDENCY_CONFLICT_RESPONSE`).
          */
         delete: operations["delete_assembly_api_v1_assemblies__assembly_id__delete"];
         options?: never;
@@ -110,6 +113,32 @@ export interface paths {
         get: operations["get_assembly_bom_api_v1_assemblies__assembly_id__bom_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/assemblies/{assembly_id}/duplicate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Duplicate Assembly
+         * @description Copy an assembly's instances and mates — NOT the parts they name (201).
+         *
+         *     Both assemblies reference the same parts afterwards, because an instance IS
+         *     a reference: edit one of those parts and the change shows up in both. See
+         *     :mod:`documents.duplicate` for the full statement of what a copy carries.
+         *     The copy's name is the server's to assign and the created assembly is
+         *     returned.
+         */
+        post: operations["duplicate_assembly_api_v1_assemblies__assembly_id__duplicate_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -429,6 +458,31 @@ export interface paths {
          * @description Delete a dimension; returns the updated tree (bumps ``doc_version``).
          */
         delete: operations["delete_dimension_api_v1_drawings__drawing_id__dimensions__dimension_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/drawings/{drawing_id}/duplicate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Duplicate Drawing
+         * @description Copy a drawing's sheets, views, dimensions and annotations (201).
+         *
+         *     The copied views keep pointing at the same part/assembly — a view is a
+         *     reference, like an assembly instance — so this duplicates the LAYOUT, never
+         *     the modelled document (:mod:`documents.duplicate`). The copy's name is the
+         *     server's to assign and the created drawing is returned.
+         */
+        post: operations["duplicate_drawing_api_v1_drawings__drawing_id__duplicate_post"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -1125,6 +1179,10 @@ export interface paths {
         /**
          * Delete Part
          * @description Delete one of the caller's parts (204; 404 for unknown/foreign ids).
+         *
+         *     409 while an assembly still instances it or a drawing still projects it,
+         *     with the referencing documents NAMED in ``details.dependents`` — see
+         *     :data:`DEPENDENCY_CONFLICT_RESPONSE`.
          */
         delete: operations["delete_part_api_v1_parts__part_id__delete"];
         options?: never;
@@ -1142,6 +1200,37 @@ export interface paths {
          *     name.
          */
         patch: operations["update_part_api_v1_parts__part_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/parts/{part_id}/duplicate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Duplicate Part
+         * @description Copy a part and its WHOLE feature tree at its current version (201).
+         *
+         *     Exactly what a duplicate does and does not copy is documented once, upstream
+         *     (:mod:`documents.duplicate`); the short version is: every feature, its
+         *     params, its dependency edges and the travel stop, plus the display unit and
+         *     materials — but not the undo history and not the last-evaluate record (the
+         *     copy has never been built, and its register row says so).
+         *
+         *     No request body: the copy's name is the server's to assign (``"<name>
+         *     copy"``, then ``" copy 2"``…) and the created part is returned, so the
+         *     register renders the name that was actually taken rather than one it
+         *     predicted. 409 if that name is somehow taken anyway; rename and retry.
+         */
+        post: operations["duplicate_part_api_v1_parts__part_id__duplicate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/parts/{part_id}/evaluate": {
@@ -3152,6 +3241,45 @@ export interface components {
             plane: "XY" | "XZ" | "YZ";
         };
         /**
+         * DependencyConflictEnvelope
+         * @description A dependency 409 as it appears on the wire (the standard envelope).
+         *
+         *     Declared as the documented 409 model of the delete routes so it reaches
+         *     ``packages/contracts`` and therefore the generated TS client — the register
+         *     then reads ``details.dependents`` as a TYPE rather than narrowing an
+         *     ``unknown``.
+         */
+        DependencyConflictEnvelope: {
+            error: components["schemas"]["DependencyConflictError"];
+        };
+        /**
+         * DependencyConflictError
+         * @description The ``error`` member of a dependency 409, with typed ``details``.
+         *
+         *     Mirrors the py-kit envelope (:mod:`py_kit.errors`) rather than redefining
+         *     it: same ``code``/``message``/``details``/``request_id`` members, with
+         *     ``details`` narrowed from "anything" to :class:`DocumentDependents` for this
+         *     one documented status.
+         */
+        DependencyConflictError: {
+            /**
+             * Code
+             * @description 'part_has_dependents' / 'assembly_has_dependents' — the machine code a client branches on
+             */
+            code: string;
+            details: components["schemas"]["DocumentDependents"];
+            /**
+             * Message
+             * @description Human summary; the register shows the list, not this
+             */
+            message: string;
+            /**
+             * Request Id
+             * @description Correlation id of the refused request
+             */
+            request_id?: string | null;
+        };
+        /**
          * DiameterDimensionParams
          * @description A diameter dimension on a circular model edge (design §3.1).
          *
@@ -3358,6 +3486,49 @@ export interface components {
              * @enum {string}
              */
             type: "distance";
+        };
+        /**
+         * DocumentDependent
+         * @description One document that references the document a caller tried to delete.
+         *
+         *     ``name`` is carried beside the id on purpose: the caller is a person who
+         *     filed these documents by name, and a 409 that answered "referenced by
+         *     a4f1…-b2" would be technically complete and practically useless.
+         */
+        DocumentDependent: {
+            /**
+             * Id
+             * Format: uuid
+             * @description The REFERENCING document's id
+             */
+            id: string;
+            /**
+             * Kind
+             * @description How it references: 'assembly' (an instance) or 'drawing' (a view)
+             * @enum {string}
+             */
+            kind: "assembly" | "drawing";
+            /**
+             * Name
+             * @description Its name, as filed — for the refusal message
+             */
+            name: string;
+        };
+        /**
+         * DocumentDependents
+         * @description The ``details`` payload of a dependency 409 — the full referent list.
+         *
+         *     A LIST, never a count: the point of refusing is that the caller can go and
+         *     re-point or remove those references, which needs their names. Ordered
+         *     assemblies-then-drawings, each alphabetical, so the message is stable
+         *     between two identical refusals.
+         */
+        DocumentDependents: {
+            /**
+             * Dependents
+             * @description Every document still referencing the delete target; never empty (no dependents means no conflict was raised)
+             */
+            dependents: components["schemas"]["DocumentDependent"][];
         };
         /**
          * DraftFeature
@@ -8675,6 +8846,15 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description Still referenced by other documents; `details.dependents` names them. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DependencyConflictEnvelope"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -8739,6 +8919,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AssemblyBomResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    duplicate_assembly_api_v1_assemblies__assembly_id__duplicate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                assembly_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssemblyResponse"];
                 };
             };
             /** @description Validation Error */
@@ -9323,6 +9534,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DrawingTreeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    duplicate_drawing_api_v1_drawings__drawing_id__duplicate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drawing_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DrawingResponse"];
                 };
             };
             /** @description Validation Error */
@@ -10350,6 +10592,15 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description Still referenced by other documents; `details.dependents` names them. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DependencyConflictEnvelope"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -10378,6 +10629,37 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PartResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    duplicate_part_api_v1_parts__part_id__duplicate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                part_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };

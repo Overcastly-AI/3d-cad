@@ -7178,6 +7178,68 @@
         ]
       }
     },
+    "/api/v1/assemblies/{assembly_id}/duplicate": {
+      "post": {
+        "description": "Copy an assembly's instances and mates \u2014 NOT the parts they name (201).\n\nBoth assemblies reference the same parts afterwards; editing one of those\nparts still shows up in both, which is what an instance IS. See the module\ndocstring.",
+        "operationId": "duplicate_assembly_api_v1_assemblies__assembly_id__duplicate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "assembly_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Assembly Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssemblyResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Duplicate Assembly",
+        "tags": [
+          "assemblies"
+        ]
+      }
+    },
     "/api/v1/assemblies/{assembly_id}/evaluation-request": {
       "get": {
         "description": "The evaluation-ready assembly graph (design \u00a74/\u00a77), for the gateway to forward\nto the geometry service verbatim.\n\nThe assembly sibling of ``GET /parts/{id}/evaluation-request``: documents resolves\nthe instance + mate graph + each instanced part's rollback-applied feature prefix\ninto the :class:`EvaluateAssemblyRequest` geometry solves (uniform 404 for an\nunknown / foreign assembly). Kernel-free \u2014 pure INTENT crosses the boundary\n(CLAUDE.md). The gateway threads this into an assembly-kind drawing view's\n``ComposeDrawingRequest.assembly`` so the view projects the SOLVED assembly compound\n(\u00a77), then folds the per-view HLR edges into the sheet exactly as a part view.",
@@ -8322,6 +8384,68 @@
         ]
       }
     },
+    "/api/v1/drawings/{drawing_id}/duplicate": {
+      "post": {
+        "description": "Copy a drawing's sheets, views, dimensions and annotations (201).\n\nThe views keep pointing at the same part/assembly \u2014 a view is a reference,\nlike an instance. See the module docstring.",
+        "operationId": "duplicate_drawing_api_v1_drawings__drawing_id__duplicate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "drawing_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Drawing Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DrawingResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Duplicate Drawing",
+        "tags": [
+          "drawings"
+        ]
+      }
+    },
     "/api/v1/drawings/{drawing_id}/sheets": {
       "post": {
         "description": "Add a sheet to a drawing (append at the tip).",
@@ -9282,6 +9406,68 @@
           }
         },
         "summary": "Update Part",
+        "tags": [
+          "parts"
+        ]
+      }
+    },
+    "/api/v1/parts/{part_id}/duplicate": {
+      "post": {
+        "description": "Copy a part and its whole feature tree at its current version (201).\n\nSee the module docstring for exactly what is and is not copied. The copy is\na NEW document at ``tree_version`` 0 with no evaluate record \u2014 it is not a\nversion, a branch or a link, and nothing about it stays tied to the source.",
+        "operationId": "duplicate_part_api_v1_parts__part_id__duplicate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Part Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Duplicate Part",
         "tags": [
           "parts"
         ]

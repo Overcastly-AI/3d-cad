@@ -37,7 +37,7 @@ from py_kit.schemas.assemblies import (
 )
 
 from gateway.auth import CurrentUser
-from gateway.parts import forward_documents
+from gateway.parts import DEPENDENCY_CONFLICT_RESPONSE, forward_documents
 from gateway.upstream import raise_upstream_error
 
 #: Human-readable upstream name for shared error surfaces.
@@ -125,11 +125,39 @@ async def update_assembly(
     return AssemblyResponse.model_validate_json(upstream.content)
 
 
-@router.delete("/{assembly_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/{assembly_id}/duplicate", status_code=status.HTTP_201_CREATED)
+async def duplicate_assembly(
+    assembly_id: uuid.UUID, user: CurrentUser, http_request: Request
+) -> AssemblyResponse:
+    """Copy an assembly's instances and mates — NOT the parts they name (201).
+
+    Both assemblies reference the same parts afterwards, because an instance IS
+    a reference: edit one of those parts and the change shows up in both. See
+    :mod:`documents.duplicate` for the full statement of what a copy carries.
+    The copy's name is the server's to assign and the created assembly is
+    returned.
+    """
+    upstream = await forward_documents(
+        http_request, user, "POST", f"/api/v1/assemblies/{assembly_id}/duplicate"
+    )
+    if upstream.status_code != status.HTTP_201_CREATED:
+        raise_upstream_error(upstream, service=_SERVICE)
+    return AssemblyResponse.model_validate_json(upstream.content)
+
+
+@router.delete(
+    "/{assembly_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses=DEPENDENCY_CONFLICT_RESPONSE,
+)
 async def delete_assembly(
     assembly_id: uuid.UUID, user: CurrentUser, http_request: Request
 ) -> None:
-    """Delete an owned assembly (204; 409 when instanced as a sub-assembly)."""
+    """Delete an owned assembly (204; 409 when instanced as a sub-assembly).
+
+    The refusal NAMES the referencing documents in ``details.dependents``
+    (:data:`~gateway.parts.DEPENDENCY_CONFLICT_RESPONSE`).
+    """
     upstream = await forward_documents(
         http_request, user, "DELETE", f"/api/v1/assemblies/{assembly_id}"
     )

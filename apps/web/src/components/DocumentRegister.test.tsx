@@ -18,6 +18,7 @@ import {
 } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
+import { DocumentHasDependentsError } from "../api/parts";
 import { DocumentRegister, type RegisterCopy } from "./DocumentRegister";
 
 const COPY: RegisterCopy = {
@@ -28,6 +29,8 @@ const COPY: RegisterCopy = {
   loading: "Loading parts…",
   loadError: "Your parts could not be loaded.",
   deleteError: "The part could not be deleted.",
+  renameError: "The part could not be renamed.",
+  duplicateError: "The part could not be duplicated.",
   createError: "The part could not be created.",
   emptyHeadline: "Nothing filed here yet.",
   emptyBody: "Name your first part.",
@@ -58,12 +61,18 @@ const worked: Doc = {
   length_unit: "mm",
 };
 
-/** Unstarted: both stamps from the same INSERT, microseconds apart. */
+/**
+ * Unstarted: both stamps from the same INSERT, microseconds apart. Filed AFTER
+ * `worked`, because the register's default order is FILED ascending — the same
+ * order documents lists in — so a fixture out of that order would be testing a
+ * list the server could never have sent.
+ */
+const unstartedFiled = new Date(Date.now() - 86_400_000);
 const unstarted: Doc = {
   id: "b",
   name: "Empty stock",
-  created_at: "2026-07-25T09:00:00.000Z",
-  updated_at: "2026-07-25T09:00:00.004Z",
+  created_at: unstartedFiled.toISOString(),
+  updated_at: new Date(unstartedFiled.getTime() + 4).toISOString(),
   length_unit: "in",
 };
 
@@ -73,6 +82,8 @@ function renderRegister(
 ) {
   const onCreate = vi.fn(() => Promise.resolve());
   const onDelete = vi.fn(() => Promise.resolve());
+  const onRename = vi.fn(() => Promise.resolve());
+  const onDuplicate = vi.fn(() => Promise.resolve());
   const view = render(
     <DocumentRegister<Doc>
       idPlural="parts"
@@ -88,11 +99,13 @@ function renderRegister(
         </a>
       )}
       onCreate={onCreate}
+      onRename={onRename}
+      onDuplicate={onDuplicate}
       onDelete={onDelete}
       {...extra}
     />,
   );
-  return { ...view, onCreate, onDelete };
+  return { ...view, onCreate, onDelete, onRename, onDuplicate };
 }
 
 describe("DocumentRegister — what it reports", () => {
@@ -146,6 +159,8 @@ describe("DocumentRegister — what it reports", () => {
           </a>
         )}
         onCreate={() => Promise.resolve()}
+        onRename={() => Promise.resolve()}
+        onDuplicate={() => Promise.resolve()}
         onDelete={() => Promise.resolve()}
       />,
     );
@@ -404,5 +419,263 @@ describe("DocumentRegister — actions", () => {
     expect(field).not.toHaveFocus();
     fireEvent.keyDown(window, { key: "n" });
     expect(field).toHaveFocus();
+  });
+});
+
+describe("DocumentRegister — search and count", () => {
+  it("filters by name substring as you type, case-insensitively", () => {
+    renderRegister([worked, unstarted]);
+    fireEvent.change(screen.getByTestId("parts-filter"), {
+      target: { value: "brack" },
+    });
+    const rows = screen.getAllByTestId("part-row");
+    expect(rows).toHaveLength(1);
+    expect(within(rows[0]!).getByTestId("part-open")).toHaveTextContent(
+      "Bracket plate",
+    );
+  });
+
+  it("says how many of how many, so a narrowed drawer is not data loss", () => {
+    renderRegister([worked, unstarted]);
+    expect(screen.getByTestId("parts-count")).toHaveTextContent("2 parts");
+    fireEvent.change(screen.getByTestId("parts-filter"), {
+      target: { value: "brack" },
+    });
+    // The fraction is derived from the two arrays this render drew from, so it
+    // cannot disagree with the rows on screen.
+    expect(screen.getByTestId("parts-count")).toHaveTextContent("1 of 2 parts");
+  });
+
+  it("makes an empty result legible, quotes what was searched, and offers the way out", () => {
+    renderRegister([worked, unstarted]);
+    fireEvent.change(screen.getByTestId("parts-filter"), {
+      target: { value: "zzz" },
+    });
+    expect(screen.queryByTestId("part-row")).toBeNull();
+    expect(screen.getByTestId("parts-count")).toHaveTextContent("0 of 2 parts");
+    const empty = screen.getByTestId("parts-no-matches");
+    expect(empty).toHaveTextContent("No parts match");
+    expect(empty).toHaveTextContent("zzz");
+
+    fireEvent.click(screen.getByTestId("parts-no-matches-clear"));
+    expect(screen.getAllByTestId("part-row")).toHaveLength(2);
+    expect(screen.getByTestId("parts-count")).toHaveTextContent("2 parts");
+  });
+
+  it("offers a clear only while there is something to clear", () => {
+    renderRegister([worked, unstarted]);
+    // A control with no job is chrome: the chip teaching `/` holds the seat
+    // until the field has a value.
+    expect(screen.queryByTestId("parts-filter-clear")).toBeNull();
+    fireEvent.change(screen.getByTestId("parts-filter"), {
+      target: { value: "brack" },
+    });
+    fireEvent.click(screen.getByTestId("parts-filter-clear"));
+    expect(screen.getAllByTestId("part-row")).toHaveLength(2);
+  });
+
+  it("focuses the filter from anywhere with / and clears it with Escape", () => {
+    renderRegister([worked, unstarted]);
+    const field = screen.getByTestId("parts-filter");
+    expect(field).not.toHaveFocus();
+    fireEvent.keyDown(window, { key: "/" });
+    expect(field).toHaveFocus();
+
+    fireEvent.change(field, { target: { value: "brack" } });
+    expect(screen.getAllByTestId("part-row")).toHaveLength(1);
+    fireEvent.keyDown(field, { key: "Escape" });
+    expect(screen.getAllByTestId("part-row")).toHaveLength(2);
+  });
+});
+
+describe("DocumentRegister — sort", () => {
+  const a: Doc = {
+    id: "1",
+    name: "Rib 10",
+    created_at: "2026-07-01T09:00:00.000Z",
+    updated_at: "2026-07-20T09:00:00.000Z",
+  };
+  const b: Doc = {
+    id: "2",
+    name: "Rib 2",
+    created_at: "2026-07-02T09:00:00.000Z",
+    updated_at: "2026-07-10T09:00:00.000Z",
+  };
+
+  const names = () =>
+    screen.getAllByTestId("part-open").map((node) => node.textContent);
+
+  it("defaults to the order the server returned, and says which column that is", () => {
+    renderRegister([a, b]);
+    expect(names()).toEqual(["Rib 10", "Rib 2"]);
+    expect(screen.getByTestId("parts-sort-filed-header")).toHaveAttribute(
+      "aria-sort",
+      "ascending",
+    );
+    expect(screen.getByTestId("parts-sort-name-header")).toHaveAttribute(
+      "aria-sort",
+      "none",
+    );
+  });
+
+  it("sorts names the way a numbered part drawer reads, not lexically", () => {
+    renderRegister([a, b]);
+    fireEvent.click(screen.getByTestId("parts-sort-name"));
+    // Lexical order would put "Rib 10" first; a numeric collator does not.
+    expect(names()).toEqual(["Rib 2", "Rib 10"]);
+  });
+
+  it("reverses on a second click of the active column", () => {
+    renderRegister([a, b]);
+    fireEvent.click(screen.getByTestId("parts-sort-name"));
+    fireEvent.click(screen.getByTestId("parts-sort-name"));
+    expect(names()).toEqual(["Rib 10", "Rib 2"]);
+    expect(screen.getByTestId("parts-sort-name-header")).toHaveAttribute(
+      "aria-sort",
+      "descending",
+    );
+  });
+
+  it("sorts by last worked, which is a different order from filed", () => {
+    renderRegister([a, b]);
+    fireEvent.click(screen.getByTestId("parts-sort-activity"));
+    expect(names()).toEqual(["Rib 2", "Rib 10"]);
+    fireEvent.click(screen.getByTestId("parts-sort-activity"));
+    expect(names()).toEqual(["Rib 10", "Rib 2"]);
+  });
+
+  it("renumbers the gutter when the order changes — it is a position, not an id", () => {
+    renderRegister([a, b]);
+    fireEvent.click(screen.getByTestId("parts-sort-name"));
+    const rows = screen.getAllByTestId("part-row");
+    expect(within(rows[0]!).getByTestId("part-open")).toHaveTextContent(
+      "Rib 2",
+    );
+    expect(within(rows[0]!).getByTestId("part-ordinal")).toHaveTextContent("1");
+  });
+});
+
+describe("DocumentRegister — rename", () => {
+  it("opens with the current name selected and commits it on submit", async () => {
+    const { onRename } = renderRegister([worked]);
+    fireEvent.click(screen.getByTestId("part-rename"));
+    const field = screen.getByTestId("part-rename-name");
+    expect(field).toHaveValue("Bracket plate");
+    expect(field).toHaveFocus();
+
+    fireEvent.change(field, { target: { value: "  Bracket plate v2  " } });
+    fireEvent.submit(screen.getByTestId("part-rename-form"));
+    await waitFor(() =>
+      expect(onRename).toHaveBeenCalledWith(worked, "Bracket plate v2"),
+    );
+  });
+
+  it("does not spend a write when the name did not change", () => {
+    const { onRename } = renderRegister([worked]);
+    fireEvent.click(screen.getByTestId("part-rename"));
+    fireEvent.submit(screen.getByTestId("part-rename-form"));
+    expect(onRename).not.toHaveBeenCalled();
+    expect(screen.getByTestId("part-rename")).toBeInTheDocument();
+  });
+
+  it("reverts on Escape without writing", () => {
+    const { onRename } = renderRegister([worked]);
+    fireEvent.click(screen.getByTestId("part-rename"));
+    fireEvent.change(screen.getByTestId("part-rename-name"), {
+      target: { value: "Something else" },
+    });
+    fireEvent.keyDown(screen.getByTestId("part-rename-name"), {
+      key: "Escape",
+    });
+    expect(onRename).not.toHaveBeenCalled();
+    expect(screen.getByTestId("part-open")).toHaveTextContent("Bracket plate");
+  });
+
+  it("keeps the typed name in the field when the server refuses it", async () => {
+    renderRegister([worked], {
+      onRename: () =>
+        Promise.reject(new Error('A part named "Rib" already exists.')),
+    });
+    fireEvent.click(screen.getByTestId("part-rename"));
+    fireEvent.change(screen.getByTestId("part-rename-name"), {
+      target: { value: "Rib" },
+    });
+    fireEvent.submit(screen.getByTestId("part-rename-form"));
+    expect(await screen.findByText(/already exists/)).toBeInTheDocument();
+    // Still editing, still holding what was typed — nothing to retype.
+    expect(screen.getByTestId("part-rename-name")).toHaveValue("Rib");
+  });
+
+  it("never paints the typed name into the row itself", async () => {
+    // The row renders the LIST payload. A rename that repainted the cell would
+    // show a name the server may have refused (audit class: the surface
+    // asserting something it does not know).
+    let resolve = () => {};
+    renderRegister([worked], {
+      onRename: () => new Promise<void>((r) => (resolve = r)),
+    });
+    fireEvent.click(screen.getByTestId("part-rename"));
+    fireEvent.change(screen.getByTestId("part-rename-name"), {
+      target: { value: "Renamed" },
+    });
+    fireEvent.submit(screen.getByTestId("part-rename-form"));
+    resolve();
+    await waitFor(() =>
+      expect(screen.getByTestId("part-open")).toHaveTextContent(
+        "Bracket plate",
+      ),
+    );
+  });
+});
+
+describe("DocumentRegister — duplicate", () => {
+  it("asks the server for a copy without naming it", async () => {
+    const { onDuplicate } = renderRegister([worked]);
+    fireEvent.click(screen.getByTestId("part-duplicate"));
+    await waitFor(() => expect(onDuplicate).toHaveBeenCalledWith(worked));
+    // One argument: the document. The register has no say in the copy's name.
+    expect(onDuplicate.mock.calls[0]).toHaveLength(1);
+  });
+
+  it("surfaces a failed duplicate on the row rather than swallowing it", async () => {
+    renderRegister([worked], {
+      onDuplicate: () => Promise.reject(new Error("upstream unavailable")),
+    });
+    fireEvent.click(screen.getByTestId("part-duplicate"));
+    const error = await screen.findByTestId("part-action-error");
+    expect(error).toHaveTextContent("upstream unavailable");
+    expect(error).toHaveAttribute("role", "alert");
+  });
+});
+
+describe("DocumentRegister — delete with dependents", () => {
+  it("names the documents holding the reference instead of summarising them", async () => {
+    renderRegister([worked], {
+      onDelete: () =>
+        Promise.reject(
+          new DocumentHasDependentsError(
+            [
+              { id: "asm-1", name: "gearbox", kind: "assembly" },
+              { id: "dwg-1", name: "bracket-detail", kind: "drawing" },
+            ],
+            "Document is referenced by 2 document(s).",
+          ),
+        ),
+    });
+    fireEvent.click(screen.getByTestId("part-delete"));
+    fireEvent.click(screen.getByTestId("part-delete-confirm"));
+
+    const blocked = await screen.findByTestId("part-blocked");
+    expect(blocked).toHaveAttribute("role", "alert");
+    const named = within(blocked).getAllByTestId("part-dependent");
+    expect(named.map((node) => node.textContent)).toEqual([
+      "gearbox",
+      "bracket-detail",
+    ]);
+    expect(named[0]).toHaveAttribute("data-dependent-kind", "assembly");
+    expect(named[1]).toHaveAttribute("data-dependent-kind", "drawing");
+    // ...and the delete button is gone: there is nothing to retry until the
+    // references are removed, so offering it again would be theatre.
+    expect(screen.queryByTestId("part-delete-confirm")).toBeNull();
   });
 });

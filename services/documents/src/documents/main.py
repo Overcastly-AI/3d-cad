@@ -23,6 +23,9 @@ from py_kit.db import DatabaseState, postgres_readiness
 
 from documents.assemblies import router as assemblies_router
 from documents.drawings import router as drawings_router
+from documents.duplicate import assemblies_router as duplicate_assemblies_router
+from documents.duplicate import drawings_router as duplicate_drawings_router
+from documents.duplicate import parts_router as duplicate_parts_router
 from documents.features import router as features_router
 from documents.materials import router as materials_router
 from documents.parts import router as parts_router
@@ -85,6 +88,11 @@ def build_app(settings: DocumentsSettings | None = None) -> FastAPI:
     app.include_router(assemblies_router)
     app.include_router(drawings_router)
     app.include_router(step_import_router)
+    # Workspace management (:mod:`documents.duplicate`) — one module, three
+    # routers, so the id-remap and the copy-naming rule are written once.
+    app.include_router(duplicate_parts_router)
+    app.include_router(duplicate_assemblies_router)
+    app.include_router(duplicate_drawings_router)
     return app
 
 

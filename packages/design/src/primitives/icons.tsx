@@ -927,3 +927,25 @@ export const IsolateIcon = (p: IconProps) => (
     <rect x={17} y={8} width={5} height={9} strokeDasharray="2 2" />
   </Icon>
 );
+
+// --- Register sort -----------------------------------------------------------
+//
+// The sort marker sits in a table HEADER, which in this product's language is a
+// title-block field label — so the glyph is the scribed chevron the caret
+// already uses, not a stack of unequal bars (the ubiquitous "sort" icon, which
+// reads as a filter and says nothing about direction). One stroke, mitered,
+// pointing the way the values run: up = ascending.
+
+/** Sorted ascending — A→Z, oldest first, smallest first. */
+export const SortAscIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M6 15 L12 9 L18 15" />
+  </Icon>
+);
+
+/** Sorted descending — Z→A, newest first, largest first. */
+export const SortDescIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M6 9 L12 15 L18 9" />
+  </Icon>
+);

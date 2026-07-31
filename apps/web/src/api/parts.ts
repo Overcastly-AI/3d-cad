@@ -197,6 +197,79 @@ export class StaleTreeVersionError extends Error {
   }
 }
 
+/**
+ * One document that still references the one a delete was refused over — the
+ * generated contract type (`DocumentDependent`), never a hand-written shape.
+ * The gateway DOCUMENTS this payload as the 409 body of the document deletes
+ * precisely so the register can name the referents instead of guessing.
+ */
+export type DocumentDependent = components["schemas"]["DocumentDependent"];
+
+/**
+ * A delete was refused because other documents reference this one (409
+ * `*_has_dependents`) — the cross-document sibling of the feature-tree's own
+ * dependency 409.
+ *
+ * The `dependents` list is the reason this is a typed error rather than a
+ * string: a refusal a user can act on has to say WHICH assembly or drawing is
+ * holding the reference, and "referenced by 2 document(s)" is a message that
+ * ends the conversation. Carried through so the register renders the list the
+ * SERVER sent — a register that summarised it, or guessed at it, would be the
+ * over-claiming defect this screen exists to avoid.
+ */
+export class DocumentHasDependentsError extends Error {
+  constructor(
+    readonly dependents: DocumentDependent[],
+    message: string,
+  ) {
+    super(message);
+    this.name = "DocumentHasDependentsError";
+  }
+}
+
+/** Runtime narrowing of a 409 envelope's `details.dependents`, or null.
+ *
+ * The SHAPE comes from the generated contract (`DocumentDependent`); this only
+ * checks that an `unknown` response body really is that shape before trusting
+ * it, exactly as `parseErrorEnvelope` does for the envelope itself. It returns
+ * null rather than a partial list if anything is off: half a dependency list is
+ * worse than none, because the user would fix the entries they were shown and
+ * hit the same refusal again.
+ */
+export function parseDependents(body: unknown): DocumentDependent[] | null {
+  if (typeof body !== "object" || body === null) return null;
+  const error = (body as Record<string, unknown>).error;
+  if (typeof error !== "object" || error === null) return null;
+  const details = (error as Record<string, unknown>).details;
+  if (typeof details !== "object" || details === null) return null;
+  const raw = (details as Record<string, unknown>).dependents;
+  if (!Array.isArray(raw)) return null;
+  const dependents: DocumentDependent[] = [];
+  for (const entry of raw) {
+    if (typeof entry !== "object" || entry === null) return null;
+    const { id, name, kind } = entry as Record<string, unknown>;
+    if (typeof id !== "string" || typeof name !== "string") return null;
+    if (kind !== "assembly" && kind !== "drawing") return null;
+    dependents.push({ id, name, kind });
+  }
+  return dependents.length > 0 ? dependents : null;
+}
+
+/**
+ * Raise the typed dependency error when a delete's 409 carried a referent list.
+ * Shared by all three registers' deletes (DRY) — one place decides that a
+ * refusal with names is a different animal from a refusal without.
+ */
+function throwIfDependents(error: unknown, fallback: string): void {
+  const dependents = parseDependents(error);
+  if (dependents !== null) {
+    throw new DocumentHasDependentsError(
+      dependents,
+      envelopeMessage(error, fallback),
+    );
+  }
+}
+
 /** The caller's parts, oldest first (register order). */
 export async function fetchParts(
   client: GatewayClient = gatewayClient,
@@ -237,7 +310,80 @@ export async function createPart(
   return data;
 }
 
-/** Delete one of the caller's parts (204; 404 for unknown/foreign ids). */
+/**
+ * Rename one of the caller's parts under the optimistic-concurrency guard.
+ *
+ * A rename is a real document write, not a label change: it goes through the
+ * same `expected_tree_version` check as every other part edit, so a name typed
+ * against a stale row is refused (422) rather than silently overwriting an edit
+ * made elsewhere. It cannot orphan anything — assembly instances and drawing
+ * views reference a part by ID, never by name — so there is no dependency check
+ * here, and the referring documents pick up the new name on their next read.
+ */
+export async function renamePart(
+  partId: string,
+  name: string,
+  expectedTreeVersion: number,
+  client: GatewayClient = gatewayClient,
+): Promise<PartResponse> {
+  const { data, error } = await client.PATCH("/api/v1/parts/{part_id}", {
+    params: { path: { part_id: partId } },
+    body: { name, expected_tree_version: expectedTreeVersion },
+  });
+  if (error !== undefined) {
+    if (envelopeCode(error) === "part_name_taken") {
+      throw new PartNameTakenError(
+        name,
+        envelopeMessage(error, `A part named "${name}" already exists.`),
+      );
+    }
+    if (envelopeCode(error) === "stale_tree_version") {
+      throw new StaleTreeVersionError(
+        envelopeMessage(
+          error,
+          "This part changed somewhere else. Reopen the register and try again.",
+        ),
+      );
+    }
+    throw new Error(envelopeMessage(error, "The part could not be renamed."));
+  }
+  return data;
+}
+
+/**
+ * Copy a part and its whole feature tree at its current version (201).
+ *
+ * Sends no body: the copy's name is the SERVER'S ("Bracket copy", then
+ * "Bracket copy 2"), and the created part comes back, so the register shows the
+ * name that was actually taken. A client that predicted the name would be
+ * wrong the moment two copies raced, which is the class of over-claim this
+ * screen is being held to.
+ */
+export async function duplicatePart(
+  partId: string,
+  client: GatewayClient = gatewayClient,
+): Promise<PartResponse> {
+  const { data, error } = await client.POST(
+    "/api/v1/parts/{part_id}/duplicate",
+    {
+      params: { path: { part_id: partId } },
+    },
+  );
+  if (error !== undefined) {
+    throw new Error(
+      envelopeMessage(error, "The part could not be duplicated."),
+    );
+  }
+  return data;
+}
+
+/**
+ * Delete one of the caller's parts (204; 404 for unknown/foreign ids).
+ *
+ * A part still instanced by an assembly or projected by a drawing is refused
+ * with a 409 that NAMES those documents — thrown as `DocumentHasDependentsError`
+ * so the register can list them. Never a silent orphan.
+ */
 export async function deletePart(
   partId: string,
   client: GatewayClient = gatewayClient,
@@ -246,6 +392,7 @@ export async function deletePart(
     params: { path: { part_id: partId } },
   });
   if (error !== undefined) {
+    throwIfDependents(error, "The part could not be deleted.");
     throw new Error(envelopeMessage(error, "The part could not be deleted."));
   }
 }

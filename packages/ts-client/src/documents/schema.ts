@@ -92,6 +92,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/assemblies/{assembly_id}/duplicate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Duplicate Assembly
+         * @description Copy an assembly's instances and mates — NOT the parts they name (201).
+         *
+         *     Both assemblies reference the same parts afterwards; editing one of those
+         *     parts still shows up in both, which is what an instance IS. See the module
+         *     docstring.
+         */
+        post: operations["duplicate_assembly_api_v1_assemblies__assembly_id__duplicate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/assemblies/{assembly_id}/evaluation-request": {
         parameters: {
             query?: never;
@@ -395,6 +419,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/drawings/{drawing_id}/duplicate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Duplicate Drawing
+         * @description Copy a drawing's sheets, views, dimensions and annotations (201).
+         *
+         *     The views keep pointing at the same part/assembly — a view is a reference,
+         *     like an instance. See the module docstring.
+         */
+        post: operations["duplicate_drawing_api_v1_drawings__drawing_id__duplicate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/drawings/{drawing_id}/sheets": {
         parameters: {
             query?: never;
@@ -651,6 +698,30 @@ export interface paths {
          *     409 stays reserved for a duplicate-name conflict.
          */
         patch: operations["update_part_api_v1_parts__part_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/parts/{part_id}/duplicate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Duplicate Part
+         * @description Copy a part and its whole feature tree at its current version (201).
+         *
+         *     See the module docstring for exactly what is and is not copied. The copy is
+         *     a NEW document at ``tree_version`` 0 with no evaluate record — it is not a
+         *     version, a branch or a link, and nothing about it stays tied to the source.
+         */
+        post: operations["duplicate_part_api_v1_parts__part_id__duplicate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/parts/{part_id}/evaluation-request": {
@@ -6091,6 +6162,40 @@ export interface operations {
             };
         };
     };
+    duplicate_assembly_api_v1_assemblies__assembly_id__duplicate_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
+                "X-Loft-User"?: string | null;
+            };
+            path: {
+                assembly_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssemblyResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_assembly_evaluation_request_api_v1_assemblies__assembly_id__evaluation_request_get: {
         parameters: {
             query?: never;
@@ -6677,6 +6782,40 @@ export interface operations {
             };
         };
     };
+    duplicate_drawing_api_v1_drawings__drawing_id__duplicate_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
+                "X-Loft-User"?: string | null;
+            };
+            path: {
+                drawing_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DrawingResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     create_sheet_api_v1_drawings__drawing_id__sheets_post: {
         parameters: {
             query?: never;
@@ -7160,6 +7299,40 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PartResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    duplicate_part_api_v1_parts__part_id__duplicate_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
+                "X-Loft-User"?: string | null;
+            };
+            path: {
+                part_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };

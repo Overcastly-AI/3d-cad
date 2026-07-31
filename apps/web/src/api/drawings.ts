@@ -141,6 +141,66 @@ export async function createDrawing(
   return data;
 }
 
+/**
+ * Rename one of the caller's drawings under the OCC guard (`expected_version`).
+ * A drawing is a pure leaf — nothing references it — so a rename cannot orphan
+ * anything; the guard is there because a rename is still a real write.
+ */
+export async function renameDrawing(
+  drawingId: string,
+  name: string,
+  expectedVersion: number,
+  client: GatewayClient = gatewayClient,
+): Promise<DrawingResponse> {
+  const { data, error } = await client.PATCH("/api/v1/drawings/{drawing_id}", {
+    params: { path: { drawing_id: drawingId } },
+    body: { name, expected_version: expectedVersion },
+  });
+  if (error !== undefined) {
+    const code = envelopeCode(error);
+    if (code === "drawing_name_taken" || code === "name_taken") {
+      throw new DrawingNameTakenError(
+        name,
+        envelopeMessage(error, `A drawing named "${name}" already exists.`),
+      );
+    }
+    if (code === "stale_drawing_version") {
+      throw new Error(
+        envelopeMessage(
+          error,
+          "This drawing changed somewhere else. Reopen the register and try again.",
+        ),
+      );
+    }
+    throw new Error(
+      envelopeMessage(error, "The drawing could not be renamed."),
+    );
+  }
+  return data;
+}
+
+/**
+ * Copy a drawing's sheets, views, dimensions and annotations (201). The copied
+ * views keep pointing at the same part/assembly — a view is a reference — so
+ * this duplicates the LAYOUT, never the modelled document. The server names the
+ * copy and returns it.
+ */
+export async function duplicateDrawing(
+  drawingId: string,
+  client: GatewayClient = gatewayClient,
+): Promise<DrawingResponse> {
+  const { data, error } = await client.POST(
+    "/api/v1/drawings/{drawing_id}/duplicate",
+    { params: { path: { drawing_id: drawingId } } },
+  );
+  if (error !== undefined) {
+    throw new Error(
+      envelopeMessage(error, "The drawing could not be duplicated."),
+    );
+  }
+  return data;
+}
+
 /** Delete one of the caller's drawings (204; 404 for unknown/foreign ids). */
 export async function deleteDrawing(
   drawingId: string,

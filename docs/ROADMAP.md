@@ -54,6 +54,21 @@ fully-assigned parts came back massless forever. A drawing dimension whose
 reference is lost prints the composer's words on the SHEET, not only in the
 exported file (QA-4b). Shots
 `docs/screenshots/{register-scope,assembly-mass,drawing-dim-lost}-*.png`.
+**WORKSPACE MANAGEMENT (#WS1) SHIPPED 2026-07-31** (frontend-builder) — the
+three registers stopped being create-and-open lists. You can now FIND a document
+(a ruled FILTER field on the header rule, `/` to focus, filtering as you type,
+with the count becoming the honest fraction `4 of 12 parts`), ORDER the drawer
+(the column headers ARE the sort control — NAME numeric-collated, LAST WORKED,
+FILED; no new chrome was added to get it), RENAME in the row under the document's
+optimistic-concurrency version, DUPLICATE (a real per-kind endpoint: a part
+copies its whole feature tree with every intra-tree reference rewritten onto the
+copy; an assembly copies instances + mates but NOT the parts they name; a drawing
+copies its layout but not the document it projects — and no copy inherits undo
+history or a rebuild verdict it never earned), and DELETE with the existing
+409-with-dependents finally surfaced BY NAME ("gearbox (assembly)"), because a
+refusal you cannot act on is not a refusal. FOLDERS were deliberately NOT shipped
+and the surface does not pretend otherwise (filed #WS2). Shots
+`docs/screenshots/workspace-register-*.png`.
 **#57 material/density — the KERNEL + WIRE half SHIPPED 2026-07-30**
 (kernel-architect; design `docs/design/materials.md`, decision record RESEARCH
 §9a). MASS PROPERTIES could not report mass because nothing in the codebase had

@@ -11,6 +11,7 @@ envelopes are re-surfaced verbatim under the gateway's request id.
 """
 
 import uuid
+from typing import Any
 
 import httpx2 as httpx
 from fastapi import APIRouter, Request, status
@@ -21,6 +22,7 @@ from py_kit.schemas.parts import (
     PartResponse,
     PartUpdate,
 )
+from py_kit.schemas.workspace import DependencyConflictEnvelope
 
 from gateway.auth import CurrentUser
 from gateway.db import User
@@ -28,6 +30,23 @@ from gateway.upstream import create_upstream_client, forward, raise_upstream_err
 
 #: Upstream call budget — documents queries are cheap OLTP round-trips.
 DOCUMENTS_TIMEOUT_S = 10.0
+
+#: The documented 409 of every document delete that can be refused over
+#: references (parts, assemblies — a drawing is a leaf and has none).
+#:
+#: Declaring the model is what makes the refusal ACTIONABLE end to end: it puts
+#: :class:`~py_kit.schemas.workspace.DocumentDependents` in the OpenAPI contract
+#: and therefore in the generated TS client, so the register lists the assemblies
+#: and drawings that hold the reference — the whole point of refusing — from a
+#: typed payload instead of hopefully parsing an untyped ``details`` blob.
+DEPENDENCY_CONFLICT_RESPONSE: dict[int | str, dict[str, Any]] = {
+    status.HTTP_409_CONFLICT: {
+        "model": DependencyConflictEnvelope,
+        "description": (
+            "Still referenced by other documents; `details.dependents` names them."
+        ),
+    }
+}
 
 #: Human-readable upstream name for shared error surfaces.
 _SERVICE = "Documents"
@@ -135,11 +154,45 @@ async def update_part(
     return PartResponse.model_validate_json(upstream.content)
 
 
-@router.delete("/{part_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/{part_id}/duplicate", status_code=status.HTTP_201_CREATED)
+async def duplicate_part(
+    part_id: uuid.UUID, user: CurrentUser, http_request: Request
+) -> PartResponse:
+    """Copy a part and its WHOLE feature tree at its current version (201).
+
+    Exactly what a duplicate does and does not copy is documented once, upstream
+    (:mod:`documents.duplicate`); the short version is: every feature, its
+    params, its dependency edges and the travel stop, plus the display unit and
+    materials — but not the undo history and not the last-evaluate record (the
+    copy has never been built, and its register row says so).
+
+    No request body: the copy's name is the server's to assign (``"<name>
+    copy"``, then ``" copy 2"``…) and the created part is returned, so the
+    register renders the name that was actually taken rather than one it
+    predicted. 409 if that name is somehow taken anyway; rename and retry.
+    """
+    upstream = await forward_documents(
+        http_request, user, "POST", f"/api/v1/parts/{part_id}/duplicate"
+    )
+    if upstream.status_code != status.HTTP_201_CREATED:
+        raise_upstream_error(upstream, service=_SERVICE)
+    return PartResponse.model_validate_json(upstream.content)
+
+
+@router.delete(
+    "/{part_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses=DEPENDENCY_CONFLICT_RESPONSE,
+)
 async def delete_part(
     part_id: uuid.UUID, user: CurrentUser, http_request: Request
 ) -> None:
-    """Delete one of the caller's parts (204; 404 for unknown/foreign ids)."""
+    """Delete one of the caller's parts (204; 404 for unknown/foreign ids).
+
+    409 while an assembly still instances it or a drawing still projects it,
+    with the referencing documents NAMED in ``details.dependents`` — see
+    :data:`DEPENDENCY_CONFLICT_RESPONSE`.
+    """
     upstream = await forward_documents(
         http_request, user, "DELETE", f"/api/v1/parts/{part_id}"
     )

@@ -2285,6 +2285,56 @@
         "title": "DatumPlaneRef",
         "type": "object"
       },
+      "DependencyConflictEnvelope": {
+        "description": "A dependency 409 as it appears on the wire (the standard envelope).\n\nDeclared as the documented 409 model of the delete routes so it reaches\n``packages/contracts`` and therefore the generated TS client \u2014 the register\nthen reads ``details.dependents`` as a TYPE rather than narrowing an\n``unknown``.",
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/DependencyConflictError"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "title": "DependencyConflictEnvelope",
+        "type": "object"
+      },
+      "DependencyConflictError": {
+        "description": "The ``error`` member of a dependency 409, with typed ``details``.\n\nMirrors the py-kit envelope (:mod:`py_kit.errors`) rather than redefining\nit: same ``code``/``message``/``details``/``request_id`` members, with\n``details`` narrowed from \"anything\" to :class:`DocumentDependents` for this\none documented status.",
+        "properties": {
+          "code": {
+            "description": "'part_has_dependents' / 'assembly_has_dependents' \u2014 the machine code a client branches on",
+            "title": "Code",
+            "type": "string"
+          },
+          "details": {
+            "$ref": "#/components/schemas/DocumentDependents"
+          },
+          "message": {
+            "description": "Human summary; the register shows the list, not this",
+            "title": "Message",
+            "type": "string"
+          },
+          "request_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Correlation id of the refused request",
+            "title": "Request Id"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "details"
+        ],
+        "title": "DependencyConflictError",
+        "type": "object"
+      },
       "DiameterDimensionParams": {
         "description": "A diameter dimension on a circular model edge (design \u00a73.1).\n\n``edge`` must resolve to a CIRCULAR edge (``curve == \"circle\"``) \u2014 the\nidentical reuse a ``concentric`` mate makes for its axis (design \u00a73.3), so one\nsignature names a hole for both mating and dimensioning. The measured value\n(2\u00b7radius) is computed geometry-side.",
         "properties": {
@@ -2617,6 +2667,56 @@
           "distance_mm"
         ],
         "title": "DistanceMate",
+        "type": "object"
+      },
+      "DocumentDependent": {
+        "description": "One document that references the document a caller tried to delete.\n\n``name`` is carried beside the id on purpose: the caller is a person who\nfiled these documents by name, and a 409 that answered \"referenced by\na4f1\u2026-b2\" would be technically complete and practically useless.",
+        "properties": {
+          "id": {
+            "description": "The REFERENCING document's id",
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "description": "How it references: 'assembly' (an instance) or 'drawing' (a view)",
+            "enum": [
+              "assembly",
+              "drawing"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "description": "Its name, as filed \u2014 for the refusal message",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "kind"
+        ],
+        "title": "DocumentDependent",
+        "type": "object"
+      },
+      "DocumentDependents": {
+        "description": "The ``details`` payload of a dependency 409 \u2014 the full referent list.\n\nA LIST, never a count: the point of refusing is that the caller can go and\nre-point or remove those references, which needs their names. Ordered\nassemblies-then-drawings, each alphabetical, so the message is stable\nbetween two identical refusals.",
+        "properties": {
+          "dependents": {
+            "description": "Every document still referencing the delete target; never empty (no dependents means no conflict was raised)",
+            "items": {
+              "$ref": "#/components/schemas/DocumentDependent"
+            },
+            "title": "Dependents",
+            "type": "array"
+          }
+        },
+        "required": [
+          "dependents"
+        ],
+        "title": "DocumentDependents",
         "type": "object"
       },
       "DraftFeature": {
@@ -10363,7 +10463,7 @@
     },
     "/api/v1/assemblies/{assembly_id}": {
       "delete": {
-        "description": "Delete an owned assembly (204; 409 when instanced as a sub-assembly).",
+        "description": "Delete an owned assembly (204; 409 when instanced as a sub-assembly).\n\nThe refusal NAMES the referencing documents in ``details.dependents``\n(:data:`~gateway.parts.DEPENDENCY_CONFLICT_RESPONSE`).",
         "operationId": "delete_assembly_api_v1_assemblies__assembly_id__delete",
         "parameters": [
           {
@@ -10380,6 +10480,16 @@
         "responses": {
           "204": {
             "description": "Successful Response"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DependencyConflictEnvelope"
+                }
+              }
+            },
+            "description": "Still referenced by other documents; `details.dependents` names them."
           },
           "422": {
             "content": {
@@ -10551,6 +10661,55 @@
           }
         ],
         "summary": "Get Assembly Bom",
+        "tags": [
+          "assemblies"
+        ]
+      }
+    },
+    "/api/v1/assemblies/{assembly_id}/duplicate": {
+      "post": {
+        "description": "Copy an assembly's instances and mates \u2014 NOT the parts they name (201).\n\nBoth assemblies reference the same parts afterwards, because an instance IS\na reference: edit one of those parts and the change shows up in both. See\n:mod:`documents.duplicate` for the full statement of what a copy carries.\nThe copy's name is the server's to assign and the created assembly is\nreturned.",
+        "operationId": "duplicate_assembly_api_v1_assemblies__assembly_id__duplicate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "assembly_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Assembly Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssemblyResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Duplicate Assembly",
         "tags": [
           "assemblies"
         ]
@@ -11535,6 +11694,55 @@
           }
         ],
         "summary": "Delete Dimension",
+        "tags": [
+          "drawings"
+        ]
+      }
+    },
+    "/api/v1/drawings/{drawing_id}/duplicate": {
+      "post": {
+        "description": "Copy a drawing's sheets, views, dimensions and annotations (201).\n\nThe copied views keep pointing at the same part/assembly \u2014 a view is a\nreference, like an assembly instance \u2014 so this duplicates the LAYOUT, never\nthe modelled document (:mod:`documents.duplicate`). The copy's name is the\nserver's to assign and the created drawing is returned.",
+        "operationId": "duplicate_drawing_api_v1_drawings__drawing_id__duplicate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "drawing_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Drawing Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DrawingResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Duplicate Drawing",
         "tags": [
           "drawings"
         ]
@@ -13145,7 +13353,7 @@
     },
     "/api/v1/parts/{part_id}": {
       "delete": {
-        "description": "Delete one of the caller's parts (204; 404 for unknown/foreign ids).",
+        "description": "Delete one of the caller's parts (204; 404 for unknown/foreign ids).\n\n409 while an assembly still instances it or a drawing still projects it,\nwith the referencing documents NAMED in ``details.dependents`` \u2014 see\n:data:`DEPENDENCY_CONFLICT_RESPONSE`.",
         "operationId": "delete_part_api_v1_parts__part_id__delete",
         "parameters": [
           {
@@ -13162,6 +13370,16 @@
         "responses": {
           "204": {
             "description": "Successful Response"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DependencyConflictEnvelope"
+                }
+              }
+            },
+            "description": "Still referenced by other documents; `details.dependents` names them."
           },
           "422": {
             "content": {
@@ -13284,6 +13502,55 @@
           }
         ],
         "summary": "Update Part",
+        "tags": [
+          "parts"
+        ]
+      }
+    },
+    "/api/v1/parts/{part_id}/duplicate": {
+      "post": {
+        "description": "Copy a part and its WHOLE feature tree at its current version (201).\n\nExactly what a duplicate does and does not copy is documented once, upstream\n(:mod:`documents.duplicate`); the short version is: every feature, its\nparams, its dependency edges and the travel stop, plus the display unit and\nmaterials \u2014 but not the undo history and not the last-evaluate record (the\ncopy has never been built, and its register row says so).\n\nNo request body: the copy's name is the server's to assign (``\"<name>\ncopy\"``, then ``\" copy 2\"``\u2026) and the created part is returned, so the\nregister renders the name that was actually taken rather than one it\npredicted. 409 if that name is somehow taken anyway; rename and retry.",
+        "operationId": "duplicate_part_api_v1_parts__part_id__duplicate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Part Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Duplicate Part",
         "tags": [
           "parts"
         ]

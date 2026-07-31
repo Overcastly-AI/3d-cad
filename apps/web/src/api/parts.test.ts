@@ -12,6 +12,8 @@ import {
   datumFeatureCreate,
   datumFeatureUpdate,
   deletePart,
+  DocumentHasDependentsError,
+  duplicatePart,
   type ExtrudeParams,
   extrudeFeatureCreate,
   extrudeFeatureUpdate,
@@ -23,8 +25,10 @@ import {
   PartNameTakenError,
   type PatternParams,
   patternFeatureCreate,
+  parseDependents,
   patternFeatureUpdate,
   redoPart,
+  renamePart,
   type RevolveParams,
   revolveFeatureCreate,
   revolveFeatureUpdate,
@@ -765,5 +769,142 @@ describe("chamferFeatureUpdate", () => {
       feature: { type: "chamfer", version: 1, params: chamferParams },
     });
     expect(body).not.toHaveProperty("name", expect.anything());
+  });
+});
+
+describe("renamePart", () => {
+  it("sends the name under the tree_version guard and returns the server's part", async () => {
+    let sent: RequestInit | undefined;
+    const client = createGatewayClient({
+      baseUrl: "http://gateway.test",
+      fetch: (request: Request) => {
+        sent = { method: request.method, body: request.body } as RequestInit;
+        return request.text().then((body) => {
+          sent = { ...sent, body };
+          return json({ ...samplePart, name: "Bracket plate v2" }, 200);
+        });
+      },
+    });
+    const part = await renamePart(samplePart.id, "Bracket plate v2", 7, client);
+    expect(part.name).toBe("Bracket plate v2");
+    expect(JSON.parse(String(sent?.body))).toEqual({
+      name: "Bracket plate v2",
+      expected_tree_version: 7,
+    });
+  });
+
+  it("types a name clash so the field can pin it", async () => {
+    const client = clientReturning(
+      json(
+        { error: { code: "part_name_taken", message: "already exists" } },
+        409,
+      ),
+    );
+    await expect(renamePart(samplePart.id, "Rib", 0, client)).rejects.toThrow(
+      PartNameTakenError,
+    );
+  });
+
+  it("types a lost concurrency race so the register can resync quietly", async () => {
+    const client = clientReturning(
+      json({ error: { code: "stale_tree_version", message: "moved on" } }, 422),
+    );
+    await expect(renamePart(samplePart.id, "Rib", 0, client)).rejects.toThrow(
+      StaleTreeVersionError,
+    );
+  });
+});
+
+describe("duplicatePart", () => {
+  it("sends no body and returns the copy the SERVER named", async () => {
+    let sentBody: string | null = null;
+    const client = createGatewayClient({
+      baseUrl: "http://gateway.test",
+      fetch: (request: Request) =>
+        request.text().then((body) => {
+          sentBody = body;
+          return json(
+            { ...samplePart, id: "copy", name: "Bracket plate copy" },
+            201,
+          );
+        }),
+    });
+    const copy = await duplicatePart(samplePart.id, client);
+    // The name is the server's answer, never a client-side prediction.
+    expect(copy.name).toBe("Bracket plate copy");
+    expect(sentBody).toBe("");
+  });
+
+  it("surfaces the envelope message on failure", async () => {
+    const client = clientReturning(
+      json({ error: { code: "part_not_found", message: "no such part" } }, 404),
+    );
+    await expect(duplicatePart(samplePart.id, client)).rejects.toThrow(
+      /no such part/,
+    );
+  });
+});
+
+describe("deletePart — the dependency refusal", () => {
+  const conflict = {
+    error: {
+      code: "part_has_dependents",
+      message: "Document is referenced by 2 document(s).",
+      details: {
+        dependents: [
+          { id: "asm-1", name: "gearbox", kind: "assembly" },
+          { id: "dwg-1", name: "bracket-detail", kind: "drawing" },
+        ],
+      },
+    },
+  };
+
+  it("carries the referent list through as a typed error", async () => {
+    const error = await deletePart(
+      samplePart.id,
+      clientReturning(json(conflict, 409)),
+    ).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(DocumentHasDependentsError);
+    expect((error as DocumentHasDependentsError).dependents).toEqual(
+      conflict.error.details.dependents,
+    );
+  });
+
+  it("stays a plain error when a 409 carries no referent list", async () => {
+    const error = await deletePart(
+      samplePart.id,
+      clientReturning(
+        json({ error: { code: "conflict", message: "busy" } }, 409),
+      ),
+    ).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(DocumentHasDependentsError);
+  });
+});
+
+describe("parseDependents", () => {
+  it("returns null rather than a PARTIAL list when an entry is malformed", () => {
+    // Half a dependency list is worse than none: the user would clear the
+    // entries they were shown and hit the same refusal again.
+    expect(
+      parseDependents({
+        error: {
+          details: {
+            dependents: [
+              { id: "a", name: "gearbox", kind: "assembly" },
+              { id: "b", name: "mystery", kind: "folder" },
+            ],
+          },
+        },
+      }),
+    ).toBeNull();
+  });
+
+  it("returns null for a body that is not a dependency envelope", () => {
+    expect(parseDependents(null)).toBeNull();
+    expect(parseDependents({ error: { message: "nope" } })).toBeNull();
+    expect(
+      parseDependents({ error: { details: { dependents: [] } } }),
+    ).toBeNull();
   });
 });

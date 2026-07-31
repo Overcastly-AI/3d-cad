@@ -102,6 +102,56 @@ frame refactor are v2/§11. Spike de-collected.
       `docs/screenshots/settings-after-{1440,1366}.png`.
       [src: founder #58 · ROADMAP "still queued: … a settings surface"]
 
+- [x] (P1, L) **#WS1 — workspace management: search, sort, rename, duplicate,
+      dependency-safe delete across all three registers. SHIPPED 2026-07-31**
+      (frontend-builder; founder-raised "the row a user hits on their tenth
+      document"). The three registers were create-and-open only: no way to find a
+      document, reorder the drawer, correct a name, or copy one. Now, in the
+      register's own title-block language and adding no floating chrome —
+      **FILTER** is a ruled field on the header rule (`/` focuses, Escape or a
+      quiet CLEAR empties it) filtering the whole drawer as you type, and the
+      count becomes the FRACTION `4 of 12 parts` derived from the two arrays on
+      screen so an empty result is legible instead of alarming; **SORT** is the
+      column headers themselves (NAME numeric-collated so "Rib 2" precedes
+      "Rib 10", LAST WORKED, FILED — `aria-sort` + a scribed chevron, default
+      FILED-asc which IS documents' own order, ties left to the stable sort so the
+      client never invents an order the server disagrees with); **RENAME** edits in
+      the name cell under the document's OCC version (`tree_version` / `doc_version`
+      -> 422 on a stale row) and the cell then renders what the refetched LIST says,
+      never the typed string; **DUPLICATE** is a real endpoint per kind
+      (`POST /{parts,assemblies,drawings}/{id}/duplicate`, `documents/duplicate.py`)
+      — a part copies its WHOLE feature tree with every intra-tree id reference
+      rewritten onto the copy plus dependency edges, travel stop, unit and
+      materials; an assembly copies instances + mates rewired onto the copied
+      instances but NOT the referenced parts; a drawing copies sheets/views/
+      dimensions/annotations but not the referenced document. No copy inherits undo
+      history or the last-evaluate record (a copy has never been built and its
+      register row says `never`). The copy's NAME is the server's
+      (`py_kit.schemas.workspace.copy_name`: "Bracket copy", "Bracket copy 2"…,
+      truncating the base not the suffix) and the created document is returned, so
+      the register never predicts it; **DELETE** now surfaces the existing
+      409-with-dependents by NAME — the payload is a real DTO
+      (`DocumentDependents`) DOCUMENTED as the delete routes' 409 response, so it
+      reaches the generated TS client and the row lists "gearbox (assembly)"
+      instead of "in use". 13 documents + 8 py-kit + 4 gateway + 37 component + 9
+      api-layer tests (all mutation-verified) + `e2e/workspace.spec.ts` (4). Shots
+      `docs/screenshots/workspace-register-{before-,}{1440,1366}.png` +
+      `workspace-register-filtered-1440.png`. **FOLDERS REMAIN OPEN** and nothing
+      on the surface pretends otherwise — filed below. [src: founder #WS1]
+
+- [ ] (P2, L) **#WS2 — FOLDERS in the registers (the half of #WS1 that was NOT
+      shipped, deliberately).** #WS1 shipped search + sort and stated plainly that
+      a folder tree is more than that slice could carry honestly; no folder rail,
+      no "unfiled" group and no drag target exists, because a folder UI backed by
+      nothing is the over-claiming defect class this repo keeps closing. Real work:
+      documents-side `parent_folder_id` (+ a folders table or a self-referencing
+      path column), an alembic migration, a MOVE endpoint, cycle rejection, and a
+      decision on whether per-owner name uniqueness becomes per-FOLDER uniqueness
+      (it must, or two folders cannot each hold a "Bracket"). Frontend: a folder
+      rail beside the drawer, breadcrumbs, drag-to-move with a keyboard equivalent,
+      and the count readout learning to say "in this folder" vs "everywhere".
+      [src: founder #WS1 scope item 5]
+
 - [x] (P1, S) **The assembly panel stopped promising a mass it did not have — and
       the roll-up can now HAVE one. FIXED 2026-07-31** (frontend-builder,
       2026-07-31). `AssemblyInspector` carried a section headed **COMBINED MASS**

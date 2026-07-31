@@ -167,6 +167,25 @@ async def update_drawing(
     return DrawingResponse.model_validate_json(upstream.content)
 
 
+@router.post("/{drawing_id}/duplicate", status_code=status.HTTP_201_CREATED)
+async def duplicate_drawing(
+    drawing_id: uuid.UUID, user: CurrentUser, http_request: Request
+) -> DrawingResponse:
+    """Copy a drawing's sheets, views, dimensions and annotations (201).
+
+    The copied views keep pointing at the same part/assembly — a view is a
+    reference, like an assembly instance — so this duplicates the LAYOUT, never
+    the modelled document (:mod:`documents.duplicate`). The copy's name is the
+    server's to assign and the created drawing is returned.
+    """
+    upstream = await forward_documents(
+        http_request, user, "POST", f"/api/v1/drawings/{drawing_id}/duplicate"
+    )
+    if upstream.status_code != status.HTTP_201_CREATED:
+        raise_upstream_error(upstream, service=_SERVICE)
+    return DrawingResponse.model_validate_json(upstream.content)
+
+
 @router.delete("/{drawing_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_drawing(
     drawing_id: uuid.UUID, user: CurrentUser, http_request: Request

@@ -1,9 +1,17 @@
-import { Button, Kbd, type LengthUnit, Stamp, TextField } from "@loft/design";
+import {
+  Button,
+  Kbd,
+  type LengthUnit,
+  SortAscIcon,
+  SortDescIcon,
+  TextField,
+} from "@loft/design";
 import {
   type FormEvent,
   type ReactNode,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -13,10 +21,8 @@ import type {
   PartEvalState,
   PartLastEvalStatus,
 } from "../api/parts";
-import { registerHealthReadout } from "../features/partBuild";
-import { documentActivity, relativeAge } from "../lib/activity";
-import { formatDate } from "../lib/format";
 import { validatePartName } from "../lib/partName";
+import { DocumentRegisterRow } from "./DocumentRegisterRow";
 
 /**
  * THE REGISTER — the index surface behind /, /assemblies and /drawings
@@ -65,6 +71,37 @@ import { validatePartName } from "../lib/partName";
  * what filing a new part is, and its `N` accelerator is shown rather than
  * hidden. Below it the drawer's remaining ruled lines run to the bottom of the
  * frame, which is what kills the old "small card adrift in a void" read.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * WORKSPACE MANAGEMENT (2026-07-31) — the row you hit on your TENTH document.
+ *
+ * Create-and-open was the whole surface; a drawer you cannot search, rename or
+ * copy stops being a place you keep work. Three additions, and one deliberate
+ * omission:
+ *
+ *   - FILTER, in the header rule rather than floating above the drawer as a
+ *     rounded search pill with a magnifier (the template answer, and it would be
+ *     the only round-cornered object on the screen). It is a title-block field:
+ *     a tracked FILTER label and a ruled cell, on the header's own line. `/`
+ *     focuses it from anywhere, shown as a chip the way `N` already is.
+ *   - The COUNT becomes a FRACTION when the filter is on: "4 OF 12 PARTS",
+ *     which is a sheet counter's own grammar and — the point — the one readout
+ *     that makes an empty result legible instead of alarming. It is derived
+ *     from the two array lengths on screen, so it cannot disagree with them.
+ *   - SORT is the column headers themselves. NAME / LAST WORKED / FILED are
+ *     buttons carrying `aria-sort` and a scribed direction chevron; clicking
+ *     the active one reverses it. No new chrome at all — the design mandate's
+ *     "a control that only decorates is a defect" answered by adding no
+ *     control. The default is FILED ascending, which IS the server's order, so
+ *     the unsorted state is a real state rather than a label over an arbitrary
+ *     one.
+ *
+ * FOLDERS ARE NOT HERE, and the surface does not pretend otherwise: there is no
+ * folder rail, no "unfiled" group and no drag target. A folder tree is a
+ * documents-service change (a parent column, a move endpoint, cycle rules,
+ * per-folder name uniqueness) and shipping the UI in front of nothing would be
+ * the exact defect class this register is being held to. Filed in BACKLOG.
+ * ─────────────────────────────────────────────────────────────────────────────
  *
  * DRY: one component, three thin configs. The three pages were ~410 lines of
  * near-identical code (UI-REVIEW 2026-07-16 flagged the near-dup); a divergence
@@ -121,6 +158,10 @@ export interface RegisterCopy {
   loadError: string;
   /** Fallback when a delete fails. */
   deleteError: string;
+  /** Fallback when a rename fails. */
+  renameError: string;
+  /** Fallback when a duplicate fails. */
+  duplicateError: string;
   /** Fallback when a create fails. */
   createError: string;
   /** Empty-state headline + invitation. */
@@ -131,6 +172,73 @@ export interface RegisterCopy {
   placeholder: string;
   createLabel: string;
   createFirstLabel: string;
+}
+
+/** Which column the drawer is ordered by. */
+export type RegisterSortKey = "name" | "activity" | "filed";
+
+export interface RegisterSort {
+  key: RegisterSortKey;
+  direction: "asc" | "desc";
+}
+
+/**
+ * FILED ascending — which is the order the server already returns (oldest
+ * first), so the register's initial state is a true description of what is on
+ * screen rather than a label applied to an arbitrary order.
+ */
+export const DEFAULT_SORT: RegisterSort = { key: "filed", direction: "asc" };
+
+/**
+ * Name-substring filter, case- and accent-insensitive, applied to the list the
+ * server returned.
+ *
+ * Client-side on purpose, and honestly so: the list endpoint returns the
+ * caller's WHOLE drawer in one response (no pagination on the wire), so the
+ * browser is filtering the complete set — the count can therefore say "4 of 12"
+ * and mean it. If that list ever becomes a page, the filter has to move to the
+ * server in the same change, because "4 of 12" would silently start meaning
+ * "4 of the 12 I happen to be holding".
+ */
+export function filterDocuments<T extends RegisterDocument>(
+  documents: T[],
+  query: string,
+): T[] {
+  const needle = query.trim().toLocaleLowerCase();
+  if (needle === "") return documents;
+  return documents.filter((entry) =>
+    entry.name.toLocaleLowerCase().includes(needle),
+  );
+}
+
+/**
+ * Order the drawer.
+ *
+ * NAME uses a numeric collator so "Rib 2" sorts before "Rib 10" — a register
+ * full of numbered parts sorted lexically is a register nobody trusts.
+ *
+ * TIES ARE NOT BROKEN, deliberately: `Array.prototype.sort` is stable, so equal
+ * rows keep the order the SERVER sent them in (documents lists by
+ * `created_at, id`). Inventing a client-side tiebreak — collating the uuids, say
+ * — would order two same-millisecond documents differently from every other
+ * surface that shows them, for no gain; borrowing the server's order costs
+ * nothing and cannot disagree with it.
+ */
+export function sortDocuments<T extends RegisterDocument>(
+  documents: T[],
+  sort: RegisterSort,
+): T[] {
+  const collator = new Intl.Collator(undefined, {
+    numeric: true,
+    sensitivity: "base",
+  });
+  const sign = sort.direction === "asc" ? 1 : -1;
+  const compare = (a: T, b: T): number => {
+    if (sort.key === "name") return collator.compare(a.name, b.name);
+    const key = sort.key === "activity" ? "updated_at" : "created_at";
+    return Date.parse(a[key]) - Date.parse(b[key]);
+  };
+  return [...documents].sort((a, b) => sign * compare(a, b));
 }
 
 export interface DocumentRegisterProps<T extends RegisterDocument> {
@@ -150,6 +258,15 @@ export interface DocumentRegisterProps<T extends RegisterDocument> {
   ) => ReactNode;
   /** Create + invalidate (+ navigate, for parts). Rejects with a field error. */
   onCreate: (name: string) => Promise<void>;
+  /**
+   * Rename + invalidate. The page supplies the document's concurrency version
+   * (parts carry `tree_version`, assemblies and drawings `doc_version`), which
+   * is why the register does not read it off the row itself. Rejects so the
+   * message lands under the field that was typed in.
+   */
+  onRename: (document: T, name: string) => Promise<void>;
+  /** Duplicate + invalidate. Never told what the copy will be called. */
+  onDuplicate: (document: T) => Promise<void>;
   /** Delete + invalidate. Rejects to pin the message beside the confirm. */
   onDelete: (document: T) => Promise<void>;
 }
@@ -164,8 +281,18 @@ export function DocumentRegister<T extends RegisterDocument>({
   error,
   openLink,
   onCreate,
+  onRename,
+  onDuplicate,
   onDelete,
 }: DocumentRegisterProps<T>) {
+  const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<RegisterSort>(DEFAULT_SORT);
+
+  const shown = useMemo(
+    () => sortDocuments(filterDocuments(documents, query), sort),
+    [documents, query, sort],
+  );
+  const filtering = query.trim() !== "";
   const empty = !isLoading && !isError && documents.length === 0;
   const showUnits = documents.some((d) => d.length_unit !== undefined);
   const showHealth = documents.some((d) => d.eval_state !== undefined);
@@ -175,10 +302,18 @@ export function DocumentRegister<T extends RegisterDocument>({
       className="mt-4 flex min-h-0 grow flex-col border border-hairline bg-anvil text-mist"
       data-testid={`${idPlural}-register`}
     >
-      <header className="flex shrink-0 items-baseline gap-3 border-b border-hairline px-3 py-3">
+      <header className="flex shrink-0 flex-wrap items-baseline gap-x-4 gap-y-2 border-b border-hairline px-3 py-3">
         <h2 className="font-display text-2xs uppercase tracking-[0.2em] text-gauge">
           {copy.title}
         </h2>
+        {empty || isLoading || isError ? null : (
+          <FilterField
+            idPlural={idPlural}
+            copy={copy}
+            query={query}
+            onChange={setQuery}
+          />
+        )}
         <span className="grow" />
         {isError ? null : (
           <span
@@ -187,9 +322,7 @@ export function DocumentRegister<T extends RegisterDocument>({
           >
             {isLoading
               ? "—"
-              : `${documents.length} ${
-                  documents.length === 1 ? copy.noun : copy.nounPlural
-                }`}
+              : countLabel(shown.length, documents.length, filtering, copy)}
           </span>
         )}
       </header>
@@ -223,22 +356,195 @@ export function DocumentRegister<T extends RegisterDocument>({
             idPlural={idPlural}
             idSingular={idSingular}
             copy={copy}
-            documents={documents}
+            documents={shown}
             showUnits={showUnits}
             showHealth={showHealth}
+            sort={sort}
+            onSort={setSort}
             openLink={openLink}
+            onRename={onRename}
+            onDuplicate={onDuplicate}
             onDelete={onDelete}
           />
-          <ScribeLine
-            idSingular={idSingular}
-            copy={copy}
-            nextOrdinal={documents.length + 1}
-            onCreate={onCreate}
-          />
+          {shown.length === 0 ? (
+            <NoMatches
+              idPlural={idPlural}
+              copy={copy}
+              query={query.trim()}
+              onClear={() => setQuery("")}
+            />
+          ) : (
+            <ScribeLine
+              idSingular={idSingular}
+              copy={copy}
+              // While a filter is on, the rows above are numbered 1..n WITHIN
+              // the filtered view, so printing "6" under a row 2 would put two
+              // different counting systems in one column. The gutter goes blank
+              // rather than assert a position the view cannot support; filing
+              // still appends to the whole register.
+              nextOrdinal={filtering ? null : documents.length + 1}
+              onCreate={onCreate}
+            />
+          )}
           <RuledRemainder />
         </div>
       )}
     </section>
+  );
+}
+
+/**
+ * The count, which is the readout that decides whether an empty filter result
+ * reads as "nothing matched" or as "my work is gone".
+ *
+ * Unfiltered it is the plain tally. Filtered it becomes a FRACTION — "4 of 12
+ * parts" — the grammar a sheet counter uses, and both numbers are the lengths
+ * of arrays this same render is drawing from, so the readout cannot drift from
+ * what is on screen.
+ */
+function countLabel(
+  shown: number,
+  total: number,
+  filtering: boolean,
+  copy: RegisterCopy,
+): string {
+  const noun = total === 1 ? copy.noun : copy.nounPlural;
+  return filtering ? `${shown} of ${total} ${noun}` : `${total} ${noun}`;
+}
+
+/**
+ * FILTER — a title-block field on the header rule, not a search pill.
+ *
+ * Filters as you type (no submit, no debounce: the whole drawer is already in
+ * memory, so a keystroke costs an array pass). `/` focuses it from anywhere on
+ * the page and the chip teaches that, mirroring how `N` is taught on the scribe
+ * line — one accelerator convention, learned once.
+ */
+function FilterField({
+  idPlural,
+  copy,
+  query,
+  onChange,
+}: {
+  idPlural: string;
+  copy: RegisterCopy;
+  query: string;
+  onChange: (value: string) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      const target = event.target;
+      if (
+        target instanceof HTMLElement &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+      if (event.key === "/") {
+        event.preventDefault();
+        inputRef.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  return (
+    <div className="flex items-center gap-2">
+      <label
+        className="font-display text-2xs uppercase tracking-[0.16em] text-gauge"
+        htmlFor={`${idPlural}-filter`}
+      >
+        Filter
+      </label>
+      <input
+        ref={inputRef}
+        id={`${idPlural}-filter`}
+        // `text`, not `search`: Chromium paints its own blue round clear glyph
+        // on a search input, which would be the only round object and the only
+        // foreign colour on the screen. The clear control below is the same
+        // quiet verb the rows use.
+        type="text"
+        value={query}
+        autoComplete="off"
+        spellCheck={false}
+        placeholder="Name contains…"
+        data-testid={`${idPlural}-filter`}
+        aria-label={`Filter ${copy.nounPlural} by name`}
+        onChange={(event) => onChange(event.currentTarget.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            onChange("");
+          }
+        }}
+        // The ruled cell of a title-block field: no box, one hairline under the
+        // value, brass when it has focus. Deliberately NOT the rounded, boxed,
+        // magnifier-prefixed search control every web app ships.
+        className="w-[10rem] border-b border-etch bg-transparent pb-0.5 font-data text-xs text-mist outline-none placeholder:text-gauge focus:border-brass sm:w-[14rem]"
+      />
+      {query === "" ? (
+        <>
+          <span className="sr-only">Press slash to jump to this field.</span>
+          <Kbd aria-hidden="true">/</Kbd>
+        </>
+      ) : (
+        // Only while there is something to clear — a dead control is chrome.
+        <button
+          type="button"
+          onClick={() => onChange("")}
+          data-testid={`${idPlural}-filter-clear`}
+          className="inline-flex min-h-target-dense items-center rounded-sm px-1 font-display text-2xs uppercase tracking-[0.14em] text-gauge outline-none transition-colors duration-fast hover:text-brass focus-visible:text-brass focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
+        >
+          Clear
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The filter matched nothing. An empty screen is an invitation to act, so this
+ * says what was searched (quoting it, so a stray space is visible), states that
+ * the drawer is intact, and offers the one control that fixes it. It replaces
+ * the scribe line rather than sitting beside it: filing a new document is not
+ * the answer to "your filter is too narrow".
+ */
+function NoMatches({
+  idPlural,
+  copy,
+  query,
+  onClear,
+}: {
+  idPlural: string;
+  copy: RegisterCopy;
+  query: string;
+  onClear: () => void;
+}) {
+  return (
+    <div
+      className="flex shrink-0 items-stretch border-b border-hairline"
+      data-testid={`${idPlural}-no-matches`}
+    >
+      <div
+        className={`${COLUMN.gutter} shrink-0 border-l-2 border-transparent bg-carbide`}
+        aria-hidden="true"
+      />
+      <div className="flex min-w-0 grow flex-wrap items-baseline gap-x-3 gap-y-1 px-3 py-4">
+        <p className="font-body text-sm text-mist" role="status">
+          No {copy.nounPlural} match{" "}
+          <span className="font-data text-mist">“{query}”</span>.
+        </p>
+        <Button onClick={onClear} data-testid={`${idPlural}-no-matches-clear`}>
+          Clear filter
+        </Button>
+      </div>
+    </div>
   );
 }
 
@@ -252,7 +558,8 @@ const COLUMN = {
   /** Wide enough for the longest stamped verdict ("Clean to stop") unwrapped. */
   health: "w-[9rem]",
   filed: "w-[7rem]",
-  action: "w-[5.5rem]",
+  /** Three verbs, always visible — see `DocumentRegisterRow`. */
+  action: "w-[13rem]",
 } as const;
 
 function RegisterTable<T extends RegisterDocument>({
@@ -262,7 +569,11 @@ function RegisterTable<T extends RegisterDocument>({
   documents,
   showUnits,
   showHealth,
+  sort,
+  onSort,
   openLink,
+  onRename,
+  onDuplicate,
   onDelete,
 }: {
   idPlural: string;
@@ -271,7 +582,11 @@ function RegisterTable<T extends RegisterDocument>({
   documents: T[];
   showUnits: boolean;
   showHealth: boolean;
+  sort: RegisterSort;
+  onSort: (sort: RegisterSort) => void;
   openLink: DocumentRegisterProps<T>["openLink"];
+  onRename: (document: T, name: string) => Promise<void>;
+  onDuplicate: (document: T) => Promise<void>;
   onDelete: (document: T) => Promise<void>;
 }) {
   return (
@@ -292,11 +607,31 @@ function RegisterTable<T extends RegisterDocument>({
             <span aria-hidden>#</span>
             <span className="sr-only">Row</span>
           </Th>
-          <Th>Name</Th>
+          <SortableTh
+            idPlural={idPlural}
+            sortKey="name"
+            label="Name"
+            sort={sort}
+            onSort={onSort}
+          />
           {showUnits ? <Th className={COLUMN.units}>Units</Th> : null}
-          <Th className={COLUMN.activity}>Last worked</Th>
+          <SortableTh
+            idPlural={idPlural}
+            sortKey="activity"
+            label="Last worked"
+            className={COLUMN.activity}
+            sort={sort}
+            onSort={onSort}
+          />
           {showHealth ? <Th className={COLUMN.health}>Rebuild</Th> : null}
-          <Th className={`hidden md:table-cell ${COLUMN.filed}`}>Filed</Th>
+          <SortableTh
+            idPlural={idPlural}
+            sortKey="filed"
+            label="Filed"
+            className={`hidden md:table-cell ${COLUMN.filed}`}
+            sort={sort}
+            onSort={onSort}
+          />
           <th className={COLUMN.action}>
             <span className="sr-only">Actions</span>
           </th>
@@ -304,7 +639,7 @@ function RegisterTable<T extends RegisterDocument>({
       </thead>
       <tbody>
         {documents.map((entry, index) => (
-          <RegisterRow
+          <DocumentRegisterRow
             key={entry.id}
             idSingular={idSingular}
             copy={copy}
@@ -313,6 +648,8 @@ function RegisterTable<T extends RegisterDocument>({
             showUnits={showUnits}
             showHealth={showHealth}
             openLink={openLink}
+            onRename={onRename}
+            onDuplicate={onDuplicate}
             onDelete={onDelete}
           />
         ))}
@@ -342,329 +679,67 @@ function Th({
   );
 }
 
-/** One filed row: ordinal, name, units, activity, health, filed, delete. */
-function RegisterRow<T extends RegisterDocument>({
-  idSingular,
-  copy,
-  entry,
-  ordinal,
-  showUnits,
-  showHealth,
-  openLink,
-  onDelete,
+/**
+ * A column header that IS the sort control.
+ *
+ * No sort dropdown was added, because the table already has three labels
+ * naming exactly the three things you would sort by, and a separate control
+ * would be a second place saying the same word. Clicking a quiet header sorts
+ * by it (ascending — A→Z, oldest first, which is what these columns' natural
+ * reading direction is); clicking the ACTIVE header reverses it. The direction
+ * chevron only appears on the active column, so the header row stays a header
+ * row rather than a strip of three widgets.
+ *
+ * `aria-sort` on the `th` is the real state for assistive tech, and the button's
+ * `sr-only` sentence says what the next click will do — a bare chevron cannot.
+ */
+function SortableTh({
+  idPlural,
+  sortKey,
+  label,
+  className,
+  sort,
+  onSort,
 }: {
-  idSingular: string;
-  copy: RegisterCopy;
-  entry: T;
-  ordinal: number;
-  showUnits: boolean;
-  showHealth: boolean;
-  openLink: DocumentRegisterProps<T>["openLink"];
-  onDelete: (document: T) => Promise<void>;
+  idPlural: string;
+  sortKey: RegisterSortKey;
+  label: string;
+  className?: string;
+  sort: RegisterSort;
+  onSort: (sort: RegisterSort) => void;
 }) {
-  const [confirming, setConfirming] = useState(false);
-  const [pending, setPending] = useState(false);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
-
-  const remove = async () => {
-    setPending(true);
-    setDeleteError(null);
-    try {
-      await onDelete(entry);
-    } catch (caught) {
-      setPending(false);
-      setDeleteError(
-        caught instanceof Error ? caught.message : copy.deleteError,
-      );
-    }
-  };
-
-  const filed = formatDate(entry.created_at);
-  const activity = documentActivity(
-    entry.created_at,
-    entry.updated_at,
-    formatDate(entry.updated_at),
-  );
-
-  if (confirming) {
-    return (
-      <tr
-        data-testid={`${idSingular}-row`}
-        {...{ [`data-${idSingular}-id`]: entry.id }}
-        data-confirming="true"
-        className="border-b border-hairline last:border-b-0 bg-carbide"
-      >
-        <Gutter ordinal={ordinal} idSingular={idSingular} addressed />
-        {/* Name + every data cell up to FILED: the confirm takes the row over,
-            so the span has to follow whichever optional columns are showing. */}
-        <td
-          colSpan={2 + (showUnits ? 1 : 0) + (showHealth ? 1 : 0)}
-          className="px-3 py-2"
-        >
-          <span className="font-body text-sm text-mist">
-            Delete <span className="font-data text-flag">{entry.name}</span>?
-            This cannot be undone.
-          </span>
-          {deleteError !== null ? (
-            <span
-              role="alert"
-              className="ml-2 font-body text-xs text-flag"
-              data-testid={`${idSingular}-delete-error`}
-            >
-              {deleteError}
-            </span>
-          ) : null}
-        </td>
-        <td className="px-3 py-2" colSpan={2}>
-          <div className="flex items-center justify-end gap-2">
-            <Button
-              onClick={() => setConfirming(false)}
-              disabled={pending}
-              data-testid={`${idSingular}-delete-cancel`}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="danger"
-              onClick={() => void remove()}
-              disabled={pending}
-              data-testid={`${idSingular}-delete-confirm`}
-            >
-              {pending ? "Deleting…" : "Delete"}
-            </Button>
-          </div>
-        </td>
-      </tr>
-    );
-  }
+  const active = sort.key === sortKey;
+  const ascending = sort.direction === "asc";
+  const next: RegisterSort = active
+    ? { key: sortKey, direction: ascending ? "desc" : "asc" }
+    : { key: sortKey, direction: "asc" };
+  const Chevron = ascending ? SortAscIcon : SortDescIcon;
 
   return (
-    <tr
-      data-testid={`${idSingular}-row`}
-      {...{ [`data-${idSingular}-id`]: entry.id }}
-      className="group border-b border-hairline last:border-b-0 hover:bg-carbide focus-within:bg-carbide"
-    >
-      <Gutter ordinal={ordinal} idSingular={idSingular} />
-      <td className="truncate px-3 py-2 align-middle">
-        {openLink(entry, {
-          className:
-            // `min-h-target-dense`: the row stays dense, the TAP TARGET does not go
-            // under the 24px floor (design `target` policy; it measured 84x18).
-            "inline-flex min-h-target-dense items-center rounded-sm font-body text-md text-mist underline-offset-4 outline-none hover:text-brass hover:underline focus-visible:text-brass focus-visible:underline",
-          "data-testid": `${idSingular}-open`,
-        })}
-      </td>
-      {showUnits ? (
-        <td className="px-3 py-2 align-middle font-data text-xs text-gauge">
-          {entry.length_unit ?? "—"}
-        </td>
-      ) : null}
-      <td className="px-3 py-2 align-middle">
-        {activity.kind === "never" ? (
-          <span
-            className="font-display text-2xs uppercase tracking-[0.14em] text-gauge"
-            title="No edits since it was created"
-            data-testid={`${idSingular}-unstarted`}
-          >
-            Not started
-          </span>
-        ) : (
-          <span
-            className="font-data text-xs tabular-nums text-mist"
-            title={
-              activity.kind === "worked"
-                ? `Last edited ${formatDate(entry.updated_at)}`
-                : undefined
-            }
-          >
-            {activity.kind === "worked" ? activity.label : "—"}
-          </span>
-        )}
-      </td>
-      {showHealth ? (
-        <td className="px-3 py-2 align-middle">
-          <HealthCell idSingular={idSingular} entry={entry} />
-        </td>
-      ) : null}
-      <td className="hidden px-3 py-2 align-middle font-data text-xs tabular-nums text-gauge md:table-cell">
-        {filed}
-      </td>
-      <td className="px-3 py-2 text-right align-middle">
-        <button
-          type="button"
-          onClick={() => setConfirming(true)}
-          data-testid={`${idSingular}-delete`}
-          aria-label={`Delete ${entry.name}`}
-          // 53x15 before the target policy — the one destructive verb in the
-          // register was its smallest control.
-          className="inline-flex min-h-target-dense items-center justify-end rounded-sm px-1 font-display text-2xs uppercase tracking-[0.14em] text-gauge outline-none transition-colors duration-fast hover:text-flag focus-visible:text-flag focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
-        >
-          Delete
-        </button>
-      </td>
-    </tr>
-  );
-}
-
-/**
- * Relative age of the health record, as a title-clause (" 20 min ago"). Falls
- * back to the absolute date for anything older than the relative buckets, so
- * the phrasing matches the FILED column's format.
- */
-function rebuildAge(iso: string | null | undefined): string {
-  if (iso === undefined || iso === null) return "";
-  const at = Date.parse(iso);
-  if (Number.isNaN(at)) return "";
-  const label = relativeAge(Math.max(0, Date.now() - at));
-  return label === null ? ` on ${formatDate(iso)}` : `, ${label}`;
-}
-
-/**
- * REBUILD — "would this part rebuild if I opened it?", the one question the
- * register could not answer until documents started keeping the record
- * (`c98c454`).
- *
- * The cell is a RENDERER, not a decider: what it is entitled to say comes from
- * `registerHealthReadout` (`features/partBuild.ts`), the same module the open
- * part's STATUS/EXPORT cells read. A second place deciding register wording is
- * how two surfaces end up disagreeing about the same part (audit J2/J3).
- *
- * WHY ITS OWN COLUMN, next to LAST WORKED rather than inside it. The two answer
- * different questions and are both worth saying at once: "20 min ago" is where
- * you were, "broken" is what you will walk into. Folding health into the
- * activity cell would force one of them to be suppressed exactly when both
- * matter, and it would quietly redefine LAST WORKED — which the backend
- * deliberately protected by NOT bumping `updated_at` when it records a rebuild,
- * so that column keeps meaning "someone worked on it" rather than "someone
- * looked at it". Two facts, two cells; the column sits adjacent so the pair
- * reads as one clause about the same sitting.
- *
- * The four states and their exact claims — this cell is the reason the derived
- * `eval_state` exists, so it never says more than the server did:
- *
- *  - **never** — nothing is known. A quiet dash, and the screen reader is told
- *    "not evaluated" rather than being left with an em-dash.
- *  - **ok** — NO FEATURE ERRORED when this tree was last rebuilt. Deliberately
- *    NOT a tick and deliberately not the word "good": `ok` says nothing about
- *    whether the part has a body, and the title says so in as many words. It is
- *    the quietest state on the surface because "it rebuilds" is the expectation.
- *  - **failed** — a feature errored, and that verdict still applies to the tree
- *    as it stands. The one loud state: a flag-inked stamp, because this is the
- *    expensive surprise the column was added for.
- *  - **stale** — evaluated, then the tree moved. Health is genuinely UNKNOWN, so
- *    it renders INDETERMINATE: the dashed phantom stamp the clash schedule uses
- *    for UNVERIFIED, never a tick and never a flag. The raw record is still
- *    spent — "was broken" / "was clean", past tense, quiet ink — because "the
- *    last rebuild errored and then you changed something" is more useful than
- *    "unknown", as long as the surface never dresses it up as current.
- *
- * ...and, crossing all four, the SCOPE axis: an `ok` that covers only the
- * features before a travel stop is not "Clean", it is "Clean to stop" in the
- * same indeterminate ink, because the rest of the tree was never attempted.
- * `data-health` stays the STATE and `data-health-scope` carries the second
- * axis, so a QA hook reads the pair exactly as the wire sends it.
- */
-function HealthCell<T extends RegisterDocument>({
-  idSingular,
-  entry,
-}: {
-  idSingular: string;
-  entry: T;
-}) {
-  const readout = registerHealthReadout({
-    state: entry.eval_state,
-    scope: entry.eval_scope ?? null,
-    lastStatus: entry.last_eval_status,
-    age: rebuildAge(entry.last_eval_at),
-  });
-  const hooks = {
-    "data-testid": `${idSingular}-health`,
-    "data-health": readout.state,
-    ...(readout.scope !== null && readout.scope !== undefined
-      ? { "data-health-scope": readout.scope }
-      : {}),
-    title: readout.title,
-  };
-  const sr =
-    readout.srSuffix === null ? null : (
-      <span className="sr-only">{readout.srSuffix}</span>
-    );
-
-  if (readout.state === "never") {
-    return (
-      <span {...hooks} className="font-data text-xs text-gauge">
-        <span aria-hidden>—</span>
-        <span className="sr-only">{readout.label}</span>
-      </span>
-    );
-  }
-
-  if (readout.tone === "quiet") {
-    return (
-      <span
-        {...hooks}
-        className="font-display text-2xs uppercase tracking-[0.14em] text-gauge"
-      >
-        {readout.label}
-        {sr}
-      </span>
-    );
-  }
-
-  return readout.tone === "flag" ? (
-    <Stamp tone="flag" {...hooks}>
-      {readout.label}
-      {sr}
-    </Stamp>
-  ) : (
-    <Stamp indeterminate {...hooks}>
-      {readout.label}
-      {sr}
-    </Stamp>
-  );
-}
-
-/**
- * The scribed margin: the ROW ORDINAL on the carbide ground, ruled off the
- * register body. Its left edge carries the brass scribe for the ADDRESSED row
- * (hover / keyboard focus anywhere in it) — the row marker, at the left edge
- * where the eye starts, so a wide row never loses its place.
- *
- * It used to render `001` and its own doc comment called that a "filing
- * identity: stable". It was `String(index + 1).padStart(3, "0")` — a POSITION in
- * a zero-padded costume, and positions move: file 001/002/003, delete 001, and
- * 001/002 now address different parts than they did a moment ago. A user who
- * wrote "sheet 002" in a change note or a message was holding a reference that
- * silently retargeted (UI-REVIEW 2026-07-30 P2 — the same lens as the false
- * clash badge, at lower stakes).
- *
- * The call: keep the number, drop the claim. A position is genuinely useful in a
- * dense list ("the third row"), so the column stays — as `#` with an `sr-only`
- * "Row", and unpadded, because the padding was most of the lie. A REAL sheet
- * number is a stored per-owner monotonic sequence on the document row, i.e. a
- * documents-service change, and it is filed as its own item rather than faked
- * here. The gutter's form (carbide ground, brass scribe, right-aligned tabular
- * data face) is unchanged — only what it asserts.
- */
-function Gutter({
-  ordinal,
-  idSingular,
-  addressed,
-}: {
-  ordinal: number;
-  idSingular: string;
-  addressed?: boolean;
-}) {
-  return (
-    <td
-      className={`h-10 border-l-2 bg-carbide px-3 py-2 text-right align-middle font-data text-xs tabular-nums text-gauge ${
-        addressed
-          ? "border-brass"
-          : "border-transparent group-hover:border-brass group-focus-within:border-brass"
+    <th
+      className={`px-3 py-2 text-left font-display text-2xs uppercase tracking-[0.16em] ${
+        className ?? ""
       }`}
+      aria-sort={active ? (ascending ? "ascending" : "descending") : "none"}
+      data-testid={`${idPlural}-sort-${sortKey}-header`}
     >
-      <span data-testid={`${idSingular}-ordinal`}>{ordinal}</span>
-    </td>
+      <button
+        type="button"
+        onClick={() => onSort(next)}
+        data-testid={`${idPlural}-sort-${sortKey}`}
+        className={`inline-flex min-h-target-dense items-center gap-1 rounded-sm uppercase tracking-[0.16em] outline-none transition-colors duration-fast hover:text-brass focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass ${
+          active ? "text-brass" : "text-gauge"
+        }`}
+      >
+        {label}
+        {active ? <Chevron size={12} /> : null}
+        <span className="sr-only">
+          {active
+            ? `Sorted ${ascending ? "ascending" : "descending"}; activate to reverse`
+            : "Activate to sort by this column"}
+        </span>
+      </button>
+    </th>
   );
 }
 
@@ -673,6 +748,10 @@ function Gutter({
  * next ordinal in the same gutter, so filing reads as continuing the log rather
  * than operating a form. `N` focuses it from anywhere on the page (previously
  * true but never shown; the chip teaches it).
+ *
+ * The ordinal it shows counts the WHOLE drawer, not the filtered view: a new
+ * document is filed at the end of the register, and a filter is a way of
+ * looking, not a place things go.
  */
 function ScribeLine({
   idSingular,
@@ -682,7 +761,8 @@ function ScribeLine({
 }: {
   idSingular: string;
   copy: RegisterCopy;
-  nextOrdinal: number;
+  /** Null while filtered — see the call site. */
+  nextOrdinal: number | null;
   onCreate: (name: string) => Promise<void>;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -715,7 +795,7 @@ function ScribeLine({
         className={`${COLUMN.gutter} shrink-0 border-l-2 border-transparent bg-carbide px-3 pt-3 text-right font-data text-xs tabular-nums text-gauge`}
         aria-hidden="true"
       >
-        {nextOrdinal}
+        {nextOrdinal ?? ""}
       </div>
       <div className="min-w-0 grow px-3 py-3">
         <CreateForm

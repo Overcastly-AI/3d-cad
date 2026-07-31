@@ -37,6 +37,7 @@ from py_kit.schemas.parts import (
     PartResponse,
     PartUpdate,
 )
+from py_kit.schemas.workspace import DocumentDependent, DocumentDependents
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -209,19 +210,26 @@ async def reject_if_instanced(
             .order_by(Drawing.name)
         )
     ).all()
-    dependents = [
-        {"id": str(dep_id), "name": name, "kind": "assembly"}
-        for dep_id, name in assembly_deps
-    ] + [
-        {"id": str(dep_id), "name": name, "kind": "drawing"}
-        for dep_id, name in drawing_deps
-    ]
-    if dependents:
+    # Built through the shared DTO (py_kit.schemas.workspace) rather than as a
+    # hand-shaped dict: the delete routes DOCUMENT that model as their 409
+    # response, so the browser reads `details.dependents` as a generated type.
+    # An ad-hoc dict here and a typed reader there is exactly how the two drift.
+    dependents = DocumentDependents(
+        dependents=[
+            DocumentDependent(id=dep_id, name=name, kind="assembly")
+            for dep_id, name in assembly_deps
+        ]
+        + [
+            DocumentDependent(id=dep_id, name=name, kind="drawing")
+            for dep_id, name in drawing_deps
+        ]
+    )
+    if dependents.dependents:
         raise ConflictError(
-            f"Document is referenced by {len(dependents)} document(s); remove "
-            "those references first.",
+            f"Document is referenced by {len(dependents.dependents)} document(s); "
+            "remove those references first.",
             code=code,
-            details={"dependents": dependents},
+            details=dependents.model_dump(mode="json"),
         )
 
 

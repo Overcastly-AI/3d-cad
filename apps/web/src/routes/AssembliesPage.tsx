@@ -5,7 +5,9 @@ import { Link } from "@tanstack/react-router";
 import {
   createAssembly,
   deleteAssembly,
+  duplicateAssembly,
   fetchAssemblies,
+  renameAssembly,
 } from "../api/assemblies";
 import {
   DocumentRegister,
@@ -32,6 +34,8 @@ const COPY: RegisterCopy = {
   loading: "Loading assemblies…",
   loadError: "Your assemblies could not be loaded.",
   deleteError: "The assembly could not be deleted.",
+  renameError: "The assembly could not be renamed.",
+  duplicateError: "The assembly could not be duplicated.",
   createError: "The assembly could not be created.",
   emptyHeadline: "No assemblies filed yet.",
   emptyBody:
@@ -84,6 +88,16 @@ export function AssembliesPage() {
             )}
             onCreate={async (name) => {
               await createAssembly(name, newDocumentUnit);
+              await queryClient.invalidateQueries({ queryKey: ["assemblies"] });
+            }}
+            onRename={async (assembly, name) => {
+              await renameAssembly(assembly.id, name, assembly.doc_version);
+              await queryClient.invalidateQueries({ queryKey: ["assemblies"] });
+            }}
+            onDuplicate={async (assembly) => {
+              // Instances and mates are copied; the PARTS they name are not —
+              // both assemblies reference the same parts afterwards.
+              await duplicateAssembly(assembly.id);
               await queryClient.invalidateQueries({ queryKey: ["assemblies"] });
             }}
             onDelete={async (assembly) => {

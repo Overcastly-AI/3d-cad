@@ -318,3 +318,88 @@ def test_malformed_part_id_rejected_at_the_gateway(
 def test_documents_url_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DOCUMENTS_URL", "http://documents.internal:9001")
     assert GatewaySettings().documents_url == "http://documents.internal:9001"
+
+
+# --- duplicate + the typed dependency 409 (workspace management) ------------------
+
+
+def test_duplicate_part_forwards_and_returns_the_created_part(
+    db_url: str, seen: list[httpx.Request]
+) -> None:
+    """No request body: the copy's NAME is the server's to assign, and what the
+    register renders is what came back — never a client-side guess."""
+    part_id = uuid.uuid4()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        owner_id = uuid.UUID(request.headers[PRINCIPAL_HEADER])
+        return httpx.Response(
+            201, content=_part(owner_id, "Bracket copy").model_dump_json()
+        )
+
+    with make_client(db_url, handler) as client:
+        user_id, bearer = _register(client)
+        response = client.post(f"/api/v1/parts/{part_id}/duplicate", headers=bearer)
+
+    assert response.status_code == 201, response.text
+    assert response.json()["name"] == "Bracket copy"
+    [upstream] = seen
+    assert upstream.method == "POST"
+    assert upstream.url.path == f"/api/v1/parts/{part_id}/duplicate"
+    assert upstream.headers[PRINCIPAL_HEADER] == user_id
+
+
+def test_duplicate_requires_auth(db_url: str, seen: list[httpx.Request]) -> None:
+    with make_client(db_url, _echo_documents(seen)) as client:
+        response = client.post(f"/api/v1/parts/{uuid.uuid4()}/duplicate")
+    assert response.status_code == 401
+    assert seen == []
+
+
+def test_delete_409_names_the_dependents_verbatim(
+    db_url: str, seen: list[httpx.Request]
+) -> None:
+    """The whole point of refusing is that the caller can go and fix it, which
+    needs the referents by NAME — so the list survives the proxy intact."""
+    dependent_id = uuid.uuid4()
+    conflict = {
+        "error": {
+            "code": "part_has_dependents",
+            "message": "Document is referenced by 1 document(s).",
+            "details": {
+                "dependents": [
+                    {"id": str(dependent_id), "name": "gearbox", "kind": "assembly"}
+                ]
+            },
+            "request_id": "upstream-request-id",
+        }
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(409, json=conflict)
+
+    with make_client(db_url, handler) as client:
+        _, bearer = _register(client)
+        response = client.delete(f"/api/v1/parts/{uuid.uuid4()}", headers=bearer)
+
+    assert response.status_code == 409
+    error = _envelope(response.json())
+    assert error["code"] == "part_has_dependents"
+    assert error["details"]["dependents"] == [
+        {"id": str(dependent_id), "name": "gearbox", "kind": "assembly"}
+    ]
+    # Re-surfaced under the GATEWAY's request id, like every proxied envelope.
+    assert error["request_id"] == response.headers[REQUEST_ID_HEADER]
+
+
+def test_the_dependency_409_is_on_the_contract(db_url: str) -> None:
+    """Documented, not just implemented: the generated TS client only carries
+    `DocumentDependents` because the delete routes name it as their 409."""
+    with make_client(db_url, _echo_documents([])) as client:
+        schema = client.get("/openapi.json").json()
+    conflict = schema["paths"]["/api/v1/parts/{part_id}"]["delete"]["responses"]["409"]
+    ref = conflict["content"]["application/json"]["schema"]["$ref"]
+    assert ref.endswith("DependencyConflictEnvelope")
+    dependents = schema["components"]["schemas"]["DocumentDependent"]
+    assert dependents["properties"]["kind"]["enum"] == ["assembly", "drawing"]

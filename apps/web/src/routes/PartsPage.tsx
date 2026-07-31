@@ -2,7 +2,13 @@ import { Chip } from "@loft/design";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 
-import { createPart, deletePart, fetchParts } from "../api/parts";
+import {
+  createPart,
+  deletePart,
+  duplicatePart,
+  fetchParts,
+  renamePart,
+} from "../api/parts";
 import {
   DocumentRegister,
   type RegisterCopy,
@@ -28,6 +34,8 @@ const COPY: RegisterCopy = {
   loading: "Loading parts…",
   loadError: "Your parts could not be loaded.",
   deleteError: "The part could not be deleted.",
+  renameError: "The part could not be renamed.",
+  duplicateError: "The part could not be duplicated.",
   createError: "The part could not be created.",
   emptyHeadline: "Nothing filed here yet.",
   emptyBody:
@@ -84,6 +92,20 @@ export function PartsPage() {
                 to: "/parts/$partId",
                 params: { partId: part.id },
               });
+            }}
+            onRename={async (part, name) => {
+              // The rename rides the part's CURRENT tree_version as its
+              // optimistic-concurrency guard — the same guard every other part
+              // write uses — and the register then refetches, so the row shows
+              // the name the server stored rather than the one that was typed.
+              await renamePart(part.id, name, part.tree_version);
+              await queryClient.invalidateQueries({ queryKey: ["parts"] });
+            }}
+            onDuplicate={async (part) => {
+              // No name is sent and none is predicted: the copy comes back
+              // named, and the refetched list is what the register renders.
+              await duplicatePart(part.id);
+              await queryClient.invalidateQueries({ queryKey: ["parts"] });
             }}
             onDelete={async (part) => {
               await deletePart(part.id);
