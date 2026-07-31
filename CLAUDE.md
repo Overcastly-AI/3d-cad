@@ -459,6 +459,15 @@ recipe here in the same commit as the fix.**
   `main` without explicit permission.
 - OCP/OCCT wheels are large; in CI cache the uv environment keyed on the
   lockfile.
+- **To test swapping an auditwheel-vendored library WITHOUT touching the shared
+  `.venv`, check for `RUNPATH` (not `RPATH`) with `readelf -d`.** `LD_LIBRARY_PATH`
+  takes precedence over `RUNPATH` but is beaten by `RPATH`, so when the consumer
+  uses `RUNPATH` you can drop a replacement in a scratch dir, point
+  `LD_LIBRARY_PATH` at it, and the real library is never mapped — prove which one
+  loaded by grepping `/proc/self/maps` after the import. That is how the P0
+  licence fix (a GPL-free `libjbig` stub) was validated against the full 2385-test
+  geometry suite on 2026-07-31 with zero risk to a concurrent agent's environment.
+  Mutating the shared `.venv` to test a swap would have broken every sibling.
 - In this container, `uv python install 3.12` fails (403: the egress proxy
   blocks github.com release downloads of python-build-standalone — a policy
   denial, don't retry/route around). Not needed: system interpreters exist at
