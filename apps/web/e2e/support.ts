@@ -1,8 +1,32 @@
+import { copyFile, mkdir } from "node:fs/promises";
+import { dirname } from "node:path";
+
 import { expect, type Page } from "@playwright/test";
 
 import { SESSION_STORAGE_KEY } from "../src/auth/session";
 
 export const SCREENSHOT_DIR = "../../docs/screenshots";
+
+/**
+ * Copy a produced artifact (a PDF, a DXF — anything that is NOT a
+ * `page.screenshot`) into the committed `docs/screenshots/` set, but ONLY on a
+ * deliberate refresh.
+ *
+ * `fixtures.ts` gates `page.screenshot` so a routine `just e2e` never rewrites
+ * the committed PNGs. That gate wraps ONE method, so these `copyFile` writes
+ * sailed straight past it and every run rewrote `drawing-export.{pdf,dxf}` —
+ * the exact churn the PNG gate exists to prevent, at a second address. Found
+ * 2026-07-31 when a clean-window e2e left two files dirty; the committed pair
+ * turned out to be 13 days stale, so nobody had noticed either half.
+ *
+ * Refresh deliberately with `UPDATE_SCREENSHOTS=1`, the same switch the PNGs use
+ * — one env var for the whole committed set, not two conventions.
+ */
+export async function persistArtifact(from: string, to: string): Promise<void> {
+  if (!process.env.UPDATE_SCREENSHOTS) return;
+  await mkdir(dirname(to), { recursive: true });
+  await copyFile(from, to);
+}
 
 /** Meets the gateway's 8–256 char policy; not a secret (test-only). */
 export const TEST_PASSWORD = "loft-e2e-passw0rd";
