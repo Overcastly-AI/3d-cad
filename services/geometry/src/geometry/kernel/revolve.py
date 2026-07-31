@@ -51,6 +51,7 @@ from geometry.kernel.extrude import (
     build_profile_face,
     plane_point_to_world,
 )
+from geometry.kernel.healing import clean_shape
 
 #: Clearance tolerance (mm) for the axis-vs-profile side test, aligned with the
 #: kernel linear tolerance (1e-7 m; model units are mm). A profile point within
@@ -284,4 +285,4 @@ def revolve_face(
         )
     # clean() removes redundant seam faces/edges the operation can leave
     # behind, keeping topology counts meaningful (and golden-assertable).
-    return solids[0].clean()
+    return clean_shape(solids[0])

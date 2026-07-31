@@ -207,6 +207,7 @@ from geometry.kernel import (
     sweep_profile,
     tessellate_glb,
 )
+from geometry.kernel.healing import body_is_valid
 from geometry.kernel.lumps import lump_count
 from geometry.kernel.types import BodyShape
 from geometry.mesh_store import store_mesh_glb
@@ -270,6 +271,19 @@ def _step_import_bounds() -> tuple[float, float]:
         settings.step_import_timeout_seconds,
         settings.step_import_wall_timeout_seconds,
     )
+
+
+class InvalidBodyError(RuntimeError):
+    """A feature produced a shape ``BRepCheck`` rejects as a solid (CM-6).
+
+    Raised by :meth:`EvaluationState._admit` — the ONE funnel every body passes
+    through on its way into ``state.bodies`` — and turned into the typed
+    per-feature ``invalid_body`` error by :func:`_dispatch`. It is deliberately an
+    EXCEPTION rather than a returned :class:`FeatureError`: the gate sits inside a
+    state mutator that every one of the twenty-odd body-affecting handlers calls,
+    and threading a return value back out of each of them is exactly the
+    per-op-site plumbing that lets a guard be forgotten (the CM-5 lesson).
+    """
 
 
 #: A recorded tool group's boolean: the operation the owning feature applied to the
@@ -512,25 +526,53 @@ class EvaluationState:
             return None
         return self.bodies[self.active_body_id]
 
+    def _admit(self, shape: BodyShape) -> BodyShape:
+        """The INVALID-BODY GATE (CM-6) — every body enters ``bodies`` through here.
+
+        A body OCCT itself calls invalid used to be tessellated into the viewport,
+        measured for mass properties and written to STEP with every feature
+        reporting ``ok`` (docs/QA-REVIEW.md QA-1: 31865.9587 mm^3 against an
+        analytic 30793.6284, ``Shape.is_valid`` false). Nothing asked. This asks,
+        once, at the ONE place a shape becomes part of the part — see
+        :func:`geometry.kernel.healing.body_is_valid` for why the gate lives at this
+        funnel and not in each of the twenty-odd kernel ops or at the export
+        boundary.
+
+        Raises:
+            InvalidBodyError: ``BRepCheck`` rejects *shape*. :func:`_dispatch`
+                turns it into a typed per-feature ``invalid_body`` error, so the
+                tree stops at the offending feature and the last-good body — which
+                this method has NOT overwritten — is what the viewport shows.
+        """
+        if not body_is_valid(shape):
+            raise InvalidBodyError(
+                "This feature produced a body OCCT rejects as an invalid solid "
+                "(BRepCheck), so its volume, mesh and STEP export cannot be "
+                "trusted. The part is left at the last valid feature."
+            )
+        return shape
+
     def set_active_body(self, shape: BodyShape) -> None:
         """Replace the ACTIVE body's current shape (a modifying feature result).
 
         Keeps the body's identity slot (its base feature id) so downstream refs
         keep resolving; asserts an active body exists (callers gate on it). The
         shape may be a single solid or a lump-count-preserving multi-lump
-        Compound (§MB-4).
+        Compound (§MB-4). Gated by :meth:`_admit` (CM-6).
         """
         assert self.active_body_id is not None, "no active body to modify"
-        self.bodies[self.active_body_id] = shape
+        self.bodies[self.active_body_id] = self._admit(shape)
 
     def start_body(self, base_id: uuid.UUID, shape: BodyShape) -> None:
         """Insert a NEW body keyed by its base feature id and make it active.
 
         The second-body path (``merge=False`` / ``import`` / the first body): a
         body's identity IS its base feature id (§MB-0 Decision 1), so the key is
-        the creating feature's id and it becomes the resolution target.
+        the creating feature's id and it becomes the resolution target. Gated by
+        :meth:`_admit` (CM-6) — including an IMPORTED body, which is the one shape
+        the kernel did not build itself and so the one it should trust least.
         """
-        self.bodies[base_id] = shape
+        self.bodies[base_id] = self._admit(shape)
         self.active_body_id = base_id
 
     def combine_bodies(
@@ -544,9 +586,10 @@ class EvaluationState:
         every downstream ref to the surviving body keeps resolving — and the TOOL
         body is REMOVED from the set (consumed). The combined body becomes active.
         Callers verify both ids name distinct current bodies first. *shape* may be
-        a single solid or a multi-lump Compound (a disjoint boolean, §MB-4).
+        a single solid or a multi-lump Compound (a disjoint boolean, §MB-4). Gated
+        by :meth:`_admit` (CM-6).
         """
-        self.bodies[target_id] = shape
+        self.bodies[target_id] = self._admit(shape)
         del self.bodies[tool_id]
         self.active_body_id = target_id
 
@@ -2773,6 +2816,13 @@ def _dispatch(
         )
     try:
         return handler(item, state)
+    except InvalidBodyError as exc:
+        # The CM-6 gate: the handler built a body OCCT calls invalid, and
+        # EvaluationState refused to install it. A typed code, not the generic
+        # `evaluation_failed`, because the user can act on it (the previous
+        # feature's body is intact and the geometry that broke is this one's) and
+        # because a silent wrong solid is precisely what this replaces.
+        return FeatureError(code="invalid_body", message=str(exc))
     except Exception as exc:
         # Belt and braces (§4.3): a handler bug must surface as a per-feature
         # error pinned to the failing feature, not a 500 for the whole tree.
@@ -2925,6 +2975,38 @@ def _suppressed_reference_error(
     return None
 
 
+def _blame_invalidated_body(
+    results: list[FeatureResult], last_good_feature_id: uuid.UUID | None
+) -> list[FeatureResult]:
+    """Turn the last-good feature's ``ok`` into the typed ``invalid_body`` error.
+
+    Only used by the CM-6b publish-time re-check, and only when NO feature failed
+    on its own: the body every feature reported ``ok`` for is invalid by the time
+    it would be measured, so exactly one result is a lie and it is the one whose
+    artifact the part is showing. Re-stating it as an error is what makes the tree
+    honest end to end — the alternative (all-``ok`` statuses beside a part with no
+    body) reads as a bug in the viewport rather than a defect in the model.
+    """
+    return [
+        FeatureResult(
+            feature_id=result.feature_id,
+            status="error",
+            error=FeatureError(
+                code="invalid_body",
+                message=(
+                    "The body this feature produced was valid when it was built "
+                    "and is not valid now: a later operation modified it in place "
+                    "and OCCT rejects the result. Its volume, mesh and STEP export "
+                    "would be wrong, so none are published."
+                ),
+            ),
+        )
+        if result.feature_id == last_good_feature_id and result.status == "ok"
+        else result
+        for result in results
+    ]
+
+
 def evaluate_tree(
     request: EvaluateTreeRequest, *, record_history: bool = False
 ) -> TreeEvaluation:
@@ -3022,6 +3104,26 @@ def evaluate_tree(
             )
             failed = True
 
+    # PUBLISH-TIME RE-CHECK (CM-6b, docs/GEOMETRY-QA.md 2026-07-30). Every body
+    # was valid when :meth:`EvaluationState._admit` let it in, so an invalid one
+    # HERE can only have been invalidated in place afterwards — which OCCT really
+    # does: on a degenerate (tangent-pinch) body, ``BRepAlgoAPI`` rewrites its
+    # ARGUMENT's subshapes, so the failed feature's boolean welded the void shut in
+    # the last-good body it was handed (measured: the mirrored plate went from
+    # 30793.6284 to 31865.9587 mm^3 without anyone assigning to it). Publishing
+    # that body would put the exact wrong solid QA-1 reported back on the wire
+    # under an error message, so the artifacts are WITHHELD instead — the same
+    # honestly-null flavour a sketch-only tree produces (§6).
+    body_invalidated = bool(state.bodies) and not all(
+        body_is_valid(body) for body in state.bodies.values()
+    )
+    if body_invalidated:
+        if not failed:
+            # Nothing else failed, so the blame has nowhere else to go: the last
+            # body-affecting feature's own artifact is what turned out unusable.
+            results = _blame_invalidated_body(results, last_good_feature_id)
+        last_good_feature_id = None
+
     # §4.3/§4.4 artifact fields: the LAST-GOOD body — handlers mutate
     # state.bodies only on success, so even after a mid-tree failure this is
     # the state after the last ok body-affecting feature ("the viewport
@@ -3040,7 +3142,7 @@ def evaluate_tree(
         for base_id in state.bodies
     }
     body_measures: dict[uuid.UUID, ShapeProperties] = {}
-    if state.bodies:
+    if state.bodies and not body_invalidated:
         # Tree/insertion-ordered body set (§MB-0): a part with ONE body measures
         # and tessellates that bare solid — byte-identical to the pre-multi-body
         # path. A part with >1 body rolls up its mass properties ANALYTICALLY
@@ -3090,6 +3192,7 @@ def evaluate_tree(
             mass_g=body_measures[base_id].mass_g,
         )
         for base_id, body in state.bodies.items()
+        if not body_invalidated
     ]
 
     return TreeEvaluation(

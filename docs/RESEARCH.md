@@ -237,6 +237,26 @@ Correctness gates no web app needs, run in CI and by the `geometry-qa` agent:
   in docs/GEOMETRY-QA.md 2026-07-30). Same posture as
   `removal_reaches_body`: one predicate, asked by every verb that can produce
   the condition, never re-implemented per verb.
+- **A SIMPLIFICATION may not change material, and no body reaches the user
+  unchecked.** The third posture in the same family, and the one that closes it
+  (finding CM-6 / QA-1, decision + evidence in docs/GEOMETRY-QA.md 2026-07-30).
+  Every kernel op ends its boolean with `Shape.clean()`; on a body with a tangent
+  knife edge that simplification WELDED A VOID SHUT — a mirrored plate came back
+  3.48 % heavy and `BRepCheck`-invalid with every feature reporting `ok`. So (a)
+  `geometry.kernel.healing.clean_shape` is the ONE call site of `clean()`: it keeps
+  the pre-simplification shape and discards a simplification that moves the volume
+  (bound `CLEAN_VOLUME_REL_TOL`, relative because `clean()` re-partitions the faces
+  GProp integrates over; measured noise over 3050 suite calls is 1.6e-16 relative).
+  Discarding is always safe — an un-simplified body carries a redundant seam and
+  nothing worse. And (b) `BRepCheck` validity is asked ONCE per body-affecting
+  feature at the three `EvaluationState` methods that are the only way a shape
+  becomes the part's body, surfacing as a typed `invalid_body`, and again at
+  publish time — because OCCT's boolean can invalidate an ARGUMENT in place, so a
+  body that was valid when admitted can be corrupted afterwards by a later
+  feature. A body that fails either check is never measured, meshed or exported;
+  the artifacts are withheld. Same posture as `removal_reaches_body` and
+  `find_zero_width_slits`: one predicate, asked by every path that can produce the
+  condition, never re-implemented per verb.
 - **Export byte-determinism:** identical requests → byte-identical STEP/STL
   files. STEP's `FILE_NAME` creation timestamp — the one nondeterministic
   byte range OCCT writes — is pinned kernel-side

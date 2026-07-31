@@ -15,6 +15,7 @@ Determinism (RESEARCH §9): the OCCT fillet is a pure function of
 
 from build123d import Edge
 
+from geometry.kernel.healing import clean_shape
 from geometry.kernel.lumps import assemble_lumps
 from geometry.kernel.types import BodyShape
 
@@ -63,5 +64,5 @@ def fillet_body(body: BodyShape, edges: list[Edge], radius_mm: float) -> BodySha
     # bare cleaned Solid (byte-identical); a multi-lump body reassembles in the
     # explicit lump order (RESEARCH §9).
     if lump_count == 1:
-        return solids[0].clean()
-    return assemble_lumps([solid.clean() for solid in solids])
+        return clean_shape(solids[0])
+    return assemble_lumps([clean_shape(solid) for solid in solids])

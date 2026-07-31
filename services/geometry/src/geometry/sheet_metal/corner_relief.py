@@ -40,6 +40,7 @@ DTOs at the boundary keep it honest.
 from build123d import Box, Part, Solid, Vector
 from build123d.geometry import BoundBox
 
+from geometry.kernel.healing import clean_shape
 from geometry.kernel.types import BodyShape
 from geometry.sheet_metal.resolve import (
     SheetMetalUnfoldError,
@@ -244,7 +245,7 @@ def cut_relief_tools(body: BodyShape, tools: list[tuple[Part, Part]]) -> Solid:
         cut: BodyShape = body
         for tool_a, tool_b in tools:
             cut = cut - tool_a - tool_b
-        cut = cut.clean()
+        cut = clean_shape(cut)
     except Exception as exc:  # OCCT failure modes are not a stable taxonomy
         raise CornerReliefError(
             f"Corner-relief boolean failed in the kernel ({type(exc).__name__})."

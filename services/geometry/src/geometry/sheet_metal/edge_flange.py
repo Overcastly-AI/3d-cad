@@ -42,6 +42,7 @@ from py_kit.schemas.features import CylindricalFaceSignature, PlanarFaceSignatur
 
 from geometry.kernel.edges import edge_signature_dto
 from geometry.kernel.faces import face_signature_dto
+from geometry.kernel.healing import clean_shape
 from geometry.kernel.types import BodyShape
 from geometry.sheet_metal.resolve import (
     SheetMetalUnfoldError,
@@ -257,7 +258,7 @@ def build_edge_flange(
                 "(check the bend radius / flange length for this gauge)."
             )
         flange = Solid.extrude(Face(wires[0]), v * width)
-        fused = body.fuse(flange).clean()
+        fused = clean_shape(body.fuse(flange))
     except EdgeFlangeError:
         raise
     except Exception as exc:  # OCCT failure modes are not a stable taxonomy
@@ -391,7 +392,7 @@ def _cut_end_reliefs(
                 )
             tool = Solid.extrude(Face(tool_wires[0]), v * size)
             cut = cut - tool
-        cleaned = cut.clean()
+        cleaned = clean_shape(cut)
     except EdgeFlangeError:
         raise
     except Exception as exc:  # OCCT failure modes are not a stable taxonomy

@@ -1,0 +1,49 @@
+{
+  "description": "CM-6 / QA-1 (docs/GEOMETRY-QA.md + docs/QA-REVIEW.md 2026-07-30) - the SILENT WRONG SOLID a simplification made. A 40x40x10 block with a revolved annular groove whose axis sits ON the XZ mirror plane (so the void STRADDLES it) and whose outer wall is exactly TANGENT to the block's own x=0 wall, mirrored about XZ. Until 2026-07-30 this evaluated fully `ok` to 31865.9587 mm^3 with `Shape.is_valid` FALSE - +1072.330 mm^3, 3.48 % too much material - and was tessellated, measured and exported to STEP. OCCT's fuse of the body with its own reflection is exact and VALID (30793.6284); `Shape.clean()` then welded the two half-voids shut. This golden locks the fix: `geometry.kernel.healing.clean_shape` discards a simplification that moves material. Both degeneracies are load-bearing and were separated by measurement - move the axis 0.5 mm clear of the wall and clean() behaves - so this model must keep its exact tangency to keep testing anything. Locks: the guarded simplification, the mirror's reflect-and-union reading of an unreachable removal, GProp over three cylindrical walls and a tangent knife edge, and - via the parametrized round-trip gate - STEP fidelity of a body with a zero-thickness pinch line.",
+  "derivation": [
+    "Expectations are HAND-DERIVED analytic values, not recorded harness output (geometry-gates skill: a golden recorded from buggy output enshrines the bug). This one matters more than most: the pre-fix harness output for the tangent model was 31865.9587 mm^3, and recording it would have enshrined a 3.48 % wrong solid.",
+    "Base: an unconstrained [0,40]x[0,40] rectangle on the XY datum plane, extruded +Z by 10 -> a 40 x 40 x 10 = 16000 mm^3 block. Unconstrained means planegcs returns the drawn positions bitwise (zero residual), so every deviation below is the kernel's, never the solver's.",
+    "Groove: a 4 x 8 rectangle on the XZ datum plane (u = world +X, v = world +Z) revolved 360 deg about a construction centerline at u = AXIS -> an annular ring, inner r 4, outer r 8, z in [2,10], centred on the world line (x = AXIS, y = 0). The ring straddles y = 0 while the block does not, so the CUT removes exactly the half of the ring in y >= 0: pi * (8^2 - 4^2) * 8 / 2 = 192*pi, leaving 16000 - 192*pi = 15396.8142105108 mm^3.",
+    "Mirror (scope: body, no picked sub-geometry, so it is independent of topological naming): the mirrored block covers the ring's other half, so the finished part is the doubled block less the WHOLE ring. volume = 2*16000 - pi*(8^2-4^2)*8 = 32000 - 384*pi = 30793.62842102152 mm^3. Both the pre-fix welded answer (31865.9587) and a filled void (32000) fail this by >1000 mm^3.",
+    "AXIS = 8, so the ring spans x in [0,16]: its outer wall is TANGENT to the block's x=0 face along the line (0, 0, z in [2,10]). That tangency is the trigger for the defect this golden locks, and it is also why the mirrored body pinches to a knife edge there.",
+    "surface_area: the doubled block is 40 (x) x 80 (y) x 10 (z) -> 2*(40*80) + 2*(80*10) + 2*(40*10) = 6400 + 1600 + 800 = 8800 mm^2. The groove is a blind annular slot open at z=10 and fully interior in x/y (tangency touches along a line of zero area), so it removes the annulus from the top face (-48*pi) and adds the inner wall (2*pi*4*8 = 64*pi), the outer wall (2*pi*8*8 = 128*pi) and the annular floor (+48*pi). area = 8800 + 192*pi = 9403.18578948924 mm^2.",
+    "centroid: y = 0 exactly, by the mirror symmetry the whole part is built from. x = (32000*20 - 384*pi*8) / (32000 - 384*pi) = 20.47011215274194 mm (the block centre pulled +x by the void at x=8). z = (32000*5 - 384*pi*6) / (32000 - 384*pi) = 4.960823987271505 mm (the void's centroid sits at z=6, above the block's z=5).",
+    "bounding_box = [0,-40,0]..[40,40,10]: the mirror doubles the y extent; the groove is interior.",
+    "Topology, 12 faces: 6 block walls, but the x=0 wall is SPLIT IN TWO by the tangency (two 40x10 halves, one per side of y=0) -> 7 planar block faces; + the annular floor at z=2, + the central plug's top disc at z=10 (the material inside r4 survives) = 9 planar; + the inner cylinder (one periodic face) + the outer cylinder AS TWO HALVES = 3 cylindrical. The outer wall's seam is the ONE face a well-behaved clean() would have unified: the same solid built directly reads 11 faces with identical mass properties, and that extra face is the documented price of refusing the weld.",
+    "Topology, 24 edges = 18 lines + 6 circles. Lines: 2 x 80 (the x=40 wall's top and bottom), 8 x 40 (the x=0 wall's top and bottom, each split at y=0, plus the y=+-40 walls' top and bottom), 4 x 10 (the block's corner verticals), 3 x 8 (the tangent knife edge at x=0 and the outer/inner cylinders' seams, all z in [2,10]) and 1 x 2 (the x=0 wall's own seam below the groove floor, z in [0,2]). Circles: 2 full r4 (the plug's top and the groove floor's inner boundary) and 4 half-circle arcs of the r8 boundary (top and bottom of each outer half-cylinder), each of length 25.1327. 1 shell: the body is one connected lump - the knife edge joins the two halves.",
+    "Mesh (linear_deflection 0.1, N = 126 segments per full circle - taken from the trusted shipped golden hole-through-r5-40x25x10 and cross-checked against mirror-revolve-cut-bore-plate-40x40x20; the angular criterion binds, so N is radius-independent at r4 and r8). Per face, with a planar face of n boundary vertex VISITS triangulating to n - 2 + 2*(holes): bottom 5/3 (the rectangle's x=0 edge is split at y=0); y=-40 wall 4/2; y=+40 wall 4/2; x=40 wall 4/2; the two x=0 halves 5/3 each (their y=0 side is the 8 mm + 2 mm pair); top face 130/129 (4 corners + N circle nodes, the tangency vertex visited twice so h=0 and 131 - 2 = 129 triangles); plug top disc 126/124; groove floor 252/252 (2N nodes, one hole); inner cylinder 254/252 (a quad strip of N segments); each outer half-cylinder 128/126 (N/2 = 63 segments). Totals: 1045 vertices, 1024 triangles.",
+    "Independent cross-check: the SAME solid built directly - an 80 mm block with the full ring cut once, no mirror - measures the identical volume, area, centroid and AABB (docs/QA-REVIEW.md QA-1 reports 30793.6284 / 11 faces for it), so these values encode the geometry rather than the mirror path."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "CURVED-GEOMETRY tolerance, measured first, then set (geometry-gates skill: never copy a bound blindly). Three cylindrical walls go through OCCT's Gauss-quadrature surface/volume integration in GProp. Measured deviations of the rebuild from the hand-derived values above (2026-07-30, build123d 0.11.1 / OCCT 7.9, planegcs 0.8.0): volume 3.6e-12 mm^3 (1.2e-16 relative at 3e4), surface_area EXACTLY 0.0, centroid <= 3.6e-15 mm, AABB exactly 0.0 on all six bounds. The documented ceiling 1e-9 is ~275x the observed worst case - headroom for libm/platform variation in the quadrature's transcendental evaluations across CI hosts - and is the same reviewed 1e-9 curved tier revolve-annulus-r10-20-h15 and mirror-revolve-cut-bore-plate-40x40x20 carry, 100x TIGHTER than the standing 1e-7 kernel linear bound. It is also four orders below the defect it locks (the welded body reads +1072.330 mm^3), so no plausible loosening could hide CM-6. Loosening requires a reviewed kernel-level justification recorded here and in docs/GEOMETRY-QA.md.",
+  "properties": {
+    "volume": 30793.62842102152,
+    "surface_area": 9403.18578948924,
+    "centroid": {
+      "x": 20.47011215274194,
+      "y": 0.0,
+      "z": 4.960823987271505
+    },
+    "bounding_box": {
+      "min": {
+        "x": 0.0,
+        "y": -40.0,
+        "z": 0.0
+      },
+      "max": {
+        "x": 40.0,
+        "y": 40.0,
+        "z": 10.0
+      }
+    }
+  },
+  "topology": {
+    "faces": 12,
+    "edges": 24,
+    "shells": 1
+  },
+  "mesh": {
+    "vertices": 1045,
+    "triangles": 1024
+  }
+}

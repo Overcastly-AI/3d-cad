@@ -7,6 +7,105 @@ not "do the tests pass" but **"is the geometry RIGHT?"** (RESEARCH §9,
 decisions recorded here AND in the golden's `expected.json` — never a way to
 go green.
 
+## 2026-07-30 — CM-6 / QA-1: a SIMPLIFICATION welded a void shut, and nothing in the pipeline ever asked `is_valid` (kernel-architect)
+
+**The defect** (docs/QA-REVIEW.md QA-1, P0). 40x40x10 block → revolve CUT (annular
+groove r4..r8 whose axis lies ON the XZ plane, so the void STRADDLES it) → mirror,
+`scope: {kind: body}`. Every feature `ok`; the body meshed, measured and exported.
+
+| | value |
+|---|---|
+| observed | **31,865.9587 mm³**, 12 faces, `Shape.is_valid` **false** |
+| analytic | **30,793.62842102152 mm³** (= 32,000 − 384π = 2 × 15,396.8142) |
+| error | **+1,072.330 mm³ — 3.48 % of the part**, silently |
+
+**Root cause is NOT the mirror, and the sweep is what proves it.** `mirror_cut`
+does fall back to `mirror_union` (the reflected tool no longer shares volume with
+the already-cut body, so `removal_reaches_body` is False) — but that reading is
+CORRECT here: the body lies wholly on one side of the plane, so "complete the
+symmetric half" is the only available meaning, and `fuse` returns the exact
+30,793.6284 as a `BRepCheck`-**valid** solid. The corruption is entirely in the
+`clean()` that follows. Held everything else fixed and swept the groove axis:
+
+| axis x | ring spans | mirrored volume | faces/edges | valid |
+|---|---|---|---|---|
+| 8.0 (outer wall TANGENT to the block's x=0 wall) | x 0…16 | **31,865.9587** | 12 / 24 | **false** |
+| 8.5 | x 0.5…16.5 | 30,793.6284 | 10 / 18 | true |
+| 9 / 10 / 12 / 20 | clear | 30,793.6284 | 10 / 18 | true |
+
+So the trigger is the exact TANGENCY (axis 8 + r 8 = the block's x=0 wall), which
+makes the mirrored body pinch to a knife edge along x=0, y=0 — not "a void that
+straddles the plane", which is the title QA gave it and which is sound at every
+other station. Provenance is the second ingredient, exactly as QA's parenthetical
+predicted: build the same ring from two PRIMITIVE cylinders instead of a revolve
+and `clean()` is a no-op on the same fused body (30,793.6284, valid). It is the
+revolve's periodic/seamed faces plus the tangency together.
+
+**Fix 1 — a simplification may not change material** (`kernel/healing.py:clean_shape`,
+now the ONE call site of `Shape.clean()`; all 21 kernel/sheet-metal sites go through
+it). It keeps the pre-clean shape and returns it when the volume moves. Discarding a
+simplification is always safe — the un-simplified body carries a redundant seam face
+(12 where a well-behaved clean gives 11) and nothing worse. Two measured facts made
+this shape rather than a smaller one:
+
+- `clean()` MUTATES its input: stashing `shape.wrapped` before the call and
+  restoring it afterwards yields the corrupted 31,865.9587, so the rollback has to
+  be a real `BRepBuilderAPI_Copy` (`Shape.__deepcopy__`, 0.63 ms on this body);
+- the accepted path returns the simplifier's own object (identity), so every shipped
+  golden's topology and export bytes are untouched by the guard existing.
+
+**Tolerance, measured then set.** Instrumented **3,050 `clean()` calls** across the
+geometry suite: worst |ΔV| **4.5e-13 mm³** on a 2,880 mm³ body — **1.6e-16
+relative**, i.e. machine epsilon; `clean()` never moved material anywhere else, and
+never turned a valid body invalid. `CLEAN_VOLUME_REL_TOL = 1e-9` (floor 1e-9 mm³,
+the planar tier) is therefore ~6e6× the observed noise and 3.5e7× tighter than the
+3.48 % defect. Relative, not absolute, because `clean()` re-partitions the faces
+GProp integrates over, so its noise scales with the body.
+
+**Fix 2 — the durable half: nothing checked `is_valid`.** `conform_solid` (CM-4)
+existed and ran only where it was wired. The check now lives at the THREE
+`EvaluationState` methods that are the only way a shape becomes the part's body
+(`set_active_body` / `start_body` / `combine_bodies`) — not per kernel op (twenty-odd
+sites, each forgettable: CM-5's tool recording went missing for three verbs exactly
+that way) and not at the export boundary (too late to name a feature, and it would
+fail the whole part instead of degrading to the last-good prefix). `_dispatch` maps
+it to a typed per-feature **`invalid_body`**.
+
+**Fix 3 — the publish-time re-check, which the first two exposed.** Every body is
+valid when admitted, so an invalid one at publish time can only have been
+invalidated IN PLACE afterwards — and OCCT does exactly that on this degenerate
+body: a pocket cut 30 mm away, touching none of the groove, rewrote its ARGUMENT's
+subshapes and the mirror's last-good body went 30,793.6284 → 31,865.9587 with
+nobody assigning to it. (A normal boolean does not: measured, a plain cut and even a
+tangent cut leave their input untouched.) The evaluator therefore re-asks
+`body_is_valid` before measuring, and WITHHOLDS the artifacts — null properties,
+null mesh, null `last_good_feature_id` — rather than publishing the exact wrong
+solid QA-1 reported under an error message.
+
+**Gates.** Two new goldens, hand-derived (never recorded — the pre-fix harness
+output for the tangent model was the 31,865.9587 that would have been enshrined):
+
+| golden | volume | area | topology | mesh | worst deviation |
+|---|---|---|---|---|---|
+| `mirror-revolve-groove-tangent-wall-40x40x10` | 32,000 − 384π | 8,800 + 192π | 12 / 24 / 1 | 1045 / 1024 | ΔV 3.6e-12, ΔA **0.0**, centroid 3.6e-15 |
+| `mirror-revolve-groove-clear-of-plane-40x40x10` (the control) | 32,000 − 384π | 8,672 + 192π | 14 / 36 / 1 | 1064 / 1036 | same |
+
+The control is the discriminator: its topology is the CLEANED one, so a "fix" that
+simply stopped simplifying passes the first golden and fails the second. Tolerance
+1e-9 (the reviewed curved tier), ~275× the measured worst case and four orders below
+the defect. Plus `test_healing.py` (the kernel contract, including a fixture test
+that fails loudly if OCCT ever stops welding — the guard must not become dead code)
+and three `test_composition_matrix.py` CM-6 cases. No new matrix ROW: that axis is
+derived from `FEATURE_REGISTRY.models()` and enumerates VERBS, and a tangent groove
+is a geometric configuration of the `revolve_cut` fixture, not a verb.
+
+**Cost, measured** (median of 5, warm, guarded vs. bypassed): 6-hole ring-cut plate
+201.4 → 221.7 ms (+20.3), bolt-circle pattern 109.6 → 122.0 (+12.4), mirror-revolve
+bore 51.7 → 62.9 (+11.2), open-top shell 23.4 → 32.8 (+9.4). One GProp pair per
+simplification plus one `BRepCheck` per body-affecting feature; +10 % to +40 % on
+small trees, ~an order of magnitude under the RESEARCH §9 2 s rebuild ceiling, and
+every benchmark tripwire green.
+
 ## 2026-07-30 — QA-3: a diameter dimension survives the thickness edit that moved its face (kernel-architect)
 
 **The defect.** QA-3 (docs/QA-REVIEW.md, P1): a plate + Ø10 hole + a drawing carrying

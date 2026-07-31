@@ -58,7 +58,7 @@ byte-identical over three fresh builds, and idempotent).
 from build123d import Compound, Face, Solid
 
 from geometry.kernel.degenerate import find_zero_width_slits
-from geometry.kernel.healing import HealingError, conform_solid
+from geometry.kernel.healing import HealingError, clean_shape, conform_solid
 from geometry.kernel.lumps import assemble_lumps, group_faces_by_lump
 from geometry.kernel.types import BodyShape
 
@@ -196,7 +196,7 @@ def _shell_one_lump(
         )
     # clean() removes redundant seam faces/edges the operation can leave behind,
     # keeping topology counts meaningful (and golden-assertable).
-    cleaned = solids[0].clean()
+    cleaned = clean_shape(solids[0])
 
     # Zero-width-slit guard (SH-1), BEFORE the heal for two reasons: the heal
     # cannot remove a slit (measured - kernel/degenerate.py), so healing first

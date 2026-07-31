@@ -63,6 +63,26 @@ even-odd scanline clip) across SVG/PDF/DXF, `views.section_params jsonb` (0008);
 wrong-half + multi-loop + byte-determinism goldens; oblique + the `project_view`
 frame refactor are v2/§11. Spike de-collected.
 
+- [x] (P0, M) **QA-1 / CM-6 — a mirror shipped a body OCCT calls invalid, 3.48 %
+      too heavy. FIXED 2026-07-30** (kernel-architect; QA wave `748a6ad`). Block →
+      revolve-CUT groove straddling the XZ plane → body-scope mirror measured
+      31,865.9587 mm³ against an analytic 30,793.62842102152, `is_valid` false, every
+      feature `ok`, and it meshed, measured and exported to STEP. Not the mirror: the
+      `fuse` is exact and valid, and the trigger is the groove's outer wall being
+      exactly TANGENT to the block's own wall (measured — move it 0.5 mm and `clean()`
+      behaves at every station). `Shape.clean()` welded the void shut. Fixes: (1)
+      `healing.clean_shape` is now the ONE `clean()` call site and discards a
+      simplification that moves material (bound measured over 3050 suite calls: worst
+      1.6e-16 relative); (2) `BRepCheck` validity is asked at the three
+      `EvaluationState` body funnels → typed `invalid_body`; (3) re-asked at publish
+      time, because OCCT's boolean invalidates this body's ARGUMENT in place, and the
+      artifacts are withheld rather than published wrong. Two hand-derived goldens
+      (`mirror-revolve-groove-tangent-wall-40x40x10` + the clear-of-plane control that
+      proves the fix discriminates), CM-6 matrix cases, kernel contract in
+      `test_healing.py`. Cost +9…20 ms/rebuild, an order under the §9 ceiling.
+      **Follow-up (apps/web, NOT this agent's territory): delete the `test.fail()` in
+      `e2e/qa-wave-0730.spec.ts` "G" — the spec now passes, so it goes RED as filed.**
+      [src: docs/QA-REVIEW.md 2026-07-30 QA-1 · GEOMETRY-QA 2026-07-30]
 - [x] (P1, M) **QA-3 — a diameter dimension the revision never touched was
       destroyed. FIXED 2026-07-30** (kernel-architect; QA wave `748a6ad`). Tier-2
       circle re-anchoring keys on the 3-D centre, and a thickness edit slides a bore's

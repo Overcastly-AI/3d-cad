@@ -41,6 +41,20 @@ legitimately DISJOINT second lump, and multi-body parts are supported, §MB-0):
   → the union is the body itself (volume ``V``, unchanged), the on-plane case
   handled sanely by ``clean()`` collapsing the coincident geometry.
 
+CM-6 (docs/GEOMETRY-QA.md 2026-07-30), because a reader who arrives here from
+QA-1 will look for the bug in this module and it is NOT here: on a body whose
+revolved groove is TANGENT to one of its own walls, the ``fuse`` below is exact and
+``BRepCheck``-valid and the ``clean()`` after it welded the void shut (+1072.330
+mm^3, 3.48 %, ``is_valid`` false, every feature ``ok``). Both readings above were
+right — the reflected tool genuinely cannot reach the already-cut body, and
+reflect-and-union genuinely is what "complete the symmetric half" means for a body
+that lies wholly on one side of the plane. The guard is therefore in the
+simplification, not in the mirror: every ``clean()`` here goes through
+:func:`geometry.kernel.healing.clean_shape`, which discards a simplification that
+moves material. Measured: hold everything else and move the groove 0.5 mm clear of
+the wall and ``clean()`` behaves, so this is a tangency defect, not a straddling-void
+one.
+
 Determinism (RESEARCH §9): the reflection is a pure OCCT isometry of the plane,
 the fuse/clean are pure algorithms on identical inputs, and the resulting lumps
 are ordered by :func:`geometry.kernel.lumps.assemble_lumps` (centroid, then
@@ -53,6 +67,7 @@ from collections.abc import Sequence
 
 from build123d import Plane, Solid
 
+from geometry.kernel.healing import clean_shape
 from geometry.kernel.lumps import assemble_lumps
 from geometry.kernel.removal import removal_reaches_body
 from geometry.kernel.types import BodyShape
@@ -108,7 +123,7 @@ def mirror_union(body: BodyShape, plane: Plane) -> BodyShape:
 
     try:
         fused = body.fuse(reflected)
-        solids = list(fused.clean().solids())
+        solids = list(clean_shape(fused).solids())
     except Exception as exc:  # OCCT failure modes are not a stable taxonomy
         raise MirrorError(
             f"Mirror union failed in the kernel ({type(exc).__name__}); the "
@@ -236,7 +251,7 @@ def cut_reflected_tools(body: BodyShape, reflected: Sequence[BodyShape]) -> Body
 
     try:
         cut = body.cut(*reflected)
-        solids = list(cut.clean().solids())
+        solids = list(clean_shape(cut).solids())
     except Exception as exc:  # OCCT failure modes are not a stable taxonomy
         raise MirrorError(
             f"Mirror cut failed in the kernel ({type(exc).__name__}); a reflected "
@@ -277,7 +292,7 @@ def fuse_reflected_tools(body: BodyShape, reflected: Sequence[BodyShape]) -> Bod
     """
     try:
         fused = body.fuse(*reflected)
-        solids = list(fused.clean().solids())
+        solids = list(clean_shape(fused).solids())
     except Exception as exc:  # OCCT failure modes are not a stable taxonomy
         raise MirrorError(
             f"Mirror fuse of the reflected tool failed in the kernel "

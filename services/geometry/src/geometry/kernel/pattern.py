@@ -62,6 +62,7 @@ from collections.abc import Sequence
 from build123d import Axis, Solid, Vector
 from py_kit.schemas.features import MAX_PATTERN_COUNT
 
+from geometry.kernel.healing import clean_shape
 from geometry.kernel.lumps import assemble_lumps
 from geometry.kernel.removal import removal_reaches_body
 from geometry.kernel.types import BodyShape
@@ -144,7 +145,7 @@ def _fuse_and_finalize(
         # fuse carries Shape[Unknown] type params upstream (same gap
         # tessellate.py documents for export_gltf) — scoped ignore only.
         fused = body.fuse(*copies)  # pyright: ignore[reportUnknownMemberType]
-        solids = list(fused.clean().solids())
+        solids = list(clean_shape(fused).solids())
     except Exception as exc:  # OCCT failure modes are not a stable taxonomy
         raise PatternError(
             f"Pattern union failed in the kernel ({type(exc).__name__}); an "
@@ -186,7 +187,7 @@ def _cut_and_finalize(
         # cut carries Shape[Unknown] type params upstream (same gap
         # tessellate.py documents for export_gltf) — scoped ignore only.
         cut = body.cut(*tools)  # pyright: ignore[reportUnknownMemberType]
-        solids = list(cut.clean().solids())
+        solids = list(clean_shape(cut).solids())
     except Exception as exc:  # OCCT failure modes are not a stable taxonomy
         raise PatternError(
             f"Pattern cut failed in the kernel ({type(exc).__name__}); a tool "

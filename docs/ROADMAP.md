@@ -264,6 +264,35 @@ suppress** ✅, **Revolve construction-centerline** ✅ — all with in-app
 authoring. **Next in the Ready queue: Drawings assembly views + BOM/balloons**
 (the drawings pillar's assembly gap), then the small tonight-follow-ups.
 
+**QA-1 / CM-6 — a SIMPLIFICATION welded a void shut, and nothing asked `is_valid`
+(FIXED 2026-07-30, kernel-architect; QA wave `748a6ad`).** The day's P0: a 40x40x10
+block with a revolved annular groove straddling the XZ plane, mirrored about that
+plane, came back at **31,865.9587 mm³** against an analytic **30,793.62842102152** —
++1,072.330 mm³, 3.48 % of the part — with `Shape.is_valid` FALSE, every feature `ok`,
+and the body tessellated into the viewport, measured and exported to STEP. The mirror
+is not the culprit and a sweep proves it: `mirror_union` is the right reading for a
+body that lies wholly on one side of the plane, its `fuse` returns the exact volume as
+a valid solid, and moving the groove 0.5 mm keeps everything correct at every station.
+The trigger is the groove's outer wall being exactly TANGENT to the block's own x=0
+wall — the mirrored body pinches to a knife edge — plus the revolve's periodic faces
+(the same ring built from primitive cylinders does not reproduce it). `Shape.clean()`
+then welds the two half-voids shut. Three fixes, in order of durability: (1)
+`kernel/healing.py:clean_shape` is now the ONE `clean()` call site in the service (21
+kernel/sheet-metal sites) and DISCARDS a simplification that moves material — bound
+`CLEAN_VOLUME_REL_TOL = 1e-9`, measured over 3,050 instrumented suite calls whose
+worst noise is 1.6e-16 relative; (2) `BRepCheck` validity is asked once per
+body-affecting feature at the three `EvaluationState` methods that are the only way a
+shape becomes the part's body — not per kernel op (forgettable, the CM-5 lesson), not
+at export (too late to name a feature) — surfacing as a typed `invalid_body`; (3) it
+is re-asked at PUBLISH time, because OCCT's boolean rewrites this degenerate body's
+ARGUMENT in place (a pocket cut 30 mm away silently welded the mirror's last-good
+body), and the artifacts are then WITHHELD rather than published wrong. Gated by two
+hand-derived goldens — `mirror-revolve-groove-tangent-wall-40x40x10` and the
+clear-of-plane control whose CLEANED topology (14 faces / 36 edges) fails any "fix"
+that merely stopped simplifying — three CM-6 composition-matrix cases and the kernel
+contract in `test_healing.py`. Cost +9…20 ms per rebuild, an order of magnitude under
+the RESEARCH §9 2 s ceiling. Evidence: `docs/GEOMETRY-QA.md` 2026-07-30.
+
 **QA-3 — a diameter dimension survives the revision that moved its face (FIXED
 2026-07-30, kernel-architect; QA wave `748a6ad`).** The circle half of the story
 `7fde5d2` told for lines: change a plate's thickness and the Ø dimension on a hole the

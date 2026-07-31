@@ -37,6 +37,7 @@ Determinism (RESEARCH §9): the OCCT draft is a pure function of
 
 from build123d import Compound, Face, Plane, Solid
 
+from geometry.kernel.healing import clean_shape
 from geometry.kernel.lumps import assemble_lumps, group_faces_by_lump
 from geometry.kernel.types import BodyShape
 
@@ -116,4 +117,4 @@ def _draft_one_lump(
         )
     # clean() removes redundant seam faces/edges the operation can leave behind,
     # keeping topology counts meaningful (and golden-assertable).
-    return solids[0].clean()
+    return clean_shape(solids[0])

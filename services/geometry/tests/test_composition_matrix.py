@@ -3357,3 +3357,157 @@ def test_observed_limit_draft_propagates_along_a_tangent_chain() -> None:
     # Every planar side face now carries the pull-direction component.
     assert props.topology.faces == filleted.topology.faces
     assert props.bounding_box.max.z == pytest.approx(PLATE_THICKNESS, abs=CURVED_TOL)
+
+
+# =================================================================================
+# CM-6 — a SIMPLIFICATION that welded a void shut, and a body nobody validated
+# (docs/QA-REVIEW.md QA-1, docs/GEOMETRY-QA.md 2026-07-30)
+# =================================================================================
+
+#: CM-6's chain, exactly as QA-1 reported it: a 40x40x10 block, x/y in [0,40], with
+#: a REVOLVED annular groove (r4..r8, z 2..10) about an axis at x=8 on the XZ plane,
+#: mirrored about that same XZ plane. Two independent degeneracies meet in it, and
+#: the sweep below (``_cm6_chain``'s ``axis_x``) is what separated them:
+#:
+#: * the groove STRADDLES the mirror plane, so the already-cut body no longer shares
+#:   volume with its own reflected tool -> ``removal_reaches_body`` is False ->
+#:   ``mirror_cut`` falls back to ``mirror_union``. That reading is CORRECT here (the
+#:   body lies wholly on one side of the plane, so "complete the symmetric half" is
+#:   the only meaning available) and is NOT the defect;
+#: * the groove's outer wall is TANGENT to the block's own x=0 wall (axis 8 + r8 =
+#:   40 - 40), so the mirrored body pinches to a knife edge along x=0, y=0. THAT is
+#:   what OCCT's ``ShapeUpgrade_UnifySameDomain`` cannot handle: the fuse is right
+#:   and valid, and ``clean()`` then welds the void shut.
+#:
+#: Measured at axis_x = 8.0 / 8.5 / 9 / 10 / 12 / 20 with everything else held: only
+#: the exact tangency inflates. So "a body-scope mirror welds a straddling void" is
+#: not the rule — the rule is "a simplification is not allowed to change material",
+#: which is what ``geometry.kernel.healing.clean_shape`` now enforces.
+CM6_BLOCK = 40.0
+CM6_THICK = 10.0
+CM6_AXIS_X = 8.0
+CM6_R_INNER, CM6_R_OUTER = 4.0, 8.0
+CM6_Z0, CM6_Z1 = 2.0, 10.0
+
+S_CM6, F_CM6_BASE = _fid(0xC61), _fid(0xC62)
+S_CM6_GROOVE, F_CM6_GROOVE = _fid(0xC63), _fid(0xC64)
+F_CM6_MIRROR = _fid(0xC65)
+S_CM6_LATER, F_CM6_LATER = _fid(0xC66), _fid(0xC67)
+
+#: Half the ring's material sits inside the block (the ring straddles y=0, the block
+#: does not), so the cut removes pi*(8^2-4^2)*8 / 2 = 192*pi.
+CM6_CUT_VOLUME = CM6_BLOCK**2 * CM6_THICK - math.pi * 192.0
+#: The mirror doubles the block and brings the ring's other half into material, so
+#: the WHOLE ring is removed once: 32000 - 384*pi. The welded answer is 31865.9587,
+#: i.e. +1072.330 mm^3 (3.48 %) — this assertion discriminates by four orders.
+CM6_MIRRORED_VOLUME = 2.0 * CM6_BLOCK**2 * CM6_THICK - math.pi * 384.0
+
+
+def _cm6_chain(axis_x: float, mirror_plane: str) -> list[dict[str, Any]]:
+    """Block -> revolved annular groove (CUT) -> body-scope mirror."""
+    return [
+        rect_sketch(S_CM6, 0.0, 0.0, CM6_BLOCK, CM6_BLOCK),
+        extrude(F_CM6_BASE, S_CM6, CM6_THICK),
+        revolve_profile_sketch(
+            S_CM6_GROOVE,
+            {"kind": "datum_plane", "plane": "XZ"},
+            [
+                (axis_x + CM6_R_INNER, CM6_Z0),
+                (axis_x + CM6_R_OUTER, CM6_Z0),
+                (axis_x + CM6_R_OUTER, CM6_Z1),
+                (axis_x + CM6_R_INNER, CM6_Z1),
+            ],
+            ((axis_x, -5.0), (axis_x, 20.0)),
+        ),
+        revolve(F_CM6_GROOVE, S_CM6_GROOVE, operation="cut"),
+        mirror(F_CM6_MIRROR, {"kind": "datum_plane", "plane": mirror_plane}),
+    ]
+
+
+def test_cm6_a_mirror_over_a_tangent_groove_keeps_the_void() -> None:
+    """CM-6 (QA-1) — the headline: 31865.9587 mm^3 of silently welded material.
+
+    Pre-fix, every feature reported ``ok``, ``Shape.is_valid`` was FALSE, and the
+    body was tessellated into the viewport, measured and exported to STEP:
+    **31865.9587 mm^3, 12 faces** against an analytic **30793.6284**. The fix is not
+    in the mirror at all — ``mirror_union`` was the right reading and its ``fuse``
+    was already exact — but in ``clean_shape``, which now refuses a simplification
+    that moves material and hands back the un-simplified body.
+
+    The cut step is asserted too (15396.8142 = 16000 - 192*pi): if the groove ever
+    stops straddling the plane, the mirror assertion would still pass for the wrong
+    reason.
+    """
+    cut_only = properties(evaluate(_cm6_chain(CM6_AXIS_X, "XZ")[:4]), "cm6 cut")
+    assert cut_only.volume == pytest.approx(CM6_CUT_VOLUME, abs=CURVED_TOL)
+
+    evaluation = evaluate(_cm6_chain(CM6_AXIS_X, "XZ"))
+    props = properties(evaluation, "cm6 mirror")
+    assert props.volume == pytest.approx(CM6_MIRRORED_VOLUME, abs=CURVED_TOL), (
+        "the mirrored body is not twice the cut body — 31865.9587 means the "
+        "simplifier welded the two half-voids shut again"
+    )
+    assert props.volume == pytest.approx(2.0 * cut_only.volume, abs=CURVED_TOL)
+    # 9 planar + 3 cylindrical. The extra face over the 11 of the same solid built
+    # directly is the outer wall's seam, un-unified because the simplification was
+    # refused — the documented price of the guard.
+    assert props.topology.faces == 12
+    assert props.topology.edges == 24
+    assert props.topology.shells == 1
+    assert props.bounding_box.min.y == pytest.approx(-CM6_BLOCK, abs=PLANAR_TOL)
+    assert props.bounding_box.max.y == pytest.approx(CM6_BLOCK, abs=PLANAR_TOL)
+    # The body is symmetric about the mirror plane, so its centroid must sit ON it.
+    assert props.centroid.y == pytest.approx(0.0, abs=PLANAR_TOL)
+
+
+def test_cm6_the_clear_of_plane_control_is_unchanged() -> None:
+    """The control QA-1 shipped with, so the gate proves the fix DISCRIMINATES.
+
+    The same chain with the groove moved clear of the mirror plane (axis at x=20,
+    mirrored about YZ) was always correct — a ratio of 2.0000000000000004 — and must
+    STAY correct, at the CLEANED topology (14 faces / 36 edges). A "fix" that simply
+    stopped simplifying would pass the test above and fail this one.
+    """
+    cut_only = properties(evaluate(_cm6_chain(20.0, "YZ")[:4]), "cm6 clear cut")
+    props = properties(evaluate(_cm6_chain(20.0, "YZ")), "cm6 clear mirror")
+    assert cut_only.volume == pytest.approx(CM6_CUT_VOLUME, abs=CURVED_TOL)
+    assert props.volume == pytest.approx(CM6_MIRRORED_VOLUME, abs=CURVED_TOL)
+    assert props.volume == pytest.approx(2.0 * cut_only.volume, abs=CURVED_TOL)
+    assert props.topology.faces == 14
+    assert props.topology.edges == 36
+    assert props.topology.shells == 1
+
+
+def test_cm6_a_body_occt_rejects_is_an_error_not_an_artifact() -> None:
+    """CM-6's DURABLE half: the pipeline now asks ``is_valid``, and refuses to
+    publish an artifact it cannot stand behind.
+
+    The mirrored body above is correct but genuinely degenerate — it pinches to a
+    knife edge along the tangency — and OCCT's boolean rewrites its ARGUMENT's
+    subshapes when it meets that pinch. So a feature AFTER the mirror (here a pocket
+    cut 30 mm away, which touches none of the groove) welds the void shut inside the
+    body it was handed: measured 30793.6284 -> 31865.9587 with nobody assigning to
+    it. That is the same wrong solid QA-1 reported, reached through a different door.
+
+    Both guards fire: the cut's own result fails the body funnel's validity gate
+    (typed ``invalid_body``, pinned to the offending feature), and the publish-time
+    re-check finds the last-good body invalidated in place and WITHHOLDS the
+    artifacts rather than measuring, meshing and exporting it. "No body plus an
+    error" is the honest answer; "3.48 % too much material plus five green ticks"
+    was not.
+    """
+    evaluation = evaluate(
+        [
+            *_cm6_chain(CM6_AXIS_X, "XZ"),
+            rect_sketch(S_CM6_LATER, 30.0, 10.0, 36.0, 20.0),
+            extrude(F_CM6_LATER, S_CM6_LATER, CM6_THICK, operation="cut"),
+        ]
+    )
+    assert statuses(evaluation) == ["ok"] * 6 + ["error"]
+    assert error_codes(evaluation) == ["invalid_body"]
+    assert evaluation.result.properties is None, (
+        "a body OCCT rejects must not be measured — that is the whole finding"
+    )
+    assert evaluation.result.mesh_glb_id is None
+    assert evaluation.result.bodies == []
+    assert evaluation.result.last_good_feature_id is None
