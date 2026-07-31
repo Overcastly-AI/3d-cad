@@ -60,6 +60,10 @@ lint:
     uv run pyright
     pnpm run lint
     pnpm -r --if-present run typecheck
+    # ~4s, and it is here rather than only in CI so a dependency that drags in
+    # GPL code fails at the moment somebody adds it — the OCP wheel proved that
+    # "reviewers enforce the no-GPL rule" cannot work when the metadata lies.
+    python3 scripts/check-licences.py --profile source-env
 
 # Unit tests: pytest across the uv workspace + vitest via pnpm (recursive)
 test:
@@ -92,6 +96,20 @@ gen-check:
 # generated output captured somebody else's uncommitted work.
 gen-verify:
     scripts/gen-check.sh --from-index
+
+# Licence gate over the BINARIES in the local venv — not wheel metadata, which
+# declared Apache-2.0 while the OCP wheel shipped a GPL-2.0 library
+# (docs/LICENSING.md §4). Every loose .so must be classified with a written
+# reason; a new vendored library from an OCP/OCCT bump fails until someone
+# looks at it. No docker daemon needed.
+licences:
+    python3 scripts/check-licences.py --profile source-env
+
+# Prove the gate can FAIL. Runs it against the real, unstripped GPL library
+# (must fail, naming libjbig), then applies the production strip script and
+# runs it again (must pass). A gate nobody has watched fail is not a gate.
+licence-selftest:
+    python3 scripts/check-licences.py --self-test
 
 # End-to-end gate: geometry gates (goldens + STEP round-trip), then the
 # Playwright suite for @loft/web. Boots geometry (:8002) + gateway (:8000)

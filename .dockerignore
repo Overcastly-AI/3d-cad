@@ -36,3 +36,12 @@ deploy
 docker-compose*.yml
 justfile
 scripts
+
+# …except the licence machinery, which MUST enter the image. A container image
+# redistributes every byte in it (docs/LICENSING.md §1): the licence texts are
+# an LGPL-2.1 §6 obligation, strip-gpl-jbig.sh removes the GPL-2.0 library the
+# OCP wheel vendors, and check-licences.py is the build-time gate that proves
+# both. Excluding these silently is exactly how the obligation gets dropped.
+!deploy/docker/licence
+!deploy/licenses
+!scripts/check-licences.py

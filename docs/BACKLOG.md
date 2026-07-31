@@ -66,8 +66,18 @@ even-odd scanline clip) across SVG/PDF/DXF, `views.section_params jsonb` (0008);
 wrong-half + multi-loop + byte-determinism goldens; oblique + the `project_view`
 frame refactor are v2/§11. Spike de-collected.
 
-- [ ] (P0, S) **LIC-1 — a GPL-2.0 library ships inside the OCP wheel and blocks
-      the geometry image.** `libjbig` (jbigkit, GPL-2.0-or-later) is vendored by
+- [x] (P0, S) **LIC-1 — a GPL-2.0 library ships inside the OCP wheel and blocks
+      the geometry image.** SHIPPED 2026-07-31 (platform-builder): jbigkit is
+      replaced during the image build by a 16 KB MIT stub with the same file name
+      and SONAME (`deploy/docker/licence/jbig-stub.c` + `strip-gpl-jbig.sh`,
+      `--require` so a skipped strip fails the build). Proven inert, not assumed:
+      the whole geometry suite ran against the stub — **2385 passed, 1 skipped**,
+      goldens (stored content hashes = byte identity) included — boolean cut
+      **5151.769984 mm³** vs the analytic value, STEP export byte-identical at
+      19 020 bytes / 434 entities. `verify-kernel.py` re-proves it inside the
+      build (mapped libjbig must be the stub; volume must be analytic), and
+      `/app/licenses/` + OCI `image.licenses`/`.source` labels land with it
+      (LIC-2's image half). docs/LICENSING.md §9. ORIGINAL FINDING: `libjbig` (jbigkit, GPL-2.0-or-later) is vendored by
       `cadquery-ocp-novtk` and hard-linked `libTKService → libfreeimage → libtiff
       → libjbig`; it maps into every process that imports the kernel. Violates the
       absolute "no GPL/AGPL" rule and would make a published geometry image
@@ -79,7 +89,15 @@ frame refactor are v2/§11. Spike de-collected.
       assertion that no GPL `.so` survives. docs/LICENSING.md §4.
       [oss-curator, platform-builder]
 - [ ] (P1, M) **LIC-2 — we redistribute LGPL binaries with none of their required
-      text.** The OCP wheel ships ZERO licence files (`RECORD` has no
+      text.** PARTIALLY DONE 2026-07-31 (platform-builder): the image half landed
+      with LIC-1 — `/app/licenses/` now carries LICENSE, NOTICE, the five texts no
+      wheel ships (LGPL-2.1, the OCCT exception, FTL, FIPL-1.0, MPL-2.0), a
+      CORRESPONDING-SOURCE.md stating the §6(d) route and the §6(c) written offer,
+      a THIRD-PARTY.md generated from the installed environment, and every licence
+      file the wheels do ship; OCI `image.licenses`/`.source`/`.documentation`
+      labels are set and the build FAILS if the licences label disagrees with the
+      binaries present. REMAINING: the mirrored corresponding-source bundle
+      attached to the release (§7 "recommend mirroring"). ORIGINAL: The OCP wheel ships ZERO licence files (`RECORD` has no
       licen/copying/notice match across 398 entries) while carrying 68 LGPL-2.1
       OCCT libraries. LGPL-2.1 §6(b) does NOT cover us — clause (1) requires the
       library be "already present on the user's computer system", which is false
@@ -88,8 +106,17 @@ frame refactor are v2/§11. Spike de-collected.
       labels, and a mirrored corresponding-source bundle for OCCT 7.9.3 +
       planegcs 0.8.0. Checklist in docs/LICENSING.md §6. [oss-curator,
       platform-builder]
-- [ ] (P2, S) **LIC-3 — the licence gate must read bundled binaries, not wheel
-      metadata.** `cadquery-ocp-novtk` declares `License: Apache-2.0` and vendors
+- [x] (P2, S) **LIC-3 — the licence gate must read bundled binaries, not wheel
+      metadata.** SHIPPED 2026-07-31 (platform-builder): `scripts/check-licences.py`
+      classifies all 96 loose `.so` files we ship from a written inventory
+      (unknown library = failure), reads each binary's own licence strings, and
+      parses ELF DT_NEEDED/dynsym itself so it runs in the runtime image (no
+      binutils there). No false alarm on libgomp/libgfortran/libquadmath — GPL-3
+      WITH the GCC Runtime Library Exception, each with a written reason. CI runs
+      it (`licences` job, no daemon) plus a **self-test that proves it fails**:
+      image profile against the real unstripped wheel must fail naming `libjbig`,
+      then the production strip script, then must pass. Also in `just lint`.
+      ORIGINAL FINDING: `cadquery-ocp-novtk` declares `License: Apache-2.0` and vendors
       GPL-2.0 + LGPL-2.1 code, so any metadata-only scan reports this tree as
       fully permissive — which is how LIC-1 survived to release week. Add a CI job
       that walks `*.dist-info` AND the vendored `.libs` trees (`readelf -d`), and

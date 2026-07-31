@@ -803,6 +803,35 @@ Root-caused the stale-Vite trap: **pnpm 10 silently DISCARDS the npm-idiomatic
 documented with the correct invocations in QUICKSTART. Vite config has no
 `strictPort`, so a dropped port argument falls back rather than failing.
 
+**LIC-1 CLEARED + LIC-3 SHIPPED, 2026-07-31 (platform-builder) — the geometry
+image is publishable.** The GPL-2.0 jbigkit is replaced at image-build time by a
+16 KB MIT stub (`deploy/docker/licence/jbig-stub.c`) carrying the same file name
+and SONAME and exactly the ten `jbg_*` symbols `libtiff` imports — deletion is
+not an option, the vendored libs use eager binding
+(`undefined symbol: jbg_enc_out`). Proven inert, not asserted: the whole geometry
+suite ran against the stub — **2385 passed, 1 skipped**, goldens (which compare
+stored content hashes, i.e. byte identity) among them — with the boolean cut at
+**5151.769984 mm³** against the analytic `10·20·30 − π·3²·30` and the STEP export
+byte-identical at 19 020 bytes / 434 entities. Three build-time assertions make a
+silent regression impossible: `--require` on the strip (a skipped strip fails),
+`check-licences.py --profile image` (GPL present, stub missing, deleted-instead-
+of-stubbed, unclassified new vendored lib, or an OCI licence label that disagrees
+with the contents — either direction), and `verify-kernel.py` (the *mapped*
+libjbig must be the stub, and OCCT must still return the analytic volume).
+**LIC-3** is the gate that should have caught this: `scripts/check-licences.py`
+classifies the 96 loose `.so` files we actually ship from a written inventory
+(unknown library = failure, because the vendored set is a property of someone
+else's build machine), reads each binary's own licence strings, and parses ELF
+`DT_NEEDED`/dynsym itself so it runs in the runtime image, which has no binutils.
+It does **not** cry wolf on `libgomp`/`libgfortran`/`libquadmath` — GPL-3 WITH the
+GCC Runtime Library Exception, classified as such with a written reason. CI runs
+it plus a **self-test that proves it fails**: image profile against the real
+unstripped GPL library (must fail naming `libjbig`), then the production strip
+script, then again (must pass). Image also now ships `/app/licenses/` (LICENSE,
+NOTICE, the five texts no wheel carries, the §6(d)/(c) statement, a generated
+THIRD-PARTY.md) and OCI `image.licenses`/`.source` labels — LIC-2's image half.
+Remaining LIC-2: the mirrored corresponding-source bundle. docs/LICENSING.md §9.
+
 Source of truth for "what phase are we in." Every commit that ships an item
 ticks it here (and on `docs/BACKLOG.md`) in the same commit — see CLAUDE.md.
 

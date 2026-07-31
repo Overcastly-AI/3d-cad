@@ -109,6 +109,7 @@ services:
       dockerfile: deploy/docker/service.Dockerfile
       args:
         SERVICE_NAME: gateway
+        IMAGE_LICENSES: "MIT"
     environment:
       PORT: "8000"
       LOG_FORMAT: ${LOG_FORMAT:-json}
@@ -152,6 +153,7 @@ services:
       dockerfile: deploy/docker/service.Dockerfile
       args:
         SERVICE_NAME: documents
+        IMAGE_LICENSES: "MIT"
     environment:
       PORT: "8001"
       LOG_FORMAT: ${LOG_FORMAT:-json}
@@ -182,6 +184,12 @@ services:
       dockerfile: deploy/docker/service.Dockerfile
       args:
         SERVICE_NAME: geometry
+        # org.opencontainers.image.licenses. Geometry is the ONLY image with a
+        # copyleft story: it carries OCCT (46 LGPL-2.1 libraries, plus the Open
+        # CASCADE exception) and planegcs. The image build FAILS if this value
+        # disagrees with the binaries actually present, in either direction —
+        # scripts/check-licences.py, docs/LICENSING.md §6.
+        IMAGE_LICENSES: "MIT AND LGPL-2.1-or-later"
     environment:
       PORT: "8002"
       LOG_FORMAT: ${LOG_FORMAT:-json}

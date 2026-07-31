@@ -497,4 +497,97 @@ own release is the strong one. **Recommend mirroring.**
 - `docs/BACKLOG.md` — **LIC-1** (strip jbigkit, P0) and **LIC-2** (licence
   files, `NOTICE`, labels, source mirror) filed for platform-builder.
 - `NOTICE` — created at the repo root in this commit.
-</content>
+
+---
+
+## 9. LIC-1 / LIC-3 as shipped — platform-builder, 2026-07-31
+
+Appended, not a rewrite: §§1–8 above are the analysis, this is what was built
+from it and what was measured. Only §4's fix and §6's checklist are affected.
+
+### What the geometry image now contains, and does not
+
+`libjbig-0f1087b4.so.0` is still **present**, with the same file name and the
+same `SONAME` — and it is a **16 KB GPL-free stub compiled from
+`deploy/docker/licence/jbig-stub.c`**, original MIT work containing no jbigkit
+code, exporting exactly the ten `jbg_*` symbols `libtiff` imports and aborting
+loudly if any is ever called. jbigkit's 62 KB of GPL-2.0 object code, and both
+copies of its `"JBIG-KIT 2.1 ... Licence: GPL"` string, are gone.
+
+Replacing rather than deleting is not a stylistic choice: the vendored
+libraries use eager binding, so a deleted `libjbig` gives
+`ImportError: libtiff-*.so.5.5.0: undefined symbol: jbg_enc_out` at the first
+`import OCP`. The gate below fails on that too, by name.
+
+The image also now carries `/app/licenses/` — our `LICENSE`, the root `NOTICE`,
+the five texts no wheel ships (`LGPL-2.1.txt`, `OCCT_LGPL_EXCEPTION.txt`,
+`FTL.txt`, `FreeImage-FIPL-1.0.txt`, `MPL-2.0.txt`),
+`CORRESPONDING-SOURCE.md` (the §6(d) statement and the §6(c) written offer),
+plus a generated `THIRD-PARTY.md` and every licence file the wheels themselves
+ship, copied out of the installed environment at build time — and the OCI
+labels `image.licenses` / `.source` / `.documentation` / `.title`.
+
+### The assertions that would fail on a regression
+
+All three fail the **build**, so a silent re-introduction is not possible:
+
+| assertion | fails when |
+| --------- | ---------- |
+| `strip-gpl-jbig.sh … --require` | no `libjbig` is found at all (a skipped strip cannot pass as a clean build), the file is neither jbigkit nor our stub, the marker is missing after the write, a GPL string survives, or any of the ten symbols is not exported |
+| `check-licences.py --profile image` | any GPL-family library is present; a `strip-in-image` entry is present **and is not the stub**; it was deleted and an importer still needs `jbg_*`; the stub fails to define a symbol its importer imports; a new vendored library is unclassified; a Python distribution declares GPL/AGPL; the `image.licenses` label disagrees with the contents in **either** direction |
+| `verify-kernel.py` | the mapped `libjbig` in `/proc/self/maps` is not the stub; the boolean cut misses the closed-form volume by >1e-6 mm³; tessellation or STEP export fails |
+
+The wording a regression produces, verbatim:
+
+> `libjbig-0f1087b4.so.0: GPL-2.0-or-later library 'libjbig' is present in an
+> image about to be published, and it is NOT our GPL-free replacement (marker
+> 'LOFT-GPL-FREE-JBIG-STUB' absent). deploy/docker/licence/strip-gpl-jbig.sh
+> did not run, or ran and did not take. This is a licence violation, not a
+> warning.**
+
+### Proof the geometry is unchanged
+
+Measured by loading the stub ahead of the real library through `LD_LIBRARY_PATH`
+(`libtiff` uses `RUNPATH`, which `LD_LIBRARY_PATH` precedes, so the GPL library
+is never mapped — confirmed in `/proc/self/maps`), then running the real suites:
+
+| check | result |
+| ----- | ------ |
+| boolean cut (10×20×30 box − ⌀6×30 cylinder) | **5151.769984 mm³**, equal to `10·20·30 − π·3²·30` to 1e-6 |
+| `test_goldens.py` + `test_assembly_goldens.py` | **210 passed** |
+| whole `services/geometry/tests` suite | **2385 passed, 1 skipped** |
+| tessellation + STEP export | 19 020 bytes, 434 entities — byte-identical to §4's numbers |
+
+Goldens assert stored content hashes, so "passed" here means byte-identical
+output, not merely "close". The codec is unreachable, as §4 predicted.
+
+### Where the gate runs
+
+- `just lint` and the CI `licences` job — `--profile source-env` over the
+  uv-synced environment. No daemon needed.
+- CI `licences` job — `--self-test`: the **image** profile against the real,
+  unstripped GPL library (must fail, naming `libjbig`), then the production
+  strip script, then again (must pass). A gate that quietly stopped detecting
+  anything cannot show green.
+- The image build itself, and again against the finished image in
+  `deploy-path`, which prints the mapped-stub path, the measured volume and the
+  labels rather than inferring them.
+
+### Corrections to the numbers above
+
+- §2 and §5 say the wheel bundles "68 `libTK*.so` files". The wheel's
+  `cadquery_ocp_novtk.libs/` contains **68 files in total**, of which **46** are
+  `libTK*` (OCCT) and 22 are the non-OCCT set §4 lists. The reproduce command
+  in §2 counts the directory, not the pattern. The argument is unaffected.
+- §5's per-image totals are unchanged, but for the record the full environment
+  carries **96** loose shared libraries once `pillow`/`scipy`/`numpy`/
+  `scikit-learn`/`lib3mf` are counted; all are classified in
+  `scripts/check-licences.py`.
+- The file ended with a stray `</content>` tag from the tool that wrote it;
+  removed here.
+
+### Still open (LIC-2)
+
+The mirrored corresponding-source bundle attached to the release — §7's
+"recommend mirroring" — is not done. `CORRESPONDING-SOURCE.md` says so
+explicitly rather than implying coverage we do not have.

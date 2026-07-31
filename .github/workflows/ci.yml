@@ -8,6 +8,9 @@
 #   compose   — `docker compose config -q` for the base stack and base+dev
 #               overlay, plus scripts/check-compose.py (audit G1/G3 invariants:
 #               geometry S3 creds == MinIO's; internal services unpublished)
+#   licences  — scripts/check-licences.py over the shared objects in the synced
+#               environment (LIC-3), plus a self-test that PROVES the gate
+#               fails on the GPL library the OCP wheel vendors
 #
 # The RUNTIME half of the compose gate lives in its own workflow —
 # .github/workflows/deploy-path.yml — because it builds the images, boots the
@@ -152,6 +155,45 @@ jobs:
       # `docker compose config` — no daemon, no image pulls, no Python deps.
       - name: Compose invariants (audit G1/G3 guard)
         run: python3 scripts/check-compose.py
+
+  licences:
+    # LIC-3 — the no-GPL rule, enforced by reading the BINARIES we ship.
+    #
+    # It was previously enforced by review, i.e. by reading package metadata,
+    # and the OCP wheel is the proof that cannot work: `License: Apache-2.0` in
+    # METADATA, "JBIG-KIT 2.1 ... Licence: GPL" inside the .so it vendors. A
+    # metadata-only scan called that tree fully permissive, which is how a
+    # GPL-2.0 library survived to release week (LIC-1, docs/LICENSING.md §4).
+    #
+    # No docker daemon: the gate reads the uv-synced environment directly, so
+    # it runs here in the fast workflow rather than waiting on deploy-path.
+    # The image-side assertions (the strip actually took; the label matches the
+    # contents; OCCT still returns the analytic volume) run inside the Docker
+    # build itself — see deploy/docker/service.Dockerfile.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Sync uv environment (locked)
+        run: uv sync --locked
+      # The dev environment legitimately still contains jbigkit — the strip
+      # happens during the image build — so this profile tolerates it ONLY
+      # because the inventory marks it strip-in-image and names a strip script
+      # that provably targets it. Everything else must be classified.
+      - name: Licence gate (source environment)
+        run: python3 scripts/check-licences.py --profile source-env
+      # A gate nobody has seen fail is not a gate — this repo has been bitten
+      # by that exact class three times. The self-test runs the IMAGE profile
+      # against the real, unstripped GPL library (must fail, naming libjbig),
+      # then applies the production strip script and runs it again (must pass).
+      # It fails if EITHER half comes out the wrong way, so a gate that has
+      # silently stopped detecting anything cannot show up green here.
+      - name: Prove the gate can fail (negative + positive control)
+        run: python3 scripts/check-licences.py --self-test
 
   geometry-minio-smoke:
     # Real-MinIO cross-process smoke for the §7.8 mesh-store swap (audit F6):

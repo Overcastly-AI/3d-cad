@@ -55,6 +55,31 @@ jobs:
       # `docker compose ps`, `df -h`, and `docker compose logs` on failure.
       - name: Compose stack end-to-end (build, boot, migrate, round-trip)
         run: scripts/compose-smoke.sh
+      # LIC-1 — assert the licence posture of the BUILT ARTIFACT, not of the
+      # source tree. The Dockerfile already fails the build if jbigkit survives
+      # the strip, if the OCI licence label disagrees with the contents, or if
+      # OCCT stops returning the analytic volume; this step re-runs those
+      # assertions against the finished image and prints the evidence, so the
+      # log carries proof rather than an inference. It cannot pass vacuously:
+      # verify-kernel.py imports OCCT, reads /proc/self/maps for the mapped
+      # libjbig, and measures a real boolean cut, none of which a no-op does.
+      - name: Licence posture of the built geometry image
+        run: |
+          set -euo pipefail
+          docker compose run --rm --no-deps geometry \
+            python3 /app/tools/check-licences.py --profile image --root /app/.venv
+          docker compose run --rm --no-deps geometry \
+            python3 /app/tools/verify-kernel.py
+          docker compose run --rm --no-deps geometry \
+            sh -c 'ls /app/licenses && head -20 /app/licenses/THIRD-PARTY.md'
+          # Found by its OWN label rather than by compose's image-naming
+          # convention, so this cannot silently inspect the wrong thing.
+          img=$(docker images --filter 'label=org.opencontainers.image.title=loft-geometry' --format '{{.ID}}' | head -1)
+          test -n "$img" || { echo "no image carries the loft-geometry title label"; exit 1; }
+          docker image inspect "$img" --format '{{ json .Config.Labels }}'
+          docker image inspect "$img" \
+            --format '{{ index .Config.Labels "org.opencontainers.image.licenses" }}' \
+            | grep -qx 'MIT AND LGPL-2.1-or-later'
       # The script tears the stack down in its own EXIT trap; this catches the
       # case where the job is killed before the trap runs (e.g. job timeout).
       - name: Tear down
