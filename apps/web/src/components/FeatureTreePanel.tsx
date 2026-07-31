@@ -13,12 +13,14 @@
  */
 import {
   Button,
+  EyeIcon,
+  EyeOffIcon,
   Panel,
   PanelSection,
   SuppressIcon,
   TextField,
 } from "@loft/design";
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 
 import type {
   EvaluateTreeResult,
@@ -42,6 +44,16 @@ import {
   solveSummary,
 } from "../features/partBuild";
 import { barSlotIndex } from "../features/rollback";
+import {
+  entityIsDrawn,
+  ORIGIN_AXES,
+  ORIGIN_PLANES,
+  originAxisKey,
+  originPlaneKey,
+  sketchIsDrawn,
+  sketchKey,
+  usePartViewStore,
+} from "../viewport/partView";
 
 export interface FeatureTreePanelProps {
   tree: FeatureTreeResponse | undefined;
@@ -394,6 +406,8 @@ export function FeatureTreePanel({
           )}
         </PanelSection>
 
+        <ViewCategories tree={tree} />
+
         {/* Title-block footer: the one vital that MOVES — the solve state.
             FEATURES folded into the eyebrow; TREE (the internal optimistic-
             concurrency version) was decorative and is gone (Track B). */}
@@ -423,4 +437,164 @@ export function FeatureTreePanel({
 /** A fragment wrapper so each feature contributes several <li> siblings. */
 function FeatureRowGroup({ children }: { children: ReactNode }) {
   return <>{children}</>;
+}
+
+/**
+ * One VIEW row (UI-W2, part half): the learned eye, then the thing's name.
+ *
+ * Two stops, not three, and that is a decision rather than an omission. GHOST
+ * is "see THROUGH the solid to what is behind it" — it only means something for
+ * a body. A datum plane is already translucent and a sketch is a line; a third
+ * stop on those rows would be a control that changes nothing, which is exactly
+ * the decorative chrome the mandate calls a defect. Bodies keep the full
+ * SOLID · GHOST · HIDE control (see `BodiesPanel`).
+ *
+ * The glyph set, ink and hover behaviour are the assembly half's, unchanged:
+ * `gauge` at rest (7.3:1 on anvil), `mist` once the row's view has been TOUCHED
+ * so it is findable when scanning, `brass` on hover. The shape carries the
+ * state; the ink is the second cue.
+ */
+function ViewRow({
+  drawn,
+  label,
+  detail,
+  testId,
+  rowTestId,
+  onToggle,
+  onAddress,
+}: {
+  drawn: boolean;
+  label: string;
+  /** Right-hand kind badge, in the feature row's voice ("plane", "sketch"). */
+  detail: string;
+  /** Test hook on the EYE. Deliberately distinct from `rowTestId`: a shared
+   *  prefix would make `getByTestId(/^sketch-visibility-/)` ambiguous. */
+  testId: string;
+  rowTestId: string;
+  onToggle: () => void;
+  onAddress: () => void;
+}) {
+  const Glyph = drawn ? EyeIcon : EyeOffIcon;
+  const action = `${drawn ? "Hide" : "Show"} ${label}`;
+  return (
+    <li
+      className="flex items-center gap-2 border-l-2 border-transparent py-0.5 pr-2 pl-2"
+      data-testid={rowTestId}
+      data-drawn={drawn || undefined}
+    >
+      <button
+        type="button"
+        onClick={() => {
+          onAddress();
+          onToggle();
+        }}
+        aria-pressed={drawn}
+        aria-label={action}
+        title={action}
+        data-testid={testId}
+        className={`flex min-h-target-dense min-w-target-dense shrink-0 items-center justify-center rounded-sm outline-none transition-colors duration-fast hover:text-brass focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass ${
+          drawn ? "text-mist" : "text-gauge"
+        }`}
+      >
+        <Glyph size={16} />
+      </button>
+      <span
+        className={`grow truncate font-data text-base ${
+          drawn ? "text-mist" : "text-gauge"
+        }`}
+      >
+        {label}
+      </span>
+      <span className="shrink-0 font-body text-xs text-gauge">{detail}</span>
+    </li>
+  );
+}
+
+/**
+ * ORIGIN and SKETCHES — the two categories a Fusion user reaches for that this
+ * browser had no row for (founder: *"what about the ability to enable planes,
+ * sketches and bodies?"*). Bodies is the third, and lives in `BodiesPanel`
+ * beside its solids.
+ *
+ * Origin sits LAST because it is the least-touched and defaults off; the build
+ * order stays at the top of the panel where a modeler's eye already goes.
+ */
+function ViewCategories({ tree }: { tree: FeatureTreeResponse | undefined }) {
+  const view = usePartViewStore((state) => state.view);
+  const bodyPresent = usePartViewStore((state) => state.bodyPresent);
+  const toggle = usePartViewStore((state) => state.toggle);
+  const setAddressed = usePartViewStore((state) => state.setAddressed);
+  const setSubject = usePartViewStore((state) => state.setSubject);
+  const partId = tree?.part_id ?? null;
+  // Registering the subject both scopes the view state to THIS part (opening
+  // another one resets it, so a hidden body can never follow you across
+  // documents) and arms the `V` / `⇧V` accelerators, which stay disarmed in the
+  // assembly workspace because it never mounts this browser.
+  useEffect(() => {
+    if (partId !== null) setSubject(partId);
+  }, [partId, setSubject]);
+
+  const sketches = (tree?.features ?? []).filter(
+    (feature) => feature.feature.type === "sketch" && !feature.rolled_back,
+  );
+
+  return (
+    <>
+      {sketches.length > 0 ? (
+        <PanelSection
+          eyebrow={`Sketches · ${sketches.length}`}
+          data-testid="sketches-section"
+        >
+          <ul className="pb-1" data-testid="sketch-view-list">
+            {sketches.map((feature) => (
+              <ViewRow
+                key={feature.id}
+                drawn={sketchIsDrawn(view, feature.id, bodyPresent)}
+                label={feature.name}
+                detail="sketch"
+                testId={`sketch-visibility-${feature.id}`}
+                rowTestId={`sketch-row-${feature.id}`}
+                onToggle={() => toggle(sketchKey(feature.id))}
+                // Addresses, and does NOT select. Selecting a sketch feature
+                // warms the whole body brass (the tree→geometry link), so an
+                // eye that also selected would make "show me this profile"
+                // light up the solid instead — one element, one job. The tree
+                // rows above are where a feature gets selected.
+                onAddress={() => setAddressed(sketchKey(feature.id))}
+              />
+            ))}
+          </ul>
+        </PanelSection>
+      ) : null}
+
+      <PanelSection eyebrow="Origin" data-testid="origin-section">
+        <ul className="pb-1" data-testid="origin-list">
+          {ORIGIN_PLANES.map((plane) => (
+            <ViewRow
+              key={plane}
+              drawn={entityIsDrawn(view, originPlaneKey(plane))}
+              label={plane}
+              detail="plane"
+              testId={`origin-plane-${plane}`}
+              rowTestId={`origin-row-plane-${plane}`}
+              onToggle={() => toggle(originPlaneKey(plane))}
+              onAddress={() => setAddressed(originPlaneKey(plane))}
+            />
+          ))}
+          {ORIGIN_AXES.map((axis) => (
+            <ViewRow
+              key={axis}
+              drawn={entityIsDrawn(view, originAxisKey(axis))}
+              label={`${axis} axis`}
+              detail="axis"
+              testId={`origin-axis-${axis}`}
+              rowTestId={`origin-row-axis-${axis}`}
+              onToggle={() => toggle(originAxisKey(axis))}
+              onAddress={() => setAddressed(originAxisKey(axis))}
+            />
+          ))}
+        </ul>
+      </PanelSection>
+    </>
+  );
 }

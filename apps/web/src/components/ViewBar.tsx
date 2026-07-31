@@ -24,6 +24,10 @@ export function ViewBar() {
       data-testid="view-bar"
       role="toolbar"
       aria-label="View navigation"
+      // Docks over the scene, so "Fit model" must frame the part ABOVE it —
+      // the rail is one of the things the founder's part was hiding under
+      // (`fitFraming.ts`).
+      data-viewport-chrome="view-bar"
       className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-stretch border border-hairline bg-anvil shadow-float"
     >
       <ToolButton

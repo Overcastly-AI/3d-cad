@@ -9,7 +9,9 @@
  * scroll. Default is expanded — collapse is a real, user-driven state.
  */
 import { cx } from "@loft/design";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+
+import { announceChromeChange } from "../viewport/fitFraming";
 
 export interface FloatingPanelProps {
   side: "left" | "right";
@@ -60,6 +62,12 @@ export function FloatingPanel({
   footer,
 }: FloatingPanelProps) {
   const [collapsed, setCollapsed] = useState(false);
+  // A panel that opens or closes changes how much of the scene the modeler can
+  // see, so "Fit model" has to be re-solvable against the new free rect —
+  // announced rather than polled (see `fitFraming.VIEWPORT_CHROME_EVENT`).
+  useEffect(() => {
+    announceChromeChange();
+  }, [collapsed]);
 
   if (collapsed) {
     return (
@@ -67,6 +75,7 @@ export function FloatingPanel({
         type="button"
         data-testid={`panel-expand-${id}`}
         aria-expanded={false}
+        data-viewport-chrome={`panel-${id}`}
         onClick={() => setCollapsed(false)}
         className={cx(
           "absolute top-3 z-panel border border-hairline bg-anvil px-2 py-1.5 shadow-float",
@@ -83,6 +92,7 @@ export function FloatingPanel({
 
   return (
     <div
+      data-viewport-chrome={`panel-${id}`}
       className={cx(
         "absolute top-3 z-panel flex w-inspector max-w-[calc(100%-1.5rem)] flex-col",
         maxHeightClassName,

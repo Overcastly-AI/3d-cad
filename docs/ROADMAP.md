@@ -27,8 +27,24 @@ Endpoint / midpoint / centre / intersection / tangent / perpendicular-foot all
 snap, Shift locks the aim to an axis, `G` still toggles only the grid — whose
 step is now a store value a settings surface can write. The honesty half is the
 point: a distinct mark at the candidate NAMES the snap ("ENDPOINT") before the
-click, so a snap can never silently grab the wrong thing. Still queued: the
-UI-W2 PART half (Origin / Sketches / Bodies categories).
+click, so a snap can never silently grab the wrong thing. **UI-W2 — the PART
+half (Origin / Sketches / Bodies) SHIPPED 2026-07-31** (frontend-builder),
+closing the last of the founder's four questions, *"what about the ability to
+enable planes, sketches and bodies? Similar to fusion?"*: the browser grows
+SKETCHES and ORIGIN sections, the Bodies list grows the assembly half's eye and
+its SOLID · GHOST · HIDE control, and the origin planes + axes — which had never
+rendered at all, so every datum decision was made against geometry you could not
+see — now draw as quiet steel sheets with solid/phantom axes. Same eye forms,
+same verbs, same derived `ISOLATED` stamp as the assembly side: one vocabulary,
+two workspaces. Asserted on canvas PIXELS (mandate 3c), mutation-verified to
+fail when the WebGL wiring is stubbed. **The two founder-captured framing
+defects are fixed in the same pass:** "Fit model" now solves the camera against
+the UNOBSTRUCTED rect (canvas minus the docked panels, the view rail and the
+reference cube) and re-frames when a panel collapses, and the fit distance is
+solved from the subject's real projected extents instead of a fixed multiple of
+its bounding diagonal — so a part fills the frame it was given whatever its
+aspect ratio. The reference cube's inset clears its own isometric diagonal, so
+it is no longer cut by the corner.
 **The SETTINGS surface SHIPPED 2026-07-31** (frontend-builder, 2026-07-31):
 `/settings` is a sibling of the registers, and every row on it is wired to a
 property something reads — length unit for NEW documents, **scroll-to-zoom

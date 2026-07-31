@@ -3542,12 +3542,18 @@ export function PartPage() {
   // The body is the hero: once a solid renders, the profile sketch that
   // defined it recedes (it sits on the body's base face — coincident scribe
   // ink would only z-fight the solid). It returns, live, on sketch re-entry.
+  //
+  // That rule now lives in the SCENE (`SketchScene`, via `viewport/partView`),
+  // as the DEFAULT of a per-sketch view stop rather than as a law the modeler
+  // cannot answer back to — UI-W2, founder: "what about the ability to enable
+  // planes, sketches and bodies?". The full solved set is handed down and the
+  // scene decides which layers draw, so the browser's Sketches rows and the ink
+  // on screen read one derivation.
   const bodyPresent = body.data !== undefined;
-  const solvedLayers = bodyPresent ? [] : solved;
   // The extrude ghost's profile layer (UI-REVIEW #8): the SOLVED sketch the
-  // open extrude editor points at, resolved from the full `solved` set (not the
-  // body-gated `solvedLayers`) so the ghost shows whether or not a body already
-  // exists. Absent until the editor projects a valid form.
+  // open extrude editor points at, resolved from the full `solved` set so the
+  // ghost shows whether or not a body already exists. Absent until the editor
+  // projects a valid form.
   const extrudeGhostLayer = useMemo<SolvedSketchLayer | null>(() => {
     if (extrudePreview === null) return null;
     return (
@@ -4300,7 +4306,7 @@ export function PartPage() {
               </>
             }
           >
-            <SketchScene solved={solvedLayers} facePicking={facePicking} />
+            <SketchScene solved={solved} facePicking={facePicking} />
             {showExtrudeGhost &&
             extrudeGhostLayer !== null &&
             extrudePreview ? (

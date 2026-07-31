@@ -24,10 +24,27 @@ import { useReducedMotion } from "../lib/useReducedMotion";
 import { navigationControls, usePreferences } from "../settings/preferences";
 import { NavCue } from "../components/NavCue";
 import { ViewBar } from "../components/ViewBar";
+import { VisibilityStamp } from "../components/VisibilityStamp";
 import { AdaptiveGrid } from "./AdaptiveGrid";
 import { isDragGesture, type PointerPoint } from "./contextMenuGesture";
+import {
+  fitDistance,
+  measureChrome,
+  targetShift,
+  unobstructedRect,
+  VIEWPORT_CHROME_EVENT,
+  type CameraSpacePoint,
+  type Rect,
+} from "./fitFraming";
 import { groundShadowTexture } from "./groundShadow";
 import { ModelMesh, type BodyHighlight } from "./ModelMesh";
+import { OriginGeometry } from "./OriginGeometry";
+import {
+  hiddenBodyCount,
+  isolatedBodyLabel,
+  usePartViewHotkeys,
+  usePartViewStore,
+} from "./partView";
 import {
   useViewCommandStore,
   useViewHotkeys,
@@ -40,6 +57,21 @@ const ISO_DIR = new Vector3(...VIEW_DIRECTIONS.iso).normalize();
 const FIT_FACTOR = 1.75;
 /** Default orbit radius when the scene is empty (the resting bench view). */
 const EMPTY_RADIUS = 200 * FIT_FACTOR;
+
+/**
+ * The reference cube's inset from the bottom-right corner (px), and the
+ * footprint the fit must keep clear.
+ *
+ * Was 64, and the founder's 2026-07-31 capture caught the consequence: at an
+ * isometric attitude the cube's projected silhouette is its face size times ~√3
+ * across the diagonal, so a 64px inset put the lower corner and the FRONT/RIGHT
+ * labels hard against the frame edge. The inset now clears the diagonal, which
+ * also puts the cube on the same 12px gutter the ViewBar and the floating
+ * panels sit on.
+ */
+const CUBE_MARGIN_PX = 96;
+/** Square the cube occupies, centred on the margin point — the fit avoids it. */
+const CUBE_FOOTPRINT_PX = 120;
 
 interface CameraGoal {
   position: Vector3;
@@ -57,6 +89,39 @@ function upFor(dir: Vector3): Vector3 {
 }
 
 /**
+ * The subject's eight bounding corners resolved onto the camera's own axes —
+ * the silhouette a fit has to make room for, DEPTH INCLUDED (a corner nearer
+ * the camera projects wider, which is what `fitDistance` solves for). Empty for
+ * an empty/absent box.
+ */
+function boxCornersInCameraAxes(
+  box: Box3 | null,
+  center: Vector3,
+  right: Vector3,
+  up: Vector3,
+  dir: Vector3,
+): CameraSpacePoint[] {
+  if (box === null || box.isEmpty()) return [];
+  const corner = new Vector3();
+  const corners: CameraSpacePoint[] = [];
+  for (let i = 0; i < 8; i += 1) {
+    corner
+      .set(
+        i & 1 ? box.max.x : box.min.x,
+        i & 2 ? box.max.y : box.min.y,
+        i & 4 ? box.max.z : box.min.z,
+      )
+      .sub(center);
+    corners.push({
+      a: corner.dot(right),
+      b: corner.dot(up),
+      c: corner.dot(dir),
+    });
+  }
+  return corners;
+}
+
+/**
  * The camera rig: auto-fits when the fit key changes (a new body / a newly
  * loaded assembly instance — the assembly fit no longer races the GLB load),
  * and executes view commands (home/fit/snaps, reference-cube picks) with a
@@ -66,12 +131,15 @@ function CameraRig({
   bounds,
   fitKey,
   reducedMotion,
+  framing,
   onSettle,
 }: {
   bounds: Box3 | null;
   fitKey: string;
   reducedMotion: boolean;
-  onSettle: (view: string, position: Vector3) => void;
+  /** The live canvas + unobstructed rect, measured from the DOM at fit time. */
+  framing: () => { canvas: Rect; free: Rect } | null;
+  onSettle: (view: string, position: Vector3, framed: Rect | null) => void;
 }) {
   const camera = useThree((state) => state.camera);
   const controls = useThree(
@@ -83,6 +151,9 @@ function CameraRig({
   const boundsRef = useRef<Box3 | null>(bounds);
   boundsRef.current = bounds;
   const goal = useRef<CameraGoal | null>(null);
+  const framedRect = useRef<Rect | null>(null);
+  /** Has the modeler moved the camera by hand since the last fit? */
+  const userMoved = useRef(false);
 
   /** Clip planes sized to the framed subject. */
   const setClipPlanes = useCallback(
@@ -108,13 +179,81 @@ function CameraRig({
           camera.lookAt(pose.target);
         }
         goal.current = null;
-        onSettle(pose.view, camera.position);
+        onSettle(pose.view, camera.position, framedRect.current);
       } else {
         goal.current = pose;
       }
       invalidate();
     },
     [camera, controls, invalidate, onSettle],
+  );
+
+  /**
+   * Frame `center`/`diagonal` into the UNOBSTRUCTED rect rather than the whole
+   * canvas (founder capture 2026-07-31 — "Fit model frames the CANVAS, not the
+   * VISIBLE viewport"). Two corrections, both derived from the live DOM so a
+   * collapsed panel gives its space straight back:
+   *
+   *  · solve the DISTANCE from the subject's projected extents against the free
+   *    rect, not from a fixed multiple of its bounding diagonal. The old rule
+   *    was blind twice over — to the frame it was filling AND to the subject's
+   *    aspect ratio — so a compact part floated in a sea of bench while a wide
+   *    one ran off the sides; and
+   *  · slide the orbit TARGET so the subject sits in the middle of that rect
+   *    instead of the middle of the canvas — otherwise a symmetric zoom-out
+   *    just adds equal air on the side you can see and the side you cannot.
+   *
+   * Returns the pose. Records the rect it framed into as a QA hook.
+   */
+  const framePose = useCallback(
+    (
+      dir: Vector3,
+      up: Vector3,
+      center: Vector3,
+      radius: number,
+      view: string,
+      box: Box3 | null,
+    ): CameraGoal => {
+      const measured = framing();
+      framedRect.current = measured?.free ?? null;
+      if (measured === null || !(camera instanceof PerspectiveCamera)) {
+        return {
+          position: dir.clone().multiplyScalar(radius).add(center),
+          up,
+          target: center.clone(),
+          view,
+        };
+      }
+      const { canvas, free } = measured;
+      // Camera basis at the goal attitude: forward is −dir (dir points from the
+      // target TO the camera), so right = up × dir and trueUp = dir × right.
+      const right = new Vector3().crossVectors(up, dir).normalize();
+      const trueUp = new Vector3().crossVectors(dir, right).normalize();
+      // Solve the distance from the subject's ACTUAL projected extents rather
+      // than a fixed multiple of its diagonal — so the part fills the frame it
+      // was given whatever its aspect ratio (see `fitFraming.fitDistance`). The
+      // diagonal rule stays as the fallback for a scene with no box.
+      const corners = boxCornersInCameraAxes(box, center, right, trueUp, dir);
+      const solved = fitDistance(corners, canvas, free, camera.fov);
+      const distance = solved > 0 ? solved : radius;
+      const visibleHeight =
+        2 * distance * Math.tan((camera.fov * Math.PI) / 360);
+      const shift = targetShift(canvas, free, {
+        width: visibleHeight * (canvas.width / Math.max(canvas.height, 1)),
+        height: visibleHeight,
+      });
+      const target = center
+        .clone()
+        .add(right.clone().multiplyScalar(shift.right))
+        .add(trueUp.clone().multiplyScalar(shift.up));
+      return {
+        position: dir.clone().multiplyScalar(distance).add(target),
+        up,
+        target,
+        view,
+      };
+    },
+    [camera, framing],
   );
 
   // Auto-fit whenever the subject changes (a fresh geometry, or an assembly
@@ -124,12 +263,17 @@ function CameraRig({
     if (box === null || box.isEmpty()) return;
     const center = box.getCenter(new Vector3());
     const diagonal = box.getSize(new Vector3()).length();
-    const position = ISO_DIR.clone()
-      .multiplyScalar(Math.max(diagonal, 1) * FIT_FACTOR)
-      .add(center);
     setClipPlanes(diagonal);
+    userMoved.current = false;
     applyPose(
-      { position, up: new Vector3(0, 1, 0), target: center, view: "fit-auto" },
+      framePose(
+        ISO_DIR.clone(),
+        new Vector3(0, 1, 0),
+        center,
+        Math.max(diagonal, 1) * FIT_FACTOR,
+        "fit-auto",
+        box,
+      ),
       true,
     );
     // The fit key IS the refit trigger; bounds/camera are read at fit time.
@@ -166,25 +310,50 @@ function CameraRig({
     } else if (command.kind === "fit") {
       // Keep the view direction, frame the subject.
       const dir = camera.position.clone().sub(currentTarget).normalize();
-      pose = {
-        position: dir.multiplyScalar(fitRadius).add(center),
-        up: camera.up.clone(),
-        target: center,
-        view: "fit",
-      };
+      userMoved.current = false;
+      pose = framePose(dir, camera.up.clone(), center, fitRadius, "fit", box);
     } else {
       const named = command.kind === "home" ? "iso" : command.kind;
       const dir = new Vector3(...VIEW_DIRECTIONS[named]).normalize();
-      pose = {
-        position: dir.multiplyScalar(fitRadius).add(center),
-        up: upFor(dir),
-        target: center,
-        view: command.kind,
-      };
+      userMoved.current = false;
+      pose = framePose(dir, upFor(dir), center, fitRadius, command.kind, box);
     }
     if (hasBounds) setClipPlanes(diagonal);
     applyPose(pose, reducedMotion);
-  }, [command, camera, controls, reducedMotion, setClipPlanes, applyPose]);
+  }, [
+    command,
+    camera,
+    controls,
+    reducedMotion,
+    setClipPlanes,
+    applyPose,
+    framePose,
+  ]);
+
+  /**
+   * Give the space back. A collapsed panel un-covers a third of the frame, and
+   * a fit that was correct for the old free rect is now off-centre in the new
+   * one — so the chrome announces its own change and the rig re-frames.
+   *
+   * Only while the modeler has NOT taken the camera by hand since the last fit:
+   * yanking someone off a detail they zoomed into because they collapsed a
+   * panel would be a worse defect than the one being fixed.
+   */
+  useEffect(() => {
+    const onControlStart = () => {
+      userMoved.current = true;
+    };
+    controls?.addEventListener("start", onControlStart);
+    const onChromeChange = () => {
+      if (userMoved.current) return;
+      useViewCommandStore.getState().request("fit");
+    };
+    window.addEventListener(VIEWPORT_CHROME_EVENT, onChromeChange);
+    return () => {
+      controls?.removeEventListener("start", onControlStart);
+      window.removeEventListener(VIEWPORT_CHROME_EVENT, onChromeChange);
+    };
+  }, [controls]);
 
   useFrame((_, delta) => {
     const g = goal.current;
@@ -204,7 +373,7 @@ function CameraRig({
       camera.up.copy(g.up);
       controls?.update();
       goal.current = null;
-      onSettle(g.view, camera.position);
+      onSettle(g.view, camera.position, framedRect.current);
     }
     invalidate();
   });
@@ -241,7 +410,10 @@ function ReferenceCube() {
     [requestDirection],
   );
   return (
-    <GizmoHelper alignment="bottom-right" margin={[64, 64]}>
+    <GizmoHelper
+      alignment="bottom-right"
+      margin={[CUBE_MARGIN_PX, CUBE_MARGIN_PX]}
+    >
       <GizmoViewcube
         color={viewport.gizmo.face}
         hoverColor={viewport.gizmo.hover}
@@ -341,6 +513,7 @@ export function Viewport({
   const navigation = navigationControls(usePreferences());
   const containerRef = useRef<HTMLDivElement>(null);
   const [geometry, setGeometry] = useState<BufferGeometry | null>(null);
+  const [visibleBounds, setVisibleBounds] = useState<Box3 | null>(null);
   const [parseError, setParseError] = useState<Error | null>(null);
   const handleGeometry = useCallback((next: BufferGeometry) => {
     setGeometry(next);
@@ -352,12 +525,30 @@ export function Viewport({
   // the camera (not during sketch authoring).
   useViewHotkeys(viewNav);
 
+  // The subject the camera frames. A part viewport prefers the bounds of what
+  // is DRAWN over the whole mesh's, so hiding a body genuinely takes it out of
+  // the fit (UI-W2) instead of leaving the camera parked around a solid nobody
+  // can see. Origin planes/axes are deliberately excluded: they are sized FROM
+  // these bounds, so feeding them back in would zoom out a step every refit.
   const bounds = useMemo<Box3 | null>(() => {
     if (worldBounds !== undefined) return worldBounds;
-    return geometry?.boundingBox ?? null;
-  }, [worldBounds, geometry]);
+    return visibleBounds ?? geometry?.boundingBox ?? null;
+  }, [worldBounds, visibleBounds, geometry]);
+  const partBodies = usePartViewStore((state) => state.bodies);
+  const partView = usePartViewStore((state) => state.view);
+  const partSubject = usePartViewStore((state) => state.subjectId);
+  const partHidden = hiddenBodyCount(partView, partBodies);
+  const partIsolated = isolatedBodyLabel(partView, partBodies);
+  const showAllBodies = usePartViewStore((state) => state.showAll);
+  // `V` / `⇧V` — armed only while a PART browser has registered its subject, so
+  // the assembly workspace keeps its own binding of the same keys.
+  usePartViewHotkeys(viewNav && partSubject !== null);
+  // The fit re-runs whenever the drawn subject changes identity, which now
+  // includes "a body was hidden" — the same trigger, one more input.
+  const hiddenFitKey = `${partHidden}:${partBodies.length}`;
   const resolvedFitKey =
-    fitKey ?? (geometry === null ? "empty" : `geometry-${geometry.id}`);
+    fitKey ??
+    (geometry === null ? "empty" : `geometry-${geometry.id}-${hiddenFitKey}`);
 
   // Ground the stock: a soft contact pool sized to the subject's footprint.
   // Sits a hair ABOVE the grid plane so it shades the bench, never z-fights.
@@ -388,6 +579,23 @@ export function Viewport({
     node.dataset["selectedFaces"] = String(selected);
     node.dataset["totalFaces"] = String(total);
   }, []);
+
+  /**
+   * QA hook: the drawn / ghosted / hidden face census (UI-W2). The load-bearing
+   * proof that a body eye moved the SCENE is the spec's pixel census; this is
+   * its raster-independent companion, and it is what makes a "hidden means
+   * nothing drawn" regression fail as a number rather than as a fuzzy image.
+   */
+  const handleBodyView = useCallback(
+    (counts: { drawn: number; ghosted: number; hidden: number }) => {
+      const node = containerRef.current;
+      if (node === null) return;
+      node.dataset["drawnFaces"] = String(counts.drawn);
+      node.dataset["ghostFaces"] = String(counts.ghosted);
+      node.dataset["hiddenFaces"] = String(counts.hidden);
+    },
+    [],
+  );
 
   /**
    * Right-drag PANS, right-CLICK opens the menu (FINDINGS burn-down #4). The
@@ -457,14 +665,48 @@ export function Viewport({
   );
 
   /** QA hook: the settled view + camera position, stamped on the container. */
-  const handleSettle = useCallback((view: string, position: Vector3) => {
+  const handleSettle = useCallback(
+    (view: string, position: Vector3, framed: Rect | null) => {
+      const node = containerRef.current;
+      if (node === null) return;
+      node.dataset["view"] = view;
+      node.dataset["cameraPos"] = [position.x, position.y, position.z]
+        .map((v) => v.toFixed(1))
+        .join(",");
+      // The rect the fit actually framed into — the free viewport, not the
+      // canvas. The e2e reads it and asserts the body's projected bbox lies
+      // inside it with margin on all four sides.
+      node.dataset["fitRect"] =
+        framed === null
+          ? ""
+          : [framed.x, framed.y, framed.width, framed.height]
+              .map((v) => Math.round(v))
+              .join(",");
+    },
+    [],
+  );
+
+  /**
+   * The unobstructed rect, measured from the live DOM at fit time. Includes the
+   * in-canvas reference cube, which is WebGL and therefore has no rect of its
+   * own — a fit that tucked a part under the nav cube would be the same defect
+   * as one that tucked it under the inspector.
+   */
+  const framing = useCallback(() => {
     const node = containerRef.current;
-    if (node === null) return;
-    node.dataset["view"] = view;
-    node.dataset["cameraPos"] = [position.x, position.y, position.z]
-      .map((v) => v.toFixed(1))
-      .join(",");
-  }, []);
+    if (node === null) return null;
+    const { canvas, obstructions } = measureChrome(node);
+    if (canvas.width <= 0 || canvas.height <= 0) return null;
+    if (viewNav) {
+      obstructions.push({
+        x: canvas.width - CUBE_MARGIN_PX - CUBE_FOOTPRINT_PX / 2,
+        y: canvas.height - CUBE_MARGIN_PX - CUBE_FOOTPRINT_PX / 2,
+        width: CUBE_FOOTPRINT_PX,
+        height: CUBE_FOOTPRINT_PX,
+      });
+    }
+    return { canvas, free: unobstructedRect(canvas, obstructions) };
+  }, [viewNav]);
 
   return (
     <div
@@ -534,13 +776,19 @@ export function Viewport({
             selectedFaceIndices={bodySelectedFaces}
             onHighlightChange={handleHighlight}
             onFaceSelectionChange={handleFaceSelection}
+            onVisibleBounds={setVisibleBounds}
+            onBodyViewChange={handleBodyView}
           />
         ) : null}
+        {/* Origin planes + axes (UI-W2). Renders nothing until the browser
+            enables a row, and never contributes to the camera fit. */}
+        {viewNav ? <OriginGeometry bounds={bounds} /> : null}
         {children}
         <CameraRig
           bounds={bounds}
           fitKey={resolvedFitKey}
           reducedMotion={reducedMotion}
+          framing={framing}
           onSettle={handleSettle}
         />
         {viewNav ? <ReferenceCube /> : null}
@@ -572,6 +820,15 @@ export function Viewport({
       <div className="pointer-events-none absolute inset-0 z-hud [&>*]:pointer-events-auto">
         {viewNav ? <ViewBar /> : null}
         {viewNav ? <NavCue /> : null}
+        {/* The way back from an isolate / a hand-hidden scene (UI-W2). The same
+            derived stamp the assembly workspace shows, over bodies. */}
+        {viewNav && partSubject !== null ? (
+          <VisibilityStamp
+            isolatedName={partIsolated}
+            hiddenCount={partHidden}
+            onShowAll={showAllBodies}
+          />
+        ) : null}
         {hud}
       </div>
       {/*

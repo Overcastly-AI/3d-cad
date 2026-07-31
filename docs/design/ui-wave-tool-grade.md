@@ -104,6 +104,39 @@ Also as-built and worth copying: `assembly.ghost` references
 language, but deliberately NOT the preview's brass tint — brass means "about to
 be", while a ghost is committed and merely see-through.
 
+**AS-BUILT, PART HALF (shipped 2026-07-31)** — the founder asked for it as *"the
+ability to enable planes, sketches and bodies? Similar to fusion?"*, so the
+categories are Fusion's three. Four more calls that did not survive contact:
+
+3. **Two stops, not three, on the ORIGIN and SKETCH rows.** GHOST means "see
+   through the solid to what is behind it"; a datum plane is already translucent
+   and a sketch is a line, so a third stop on those rows would be a control that
+   changes nothing — the decorative chrome mandate 3c calls a defect. Bodies keep
+   the full SOLID · GHOST · HIDE.
+4. **Disclosure is on ADDRESSED, not SELECTED, on the part side.** Correction 1
+   above says "the selected row", and that is right for the assembly, where
+   selecting an instance only addresses it. On a part, selecting a body row
+   selects its BASE FEATURE — which opens that feature's editor. Gating the view
+   control on selection therefore meant you could not ghost a solid without
+   starting to edit the extrude that made it (measured: the ghost screenshot came
+   back with the Extrude editor open and its preview ghost filling the frame).
+   "Addressed" is now the row whose eye you last touched.
+5. **A sketch's stop is DERIVED, not stored.** The old rule was a one-liner in the
+   workspace — a body exists, so draw no sketch ink at all — which is a reasonable
+   DEFAULT (coincident scribe ink z-fights the solid it made) and a bad LAW: it
+   left no way to look at the profile driving the feature you are editing. It is
+   now the default of a per-sketch stop that an explicit choice overrides in
+   either direction. Consequence worth stating: the eye's toggle has to start from
+   what the row is SHOWING, or the first click on a derived-hidden row writes
+   "hidden" over "hidden" and nothing happens (caught by a unit test, not by eye).
+6. **Per-body hiding had to be DERIVED from the mesh.** The evaluate ships ONE
+   fused GLB and the contract carries no per-body mesh, so `bodyPartition.ts`
+   recovers the split from the mesh's own connected components (separate bodies
+   share no vertex ⇒ components ARE the kernel's lumps) plus the per-body lump
+   count already on the wire. When the arithmetic does not line up it returns
+   null and the panel WITHHOLDS the eye with a reason, rather than shipping a
+   control that hides the wrong solid.
+
 **Restraint applies here.** The timeline gets this wave's boldness. Per the
 CLAUDE.md mandate these panels are "quiet precision instruments," so these
 controls are dense, keyboard-first, and revealed on hover/focus using the idiom

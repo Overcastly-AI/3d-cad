@@ -428,8 +428,27 @@ frame refactor are v2/§11. Spike de-collected.
       is hidden, and is pointer-inert but for its control. Web unit 1140 + design
       63; `assembly-visibility.spec.ts` (6) + 18 regression specs green on a live
       native stack; shots `uiw2-visibility-before-{1440,1366}.png`,
-      `uiw2-{ghost,isolate}-{1440,1366}.png`. NEXT: the PART half (Origin /
-      Sketches / Bodies categories) — another agent holds those panels.
+      `uiw2-{ghost,isolate}-{1440,1366}.png`. **PART HALF SHIPPED 2026-07-31**
+      (frontend-builder; founder: "what about the ability to enable planes,
+      sketches and bodies? Similar to fusion?"). Same vocabulary, three
+      categories: SKETCHES + ORIGIN sections in the browser, eyes + the
+      SOLID · GHOST · HIDE control on the Bodies list, `V` / `⇧V`, the derived
+      `ISOLATED` stamp. The origin planes and axes had never rendered AT ALL, so
+      every datum decision was made against geometry you could not see; they now
+      draw in the plane-picker's own tokens, sized 1.6x the subject so a sheet is
+      not hidden by the part it passes through, axes solid on + and phantom on −.
+      Four as-built corrections in the design doc: two stops (not three) on rows
+      where GHOST would mean nothing; disclosure on ADDRESSED not SELECTED
+      (selecting a body row opens its base feature's EDITOR — measured, the ghost
+      shot came back with the extrude editor open); a sketch's stop is DERIVED
+      from "does a body exist" with an explicit override either way; and per-body
+      hiding is recovered from the ONE fused GLB by connected components +
+      the per-body lump count (`bodyPartition.ts`), withheld with a reason rather
+      than guessing when the arithmetic does not line up. Web unit 1283 + design
+      66; `part-visibility.spec.ts` (7) + `view-fit.spec.ts` (5) + ~230 regression
+      specs green on a live native stack; mutation-verified — stubbing the WebGL
+      side fails 4 of 5 pixel tests while aria/`data-*` still flip. Shots
+      `uiw2-part-{origin,hidden,ghost}-after-{1440,1366}.png`.
       [src: founder directive 2026-07-30 · AUDIT-PRODUCT 21-instance assembly]
 - [x] (P1, M) **UI-W5 — entity snapping in the sketcher, with a mark that says
       WHICH snap you are about to take. SHIPPED 2026-07-31**
@@ -1347,21 +1366,32 @@ frame refactor are v2/§11. Spike de-collected.
       Acceptance: a measured drop in perceived edit-commit latency at N=100 and
       N=200 with the CPU budget stated, plus a test that a warmed prefix cannot
       be returned as an answer. [src: founder question 2026-07-31 · docs/PERF.md]
-- [ ] (P2, S) **"Fit model" frames the CANVAS, not the VISIBLE viewport — a
-      big part is clipped by its own panels** (frontend). Measured 2026-07-31 on a
-      120x80x40 shelled enclosure: `view-fit` zoomed until the body ran under the
-      feature tree on the left, under the inspector on the right, and off the top
-      of the frame. Fit must solve against the UNOBSTRUCTED rect (canvas minus the
-      docked panels and the timeline strip) with a margin, and re-fit when a panel
-      collapses. A fit that hides the thing it fit is a chrome element that does
-      not do what it says (design mandate 3c). Acceptance: an e2e that fits three
-      parts of very different aspect ratios and asserts the body's projected bbox
-      lies inside the unobstructed rect with margin on all four sides.
+- [x] (P2, S) **"Fit model" frames the CANVAS, not the VISIBLE viewport — a
+      big part is clipped by its own panels. FIXED 2026-07-31** (frontend-builder).
+      `viewport/fitFraming.ts` measures the live DOM (every docked element carries
+      `data-viewport-chrome`, plus the in-canvas reference cube, which has no rect
+      of its own), charges each obstruction to the ONE edge that leaves the largest
+      free AREA, and the rig frames into that rect and slides the orbit target so
+      the part sits in its middle. A panel that collapses announces itself and the
+      fit re-runs — but only while the modeler has not taken the camera by hand
+      since, because yanking someone off a detail they zoomed into would be a worse
+      defect than the one being fixed. The fit DISTANCE is now solved from the
+      subject's projected corners under the real perspective (depth included: the
+      near end of a long part projects wider — an orthographic first cut measured
+      51px of overhang on a 260mm rail), replacing the fixed 1.75x-diagonal rule
+      that was blind to both the frame and the aspect ratio. `view-fit.spec.ts`
+      fits three aspect ratios and asserts the body's projected bbox — read from
+      canvas PIXELS, not from the same arithmetic — lies inside the rect on all
+      four sides; mutation-verified (framing the canvas instead fails 4 of 5).
+      Shots `viewfit-{before,after}-{1440,1366}.png`.
       [src: founder capture 2026-07-31]
-- [ ] (P3, XS) **The ViewCube is clipped by the window edge and the timeline
-      strip** (frontend). Same capture: it sits hard against the bottom-right
-      corner with its lower corner cut and its FRONT/RIGHT/TOP labels running into
-      the frame. Needs the same inset the ViewBar gets, above the timeline strip.
+- [x] (P3, XS) **The ViewCube is clipped by the window edge and the timeline
+      strip. FIXED 2026-07-31** (frontend-builder). The inset was 64px against a
+      cube whose ISOMETRIC silhouette is ~√3 wider than its face, so its lower
+      corner and the FRONT/RIGHT labels sat hard on the frame edge; it is now 96px,
+      which also puts it on the same 12px gutter the ViewBar and the panels use.
+      Its footprint is registered as a fit obstruction in the same pass, so a part
+      can no longer be framed underneath it either.
       [src: founder capture 2026-07-31]
 - [ ] (P2, S) **Promote the durable EDGE tier into `geometry.kernel.edges`** (kernel
       territory). N1's two-tier resolver ships in `geometry.drawings.anchor` because
@@ -2214,6 +2244,12 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
       engineering-audit debt items closed. [src: engineering-auditor]
 
 ## Changelog
+
+- 2026-07-31 — **UI-W2 part half + the two framing defects (frontend-builder):**
+  Origin / Sketches / Bodies get the assembly's eye vocabulary; origin planes and
+  axes render for the first time; "Fit model" frames the unobstructed rect at a
+  distance solved from the part's real projection, and the ViewCube clears its
+  own corner. Asserted on canvas pixels, mutation-verified.
 
 - 2026-07-31 — **What LEAVES the tool now says what it is (kernel-architect):**
   audit N8 — an assembly STEP instances its parts (21 instances / 2 parts:

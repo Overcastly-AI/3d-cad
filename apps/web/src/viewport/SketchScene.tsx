@@ -57,6 +57,7 @@ import {
 } from "../sketch/tools";
 import { AdaptiveGrid } from "./AdaptiveGrid";
 import { ConstraintGlyphs } from "./ConstraintGlyphs";
+import { sketchIsDrawn, usePartViewStore } from "./partView";
 
 /** Datum sheet half-extent feels like stock on the table (mm). */
 const PLANE_SIZE_MM = 90;
@@ -914,14 +915,27 @@ export interface SketchSceneProps {
 export function SketchScene({ solved, facePicking = false }: SketchSceneProps) {
   const mode = useSketchStore((state) => state.mode);
   const plane = useSketchStore((state) => state.plane);
+  const partView = usePartViewStore((state) => state.view);
+  const bodyPresent = usePartViewStore((state) => state.bodyPresent);
   const basis = useMemo(
     () => (plane === null ? null : resolveSpecBasis(plane)),
     [plane],
   );
+  // WHICH solved sketches are drawn (UI-W2, part half). The rule used to be a
+  // hard one-liner in the workspace — "a body exists, so draw no sketch ink at
+  // all" — which is a reasonable DEFAULT (coincident scribe ink z-fights the
+  // solid it made) and a bad LAW: it left a modeler no way to look at the
+  // profile that drives the feature they are editing. It is now the default of
+  // a per-sketch stop the browser can override in either direction, and the ROW
+  // and the SCENE read the same derivation, so the eye can never disagree with
+  // the pixels.
+  const drawn = solved.filter((layer) =>
+    sketchIsDrawn(partView, layer.featureId, bodyPresent),
+  );
   useSnapModifiers(mode === "draw");
   return (
     <group>
-      {solved.map((layer) => (
+      {drawn.map((layer) => (
         <SolvedLayer key={layer.featureId} layer={layer} />
       ))}
       {mode === "plane" && !facePicking
