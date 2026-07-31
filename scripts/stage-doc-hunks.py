@@ -246,10 +246,27 @@ def main() -> int:
         print(f"stage-doc-hunks: patch did not apply.\n{applied.stderr}")
         return 3
 
+    # NAME WHAT WAS STAGED, don't just count it. A count cannot show you that the
+    # marker landed inside a colleague's prose — which is exactly how "OPS-1"
+    # swept an OBS-1 entry whose text read "the same shape as OPS-1"
+    # (2026-07-31). The tool did what it was told; the marker was the defect, and
+    # a count of "1 hunk" looked perfectly correct while it happened. Printing
+    # the entry-start line of every staged entry makes the sweep visible in the
+    # one place the author is already looking.
+    staged_entries = [
+        ln.rstrip()
+        for hunk in filtered
+        for ln in added_lines(hunk)
+        if ENTRY_START.match(ln)
+    ]
     print(
         f"stage-doc-hunks: staged {len(mine)} hunk(s) of {path} matching {marker!r}; "
         f"left {theirs} hunk(s) unstaged for their author."
     )
+    if staged_entries:
+        print("  entries staged — CHECK EVERY ONE OF THESE IS YOURS:")
+        for head in staged_entries:
+            print(f"    {head}")
     return 0
 
 

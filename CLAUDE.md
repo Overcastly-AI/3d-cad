@@ -362,6 +362,29 @@ on completion with a watchdog fallback (`docs/AUTONOMOUS-LOOP.md` §1.4).
   commit landed as its parent. Verify afterwards with `git show --stat HEAD` that
   the commit contains only your paths — the isolated index protects their work,
   not you from your own `git add`.
+  **AND `git read-tree HEAD` SNAPSHOTS HEAD AT THAT MOMENT — if a sibling commits
+  before you do, your commit REVERTS THEIRS.** This is the recipe's own trap and
+  it bit within hours of the recipe landing: the ops agent read-tree'd, worked,
+  and committed; a sibling had committed in between, so its tree carried the
+  PRE-sibling content and its commit silently deleted `CLAUDE.md`'s and
+  `docs/ARCHITECTURE.md`'s changes plus three screenshots. It was caught only
+  because the agent ran `git show --stat HEAD` before pushing and saw deletions
+  it never made. Nothing reached the remote, which is the good outcome and also
+  why this is easy to miss — a `git commit` that reverts a colleague reports
+  nothing unusual. Two rules: pin the base explicitly rather than by name
+  (`base=$(git rev-parse HEAD); git read-tree "$base"`), and immediately before
+  committing re-check that `git rev-parse HEAD` still equals `$base` — if it
+  moved, re-read-tree from the new HEAD and re-add your paths. Then `git show
+  --stat HEAD` and read it for paths you did NOT touch; that check is not
+  optional, it is the only thing that catches this.
+- **`stage-doc-hunks.py`: a bare item id is NOT a safe marker, because siblings
+  cross-reference ids.** Seen 2026-07-31: `stage-doc-hunks.py docs/BACKLOG.md
+  "OPS-1"` swept another agent's OBS-1 entry, because THEIR text contained the
+  phrase "the same shape as OPS-1". The tool did exactly what it was told; the
+  marker was the defect. Use a phrase from your own entry's FIRST line — e.g.
+  `"OPS-1 — there was no backup"` rather than `"OPS-1"` — so the match cannot
+  land inside somebody else's prose. The tool now prints the entry-start line of
+  everything it stages; read that output rather than trusting the count.
   **AND THEN RESYNC THE DEFAULT INDEX, or your own commit reads as uncommitted.**
   `.git/index` never learns about a commit made through another index, so it keeps
   the PRE-commit blob for every path you just committed and `git status` reports
