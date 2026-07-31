@@ -2,8 +2,9 @@
 
 One source of truth for cross-service boilerplate (CLAUDE.md DRY rule):
 env-driven config, structlog JSON logging, FastAPI app factory with
-``/healthz`` + ``/readyz``, the standard error envelope, and the arq queue
-client. Every Loft service builds on this package.
+``/healthz`` + ``/readyz``, the standard error envelope, Prometheus ``/metrics``
+(see ``docs/OBSERVABILITY.md``), and the arq queue client. Every Loft service
+builds on this package.
 """
 
 from py_kit.app import REQUEST_ID_HEADER, ReadinessCheck, create_app
@@ -26,11 +27,13 @@ from py_kit.logging import (
     configure_logging,
     get_logger,
 )
+from py_kit.metrics import METRICS_PATH, install_metrics
 from py_kit.queue import QueueClient, QueueConfigurationError, redis_settings
 from py_kit.ratelimit import RateLimiter
 
 __all__ = [
     "DEV_ENV",
+    "METRICS_PATH",
     "REQUEST_ID_HEADER",
     "ApiError",
     "BaseServiceSettings",
@@ -52,6 +55,7 @@ __all__ = [
     "error_response",
     "get_logger",
     "install_error_handlers",
+    "install_metrics",
     "is_dev_env",
     "redis_settings",
 ]

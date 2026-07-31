@@ -112,6 +112,13 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from OCP.BRepTools import BRepTools
+from py_kit.metrics import (
+    note_rebuild,
+    record_rebuild_cache_eviction,
+    record_rebuild_cache_hit,
+    record_rebuild_cache_miss,
+    record_rebuild_cache_store,
+)
 from py_kit.schemas.features import EvaluateTreeRequest
 
 from geometry.kernel.types import BodyShape
@@ -166,7 +173,10 @@ class Detachable(Protocol):
 
 @dataclass(frozen=True)
 class CacheStats:
-    """Observability counters (tests assert on these; nothing else reads them)."""
+    """In-process counters, read by the tests. The operator-facing versions of
+    the same events are Prometheus counters moved at the SAME lines that move
+    these (:mod:`py_kit.metrics`), so the two cannot drift apart: there is one
+    increment site per event, not two."""
 
     hits: int
     misses: int
@@ -280,6 +290,14 @@ class PrefixCache[CheckpointT: Detachable]:
         ``keys[0]`` (the empty prefix) is never a useful checkpoint and is not
         probed. Returns ``(prefix_length, checkpoint)``; the caller owns the
         checkpoint and MUST NOT assume the cache still holds it.
+
+        THIS IS ALSO THE REBUILD OBSERVABILITY SEAM (:mod:`py_kit.metrics`).
+        ``evaluate_tree`` consults the cache unconditionally — it is the second
+        statement of the function, before any kernel work — so every rebuild in
+        the product passes through here exactly once, whatever route asked for
+        it. Instrumenting the nine ``evaluate_tree`` call sites instead would
+        leave the tenth uncounted and the graph silently wrong. Nothing about the
+        cache's behaviour depends on the recording.
         """
         with self._lock:
             for length in range(len(keys) - 1, 0, -1):
@@ -287,8 +305,12 @@ class PrefixCache[CheckpointT: Detachable]:
                 if entry is not None:
                     self._hits += 1
                     self._resumed_features += length
+                    record_rebuild_cache_hit()
+                    note_rebuild(features=len(keys) - 1, resumed=length)
                     return length, entry
             self._misses += 1
+            record_rebuild_cache_miss()
+            note_rebuild(features=len(keys) - 1, resumed=0)
             return None
 
     def store_on_release(
@@ -335,9 +357,11 @@ class PrefixCache[CheckpointT: Detachable]:
             self._entries.pop(key, None)
             self._entries[key] = checkpoint
             self._stores += 1
+            record_rebuild_cache_store()
             while len(self._entries) > self._capacity:
                 self._entries.popitem(last=False)
                 self._evictions += 1
+                record_rebuild_cache_eviction()
 
     def clear(self) -> None:
         """Drop every entry (test isolation; production never calls this)."""

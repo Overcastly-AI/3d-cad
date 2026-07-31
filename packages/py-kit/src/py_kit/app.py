@@ -1,9 +1,10 @@
 """FastAPI app factory — every Loft service boots through :func:`create_app`.
 
 Wires (in one place, DRY): structured logging, request-id middleware, response
-compression, the standard error envelope, and the infra probes ``/healthz``
-(liveness) and ``/readyz`` (readiness). Probes are infrastructure, deliberately
-*not* under ``/api/v1`` and excluded from the OpenAPI schema.
+compression, the standard error envelope, Prometheus metrics, and the infra
+probes ``/healthz`` (liveness) and ``/readyz`` (readiness). Probes and
+``/metrics`` are infrastructure, deliberately *not* under ``/api/v1`` and
+excluded from the OpenAPI schema.
 """
 
 import uuid
@@ -22,6 +23,7 @@ from py_kit.logging import (
     configure_logging,
     get_logger,
 )
+from py_kit.metrics import install_metrics
 
 ReadinessCheck = Callable[[], Awaitable[str | None]]
 """Async callable that returns on success and raises on failure. Its
@@ -137,5 +139,12 @@ def create_app(
                 "checks": checks,
             },
         )
+
+    # Metrics LAST, so the middleware is OUTERMOST: what it times is what the
+    # client waits for (compression, request-id binding, the error envelope and
+    # the handler), not a handler-only slice that would flatter every number.
+    # See :mod:`py_kit.metrics` for what is exported and the ``/metrics``
+    # exposure posture — it is not public by default.
+    install_metrics(app, settings)
 
     return app

@@ -894,6 +894,45 @@ carry forward as blocked board items.
       the rebuild cache is a PER-PROCESS LRU of 8, so `--scale geometry=N`
       divides the hit rate instead of multiplying throughput — there is no
       session affinity)
+- ✅ **OBS-1 — `/metrics`, so an operator can tell a slow part from an
+      incident** — the other open-source-release gap of the same shape as OPS-1:
+      the stack had `/healthz`, `/readyz` and structured logs and **nothing
+      else**, while a legitimate rebuild takes 26 s (docs/PERF.md), so a
+      hung-looking UI and a big part were indistinguishable from outside.
+      SHIPPED 2026-07-31 (backend-builder). Prometheus exposition wired ONCE in
+      `py_kit.metrics` (via `create_app`), so all three services inherit the same
+      names and posture; `prometheus-client` is Apache-2.0 with zero required
+      runtime deps. Instrumented for THIS product, not a generic HTTP dashboard:
+      **rebuild time as a histogram** labelled `cache` (hit/partial/miss) ×
+      `tree_size` band, with **2 s (the RESEARCH §9 interactive ceiling) as a
+      bucket boundary** so "what fraction felt like a tool" is one PromQL
+      expression; **rebuild-cache hits/misses/stores/evictions**, the only way to
+      see that the per-process LRU is being divided by worker count rather than
+      multiplied; **feature failures by error code** (~85 codes — a
+      `shell_thickness_too_large` spike is a user learning the tool, an
+      `invalid_body` spike is a defect); **STEP import duration + refusals split
+      by reason**, with 20 s (the CPU ceiling) as a bucket boundary; plus HTTP
+      rate/latency/status by ROUTE TEMPLATE and process/GC basics. Every seam was
+      chosen because it CANNOT be bypassed — the contract DTO every feature
+      failure is rendered through, the prefix cache `evaluate_tree` consults as
+      its second statement, the one bounded worker both STEP readers use — and
+      every test asserts the counter MOVES by a specific delta, never that a name
+      appears in the exposition. **Cost measured, not asserted: +30 µs per
+      request** (A/B against `METRICS_ENABLED=false`, which removes the
+      middleware, interleaved samples, in-process and over loopback HTTP against
+      the real geometry service) = 0.0001 % of a 26 s rebuild; pure-ASGI
+      middleware, not `BaseHTTPMiddleware`, to keep it there. Cardinality: no part
+      /user/feature/request id ever becomes a label, unmatched paths collapse to
+      ONE `<unmatched>` series, the one free-form label is capped at 128 distinct
+      values, ~4 600 series for the whole stack. `/metrics` is **not public by
+      default**: same fail-closed posture as `JWT_SECRET` off the same `LOFT_ENV`
+      — open in dev, bearer `METRICS_TOKEN` required otherwise, and 404 (not 403)
+      without it so a prober cannot learn metrics exist. Operator guide
+      `docs/OBSERVABILITY.md` (what each metric means, healthy vs struggling
+      readings, scrape config, honest limits). One real defect found and fixed by
+      pointing it at the real services: since FastAPI 0.139 `include_router` does
+      not flatten into `app.routes`, so the first `endpoint → path` implementation
+      labelled EVERY API route `<unmatched>` while passing its own unit tests
 - ✅ Compose deploy-config audit fixes (2026-07-24 engineering audit G1/G3/G4,
       platform-builder): geometry now receives `S3_ACCESS_KEY_ID`/
       `S3_SECRET_ACCESS_KEY` anchor-sourced from the MinIO root credentials

@@ -80,6 +80,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import time
 
 from build123d import Compound, Solid
 from OCP.BRep import BRep_Builder
@@ -88,6 +89,7 @@ from OCP.TopAbs import TopAbs_COMPOUND, TopAbs_FACE, TopAbs_SHELL, TopAbs_SOLID
 from OCP.TopExp import TopExp_Explorer
 from OCP.TopoDS import TopoDS, TopoDS_Shape
 from OCP.TopTools import TopTools_FormatVersion
+from py_kit.metrics import observe_step_import
 
 from geometry.kernel.lumps import assemble_lumps
 from geometry.kernel.types import BodyShape
@@ -321,48 +323,69 @@ def run_bounded_parse_worker(
     capturing that would buffer untrusted-input-proportional diagnostics in the
     *parent* — which the kill does not reclaim. We never read the output, so
     discarding it both closes that amplification vector and is strictly simpler.
-    """
-    try:
-        completed = subprocess.run(
-            argv,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=wall_timeout_s,
-        )
-    except subprocess.TimeoutExpired as exc:
-        raise ImportParseTimeoutError(
-            "STEP import exceeded its "
-            f"{wall_timeout_s:g}s wall-clock liveness limit and was aborted; "
-            "the parse appears wedged. Simplify or repair the part and try "
-            "again."
-        ) from exc
-    if completed.returncode in _CPU_LIMIT_SIGNALS:
-        raise ImportParseTimeoutError(
-            "STEP import exceeded its "
-            f"{cpu_timeout_s:g}s CPU-time limit and was aborted; the file may "
-            "be pathologically large or geometrically degenerate. Simplify "
-            "or repair the part and try again."
-        )
-    # The assembly worker aborts the walk with this code once the leaf-occurrence
-    # count exceeds the import ceiling — a rejection inside the CPU-bounded child,
-    # before it emits a per-occurrence BREP for every occurrence. Imported lazily
-    # (the constant lives in the shared exit-code protocol module, which imports
-    # only math/sys) to keep this generic runner decoupled from OCP/build123d.
-    from geometry.kernel._step_parse_worker import EXIT_TOO_MANY_PRODUCTS
 
-    if completed.returncode == EXIT_TOO_MANY_PRODUCTS:
-        raise ImportTooManyProductsError(
-            "The assembly STEP contains more part occurrences than the import "
-            "limit allows. Split it into smaller sub-assemblies and try again."
-        )
-    if completed.returncode != 0:
-        # EXIT_PARSE_FAILED, a crash, or any non-timeout non-zero exit: the
-        # untrusted bytes could not be read/transferred. Never a 500.
-        raise ImportParseError(
-            "The STEP payload could not be parsed or transferred (worker "
-            f"exit {completed.returncode}); it may be malformed, truncated, "
-            "or not a STEP file."
-        )
+    IT IS ALSO THE STEP-IMPORT OBSERVABILITY SEAM (:mod:`py_kit.metrics`), for
+    the same reason it is the DoS seam: both readers run their untrusted parse
+    through here, so a third one cannot appear that is bounded but unmeasured.
+    The ``finally`` records the wall time under an ``outcome`` label — and the
+    outcome starts as ``"error"``, not ``"ok"``, so an unforeseen escape (an
+    ``OSError`` from ``subprocess``, say) is reported as the anomaly it is rather
+    than silently inflating the success histogram. The refusal counter this
+    feeds is the one that tells a self-hoster their users are hitting the
+    ~3x-headroom CPU ceiling (docs/PERF.md PERF-3) instead of guessing.
+    """
+    started = time.perf_counter()
+    outcome = "error"
+    try:
+        try:
+            completed = subprocess.run(
+                argv,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=wall_timeout_s,
+            )
+        except subprocess.TimeoutExpired as exc:
+            outcome = "wall_timeout"
+            raise ImportParseTimeoutError(
+                "STEP import exceeded its "
+                f"{wall_timeout_s:g}s wall-clock liveness limit and was aborted; "
+                "the parse appears wedged. Simplify or repair the part and try "
+                "again."
+            ) from exc
+        if completed.returncode in _CPU_LIMIT_SIGNALS:
+            outcome = "cpu_timeout"
+            raise ImportParseTimeoutError(
+                "STEP import exceeded its "
+                f"{cpu_timeout_s:g}s CPU-time limit and was aborted; the file may "
+                "be pathologically large or geometrically degenerate. Simplify "
+                "or repair the part and try again."
+            )
+        # The assembly worker aborts the walk with this code once the
+        # leaf-occurrence count exceeds the import ceiling — a rejection inside the
+        # CPU-bounded child, before it emits a per-occurrence BREP for every
+        # occurrence. Imported lazily (the constant lives in the shared exit-code
+        # protocol module, which imports only math/sys) to keep this generic runner
+        # decoupled from OCP/build123d.
+        from geometry.kernel._step_parse_worker import EXIT_TOO_MANY_PRODUCTS
+
+        if completed.returncode == EXIT_TOO_MANY_PRODUCTS:
+            outcome = "too_many_products"
+            raise ImportTooManyProductsError(
+                "The assembly STEP contains more part occurrences than the import "
+                "limit allows. Split it into smaller sub-assemblies and try again."
+            )
+        if completed.returncode != 0:
+            # EXIT_PARSE_FAILED, a crash, or any non-timeout non-zero exit: the
+            # untrusted bytes could not be read/transferred. Never a 500.
+            outcome = "parse_failed"
+            raise ImportParseError(
+                "The STEP payload could not be parsed or transferred (worker "
+                f"exit {completed.returncode}); it may be malformed, truncated, "
+                "or not a STEP file."
+            )
+        outcome = "ok"
+    finally:
+        observe_step_import(time.perf_counter() - started, outcome=outcome)
 
 
 def _run_parse_worker(

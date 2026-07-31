@@ -29,6 +29,7 @@ from pydantic import (
     model_validator,
 )
 
+from py_kit.metrics import record_feature_error
 from py_kit.schemas.geometry import (
     DEFAULT_ANGULAR_DEFLECTION,
     DEFAULT_LINEAR_DEFLECTION,
@@ -3468,6 +3469,29 @@ def export_tree_filename(request: ExportTreeRequest) -> str:
     return f"{slug or f'part-{request.part_id}'}.{request.format}"
 
 
+# CONSTRUCTING A ``FeatureError`` IS INSTRUMENTED (see ``model_post_init`` below:
+# :func:`py_kit.metrics.record_feature_error`), which is a side effect on a DTO
+# and therefore owes an explanation. The alternative is a ``.inc()`` beside each
+# of the ~85 ``FeatureError(code=…)`` sites across the kernel handlers — and the
+# 86th, written next month by someone who has never read this file, would
+# silently not be counted. That is this repo's "a gate that cannot fail" defect
+# wearing a different hat: an operator would see a flat line and conclude nothing
+# was wrong. The contract DTO is the ONE thing every feature failure in the
+# product is rendered through, so it is the seam that cannot be bypassed. Cost is
+# a counter increment on a path that only runs when something already failed.
+#
+# One honest consequence: the gateway re-validates geometry's response into this
+# same model (``gateway/features.py``), so a proxied failure is counted once in
+# geometry (where it happened) and once in the gateway (where it was observed).
+# Each service exports its own ``/metrics``, so the two are distinct series —
+# attribute failures to the geometry job and do not sum across jobs.
+# ``docs/OBSERVABILITY.md`` says so where an operator will read it.
+#
+# The rationale lives in a COMMENT, not the docstring, on purpose: a model
+# docstring is the ``description`` of this schema in ``packages/contracts`` and
+# in the generated TS client, and instrumentation trivia is not something an API
+# consumer should have to read. (Written as a docstring first; `just gen-check`
+# showed the whole essay landing in `schema.ts`.)
 class FeatureError(BaseModel):
     """Why one feature failed to evaluate (§4.3)."""
 
@@ -3487,6 +3511,10 @@ class FeatureError(BaseModel):
         "so the sketcher reads the diagnosis by field instead of parsing "
         "``message`` (BACKLOG #6). None for non-sketch-conflict errors.",
     )
+
+    def model_post_init(self, context: Any, /) -> None:
+        """Count this failure by code (see the comment above the class)."""
+        record_feature_error(self.code)
 
 
 class SolvedSketchData(SolvedSketch):

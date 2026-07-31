@@ -150,6 +150,21 @@ class BaseServiceSettings(BaseSettings):
     rate_limit_requests: int = 120  # env: RATE_LIMIT_REQUESTS
     rate_limit_window_s: int = 60  # env: RATE_LIMIT_WINDOW_S
 
+    # Prometheus exposition (py_kit.metrics) — wired by the app factory, so
+    # every service exports the same metrics under the same names and posture.
+    # ``METRICS_ENABLED=false`` removes the middleware AND the route: no
+    # per-request cost at all, not merely an unread counter.
+    metrics_enabled: bool = True  # env: METRICS_ENABLED
+    # Bearer token guarding ``/metrics`` OUTSIDE dev. Same fail-closed shape as
+    # ``JWT_SECRET`` and the datastore guard above, off the same ``LOFT_ENV``:
+    # under ``LOFT_ENV=dev`` the endpoint is open (a localhost stack should just
+    # work); anywhere else an unset token means ``/metrics`` answers 404, so a
+    # real deployment never publishes its internals by accident. Deliberately a
+    # SHARED SECRET rather than a loopback allowlist — behind the reverse proxy
+    # a self-hoster terminates TLS with, every request arrives from 127.0.0.1,
+    # so an IP check would look careful while serving the public internet.
+    metrics_token: str | None = None  # env: METRICS_TOKEN
+
     def _datastore_credentials(self) -> list[tuple[str, str, str | None]]:
         """``(field, env var, credential)`` triples the guard inspects."""
         found: list[tuple[str, str, str | None]] = []

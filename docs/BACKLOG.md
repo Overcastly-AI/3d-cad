@@ -1802,6 +1802,21 @@ frame refactor are v2/§11. Spike de-collected.
 Full narrative evidence lives in `docs/ROADMAP.md` (Phase 4/4b sections) and
 `CHANGELOG.md`; one line per item below per token economy.
 
+### Recently shipped (2026-07-31)
+
+- **OBS-1 — there was no observability at all; now there is `/metrics`.** The
+  release-target gap of the same shape as OPS-1: `/healthz` + `/readyz` + logs
+  cannot distinguish a 26 s legitimate rebuild from an incident. Prometheus
+  exposition wired ONCE in `py_kit.metrics` (Apache-2.0 client), so all three
+  services inherit it: rebuild time as a histogram by `cache` × `tree_size` (2 s
+  = a bucket boundary), rebuild-cache hits/misses/evictions (the per-process LRU
+  is divided by worker count, not multiplied), feature failures by error code,
+  STEP import duration + refusals by reason (20 s = a boundary), HTTP by route
+  TEMPLATE, process/GC. Seams that cannot be bypassed; every test asserts a
+  DELTA. **+30 µs/request measured** (A/B vs `METRICS_ENABLED=false`).
+  `/metrics` is fail-closed outside `LOFT_ENV=dev` (bearer `METRICS_TOKEN`, 404
+  without it). Guide: `docs/OBSERVABILITY.md`.
+
 ### Recently shipped (2026-07-30)
 
 > ATTRIBUTION NOTE (orchestrator): the `#57` materials entry below was filed by
@@ -2321,6 +2336,11 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
       engineering-audit debt items closed. [src: engineering-auditor]
 
 ## Changelog
+
+- 2026-07-31 — **OBS-1: the stack can be watched (backend-builder):** Prometheus
+  `/metrics` from py-kit for all three services — rebuild histogram by cache ×
+  tree size, cache hit rate, feature errors by code, STEP refusals; +30 µs/req
+  measured; fail-closed outside dev. `docs/OBSERVABILITY.md`.
 
 - 2026-07-31 — **UI-W2 part half + the two framing defects (frontend-builder):**
   Origin / Sketches / Bodies get the assembly's eye vocabulary; origin planes and
