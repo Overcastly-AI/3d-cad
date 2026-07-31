@@ -1294,6 +1294,20 @@ frame refactor are v2/§11. Spike de-collected.
 
 ## Later (P3)
 
+- [ ] (P3, S) **A lost dimension's caption can overrun into a neighbouring view
+      — and it does so identically on the exported sheet** (kernel/drawings).
+      `DimensionGlyph` now stamps the server's `ComposedDimensionError.message` at
+      `dim.text`, which is right; the placement is not. `compose.py`'s
+      `_DIM_ERROR_TEXT_DX` offsets the caption by a fixed amount with no width
+      measurement and no collision check against the neighbouring view's extents,
+      so a long message crosses the gutter. Visible in
+      `docs/screenshots/drawing-dim-lost-after-1440.png`. The fix belongs in the
+      COMPOSER, not the client: the SVG export has byte-identical placement, so a
+      client-side nudge would make screen and print disagree — which is the defect
+      class this repo keeps closing. Acceptance: the caption is placed against the
+      view's measured extents (the N2 collision machinery already exists), with a
+      compose golden that has a caption long enough to have overrun.
+      [src: handback from the #58 settings slice, 2026-07-31]
 - [ ] (P3, M) Settings rows that need a PROPERTY before they can be rendered
       (frontend-builder, 2026-07-31 — deliberately omitted from the shipped
       `/settings` sheet rather than faked). Each needs its backing first:

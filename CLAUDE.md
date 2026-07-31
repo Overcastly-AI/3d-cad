@@ -595,7 +595,18 @@ recipe here in the same commit as the fix.**
   red for everyone, looking like someone else's regression. Payload dumps,
   curl output and one-off fixtures go in the session scratchpad, never the repo
   root. When you find one that is another agent's, tell that agent — do not
-  delete it; it may be in active use. **(3) Lint with `uv run ruff …`, NEVER a
+  delete it; it may be in active use. **(2c) Some temp files CANNOT go in the
+  scratchpad — those must be `prettier --write`-clean before you walk away from
+  them.** `apps/web/playwright.config.ts` sets `testDir: "./e2e"`, so a throwaway
+  spec has to live inside `apps/web/e2e/` to be discovered at all; the scratchpad
+  is not an option, and `.prettierignore` does not cover that directory. Seen
+  2026-07-31: the orchestrator wrote a temporary founder-capture spec there,
+  deleted it minutes later, and in the window between, a concurrent agent's
+  `pnpm run lint` went red on formatting alone — a failure in nobody's diff, in a
+  file that no longer exists by the time anyone looks. Rule: anything you must
+  place inside a linted tree gets formatted the moment it is written, not when it
+  is committed (it never will be), and gets deleted in the same turn.
+  **(3) Lint with `uv run ruff …`, NEVER a
   bare PATH `ruff`.** Seen 2026-07-23 (interference slice `e46db16`): the agent ran a PATH
   `ruff check` that predated the `RUF002` confusable rule and reported "0 errors,"
   but the locked `uv run ruff check` (0.15.20) flagged 8× `RUF002` (a test file
