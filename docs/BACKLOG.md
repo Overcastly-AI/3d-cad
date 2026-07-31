@@ -1092,6 +1092,22 @@ frame refactor are v2/§11. Spike de-collected.
 
 ## Next (P2)
 
+- [ ] (P2, S) **"Fit model" frames the CANVAS, not the VISIBLE viewport — a
+      big part is clipped by its own panels** (frontend). Measured 2026-07-31 on a
+      120x80x40 shelled enclosure: `view-fit` zoomed until the body ran under the
+      feature tree on the left, under the inspector on the right, and off the top
+      of the frame. Fit must solve against the UNOBSTRUCTED rect (canvas minus the
+      docked panels and the timeline strip) with a margin, and re-fit when a panel
+      collapses. A fit that hides the thing it fit is a chrome element that does
+      not do what it says (design mandate 3c). Acceptance: an e2e that fits three
+      parts of very different aspect ratios and asserts the body's projected bbox
+      lies inside the unobstructed rect with margin on all four sides.
+      [src: founder capture 2026-07-31]
+- [ ] (P3, XS) **The ViewCube is clipped by the window edge and the timeline
+      strip** (frontend). Same capture: it sits hard against the bottom-right
+      corner with its lower corner cut and its FRONT/RIGHT/TOP labels running into
+      the frame. Needs the same inset the ViewBar gets, above the timeline strip.
+      [src: founder capture 2026-07-31]
 - [ ] (P2, S) **Promote the durable EDGE tier into `geometry.kernel.edges`** (kernel
       territory). N1's two-tier resolver ships in `geometry.drawings.anchor` because
       the kernel module was held by another agent that batch; the predicate,
