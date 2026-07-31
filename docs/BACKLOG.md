@@ -1303,6 +1303,29 @@ frame refactor are v2/§11. Spike de-collected.
 
 ## Next (P2)
 
+- [ ] (P2, M) **PERF-6 — prefetch the prefix an open editor has already
+      declared stable** (kernel + frontend). BLOCKED ON PERF-1: with no cache,
+      prefetching does the same 27 s of work twice with nowhere to put the
+      result; with the cache it degenerates into warming it at the right moment,
+      which is a small feature rather than a system. Two triggers earn their
+      keep, and only two: (a) opening a feature editor is a genuine declaration
+      that the prefix below it is stable for as long as the dialog is open, so
+      warm 1..N-1 and let the commit cost one feature's work; (b) dragging the
+      timeline rollback marker is a walk through prefixes that are already cache
+      keys, so warm the neighbours of the current stop. Register/document hover
+      prefetch is standard TanStack Query and worth nothing against these
+      numbers — do not bother.
+      TWO CONSTRAINTS, both non-negotiable. **A speculative body must never be
+      publishable**: if a warm result is ever served for a tree it does not
+      exactly correspond to, that is the silent-wrong-geometry class this repo
+      has closed four times, so warming must be a distinct entry point from
+      evaluate. And **prefetch hides latency without reducing work** — it cannot
+      bend the N^1.85 curve, and on 4 cores with several users uncancellable
+      speculation is a self-inflicted DoS, so it needs a budget and real
+      cancellation.
+      Acceptance: a measured drop in perceived edit-commit latency at N=100 and
+      N=200 with the CPU budget stated, plus a test that a warmed prefix cannot
+      be returned as an answer. [src: founder question 2026-07-31 · docs/PERF.md]
 - [ ] (P2, S) **"Fit model" frames the CANVAS, not the VISIBLE viewport — a
       big part is clipped by its own panels** (frontend). Measured 2026-07-31 on a
       120x80x40 shelled enclosure: `view-fit` zoomed until the body ran under the
