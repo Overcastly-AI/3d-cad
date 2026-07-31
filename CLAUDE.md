@@ -143,6 +143,8 @@ just lint           # ruff + pyright + eslint/prettier + TS typecheck (tsc)
 just test           # all unit tests (py + ts)
 just gen            # regenerate contracts + ts-client
 just gen-check      # CI gate: regenerate in tempdir, diff vs. committed
+just gen-verify     # same, but generated from the INDEX — run this before
+                    # committing a schema change while agents run in parallel
 just e2e            # geometry gates (goldens + STEP round-trip) + Playwright suite;
                     # boots geometry/gateway itself (PID-tracked, cleaned up)
 docker compose up -d --build   # full stack (use `just dev` for dev with hot reload)
@@ -618,7 +620,34 @@ recipe here in the same commit as the fix.**
   harness parses goldens as JSON (whitespace-insensitive) so a stored content
   hash is a string field unaffected by formatting, i.e. `prettier --write` on a
   golden is behaviour-neutral and safe.** Always run the full `just lint` at the
-  batch boundary regardless. **(2b) `prettier --check .` walks the FILESYSTEM,
+  batch boundary regardless.
+- **`just gen` reads the WORKING TREE, so in a shared tree it silently bakes
+  another agent's uncommitted schema into YOUR commit — and `gen-check` cannot
+  see it, by construction.** `scripts/gen-contracts.py` imports the live source,
+  so the generator's input is whatever is on disk. `gen-check` then regenerates
+  *the same way* and diffs against the committed JSON, i.e. it asks "do the
+  committed contracts match the working tree?" when the standing rule needs "do
+  they match the committed SOURCE?" Those coincide for a single developer and
+  come apart exactly when several agents are editing schemas at once. Seen
+  2026-07-31: an agent's `just gen` captured a sibling's uncommitted gateway
+  duplicate-route work, so its commit carried `gateway.openapi.json` +
+  `gateway/schema.ts` describing routes with no committed source — gen-check-RED
+  in CI on that commit, while passing locally. It was caught by hand and
+  force-pushed over. The tempdir in `gen-check.sh` protects the tree from being
+  DIRTIED; it never made the INPUT clean, which is the property that matters.
+  **Fix, shipped the same day: `just gen-verify` (`scripts/gen-check.sh
+  --from-index`)** materialises the git INDEX — the tree `git commit` would
+  write — into a throwaway worktree and generates there, so it answers "will CI
+  be green on my commit". Verified against the real defect rather than asserted:
+  with a schema change present only in the working tree and only the generated
+  output staged, the default mode exits **0** (blessing a commit CI rejects) and
+  `--from-index` exits **1** naming the leaked field. Run `just gen-verify`, not
+  `just gen-check`, before committing anything that touches a pydantic model
+  while other agents are live. CI itself is unaffected — it checks out a clean
+  tree, so there index == HEAD == worktree and the default mode is already right.
+  The general lesson is the one this repo keeps relearning: **a gate is only as
+  honest as its INPUT, and "it passed" tells you nothing until you know what it
+  measured.** **(2b) `prettier --check .` walks the FILESYSTEM,
   not the index, so an UNTRACKED scratch file fails lint for every agent at
   once** — and `.prettierignore` covers `docs/`, `.claude/`, generated dirs and
   build output, but NOT the repo root. Seen 2026-07-30: an agent left a

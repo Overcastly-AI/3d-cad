@@ -63,6 +63,14 @@ gen:
 gen-check:
     scripts/gen-check.sh
 
+# What CI will see: regenerate from the tree your NEXT COMMIT would have (the
+# git index), not from the working tree. Run this instead of `gen-check` before
+# committing a schema change while other agents are editing schemas — the
+# default mode's input is whatever is on disk, so it cannot see that your
+# generated output captured somebody else's uncommitted work.
+gen-verify:
+    scripts/gen-check.sh --from-index
+
 # End-to-end gate: geometry gates (goldens + STEP round-trip), then the
 # Playwright suite for @loft/web. Boots geometry (:8002) + gateway (:8000)
 # itself (background uvicorn, PID-tracked, cleaned up on exit) or reuses
