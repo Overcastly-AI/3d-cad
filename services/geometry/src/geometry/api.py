@@ -86,6 +86,7 @@ from geometry.drawings import (
     serialize_dxf,
     serialize_pdf,
     serialize_svg,
+    thread_schedule_rows,
 )
 from geometry.faults import unexpected_query_failure
 from geometry.features import evaluate_tree, tree_no_body_error
@@ -415,7 +416,19 @@ def _compose_sheet(request: ComposeDrawingRequest) -> ComposedSheet:
     """
     evaluation = compose_drawing_evaluation(request)
     dimensions = request.dimensions if request.assembly is None else []
-    return place_sheet(evaluation, dimensions, request.layout, request.annotations)
+    # Tapped-hole callouts are DERIVED from the part's feature params on every
+    # compose (BACKLOG #50) — never stored, so a re-tapped hole cannot leave a stale
+    # thread on the next print. An ASSEMBLY compose has no single feature tree (its
+    # inherited `features` is empty by contract), so it schedules nothing rather than
+    # calling out a thread it cannot attribute to a part.
+    threads = thread_schedule_rows(request.features) if request.assembly is None else []
+    return place_sheet(
+        evaluation,
+        dimensions,
+        request.layout,
+        request.annotations,
+        threads=threads,
+    )
 
 
 @router.post("/drawing/compose", response_class=Response, responses=_COMPOSE_RESPONSES)
@@ -780,6 +793,7 @@ def export_tree(request: ExportTreeRequest) -> Response:
         request.format,
         request.linear_deflection,
         request.angular_deflection,
+        name=request.name,
     )
     return Response(
         content=data,

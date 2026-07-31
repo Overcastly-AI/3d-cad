@@ -110,6 +110,26 @@ SHOW FILLET1 action — instead of presenting a bare brick as the model. Every S
 row names the failure that stranded it. 30 component/unit tests
 (mutation-verified) + `e2e/body-status.spec.ts` (5, real OCCT failure); shots
 `docs/screenshots/body-status-{before,after}-{1440,1366}.png`.
+**The INTEROP half of the product audit's N4-N13 cluster SHIPPED 2026-07-31**
+(kernel-architect; measured evidence in `docs/GEOMETRY-QA.md` 2026-07-31). The
+auditor's answer to the north-star question was "yes for a part that stays in
+Loft, no for one that leaves as a drawing or a STEP" — drawings were fixed
+earlier that day, this is the rest. **N8:** a 21-instance assembly STEP wrote
+**21 `MANIFOLD_SOLID_BREP` for 2 unique parts** (504,376 bytes) because
+`build123d.Shape.located` is a DEEP GEOMETRIC COPY, so no writer could see the
+instancing; the composer now places with `TopoDS_Shape.Moved` (shared `TShape`)
+and drives `STEPCAFControl_Writer` itself — **2 B-reps, 21 occurrences, 58,546
+bytes**, one named PRODUCT per PART with the `<n>` occurrence suffix kept on the
+NAUO so instance traceability survives. Downstream CAD can finally tell twenty
+dowel pins are one part. **N4:** a part exports as `motor-mount-bracket.step`
+carrying `PRODUCT('Motor Mount Bracket')` instead of a UUID filename holding
+`PRODUCT('SOLID')`, the assembly root PRODUCT is the assembly's name, and the
+`assembly.step` constant that let a second export silently overwrite the first is
+gone (geometry honours the name; the gateway/web callers that SET it are filed).
+**BACKLOG #50:** a tapped hole's callout now reaches the print — a derived
+QTY / THREAD / TAP DRILL schedule block in SVG, PDF and DXF, asserted on the
+downloaded bytes. **N5 (part):** the exported page is WHITE; every PDF a shop
+received was a grey A3.
 Kernel CM-5 (the revolve/sweep/loft-cut mirror void-fill) landed 2026-07-30, and
 so did **SH-1** — shelling a rib at exactly 2x the wall thickness left a
 **zero-width slit** (two coincident faces, no material between them) and reported

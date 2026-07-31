@@ -257,6 +257,26 @@ Correctness gates no web app needs, run in CI and by the `geometry-qa` agent:
   the artifacts are withheld. Same posture as `removal_reaches_body` and
   `find_zero_width_slits`: one predicate, asked by every path that can produce the
   condition, never re-implemented per verb.
+- **An assembly STEP INSTANCES its parts; it never duplicates them.** N
+  occurrences of one part write ONE `MANIFOLD_SOLID_BREP` and N placed
+  `NEXT_ASSEMBLY_USAGE_OCCURRENCE`s (AP214 product structure — OCCT's XCAF writer
+  emits that, not `MAPPED_ITEM`; both encode instancing, only the former is what
+  MCAD exchange uses). The gate is **solid count == unique part count**, asserted
+  on the emitted bytes, because a duplicating writer is a file-size multiplier AND
+  a semantic loss: downstream CAD cannot tell the instances are the same part. The
+  enabling constraint is kernel-level and non-obvious — the occurrences must SHARE
+  a `TopoDS_TShape`, and `build123d.Shape.located` is a deep `BRepBuilderAPI_Copy`,
+  so the STEP composer places with `Moved` while `place_body` keeps copying for the
+  interference/STL paths (a boolean can invalidate its argument in place). A file's
+  PRODUCT names the PART and its occurrence names the INSTANCE; the reader takes
+  the occurrence name first (finding N8, evidence in docs/GEOMETRY-QA.md
+  2026-07-31).
+- **A file outlives the screen that explained it.** Anything a user downloads is
+  named after its DOCUMENT — filename and, where the format has one, the product
+  name inside — through one slug rule (`py_kit.schemas.features.document_slug`),
+  falling back to an id so an unnamed export still cannot collide. The name rides
+  the EXPORT request only, never an evaluate request: a name must not be an input
+  to geometry (finding N4).
 - **Export byte-determinism:** identical requests → byte-identical STEP/STL
   files. STEP's `FILE_NAME` creation timestamp — the one nondeterministic
   byte range OCCT writes — is pinned kernel-side

@@ -65,6 +65,7 @@ from geometry.drawings.section import (
     SectionPlaneNotPrincipalError,
     section_cut,
 )
+from geometry.drawings.thread_schedule import thread_schedule_rows
 
 __all__ = [
     "FLAT_PATTERN_VIEW",
@@ -101,5 +102,6 @@ __all__ = [
     "serialize_dxf",
     "serialize_pdf",
     "serialize_svg",
+    "thread_schedule_rows",
     "view_normal",
 ]

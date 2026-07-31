@@ -26,7 +26,6 @@ field, encoded in field names (``offset_mm``, ``x_mm``) exactly as
 :mod:`py_kit.schemas.geometry` does.
 """
 
-import re
 import uuid
 from datetime import datetime
 from typing import Annotated, Literal
@@ -48,6 +47,7 @@ from py_kit.schemas.features import (
     EvaluatedFeatureInput,
     FeatureError,
     GeomRef,
+    document_slug,
 )
 
 #: Upper bound for a user-facing drawing name ("Bracket — Detail").
@@ -1211,14 +1211,16 @@ ARTIFACT_MEDIA_TYPES: dict[ArtifactFormat, str] = {
 def artifact_filename(title: str, artifact_format: ArtifactFormat) -> str:
     """A safe download basename for a composed artifact — ``<slug>.<ext>``.
 
-    Ports ``apps/web/src/drawing/exportSvg.ts::sanitizeDrawingFilename`` VERBATIM
-    (lower-case, non-alphanumeric runs → single hyphen, edges trimmed; empty →
-    ``drawing``) so the server-composed download and the client's own SVG export
-    name a file identically. The suggested name only — the artifact bytes are
-    format-determined by ``ARTIFACT_MEDIA_TYPES``.
+    Delegates to the ONE slug rule (:func:`~py_kit.schemas.features.document_slug`
+    — lower-case, non-alphanumeric runs → single hyphen, edges trimmed), which
+    ports ``apps/web/src/drawing/exportSvg.ts::sanitizeDrawingFilename`` verbatim
+    so the server-composed download and the client's own SVG export name a file
+    identically, and which the part / assembly exports now share (audit N4). The
+    ``drawing`` fallback is local: an unnameable DRAWING is a drawing, while an
+    unnameable part falls back to its id. The suggested name only — the artifact
+    bytes are format-determined by ``ARTIFACT_MEDIA_TYPES``.
     """
-    slug = re.sub(r"[^a-z0-9]+", "-", title.strip().lower()).strip("-")
-    return f"{slug or 'drawing'}.{artifact_format}"
+    return f"{document_slug(title) or 'drawing'}.{artifact_format}"
 
 
 class SheetViewPlacement(BaseModel):
@@ -1712,6 +1714,78 @@ class ComposedLayoutIssue(BaseModel):
     )
 
 
+# --- the thread schedule: a tapped hole reaching the PRINT (BACKLOG #50) ---------
+#
+# `19c9dc2` shipped cosmetic threads: the kernel bores the ISO tap-drill diameter and
+# carries a typed designation, the editor shows it and the feature tree badges it —
+# and it reached NO output. A tapped hole's solid is byte-identical to its bore, so
+# until the designation is STAMPED ON THE PRINT the shop cannot tell an M6 tapped hole
+# from a 5 mm drilled one, and the part is manufactured wrong. `ebeab51` corrected the
+# checkbox copy so it stopped promising a drawing note (the honest stopgap); this is
+# the note.
+#
+# What it carries, and why those three columns: the DESIGNATION is what the drawing
+# calls out, the QUANTITY is what the shop counts, and the TAP DRILL is the number the
+# machinist actually sets up (it is not the designation, and deriving it by hand from a
+# table is where mistakes happen). All three are DERIVED from the feature params at
+# compose time — never stored, so a re-tapped hole can never leave a stale callout on
+# the next print (the assembly-BOM "derived, never stored" posture).
+#
+# Deliberately NOT done, with the reasons, so a later reader does not mistake omission
+# for oversight:
+#
+# * **A BOM column.** The assembly/drawing BOM is one line per referenced DOCUMENT
+#   (`BomLine`: ref id + name + quantity). A thread lives on a FEATURE inside a part,
+#   and a part with four M6 and two M8 tapped holes has no single thread value — the
+#   column would be blank or wrong for exactly the parts that have threads, which is
+#   the overstated-surface defect this work exists to remove. The per-part, per-
+#   designation shape the data actually has is this schedule. (A FASTENER BOM — where
+#   the line IS a screw and "M6x1x20" is its identity — is a different, real feature;
+#   it needs a fastener library, not a column.)
+# * **A STEP annotation.** Semantic threads ride AP242 PMI (`applied_group_assignment`
+#   over a shape-aspect), which OCCT's writer does not emit and no AP214 export can
+#   express at all. Writing raw PMI entities by hand into a file OCCT produced would be
+#   an unvalidated hand-assembled part-21 fragment that most receivers ignore — cost
+#   far above zero, benefit near it. The bore we DO write is the manufactured feature
+#   (a thread is cut by a tap, not the mill), and the drawing is the document that
+#   carries the callout, which is exactly how the incumbents ship cosmetic threads.
+
+
+class ThreadCalloutRow(BaseModel):
+    """One line of the thread schedule — a designation, its count, its tap drill."""
+
+    designation: str = Field(
+        description='Drawing designation, ASCII ("M6x1") — the kernel\'s '
+        "`format_designation`, never re-derived here"
+    )
+    quantity: int = Field(
+        ge=1, description="How many holes in the part carry this designation"
+    )
+    tap_drill_mm: float = Field(
+        gt=0,
+        description="ISO recommended tap drill (nominal - pitch, mm) — the "
+        "diameter the kernel actually bored, and what the shop sets up",
+    )
+
+
+class ComposedThreadSchedule(BaseModel):
+    """The placed thread-schedule block — anchor rect + rows (BACKLOG #50).
+
+    The bottom-left twin of the flat-pattern bend table (top-left) and the title
+    block (bottom-right): a bordered box of derived rows, in sheet-mm SVG space,
+    rendered identically by all three serializers.
+    """
+
+    x: float = Field(description="Block left edge (mm, SVG space)")
+    y: float = Field(description="Block top edge (mm, SVG space, y-down)")
+    width: float = Field(description="Block width (mm)")
+    height: float = Field(description="Block height (mm)")
+    rows: list[ThreadCalloutRow] = Field(
+        description="One row per distinct designation, in the part's TREE order of "
+        "first appearance (never request-array order — RESEARCH §9)"
+    )
+
+
 class ComposedSheet(BaseModel):
     """A fully placed drawing sheet — the model the three serializers render (§4.2).
 
@@ -1750,6 +1824,13 @@ class ComposedSheet(BaseModel):
         "sub-clearance view pairs, each with millimetre numbers and a plain-language "
         "message. EMPTY for a clean sheet — additive, so a clean sheet composes "
         "byte-identically. Non-empty ⇒ the serializers stamp a banner on the print.",
+    )
+    thread_schedule: ComposedThreadSchedule | None = Field(
+        default=None,
+        description="The placed THREAD SCHEDULE block (BACKLOG #50) — one row per "
+        "distinct tapped-hole designation in the part, with its quantity and tap "
+        "drill. Null for a part with no tapped hole — additive, so an untapped "
+        "sheet composes byte-identically to its pre-thread golden.",
     )
 
 

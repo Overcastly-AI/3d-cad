@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 297.0000 210.0000" width="297.0000mm" height="210.0000mm" preserveAspectRatio="xMidYMid meet">
-  <rect x="0" y="0" width="297.0000" height="210.0000" fill="#ECEFF2" stroke="#C9CFD7" stroke-width="0.6000"/>
+  <rect x="0" y="0" width="297.0000" height="210.0000" fill="#FFFFFF" stroke="#C9CFD7" stroke-width="0.6000"/>
   <rect data-testid="drawing-border" x="10.0000" y="10.0000" width="277.0000" height="190.0000" fill="none" stroke="#1B222B" stroke-width="0.7000"/>
     <g data-testid="drawing-view" data-view="front" data-view-error="false">
       <line x1="118.0190" y1="114.8506" x2="118.0190" y2="104.8506" stroke="#1B222B" stroke-width="0.5000" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
@@ -26,7 +26,7 @@
         <polygon points="118.0190,125.8506 121.4190,126.7506 121.4190,124.9506" fill="#2A3542"/>
         <polygon points="158.0190,125.8506 154.6190,124.9506 154.6190,126.7506" fill="#2A3542"/>
         <g transform="rotate(0.0000 138.0190 128.0506)">
-          <rect x="131.1670" y="125.7506" width="13.7040" height="4.6000" fill="#ECEFF2" opacity="0.92"/>
+          <rect x="131.1670" y="125.7506" width="13.7040" height="4.6000" fill="#FFFFFF" opacity="0.92"/>
           <text data-testid="drawing-dimension-value" x="138.0190" y="128.0506" text-anchor="middle" dominant-baseline="central" fill="#1B222B" font-family="&quot;Fragment Mono&quot;, ui-monospace, monospace" font-size="3.2000" letter-spacing="0.1">40.000</text>
         </g>
       </g>
@@ -48,7 +48,7 @@
         <polygon points="131.0190,114.8506 130.1458,118.2575 131.9457,118.2434" fill="#2A3542"/>
         <polygon points="118.0190,101.8506 114.6262,100.9239 114.6121,102.7238" fill="#2A3542"/>
         <g transform="rotate(0.0000 130.0681 102.8015)">
-          <rect x="124.2081" y="100.5015" width="11.7200" height="4.6000" fill="#ECEFF2" opacity="0.92"/>
+          <rect x="124.2081" y="100.5015" width="11.7200" height="4.6000" fill="#FFFFFF" opacity="0.92"/>
           <text data-testid="drawing-dimension-value" x="130.0681" y="102.8015" text-anchor="middle" dominant-baseline="central" fill="#1B222B" font-family="&quot;Fragment Mono&quot;, ui-monospace, monospace" font-size="3.2000" letter-spacing="0.1">90.0°</text>
         </g>
       </g>
@@ -66,7 +66,7 @@
         <polygon points="125.0190,151.3506 128.4190,152.2506 128.4190,150.4506" fill="#2A3542"/>
         <polygon points="135.0190,151.3506 131.6190,150.4506 131.6190,152.2506" fill="#2A3542"/>
         <g transform="rotate(0.0000 115.7750 151.3506)">
-          <rect x="107.9310" y="149.0506" width="15.6880" height="4.6000" fill="#ECEFF2" opacity="0.92"/>
+          <rect x="107.9310" y="149.0506" width="15.6880" height="4.6000" fill="#FFFFFF" opacity="0.92"/>
           <text data-testid="drawing-dimension-value" x="115.7750" y="151.3506" text-anchor="middle" dominant-baseline="central" fill="#1B222B" font-family="&quot;Fragment Mono&quot;, ui-monospace, monospace" font-size="3.2000" letter-spacing="0.1">Ø10.000</text>
         </g>
       </g>
@@ -74,7 +74,7 @@
         <line x1="130.0190" y1="151.3506" x2="133.5546" y2="147.8150" stroke="#2A3542" stroke-width="0.3000" stroke-linecap="round"/>
         <polygon points="133.5546,147.8150 130.5140,149.5828 131.7868,150.8556" fill="#2A3542"/>
         <g transform="rotate(0.0000 140.0967 141.2729)">
-          <rect x="133.2447" y="138.9729" width="13.7040" height="4.6000" fill="#ECEFF2" opacity="0.92"/>
+          <rect x="133.2447" y="138.9729" width="13.7040" height="4.6000" fill="#FFFFFF" opacity="0.92"/>
           <text data-testid="drawing-dimension-value" x="140.0967" y="141.2729" text-anchor="middle" dominant-baseline="central" fill="#1B222B" font-family="&quot;Fragment Mono&quot;, ui-monospace, monospace" font-size="3.2000" letter-spacing="0.1">R5.000</text>
         </g>
       </g>

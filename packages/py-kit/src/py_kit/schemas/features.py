@@ -14,6 +14,7 @@ millimetres, encoded in field names (``distance_mm``) exactly as
 :mod:`py_kit.schemas.geometry` does.
 """
 
+import re
 import uuid
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
@@ -3371,6 +3372,48 @@ class EvaluateTreeRequest(BaseModel):
     )
 
 
+#: Upper bound for a document name carried on an export request (matches
+#: ``PartName`` / ``AssemblyName``, which is where these values come from).
+EXPORT_DOCUMENT_NAME_MAX_LENGTH = 200
+
+#: A document's human-readable name, carried on an EXPORT request only.
+#:
+#: **Why export-only** (the decision, since it looks like it belongs on the
+#: evaluate request): a name is presentation metadata, and the evaluation
+#: contract deliberately carries only INTENT plus the one non-geometric input
+#: mass is derived from (``materials``, materials.md §9a) — length units are kept
+#: off it for exactly this reason. But a FILE outlives the screen that explained
+#: it: a shop that receives ``a3f2c1e8-....step`` containing ``PRODUCT('SOLID')``
+#: cannot tell what it is, and exporting five parts to quote a job means five
+#: hand-renames (audit N4). So the name rides the request that produces a file,
+#: where it can change the file's NAME and its PRODUCT and nothing else — the
+#: kernel never sees it, and evaluation stays byte-identical with or without it.
+DocumentName = Annotated[
+    str,
+    StringConstraints(
+        strip_whitespace=True,
+        min_length=1,
+        max_length=EXPORT_DOCUMENT_NAME_MAX_LENGTH,
+    ),
+]
+
+
+def document_slug(name: str) -> str:
+    """A safe download basename component from a document name.
+
+    THE one slug rule for every download this product names after a document
+    (CLAUDE.md DRY): lower-case, non-alphanumeric runs collapsed to a single
+    hyphen, edges trimmed. Ported from ``apps/web/src/drawing/exportSvg.ts``
+    ``sanitizeDrawingFilename`` and shared by the drawing artifact
+    (``artifact_filename``), the part export (:func:`export_tree_filename`) and
+    the assembly export (``assembly_export_filename``), so all three name a file
+    identically. Returns ``""`` for a name with no alphanumerics at all — the
+    caller decides its own fallback, because "drawing" is not a sensible default
+    for a part.
+    """
+    return re.sub(r"[^a-z0-9]+", "-", name.strip().lower()).strip("-")
+
+
 class ExportTreeRequest(EvaluateTreeRequest):
     """Evaluate a feature tree and export its LAST-GOOD body as a CAD file.
 
@@ -3403,15 +3446,26 @@ class ExportTreeRequest(EvaluateTreeRequest):
             "(work bound, audit G2)."
         ),
     )
+    name: DocumentName | None = Field(
+        default=None,
+        description="The part's human-readable document name. Names the exported "
+        "STEP PRODUCT and the download filename; omitted / null falls back to the "
+        "part id. EXPORT-only on purpose (see DocumentName) — it is not on "
+        "EvaluateTreeRequest, because a name must never be an input to geometry.",
+    )
 
 
 def export_tree_filename(request: ExportTreeRequest) -> str:
     """Deterministic download filename for a tree export (Content-Disposition).
 
-    The part id keys the file to its part and stays byte-stable across
-    identical requests (determinism is a feature, RESEARCH §9).
+    Named after the PART (``motor-mount-bracket.step``) when the request carries
+    the document name, so what lands in Downloads is what a vendor can read
+    (audit N4). Falls back to ``part-<id>.<format>`` when it does not — still
+    unique, never a collision. Byte-stable for identical requests either way
+    (determinism is a feature, RESEARCH §9).
     """
-    return f"part-{request.part_id}.{request.format}"
+    slug = document_slug(request.name) if request.name is not None else ""
+    return f"{slug or f'part-{request.part_id}'}.{request.format}"
 
 
 class FeatureError(BaseModel):

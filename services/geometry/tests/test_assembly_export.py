@@ -14,9 +14,12 @@ exercised over genuinely-placed parts, not a hand-rigged pair. For each golden:
   area, transformed centroid) match the instance's SOLVED placement applied to its
   part's local properties, within the shared ``ROUNDTRIP_TOL`` (never an ad-hoc
   epsilon — the kernel round-trip bound, conftest).
-* **Named product structure:** every instance id appears as a STEP ``PRODUCT``
-  name, so each recovered body is traceable to its instance (AP214 product
-  structure).
+* **Instanced product structure (audit N8):** each UNIQUE part is written as ONE
+  named ``PRODUCT`` and placed once per instance, so the solid count equals the
+  unique-part count (never the instance count) and the file stops growing with the
+  fastener count. Instance identity rides the per-occurrence
+  ``NEXT_ASSEMBLY_USAGE_OCCURRENCE`` name, so each recovered body is still
+  traceable to its instance.
 * **Byte-determinism (RESEARCH §9):** identical requests → byte-identical STEP and
   STL, in-process AND across an interpreter restart (the assembly writer's
   process-global occurrence-id counter is canonicalised kernel-side).
@@ -28,6 +31,7 @@ export path (``/export``) is untouched (covered by ``test_export``).
 
 from __future__ import annotations
 
+import collections
 import hashlib
 import math
 import os
@@ -75,6 +79,28 @@ each_format = pytest.mark.parametrize("fmt", ["step", "stl"])
 
 #: Matches a STEP ``PRODUCT('name',...)`` name field (traceability parse).
 _PRODUCT_RE = re.compile(rb"PRODUCT\('([^']*)'")
+
+#: Matches the NAME (second) field of a ``NEXT_ASSEMBLY_USAGE_OCCURRENCE`` — the
+#: per-OCCURRENCE name under instanced product structure (audit N8): a part is
+#: written once as a PRODUCT and used N times, so instance identity rides here.
+#: Whitespace-tolerant between tokens: part-21 wraps long entities across lines,
+#: so a 36-char instance-id name lands on the line AFTER the entity keyword.
+_OCCURRENCE_NAME_RE = re.compile(
+    rb"NEXT_ASSEMBLY_USAGE_OCCURRENCE\(\s*'[^']*'\s*,\s*'([^']*)'"
+)
+
+
+def _entity_counts(step_bytes: bytes) -> collections.Counter[str]:
+    """Count part-21 entity types in *step_bytes* — what a downstream CAD reads.
+
+    Asserting on the EXPORTED BYTES rather than on a composer's return value: a
+    right function whose caller drops the result still writes a wrong file, and
+    the entity histogram is exactly the view the receiving CAD/PLM has.
+    """
+    return collections.Counter(
+        match.decode("ascii")
+        for match in re.findall(rb"=\s*([A-Z_0-9]+)\(", step_bytes)
+    )
 
 
 @dataclass(frozen=True)
@@ -176,11 +202,12 @@ def test_golden_inventory_is_nonempty() -> None:
 def test_step_assembly_export_roundtrip(
     model_path: Path, tmp_path: Path, roundtrip_tol: float
 ) -> None:
-    """Worked round-trip: export a ≥2-instance assembly → re-import → placements.
+    """Worked round-trip: export a >=2-instance assembly -> re-import -> placements.
 
     Every re-imported part body lands at its SOLVED world placement (world
     mass-property match within the kernel round-trip bound), and every instance is
-    traceable to a named STEP ``PRODUCT``.
+    traceable by name to a STEP occurrence (``NEXT_ASSEMBLY_USAGE_OCCURRENCE``,
+    the instance-level identity under instanced product structure — audit N8).
     """
     name = model_path.parent.name
     request = _export_request(model_path, "step")
@@ -191,12 +218,14 @@ def test_step_assembly_export_roundtrip(
 
     _match_reimported(name, data, _expected_instances(request), tmp_path, roundtrip_tol)
 
-    # Named product structure: every instance id is a PRODUCT name (traceability).
-    product_names = {n.decode("ascii") for n in _PRODUCT_RE.findall(data)}
+    # Instance traceability: one named occurrence per instance. (The goldens carry
+    # no instance names, so the composer falls back to the instance id — which is
+    # exactly the identity a re-import must be able to hand back.)
+    occurrence_names = {n.decode("ascii") for n in _OCCURRENCE_NAME_RE.findall(data)}
     for inst in request.instances:
-        assert str(inst.instance_id) in product_names, (
-            f"{name}: instance {inst.instance_id} has no PRODUCT name in the STEP "
-            f"file — not traceable (products found: {sorted(product_names)})"
+        assert str(inst.instance_id) in occurrence_names, (
+            f"{name}: instance {inst.instance_id} has no named occurrence in the "
+            f"STEP file — not traceable (occurrences: {sorted(occurrence_names)})"
         )
 
 
@@ -525,10 +554,157 @@ def test_step_assembly_export_nonidentity_rotation_roundtrip(
         remaining.remove(nearest)
     assert not remaining, f"{len(remaining)} placed body(s) never recovered"
 
-    # Repeated part must not collide: three DISTINCT instance ids, each a PRODUCT.
-    product_names = [n.decode("ascii") for n in _PRODUCT_RE.findall(data)]
+    # Repeated part must not collide: three DISTINCT named OCCURRENCES of the one
+    # shared part (instanced product structure, audit N8 — the part is a single
+    # PRODUCT, so instance identity lives on the occurrence, not on a PRODUCT).
+    occurrence_names = [n.decode("ascii") for n in _OCCURRENCE_NAME_RE.findall(data)]
     for inst in instances:
-        assert product_names.count(str(inst.instance_id)) == 1, (
-            f"instance {inst.instance_id} is not a single distinct PRODUCT name "
-            f"(repeated-part occurrences collided or duplicated): {product_names}"
+        assert occurrence_names.count(str(inst.instance_id)) == 1, (
+            f"instance {inst.instance_id} is not a single distinct occurrence name "
+            f"(repeated-part occurrences collided or duplicated): {occurrence_names}"
         )
+    counts = _entity_counts(data)
+    assert counts["MANIFOLD_SOLID_BREP"] == 1, (
+        "three instances of ONE part must write ONE B-rep placed three times, got "
+        f"{counts['MANIFOLD_SOLID_BREP']} solids"
+    )
+
+
+# --- audit N8: an assembly STEP INSTANCES its parts, it does not duplicate them --
+#
+# Measured before the fix on a 21-instance assembly: 21 MANIFOLD_SOLID_BREP for 2
+# unique parts, 216,689 bytes. Twenty-one copies of geometry where AP214 product
+# structure writes one part and places it twenty-one times — a file-size multiplier
+# AND a semantic loss (a downstream BOM derived from the STEP read 20 line items
+# where Loft's own BOM correctly says qty 20, and a change to one instance was not
+# a change to all). Root cause: build123d's ``Shape.located`` is a DEEP GEOMETRIC
+# COPY (BRepBuilderAPI_Copy inside ``__deepcopy__``), so the placed occurrences
+# shared no TShape and no writer could have found the instancing.
+#
+# These gates assert on the EXPORTED BYTES — the entity histogram is exactly what
+# the receiving CAD reads, and a composer that returns the right structure while a
+# caller flattens it would still pass a return-value test.
+
+
+def _unique_part_keys(request: ExportAssemblyRequest) -> set[str]:
+    return {inst.part_key for inst in request.instances}
+
+
+@each_golden
+def test_step_assembly_export_writes_one_brep_per_unique_part(
+    model_path: Path,
+) -> None:
+    """Every shipped golden: solid count == UNIQUE part count, not instance count.
+
+    Both goldens are two instances of ONE part, so a regression to per-instance
+    duplication doubles the B-rep count here and fails.
+    """
+    name = model_path.parent.name
+    request = _export_request(model_path, "step")
+    counts = _entity_counts(export_assembly(request))
+    unique_parts = len(_unique_part_keys(request))
+
+    assert counts["MANIFOLD_SOLID_BREP"] == unique_parts, (
+        f"{name}: {counts['MANIFOLD_SOLID_BREP']} B-reps written for {unique_parts} "
+        f"unique part(s) across {len(request.instances)} instances — the geometry "
+        f"is duplicated per instance instead of instanced (audit N8)"
+    )
+    assert counts["NEXT_ASSEMBLY_USAGE_OCCURRENCE"] == len(request.instances), (
+        f"{name}: {counts['NEXT_ASSEMBLY_USAGE_OCCURRENCE']} occurrences for "
+        f"{len(request.instances)} instances — an instance lost its placement"
+    )
+
+
+def _many_instance_request(pin_count: int) -> ExportAssemblyRequest:
+    """The audit's shape of assembly: 1 bracket + N dowel pins of ONE part.
+
+    Two unique parts, ``1 + pin_count`` instances, each named the way documents
+    names them (``<part name> <n>``). Grounded so every instance stays at its
+    authored placement (no mate solve needed for a file-structure assertion).
+    """
+    features = _plate_features()
+    instances = [
+        EvaluatedInstance(
+            instance_id=uuid.UUID(int=1),
+            part_key="bracket@1",
+            name="Motor Mount Bracket <1>",
+            features=[f.model_copy(deep=True) for f in features],
+            placement=Placement(position=Vec3(x=0.0, y=0.0, z=0.0)),
+            grounded=True,
+        )
+    ]
+    for n in range(1, pin_count + 1):
+        instances.append(
+            EvaluatedInstance(
+                instance_id=uuid.UUID(int=100 + n),
+                part_key="dowel-pin-8x24@1",  # ONE part, N instances
+                name=f"Dowel Pin 8x24 <{n}>",
+                features=[f.model_copy(deep=True) for f in features],
+                placement=Placement(position=Vec3(x=60.0 * n, y=0.0, z=0.0)),
+                grounded=True,
+            )
+        )
+    return ExportAssemblyRequest(
+        assembly_id=uuid.UUID(int=0xB0B),
+        version=1,
+        instances=instances,
+        mates=[],
+        linear_deflection=0.1,
+        format="step",
+    )
+
+
+def test_step_assembly_export_instances_twenty_one_occurrences() -> None:
+    """The audit's own case: 21 instances of 2 parts -> 2 B-reps, 21 occurrences.
+
+    Asserted on the exported bytes: the part geometry appears ONCE per unique
+    part, each occurrence is a placed ``NEXT_ASSEMBLY_USAGE_OCCURRENCE`` with its
+    own ``ITEM_DEFINED_TRANSFORMATION``, and the file names one PRODUCT per part
+    (occurrence suffix stripped) plus the assembly root — so a receiving CAD/PLM
+    reads "one dowel pin used twenty times", not twenty distinct products.
+    """
+    request = _many_instance_request(20)
+    data = export_assembly(request)
+    counts = _entity_counts(data)
+
+    assert counts["MANIFOLD_SOLID_BREP"] == 2, (
+        f"21 instances of 2 unique parts wrote {counts['MANIFOLD_SOLID_BREP']} "
+        f"B-reps; instanced product structure writes 2 (audit N8)"
+    )
+    assert counts["NEXT_ASSEMBLY_USAGE_OCCURRENCE"] == 21
+    assert counts["ITEM_DEFINED_TRANSFORMATION"] == 21, (
+        "every occurrence carries its own placement transform"
+    )
+    product_names = [n.decode("ascii") for n in _PRODUCT_RE.findall(data)]
+    assert product_names.count("Dowel Pin 8x24") == 1, (
+        f"the shared part must be ONE product named for the PART, not per "
+        f"instance: {product_names}"
+    )
+    assert product_names.count("Motor Mount Bracket") == 1, product_names
+    assert not [n for n in product_names if "<" in n], (
+        f"an occurrence suffix leaked into a PRODUCT name: {product_names}"
+    )
+    # Instance identity survives on the occurrences (all 21, distinct).
+    occurrence_names = [n.decode("ascii") for n in _OCCURRENCE_NAME_RE.findall(data)]
+    assert sorted(occurrence_names) == sorted(
+        [inst.name for inst in request.instances if inst.name is not None]
+    ), occurrence_names
+
+
+def test_step_assembly_export_size_does_not_scale_with_instance_count() -> None:
+    """Adding 15 more instances of a part adds placements, not part geometry.
+
+    The user-visible half of N8 ("size scales linearly, ~1 MB at 100 fasteners"):
+    5 -> 20 pins quadruples the instance count; the per-instance cost must be a
+    few hundred bytes of product structure, not another copy of the solid. The
+    bound is generous on purpose — it fails a return to duplication (which costs
+    ~a full B-rep per instance) without pinning an OCCT byte count.
+    """
+    small = len(export_assembly(_many_instance_request(5)))
+    large = len(export_assembly(_many_instance_request(20)))
+    per_instance = (large - small) / 15
+
+    assert per_instance < 1000, (
+        f"each extra instance cost {per_instance:.0f} bytes ({small} -> {large} "
+        f"for 5 -> 20 pins) — the part geometry is being duplicated per instance"
+    )

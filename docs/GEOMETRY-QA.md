@@ -7,6 +7,95 @@ not "do the tests pass" but **"is the geometry RIGHT?"** (RESEARCH §9,
 decisions recorded here AND in the golden's `expected.json` — never a way to
 go green.
 
+## 2026-07-31 — N8/N4/#50: an assembly STEP now INSTANCES its parts, and what leaves the tool says what it is (kernel-architect)
+
+The interop half of the product audit's N4–N13 cluster. The model was fine; what
+LEFT the tool was not — the auditor's answer to the north-star question was "yes
+for a part that stays in Loft, no for one that leaves as a drawing or a STEP".
+
+### N8 — 21 instances wrote 21 B-reps. Root cause: `located()` is a DEEP COPY.
+
+`build123d.Shape.located` runs `BRepBuilderAPI_Copy` inside its `__deepcopy__`, so
+every placed occurrence carried its OWN `TopoDS_TShape` and there was no instancing
+for any writer to find. The STEP composer now places with `TopoDS_Shape.Moved`
+(a new shape over the SAME TShape), and drives `STEPCAFControl_Writer` directly so
+the SHARED part label can be named for the PART rather than for whichever instance
+happened to be written last. `place_body` keeps the copying semantics for the
+interference + STL paths, where a boolean can invalidate its argument in place.
+
+Measured on the audit's own shape of assembly (1 bracket + N dowel pins of ONE
+part, `_many_instance_request` in `tests/test_assembly_export.py`):
+
+| | 6 instances / 2 parts | 21 instances / 2 parts |
+|---|---|---|
+| `MANIFOLD_SOLID_BREP` before | 6 | **21** |
+| `MANIFOLD_SOLID_BREP` after | **2** | **2** |
+| `PRODUCT` before / after | 7 / **3** | 22 / **3** |
+| `NEXT_ASSEMBLY_USAGE_OCCURRENCE` | 6 / 6 | 21 / 21 |
+| `ITEM_DEFINED_TRANSFORMATION` after | 6 | 21 |
+| bytes before | 142,974 | **504,376** |
+| bytes after | **49,624** | **58,546** |
+
+So the file stopped scaling with the fastener count: 15 more pins cost **595
+bytes each** (58,546 − 49,624 over 15), not another B-rep. `PRODUCT` names are now
+`['Motor Mount ASM', 'Bracket', 'Dowel Pin 8x24']` — the occurrence suffix `<n>` is
+stripped for the part and kept on the NAUO, so instance traceability (FINDINGS #7)
+survives while the file finally states that twenty pins ARE one part.
+
+**`MAPPED_ITEM` is still 0, and that is correct.** AP214 has two encodings for
+"this geometry, placed there": `MAPPED_ITEM`/`REPRESENTATION_MAP`, and assembly
+product structure (NAUO + `CONTEXT_DEPENDENT_SHAPE_REPRESENTATION` +
+`ITEM_DEFINED_TRANSFORMATION`). OCCT's XCAF writer emits the latter — the encoding
+MCAD assembly exchange actually uses. The audit's `MAPPED_ITEM` count was a proxy
+for "is anything instanced at all"; the measurable that answers it is
+**solid count == unique part count**, which is what the gate asserts.
+
+**Round-trip re-verified, and the reader had to change with it.** The XCAF walk
+took each occurrence's name from the referred PRODUCT label, falling back to the
+NAUO. Under instancing the product name is necessarily SHARED, so twenty distinct
+instances came back as twenty copies of one name. The priority is now
+occurrence-first, product-fallback (`_step_assembly_parse_worker._walk_components`),
+and an EMPTY name reads as absent. Golden round-trips (mass properties + world
+placements within `ROUNDTRIP_TOL`) unchanged.
+
+### N4 — a UUID filename containing `PRODUCT('SOLID')`
+
+`export_step_bytes(shape, name=...)` names the PRODUCT and the `FILE_NAME` field;
+`export_tree_filename` / `assembly_export_filename` slug the document name through
+ONE rule (`document_slug`, shared with the drawings' `artifact_filename`).
+Fallbacks are id-keyed, so an unnamed export still cannot collide — and the
+assembly's old constant `assembly.step`, which made a second export silently
+overwrite the first, is gone. The name rides the EXPORT request only, never the
+evaluate contract: a name must not be an input to geometry (asserted).
+
+Wire status: geometry honours `name` and every gate is on the exported bytes; the
+gateway/web callers that must SET it are a follow-up (filed) — until they do, the
+fallback keeps today's behaviour minus the assembly collision.
+
+### #50 — the thread callout reaches the print
+
+A tapped hole's solid is byte-identical to its bore, so the drawing is the only
+place a thread can exist. `thread_schedule_rows` derives one row per distinct
+designation (quantity + the ISO tap drill the machinist sets up) from the feature
+params at compose time — never stored, so a re-tapped hole cannot leave a stale
+callout — and all three serializers stamp the block. Asserted on the SERIALIZED
+ARTIFACT in every format, including a route-level test that POSTs to
+`/api/v1/drawing/compose` and greps the returned bytes for `M10x1.5` (a right
+composer whose caller drops the result is the exact defect class this feature was
+filed beside). NOT done, with reasons recorded on `ComposedThreadSchedule`: a BOM
+column (a BOM line is a DOCUMENT; a part with four M6 and two M8 has no single
+thread value) and a STEP thread annotation (AP242 PMI, which OCCT does not write
+and AP214 cannot express).
+
+### N5 (part) — the print stopped being grey
+
+The export page fill was `#ECEFF2`, the on-screen `drawing.paper` token, so every
+PDF a shop received was a grey A3. The exported page — and every knockout that must
+match it — is now `#FFFFFF`; the strokes still share the screen palette. One
+deliberate divergence, documented at the constant: a screen sheet must read as a
+sheet against dark chrome, a print is paper. 11 committed SVG/PDF byte goldens
+regenerated; the diff is the fill hex and nothing else (verified line by line).
+
 ## 2026-07-30 — CM-6 / QA-1: a SIMPLIFICATION welded a void shut, and nothing in the pipeline ever asked `is_valid` (kernel-architect)
 
 **The defect** (docs/QA-REVIEW.md QA-1, P0). 40x40x10 block → revolve CUT (annular

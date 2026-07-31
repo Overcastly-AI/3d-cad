@@ -1348,6 +1348,17 @@
             "title": "Scale Label",
             "type": "string"
           },
+          "thread_schedule": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ComposedThreadSchedule"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The placed THREAD SCHEDULE block (BACKLOG #50) \u2014 one row per distinct tapped-hole designation in the part, with its quantity and tap drill. Null for a part with no tapped hole \u2014 additive, so an untapped sheet composes byte-identically to its pre-thread golden."
+          },
           "title": {
             "description": "Drawing name (metadata / accessible label)",
             "title": "Title",
@@ -1380,6 +1391,48 @@
           "title_block"
         ],
         "title": "ComposedSheet",
+        "type": "object"
+      },
+      "ComposedThreadSchedule": {
+        "description": "The placed thread-schedule block \u2014 anchor rect + rows (BACKLOG #50).\n\nThe bottom-left twin of the flat-pattern bend table (top-left) and the title\nblock (bottom-right): a bordered box of derived rows, in sheet-mm SVG space,\nrendered identically by all three serializers.",
+        "properties": {
+          "height": {
+            "description": "Block height (mm)",
+            "title": "Height",
+            "type": "number"
+          },
+          "rows": {
+            "description": "One row per distinct designation, in the part's TREE order of first appearance (never request-array order \u2014 RESEARCH \u00a79)",
+            "items": {
+              "$ref": "#/components/schemas/ThreadCalloutRow"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "width": {
+            "description": "Block width (mm)",
+            "title": "Width",
+            "type": "number"
+          },
+          "x": {
+            "description": "Block left edge (mm, SVG space)",
+            "title": "X",
+            "type": "number"
+          },
+          "y": {
+            "description": "Block top edge (mm, SVG space, y-down)",
+            "title": "Y",
+            "type": "number"
+          }
+        },
+        "required": [
+          "x",
+          "y",
+          "width",
+          "height",
+          "rows"
+        ],
+        "title": "ComposedThreadSchedule",
         "type": "object"
       },
       "ComposedTitleBlock": {
@@ -3338,6 +3391,20 @@
             "title": "Mates",
             "type": "array"
           },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The assembly's human-readable document name. Names the exported STEP's ROOT PRODUCT and the download filename; omitted / null falls back to the assembly id. Export-only (see DocumentName): a name must never be an input to the solve.",
+            "title": "Name"
+          },
           "version": {
             "description": "Echoed back; cache/correlation key",
             "title": "Version",
@@ -3454,6 +3521,20 @@
               }
             ],
             "description": "What the part's bodies are made of (docs/design/materials.md): a document default plus per-body overrides. Omitted / null = no material, so the result reports NO mass (absent, not zero). Unlike length units \u2014 presentation metadata the kernel never sees \u2014 material is an INPUT to evaluation, because mass is derived from it."
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The part's human-readable document name. Names the exported STEP PRODUCT and the download filename; omitted / null falls back to the part id. EXPORT-only on purpose (see DocumentName) \u2014 it is not on EvaluateTreeRequest, because a name must never be an input to geometry.",
+            "title": "Name"
           },
           "part_id": {
             "format": "uuid",
@@ -7809,6 +7890,35 @@
           "mesh"
         ],
         "title": "TessellationMetadata",
+        "type": "object"
+      },
+      "ThreadCalloutRow": {
+        "description": "One line of the thread schedule \u2014 a designation, its count, its tap drill.",
+        "properties": {
+          "designation": {
+            "description": "Drawing designation, ASCII (\"M6x1\") \u2014 the kernel's `format_designation`, never re-derived here",
+            "title": "Designation",
+            "type": "string"
+          },
+          "quantity": {
+            "description": "How many holes in the part carry this designation",
+            "minimum": 1.0,
+            "title": "Quantity",
+            "type": "integer"
+          },
+          "tap_drill_mm": {
+            "description": "ISO recommended tap drill (nominal - pitch, mm) \u2014 the diameter the kernel actually bored, and what the shop sets up",
+            "exclusiveMinimum": 0.0,
+            "title": "Tap Drill Mm",
+            "type": "number"
+          }
+        },
+        "required": [
+          "designation",
+          "quantity",
+          "tap_drill_mm"
+        ],
+        "title": "ThreadCalloutRow",
         "type": "object"
       },
       "TitleBlock": {

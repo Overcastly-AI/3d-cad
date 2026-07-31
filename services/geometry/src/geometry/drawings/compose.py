@@ -65,6 +65,7 @@ from py_kit.schemas.drawings import (
     ComposedPoint,
     ComposedPolylineEdge,
     ComposedSheet,
+    ComposedThreadSchedule,
     ComposedTitleBlock,
     ComposedView,
     DiameterDimensionParams,
@@ -82,6 +83,7 @@ from py_kit.schemas.drawings import (
     SheetOrientation,
     SheetProjectionConvention,
     SheetSize,
+    ThreadCalloutRow,
     ViewProjection,
     ViewScale,
 )
@@ -214,6 +216,20 @@ _BEND_COL_DX: tuple[float, ...] = (3.0, 26.0, 43.0, 62.0, 77.0)
 _BEND_TABLE_CAPTIONS: tuple[str, ...] = ("BEND", "ANGLE", "RADIUS", "DIR", "ALLOW mm")
 _BEND_TABLE_CAPTION_MM = 2.1  # design token bendTableCaptionMm (apps/web tokens.ts)
 _BEND_TABLE_TEXT_MM = 2.8  # design token bendTableTextMm
+
+# --- Thread-schedule block (BACKLOG #50) ------------------------------------------
+# The tapped-hole callout block: bottom-LEFT inside the border, i.e. the corner the
+# title block (bottom-right) and the bend table (top-left) both leave free, which is
+# also where ISO sheets conventionally carry general notes. Reuses the bend table's
+# row geometry and type sizes verbatim so the two annotation blocks read as one
+# family and the three serializers share one set of numbers.
+_THREAD_TABLE_W = 62.0
+_THREAD_TABLE_HEADER_H = _BEND_TABLE_HEADER_H
+_THREAD_TABLE_ROW_H = _BEND_TABLE_ROW_H
+#: Column left-edge offsets (mm from the block's left), in caption order.
+_THREAD_COL_DX: tuple[float, ...] = (3.0, 14.0, 40.0)
+#: Column captions. QTY / THREAD / the TAP DRILL the machinist sets up.
+_THREAD_TABLE_CAPTIONS: tuple[str, ...] = ("QTY", "THREAD", "TAP DRILL")
 
 # --- @loft/design `drawing` dimension tokens (tokens.ts) — ported values ---------
 _O = 11.0  # dimensionOffsetMm
@@ -1725,6 +1741,29 @@ def _bend_table_block(
     )
 
 
+def _thread_schedule_block(
+    rows: Sequence[ThreadCalloutRow], dims: Vec2
+) -> ComposedThreadSchedule | None:
+    """The placed thread-schedule block for a part with tapped holes (BACKLOG #50).
+
+    Anchored bottom-LEFT inside the border and grown upward from the bottom margin,
+    so the block sits in the one corner neither the title block (bottom-right) nor a
+    flat-pattern bend table (top-left) uses. Returns None when there is nothing to
+    call out, and an untapped sheet then composes byte-identically to its
+    pre-thread golden (the additive posture the notes / bend table take).
+    """
+    if not rows:
+        return None
+    height = _THREAD_TABLE_HEADER_H + len(rows) * _THREAD_TABLE_ROW_H
+    return ComposedThreadSchedule(
+        x=SHEET_MARGIN_MM,
+        y=dims.y - SHEET_MARGIN_MM - height,
+        width=_THREAD_TABLE_W,
+        height=height,
+        rows=list(rows),
+    )
+
+
 def _place_notes(annotations: Sequence[Annotation]) -> list[ComposedNote]:
     """Place each free-text note annotation onto the sheet (design §2.2 v1).
 
@@ -1749,6 +1788,7 @@ def place_sheet(
     dimensions: Sequence[DrawingDimensionInput],
     layout: SheetLayout,
     annotations: Sequence[Annotation] = (),
+    threads: Sequence[ThreadCalloutRow] = (),
 ) -> ComposedSheet:
     """Place the evaluated drawing on the sheet (drawing-export.md §4.2).
 
@@ -1763,6 +1803,11 @@ def place_sheet(
     placed verbatim at its sheet-mm anchor (:func:`_place_notes`) — no geometry needed,
     so they are independent of the evaluated views. Defaulting to ``()`` keeps a
     note-free compose byte-identical to its pre-notes golden.
+
+    ``threads`` are the part's DERIVED tapped-hole callouts
+    (:func:`~geometry.drawings.thread_schedule.thread_schedule_rows`), placed as the
+    bottom-left schedule block (BACKLOG #50). Like the notes they need no geometry,
+    and ``()`` composes byte-identically to a sheet without them.
 
     NB the two-argument ``place_sheet(evaluation, layout)`` of the design sketch is
     widened: the measured-result envelope carries no dimension PARAMS (so the authored
@@ -1911,6 +1956,7 @@ def place_sheet(
         bend_table=bend_table_block,
         notes=_place_notes(annotations),
         layout_issues=measure_layout_issues(ink_rects, SHEET_MARGIN_MM),
+        thread_schedule=_thread_schedule_block(threads, dims),
     )
 
 
@@ -1923,7 +1969,16 @@ _SVG_DECIMALS = 4
 
 # @loft/design `drawing` token palette (tokens.ts) — the SAME colours the on-screen
 # sheet renders, as inline attributes (one palette, N renderers).
-_PAPER = "#ECEFF2"
+#
+# ONE DELIBERATE DIVERGENCE: the page fill. The screen token `drawing.paper` is a soft
+# grey (#ECEFF2) because on screen a sheet must read AS A SHEET against dark app
+# chrome. An EXPORTED artifact is not a UI surface — it is a print, and a print's paper
+# is white. Filling it #ECEFF2 meant every PDF a shop received was a grey A3 (audit N5)
+# with a full page of toner behind the drawing. So the exported page — and every
+# knockout that has to match it (the dimension-text halo, the annotation-block backers)
+# — is WHITE, from this one constant. The strokes below are shared with the screen
+# unchanged; only the paper differs, because only the medium does.
+_PAPER = "#FFFFFF"
 _PAPER_EDGE = "#C9CFD7"
 _INK = "#1B222B"
 _EDGE_VISIBLE = "#1B222B"
@@ -2345,6 +2400,64 @@ def _emit_bend_table(bt: ComposedBendTable, out: list[str]) -> None:
     out.append("    </g>")
 
 
+def _thread_row_cells(row: ThreadCalloutRow) -> tuple[str, str, str]:
+    """Canonical per-column cell strings for one thread-schedule row (BACKLOG #50).
+
+    Columns are ``(QTY, THREAD, TAP DRILL)``::
+
+        QTY       = f"{quantity}x"            ("4x" — how a print counts holes)
+        THREAD    = designation               ("M6x1", ASCII, kernel-formatted)
+        TAP DRILL = f"{tap_drill_mm:.2f}"     (bare 2 dp mm; the caption says what)
+
+    ONE format shared by the SVG/PDF/DXF serializers (each is a pure layout pass over
+    these cells) — the same DRY lock the bend table uses, for the same reason. Fixed
+    decimals are byte-stable across an interpreter restart (§8.3).
+    """
+    return (f"{row.quantity}x", row.designation, f"{row.tap_drill_mm:.2f}")
+
+
+def _emit_thread_schedule(ts: ComposedThreadSchedule, out: list[str]) -> None:
+    """Render the thread-schedule block into SVG — box + header + one row per size.
+
+    Mirrors :func:`_emit_bend_table` exactly (same box, same header rule, same type
+    sizes), reading the SAME :func:`_thread_row_cells` at the SAME ``_THREAD_COL_DX``
+    the PDF/DXF serializers read, so all three prints call out the same threads.
+    """
+    x, y, w, h = ts.x, ts.y, ts.width, ts.height
+    out.append('    <g data-testid="drawing-thread-schedule">')
+    out.append(
+        f'      <rect x="{_fmt(x)}" y="{_fmt(y)}" width="{_fmt(w)}" '
+        f'height="{_fmt(h)}" fill="{_PAPER}" stroke="{_INK}" '
+        f'stroke-width="{_fmt(_BORDER_W)}"/>'
+    )
+    out.append(
+        f'      <line x1="{_fmt(x)}" y1="{_fmt(y + _THREAD_TABLE_HEADER_H)}" '
+        f'x2="{_fmt(x + w)}" y2="{_fmt(y + _THREAD_TABLE_HEADER_H)}" '
+        f'stroke="{_INK}" stroke-width="{_fmt(_HIDDEN_W)}"/>'
+    )
+    cap_y = y + _THREAD_TABLE_HEADER_H - 2.4
+    for dx, caption in zip(_THREAD_COL_DX, _THREAD_TABLE_CAPTIONS, strict=True):
+        out.append(
+            f'      <text x="{_fmt(x + dx)}" y="{_fmt(cap_y)}" '
+            f'fill="{_LABEL}" font-family="{_FONT}" '
+            f'font-size="{_BEND_TABLE_CAPTION_MM}" '
+            f'letter-spacing="0.4">{_esc(caption)}</text>'
+        )
+    for i, row in enumerate(ts.rows):
+        ry = y + _THREAD_TABLE_HEADER_H + (i + 1) * _THREAD_TABLE_ROW_H - 2
+        out.append(
+            f'      <g data-testid="drawing-thread-row" data-thread-index="{i}">'
+        )
+        for dx, cell in zip(_THREAD_COL_DX, _thread_row_cells(row), strict=True):
+            out.append(
+                f'        <text x="{_fmt(x + dx)}" y="{_fmt(ry)}" '
+                f'fill="{_DIM_TEXT}" font-family="{_FONT}" '
+                f'font-size="{_BEND_TABLE_TEXT_MM}">{_esc(cell)}</text>'
+            )
+        out.append("      </g>")
+    out.append("    </g>")
+
+
 #: Severity prefix for a stamped banner line (audit N2) — the machinist reads the
 #: severity first. Shared by all three serializers.
 _BANNER_PREFIX: dict[str, str] = {
@@ -2455,6 +2568,8 @@ def serialize_svg(composed: ComposedSheet) -> str:
     _emit_title_block(composed.title_block, out)
     if composed.bend_table is not None:
         _emit_bend_table(composed.bend_table, out)
+    if composed.thread_schedule is not None:
+        _emit_thread_schedule(composed.thread_schedule, out)
     for note in composed.notes:
         _emit_note(note, out)
     _emit_banner(composed, out)
@@ -2750,6 +2865,49 @@ def _pdf_bend_table(c: Canvas, bt: ComposedBendTable) -> None:
             )
 
 
+def _pdf_thread_schedule(c: Canvas, ts: ComposedThreadSchedule) -> None:
+    """Draw the thread-schedule block onto the PDF canvas (BACKLOG #50).
+
+    The PDF twin of :func:`_emit_thread_schedule`: same box, same header rule, same
+    ``_THREAD_COL_DX`` offsets over the SAME :func:`_thread_row_cells`, so the
+    exported PDF a shop receives calls out exactly what the SVG and DXF do.
+    """
+    x, y, w, h = ts.x, ts.y, ts.width, ts.height
+    c.setDash([])
+    c.setFillColor(_hex(_PAPER))
+    c.setStrokeColor(_hex(_INK))
+    c.setLineWidth(_BORDER_W * _MM)
+    c.rect(x * _MM, y * _MM, w * _MM, h * _MM, stroke=1, fill=1)
+    c.setLineWidth(_HIDDEN_W * _MM)
+    hy = (y + _THREAD_TABLE_HEADER_H) * _MM
+    c.line(x * _MM, hy, (x + w) * _MM, hy)
+    cap_y = y + _THREAD_TABLE_HEADER_H - 2.4
+    for dx, caption in zip(_THREAD_COL_DX, _THREAD_TABLE_CAPTIONS, strict=True):
+        _pdf_text(
+            c,
+            x + dx,
+            cap_y,
+            caption,
+            _BEND_TABLE_CAPTION_MM,
+            _LABEL,
+            centred=False,
+            central=False,
+        )
+    for i, row in enumerate(ts.rows):
+        ry = y + _THREAD_TABLE_HEADER_H + (i + 1) * _THREAD_TABLE_ROW_H - 2
+        for dx, cell in zip(_THREAD_COL_DX, _thread_row_cells(row), strict=True):
+            _pdf_text(
+                c,
+                x + dx,
+                ry,
+                cell,
+                _BEND_TABLE_TEXT_MM,
+                _DIM_TEXT,
+                centred=False,
+                central=False,
+            )
+
+
 def _pdf_note(c: Canvas, note: ComposedNote) -> None:
     """Stamp a placed free-text note onto the PDF canvas (design §2.2) — left-anchored
     graphite ink at the note's sheet anchor (baseline-left, matching the SVG/DXF)."""
@@ -2808,6 +2966,8 @@ def serialize_pdf(composed: ComposedSheet) -> bytes:
     _pdf_title_block(c, composed.title_block)
     if composed.bend_table is not None:
         _pdf_bend_table(c, composed.bend_table)
+    if composed.thread_schedule is not None:
+        _pdf_thread_schedule(c, composed.thread_schedule)
     for note in composed.notes:
         _pdf_note(c, note)
     # The layout-issue banner (audit N2) — a colliding sheet says so on the PDF too.
@@ -3113,6 +3273,48 @@ def _dxf_bend_table(
             )
 
 
+def _dxf_thread_schedule(
+    msp: Modelspace, ts: ComposedThreadSchedule, fy: Callable[[float], float]
+) -> None:
+    """Emit the thread-schedule block as DXF entities (BACKLOG #50).
+
+    The DXF twin of :func:`_emit_thread_schedule` / :func:`_pdf_thread_schedule`: a
+    box + header rule + one column-placed TEXT per caption and per cell, from the
+    SAME :func:`_thread_row_cells` at the SAME ``_THREAD_COL_DX``. Real editable CAD
+    text, so a shop can read the callout in its own CAD, not just in a picture.
+    """
+    x, y, w, h = ts.x, ts.y, ts.width, ts.height
+    box = [(x, fy(y)), (x + w, fy(y)), (x + w, fy(y + h)), (x, fy(y + h))]
+    msp.add_lwpolyline(box, close=True, dxfattribs={"layer": _LYR_TITLE})
+    hy = y + _THREAD_TABLE_HEADER_H
+    _dxf_line(msp, x, fy(hy), x + w, fy(hy), _LYR_TITLE)
+    cap_y = y + _THREAD_TABLE_HEADER_H - 2.4
+    for dx, caption in zip(_THREAD_COL_DX, _THREAD_TABLE_CAPTIONS, strict=True):
+        _dxf_text_entity(
+            msp,
+            caption,
+            x + dx,
+            fy(cap_y),
+            _BEND_TABLE_CAPTION_MM,
+            0.0,
+            _LYR_TITLE,
+            centred=False,
+        )
+    for i, row in enumerate(ts.rows):
+        ry = y + _THREAD_TABLE_HEADER_H + (i + 1) * _THREAD_TABLE_ROW_H - 2
+        for dx, cell in zip(_THREAD_COL_DX, _thread_row_cells(row), strict=True):
+            _dxf_text_entity(
+                msp,
+                cell,
+                x + dx,
+                fy(ry),
+                _BEND_TABLE_TEXT_MM,
+                0.0,
+                _LYR_TITLE,
+                centred=False,
+            )
+
+
 def _dxf_note(
     msp: Modelspace, note: ComposedNote, fy: Callable[[float], float]
 ) -> None:
@@ -3192,6 +3394,8 @@ def serialize_dxf(composed: ComposedSheet) -> bytes:
         _dxf_title_block(msp, composed.title_block, fy)
         if composed.bend_table is not None:
             _dxf_bend_table(msp, composed.bend_table, fy)
+        if composed.thread_schedule is not None:
+            _dxf_thread_schedule(msp, composed.thread_schedule, fy)
         for note in composed.notes:
             _dxf_note(msp, note, fy)
         # The layout-issue banner (audit N2) — on the DIMENSION layer (the sheet's

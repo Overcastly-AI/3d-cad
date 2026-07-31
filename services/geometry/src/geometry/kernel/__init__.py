@@ -336,6 +336,7 @@ def export_solid(
     fmt: ExportFormat,
     linear_deflection: float,
     angular_deflection: float,
+    name: str | None = None,
 ) -> bytes:
     """Export an already-built solid in *fmt* — the shared format dispatch.
 
@@ -346,10 +347,15 @@ def export_solid(
     STEP ignores the deflection arguments (exact B-rep); STL uses both.
     Deterministic (RESEARCH §9; :mod:`geometry.kernel.export` pins the STEP
     timestamp).
+
+    *name* is the document name the STEP PRODUCT carries (audit N4 — a file
+    named after a UUID containing ``PRODUCT('SOLID')`` tells a vendor nothing).
+    ``None`` keeps OCCT's default, so the parametric-shape path and every
+    existing caller are byte-identical to before. STL carries no product names.
     """
     match fmt:
         case "step":
-            return export_step_bytes(shape)
+            return export_step_bytes(shape, name=name)
         case "stl":
             return export_stl_bytes(shape, linear_deflection, angular_deflection)
 

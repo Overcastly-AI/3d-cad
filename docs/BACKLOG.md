@@ -63,6 +63,21 @@ even-odd scanline clip) across SVG/PDF/DXF, `views.section_params jsonb` (0008);
 wrong-half + multi-loop + byte-determinism goldens; oblique + the `project_view`
 frame refactor are v2/§11. Spike de-collected.
 
+- [ ] (P1, S) **Audit N4 tail — SET the export `name` at the callers.** The
+      geometry service now names the exported STEP PRODUCT and derives the download
+      filename from an OPTIONAL `name` on `ExportTreeRequest` / `ExportAssemblyRequest`
+      (kernel-architect, 2026-07-31; every gate asserts on the exported bytes). Until
+      the callers populate it, the id fallback keeps today's behaviour, so this is the
+      last hop between the fix and the user. Two one-line changes, both OUTSIDE the
+      geometry territory: (a) gateway `export_part` (`services/gateway/src/gateway/
+      features.py`) already fetches the part to build `ExportTreeRequest` — add the
+      part's `name` to the spread; (b) the web's `buildEvaluateAssemblyRequest`
+      (`apps/web/src/assembly/evaluateRequest.ts`) holds `graph.assembly.name` — pass
+      it on the EXPORT request (the gateway proxies the client's request verbatim).
+      Acceptance: `Content-Disposition` is `motor-mount-bracket.step`, the STEP holds
+      `PRODUCT('Motor Mount Bracket')`, and two assemblies exported in a row do not
+      overwrite each other in Downloads. [src: AUDIT-PRODUCT.md N4]
+
 - [x] (P1, M) **#58 — the SETTINGS surface exists, and every row on it is wired.
       SHIPPED 2026-07-31** (frontend-builder, 2026-07-31; founder-raised "units and
       mass should be controlled from a settings page"). There was no settings
@@ -964,8 +979,21 @@ frame refactor are v2/§11. Spike de-collected.
             byte-identical to its bore, so the UI is the only place it exists.
             e2e (derive → mismatch guard → Solved → survives reload; + a tapped
             counterbore) + founder shots at 1440/1280. [done 2026-07-25]
-      - [ ] Standard drill-size tables (+ MCP/scripting exposure); drawing hole
-            callouts read the designation from the feature params (never stored).
+      - [x] Drawing THREAD SCHEDULE (2026-07-31, kernel-architect) — BACKLOG #50,
+            the output half. A tapped hole's solid is byte-identical to its bore, so
+            the print is the only place the thread can exist; it reached none. Now a
+            derived QTY / THREAD / TAP DRILL block (bottom-left, the corner the title
+            block and bend table leave free) in SVG, PDF and DXF, rolled up per
+            designation from the feature params at compose time — never stored, so a
+            re-tapped hole cannot leave a stale callout. Asserted on the DOWNLOADED
+            bytes incl. a route-level POST. NOT done, with reasons on
+            `ComposedThreadSchedule`: a BOM column (a BOM line is a DOCUMENT; a part
+            with four M6 + two M8 has no single thread value) and a STEP thread
+            annotation (AP242 PMI, which OCCT does not write and AP214 cannot
+            express).
+      - [ ] Standard drill-size tables (+ MCP/scripting exposure). The tap drill is
+            already served on the drawing's thread schedule; this is the wider stock-
+            drill table + agent surface.
 - [x] (P2, S) Feature suppress — mark a feature suppressed (persisted flag); tree
       rebuild skips it, downstream features rebuild off the last non-suppressed
       state (or typed-fail if they reference the suppressed feature directly). A
@@ -2039,6 +2067,14 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
       engineering-audit debt items closed. [src: engineering-auditor]
 
 ## Changelog
+
+- 2026-07-31 — **What LEAVES the tool now says what it is (kernel-architect):**
+  audit N8 — an assembly STEP instances its parts (21 instances / 2 parts:
+  21 B-reps + 504 KB -> **2 B-reps + 58 KB**; `located()` was a deep geometric
+  copy, so no writer could see the instancing); N4 — part/assembly exports are
+  named after the document in both the filename and the PRODUCT, and
+  `assembly.step` no longer overwrites itself; #50 — the tapped-hole callout
+  reaches SVG/PDF/DXF; N5 (part) — the exported page is white, not grey.
 
 - 2026-07-31 — **Three surfaces stopped over-claiming, and settings exist
   (frontend-builder, 2026-07-31):** the register no longer calls a rolled-back

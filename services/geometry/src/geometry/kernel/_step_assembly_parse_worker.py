@@ -83,12 +83,18 @@ class _TooManyProducts(Exception):
 
 
 def _label_name(label: object) -> str | None:
-    """The ``TDataStd_Name`` of *label* as a Python string, or ``None``."""
+    """The ``TDataStd_Name`` of *label* as a Python string, or ``None``.
+
+    An EMPTY name reads as absent: STEP writers routinely emit ``''`` for a name
+    field they have nothing to say about, and "" is not a name a caller could
+    show. Returning None lets the occurrence/product fallback below pick the
+    other one instead of propagating a blank.
+    """
     from OCP.TDataStd import TDataStd_Name
 
     attr = TDataStd_Name()
     if label.FindAttribute(TDataStd_Name.GetID_s(), attr):  # type: ignore[attr-defined]
-        return str(attr.Get().ToExtString())
+        return str(attr.Get().ToExtString()).strip() or None
     return None
 
 
@@ -187,8 +193,17 @@ def _collect_components(
 
     For each occurrence: compose its location under *parent_location* (so nested
     sub-assemblies accumulate to a world placement), resolve its referred
-    prototype, and take the occurrence NAME from the PRODUCT (referred) label,
-    falling back to the component (NAUO) label.
+    prototype, and take the occurrence NAME from the COMPONENT (NAUO) label,
+    falling back to the referred PRODUCT label.
+
+    That priority is the instanced-export contract read back (audit N8): under
+    AP214 product structure a part is ONE product used N times, so the PRODUCT
+    name identifies the PART ("Dowel Pin 8x24") and is necessarily shared by
+    every occurrence, while the NAUO name identifies the INSTANCE ("Dowel Pin
+    8x24 <17>"). Preferring the product name — as this walk used to — collapsed
+    twenty distinct instances to twenty copies of one name. The fallback keeps
+    files whose writer names only the product (an occurrence-name-less flat
+    export) reading exactly as before.
     """
     from OCP.TDF import TDF_Label, TDF_LabelSequence
 
@@ -201,7 +216,7 @@ def _collect_components(
         referred = TDF_Label()
         if not shape_tool.GetReferredShape_s(component, referred):  # type: ignore[attr-defined]
             continue
-        name = _label_name(referred) or _label_name(component)
+        name = _label_name(component) or _label_name(referred)
         _collect_leaf(
             shape_tool,
             referred,

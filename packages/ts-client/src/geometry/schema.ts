@@ -1780,6 +1780,8 @@ export interface components {
              * @description The sheet scale label ('1:1')
              */
             scale_label: string;
+            /** @description The placed THREAD SCHEDULE block (BACKLOG #50) — one row per distinct tapped-hole designation in the part, with its quantity and tap drill. Null for a part with no tapped hole — additive, so an untapped sheet composes byte-identically to its pre-thread golden. */
+            thread_schedule?: components["schemas"]["ComposedThreadSchedule"] | null;
             /**
              * Title
              * @description Drawing name (metadata / accessible label)
@@ -1797,6 +1799,41 @@ export interface components {
              * @description Sheet width (mm) — the SVG viewBox width
              */
             width_mm: number;
+        };
+        /**
+         * ComposedThreadSchedule
+         * @description The placed thread-schedule block — anchor rect + rows (BACKLOG #50).
+         *
+         *     The bottom-left twin of the flat-pattern bend table (top-left) and the title
+         *     block (bottom-right): a bordered box of derived rows, in sheet-mm SVG space,
+         *     rendered identically by all three serializers.
+         */
+        ComposedThreadSchedule: {
+            /**
+             * Height
+             * @description Block height (mm)
+             */
+            height: number;
+            /**
+             * Rows
+             * @description One row per distinct designation, in the part's TREE order of first appearance (never request-array order — RESEARCH §9)
+             */
+            rows: components["schemas"]["ThreadCalloutRow"][];
+            /**
+             * Width
+             * @description Block width (mm)
+             */
+            width: number;
+            /**
+             * X
+             * @description Block left edge (mm, SVG space)
+             */
+            x: number;
+            /**
+             * Y
+             * @description Block top edge (mm, SVG space, y-down)
+             */
+            y: number;
         };
         /**
          * ComposedTitleBlock
@@ -3217,6 +3254,11 @@ export interface components {
              */
             mates?: components["schemas"]["EvaluatedMate"][];
             /**
+             * Name
+             * @description The assembly's human-readable document name. Names the exported STEP's ROOT PRODUCT and the download filename; omitted / null falls back to the assembly id. Export-only (see DocumentName): a name must never be an input to the solve.
+             */
+            name?: string | null;
+            /**
              * Version
              * @description Echoed back; cache/correlation key
              */
@@ -3308,6 +3350,11 @@ export interface components {
             linear_deflection: number;
             /** @description What the part's bodies are made of (docs/design/materials.md): a document default plus per-body overrides. Omitted / null = no material, so the result reports NO mass (absent, not zero). Unlike length units — presentation metadata the kernel never sees — material is an INPUT to evaluation, because mass is derived from it. */
             materials?: components["schemas"]["MaterialAssignment"] | null;
+            /**
+             * Name
+             * @description The part's human-readable document name. Names the exported STEP PRODUCT and the download filename; omitted / null falls back to the part id. EXPORT-only on purpose (see DocumentName) — it is not on EvaluateTreeRequest, because a name must never be an input to geometry.
+             */
+            name?: string | null;
             /**
              * Part Id
              * Format: uuid
@@ -6676,6 +6723,27 @@ export interface components {
         TessellationMetadata: {
             mesh: components["schemas"]["MeshStats"];
             properties: components["schemas"]["ShapeProperties"];
+        };
+        /**
+         * ThreadCalloutRow
+         * @description One line of the thread schedule — a designation, its count, its tap drill.
+         */
+        ThreadCalloutRow: {
+            /**
+             * Designation
+             * @description Drawing designation, ASCII ("M6x1") — the kernel's `format_designation`, never re-derived here
+             */
+            designation: string;
+            /**
+             * Quantity
+             * @description How many holes in the part carry this designation
+             */
+            quantity: number;
+            /**
+             * Tap Drill Mm
+             * @description ISO recommended tap drill (nominal - pitch, mm) — the diameter the kernel actually bored, and what the shop sets up
+             */
+            tap_drill_mm: number;
         };
         /**
          * TitleBlock

@@ -25,10 +25,12 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from py_kit.schemas.features import (
     MAX_TREE_FEATURES,
+    DocumentName,
     EdgeSignature,
     EvaluatedFeatureInput,
     FeatureError,
     PlanarFaceSignature,
+    document_slug,
 )
 from py_kit.schemas.geometry import (
     DEFAULT_ANGULAR_DEFLECTION,
@@ -995,8 +997,35 @@ class ExportAssemblyRequest(EvaluateAssemblyRequest):
         "segments; ignored for STEP (exact B-rep). Floored at "
         "MIN_ANGULAR_DEFLECTION (work bound, audit G2).",
     )
+    name: DocumentName | None = Field(
+        default=None,
+        description="The assembly's human-readable document name. Names the "
+        "exported STEP's ROOT PRODUCT and the download filename; omitted / null "
+        "falls back to the assembly id. Export-only (see DocumentName): a name "
+        "must never be an input to the solve.",
+    )
+
+
+def assembly_export_root_name(request: ExportAssemblyRequest) -> str:
+    """The name the exported STEP's ROOT PRODUCT carries.
+
+    The assembly-level twin of the instance names already in the file (audit
+    N4/#7): before this, every assembly export was ``PRODUCT('<assembly uuid>')``
+    at the root, so a receiving shop could read the components and not the thing
+    they add up to. Falls back to the assembly id, which is at least unique.
+    """
+    return request.name if request.name is not None else str(request.assembly_id)
 
 
 def assembly_export_filename(request: ExportAssemblyRequest) -> str:
-    """Deterministic download filename for an assembly export (Content-Disposition)."""
-    return f"assembly.{request.format}"
+    """Deterministic download filename for an assembly export (Content-Disposition).
+
+    Named after the ASSEMBLY (``motor-mount-assembly.step``) when the request
+    carries the document name. The fallback is ``assembly-<id>.<format>``, NOT
+    the old constant ``assembly.<format>``: that named every assembly's download
+    identically, so exporting two of them silently overwrote the first (audit
+    N4). Shares the one slug rule with the part and drawing downloads
+    (:func:`~py_kit.schemas.features.document_slug`).
+    """
+    slug = document_slug(request.name) if request.name is not None else ""
+    return f"{slug or f'assembly-{request.assembly_id}'}.{request.format}"
