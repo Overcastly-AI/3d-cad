@@ -87,15 +87,18 @@ frame refactor are v2/§11. Spike de-collected.
       `healing.clean_shape`'s two GProp integrations per boolean = another 5.3 %,
       and its docstring's "~1.3 ms" is toy-measured (5.8 ms/integration at 442
       faces). [geometry-qa PERF-2]
-- [ ] (P1, M) **PERF-3 — STEP import of Loft's OWN export is at 92 % of the DoS
-      ceiling, and import scales `faces^2.4`.** Through the real bounded worker
-      (`import_step_solid`): 1 030 faces → 3.66 s, 2 006 faces → **18.44 s** against
-      `DEFAULT_STEP_IMPORT_CPU_TIMEOUT_S = 20.0` (`kernel/imports.py:100`). A part
-      ~4 % larger is refused as `import_parse_timeout` — a **wrong refusal**, not a
-      slow import. That ceiling's docstring claims "~20x headroom" from the 10-23 ms
-      toy goldens; real headroom is **1.08x**. Re-derive the bound against a
-      real-part corpus AND root-cause the 10.7x export/import asymmetry.
-      [geometry-qa PERF-3]
+- [x] (P1, M) **PERF-3 — STEP import of Loft's OWN export was at 92 % of the DoS
+      ceiling. Done 2026-07-31 (kernel-architect).** Root cause was NOT a face-count
+      law: OCCT's transfer runs `ShapeFix_Shape` after building the topology, and
+      `ShapeFix_Wire::FixSelfIntersection` is super-quadratic in **edges per wire**
+      (8/8 gdb stacks of a live 18 s import). The benchmark sink's comb faces carry
+      ONE `4*fins+4`-edge wire, so its worst wire grew with the part. Disabling that
+      one op (`FixShape.FixSelfIntersectionMode=0`, applied AFTER `ReadFile` or it is
+      silently a no-op) gives **byte-identical** output and 2 006 faces **18.58 →
+      3.46 CPU s** (5.4x), curve now linear. Ceiling stays 20 s, re-derived from the
+      16 MiB upload cap: ~1.0 s fixed + **0.23-0.36 CPU s/MiB** → ~3x headroom at the
+      cap, cliff at ~55 MiB, i.e. the upload cap binds first. docs/PERF.md
+      "2026-07-31b". [geometry-qa PERF-3]
 - [x] (P2, S) **PERF-4a — the mesh route shipped uncompressed** (no
       `GZipMiddleware` anywhere in geometry/gateway/py-kit). **Done 2026-07-31:**
       compression wired ONCE in py-kit `create_app`; measured on the real route
@@ -113,15 +116,25 @@ frame refactor are v2/§11. Spike de-collected.
       face id as a vertex attribute instead of splitting primitives. Frontend-
       coupled (viewport picks by primitive ordinal today). Compression blunts the
       byte cost but not the draw calls. [geometry-qa PERF-4]
-- [ ] (P2, M) **PERF-5 — per-face provenance goes dark at ~110 features and its
-      docstring says it never will.** `MAX_PROVENANCE_FACES`'s budget sums faces over
-      EVERY snapshot, so it is `O(features x faces)`: measured 91 % of 8 000 at
-      N=100, **200 % at N=150**, after which selecting a feature silently stops
-      highlighting its faces. `py_kit/schemas/overlay.py:55-57` claims "an authored
-      part is nowhere near the bound (tens of features x tens-to-low-hundreds of
-      faces)" — that product is 7 500 of 8 000. Fix the docstring now; then keep
-      `list[fingerprint]` per snapshot instead of `list[BodyShape]`
-      (`kernel/provenance.py:180`), which also drops the retained B-reps.
+- [x] (P2, M) **PERF-5a — per-face provenance went dark at ~103 features while its
+      docstring said it never would. Done 2026-07-31 (kernel-architect).** Crossing
+      point MEASURED, not bracketed: budget 7 242 at N=100, **8 180 at N=105**, so the
+      old 8 000 ceiling was crossed at **N ~= 103** (~232 faces) — an ordinary
+      authored part. `MAX_PROVENANCE_FACES` **8 000 → 30 000** (crosses at N ~= 207),
+      re-derived from the measured 134-237 us/fingerprint: worst admitted pass
+      ~4.0-7.1 s. The old ~1.5 s sizing was moot — at N=125, the first size 8 000
+      refused, the same `/overlay` already pays ~11 s of rebuild and the pass is a
+      steady **11-16 % of the request**, so the bound spent the point of the request
+      to save a sixth of it. Still degrades the audit-H4 case (20 000-face import =
+      budget 40 000). Gated by `test_provenance_budget.py`. [geometry-qa PERF-5]
+- [ ] (P2, M) **PERF-5b — the provenance budget is still the wrong SHAPE: it sums
+      faces over EVERY snapshot, so it is `O(features x faces)`.** Raising the
+      ceiling (5a) bought headroom, not a fix. Attribution needs each snapshot's
+      FINGERPRINTS, not a retained B-rep: fingerprint at production time and keep
+      `list[fingerprint]` instead of `list[BodyShape]`, which makes the pass
+      `O(final faces)` and drops the retained snapshot memory too. Call sites:
+      `features/evaluate.py` `EvaluationState.body_history` (:380, :2907, appended
+      :3099) + `kernel/provenance.py:180`. Blocked on evaluate.py territory only.
       [geometry-qa PERF-5]
 
 - [ ] (P1, S) **Audit N4 tail — SET the export `name` at the callers.** The

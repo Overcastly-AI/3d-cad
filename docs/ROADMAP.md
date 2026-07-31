@@ -687,7 +687,14 @@ goes dark at ~110 features. **PERF-4a fixed 2026-07-31**: compression wired once
 in py-kit `create_app` — 5.2x on the tray, 11.9x on the sink, 4.2x on
 `/openapi.json`, measured on the real route; the gateway is the hop that
 compresses (it now asks geometry for `identity`, cutting the end-to-end mesh
-fetch 57.8 ms → 31.4 ms).
+fetch 57.8 ms → 31.4 ms). **PERF-3 fixed 2026-07-31**: the import curve was one
+OCCT repair pass (`ShapeFix_Wire::FixSelfIntersection`, super-quadratic in edges
+per wire — never a face-count law); disabling it is byte-identical and takes a
+2 006-face import 18.58 → **3.46 CPU s**, so the 20 s ceiling now has ~3x headroom
+at the 16 MiB upload cap instead of 1.08x. **PERF-5a fixed 2026-07-31**:
+provenance crossed its budget at N ~= 103 (measured, not bracketed);
+`MAX_PROVENANCE_FACES` 8 000 → 30 000 crosses at N ~= 207 — PERF-5b (fingerprint
+snapshots instead of retaining B-reps) still open.
 
 Phase 2 (parametric core)
 **converged 2026-07-15**: Sketching and Part modeling both flipped their

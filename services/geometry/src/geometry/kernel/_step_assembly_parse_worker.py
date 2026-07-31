@@ -70,6 +70,7 @@ _spec.loader.exec_module(_helper)
 EXIT_PARSE_FAILED: int = _helper.EXIT_PARSE_FAILED
 EXIT_TOO_MANY_PRODUCTS: int = _helper.EXIT_TOO_MANY_PRODUCTS
 _apply_cpu_limit = _helper._apply_cpu_limit
+apply_shape_fix_parameters = _helper.apply_shape_fix_parameters
 
 
 class _TooManyProducts(Exception):
@@ -254,6 +255,9 @@ def _walk(in_path: str, out_dir: str, max_products: int) -> int:
     reader.SetNameMode(True)
     if reader.ReadFile(in_path) != IFSelect_ReturnStatus.IFSelect_RetDone:
         return EXIT_PARSE_FAILED
+    # Same super-quadratic OCCT repair pass the single-body worker disables, on
+    # the same reader underneath the XDE wrapper (PERF-3) — one helper, one bound.
+    apply_shape_fix_parameters(reader)
     if not reader.Transfer(document):
         return EXIT_PARSE_FAILED
 

@@ -594,7 +594,186 @@ Wall-clock ceilings to track over time. A >10 % regression against the
 | tessellation | 500-fin sink | 519 ms | 2 006 faces |
 | STEP export | 500-fin sink | 1 689 ms / 7 354 KiB | |
 | STEP import (service path) | 256-fin sink (1 030 F) | 3 660 ms | `import_step_solid` |
-| STEP import (service path) | 500-fin sink (2 006 F) | 18 440 ms | **92 % of the 20 s CPU ceiling** |
+| STEP import (service path) | 500-fin sink (2 006 F) | 18 440 ms | was **92 % of the 20 s CPU ceiling**; **PERF-3 fixed → 3 819 ms / 3.46 CPU s** |
+| STEP import (service path) | 256-fin sink, post-PERF-3 | 2 217 ms | 1.92 CPU s |
+| STEP import (service path) | two 500-fin sinks (14.6 MiB) | 5 726 ms | 5.16 CPU s — near the 16 MiB upload cap |
 | STL export | tray N=200 | 76 ms / 1 546 KiB | |
 | mesh fetch (gateway, gzip) | tray N=200 | 31 ms / 216 KiB | was 1 117 KiB raw; PERF-4 |
 | mesh fetch (gateway, gzip) | 500-fin sink | 20 ms / 90 KiB | was 1 064 KiB raw; PERF-4 |
+
+---
+
+## 2026-07-31b — PERF-3 landed: the STEP import curve was one OCCT repair pass
+
+Fix for RANKED-4 ("STEP import of Loft's own large export is at 95 % of its DoS
+budget"). The headline of that finding — *import scales as `faces^2.4`* — turned
+out to be **the wrong model of the wrong cost**, and the ceiling question
+largely dissolved once the real cost was named.
+
+### Root cause, profiled and named
+
+`TransferRoots` is the entire cost (`ReadFile` is near-linear and 5 % of it):
+
+| part | faces | `ReadFile` | `TransferRoots` | BREP write |
+| --- | ---: | ---: | ---: | ---: |
+| 64-fin sink | 262 | 0.07 s | 0.13 s | 0.006 s |
+| 128-fin sink | 518 | 0.16 s | 0.42 s | 0.014 s |
+| 256-fin sink | 1 030 | 0.40 s | 2.04 s | 0.027 s |
+| 500-fin sink | 2 006 | 1.05 s | **17.47 s** | 0.053 s |
+
+Sampling the native stack of a live 18 s import with `gdb` (8 samples, 1 s
+apart) returned the **same stack 8 times out of 8**:
+
+```
+NCollection_BaseSequence::Find
+ShapeExtend_WireData::Edge
+ShapeFix_IntersectionTool::FixSelfIntersectWire
+ShapeFix_Wire::FixSelfIntersection
+ShapeFix_Wire::Perform  →  ShapeFix_Face  →  ShapeFix_Shell  →  ShapeFix_Solid
+ShapeFix_Shape::Perform
+ShapeProcess::Perform  →  XSAlgo_ShapeProcessor::ProcessShape
+STEPControl_ActorRead::TransferEntity
+```
+
+OCCT's STEP transfer is not just a read: after `StepToTopoDS` builds the
+topology, `STEPControl_ActorRead` runs a full `ShapeFix_Shape` over the result.
+One operation in that sequence — `ShapeFix_Wire::FixSelfIntersection` — tests a
+wire's edges **pairwise** and reaches each edge through
+`ShapeExtend_WireData::Edge(i)`, a *positional* index into an
+`NCollection_Sequence`. Its cost is therefore super-quadratic in **edges per
+wire**.
+
+**It was never a face-count law.** The benchmark heat sink's two comb faces each
+carry ONE wire of `4 × fins + 4` edges, so its worst wire grew *with* the part
+and the import curve inherited that growth (the fitted exponent even rises with
+size: 2.27 from 518→1 030 faces, **3.22** from 1 030→2 006 — a pure `faces^2.4`
+model cannot do that). Measured wire distribution:
+
+| part | faces | max wires/face | **max edges/wire** |
+| --- | ---: | ---: | ---: |
+| tray N=200 | 442 | 1 | 8 |
+| 400-hole perforated plate | 406 | 401 | 4 |
+| 500-fin heat sink | 2 006 | 1 | **2 004** |
+
+Ruled out along the way, each in a fresh process on the 2 006-face file (none
+moved the number by more than noise): `read.step.resource.name`,
+`read.surfacecurve.mode` (2 and 3), `read.precision.mode`,
+`read.maxprecision.mode`, `read.stdsameparameter.mode`. OCCT ≥ 7.8 no longer
+reads shape-processing settings from resource files at all — the only live knob
+is the `SetShapeFixParameters` API.
+
+### The fix
+
+`geometry/kernel/_step_parse_worker.py` binds one shape-processing parameter,
+`FixShape.FixSelfIntersectionMode = 0`, on the reader **after `ReadFile`** (the
+map is forwarded to the transfer *actor*, which does not exist until `ReadFile`
+has initialised the work session — calling it earlier is silently a no-op:
+measured 2.07 s vs 0.53 s on the same file). The assembly XCAF worker gets the
+same bound from the same helper.
+
+The transferred shape is **byte-identical**: same BREP sha256, same volume, same
+face and edge counts, at every corpus size. That is expected — the operation
+repairs *malformed* wires, so on well-formed input it is pure cost — and it is
+now a gate (`test_step_import_scaling.py`), not a claim. On malformed input a
+self-intersecting wire is imported as authored instead of silently repaired,
+which is the contract `kernel/imports.py` already documents; the downstream
+guard is unchanged and real (`body_is_valid` admits every body, so a broken
+import is a clean per-feature error, never a silently wrong body). It also
+*tightens* the DoS posture: a hostile file previously needed just one long wire
+to burn the whole CPU budget inside OCCT's repair pass.
+
+### Before / after, through the real bounded worker
+
+`import_step_solid` — the subprocess with `RLIMIT_CPU` that the evaluate handler
+uses. "child CPU" is `RUSAGE_CHILDREN` around the call, i.e. **exactly what the
+ceiling bounds**; wall-clock is reported alongside because that is what a user
+waits.
+
+| part | faces | worst wire | STEP MiB | CPU before | CPU after | wall before | wall after |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| tray N=100 | 219 | 8 | 0.63 | 1.12 s | 1.24 s | 1 190 ms | 1 361 ms |
+| tray N=200 | 442 | 8 | 1.29 | 1.24 s | 1.41 s | 1 422 ms | 1 470 ms |
+| plate 200 holes | 206 | 4 | 0.87 | 1.18 s | 1.21 s | 1 264 ms | 1 321 ms |
+| plate 400 holes | 406 | 4 | 1.75 | 1.77 s | 1.53 s | 2 050 ms | 1 740 ms |
+| 256-fin sink | 1 030 | 1 028 | 3.60 | 3.25 s | **1.92 s** | 3 383 ms | 2 217 ms |
+| 500-fin sink | 2 006 | 2 004 | 7.18 | **18.58 s** | **3.46 s** | 19 224 ms | **3 819 ms** |
+| two 500-fin sinks | 4 012 | 2 004 | 14.62 | n/m | **5.16 s** | — | 5 726 ms |
+
+**5.4x on CPU and 5.0x on wall-clock at 2 006 faces, and the curve is linear.**
+Small parts are unchanged (their ~0.9 s is the child's OCP cold import, which
+dominates everything else at that size); the ±0.1 s wobble there is noise.
+
+### The ceiling, re-derived — and why it does not move
+
+`DEFAULT_STEP_IMPORT_CPU_TIMEOUT_S` stays **20.0 s**, but for a reason that can
+now be stated instead of a "~20x headroom" fitted to 10-23 ms toy goldens
+(measured headroom at the time: **1.08x**).
+
+Fit across the corpus: **~1.0 s fixed** (the child's OCP cold import) +
+**0.23-0.36 CPU s per MiB**, linear. Face count does *not* predict cost — a
+442-face tray and a 406-face plate cost the same as each other and a sixth of a
+2 006-face sink — **input bytes do**, which is what a DoS bound should key on and
+what the existing 16 MiB inline upload cap already limits. So:
+
+* a file at the **full 16 MiB cap** costs ~6-7 CPU s → the ceiling is **~3x** the
+  worst file the upload cap can admit;
+* the largest part Loft can express (2 006 faces, `MAX_PATTERN_COUNT`) costs
+  3.46 s → **5.8x**;
+* the new cliff sits at **~55 MiB of STEP**, i.e. **the upload cap binds first
+  and this ceiling is now unreachable by any accepted file** at the measured
+  rate.
+
+What can still reach it is a file whose *topology* is pathological for some
+other OCCT pass — which is what the bound is for, and why it stays.
+
+## 2026-07-31b — PERF-5: the provenance budget, measured and re-derived
+
+`MAX_PROVENANCE_FACES` **8 000 → 30 000**, and the docstring that said an
+authored part is "nowhere near the bound" is gone.
+
+### The measured crossing point (the number the old docs did not have)
+
+Per-fingerprint cost is unchanged from the ~186 us the bound was fitted to
+(**134-237 us**, an exact-B-rep GProp area + centroid), so the pass is honest
+about *its* cost; the budget's SHAPE is what was wrong. It sums over every
+snapshot, so it is spent by `features × faces`, and the crossing point is a
+FEATURE COUNT:
+
+| features | faces | snapshots | budget | `attribute_faces` ms | attributed (old 8 000) |
+| ---: | ---: | ---: | ---: | ---: | --- |
+| 25 | 60 | 15 | 562 | 107 | yes |
+| 50 | 117 | 31 | 2 047 | 485 | yes |
+| 75 | 168 | 47 | 4 416 | 681 | yes |
+| 100 | 219 | 61 | 7 242 | 968 | yes |
+| **105** | 237 | 65 | **8 180** | — | **NULL** |
+| 125 | 282 | 77 | 11 326 | 1 746 | NULL |
+| 150 | 331 | 92 | 15 971 | 2 147 | NULL |
+| 200 | 442 | 124 | 28 552 | 4 112 | NULL |
+| 205 | 449 | 126 | 29 452 | — | (new: yes) |
+| 210 | 467 | 130 | 31 310 | — | (new: NULL) |
+
+**Old crossing: N ≈ 103 features (~232 faces). New crossing: N ≈ 207.** The
+2026-07-31 run bracketed it at "~105-110"; this pins it.
+
+### Why 30 000 and not 10 000
+
+The old value was sized to keep one pass inside the RESEARCH §9 2 s interactive
+ceiling. That premise is **moot at the sizes where the bound binds**: at N=125,
+the first size 8 000 refused, the same `/overlay` request already pays ~11 s of
+rebuild underneath it (PERF-1, no rebuild cache), and the attribution pass is a
+steady **11-16 % of the request at every measured size** (968 ms of 8 403 at
+N=100; 2 147 ms of 15 223 at N=150). Refusing it spent the *point* of the request
+to save a sixth of it. 30 000 admits every part size that rebuilds at all today
+(N=200 = 27 s) at a worst-case pass of ~4.0-7.1 s, while still degrading the
+pathological case audit H4 named — a 20 000-face imported body is one snapshot,
+budget 40 000.
+
+### Not done here: the budget is still the wrong SHAPE (PERF-5b, filed)
+
+Raising a quadratic ceiling buys headroom, not a fix. Attribution needs each
+snapshot's **fingerprints**, not a retained B-rep: fingerprinting at production
+time would make the pass `O(final faces)`, delete the quadratic, and drop the
+retained snapshot memory with it. That change lives in
+`features/evaluate.py` (`EvaluationState.body_history` at :380 / :2907, appended
+at :3099) — another agent's territory this slice, so it is filed with the exact
+call sites rather than half-done here.

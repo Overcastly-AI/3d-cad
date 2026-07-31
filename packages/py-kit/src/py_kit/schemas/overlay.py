@@ -48,13 +48,38 @@ from py_kit.schemas.geometry import Vec3
 
 #: Ceiling on the face fingerprints ONE per-face provenance pass may compute:
 #: ``len(final faces) + sum(len(snapshot faces))``. Each fingerprint is an exact-
-#: B-rep GProp (area + area centroid), measured at ~186 us/face (2026-07-25,
-#: build123d 0.11.1 / OCCT 7.9), so this bounds the pass at ~1.5 s — inside the
-#: RESEARCH §9 2 s rebuild ceiling — where the UNBOUNDED pass took 8.8 s at 4800
-#: faces and grew super-linearly (a 20k-face STEP import ran for minutes) on the
-#: interactive selection route (audit H4). An authored part is nowhere near the
-#: bound (tens of body-affecting features x tens-to-low-hundreds of faces each),
-#: so a working engineer never feels it.
+#: B-rep GProp (area + area centroid), measured at **134-237 us/face** (2026-07-31,
+#: build123d 0.11.1 / OCCT 7.9.3 — unchanged from the ~186 us this bound was first
+#: fitted to), so the worst admitted pass costs **~4.0-7.1 s**. It exists because
+#: the UNBOUNDED, pre-index pass took 8.8 s at 4 800 faces and grew super-linearly
+#: (a 20k-face STEP import ran for minutes) on the interactive selection route
+#: (audit H4).
+#:
+#: **The budget is spent by FEATURES x FACES, not by face count** — it sums over
+#: EVERY snapshot, and a growing part grows both factors, so it is quadratic in
+#: part size. The previous value (8 000) and its claim that "an authored part is
+#: nowhere near the bound (tens of body-affecting features x tens-to-low-hundreds
+#: of faces each)" were **false by their own arithmetic** (50 x 150 = 7 500 of
+#: 8 000 = 94 %). Measured on the docs/PERF.md tray (a mixed real-part vocabulary):
+#: 7 242 at 100 features (91 %), 8 180 at 105, **crossing 8 000 at N ~= 103**
+#: (~232 faces) — i.e. feature-localized highlighting silently vanished on an
+#: ordinary authored part, not on some exotic import.
+#:
+#: **Why 30 000 (re-derived 2026-07-31, PERF-5).** The old value was sized to keep
+#: the pass inside the RESEARCH §9 2 s interactive ceiling. That premise is moot at
+#: the sizes where the bound actually binds: at N=125 — the first size 8 000
+#: refused — the SAME overlay request already pays ~11 s of rebuild underneath
+#: (there is no rebuild cache, PERF-1), and the attribution pass is a steady
+#: **11-16 % of the request at every measured size**. Refusing it spent the POINT
+#: of the request to save a sixth of it. 30 000 crosses at **N ~= 207** (29 452 at
+#: N=205, 31 310 at N=210), i.e. past every part size that rebuilds at all today
+#: (N=200 rebuilds in 27 s), while still degrading the pathological case audit H4
+#: named — a 20 000-face imported body is one snapshot, budget 40 000.
+#:
+#: The budget's SHAPE is still wrong and the fix is filed (BACKLOG PERF-5b):
+#: attribution needs each snapshot's FINGERPRINTS, not a retained B-rep, so
+#: fingerprinting at production time in ``EvaluationState.body_history`` would make
+#: the pass O(final faces) and delete both this quadratic and the retained memory.
 #:
 #: Over-bound DEGRADES, never errors: :func:`geometry.kernel.attribute_faces`
 #: returns all-``None`` attribution, so ``OverlayFace.feature_id`` is null and the
@@ -62,7 +87,7 @@ from py_kit.schemas.geometry import Vec3
 #: per-face provenance existed. A 422 would be strictly worse: it would take the
 #: whole overlay (vertex/edge/face picking, measure, sketch-on-face) away from
 #: large imported bodies that work fine today, to protect a RENDERING nicety.
-MAX_PROVENANCE_FACES = 8_000
+MAX_PROVENANCE_FACES = 30_000
 
 #: Edge curve family, enough for the client to pick a hover/label style. Exact
 #: nearest-distance still comes from the B-rep via ``/measure`` — this tag is a

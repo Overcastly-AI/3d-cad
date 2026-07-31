@@ -13,6 +13,13 @@ we never silently fuse them. Only a file that yields **zero** solids
 (surfaces-only / open shells / wireframe / annotations) is an error. It does not
 sew/heal/repair, and IGES is deferred (§7).
 
+That "does not repair" is about OUR code; OCCT's own transfer has always run a
+``ShapeFix_Shape`` pass of its own inside ``STEPControl_ActorRead`` that we do not
+otherwise control. Exactly ONE operation of that pass is disabled, because it was
+super-quadratic in edges-per-wire and byte-identical in result — see
+:data:`~geometry.kernel._step_parse_worker.SHAPE_FIX_PARAMETERS` for the profile
+and the measured evidence.
+
 **Hard parse bound — CPU-time + wall-clock backstop (design §6, BACKLOG P1).**
 A STEP file is untrusted external input and OCCT's transfer is not guaranteed
 linear in input size, so a degenerate/adversarial part-21 can be super-linear
@@ -90,12 +97,43 @@ from geometry.kernel.types import BodyShape
 #: is invariant to machine load (a legit parse burns the same CPU whether or not
 #: its wall-clock is starved under contention), so it never false-fires on a
 #: slow-but-legitimate import - the defect a wall-clock-only bound caused
-#: (2026-07-19). Sized for enormous headroom over a legit parse: the STEP
-#: round-trip warm median is ~10-23 ms (``test_benchmarks.py``) and the child's
-#: ~0.9 s OCP cold-import dominates, so a legit parse consumes ~1 s of CPU - this
-#: 20 s ceiling is ~20x that, while still capping an adversarial CPU-burn parse.
-#: Overridden per call by the evaluate handler from
-#: ``GeometrySettings.step_import_timeout_seconds`` (env
+#: (2026-07-19).
+#:
+#: **Sized against a real-part corpus, not the goldens (2026-07-31, PERF-3).** The
+#: previous justification for this number — "a legit parse consumes ~1 s of CPU, so
+#: 20 s is ~20x that" — was fitted to the 10-23 ms toy round-trips in
+#: ``test_benchmarks.py``, and the true headroom on a part Loft itself can export
+#: was **1.08x**: a 2 006-face heat sink burned 18.58 CPU s of the 20 s budget, so a
+#: part ~4 % larger came back ``import_parse_timeout`` — a WRONG REFUSAL, not a slow
+#: import. Root-causing that curve (see :data:`~geometry.kernel._step_parse_worker.
+#: SHAPE_FIX_PARAMETERS`) removed it, and the ceiling is now re-derived from the
+#: 16 MiB inline upload cap — the bound that actually binds. Measured child CPU
+#: seconds (``RUSAGE_CHILDREN`` around :func:`import_step_solid`, i.e. this exact
+#: bounded path) on STEP that Loft exported:
+#:
+#: ===============================  =====  ========  ==========  =========
+#: part                             faces  STEP MiB  CPU before  CPU after
+#: ===============================  =====  ========  ==========  =========
+#: tray, 100 mixed features           219      0.63       1.12 s     1.24 s
+#: tray, 200 mixed features           442      1.29       1.24 s     1.41 s
+#: 400-hole perforated plate          406      1.75       1.77 s     1.53 s
+#: 256-fin heat sink                 1030      3.60       3.25 s     1.92 s
+#: 500-fin heat sink                 2006      7.18      18.58 s     3.46 s
+#: two 500-fin sinks (near the cap)  4012     14.62          n/m     5.16 s
+#: ===============================  =====  ========  ==========  =========
+#:
+#: Fit: ~1.0 s fixed (the child's OCP cold import) + **0.23-0.36 CPU s per MiB**
+#: marginal, LINEAR — so a file at the full 16 MiB inline cap costs ~6-7 CPU s and
+#: this 20 s ceiling is **~3x the worst file the upload cap can admit** and ~6x the
+#: largest part Loft can produce. Face count does NOT predict the cost (a 442-face
+#: tray and a 406-face plate cost the same as each other and a sixth of a 2 006-face
+#: sink); INPUT BYTES do, which is what a DoS bound should key on and what the
+#: 16 MiB cap already limits. The value is therefore unchanged at 20 s: the cliff
+#: now sits at ~55 MiB of STEP, i.e. **the upload cap binds first and this ceiling
+#: is unreachable by any accepted file** at the measured rate. What can still reach
+#: it is a file whose TOPOLOGY (not size) is pathological for some other OCCT pass;
+#: that is exactly what the bound is for. Overridden per call by the evaluate
+#: handler from ``GeometrySettings.step_import_timeout_seconds`` (env
 #: ``STEP_IMPORT_TIMEOUT_SECONDS``).
 DEFAULT_STEP_IMPORT_CPU_TIMEOUT_S = 20.0
 

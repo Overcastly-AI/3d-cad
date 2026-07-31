@@ -388,18 +388,22 @@ def test_big_part_rebuild_is_deterministic(
 
 
 def test_provenance_bound_is_reachable_by_an_authored_part() -> None:
-    """The :data:`MAX_PROVENANCE_FACES` docstring claims "an authored part is
-    nowhere near the bound (tens of body-affecting features x tens-to-low-hundreds
-    of faces each), so a working engineer never feels it."
+    """The :data:`MAX_PROVENANCE_FACES` docstring used to claim "an authored part
+    is nowhere near the bound (tens of body-affecting features x
+    tens-to-low-hundreds of faces each), so a working engineer never feels it."
 
-    The bound is the SUM over snapshots (``len(final faces) + sum(len(snapshot
-    faces))``), so it is spent by FEATURE COUNT x face count, not by face count
-    alone. This test pins the arithmetic that decides whether that claim holds for
-    the tray, so a change to the bound or to the snapshot policy shows up here
-    rather than as a silently-null overlay in the UI. It asserts only the ceiling
-    value and the shape of the budget — the measured crossing point lives in
-    docs/PERF.md."""
-    assert MAX_PROVENANCE_FACES == 8_000
+    It was false by its own arithmetic, and measurably so: the bound is the SUM
+    over snapshots (``len(final faces) + sum(len(snapshot faces))``), so it is
+    spent by FEATURE COUNT x face count, and the old 8 000 ceiling was crossed by
+    the tray at **N ~= 103 features** (docs/PERF.md 2026-07-31 / 2026-07-31b). The
+    ceiling is now 30 000, re-derived against the measured per-fingerprint cost —
+    crossing at N ~= 207. This test pins the arithmetic that decides whether the
+    claim holds for the tray, so a change to the bound or to the snapshot policy
+    shows up here rather than as a silently-null overlay in the UI. It asserts only
+    the ceiling value and the shape of the budget — the measured crossing point
+    lives in docs/PERF.md, and ``test_step_import_scaling.py`` gates that a part
+    past the OLD crossing still attributes."""
+    assert MAX_PROVENANCE_FACES == 30_000
     request = _request(housing_tree(GATE_FEATURES))
     evaluation = evaluate_tree(request, record_history=True)
     body = evaluation.body
