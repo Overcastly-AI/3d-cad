@@ -558,6 +558,20 @@ recipe here in the same commit as the fix.**
   then `kill` those pids (parents + children) so the suite reboots from current
   code. Agents that need a stack mid-run should boot **isolated** ports (e.g.
   :8010/:8012) and tear them down, leaving the shared stack untouched.
+- **`pnpm run <script> -- <args>` DROPS the `--` in pnpm 10, so the args never
+  reach the script — and this is the GENERATOR of the stale-Vite trap below.**
+  Measured on pnpm 10.33.0: `pnpm --filter @loft/web dev -- --port 5199` starts
+  Vite on **5173** with no error, while `dev --port 5199` and `exec vite --port
+  5199` both bind correctly. The `--` separator is npm-idiomatic, so the failure
+  is produced by CORRECT muscle memory and reported by nothing. The invocation an
+  agent reaches for to boot an ISOLATED frontend is therefore the one that
+  silently takes the SHARED port; `reuseExistingServer: true` then hands that
+  stray 5173 to the next `just e2e`, whose specs all 500 at `seedSession` against
+  a torn-down gateway and read as a code regression. Never write `--`; always
+  confirm the port Vite actually printed. Half of this is now closed in code:
+  `apps/web/vite.config.ts` sets `server.strictPort`, so a Vite that cannot take
+  the port it was given FAILS instead of falling back to 5173. The swallowed
+  argument is still silent — that part only discipline fixes.
 - **A stale Vite on :5173 poisons `just e2e` worse than a stale uvicorn — every
   spec 500s at register.** `apps/web/playwright.config.ts` sets
   `reuseExistingServer: true` (so e2e composes with a running `just dev`), and
