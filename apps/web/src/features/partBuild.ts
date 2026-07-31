@@ -31,6 +31,9 @@
 import type {
   EvaluateTreeResult,
   FeatureTreeResponse,
+  PartEvalScope,
+  PartEvalState,
+  PartLastEvalStatus,
   PartResponse,
 } from "../api/parts";
 import { barSlotIndex } from "./rollback";
@@ -484,6 +487,145 @@ export function exportGate(build: PartBuild): ExportGate {
     };
   }
   return { state: "ready", partial: false, notice: null };
+}
+
+/**
+ * THE DRAWER-LEVEL TWIN of `bodyStatusReadout` — what a REGISTER ROW is
+ * entitled to say about a part it has not opened.
+ *
+ * The open part derives its verdict from a tree it holds (`derivePartBuild`
+ * above). A register row has no tree: all it has is the two fields the server
+ * folded for it, and they answer DIFFERENT questions —
+ *
+ *   `eval_state` — did what ran build?     (`never`/`ok`/`failed`/`stale`)
+ *   `eval_scope` — how much of it ran?     (`whole`/`rolled_back`/null)
+ *
+ * Reading the first without the second is the defect this exists to close
+ * (AUDIT-ENGINEERING J3): a part rolled back to feature 2 of 9 evaluates two
+ * features, succeeds, records `ok` — and the register said **"Clean"** about
+ * seven features nobody looked at. A verdict on a prefix presented as a verdict
+ * on the part.
+ *
+ * The asymmetry is deliberate and is why scope is not a fifth state: a `failed`
+ * prefix is a REAL failure (something in the part is broken, wherever the stop
+ * is), while an `ok` prefix says nothing about the features beyond the stop. So
+ * `failed` keeps its word and gains a clause; `ok` loses its word.
+ *
+ * Two traps, both encoded below:
+ *  - **null is not `whole`.** It means "no live verdict to qualify" or "a row
+ *    written before scope tracking". Such a row must render EXACTLY as it did
+ *    before this derivation existed — hedging on an unknown is inventing one.
+ *  - **`whole` must not be hedged.** A stop parked on the LAST feature excludes
+ *    nothing and comes back `whole`; qualifying a part that genuinely did build
+ *    is the mirror-image dishonesty.
+ */
+export type RegisterHealthTone = "quiet" | "flag" | "indeterminate";
+
+export interface RegisterHealthInput {
+  /** `PartResponse.eval_state`; absent on kinds with no feature tree. */
+  readonly state: PartEvalState | undefined;
+  /** `PartResponse.eval_scope` — the second axis. Null ≠ `whole`. */
+  readonly scope: PartEvalScope;
+  /** `PartResponse.last_eval_status` — the raw record STALE spends. */
+  readonly lastStatus: PartLastEvalStatus | undefined;
+  /**
+   * Pre-formatted age clause for the tooltip (", 20 min ago" / " on 2026-07-30"),
+   * empty when the record carries no usable timestamp. Formatting a date is the
+   * register's job; deciding what may be CLAIMED is this module's.
+   */
+  readonly age: string;
+}
+
+export interface RegisterHealthReadout {
+  /** The `eval_state` axis, unchanged — the `data-health` QA hook. */
+  readonly state: PartEvalState;
+  /** The scope axis, unchanged — its own `data-health-scope` hook. */
+  readonly scope: PartEvalScope;
+  /** The cell's word. */
+  readonly label: string;
+  /** The sentence behind it — the full claim, with its qualification. */
+  readonly title: string;
+  readonly tone: RegisterHealthTone;
+  /** Appended for screen readers where the label alone under-states it. */
+  readonly srSuffix: string | null;
+}
+
+export function registerHealthReadout({
+  state,
+  scope,
+  lastStatus,
+  age,
+}: RegisterHealthInput): RegisterHealthReadout {
+  const resolved: PartEvalState = state ?? "never";
+  if (resolved === "never") {
+    return {
+      state: resolved,
+      scope: null,
+      label: "Not evaluated",
+      title:
+        "This part has not been evaluated, so nothing is known about whether it rebuilds.",
+      tone: "quiet",
+      srSuffix: null,
+    };
+  }
+
+  if (resolved === "ok") {
+    // The prefix case: what ran was clean, and what ran was not the part. The
+    // dashed phantom stamp is already this product's one vocabulary for "not
+    // established" (see `Stamp`), and that is exactly the state of the features
+    // past the travel stop — untried, not broken.
+    if (scope === "rolled_back") {
+      return {
+        state: resolved,
+        scope: "rolled_back",
+        label: "Clean to stop",
+        title:
+          `Only the features before the travel stop were rebuilt, and none of them errored${age}. ` +
+          "The rest of the tree was never attempted, so it is not known whether the whole part builds.",
+        tone: "indeterminate",
+        srSuffix:
+          " — the travel stop held features out, so the rest of the part is untried",
+      };
+    }
+    return {
+      state: resolved,
+      // Normalised: an absent field and an explicit null are the SAME
+      // unqualified row, and neither is `whole`.
+      scope: scope ?? null,
+      title: `No feature errored when this part was last rebuilt${age}. That is not a claim that it has a body.`,
+      label: "Clean",
+      tone: "quiet",
+      srSuffix: null,
+    };
+  }
+
+  if (resolved === "failed") {
+    return {
+      state: resolved,
+      scope: scope ?? null,
+      label: "Broken",
+      title:
+        scope === "rolled_back"
+          ? `A feature before the travel stop errored when this part was last rebuilt${age}. Open it to see which — features past the stop were never attempted.`
+          : `A feature errored when this part was last rebuilt${age}. Open it to see which.`,
+      tone: "flag",
+      srSuffix: null,
+    };
+  }
+
+  const wasBroken = lastStatus === "failed";
+  return {
+    state: "stale",
+    // `stale` HAS no live verdict, so there is nothing for a scope to qualify;
+    // the server sends null here and the cell must not imply otherwise.
+    scope: null,
+    label: wasBroken ? "Was broken" : "Was clean",
+    title: `The tree changed after the last rebuild${age}, so this part's health is unknown — it ${
+      wasBroken ? "had a feature error" : "was clean"
+    } then.`,
+    tone: "indeterminate",
+    srSuffix: " — the tree changed since, so its current health is unknown",
+  };
 }
 
 /**

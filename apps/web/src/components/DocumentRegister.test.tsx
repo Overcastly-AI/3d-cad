@@ -44,6 +44,7 @@ interface Doc {
   updated_at: string;
   length_unit?: "mm" | "in";
   eval_state?: "never" | "ok" | "failed" | "stale";
+  eval_scope?: "whole" | "rolled_back" | null;
   last_eval_status?: "ok" | "failed" | null;
   last_eval_at?: string | null;
 }
@@ -217,6 +218,51 @@ describe("DocumentRegister — what it reports", () => {
     expect(cells[3]?.getAttribute("title")).toMatch(
       /tree changed after the last rebuild/,
     );
+  });
+
+  it("will not call a ROLLED-BACK prefix clean, and still calls a broken one broken", () => {
+    // Audit J3b: the wire's two axes combine. `ok` over a prefix is not a
+    // verdict on the part; `failed` over a prefix still is.
+    renderRegister([
+      {
+        ...worked,
+        id: "prefix-ok",
+        eval_state: "ok",
+        eval_scope: "rolled_back",
+        last_eval_status: "ok",
+      },
+      {
+        ...worked,
+        id: "prefix-bad",
+        eval_state: "failed",
+        eval_scope: "rolled_back",
+        last_eval_status: "failed",
+      },
+      {
+        ...worked,
+        id: "whole-ok",
+        eval_state: "ok",
+        eval_scope: "whole",
+        last_eval_status: "ok",
+      },
+    ]);
+    const cells = screen.getAllByTestId("part-health");
+
+    // The bare all-clear word, alone, is the thing that must not appear.
+    expect(cells[0]?.textContent).not.toBe("Clean");
+    expect(cells[0]).toHaveTextContent("Clean to stop");
+    expect(cells[0]).toHaveAttribute("data-health", "ok");
+    expect(cells[0]).toHaveAttribute("data-health-scope", "rolled_back");
+    expect(cells[0]).toHaveAttribute("data-stamp", "indeterminate");
+    expect(cells[0]?.getAttribute("title")).toMatch(/travel stop/);
+
+    expect(cells[1]).toHaveTextContent("Broken");
+    expect(cells[1]).toHaveAttribute("data-stamp", "flag");
+
+    // A stop parked on the LAST feature excludes nothing: hedging a part that
+    // DID fully build is the mirror-image lie.
+    expect(cells[2]).toHaveTextContent("Clean");
+    expect(cells[2]).not.toHaveAttribute("data-stamp");
   });
 
   it("reads the verdict field and never re-derives it from the timestamps", () => {

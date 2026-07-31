@@ -10,6 +10,7 @@
  * content-addressed mesh (design §4). v1 tracks tip (`ref_pinned_version`
  * null), so the suffix is `tip`; the schema is pin-ready for later.
  */
+import type { MaterialAssignment } from "../api/materials";
 import type { FeatureTreeResponse } from "../api/parts";
 import type {
   AssemblyGraphResponse,
@@ -39,10 +40,20 @@ function featurePrefix(tree: FeatureTreeResponse) {
  * that part's feature tree (fetched once per unique part — instances sharing a
  * part share its tree). An instance whose tree is missing contributes an empty
  * prefix (the backend then reports a typed `no_body` for it, never a crash).
+ *
+ * `partMaterials` maps the same id to that part's stored assignment. It is what
+ * lets the roll-up report a MASS at all: the field has been on the wire since
+ * #57 (`EvaluatedInstance.materials`, "forwarded verbatim into that part's
+ * evaluation so the assembly rolls up a real mass") and documents' own
+ * server-side builder has always set it — but this browser-side builder never
+ * did, so an assembly of fully-assigned parts came back `mass_g: null` forever
+ * and the panel's mass row was unreachable code. Absent/unknown stays `null`,
+ * which the roll-up reads as "no mass", never as zero.
  */
 export function buildEvaluateAssemblyRequest(
   graph: AssemblyGraphResponse,
   partTrees: ReadonlyMap<string, FeatureTreeResponse>,
+  partMaterials: ReadonlyMap<string, MaterialAssignment | null> = new Map(),
 ): EvaluateAssemblyRequest {
   return {
     assembly_id: graph.assembly.id,
@@ -56,6 +67,7 @@ export function buildEvaluateAssemblyRequest(
         grounded: instance.grounded,
         placement: instance.placement,
         features: tree ? featurePrefix(tree) : [],
+        materials: partMaterials.get(instance.ref_document_id) ?? null,
       };
     }),
     mates: graph.mates.map((mate) => ({

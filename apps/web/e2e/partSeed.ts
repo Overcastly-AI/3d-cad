@@ -126,6 +126,33 @@ export async function seedAllEdgeFillet(
   return fillet.tree_version;
 }
 
+/**
+ * Park the travel stop on `featureId` (null = tip) through the gateway — the
+ * API half of the timeline's drag, for specs that need a part whose evaluate
+ * genuinely covers only a PREFIX. Resolves with the new tree version.
+ */
+export async function setRollbackViaApi(
+  page: Page,
+  token: string,
+  partId: string,
+  featureId: string | null,
+  expectedTreeVersion: number,
+): Promise<number> {
+  const response = await page.request.put(`/api/v1/parts/${partId}/rollback`, {
+    data: {
+      rollback_feature_id: featureId,
+      expected_tree_version: expectedTreeVersion,
+    },
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok()) {
+    throw new Error(
+      `e2e rollback failed: ${response.status()} ${await response.text()}`,
+    );
+  }
+  return ((await response.json()) as { tree_version: number }).tree_version;
+}
+
 /** Evaluate the tree through the gateway; resolves with the feature statuses. */
 export async function evaluateViaApi(
   page: Page,

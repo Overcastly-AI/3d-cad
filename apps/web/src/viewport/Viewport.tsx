@@ -21,6 +21,7 @@ import type { Box3 } from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 
 import { useReducedMotion } from "../lib/useReducedMotion";
+import { navigationControls, usePreferences } from "../settings/preferences";
 import { NavCue } from "../components/NavCue";
 import { ViewBar } from "../components/ViewBar";
 import { AdaptiveGrid } from "./AdaptiveGrid";
@@ -333,6 +334,11 @@ export function Viewport({
   groundShadow = true,
 }: ViewportProps) {
   const reducedMotion = useReducedMotion();
+  // The user's navigation preferences (#58) — orbit/pan/zoom sensitivity and
+  // the scroll-direction flip, which is carried by the SIGN of `zoomSpeed`
+  // (see `navigationControls`). Read here, applied to the one orbit rig that
+  // serves both the modelling scene and the sketch layer rendered into it.
+  const navigation = navigationControls(usePreferences());
   const containerRef = useRef<HTMLDivElement>(null);
   const [geometry, setGeometry] = useState<BufferGeometry | null>(null);
   const [parseError, setParseError] = useState<Error | null>(null);
@@ -466,6 +472,12 @@ export function Viewport({
       className="relative h-full w-full min-h-0"
       data-testid="viewport"
       aria-label="3D viewport showing the tessellated model"
+      // QA hooks: the numbers the orbit rig was actually GIVEN, so a preference
+      // that stops reaching the camera fails a spec instead of a bug report. A
+      // negative zoom speed is the inverted-scroll binding.
+      data-nav-rotate-speed={navigation.rotateSpeed}
+      data-nav-pan-speed={navigation.panSpeed}
+      data-nav-zoom-speed={navigation.zoomSpeed}
       onPointerDown={handlePointerDown}
       onPointerUp={handlePointerUp}
       onContextMenu={handleContextMenu}
@@ -537,6 +549,9 @@ export function Viewport({
           enableDamping={!reducedMotion}
           enableRotate={rotateEnabled}
           zoomToCursor
+          rotateSpeed={navigation.rotateSpeed}
+          panSpeed={navigation.panSpeed}
+          zoomSpeed={navigation.zoomSpeed}
         />
       </Canvas>
       {/* Vignette — the edge of the light pool. Above the canvas, below the

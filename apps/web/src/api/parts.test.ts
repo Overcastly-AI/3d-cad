@@ -108,9 +108,27 @@ describe("fetchParts", () => {
 });
 
 describe("createPart", () => {
+  it("stamps the unit it is given, and mm when it is given none", async () => {
+    // The "units for new documents" preference (#58) reaches the wire here and
+    // nowhere else; a default-less call must still create a millimetre part.
+    const posted: unknown[] = [];
+    const client = {
+      POST: (_path: string, init: { body: unknown }) => {
+        posted.push(init.body);
+        return Promise.resolve({ data: samplePart, error: undefined });
+      },
+    } as unknown as Parameters<typeof createPart>[2];
+    await createPart("Inch part", "in", client);
+    await createPart("Default part", undefined, client);
+    expect(posted).toEqual([
+      { name: "Inch part", length_unit: "in" },
+      { name: "Default part", length_unit: "mm" },
+    ]);
+  });
+
   it("returns the created part on 201", async () => {
     const client = clientReturning(json(samplePart, 201));
-    await expect(createPart("Bracket plate", client)).resolves.toEqual(
+    await expect(createPart("Bracket plate", "mm", client)).resolves.toEqual(
       samplePart,
     );
   });
@@ -127,7 +145,7 @@ describe("createPart", () => {
         409,
       ),
     );
-    const error = await createPart("Bracket plate", client).catch(
+    const error = await createPart("Bracket plate", "mm", client).catch(
       (e: unknown) => e,
     );
     expect(error).toBeInstanceOf(PartNameTakenError);
@@ -141,7 +159,7 @@ describe("createPart", () => {
     const client = clientReturning(
       json({ error: { code: "boom", message: "server exploded" } }, 500),
     );
-    const error = await createPart("X", client).catch((e: unknown) => e);
+    const error = await createPart("X", "mm", client).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(Error);
     expect(error).not.toBeInstanceOf(PartNameTakenError);
     expect((error as Error).message).toMatch(/server exploded/);

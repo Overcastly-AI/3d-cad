@@ -20,6 +20,7 @@ import {
   exportGate,
   isStaleForTree,
   partialBodySentence,
+  registerHealthReadout,
   skippedReason,
   solveSummary,
 } from "./partBuild";
@@ -308,5 +309,110 @@ describe("transient request state stays in its own lane", () => {
     });
     expect(build.activity).toBe("idle");
     expect(bodyStatusReadout(build).status).toBe("partial");
+  });
+});
+
+/**
+ * The DRAWER-level verdict (audit J3b). The wire carries two orthogonal axes
+ * and the register used to read only the first, so a part rolled back to
+ * feature 2 of 9 read "Clean" — a verdict on a prefix printed as a verdict on
+ * the part. Both traps are fenced here: null must not become `whole`, and
+ * `whole` must not be hedged.
+ */
+describe("registerHealthReadout", () => {
+  const base = { lastStatus: "ok" as const, age: ", 20 min ago" };
+
+  it("says Clean only when the whole tree ran", () => {
+    const whole = registerHealthReadout({
+      ...base,
+      state: "ok",
+      scope: "whole",
+    });
+    expect(whole.label).toBe("Clean");
+    expect(whole.tone).toBe("quiet");
+  });
+
+  it("refuses the word Clean for a verdict that covers a prefix", () => {
+    const prefix = registerHealthReadout({
+      ...base,
+      state: "ok",
+      scope: "rolled_back",
+    });
+    expect(prefix.label).not.toBe("Clean");
+    expect(prefix.label).toBe("Clean to stop");
+    // Not established — the dashed phantom stamp, never the quiet all-clear.
+    expect(prefix.tone).toBe("indeterminate");
+    expect(prefix.title).toMatch(/travel stop/);
+    expect(prefix.title).toMatch(/never attempted/);
+    expect(prefix.srSuffix).toMatch(/untried/);
+  });
+
+  it("renders an unqualified ok exactly as before — null is not 'whole'", () => {
+    const nulled = registerHealthReadout({ ...base, state: "ok", scope: null });
+    expect(nulled.label).toBe("Clean");
+    expect(nulled.tone).toBe("quiet");
+    expect(nulled.title).toMatch(/not a claim that it has a body/);
+    // ...and identical to a row that predates the field entirely.
+    expect(
+      registerHealthReadout({ ...base, state: "ok", scope: undefined }),
+    ).toEqual(nulled);
+  });
+
+  it("keeps Broken for a failure inside a prefix, and says where the stop is", () => {
+    const failedPrefix = registerHealthReadout({
+      ...base,
+      state: "failed",
+      lastStatus: "failed",
+      scope: "rolled_back",
+    });
+    expect(failedPrefix.label).toBe("Broken");
+    expect(failedPrefix.tone).toBe("flag");
+    expect(failedPrefix.title).toMatch(/before the travel stop/);
+
+    const failedWhole = registerHealthReadout({
+      ...base,
+      state: "failed",
+      lastStatus: "failed",
+      scope: "whole",
+    });
+    expect(failedWhole.label).toBe("Broken");
+    expect(failedWhole.title).not.toMatch(/travel stop/);
+  });
+
+  it("keeps the stale record past-tense and drops any scope beside it", () => {
+    const stale = registerHealthReadout({
+      ...base,
+      state: "stale",
+      lastStatus: "failed",
+      scope: "rolled_back",
+    });
+    expect(stale.label).toBe("Was broken");
+    expect(stale.tone).toBe("indeterminate");
+    // There is no live verdict for a scope to qualify.
+    expect(stale.scope).toBeNull();
+  });
+
+  it("says nothing at all about a part that was never evaluated", () => {
+    const never = registerHealthReadout({
+      ...base,
+      state: undefined,
+      lastStatus: null,
+      scope: null,
+    });
+    expect(never.label).toBe("Not evaluated");
+    expect(never.tone).toBe("quiet");
+    expect(
+      registerHealthReadout({ ...base, state: "never", scope: null }).label,
+    ).toBe("Not evaluated");
+  });
+
+  it("spends the age clause it was handed, and survives not having one", () => {
+    expect(
+      registerHealthReadout({ ...base, state: "ok", scope: "whole" }).title,
+    ).toMatch(/20 min ago/);
+    expect(
+      registerHealthReadout({ ...base, age: "", state: "ok", scope: "whole" })
+        .title,
+    ).toMatch(/rebuilt\. That is not a claim/);
   });
 });

@@ -10,6 +10,7 @@ import {
 import { SheetGrid } from "../components/SheetGrid";
 import { TopBar } from "../components/TopBar";
 import { WorkspaceNav } from "../components/WorkspaceNav";
+import { usePreferencesStore } from "../settings/preferences";
 
 /**
  * The parts home — the landing surface after sign-in. The drawer itself lives
@@ -40,6 +41,9 @@ const COPY: RegisterCopy = {
 export function PartsPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  // The user's "units for new documents" preference (#58) is stamped on the
+  // part at CREATION; after that the document owns its unit.
+  const newDocumentUnit = usePreferencesStore((state) => state.newDocumentUnit);
   const parts = useQuery({
     queryKey: ["parts"],
     queryFn: () => fetchParts(),
@@ -74,7 +78,7 @@ export function PartsPage() {
               </Link>
             )}
             onCreate={async (name) => {
-              const part = await createPart(name);
+              const part = await createPart(name, newDocumentUnit);
               await queryClient.invalidateQueries({ queryKey: ["parts"] });
               await navigate({
                 to: "/parts/$partId",

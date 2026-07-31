@@ -21,6 +21,20 @@ export type LengthUnit = PartResponse["length_unit"];
  */
 export type PartEvalState = PartResponse["eval_state"];
 /**
+ * HOW MUCH of the tree the live verdict covers — a SECOND, ORTHOGONAL axis
+ * beside `eval_state`, not a fifth state (audit J3): `whole` (the entire tree
+ * ran) or `rolled_back` (the travel stop held features out, so the verdict
+ * describes a PREFIX). The two combine, and the asymmetry is the point — a
+ * `failed` prefix still means broken, an `ok` prefix is NOT a claim that the
+ * part builds.
+ *
+ * `null`/absent means the question does not arise (`never`/`stale` have no
+ * live verdict to qualify) or the record predates scope tracking. **Null must
+ * never be read as `whole`** — that is precisely the over-claim the field
+ * exists to prevent.
+ */
+export type PartEvalScope = PartResponse["eval_scope"];
+/**
  * The RAW recorded outcome of the last evaluate. Useful only alongside
  * `eval_state`: on its own it cannot say whether it still applies to the tree
  * as it stands, which is the whole reason `eval_state` exists.
@@ -201,13 +215,15 @@ export async function fetchParts(
  */
 export async function createPart(
   name: string,
+  lengthUnit: LengthUnit = "mm",
   client: GatewayClient = gatewayClient,
 ): Promise<PartResponse> {
   const { data, error } = await client.POST("/api/v1/parts", {
-    // length_unit is DISPLAY metadata (docs/design/units.md §U1); new parts
-    // default to canonical mm. The document-unit selector (U2) changes it via
-    // the update route.
-    body: { name, length_unit: "mm" },
+    // length_unit is DISPLAY metadata (docs/design/units.md §U1) stamped at
+    // creation. The default is canonical mm; the caller passes the user's
+    // "units for new documents" preference (#58) when there is one, and the
+    // document-unit selector (U2) changes it afterwards via the update route.
+    body: { name, length_unit: lengthUnit },
   });
   if (error !== undefined) {
     if (envelopeCode(error) === "part_name_taken") {

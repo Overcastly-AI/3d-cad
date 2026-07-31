@@ -38,8 +38,10 @@ import type { ExportFormat } from "../api/exportPart";
 import { fetchAssemblyBom } from "../api/bom";
 import { MeshNotFoundError, fetchBodyMesh } from "../api/mesh";
 import { fetchOverlay, type OverlayResult } from "../api/measure";
+import type { MaterialAssignment } from "../api/materials";
 import {
   fetchFeatureTree,
+  fetchPart,
   type FeatureTreeResponse,
   type PartResponse,
 } from "../api/parts";
@@ -140,24 +142,44 @@ export function AssemblyPage() {
   );
   const partDocKey = partDocIds.join("|");
 
-  // Each unique referenced part's feature tree, fetched once (instances sharing
-  // a part share its tree) — the intent geometry evaluates.
-  const partTreesQuery = useQuery({
-    queryKey: ["assembly-part-trees", assemblyId, docVersion, partDocKey],
+  // Each unique referenced part, fetched once (instances sharing a part share
+  // it): its feature TREE — the intent geometry evaluates — and its MATERIAL
+  // assignment, which is what lets the roll-up report a mass at all. The part
+  // ROW also carries `tree_version`, which stamps the evaluate key below: a
+  // material (or any other) edit to a referenced part does NOT bump the
+  // assembly's `doc_version`, so without that stamp the cached evaluation
+  // outlived the change it was built from.
+  const partDocsQuery = useQuery({
+    queryKey: ["assembly-part-docs", assemblyId, docVersion, partDocKey],
     enabled: partDocIds.length > 0,
     queryFn: async () => {
       const entries = await Promise.all(
-        partDocIds.map(async (id) => [id, await fetchFeatureTree(id)] as const),
+        partDocIds.map(
+          async (id) =>
+            [id, await fetchFeatureTree(id), await fetchPart(id)] as const,
+        ),
       );
-      return new Map<string, FeatureTreeResponse>(entries);
+      return {
+        trees: new Map<string, FeatureTreeResponse>(
+          entries.map(([id, tree]) => [id, tree]),
+        ),
+        materials: new Map<string, MaterialAssignment | null>(
+          entries.map(([id, , part]) => [id, part.materials ?? null]),
+        ),
+        stamp: entries
+          .map(([id, , part]) => `${id}@${part.tree_version}`)
+          .join("|"),
+      };
     },
     staleTime: 30_000,
   });
-  const partTrees = partTreesQuery.data;
+  const partTrees = partDocsQuery.data?.trees;
+  const partMaterials = partDocsQuery.data?.materials;
+  const partStamp = partDocsQuery.data?.stamp ?? "";
 
   // Evaluate: one shared mesh per unique part + a solved pose per instance.
   const evalQuery = useQuery({
-    queryKey: ["assembly-eval", assemblyId, docVersion],
+    queryKey: ["assembly-eval", assemblyId, docVersion, partStamp],
     enabled:
       graph !== undefined && instances.length > 0 && partTrees !== undefined,
     queryFn: () =>
@@ -165,6 +187,7 @@ export function AssemblyPage() {
         buildEvaluateAssemblyRequest(
           graph as NonNullable<typeof graph>,
           partTrees as Map<string, FeatureTreeResponse>,
+          partMaterials,
         ),
       ),
     staleTime: Infinity,
@@ -183,9 +206,9 @@ export function AssemblyPage() {
   const evaluateRequest = useMemo(
     () =>
       graph !== undefined && partTrees !== undefined
-        ? buildEvaluateAssemblyRequest(graph, partTrees)
+        ? buildEvaluateAssemblyRequest(graph, partTrees, partMaterials)
         : null,
-    [graph, partTrees],
+    [graph, partTrees, partMaterials],
   );
 
   // ---------------------------------------------------------------------

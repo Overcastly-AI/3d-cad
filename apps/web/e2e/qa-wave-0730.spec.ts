@@ -27,7 +27,10 @@ import { readFile } from "node:fs/promises";
 import { expect, test, type Page } from "./fixtures";
 
 import { createFeature, SQUARE_20 } from "./partSeed";
-import { createPartViaApi, seedSession } from "./support";
+import { createPartViaApi, SCREENSHOT_DIR, seedSession } from "./support";
+
+/** Founder-shot tag: `SHOT_TAG=before` captures the pre-change pass. */
+const SHOT_TAG = process.env["SHOT_TAG"] ?? "after";
 
 /** A rectangle of arbitrary size on XY, fully constrained at the origin. */
 function rect(width: number, height: number) {
@@ -314,7 +317,12 @@ test.describe("A — revise a modelled part", () => {
 async function seedPlate(
   page: Page,
   token: string,
-): Promise<{ partId: string; extrudeId: string }> {
+): Promise<{
+  partId: string;
+  extrudeId: string;
+  sketchId: string;
+  treeVersion: number;
+}> {
   const part = await createPartViaApi(page, token, "QA plate");
   const sketch = await createFeature(page, token, part.id, {
     name: "Sketch1",
@@ -352,7 +360,46 @@ async function seedPlate(
     },
     expected_tree_version: sketch.tree_version,
   });
-  return { partId: part.id, extrudeId: extrude.feature.id };
+  return {
+    partId: part.id,
+    extrudeId: extrude.feature.id,
+    sketchId: sketch.feature.id,
+    treeVersion: extrude.tree_version,
+  };
+}
+
+/**
+ * Delete the hole from the plate's sketch — a GENUINE loss of the edge a
+ * diameter dimension names, driven through the real feature-update route. The
+ * plate still builds; the bore the dimension was anchored to simply is not
+ * there any more, which is the state a re-pick has to be asked for.
+ */
+async function removeHoleFromSketch(
+  page: Page,
+  token: string,
+  partId: string,
+  sketchId: string,
+  expectedTreeVersion: number,
+): Promise<void> {
+  const response = await page.request.patch(
+    `/api/v1/parts/${partId}/features/${sketchId}`,
+    {
+      data: {
+        expected_tree_version: expectedTreeVersion,
+        feature: {
+          type: "sketch",
+          version: 1,
+          params: { ...rect(40, 25), constraints: [] },
+        },
+      },
+      headers: { Authorization: `Bearer ${token}` },
+    },
+  );
+  if (!response.ok()) {
+    throw new Error(
+      `e2e sketch update failed: ${response.status()} ${await response.text()}`,
+    );
+  }
 }
 
 /** The tallest vertical line pick-target in a view. */
@@ -543,34 +590,26 @@ test.describe("B — a print survives a revision", () => {
   });
 
   /**
-   * KNOWN DEFECT, filed 2026-07-30 (docs/QA-REVIEW.md QA-4). `7fde5d2` states
-   * that a reference which cannot be re-anchored "now prints WORDS beside the
-   * view (`DIAMETER DIM: REFERENCE LOST - RE-PICK THE EDGE`) in SVG/PDF/DXF".
-   * On this path it prints nothing: the authored dimension is silently ABSENT
-   * from the exported SVG *and* from the on-screen sheet, and the only place
-   * that says anything is the Dimensions panel's small "unresolved" cell. A
-   * print that has quietly lost a dimension looks exactly like a complete one.
+   * QA-4 / QA-4b, rewritten 2026-07-31 now that both halves are real.
+   *
+   * The original repro (revise the thickness) can no longer produce the state
+   * it was testing — QA-3 made the dimension SURVIVE that edit — and it also
+   * mis-stated the defect: measured against the real gateway the exported file
+   * already carried the words. The surface that said nothing was the ON-SCREEN
+   * sheet, which drew a 2.6 mm circle containing a bare `!`.
+   *
+   * So this drives a genuine loss instead — the hole is deleted from the sketch
+   * the dimension's edge came from — and asserts the SAME sentence in both
+   * places: the print a shop reads, and the sheet the engineer is looking at.
    */
-  // STILL PINNED, and its REPRO is now stale — noted 2026-07-30 after the fixes
-  // landed. This asserted that revising a thickness LOSES the diameter dimension
-  // and that the loss is announced. The revision no longer loses it (that was
-  // QA-3, fixed), so this repro cannot produce the state it is testing.
-  //
-  // It also mis-stated the defect: measured against the real gateway, the
-  // EXPORTED file does carry "DIAMETER DIM: REFERENCE LOST - RE-PICK THE EDGE".
-  // The surface that says nothing is the ON-SCREEN sheet, where DimensionGlyph
-  // still draws a bare `!` (filed as QA-4b, in flight).
-  //
-  // Rewrite: drive a genuine loss instead — move the hole in the sketch
-  // (hole_x 20 -> 28) — and the assertion splits cleanly, the exported-file half
-  // passing today and the on-screen half staying red until QA-4b lands. Left
-  // pinned rather than rewritten now because QA-4b is being changed as I write.
   test("a lost reference is announced on the sheet AND in the exported file", async ({
     page,
   }) => {
-    test.fail();
     const account = await seedSession(page);
-    const { partId } = await seedPlate(page, account.token);
+    const { partId, sketchId, treeVersion } = await seedPlate(
+      page,
+      account.token,
+    );
     await layOutPlateDrawing(page, partId, "QA lost reference");
 
     const circle = page
@@ -586,8 +625,15 @@ test.describe("B — a print survives a revision", () => {
       ),
     ).toHaveCount(1, { timeout: 60_000 });
 
-    await reviseThickness(page, partId, "16");
-    await page.goBack();
+    await removeHoleFromSketch(
+      page,
+      account.token,
+      partId,
+      sketchId,
+      treeVersion,
+    );
+
+    await page.reload();
     await expect(page.getByTestId("drawing-sheet")).toBeVisible({
       timeout: 60_000,
     });
@@ -596,23 +642,33 @@ test.describe("B — a print survives a revision", () => {
       timeout: 60_000,
     });
 
-    // The panel knows — it marks the row `unresolved`.
-    await expect(
-      page.locator(
-        '[data-testid="dimension-row"][data-dimension-type="diameter"]',
-      ),
-    ).toContainText("unresolved");
+    // Shot before the assertions, so the same spec against HEAD~ captures the
+    // BEFORE state — the bare `!` in a 2.6 mm circle — for the founder pair.
+    await page.screenshot({
+      path: `${SCREENSHOT_DIR}/drawing-dim-lost-${SHOT_TAG}-1440.png`,
+    });
 
-    // The print a shop reads must say so, in the words the composer defines.
+    // The dimension is still THERE, as an honest marker — a print that quietly
+    // lost a number looks exactly like a complete one (QA-4).
+    const lost = page.locator(
+      '[data-testid="drawing-dimension"][data-dimension-error]',
+    );
+    await expect(lost).toHaveCount(1, { timeout: 60_000 });
+
+    // ...and the marker speaks: the composer's own words, on the screen.
+    await expect(page.getByTestId("drawing-dimension-error")).toContainText(
+      "REFERENCE LOST",
+      { timeout: 60_000 },
+    );
+    await expect(page.getByTestId("drawing-sheet")).toContainText(
+      "DIAMETER DIM: REFERENCE LOST - RE-PICK THE EDGE",
+    );
+
+    // The print a shop reads says the same thing, in the same words.
     const svg = page.waitForEvent("download");
     await page.getByTestId("drawing-export-svg").click();
     const body = await readFile(await (await svg).path(), "utf-8");
-    expect(body).toContain("REFERENCE LOST");
-
-    // ...and so must the sheet the engineer is looking at.
-    await expect(page.getByTestId("drawing-sheet")).toContainText(
-      "REFERENCE LOST",
-    );
+    expect(body).toContain("DIAMETER DIM: REFERENCE LOST - RE-PICK THE EDGE");
   });
 });
 

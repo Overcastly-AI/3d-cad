@@ -3,11 +3,17 @@
  * together (Parts ⇄ Assemblies ⇄ Drawings). Square-cornered, hairline-ruled,
  * brass on the active leaf: the same title-block grammar as everything else,
  * so the workspaces read as siblings of one product.
+ *
+ * SETTINGS (#58) rides the same switch but is RULED OFF from the three: it is
+ * not a drawer of documents, and separating it keeps "which register am I in"
+ * answerable at a glance. It is here rather than in a top-bar overflow because
+ * the preferences sheet is a place you go and come back from, and the way back
+ * has to be visible from it.
  */
 import { Link } from "@tanstack/react-router";
 
 export interface WorkspaceNavProps {
-  active: "parts" | "assemblies" | "drawings";
+  active: "parts" | "assemblies" | "drawings" | "settings";
 }
 
 export function WorkspaceNav({ active }: WorkspaceNavProps) {
@@ -42,6 +48,14 @@ export function WorkspaceNav({ active }: WorkspaceNavProps) {
         data-testid="nav-drawings"
       >
         Drawings
+      </Link>
+      {/* Ruled off with the heavier etch line: not a fourth drawer. */}
+      <Link
+        to="/settings"
+        className={`${cell(active === "settings")} !border-l-2 !border-l-etch`}
+        data-testid="nav-settings"
+      >
+        Settings
       </Link>
     </nav>
   );

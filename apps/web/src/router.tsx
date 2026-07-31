@@ -13,6 +13,7 @@ import { DrawingsPage } from "./routes/DrawingsPage";
 import { ModelerPage } from "./routes/ModelerPage";
 import { PartPage } from "./routes/PartPage";
 import { PartsPage } from "./routes/PartsPage";
+import { SettingsPage } from "./routes/SettingsPage";
 import { SignInPage } from "./routes/SignInPage";
 
 const rootRoute = createRootRoute({
@@ -84,6 +85,13 @@ export const drawingRoute = createRoute({
   component: DrawingPage,
 });
 
+/** Application preferences (#58) — a sibling of the registers, not a modal. */
+const settingsRoute = createRoute({
+  getParentRoute: () => authedRoute,
+  path: "/settings",
+  component: SettingsPage,
+});
+
 const routeTree = rootRoute.addChildren([
   signInRoute,
   authedRoute.addChildren([
@@ -94,6 +102,7 @@ const routeTree = rootRoute.addChildren([
     assemblyRoute,
     drawingsRoute,
     drawingRoute,
+    settingsRoute,
   ]),
 ]);
 

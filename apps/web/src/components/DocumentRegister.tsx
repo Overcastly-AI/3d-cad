@@ -8,7 +8,12 @@ import {
   useState,
 } from "react";
 
-import type { PartEvalState, PartLastEvalStatus } from "../api/parts";
+import type {
+  PartEvalScope,
+  PartEvalState,
+  PartLastEvalStatus,
+} from "../api/parts";
+import { registerHealthReadout } from "../features/partBuild";
 import { documentActivity, relativeAge } from "../lib/activity";
 import { formatDate } from "../lib/format";
 import { validatePartName } from "../lib/partName";
@@ -80,6 +85,12 @@ export interface RegisterDocument {
    * one. Read this; never re-derive it (see `PartEvalState`).
    */
   eval_state?: PartEvalState;
+  /**
+   * HOW MUCH of the tree that verdict covers — the second, orthogonal axis
+   * (`whole` / `rolled_back` / null). Read WITH `eval_state`, never instead of
+   * it, and never read null as `whole` (see `registerHealthReadout`).
+   */
+  eval_scope?: PartEvalScope;
   /**
    * The raw recorded outcome, which the STALE state spends to say "was broken"
    * instead of a bare "unknown". Never read without `eval_state`.
@@ -238,7 +249,8 @@ const COLUMN = {
   gutter: "w-[3.5rem]",
   units: "w-[4.5rem]",
   activity: "w-[9rem]",
-  health: "w-[7.5rem]",
+  /** Wide enough for the longest stamped verdict ("Clean to stop") unwrapped. */
+  health: "w-[9rem]",
   filed: "w-[7rem]",
   action: "w-[5.5rem]",
 } as const;
@@ -512,6 +524,11 @@ function rebuildAge(iso: string | null | undefined): string {
  * register could not answer until documents started keeping the record
  * (`c98c454`).
  *
+ * The cell is a RENDERER, not a decider: what it is entitled to say comes from
+ * `registerHealthReadout` (`features/partBuild.ts`), the same module the open
+ * part's STATUS/EXPORT cells read. A second place deciding register wording is
+ * how two surfaces end up disagreeing about the same part (audit J2/J3).
+ *
  * WHY ITS OWN COLUMN, next to LAST WORKED rather than inside it. The two answer
  * different questions and are both worth saying at once: "20 min ago" is where
  * you were, "broken" is what you will walk into. Folding health into the
@@ -540,6 +557,12 @@ function rebuildAge(iso: string | null | undefined): string {
  *    spent — "was broken" / "was clean", past tense, quiet ink — because "the
  *    last rebuild errored and then you changed something" is more useful than
  *    "unknown", as long as the surface never dresses it up as current.
+ *
+ * ...and, crossing all four, the SCOPE axis: an `ok` that covers only the
+ * features before a travel stop is not "Clean", it is "Clean to stop" in the
+ * same indeterminate ink, because the rest of the tree was never attempted.
+ * `data-health` stays the STATE and `data-health-scope` carries the second
+ * axis, so a QA hook reads the pair exactly as the wire sends it.
  */
 function HealthCell<T extends RegisterDocument>({
   idSingular,
@@ -548,65 +571,55 @@ function HealthCell<T extends RegisterDocument>({
   idSingular: string;
   entry: T;
 }) {
-  const state = entry.eval_state ?? "never";
-  const age = rebuildAge(entry.last_eval_at);
-  const testId = `${idSingular}-health`;
+  const readout = registerHealthReadout({
+    state: entry.eval_state,
+    scope: entry.eval_scope ?? null,
+    lastStatus: entry.last_eval_status,
+    age: rebuildAge(entry.last_eval_at),
+  });
+  const hooks = {
+    "data-testid": `${idSingular}-health`,
+    "data-health": readout.state,
+    ...(readout.scope !== null && readout.scope !== undefined
+      ? { "data-health-scope": readout.scope }
+      : {}),
+    title: readout.title,
+  };
+  const sr =
+    readout.srSuffix === null ? null : (
+      <span className="sr-only">{readout.srSuffix}</span>
+    );
 
-  if (state === "never") {
+  if (readout.state === "never") {
     return (
-      <span
-        data-testid={testId}
-        data-health="never"
-        title="This part has not been evaluated, so nothing is known about whether it rebuilds."
-        className="font-data text-xs text-gauge"
-      >
+      <span {...hooks} className="font-data text-xs text-gauge">
         <span aria-hidden>—</span>
-        <span className="sr-only">Not evaluated</span>
+        <span className="sr-only">{readout.label}</span>
       </span>
     );
   }
 
-  if (state === "ok") {
+  if (readout.tone === "quiet") {
     return (
       <span
-        data-testid={testId}
-        data-health="ok"
-        title={`No feature errored when this part was last rebuilt${age}. That is not a claim that it has a body.`}
+        {...hooks}
         className="font-display text-2xs uppercase tracking-[0.14em] text-gauge"
       >
-        Clean
+        {readout.label}
+        {sr}
       </span>
     );
   }
 
-  if (state === "failed") {
-    return (
-      <Stamp
-        tone="flag"
-        data-testid={testId}
-        data-health="failed"
-        title={`A feature errored when this part was last rebuilt${age}. Open it to see which.`}
-      >
-        Broken
-      </Stamp>
-    );
-  }
-
-  const wasBroken = entry.last_eval_status === "failed";
-  return (
-    <Stamp
-      indeterminate
-      data-testid={testId}
-      data-health="stale"
-      title={`The tree changed after the last rebuild${age}, so this part's health is unknown — it ${
-        wasBroken ? "had a feature error" : "was clean"
-      } then.`}
-    >
-      {wasBroken ? "Was broken" : "Was clean"}
-      <span className="sr-only">
-        {" "}
-        — the tree changed since, so its current health is unknown
-      </span>
+  return readout.tone === "flag" ? (
+    <Stamp tone="flag" {...hooks}>
+      {readout.label}
+      {sr}
+    </Stamp>
+  ) : (
+    <Stamp indeterminate {...hooks}>
+      {readout.label}
+      {sr}
     </Stamp>
   );
 }

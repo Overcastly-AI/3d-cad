@@ -63,6 +63,50 @@ even-odd scanline clip) across SVG/PDF/DXF, `views.section_params jsonb` (0008);
 wrong-half + multi-loop + byte-determinism goldens; oblique + the `project_view`
 frame refactor are v2/§11. Spike de-collected.
 
+- [x] (P1, M) **#58 — the SETTINGS surface exists, and every row on it is wired.
+      SHIPPED 2026-07-31** (frontend-builder, 2026-07-31; founder-raised "units and
+      mass should be controlled from a settings page"). There was no settings
+      surface at all — zero hits for settings/preferences across every route — so a
+      user could not change the one binding CAD users have violent muscle memory
+      about. `/settings` is now a sibling of the three registers (`SettingsSheet`,
+      the register's drawer frame + the title block's field anatomy: control column
+      left, CONSEQUENCE beside it, ruled to the frame edge), reached from the
+      workspace switch. APPLICATION scope only, said on the sheet ("saved in this
+      browser"): length unit for NEW documents (stamped by `createPart` /
+      `createAssembly`, never a conversion), **scroll-to-zoom direction** (the
+      founder-priority row — carried by the SIGN of the orbit rig's `zoomSpeed`,
+      since it scales the radius by `0.95 ** zoomSpeed`; no event interception), and
+      orbit / pan / zoom sensitivity as three named steps. Persisted like the
+      session store (localStorage, per-field validation on load, injectable for
+      tests); the viewport stamps the numbers it was handed
+      (`data-nav-{rotate,pan,zoom}-speed`) so an unwired preference fails a spec.
+      DELIBERATELY NOT RENDERED because nothing honours them yet: angular unit,
+      display precision, grid/snap step, default material (filed below). 17 unit +
+      6 component tests + `e2e/settings.spec.ts` (5, each asserting the effect on
+      the surface that honours it, not the control). Shots
+      `docs/screenshots/settings-after-{1440,1366}.png`.
+      [src: founder #58 · ROADMAP "still queued: … a settings surface"]
+
+- [x] (P1, S) **The assembly panel stopped promising a mass it did not have — and
+      the roll-up can now HAVE one. FIXED 2026-07-31** (frontend-builder,
+      2026-07-31). `AssemblyInspector` carried a section headed **COMBINED MASS**
+      over Volume / Area / Centroid and no mass: #57b's defect at a second address.
+      The title is now earned (`Combined properties` until `mass_g` is real), the
+      mass row formats through the one `formatMass` seam, a mass-weighted CENTRE OF
+      MASS shows beside the volume centroid, and absence is stated in words naming
+      the component that lacks a material — never `0 g`, and never blaming an
+      instance whose part produced no body (that one never enters the roll-up).
+      Found en route and fixed in the same slice: the browser's
+      `buildEvaluateAssemblyRequest` never sent `EvaluatedInstance.materials`, so an
+      assembly of fully-assigned parts came back `mass_g: null` FOREVER and the mass
+      row was unreachable code; the request now carries each part's assignment and
+      the evaluate key is stamped with the referenced parts' `tree_version` (a
+      material edit does not bump the assembly's `doc_version`, so the cached
+      evaluation outlived it). 7 unit + 6 component tests (mutation-verified) +
+      `e2e/assembly-mass.spec.ts` driving a real assignment through the real stack.
+      Shots `docs/screenshots/assembly-mass-{before,after}-1440.png`.
+      [src: docs/design/materials.md §5/§6 · #57b, second address]
+
 - [x] (P0, M) **QA-1 / CM-6 — a mirror shipped a body OCCT calls invalid, 3.48 %
       too heavy. FIXED 2026-07-30** (kernel-architect; QA wave `748a6ad`). Block →
       revolve-CUT groove straddling the XZ plane → body-scope mirror measured
@@ -123,13 +167,20 @@ frame refactor are v2/§11. Spike de-collected.
       export claim not reproducible); the silent surface is the on-screen sheet,
       which still draws the pre-N1 bare `!` — filed for the frontend owner below.
       [src: docs/QA-REVIEW.md 2026-07-30 QA-4 · design drawings.md §3.4]
-- [ ] (P1, S) **QA-4b — the on-screen sheet must say what the export says**
-      (frontend). `DrawingSheet.tsx::DimensionGlyph` renders a 2.6 mm dashed circle
-      with a bare `!` for every `ComposedDimensionError`, ignoring the `message` and
-      `text` the composer has carried since `7fde5d2`. So the engineer looking at
-      the sheet gets less than the machinist holding the PDF. Draw the caption at
-      `dim.text` in the composer's words (no second phrase table client-side); keep
-      the `data-dimension-error` hook. [src: docs/QA-REVIEW.md 2026-07-30 QA-4]
+- [x] (P1, S) **QA-4b — the on-screen sheet says what the export says. FIXED
+      2026-07-31** (frontend-builder, 2026-07-31). `DimensionGlyph` drew a 2.6 mm
+      dashed circle holding a bare `!` and dropped the `message`/`text` the
+      composer has carried since `7fde5d2`, so the engineer at the screen was told
+      less than the machinist holding the PDF. The caption is now stamped at
+      `dim.text` in the SERVER's words (no client-side phrase table) at the
+      composer's own cap height — a new `drawing.dimensionErrorTextMm` token
+      mirroring `_DIM_ERROR_TEXT_MM`, the same cross-renderer rule `noteTextMm`
+      carries — and the `<title>` spends it too. The stale QA-4 repro (revise a
+      thickness, which QA-3 made survivable) is rewritten to a genuine loss: the
+      hole is deleted from the sketch its edge came from, and one spec now asserts
+      the SAME sentence on the sheet and in the exported SVG. Shots
+      `docs/screenshots/drawing-dim-lost-{before,after}-1440.png`.
+      [src: docs/QA-REVIEW.md 2026-07-30 QA-4]
 - [x] (P1, L) **#57 — MASS PROPERTIES can report MASS. Kernel + wire SHIPPED
       2026-07-30** (kernel-architect; founder-raised "units and mass should be
       controlled from a settings page"; design `docs/design/materials.md`,
@@ -451,17 +502,20 @@ frame refactor are v2/§11. Spike de-collected.
       build is the mirror-image lie). 8 documents + 5 py-kit + 2 migration tests,
       each mutation-verified; the audit's `grep -c rollback` → 0 gap is closed.
       FRONTEND FOLLOW-UP filed below. [src: AUDIT-ENGINEERING J3]
-- [ ] (P1, S) **J3b — the register cell must SPEND the scope the wire now carries**
-      (`apps/web`). `HealthCell` (`DocumentRegister.tsx`) still renders "Clean" for
-      `eval_state: "ok"` while ignoring `eval_scope`. Acceptance: (1) an `ok` +
-      `rolled_back` row does NOT read "Clean" — it says the verdict covers a prefix
-      (the cell already hedges bodies in its title; scope belongs in the same
-      breath); (2) `failed` + `rolled_back` still reads Broken (a failure in a
-      prefix is a real failure); (3) `eval_scope: null` renders exactly as today —
-      null is "unqualified", never "whole"; (4) the same treatment wherever else a
-      part's health is claimed from a register row. `partBuild.ts` already models
-      this distinction client-side for the OPEN part (`scope`/`exportGate`); this is
-      the drawer-level equivalent, which has no tree to derive from.
+- [x] (P1, S) **J3b — the register cell SPENDS the scope the wire carries. FIXED
+      2026-07-31** (frontend-builder, 2026-07-31). A part rolled back to feature 2
+      of 9 read **Clean** in the drawer — a verdict on a prefix printed as a verdict
+      on the part. `HealthCell` is now a renderer over `registerHealthReadout` in
+      `features/partBuild.ts` (the same module the open part's SOLVE/STATUS/EXPORT
+      cells read, so the drawer and the workspace cannot drift): `ok` +
+      `rolled_back` reads **"Clean to stop"** in the dashed indeterminate stamp the
+      product already uses for "not established", `failed` + `rolled_back` still
+      reads Broken with the stop named in its title, and `eval_scope: null` renders
+      byte-identically to before — null is unqualified, never `whole`. A stop on the
+      LAST feature comes back `whole` and is NOT hedged. `data-health` stays the
+      state; `data-health-scope` carries the second axis. 7 unit + 1 component test
+      (mutation-verified) + an e2e that parks a real travel stop through the
+      rollback route. Shots `docs/screenshots/register-scope-{before,after}-1440.png`.
       [src: AUDIT-ENGINEERING J3, wire half shipped above]
 
 - [x] (P1, M) **J2 + N3 + F2-frontend — the part workspace stopped asserting what
@@ -1240,6 +1294,19 @@ frame refactor are v2/§11. Spike de-collected.
 
 ## Later (P3)
 
+- [ ] (P3, M) Settings rows that need a PROPERTY before they can be rendered
+      (frontend-builder, 2026-07-31 — deliberately omitted from the shipped
+      `/settings` sheet rather than faked). Each needs its backing first:
+      **angular unit** (`packages/design/src/units.ts` is length-only — no angular
+      vocabulary, and angles are authored in degrees everywhere), **display
+      precision** (`formatLength` takes `maxFractionDigits` but nothing carries a
+      user value down to the readouts), **grid/snap step** (a sketch-store constant
+      being made configurable in a concurrent slice — read THAT value, never define
+      a second one), and **document-scope settings generally**: the sheet is
+      application-scope only because a document setting needs an open document, so
+      the unit/material controls stay in the workspace until there is a
+      document-settings surface there. [src: founder #58, scoped]
+
 - [ ] (P3, S) Drawings compose: the failed-view dashed box overlaps its error
       text with the view caption (e.g. "FLAT PATTERN") — small `_emit_view`
       polish; changes byte-pinned compose goldens, so it rides its own slice.
@@ -1958,6 +2025,13 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
       engineering-audit debt items closed. [src: engineering-auditor]
 
 ## Changelog
+
+- 2026-07-31 — **Three surfaces stopped over-claiming, and settings exist
+  (frontend-builder, 2026-07-31):** the register no longer calls a rolled-back
+  prefix "Clean" (J3b), the assembly panel earns the words COMBINED MASS (and can
+  finally compute one — the browser never sent the parts' materials), a lost
+  dimension prints its reason on the sheet as well as in the export (QA-4b), and
+  `/settings` ships with five wired rows including invert-scroll.
 
 - 2026-07-30 — **The drawing survives the revision (kernel-architect):** audit N1 —
   edges get the two-tier resolver faces have (`drawings/anchor.py`) so a widened

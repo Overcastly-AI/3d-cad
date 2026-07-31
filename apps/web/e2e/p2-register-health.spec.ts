@@ -1,6 +1,13 @@
 import { expect, test, type Page } from "./fixtures";
 
-import { evaluateViaApi, seedAllEdgeFillet, seedCube } from "./partSeed";
+import {
+  createFeature,
+  evaluateViaApi,
+  seedAllEdgeFillet,
+  seedCube,
+  setRollbackViaApi,
+  SQUARE_20,
+} from "./partSeed";
 import {
   createPartViaApi,
   SCREENSHOT_DIR,
@@ -165,6 +172,102 @@ test.describe("register rebuild health — 1440x900", () => {
     await expect(rows.nth(0).getByTestId("part-open")).toContainText(
       "Motor mount",
     );
+  });
+});
+
+/**
+ * The SECOND axis (audit J3b): `eval_state` says whether what ran built,
+ * `eval_scope` says how much ran. Both parts below evaluate CLEAN and only one
+ * of them is a clean part — the difference is where the travel stop is, and the
+ * whole drawer is authored through the real API so the scope is the one
+ * documents actually recorded.
+ */
+test.describe("register rebuild health — the rolled-back prefix", () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  test("a clean PREFIX is not reported as a clean part", async ({ page }) => {
+    const { token } = await seedSession(page);
+
+    // 1. The stop parked BEFORE the extrude: the evaluate covers the sketch
+    //    only, succeeds, and records `ok` over a prefix.
+    const parked = await createPartViaApi(page, token, "Bracket plate");
+    const sketch = await createFeature(page, token, parked.id, {
+      name: "Sketch1",
+      feature: { type: "sketch", version: 1, params: SQUARE_20 },
+      expected_tree_version: 0,
+    });
+    const extrude = await createFeature(page, token, parked.id, {
+      name: "Extrude1",
+      feature: {
+        type: "extrude",
+        version: 1,
+        params: {
+          profile: { kind: "feature", feature_id: sketch.feature.id },
+          distance_mm: 20,
+          operation: "add",
+          direction: "normal",
+        },
+      },
+      expected_tree_version: sketch.tree_version,
+    });
+    await setRollbackViaApi(
+      page,
+      token,
+      parked.id,
+      sketch.feature.id,
+      extrude.tree_version,
+    );
+    await evaluateViaApi(page, token, parked.id);
+
+    // 2. The stop parked on the LAST feature excludes nothing, so the same
+    //    control must NOT hedge a part that genuinely did build.
+    const tip = await createPartViaApi(page, token, "Motor mount");
+    const tipTree = await seedCube(page, token, tip.id);
+    const tipFeatures = await page.request.get(
+      `/api/v1/parts/${tip.id}/features`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    const lastFeature = (
+      (await tipFeatures.json()) as { features: { id: string }[] }
+    ).features.at(-1);
+    await setRollbackViaApi(
+      page,
+      token,
+      tip.id,
+      lastFeature?.id ?? null,
+      tipTree,
+    );
+    expect(await evaluateViaApi(page, token, tip.id)).toEqual(["ok", "ok"]);
+
+    await page.goto("/");
+    await expect(page.getByTestId("part-row")).toHaveCount(2, {
+      timeout: 30_000,
+    });
+    const health = (n: number) =>
+      page
+        .getByTestId("part-row")
+        .nth(n)
+        .locator('[data-testid="part-health"]');
+
+    // Shot first, assertions after: the same spec run against HEAD~ captures
+    // the BEFORE state (both rows reading a bare "Clean") for the founder pair.
+    await withStableSessionEmail(page, () =>
+      page.screenshot({
+        path: `${SCREENSHOT_DIR}/register-scope-${SHOT_TAG}-1440.png`,
+      }),
+    );
+
+    // The state is still `ok` — it is the SCOPE that withdraws the word.
+    await expect(health(0)).toHaveAttribute("data-health", "ok");
+    await expect(health(0)).toHaveAttribute("data-health-scope", "rolled_back");
+    await expect(health(0)).toContainText("Clean to stop");
+    const parkedTitle = await health(0).getAttribute("title");
+    report("rolled-back title", parkedTitle);
+    expect.soft(parkedTitle ?? "").toMatch(/travel stop/i);
+
+    // ...and a stop that excludes nothing reads exactly as it always did.
+    await expect(health(1)).toHaveAttribute("data-health", "ok");
+    await expect(health(1)).toHaveText(/^Clean$/);
   });
 });
 

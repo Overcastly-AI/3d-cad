@@ -432,6 +432,12 @@ export const drawing = {
   dimensionOffsetMm: 11,
   /** Stamped value text height (mm) — sibling of the title-block value stamp. */
   dimensionTextMm: 3.2,
+  /** Caption height (mm) for a dimension the model could not measure — one
+   *  notch under the value stamp, so a broken dimension speaks without shouting
+   *  over the good ones. MATCHES the server composer's `_DIM_ERROR_TEXT_MM`, so
+   *  the on-screen sheet and the exported SVG/PDF/DXF read one height (the same
+   *  cross-renderer rule `noteTextMm` carries). */
+  dimensionErrorTextMm: 2.4,
   /** Radius (mm) of an angular dimension's arc, swept apex→out between the two
    * edges. Sized to clear the vertex yet read as a distinct annotation layer. */
   dimensionArcRadiusMm: 13,

@@ -14,6 +14,7 @@ import {
 import { SheetGrid } from "../components/SheetGrid";
 import { TopBar } from "../components/TopBar";
 import { WorkspaceNav } from "../components/WorkspaceNav";
+import { usePreferencesStore } from "../settings/preferences";
 
 /**
  * The assemblies register — the same drawer as parts (`DocumentRegister`) with
@@ -43,6 +44,8 @@ const COPY: RegisterCopy = {
 
 export function AssembliesPage() {
   const queryClient = useQueryClient();
+  // The user's "units for new documents" preference (#58), stamped at creation.
+  const newDocumentUnit = usePreferencesStore((state) => state.newDocumentUnit);
   const assemblies = useQuery({
     queryKey: ["assemblies"],
     queryFn: () => fetchAssemblies(),
@@ -80,7 +83,7 @@ export function AssembliesPage() {
               </Link>
             )}
             onCreate={async (name) => {
-              await createAssembly(name);
+              await createAssembly(name, newDocumentUnit);
               await queryClient.invalidateQueries({ queryKey: ["assemblies"] });
             }}
             onDelete={async (assembly) => {

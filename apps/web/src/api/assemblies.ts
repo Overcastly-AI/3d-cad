@@ -100,13 +100,15 @@ export async function fetchAssemblies(
 /** Create an assembly owned by the caller (201). A duplicate name → 409. */
 export async function createAssembly(
   name: string,
+  lengthUnit: LengthUnit = "mm",
   client: GatewayClient = gatewayClient,
 ): Promise<AssemblyResponse> {
   const { data, error } = await client.POST("/api/v1/assemblies", {
-    // length_unit is DISPLAY metadata (docs/design/units.md §U1); new
-    // assemblies default to canonical mm. The document-unit selector (U2)
-    // changes it via the update route.
-    body: { name, length_unit: "mm" },
+    // length_unit is DISPLAY metadata (docs/design/units.md §U1) stamped at
+    // creation: the default is canonical mm, the caller passes the user's
+    // "units for new documents" preference (#58), and the document-unit
+    // selector (U2) changes it afterwards via the update route.
+    body: { name, length_unit: lengthUnit },
   });
   if (error !== undefined) {
     if (

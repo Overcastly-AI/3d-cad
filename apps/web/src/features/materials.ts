@@ -89,16 +89,20 @@ export function unassignedBodies(
 }
 
 /**
- * WHY there is no total mass, naming the bodies responsible — the sentence the
- * panel shows instead of "unknown". Null when every evaluated body has a
- * material (nothing to explain).
+ * WHY there is no total mass, naming whoever is responsible — the sentence a
+ * surface shows instead of "unknown" (materials.md §6.4).
+ *
+ * Shared by the two roll-ups that can go null for the same reason: a PART whose
+ * body has no material, and an ASSEMBLY whose instance has none. `subject` is
+ * the noun of the thing that lost its total, so the caller supplies "part" or
+ * "assembly" rather than each writing its own copy of the sentence. Returns
+ * null when there is nothing missing — there is nothing to explain.
  */
-export function unassignedNotice(
-  rows: readonly BodyMaterialRow[],
+export function missingMaterialNotice(
+  names: readonly string[],
+  subject: string,
 ): string | null {
-  const missing = unassignedBodies(rows);
-  if (missing.length === 0) return null;
-  const names = missing.map((row) => row.name);
+  if (names.length === 0) return null;
   const listed = names.length > 3 ? names.slice(0, 3) : names;
   const rest = names.length - listed.length;
   const list =
@@ -107,7 +111,20 @@ export function unassignedNotice(
       : `${listed.slice(0, -1).join(", ")} and ${listed[listed.length - 1]}`;
   const tail = rest > 0 ? `${list} (+${rest} more)` : list;
   const verb = names.length === 1 ? "has" : "have";
-  return `${tail} ${verb} no material, so the part has no total mass.`;
+  return `${tail} ${verb} no material, so the ${subject} has no total mass.`;
+}
+
+/**
+ * WHY there is no total mass, naming the bodies responsible. Null when every
+ * evaluated body has a material (nothing to explain).
+ */
+export function unassignedNotice(
+  rows: readonly BodyMaterialRow[],
+): string | null {
+  return missingMaterialNotice(
+    unassignedBodies(rows).map((row) => row.name),
+    "part",
+  );
 }
 
 /**

@@ -28,7 +28,32 @@ snap, Shift locks the aim to an axis, `G` still toggles only the grid — whose
 step is now a store value a settings surface can write. The honesty half is the
 point: a distinct mark at the candidate NAMES the snap ("ENDPOINT") before the
 click, so a snap can never silently grab the wrong thing. Still queued: the
-UI-W2 PART half (Origin / Sketches / Bodies categories) and a settings surface.
+UI-W2 PART half (Origin / Sketches / Bodies categories).
+**The SETTINGS surface SHIPPED 2026-07-31** (frontend-builder, 2026-07-31):
+`/settings` is a sibling of the registers, and every row on it is wired to a
+property something reads — length unit for NEW documents, **scroll-to-zoom
+direction** (the founder-priority row: a fixed zoom binding with no invert is a
+real adoption blocker) and orbit/pan/zoom sensitivity, persisted per browser and
+stamped on the viewport (`data-nav-zoom-speed`) so an unwired preference fails a
+spec. Angular unit, display precision, grid/snap step and a default material are
+deliberately NOT rendered: nothing in this build honours them, and a sheet with
+five live switches and four dead ones is the defect class this pass is about
+(each is filed with the property it needs first). Shots
+`docs/screenshots/settings-after-{1440,1366}.png`.
+**Three surfaces stopped claiming what they did not know, 2026-07-31**
+(frontend-builder, 2026-07-31). The register spends the rollback SCOPE the wire
+has carried since `31300dc`: a part parked at feature 2 of 9 reads "Clean to
+stop" in the dashed indeterminate stamp instead of **Clean**, while a stop on the
+LAST feature (which excludes nothing) is not hedged — one derivation in
+`features/partBuild.ts` now feeds both the drawer and the workspace (J3b). The
+assembly panel's COMBINED MASS section earns its title: a real mass, a
+mass-weighted centre beside the volume centroid, or the NAME of the component
+with no material — and the roll-up can produce one at all now, because the
+browser's evaluate request never sent the parts' `materials`, so an assembly of
+fully-assigned parts came back massless forever. A drawing dimension whose
+reference is lost prints the composer's words on the SHEET, not only in the
+exported file (QA-4b). Shots
+`docs/screenshots/{register-scope,assembly-mass,drawing-dim-lost}-*.png`.
 **#57 material/density — the KERNEL + WIRE half SHIPPED 2026-07-30**
 (kernel-architect; design `docs/design/materials.md`, decision record RESEARCH
 §9a). MASS PROPERTIES could not report mass because nothing in the codebase had

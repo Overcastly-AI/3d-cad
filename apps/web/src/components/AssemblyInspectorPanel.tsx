@@ -33,7 +33,10 @@ export interface AssemblyInspectorPanelProps {
   bom: AssemblyBomResponse | undefined;
   bomLoading: boolean;
   bomError: Error | null;
-  /** The graph's instances (clash view balloon numbers + names). */
+  /**
+   * The graph's instances — the clash view's balloon numbers + names, and the
+   * SOLVE view's names for any component the mass roll-up could not weigh.
+   */
   instances: readonly InstanceResponse[];
   /** The last interference check's result, or null before the first run. */
   clashResult: InterferenceResult | null;
@@ -88,7 +91,11 @@ export function AssemblyInspectorPanel({
         className="px-0.5"
       />
       {view === "solve" ? (
-        <AssemblyInspector evaluation={evaluation} evaluating={evaluating} />
+        <AssemblyInspector
+          evaluation={evaluation}
+          evaluating={evaluating}
+          instances={instances}
+        />
       ) : view === "bom" ? (
         <AssemblyBomPanel bom={bom} loading={bomLoading} error={bomError} />
       ) : (
