@@ -96,15 +96,23 @@ frame refactor are v2/§11. Spike de-collected.
       toy goldens; real headroom is **1.08x**. Re-derive the bound against a
       real-part corpus AND root-cause the 10.7x export/import asymmetry.
       [geometry-qa PERF-3]
-- [ ] (P2, S) **PERF-4 — the mesh route ships uncompressed; there is no
-      `GZipMiddleware` anywhere** in geometry/gateway/py-kit (`api.py:529` returns a
-      raw `Response(content=glb, ...)`). Measured gzip-6: 1 117 KiB → **216 KiB**
-      (tray N=200, 5.2x) and 1 064 KiB → **90 KiB** (2 006-face sink, 11.8x). One
-      line on the hottest binary route. Companion (P2, M): `tessellate_glb` emits one
-      glTF primitive per B-rep face, measured at **~425 bytes of JSON per face** (+
-      one draw call per face — 2 006 on the sink); the split is required for picking,
-      so carry the face id as a vertex attribute instead of splitting primitives.
-      [geometry-qa PERF-4]
+- [x] (P2, S) **PERF-4a — the mesh route shipped uncompressed** (no
+      `GZipMiddleware` anywhere in geometry/gateway/py-kit). **Done 2026-07-31:**
+      compression wired ONCE in py-kit `create_app`; measured on the real route
+      1 117 KiB → **216 KiB** (tray N=200, 5.2x, +20.6 ms) and 1 064 KiB →
+      **90 KiB** (2 006-face sink, 11.9x, +12.5 ms), `/openapi.json` 4.2x.
+      `compresslevel=6` (Starlette's default 9 is strictly worse — more bytes,
+      4-9x the CPU) and `minimum_size=1500` (one MTU; below it gzip cannot save a
+      packet and `/healthz` gets *bigger*). The **gateway** is the hop that
+      compresses: it buffers upstream bodies, so `create_upstream_client` now asks
+      geometry for `identity` — that alone cut the end-to-end gateway fetch
+      57.8 ms → **31.4 ms**. docs/PERF.md "PERF-4 landed". [platform-builder]
+- [ ] (P2, M) **PERF-4b — `tessellate_glb` emits one glTF primitive per B-rep
+      face**, measured at **~425 bytes of JSON per face** plus one draw call per
+      face (2 006 on the sink). The split is required for picking, so carry the
+      face id as a vertex attribute instead of splitting primitives. Frontend-
+      coupled (viewport picks by primitive ordinal today). Compression blunts the
+      byte cost but not the draw calls. [geometry-qa PERF-4]
 - [ ] (P2, M) **PERF-5 — per-face provenance goes dark at ~110 features and its
       docstring says it never will.** `MAX_PROVENANCE_FACES`'s budget sums faces over
       EVERY snapshot, so it is `O(features x faces)`: measured 91 % of 8 000 at

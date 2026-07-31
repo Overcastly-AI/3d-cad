@@ -25,8 +25,26 @@ def create_upstream_client(
 
     ``transport`` exists so tests can inject an ``httpx.MockTransport``;
     ``None`` (production) selects the default network transport.
+
+    **Asks upstreams for ``identity``** (httpx would otherwise advertise
+    ``gzip, deflate``). The gateway BUFFERS every upstream body and re-emits
+    it, so anything geometry compresses the gateway immediately decompresses
+    and then re-compresses for the browser — two compressions and a
+    decompression per mesh fetch, for a link that is loopback in compose and
+    intra-cluster in k8s. Measured on the docs/PERF.md N=200 tray (1 117 KiB):
+    compressing at geometry costs **20.6 ms** plus **3.6 ms** to inflate here,
+    to save **2.6 ms** of internal transfer — a ~24 ms net loss on the scarcest
+    resource in the stack (geometry CPU is what rebuild is bound by). Browser
+    compression is unaffected: py-kit's ``GZipMiddleware`` still gzips the
+    gateway's OWN response, which is the hop that faces the wire that matters.
+    See docs/PERF.md PERF-4.
     """
-    return httpx.AsyncClient(base_url=base_url, timeout=timeout_s, transport=transport)
+    return httpx.AsyncClient(
+        base_url=base_url,
+        timeout=timeout_s,
+        transport=transport,
+        headers={"accept-encoding": "identity"},
+    )
 
 
 async def forward(

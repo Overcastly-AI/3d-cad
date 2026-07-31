@@ -1,9 +1,9 @@
 """FastAPI app factory — every Loft service boots through :func:`create_app`.
 
-Wires (in one place, DRY): structured logging, request-id middleware, the
-standard error envelope, and the infra probes ``/healthz`` (liveness) and
-``/readyz`` (readiness). Probes are infrastructure, deliberately *not* under
-``/api/v1`` and excluded from the OpenAPI schema.
+Wires (in one place, DRY): structured logging, request-id middleware, response
+compression, the standard error envelope, and the infra probes ``/healthz``
+(liveness) and ``/readyz`` (readiness). Probes are infrastructure, deliberately
+*not* under ``/api/v1`` and excluded from the OpenAPI schema.
 """
 
 import uuid
@@ -11,6 +11,7 @@ from collections.abc import Awaitable, Callable, Sequence
 
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
+from starlette.middleware.gzip import GZipMiddleware
 from starlette.types import Lifespan
 
 from py_kit.config import BaseServiceSettings
@@ -31,6 +32,24 @@ state."""
 
 REQUEST_ID_HEADER = "X-Request-ID"
 
+#: gzip level for response compression. Explicit, because Starlette's default
+#: (9) is strictly WORSE than 6 on our real payloads — measured on the two
+#: docs/PERF.md big parts, level 9 produced *more* bytes than level 6 (221 553
+#: vs 220 873 on the tray; 92 180 vs 91 837 on the heat sink — level 9's larger
+#: match window is a pessimisation on interleaved float streams) while costing
+#: 4-9x the CPU (73 ms vs 17 ms; 90 ms vs 10 ms). Level 6 keeps the full 5.2x /
+#: 11.9x ratio for ~10-17 ms on a ~1.1 MiB mesh. See docs/PERF.md PERF-4.
+COMPRESSION_LEVEL = 6
+
+#: Smallest response body worth compressing, in bytes. Set to one Ethernet MTU
+#: rather than Starlette's 500: below ~1 500 B the body still rides in a single
+#: TCP segment, so compression cannot save a round trip and only costs CPU on
+#: both ends plus a ``Vary: Accept-Encoding`` that fragments caches. The
+#: numbers this route actually sees (docs/PERF.md PERF-4): a small box mesh is
+#: ~3 KiB and DOES compress; an error envelope or a probe body is ~100 B and
+#: does not.
+COMPRESSION_MINIMUM_SIZE = 1500
+
 _logger = get_logger("py_kit.app")
 
 
@@ -50,6 +69,20 @@ def create_app(
     configure_logging(settings)
     app = FastAPI(title=title, version=version, lifespan=lifespan)
     install_error_handlers(app)
+
+    # Response compression, wired ONCE for every service (DRY): the GLB mesh
+    # route is the hottest binary path in the product and shipped raw until
+    # PERF-4. Registered BEFORE the request-id middleware so it ends up
+    # INNERMOST — Starlette applies user middleware outermost-last, and gzip
+    # must sit closest to the routes so it sees a complete, buffered body and
+    # can emit a correct ``Content-Length``. Outside the request-id
+    # BaseHTTPMiddleware it would only ever see a stream and fall back to
+    # chunked, dropping the length the browser uses for download progress.
+    app.add_middleware(
+        GZipMiddleware,
+        minimum_size=COMPRESSION_MINIMUM_SIZE,
+        compresslevel=COMPRESSION_LEVEL,
+    )
 
     @app.middleware("http")
     async def request_id_middleware(

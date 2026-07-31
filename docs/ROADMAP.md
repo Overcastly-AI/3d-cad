@@ -683,7 +683,11 @@ filed — PERF-1 no rebuild cache (every route rebuilds from feature 0; a face
 pick costs 29 s), PERF-2 the CM-6 validity gate is 22 % of a big rebuild,
 PERF-3 STEP import of Loft's own export sits at 92 % of its 20 s DoS ceiling,
 PERF-4 the mesh route ships uncompressed (5-12x gzip win), PERF-5 provenance
-goes dark at ~110 features.
+goes dark at ~110 features. **PERF-4a fixed 2026-07-31**: compression wired once
+in py-kit `create_app` — 5.2x on the tray, 11.9x on the sink, 4.2x on
+`/openapi.json`, measured on the real route; the gateway is the hop that
+compresses (it now asks geometry for `identity`, cutting the end-to-end mesh
+fetch 57.8 ms → 31.4 ms).
 
 Phase 2 (parametric core)
 **converged 2026-07-15**: Sketching and Part modeling both flipped their

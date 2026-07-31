@@ -256,6 +256,12 @@ a raw `Response(content=glb, media_type=GLB_MEDIA_TYPE)`. Measured gzip level 6:
 A one-line middleware is a 5-12x payload cut on the hottest binary route in the
 product.
 
+> **FIXED — see "PERF-4 landed" below.** Compression now lives in py-kit's
+> `create_app`, so every service gets it once. The ratios above held on the
+> real route (5.2x / 11.9x); the surprises were that Starlette's default
+> `compresslevel=9` is *worse than 6* on these payloads, and that the gateway
+> had to stop asking geometry for gzip.
+
 ### Correctness under size — this part is clean
 
 Measured at the largest point of each axis (not a CI gate; these numbers are the
@@ -363,10 +369,9 @@ Expected effect: ~22 % off every rebuild, growing with N.
 
 Two parts:
 
-* **(S) There is no gzip middleware anywhere in the stack.** Adding
-  `GZipMiddleware` (or letting the gateway compress) is measured at **5.2x on
-  the tray and 11.8x on the heat sink** — 1 117 KiB → 216 KiB, 1 064 KiB →
-  90 KiB. This is a one-line change on the hottest binary route.
+* **(S) ~~There is no gzip middleware anywhere in the stack.~~ LANDED** —
+  measured at **5.2x on the tray and 11.9x on the heat sink** on the real
+  route. Full numbers in "PERF-4 landed" below.
 * **(M) One glTF primitive per B-rep face costs ~425 bytes of JSON per face and
   one draw call per face** (2 006 draw calls on the heat sink). The per-face
   split is *required* for picking (primitive ordinal == face ordinal), so the
@@ -448,6 +453,130 @@ and should be revisited once the fuse loop is not sequential.
 
 ---
 
+## 2026-07-31 — PERF-4 landed: response compression (the RANKED-3 "(S)" half)
+
+Fix for "Payload: a 2 000-face body ships a 1 MiB uncompressed mesh" above.
+Compression is wired **once**, in `packages/py-kit/src/py_kit/app.py`
+(`create_app`), so all three services inherit it — no per-service registration.
+
+### Method — this run is over HTTP, unlike the run above
+
+The benchmark above is in-process (no HTTP hop). These numbers are the **real
+route**: three services booted natively (geometry `:8102`, documents `:8101`,
+gateway `:8100`), the two PERF-4 parts pre-seeded into the mesh store, and
+`GET /api/v1/meshes/{id}` fetched over loopback with a warm connection —
+**15 samples, median, 3 warmups dropped**. "Added ms" is gzip minus identity
+wall time on the same route, so the *saved* transfer time is already netted out
+of it (i.e. it understates raw compression CPU slightly, which is the honest
+direction). Same machine as the run above (nproc = 4).
+
+### Bytes and time — at geometry (`GET /api/v1/meshes/{id}`)
+
+| part | raw B | gzip B | ratio | identity ms | gzip ms | added ms |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| N=200 tray | 1 143 600 | 220 873 | **5.2x** | 2.65 | 23.27 | **+20.62** |
+| 500-fin sink | 1 089 348 | 91 837 | **11.9x** | 2.66 | 15.11 | **+12.46** |
+| small box mesh | 3 408 | 696 | 4.9x | 1.64 | 1.82 | +0.18 |
+
+### Bytes and time — end-to-end through the gateway (what the browser sees)
+
+| part | raw B | gzip B | ratio | identity ms | gzip ms | added ms |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| N=200 tray | 1 143 600 | 220 873 | **5.2x** | 9.60 | 31.44 | +21.84 |
+| 500-fin sink | 1 089 348 | 91 837 | **11.9x** | 11.11 | 20.39 | +9.28 |
+| small box mesh | 3 408 | 696 | 4.9x | 5.05 | 6.36 | +1.31 |
+
+### Which hop compresses: the GATEWAY, and geometry must not
+
+The browser talks only to the gateway, and the gateway **buffers** every
+upstream body (`Response(content=upstream.content, ...)`) rather than streaming
+it. httpx advertises `gzip, deflate` by default, so the naive "middleware
+everywhere" config made each mesh fetch pay **compress at geometry → inflate at
+the gateway → re-compress for the browser**. Measured cost of that internal
+round trip on the N=200 tray: 20.6 ms to compress upstream plus 3.6 ms to
+inflate, to save **2.6 ms** of loopback transfer — a ~24 ms net loss on
+geometry CPU, which is the scarcest resource in the stack (rebuild is CPU-bound;
+see the run above).
+
+So `create_upstream_client` now sends `accept-encoding: identity`. Effect on the
+end-to-end gateway fetch, same harness:
+
+| part | gzip-to-browser, gzip upstream | gzip-to-browser, **identity** upstream | saved |
+| --- | ---: | ---: | ---: |
+| N=200 tray | 57.82 ms | **31.44 ms** | **-26.4 ms (-46 %)** |
+| 500-fin sink | 33.90 ms | **20.39 ms** | -13.5 ms (-40 %) |
+
+This is the right answer for a k8s split too: 1.1 MiB over an intra-cluster
+1 Gbps link is ~9 ms, still cheaper than the ~24 ms of CPU to avoid it.
+
+### `compresslevel = 6`, not Starlette's default 9
+
+Level 9 is **strictly dominated** on these payloads — it produces *more* bytes
+than level 6 (its larger match window is a pessimisation on interleaved float
+streams) while costing 4-9x the CPU:
+
+| part | L1 | L4 | **L6** | L9 |
+| --- | ---: | ---: | ---: | ---: |
+| tray bytes | 235 617 | 223 854 | **220 873** | 221 553 |
+| tray compress ms | 7.3 | 10.2 | **17.4** | 73.4 |
+| sink bytes | 114 649 | 98 502 | **91 837** | 92 180 |
+| sink compress ms | 4.3 | 5.4 | **10.0** | 89.5 |
+
+L1 is a defensible alternative (most of the ratio for half the CPU); L6 was
+chosen because it is where the ratio actually plateaus and it keeps the 11.9x on
+the sink, where L1 gets only 9.5x.
+
+### `minimum_size = 1500`, not Starlette's default 500
+
+One Ethernet MTU. Below ~1 500 B the body rides in a single TCP segment either
+way, so compression cannot save a round trip — it only spends CPU on both ends
+and adds a `Vary: Accept-Encoding` that fragments caches. Measured on every
+small route the gateway actually serves:
+
+| route | raw B | gzip B | packets raw → gzip | served |
+| --- | ---: | ---: | --- | --- |
+| `/healthz` | 15 | 35 (**bigger**) | 1 → 1 | identity |
+| `/readyz` | 58 | 65 (**bigger**) | 1 → 1 | identity |
+| `/api/v1/auth/me` | 125 | 128 (**bigger**) | 1 → 1 | identity |
+| `/api/v1/parts` | 405 | 254 | 1 → 1 | identity |
+| `/api/v1/materials` | 469 | 218 | 1 → 1 | identity |
+| `/openapi.json` | 396 963 | 94 727 | 265 → 64 | **gzip** |
+
+Three of these get *larger* under gzip (framing overhead), and none of the rest
+saves a packet. Note `/openapi.json` at **4.2x** — a free win for the
+`ts-client` fetch and the docs UI.
+
+### What a `Content-Encoding` could have broken — checked, not assumed
+
+* **`metadata.mesh.glb_bytes == len(response.content)`**
+  (`services/geometry/tests/test_api.py`) and the golden-suite twins — safe:
+  httpx inflates transparently, so `.content` is the original bytes.
+* **`parseAs: "arrayBuffer"`** in `apps/web/src/api/{mesh,tessellate}.ts` and the
+  e2e `byteLength` assertions — safe, `fetch` inflates transparently.
+* **`Content-Length` guards** (`gateway/step_import.py`) — unaffected: they
+  bound *request* bodies; gzip only touches responses.
+* **Contract generation** — unaffected: `scripts/gen-contracts.py` calls
+  `factory().openapi()` in-process, never over HTTP.
+* **Streaming/SSE** — none exists in the codebase (no `StreamingResponse`, no
+  websocket routes yet), so the chunked-fallback hazard does not apply today.
+  When SSE lands it will need an exemption.
+* **`Content-Length` on compressed responses is preserved**, because gzip is
+  registered *inside* the request-id `BaseHTTPMiddleware`. Registered outside it
+  the middleware only ever sees a stream and falls back to chunked, dropping the
+  header the browser uses for download progress on a multi-megabyte mesh. Both
+  orders were measured; `test_compressed_response_keeps_content_length_and_request_id`
+  pins the working one.
+
+### Not done here (still open, deliberately)
+
+The **~425 bytes of glTF JSON per B-rep face** (RANKED-3's "(M)" half) is
+untouched: it needs a face-id vertex attribute and a viewport change. Note
+compression blunts it — the sink's 850 KiB of per-face JSON is highly
+repetitive, which is exactly why it hits 11.9x — but the *draw calls* (2 006 on
+the sink) are unaffected by gzip.
+
+---
+
 ## Budget log
 
 Wall-clock ceilings to track over time. A >10 % regression against the
@@ -467,3 +596,5 @@ Wall-clock ceilings to track over time. A >10 % regression against the
 | STEP import (service path) | 256-fin sink (1 030 F) | 3 660 ms | `import_step_solid` |
 | STEP import (service path) | 500-fin sink (2 006 F) | 18 440 ms | **92 % of the 20 s CPU ceiling** |
 | STL export | tray N=200 | 76 ms / 1 546 KiB | |
+| mesh fetch (gateway, gzip) | tray N=200 | 31 ms / 216 KiB | was 1 117 KiB raw; PERF-4 |
+| mesh fetch (gateway, gzip) | 500-fin sink | 20 ms / 90 KiB | was 1 064 KiB raw; PERF-4 |
