@@ -770,6 +770,20 @@ every schema step — a stranger following it got `503` on registration.
 round-trip checks; browser → Vite → gateway → DB), with an honest PERF section
 (the wall is ~50 features cold, ~26 s to cold-open a 200-feature part).
 
+**OSS-RELEASE addendum, 2026-07-31 (oss-curator).** README hero is now the real
+mounting bracket (`part-bracket-1600.png`, six verbs in one frame, 142 020.95
+mm³ / 44 faces) with the turned hub second; the plain-cube shot is gone.
+QUICKSTART gains a hand-checkable worked example (the shelled enclosure:
+384 000 − 114×74×37 = 71 868, less the R1 breaks = the 71 694.48 mm³ Loft
+reports) — a reader can falsify our mass properties on paper in four features.
+Root-caused the stale-Vite trap: **pnpm 10 silently DISCARDS the npm-idiomatic
+`--` separator**, so `pnpm --filter @loft/web dev -- --port 5199` starts Vite on
+**5173** with no error (measured on 10.33.0; `dev --port 5199` and
+`exec vite --port 5199` both bind correctly). Since `playwright.config.ts` sets
+`reuseExistingServer`, that stray 5173 is what a later `just e2e` reuses —
+documented with the correct invocations in QUICKSTART. Vite config has no
+`strictPort`, so a dropped port argument falls back rather than failing.
+
 Source of truth for "what phase are we in." Every commit that ships an item
 ticks it here (and on `docs/BACKLOG.md`) in the same commit — see CLAUDE.md.
 

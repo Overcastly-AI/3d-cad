@@ -8,14 +8,15 @@
 microservices around the OCCT geometry kernel, a React + react-three-fiber
 frontend, MIT licensed, built to self-host.**
 
-![The Loft modeling viewport: a parametric part in ghost shading, with the
-feature tree, sketch list and origin planes at left, a mass-properties and
-export inspector at right, a ViewCube, and the feature timeline docked along
-the bottom](./docs/screenshots/uiw2-part-ghost-after-1440.png)
+![The Loft modeling viewport showing a mounting bracket: a six-feature tree
+(sketch, extrude, hole, pattern, mirror, fillet) at left, the shaded part in
+the middle, mass properties and topology counts at right, and the feature
+timeline docked along the bottom](./docs/screenshots/part-bracket-1600.png)
 
-_The modeling viewport. Feature tree and timeline at the edges, the model in
-the middle. Volume, area, centroid, bounding box and topology counts are read
-back from the evaluated B-rep — not estimated from the mesh._
+_A 180 × 80 × 10 mm mounting bracket, modeled through the running stack: sketch
+→ extrude → hole → linear pattern → mirror → edge-break fillet. Six features,
+44 faces, **142 020.95 mm³**. Volume, area, centroid, bounding box and topology
+counts are read back from the evaluated B-rep — not estimated from the mesh._
 
 ## Why another CAD?
 
@@ -91,6 +92,14 @@ of truth for what phase we're in.
   part → sketch → extrude → evaluate → fetch mesh → export STEP) through the
   published gateway port ([`deploy-path.yml`](./.github/workflows/deploy-path.yml),
   i.e. `just compose-smoke`).
+
+![The Loft viewport showing a bearing hub: a three-feature tree — sketch,
+revolve, fillet — and a turned flanged part with a through
+bore](./docs/screenshots/part-hub-1600.png)
+
+_A turned part, three features: a stepped section revolved 360°, then an edge
+break. Ø90 flange, Ø20 through bore, 40 mm deep — **70 567.77 mm³** across 12
+faces._
 
 ### What does NOT exist yet
 

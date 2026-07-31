@@ -188,6 +188,23 @@ pnpm --filter @loft/web dev
 Open **<http://localhost:5173>**. Vite proxies `/api` to the gateway on
 `:8000` (override with `GATEWAY_ORIGIN`).
 
+> **Running a second stack on other ports? Do not write `--`.**
+> pnpm 10 **silently discards** the npm-idiomatic `--` separator, so
+> `pnpm --filter @loft/web dev -- --port 5199` starts Vite on **5173**, not
+> 5199 — no error, no warning. Measured on pnpm 10.33.0. Use one of:
+>
+> ```bash
+> pnpm --filter @loft/web dev --port 5199        # no `--`
+> pnpm --filter @loft/web exec vite --port 5199  # equivalent
+> ```
+>
+> This matters more than it looks. `apps/web/playwright.config.ts` sets
+> `reuseExistingServer: true`, so a stray Vite on 5173 gets **reused** by the
+> next `just e2e` — and if its `/api` proxy points at a gateway you have since
+> torn down, every spec fails at `seedSession` with a 500 that looks like a
+> code regression. Always confirm the port Vite actually printed, and kill
+> your own Vite in teardown, not just your uvicorns.
+
 ### Prove the whole path without a browser
 
 ```bash
@@ -218,10 +235,32 @@ export STEP, and confirm the internal services aren't exposed. Stdlib only.
    is `null` rather than a made-up default.
 6. **Export.** STEP (B-rep) or STL (mesh) from the same panel.
 
-Feature-count expectations before you scale up: parts up to ~50 features feel
-fine, ~100 is painful cold, and a first rebuild of a 200-feature tree takes
-~26 s. [`docs/PERF.md`](./PERF.md) has the measured tables and says plainly
-where the wall is.
+### Check the numbers yourself
+
+The mass properties are read back from the evaluated B-rep, so they should
+agree with arithmetic you can do on paper. A worked example you can rebuild in
+four features — sketch a 120 × 80 rectangle, extrude 40, shell 3 mm with the
+top face open, break the edges at R1:
+
+```
+outer block        120 × 80 × 40   = 384 000 mm³
+less the cavity    114 × 74 × 37   = 312 132 mm³
+                                   ---------------
+                                     71 868 mm³
+less the R1 edge breaks                 173.52 mm³
+                                   ---------------
+Loft reports                         71 694.48 mm³
+```
+
+That part is `docs/screenshots/part-enclosure-1600.png`. If your numbers don't
+reconcile, that's a bug worth filing — wrong geometry is a first-class bug
+here, not a rounding complaint.
+
+### Expectations before you scale up
+
+Parts up to ~50 features feel fine, ~100 is painful cold, and a first rebuild
+of a 200-feature tree takes ~26 s. [`docs/PERF.md`](./PERF.md) has the measured
+tables and says plainly where the wall is.
 
 ---
 
@@ -247,6 +286,15 @@ not a code regression. Restart the three services.
 The mesh didn't come back. Check the geometry service's log: with `S3_URL` set
 but no credentials, every mesh `put`/`get` 403s while the config stays valid.
 Unset `S3_URL` to use the in-process store.
+
+**Vite ignored my `--port` and started on 5173.**
+You wrote `--`. pnpm 10 discards it silently — see the note above. Vite's
+config has no `strictPort`, so a dropped port argument falls back to 5173
+rather than failing.
+
+**Every e2e spec fails at registration with a 500, but curl to the gateway works.**
+A stale Vite on 5173 is being reused, and its `/api` proxy points at a dead
+gateway. `ps -eo pid,args | grep vite/bin/vite`, kill it, re-run.
 
 **The first `docker compose up --build` takes forever.**
 The geometry image installs the OCCT wheel. Subsequent builds cache on

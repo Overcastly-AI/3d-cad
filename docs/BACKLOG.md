@@ -95,6 +95,18 @@ frame refactor are v2/§11. Spike de-collected.
       that walks `*.dist-info` AND the vendored `.libs` trees (`readelf -d`), and
       re-runs on every OCP/OCCT bump: the vendored set is a property of the
       wheel's build machine and changes without notice. [oss-curator]
+- [x] (P2, S) **LIC-5 — `pnpm ... dev -- --port N` silently starts Vite on 5173.**
+      Done 2026-07-31 (oss-curator, docs half). pnpm 10 DISCARDS the
+      npm-idiomatic `--` separator, so the port argument never reaches vite and
+      it falls back to `server.port` (5173) with no error — measured on 10.33.0;
+      `dev --port N` and `exec vite --port N` both bind correctly. This is the
+      origin of the stale-Vite trap that has poisoned a whole e2e suite before
+      (`reuseExistingServer: true` makes the next `just e2e` reuse that stray
+      5173, whose `/api` proxy points at a torn-down gateway → every spec 500s at
+      seedSession). Correct invocations + the symptom are in docs/QUICKSTART.md.
+      REMAINING: `apps/web/vite.config.ts` has no `server.strictPort`, so a
+      dropped port silently falls back instead of failing — one line, app
+      territory, for frontend-builder. [oss-curator]
 - [x] (P1, M) **LIC-4 — the OSS front door was stale in both directions.** Done
       2026-07-31 (oss-curator): README claimed WebSocket fan-out (no WS routes
       exist anywhere), listed materials/mass, the settings surface and entity
