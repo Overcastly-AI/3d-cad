@@ -20,8 +20,8 @@ Prerequisites:
 - Node 22 + [pnpm](https://pnpm.io/) 10 (version pinned in `package.json` `packageManager`)
 - [uv](https://docs.astral.sh/uv/)
 - [just](https://just.systems/) — `uv tool install rust-just`
-- Docker (optional — only for the compose stack, which is not yet
-  runtime-verified; bare-metal dev below is the proven path)
+- Docker (optional — only for the compose stack; the container-free path
+  below is how the project is developed day to day)
 
 ```bash
 uv sync          # Python workspace
@@ -30,17 +30,16 @@ just lint        # ruff + ruff format + pyright strict + eslint + prettier
 just test        # pytest (uv workspace) + vitest (pnpm workspace)
 ```
 
-Run the app locally without Docker:
+**Running the app is a few more steps than it looks** — all three services are
+required, and both `gateway` and `documents` need a database schema before the
+first request. The full copy-pasteable sequence (SQLite, no Docker) is in
+**[`docs/QUICKSTART.md`](./docs/QUICKSTART.md#option-b--container-free-development)**;
+don't improvise it, or you'll hit a `503` on registration.
 
-```bash
-uv run python -m geometry.main    # :8002
-LOFT_ENV=dev uv run python -m gateway.main     # :8000
-pnpm --filter @loft/web dev       # :5173 (proxies /api → gateway)
-```
-
-`just smoke` probes `/healthz` + `/readyz` on all services. `just dev`
-brings up the compose stack (needs a Docker daemon; config-validated but not
-yet runtime-verified — reports welcome).
+`just smoke` probes `/healthz` + `/readyz` on all three services. `just dev`
+brings up the compose stack with hot reload (needs a Docker daemon), and
+`just compose-smoke` runs the full self-host proof — the same script CI runs
+on every push.
 
 ## Monorepo layout
 
@@ -88,7 +87,12 @@ user-facing or kernel-adjacent change.
 - **Service boundaries:** only `services/geometry` imports OCP/build123d;
   `services/documents` never touches the kernel; `apps/web` talks only to
   the gateway.
-- **No GPL/AGPL dependencies** (MIT app; LGPL-dynamic is OK).
+- **No GPL/AGPL dependencies** (MIT app; LGPL is OK). Two traps, both real,
+  both documented in [`docs/LICENSING.md`](./docs/LICENSING.md): a wheel's
+  declared licence can hide what it **vendors** (the OCP wheel declares
+  Apache-2.0 and ships 68 LGPL OCCT libraries plus a GPL-2.0 one), so check
+  bundled binaries, not just metadata; and "we link dynamically" does **not**
+  by itself discharge LGPL duties when we redistribute a container image.
 - **DB changes via alembic migrations only** (once migrations land).
 - **UI work** composes `packages/design` primitives — never restyle raw
   elements, no hex literals outside the token system.

@@ -66,6 +66,45 @@ even-odd scanline clip) across SVG/PDF/DXF, `views.section_params jsonb` (0008);
 wrong-half + multi-loop + byte-determinism goldens; oblique + the `project_view`
 frame refactor are v2/§11. Spike de-collected.
 
+- [ ] (P0, S) **LIC-1 — a GPL-2.0 library ships inside the OCP wheel and blocks
+      the geometry image.** `libjbig` (jbigkit, GPL-2.0-or-later) is vendored by
+      `cadquery-ocp-novtk` and hard-linked `libTKService → libfreeimage → libtiff
+      → libjbig`; it maps into every process that imports the kernel. Violates the
+      absolute "no GPL/AGPL" rule and would make a published geometry image
+      GPL-2.0. Deleting it fails (eager binding: `undefined symbol: jbg_enc_out`);
+      `libtiff` imports exactly 10 `jbg_*` symbols, and a GPL-free stub exporting
+      them was BUILT AND VERIFIED 2026-07-31 — OCCT loads, boolean cut gives the
+      analytic 5151.77 mm³, tessellation + STEP export fine. Apply in
+      `deploy/docker/service.Dockerfile` after `uv sync`, with a build-time
+      assertion that no GPL `.so` survives. docs/LICENSING.md §4.
+      [oss-curator, platform-builder]
+- [ ] (P1, M) **LIC-2 — we redistribute LGPL binaries with none of their required
+      text.** The OCP wheel ships ZERO licence files (`RECORD` has no
+      licen/copying/notice match across 398 entries) while carrying 68 LGPL-2.1
+      OCCT libraries. LGPL-2.1 §6(b) does NOT cover us — clause (1) requires the
+      library be "already present on the user's computer system", which is false
+      for a container image — so we ship under §6(d)+(c): licence texts at
+      `/app/licenses/`, `NOTICE` in the image, OCI `image.licenses`/`image.source`
+      labels, and a mirrored corresponding-source bundle for OCCT 7.9.3 +
+      planegcs 0.8.0. Checklist in docs/LICENSING.md §6. [oss-curator,
+      platform-builder]
+- [ ] (P2, S) **LIC-3 — the licence gate must read bundled binaries, not wheel
+      metadata.** `cadquery-ocp-novtk` declares `License: Apache-2.0` and vendors
+      GPL-2.0 + LGPL-2.1 code, so any metadata-only scan reports this tree as
+      fully permissive — which is how LIC-1 survived to release week. Add a CI job
+      that walks `*.dist-info` AND the vendored `.libs` trees (`readelf -d`), and
+      re-runs on every OCP/OCCT bump: the vendored set is a property of the
+      wheel's build machine and changes without notice. [oss-curator]
+- [x] (P1, M) **LIC-4 — the OSS front door was stale in both directions.** Done
+      2026-07-31 (oss-curator): README claimed WebSocket fan-out (no WS routes
+      exist anywhere), listed materials/mass, the settings surface and entity
+      snapping as missing when all three had shipped, and pointed "next up" at
+      Phase 1 while sitting past Phase 4b. The container-free run block omitted
+      the `documents` service and every schema step, so a stranger following it
+      got `503 database_unavailable` on registration — verified by running it.
+      New docs/QUICKSTART.md (both paths, verified end to end natively: 9/9
+      round-trip checks + browser → Vite → gateway → DB), honest PERF section,
+      SECURITY.md's false "no authentication yet" corrected. [oss-curator]
 - [x] (P1, L) **PERF-1 — `evaluate_tree` had NO rebuild cache, so every route
       re-ran the whole tree from feature 0.** SHIPPED 2026-07-31 (kernel-architect):
       `geometry/rebuild_cache.py`, a bounded thread-safe in-process LRU keyed on the

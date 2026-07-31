@@ -5,19 +5,17 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
 **An open-source, cloud-native parametric 3D CAD platform — Python
-microservices around the OCCT geometry kernel, a React +
-react-three-fiber frontend, MIT licensed, built to self-host.**
+microservices around the OCCT geometry kernel, a React + react-three-fiber
+frontend, MIT licensed, built to self-host.**
 
-![First light: a parametric box modeled by OCCT server-side, tessellated
-to GLB, rendered in the browser with live dimension editing and exact
-mass properties](./docs/screenshots/first-light-desktop.png)
+![The Loft modeling viewport: a parametric part in ghost shading, with the
+feature tree, sketch list and origin planes at left, a mass-properties and
+export inspector at right, a ViewCube, and the feature timeline docked along
+the bottom](./docs/screenshots/uiw2-part-ghost-after-1440.png)
 
-*First light (2026-07-10): a parametric 10×20×30 mm box. The browser sends
-dimensions to the gateway, the geometry service evaluates the B-rep with
-OCCT and tessellates it to a deterministic GLB, and the viewport renders it
-with exact mass properties (6,000 mm³, analytically asserted in tests) —
-re-tessellating live as you edit the dimensions. That whole pipe is real;
-everything else on the scorecard below isn't yet.*
+_The modeling viewport. Feature tree and timeline at the edges, the model in
+the middle. Volume, area, centroid, bounding box and topology counts are read
+back from the evaluated B-rep — not estimated from the mesh._
 
 ## Why another CAD?
 
@@ -37,128 +35,137 @@ they can't match** (the full thesis is in [`docs/VISION.md`](./docs/VISION.md)):
 
 ## Status — honest and specific
 
-**Phase 4b — multi-body & sheet metal.** This README claims nothing that
-isn't verifiable in this repo at this commit. The
+**Pre-release. No tagged releases yet.** This README claims nothing that isn't
+verifiable in this repo at this commit. The
 [daily-driver scorecard in VISION.md](./docs/VISION.md#daily-driver-scorecard)
-tracks daily-driver readiness honestly — rows flip as pillars ship, and the
-roadmap is the order they flip in.
+tracks readiness honestly; [`docs/ROADMAP.md`](./docs/ROADMAP.md) is the source
+of truth for what phase we're in.
 
-**What runs today (verified in this repo):**
+### What runs today
 
-- **Parametric part modeling** — a constraint-solved sketcher (with dimension
-  expressions and driving/driven dims) → extrude / revolve / sweep / loft →
-  fillet / chamfer (click-specific edge) / pattern / shell / draft, on an
-  ordered feature tree with stage-1 topological naming that survives rebuilds,
-  evaluated through the OCCT kernel (build123d) to byte-deterministic GLB with
-  exact mass properties.
-- **Multi-body** — a part holds several bodies; boolean union / subtract /
-  intersect between them, an opt-in disjoint (multi-lump) result, and a
-  downstream fillet that resolves a boolean-created edge.
+- **Parametric part modeling** — a constraint-solved sketcher (dimension
+  expressions, driving/driven dims, entity snapping) → extrude / revolve /
+  sweep / loft → fillet / chamfer / pattern / shell / draft, on an ordered
+  feature tree with topological naming that survives rebuilds, evaluated
+  through OCCT (build123d) to byte-deterministic GLB.
+- **Multi-body** — several bodies per part; boolean union / subtract /
+  intersect, opt-in disjoint results, and downstream features that resolve
+  boolean-created edges.
 - **Assemblies** — a distinct document type: part instances + mates
   (coincident / concentric / lock) solved by an in-house, GPL-free 6-DOF
-  rigid-body solver, byte-deterministic across machines.
+  rigid-body solver, byte-deterministic across machines. Includes
+  interference/clash detection and assembly STEP import/export.
 - **Drawings** — associative standard views (front / top / right / iso) via
-  exact OCCT HLR, model-true dimensions, and SVG / PDF / DXF export.
-- **Sheet metal (v1)** — base flange + edge flange, the provenance-driven
+  exact OCCT HLR, section views, model-true dimensions, and SVG / PDF / DXF
+  export.
+- **Sheet metal (v1)** — base flange + edge flange, provenance-driven
   flat-pattern unfold (bend allowance / K-factor), and the flat pattern as a
-  drawing view with a bend table: model a bracket → get a flat blank a shop
-  can cut.
-- **Interop** — STEP import, including multi-solid files as one multi-lump
-  body; STEP/STL export.
+  drawing view with a bend table.
+- **Materials & mass properties** — assign a material and get real mass and a
+  mass-weighted centre of mass. Both are `null` — never zero — until a
+  material is assigned, on purpose.
+- **Interop** — STEP import (including multi-solid files as one multi-lump
+  body); STEP / STL export.
 - **Three FastAPI services** (`gateway`, `documents`, `geometry`) on a shared
   service kit (`packages/py-kit`: config, JSON logging, health/readiness,
-  error envelope, queue client, WebSocket fan-out), backed by Postgres 16 +
-  Redis 7 + MinIO/S3.
+  error envelope, metrics, rate limiting, response compression, queue client),
+  backed by Postgres 16 + Redis 7 + MinIO/S3.
+- **Auth** — registration, login, JWT-bearer sessions; internal services are
+  not reachable from the host in the compose topology.
 - **Web app** — React 19 + Vite + TypeScript, an r3f modeling viewport
-  (ViewCube, studio shading, feature tree, mass-properties inspector) over a
-  token-driven design system (`packages/design` — one palette across DOM and
-  WebGL).
+  (ViewCube, studio shading, feature tree, timeline with a draggable travel
+  stop, mass-properties inspector, settings surface) over a token-driven
+  design system (`packages/design` — one palette across DOM and WebGL).
 - **Contract pipeline** — pydantic → OpenAPI (`packages/contracts`) →
   generated TS client (`packages/ts-client`); `just gen-check` fails CI on
   drift.
-- **Quality gates** — `just lint` (ruff + pyright strict + eslint + prettier)
-  and `just test` green: several thousand unit tests across pytest and vitest
-  (run `just test` for the count at your commit — a number pinned here goes
-  stale the week it is written), plus a property-based feature-composition
-  matrix, geometry golden models with hand-derived analytic expectations, STEP
-  round-trips, and determinism gates. CI is GitHub Actions
-  ([`ci.yml`](./.github/workflows/ci.yml)).
+- **Quality gates** — `just lint` (ruff + ruff format + pyright strict +
+  eslint + prettier + tsc) and `just test` green. Run `just test` for the
+  count at your commit; a number pinned here goes stale the week it's
+  written. Alongside the unit suites: a property-based feature-composition
+  matrix, geometry golden models with hand-derived analytic expectations,
+  STEP round-trips, determinism gates, and 78 Playwright specs.
 - **Compose stack** — Postgres 16 + Redis 7 + MinIO + the three services,
   **proven end to end in CI**: every push builds the images, boots the stack,
-  migrates both schemas, and drives a real modeling round-trip (sketch →
-  extrude → evaluate → mesh fetch → STEP export) through the published
-  gateway port (`deploy-path` workflow, i.e. `just compose-smoke`). The app also
-  boots **container-free** for development (SQLite + in-process mesh store).
+  migrates both schemas, and drives a real modeling round-trip (register →
+  part → sketch → extrude → evaluate → fetch mesh → export STEP) through the
+  published gateway port ([`deploy-path.yml`](./.github/workflows/deploy-path.yml),
+  i.e. `just compose-smoke`).
 
-Three capabilities moved off the "does not exist" list on 2026-07-30 because
-they had in fact shipped and this section had gone stale — recorded rather than
-quietly edited, since a status section that drifts in EITHER direction is the
-defect, and under-claiming is not the safe kind of wrong:
+### What does NOT exist yet
 
-- **Interference/collision detection** — `geometry/kernel/interference.py`,
-  surfaced in the assembly clash inspector, with unmeasured pairs reported as
-  UNVERIFIED rather than silently as clear.
-- **Assembly STEP import/export** — `geometry/assembly/import_step.py` and
-  `export_assembly()`, with real PRODUCT names.
-- **Section views** — `geometry/drawings/section.py` plus the on-sheet author.
+No sugar-coating: IGES import/export, multi-solid STEP healing, **detail
+views** (section views ship; detail views do not), **sub-assemblies** (nested
+mate solve), **versioned part references** (assemblies pin to part TIP, not
+history), **real-time collaboration** (there are no WebSocket routes — the
+service kit has no fan-out yet), a queue-backed evaluation runtime (an `arq`
+worker path exists, but the REST API evaluates in-request), and the
+**MCP/scripting surface**. See [`docs/ROADMAP.md`](./docs/ROADMAP.md) for the
+order these land in.
 
-**What does NOT exist yet** (no sugar-coating): IGES import/export, multi-solid
-STEP healing, the async job-queue runtime (geometry currently evaluates
-in-request), sub-assemblies (nested mate solve), versioned part references
-(assemblies pin to part TIP, not history), **detail views** (section views ship;
-detail views do not), **material/density — so mass properties report volume,
-area and centroid but NOT mass**, a settings surface, entity snapping (only a
-1 mm grid snap), and the MCP/scripting surface. See
-[`docs/ROADMAP.md`](./docs/ROADMAP.md) for the order they land in.
+![The Loft sketcher: a rectangle and circle on the XY plane with an
+intersection snap marker, constraint and dimension toolbars, and a live
+cursor readout](./docs/screenshots/uiw5-snap-intersection-1440.png)
+
+_The constraint-solved sketcher, snapping to a line/rectangle intersection._
+
+### Performance — where the wall is
+
+Measured, not estimated. Full method, tables and machine spec in
+[`docs/PERF.md`](./docs/PERF.md); every number below is from a 4-core
+container and carries ±8% run-to-run spread.
+
+A real machined bracket is 40–80 features; a real housing is 150–400.
+**Loft handles the bracket. It does not hold the housing.**
+
+| tray part size | cold rebuild | add a feature | measure / export |
+| -------------- | -----------: | ------------: | ---------------: |
+| 25 features    |       0.63 s |        0.14 s |           0.02 s |
+| 50 features    |        2.0 s |        0.22 s |           0.04 s |
+| 100 features   |        6.9 s |        0.43 s |           0.06 s |
+| 200 features   |    **26.6 s** |    **1.0 s** |           0.16 s |
+
+Read that table carefully, because the two columns say different things. A
+prefix-hash rebuild cache means that once a part is warm, **appending a
+feature to a 200-feature tree costs ~1 s and re-measuring costs 0.16 s**. But
+the **first** rebuild of a tree a worker hasn't seen — opening a page, a cold
+worker, a document another user opened — still costs the full **~26 s**, and a
+mid-tree edit still misses the cache. Rebuild time grows as roughly `N^1.8` in
+feature count because every operation re-runs the whole tree over the whole
+body. That's the honest headline: **the wall is at roughly 50 features cold,
+and it is a hard wall by 100.**
+
+Face count is *not* the wall — a 2 006-face part rebuilds in 9.8 s from six
+features. Correctness holds at size: at the largest points measured, every
+feature evaluates `ok`, `BRepCheck_Analyzer` says valid, STEP round-trips to
+within 3e-9 mm³, and rebuilds are byte-identical. **Loft is not producing fast
+wrong answers at size — it is producing correct answers slowly.**
 
 ## Quickstart
 
-Prerequisites: Python 3.12, Node 22, [uv](https://docs.astral.sh/uv/),
-[pnpm](https://pnpm.io/) 10, and [just](https://just.systems/)
-(`uv tool install rust-just`).
+Full instructions, including prerequisites and troubleshooting, are in
+**[`docs/QUICKSTART.md`](./docs/QUICKSTART.md)**. The short version:
 
 ```bash
 git clone https://github.com/Overcastly-AI/3d-cad.git
 cd 3d-cad
-uv sync          # Python workspace (services + py-kit)
-pnpm install     # TS workspace (web app + design + ts-client)
-just lint        # ruff + pyright strict + eslint + prettier
-just test        # pytest + vitest
-```
+cp .env.example .env      # then edit the passwords
+docker compose up -d --build
 
-Run the app without Docker (verified — this is how it's developed today):
-
-```bash
-uv run python -m geometry.main    # OCCT geometry service  :8002
-LOFT_ENV=dev uv run python -m gateway.main   # gateway (proxies /api/v1/geometry/*)  :8000
-pnpm --filter @loft/web dev       # web app  :5173 (proxies /api → gateway)
-```
-
-Open http://localhost:5173 — you should see the tessellated box and be able
-to edit its dimensions live. `just smoke` probes all service health
-endpoints. `just e2e` runs the full end-to-end gate — the geometry golden +
-STEP round-trip suites, then the Playwright browser tests — booting (or
-reusing) the geometry and gateway services itself.
-
-The full stack (datastores + services) via Docker Compose:
-
-```bash
-docker compose up -d --build      # or: just dev  (hot-reload overlay)
-
-# Create each service's schema (migrations ship inside the images — no host
-# Python needed). Once per database; re-running is a no-op.
+# once per database (migrations ship inside the images — no host Python needed)
 docker compose run --rm gateway   alembic -c /app/migrations/alembic.ini upgrade head
 docker compose run --rm documents alembic -c /app/migrations/alembic.ini upgrade head
 ```
 
-Only the gateway is published (`:8000`); documents and geometry are internal
-to the compose network on purpose. `just compose-smoke` runs the whole thing
-as a single proof — build, boot, migrate, then a real modeling round-trip
-over the published port (register → part → sketch → extrude → evaluate →
-fetch the mesh → export STEP) plus a check that the internal services are
-unreachable from the host. **CI runs that same script on every push**
-([`deploy-path.yml`](./.github/workflows/deploy-path.yml)), so this path
-is verified, not assumed.
+Only the gateway is published (`:8000`); documents and geometry stay internal
+to the compose network on purpose. `just compose-smoke` proves the whole path
+— build, boot, migrate, then a real modeling round-trip over the published
+port — and **CI runs that same script on every push**, so this path is
+verified rather than assumed.
+
+For development without Docker (SQLite + an in-process mesh store, no
+datastores required), see
+[the container-free path](./docs/QUICKSTART.md#option-b--container-free-development).
 
 ## Architecture at a glance
 
@@ -167,7 +174,7 @@ the layout mirrors them:
 
 ```
 apps/web            React SPA — r3f viewport + UI (talks ONLY to the gateway)
-services/gateway    FastAPI: REST aggregation, geometry proxy; auth + WS later
+services/gateway    FastAPI: auth, REST aggregation, geometry proxy
 services/geometry   OCCT workers (OCP + build123d): evaluation, tessellation, export
 services/documents  Parts/assemblies, feature trees, versioning (Postgres)
 packages/py-kit     Shared service kit: config, logging, probes, errors, queue
@@ -175,7 +182,7 @@ packages/contracts  Generated OpenAPI schemas (committed; CI fails on drift)
 packages/ts-client  Generated TypeScript client (never hand-edited)
 packages/design     Design tokens + primitives + fonts — one palette, two renderers
 deploy/             Dockerfile + compose assets (Helm later)
-docs/               VISION, RESEARCH, ROADMAP, BACKLOG, QA reports
+docs/               VISION, RESEARCH, ROADMAP, BACKLOG, PERF, QA reports
 .claude/            The AI agent team: agents, skills, workflows
 ```
 
@@ -186,9 +193,9 @@ gateway; types flow one way (pydantic → OpenAPI → TS).
 ## Built by an AI agent team
 
 This project is developed by a team of specialized Claude Code agents —
-builders, independent reviewers and QA (including geometry-correctness QA
-with golden models), and direction roles — working off the repo's own
-roadmap and backlog, a workflow inherited from
+builders, independent reviewers and QA (including geometry-correctness QA with
+golden models), and direction roles — working off the repo's own roadmap and
+backlog, a workflow inherited from
 [Next-Lane](https://github.com/Overcastly-AI/Next-Lane). The org chart is in
 [`.claude/README.md`](./.claude/README.md) and the loop design in
 [`docs/AUTONOMOUS-LOOP.md`](./docs/AUTONOMOUS-LOOP.md).
@@ -196,25 +203,28 @@ roadmap and backlog, a workflow inherited from
 Human contributions are welcome — see
 [`CONTRIBUTING.md`](./CONTRIBUTING.md).
 
-## Roadmap
-
-[`docs/ROADMAP.md`](./docs/ROADMAP.md) is the source of truth for what phase
-we're in. Next up after the Phase 0 foundation: **Phase 1 — the thinnest
-vertical slice a working engineer can feel**: sketch → extrude → edit →
-STEP/STL export.
-
 ## Contributing, security, conduct
 
 - [`CONTRIBUTING.md`](./CONTRIBUTING.md) — dev setup, gates, PR expectations
 - [`SECURITY.md`](./SECURITY.md) — private vulnerability reporting
 - [`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md) — Contributor Covenant 2.1
 
-## License & trademarks
+## License & attribution
 
 [MIT](./LICENSE) © Overcastly AI. Built by
 [Overcastly AI](https://overcastly.com).
 
+This software makes use of facilities provided by the **Open CASCADE
+Technology** software (LGPL-2.1 with the Open CASCADE exception), and uses
+**planegcs** (LGPL-2.1-or-later), Python bindings for FreeCAD's PlaneGCS
+solver, for sketch constraint solving. Only the `geometry` service links
+these; the `gateway` and `documents` images contain no copyleft components.
+Attribution and dual-licence elections are in [`NOTICE`](./NOTICE); the full
+redistribution analysis — what shipping a container image obliges us to do,
+and what it obliges you to do if you republish one — is in
+[`docs/LICENSING.md`](./docs/LICENSING.md).
+
 Not affiliated with, endorsed by, or sponsored by any commercial CAD vendor.
-SolidWorks, Fusion 360, Onshape, FreeCAD, and other product names mentioned
-in the docs are trademarks of their respective owners, used for
-identification and comparison only.
+SolidWorks, Fusion 360, Onshape, FreeCAD, and other product names mentioned in
+the docs are trademarks of their respective owners, used for identification
+and comparison only.

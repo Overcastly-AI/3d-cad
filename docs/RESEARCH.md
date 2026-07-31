@@ -203,6 +203,28 @@ a later phase (see ROADMAP). OpenTelemetry hooks reserved in `py-kit`.
 - Allowed deps: MIT/BSD/Apache, LGPL (dynamic), OCCT's LGPL-with-exception.
 - **Forbidden:** GPL/AGPL dependencies. Reviewers enforce this.
 
+**Amended 2026-07-31 — the allow-list stands; two things it did not say.**
+Full analysis in `docs/LICENSING.md`; the short version, because both bit us:
+
+1. **"LGPL (dynamic) ok" is right, but dynamic linking is not the reason it
+   is ok.** LGPL-2.1 §6(b) — the "shared library mechanism" route people mean
+   when they say this — requires the library be **"already present on the
+   user's computer system."** That clause **fails for a container image**,
+   where we ship the library ourselves. Dynamic linking only gets us §6(b)(2)
+   (a user can substitute a modified build). Publishing images therefore
+   carries real §6 duties: convey the licence text, give prominent notice
+   (the OCCT exception *requires* it), and offer corresponding source — we
+   rely on §6(d). Consuming a dep via `uv sync` carries none of this;
+   `docker push` is what makes us a distributor.
+2. **"Forbidden: GPL/AGPL" cannot be enforced by reading dependency
+   metadata.** `cadquery-ocp-novtk` declares `License: Apache-2.0` and vendors
+   68 LGPL OCCT libraries plus **jbigkit (GPL-2.0)**, hard-linked via
+   `libTKService → libfreeimage → libtiff → libjbig` and mapped into every
+   process that imports the kernel. A metadata scan reports that tree as fully
+   permissive. **Licence review must read the bundled binaries** (`readelf -d`,
+   the wheel's `RECORD`), not just wheel metadata. jbigkit is stripped from
+   Loft images (BACKLOG LIC-1); Loft does no TIFF/JBIG I/O.
+
 ## 9. Geometry QA strategy (unique to CAD)
 
 Correctness gates no web app needs, run in CI and by the `geometry-qa` agent:

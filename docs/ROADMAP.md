@@ -749,6 +749,27 @@ placement + 3 mates (lock/coincident/concentric) + shared-mesh tessellation,
 ✅ done; gateway rate limiting ✅ done; STEP re-parse caching ✅ done — the
 last infra-debt item, per-worker content-keyed parse cache).
 
+**OSS-RELEASE readiness, 2026-07-31 (oss-curator).** The founder's
+open-source/self-hosted release target produced one blocking finding and one
+stale-front-door fix. **BLOCKING (BACKLOG LIC-1, P0):** the geometry image
+cannot be published — `cadquery-ocp-novtk` vendors **jbigkit, GPL-2.0**, hard
+linked `libTKService → libfreeimage → libtiff → libjbig` and mapped into every
+kernel process, which violates the absolute no-GPL rule and would make the image
+GPL-2.0. A GPL-free 10-symbol stub was built and verified (OCCT loads, boolean
+cut = the analytic 5151.77 mm³, STEP export fine); it belongs in the Dockerfile.
+`gateway` and `documents` images are clean today and publishable. OCCT itself is
+fine — LGPL-2.1 + the Open CASCADE exception — but §6(b) does **not** cover a
+container image (it requires the library be already present on the user's
+system), so redistribution rides on §6(d) and owes licence text, prominent
+notice and corresponding source (LIC-2). Full analysis `docs/LICENSING.md`;
+`NOTICE` created; RESEARCH §8 amended. **Front door:** README had claimed
+WebSocket fan-out (no WS routes exist), listed three shipped capabilities as
+missing, and its container-free run block omitted the `documents` service and
+every schema step — a stranger following it got `503` on registration.
+`docs/QUICKSTART.md` now covers both paths, verified natively end to end (9/9
+round-trip checks; browser → Vite → gateway → DB), with an honest PERF section
+(the wall is ~50 features cold, ~26 s to cold-open a 200-feature part).
+
 Source of truth for "what phase are we in." Every commit that ships an item
 ticks it here (and on `docs/BACKLOG.md`) in the same commit — see CLAUDE.md.
 
