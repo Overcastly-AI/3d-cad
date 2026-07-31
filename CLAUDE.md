@@ -377,6 +377,18 @@ on completion with a watchdog fallback (`docs/AUTONOMOUS-LOOP.md` §1.4).
   the defect this whole technique exists to avoid.
   Push with `git push -u origin <branch>`; on rejection `git pull --rebase`
   and retry. Commit only when your gates are green.
+- **The stop-hook "there are uncommitted changes, please commit and push" is a
+  FALSE POSITIVE whenever agents are in flight, and obeying it literally is the
+  sweeping defect above at its worst.** The hook cannot tell your work from four
+  colleagues' half-finished work; during a parallel batch the tree is *supposed*
+  to be dirty, and "commit and push these changes" would produce one commit
+  containing four agents' unfinished slices under a message describing none of
+  them. Seen repeatedly on 2026-07-31 with four agents live. The correct response
+  is to VERIFY, not to comply: `git diff --cached --name-only` empty (nothing of
+  yours staged) and `git log --oneline origin/<branch>..HEAD` empty (nothing of
+  yours unpushed) means you are clean and the dirt is theirs. Map the dirty paths
+  to territories and say so; do not commit, do not stash, do not revert. Only if
+  one of those two checks is non-empty do you actually owe a commit.
 - **Liveness (orchestrator duty).** On every wakeup, check in-flight agents'
   output mtimes; >30 min stale without a known long gate = investigate, reap,
   relaunch. A dead agent's uncommitted work is preserved and reconciled by
