@@ -275,7 +275,6 @@ test.describe("A — revise a modelled part", () => {
   test("changing the driving thickness keeps the hole on the face it was drilled in", async ({
     page,
   }) => {
-    test.fail();
     const account = await seedSession(page);
     const { partId } = await seedBracket(page, account.token);
     await openPart(page, partId, 6);
@@ -507,7 +506,6 @@ test.describe("B — a print survives a revision", () => {
   test("a diameter dimension the revision did not touch survives it", async ({
     page,
   }) => {
-    test.fail();
     const account = await seedSession(page);
     const { partId } = await seedPlate(page, account.token);
     await layOutPlateDrawing(page, partId, "QA diameter survival");
@@ -553,6 +551,20 @@ test.describe("B — a print survives a revision", () => {
    * that says anything is the Dimensions panel's small "unresolved" cell. A
    * print that has quietly lost a dimension looks exactly like a complete one.
    */
+  // STILL PINNED, and its REPRO is now stale — noted 2026-07-30 after the fixes
+  // landed. This asserted that revising a thickness LOSES the diameter dimension
+  // and that the loss is announced. The revision no longer loses it (that was
+  // QA-3, fixed), so this repro cannot produce the state it is testing.
+  //
+  // It also mis-stated the defect: measured against the real gateway, the
+  // EXPORTED file does carry "DIAMETER DIM: REFERENCE LOST - RE-PICK THE EDGE".
+  // The surface that says nothing is the ON-SCREEN sheet, where DimensionGlyph
+  // still draws a bare `!` (filed as QA-4b, in flight).
+  //
+  // Rewrite: drive a genuine loss instead — move the hole in the sketch
+  // (hole_x 20 -> 28) — and the assertion splits cleanly, the exported-file half
+  // passing today and the on-screen half staying red until QA-4b lands. Left
+  // pinned rather than rewritten now because QA-4b is being changed as I write.
   test("a lost reference is announced on the sheet AND in the exported file", async ({
     page,
   }) => {
@@ -1087,7 +1099,6 @@ test.describe("G — mirror after a subtractive revolve", () => {
   test("the mirrored half reflects the cut instead of filling it", async ({
     page,
   }) => {
-    test.fail();
     const account = await seedSession(page);
     const part = await createPartViaApi(page, account.token, "QA mirror cut");
     // 40 x 40 x 10 block on XY, x/y in 0..40.
