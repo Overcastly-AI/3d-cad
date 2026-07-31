@@ -360,6 +360,19 @@ on completion with a watchdog fallback (`docs/AUTONOMOUS-LOOP.md` §1.4).
   commit landed as its parent. Verify afterwards with `git show --stat HEAD` that
   the commit contains only your paths — the isolated index protects their work,
   not you from your own `git add`.
+  **AND THEN RESYNC THE DEFAULT INDEX, or your own commit reads as uncommitted.**
+  `.git/index` never learns about a commit made through another index, so it keeps
+  the PRE-commit blob for every path you just committed and `git status` reports
+  them as dirty (`MM <file>`) forever. Caught within minutes of writing this
+  recipe: a stop-hook git check flagged an orchestrator commit as unpushed work
+  when it was already on the remote. The tell is `git diff HEAD -- <path>` coming
+  back EMPTY while `git status` calls the path modified — worktree matches HEAD,
+  so the index is the stale party. Fix per path you committed:
+  ```bash
+  git reset -q HEAD -- <the paths you just committed>   # NOT a bare `git reset`
+  ```
+  Name the paths. A bare `git reset` would unstage a colleague's work, which is
+  the defect this whole technique exists to avoid.
   Push with `git push -u origin <branch>`; on rejection `git pull --rebase`
   and retry. Commit only when your gates are green.
 - **Liveness (orchestrator duty).** On every wakeup, check in-flight agents'
