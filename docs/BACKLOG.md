@@ -188,6 +188,30 @@ about to hit).
       fields. Design it against `docs/design/pre-selection.md`'s vocabulary so the
       snap glyph and the dimension field do not fight for the same pixels.
       [src: founder 2026-08-01]
+- [ ] (P0, M) **FB-17 — the browser suite cannot catch the class of bug the
+      founder found, and that is fixable.** Every FB-* defect this evening lived
+      in the gap between Playwright's API and a hand/eye. Four gaps, each with a
+      concrete gate: (a) INPUT FIDELITY — `mouse.click()` moves 0 px and takes
+      0 ms; a trackpad drifts 5-10 px and dwells 40-120 ms, which is the entire
+      reason FB-12 survived. Add a `handClick(page, x, y, {drift, dwell})` helper
+      that moves, jitters, dwells and releases, sweep drift 0/2/4/6/10 in a spec,
+      and PREFER it over `mouse.click` for interaction tests. (b) REACHABILITY —
+      specs click `getByTestId(...)` on the DOM pick button, so they hit a 24 px
+      dot perfectly and never learn the face is dead; test IDs are right for
+      asserting STATE and wrong for asserting reachability, so pick tests must
+      click a COORDINATE over the rendered entity. (c) MEASURE the affordance:
+      assert a clickable FRACTION of a face's screen area (the QA pass measured
+      2.2 %), not a boolean "the pick worked", which passes on a dot.
+      (d) PERCEPTIBILITY — `countSketchInkPixels` returned 926 729 on the broken
+      screen vs 1 881 on the working one, i.e. it rewards the failure; assert
+      CONTRAST between ink and the surface behind it plus the presence of context
+      in frame. Plus: assert INVARIANTS across actions (record camera direction,
+      extrude, assert unchanged — one line, would have caught FB-1) and
+      occlusion (model screen bbox must not intersect panel rects — FB-7).
+      Acceptance: the helper exists, `founder-picking.spec.ts`'s `test.fail()`
+      cases flip to real assertions as each fix lands, and every new gate is
+      mutation-verified. [src: founder "How do you catch this stuff with
+      playwright?" 2026-08-01]
 
 **QA verdicts on the founder block (qa-tester, 2026-08-01, HEAD + bisect):**
 `d8a4126` (PERF-4b) is **EXONERATED — do not revert**: face picking uses drei
@@ -206,6 +230,21 @@ YZ and XY+30, volume exactly 10000.000000 mm³, footprint exactly the profile �
 so it is the pre-`5bd4c46` camera snap or a stale Codespace bundle (see FB-11).
 
 
+- [ ] (P1, M) **QA3-1 — the Hole command can only drill at a face's centroid or
+      a corner, so it cannot place a hole on a real part** (frontend + a small
+      geometry-free addition). `HolePointOverlay` offers exactly two placements —
+      the face's area centroid ("Centre of face") and its corner vertices — and
+      `hole-position` is a read-only readout whose "Change" button re-arms that
+      same two-choice pick. There is no numeric entry and no snap to the body's
+      own circles. Measured on the dogfooding fixture (a NEMA 17 plate whose face
+      centre IS the shaft bore): the seeded point fails `hole_off_body` and the
+      only alternatives are the eight octagon corners, so adding a 5th mounting
+      hole is IMPOSSIBLE through the UI. Acceptance: a numeric X/Y entry in the
+      face's frame with per-keystroke re-validation, plus a snap to existing
+      circular-edge centres on the picked face (concentric / bolt-circle
+      placement); `import-remix.spec.ts`'s "fails HONESTLY" gate goes red and is
+      rewritten to drive the new control. The typed error itself is exemplary and
+      must stay. [docs/QA-REVIEW.md 2026-08-01 QA3-1]
 - [ ] (P1, L) **QA3-2 — a sketch on an imported face has NO reference to the
       import, and its origin is the face's area centroid** (frontend + geometry).
       Two things compound: `faces._face_plane` puts the datum origin at the face's
@@ -2538,19 +2577,6 @@ Full narrative evidence lives in `docs/ROADMAP.md` (Phase 4/4b sections) and
 
 ### Recently shipped (2026-08-01)
 
-- **QA3-1 — you can drill where you want now.** Placement was two points, the
-  face's area CENTROID and its corners, so on the dogfooding plate (whose centre
-  IS the Ø5.2 shaft bore) a 5th mounting hole was impossible through the UI. The
-  point is now dialled in: X/Y cells in the face's frame re-checked on every
-  keystroke, a live material verdict that NAMES the opening a bad point fell
-  into, and a snap to every circular edge in the face's plane (concentric /
-  bolt-circle). The frame is STATED rather than implied — its zero is the part
-  origin projected onto the face, never the area centroid, because the centroid
-  moves and that is QA3-2's mechanism; the card says it and the viewport draws
-  it on the model. The typed `hole_off_body` is untouched and still reachable:
-  the client check WARNS, it never blocks the write. e2e drills the 5th hole at
-  (15.5, 0) and reads 14 179.47 mm³, closed-form exact.
-
 - **GATE-2 — the `.dockerignore` allow-list lost an entry and only `deploy-path`
   noticed.** LIC-2 added `scripts/corresponding_source.py` to the runtime `COPY`
   (the licence gate imports it) with no matching `!` negation, so the daemon
@@ -3098,11 +3124,6 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
       engineering-audit debt items closed. [src: engineering-auditor]
 
 ## Changelog
-
-- 2026-08-01 — **You can drill where you want (frontend-builder):** QA3-1 —
-  numeric X/Y in the picked face's STATED frame, a per-keystroke material check
-  that names the opening you are in, and concentric snaps to every circular edge
-  on the face.
 
 - 2026-08-01 — **Dogfooding pass #3, the imported-STEP remix (qa-tester):** a
   NEMA 17 vendor plate imported, remixed and re-revved through the real stack.

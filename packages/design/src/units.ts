@@ -128,34 +128,6 @@ export function parseLength(input: string, unit: LengthUnit): number | null {
   return toMm(value, unitFor);
 }
 
-/**
- * True when `input` is not a length YET, but typing more could make it one —
- * the transient states every unit field passes through under the keyboard: the
- * empty cell, a lone sign (`-`), a bare decimal point (`.`, `-.`), and a number
- * trailing the first letters of a suffix (`12 i` on the way to `12 in`).
- *
- * It lives beside {@link parseLength} because only this module knows the
- * accepted grammar, suffix table included. Callers ask it only when
- * `parseLength` has already returned `null`, and the distinction is the whole
- * point: a field that reported "not a number" the instant you typed `-` would
- * be lying about a keystroke in progress, and a field that stayed silent for
- * `12 x` would be hiding a real mistake. Incomplete reads as PENDING; anything
- * else reads as INVALID.
- */
-export function isPartialLength(input: string): boolean {
-  const trimmed = input.trim();
-  if (trimmed === "") return true;
-  // Already a length — nothing pending about it.
-  if (parseLength(trimmed, "mm") !== null) return false;
-  // A signed/decimal fragment: "-", "+", ".", "-.", "+."
-  if (/^[+-]?\.?$/.test(trimmed)) return true;
-  // A number trailing a suffix fragment: "12 i" (→ "in"), "3c" (→ "cm").
-  const match = /^[+-]?(?:\d+\.?\d*|\.\d+)\s*([a-zA-Z]+)$/.exec(trimmed);
-  if (match === null) return false;
-  const fragment = (match[1] as string).toLowerCase();
-  return SUFFIX_UNIT.some(([suffix]) => suffix.startsWith(fragment));
-}
-
 /** Options for {@link formatLength}. */
 export interface FormatLengthOptions {
   /** Max digits after the decimal point before trailing zeros are trimmed. */

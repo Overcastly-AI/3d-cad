@@ -1367,25 +1367,22 @@ export function PartPage() {
   const datumPickableFaces =
     datumFacePick !== null ? (datumFacesQuery.data?.faces ?? null) : null;
 
-  // The pickable overlay for the WHOLE hole command — same request/key as every
-  // other overlay (one cache entry, faces + vertices + edges line up with the
-  // rendered body). `.faces` feeds the face pick; `.vertices` feed the point
-  // pick's face-corner snaps; `.edges` feed the coordinate cells' live material
-  // check and the concentric snaps (QA3-1), which is why this is no longer
-  // gated on a pick being armed — typing a coordinate needs the geometry too.
-  const holeEditing = editor?.kind === "hole";
+  // The pickable overlay while the hole editor is armed for a face OR point —
+  // same request/key as every other overlay (one cache entry, faces + vertices
+  // line up with the rendered body). `.faces` feeds the face pick; `.vertices`
+  // feed the point pick's face-corner snaps.
+  const holePicking = editor?.kind === "hole" && holePick !== null;
   const holeOverlayQuery = useQuery({
     queryKey: ["overlay", partId, treeVersion, meshGlbId],
     queryFn: () =>
       fetchOverlay(buildEvaluateTree(tree.data as FeatureTreeResponse)),
-    enabled: holeEditing && tree.data !== undefined && meshGlbId !== null,
+    enabled: holePicking && tree.data !== undefined && meshGlbId !== null,
     staleTime: Infinity,
     retry: false,
   });
   const holePickableFaces =
     holePick === "face" ? (holeOverlayQuery.data?.faces ?? null) : null;
   const holeOverlayVertices = holeOverlayQuery.data?.vertices ?? null;
-  const holeOverlayEdges = holeOverlayQuery.data?.edges ?? null;
 
   // ---------------------------------------------------------------------
   // Fillet/Chamfer edge picking. The anchor for a picked edge's `SubshapeRef`
@@ -1975,14 +1972,10 @@ export function PartPage() {
     useMeasureStore.getState().deactivate();
     setEditorError(null);
     setSelectedFeatureId(null);
-    setEditor({
-      kind: "hole",
-      mode: "create",
-      initial: defaultHoleForm(seed, lengthUnit),
-    });
+    setEditor({ kind: "hole", mode: "create", initial: defaultHoleForm(seed) });
     setHolePickError(null);
     setHolePick(seed === null ? "face" : null);
-  }, [bodyFeatureId, lengthUnit]);
+  }, [bodyFeatureId]);
 
   // A mirror, like pattern/fillet/shell, reflects the current BODY about a
   // plane (no sketch profile) — it only needs a solid to exist (canModify), so
@@ -4117,7 +4110,6 @@ export function PartPage() {
                       facePick={holeFacePicked}
                       pointPick={holePointPicked}
                       pickError={holePickError}
-                      edges={holeOverlayEdges}
                       onPreviewChange={onHolePreviewChange}
                     />
                   ) : editor.kind === "baseFlange" ? (
@@ -4424,19 +4416,13 @@ export function PartPage() {
                 pendingIndex={null}
               />
             ) : null}
-            {/* The placement overlay shows from the moment a face exists, not
-                only while the point pick is armed: the datum crosshair is what
-                says where the editor's X/Y cells count from, and it has to be
-                on screen while they are being typed (QA3-1). */}
             {mode === "off" &&
             editor?.kind === "hole" &&
-            holePreview?.signature != null ? (
+            holePick === "point" ? (
               <HolePointOverlay
-                signature={holePreview.signature}
+                signature={holePreview?.signature ?? null}
                 vertices={holeOverlayVertices}
-                edges={holeOverlayEdges}
-                position={holePreview.position}
-                armed={holePick === "point"}
+                position={holePreview?.position ?? null}
                 onPick={pickHolePoint}
               />
             ) : null}

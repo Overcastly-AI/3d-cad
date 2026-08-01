@@ -17,21 +17,11 @@
  * blind — a positive depth". Off-body / too-deep / unresolved-face are per-
  * feature REBUILD errors surfaced in the tree (see `./featureErrors`).
  */
-import { formatLength, isPartialLength, type LengthUnit } from "@loft/design";
+import { formatLength, type LengthUnit } from "@loft/design";
 
 import type { HoleParams, PlanarFaceSignature, Vec3 } from "../api/parts";
 import { faceSubshapeRef } from "./face";
-import {
-  type FaceFrame,
-  faceFrame,
-  toFacePoint,
-  toWorldPoint,
-} from "./facePlacement";
-import {
-  lengthInputValue,
-  parsePositiveLengthMm,
-  parseSignedLengthMm,
-} from "../units/length";
+import { lengthInputValue, parsePositiveLengthMm } from "../units/length";
 import {
   boreFitsThread,
   coarsePitchFor,
@@ -116,19 +106,8 @@ export interface HolePreview {
 export interface HoleForm {
   /** The picked planar placement face, or null until one is picked. */
   face: HoleFace | null;
-  /**
-   * The world-space drill point ON the face (mm), or null until a face is
-   * picked. DERIVED from `xInput`/`yInput` through the face frame — those two
-   * are what the modeller types, this is what the wire carries. It holds its
-   * last complete value while a coordinate is mid-keystroke, so the readout and
-   * the viewport marker never flicker on a deleted digit; the submit gate is
-   * what refuses to write a stale point (see {@link buildHoleParams}).
-   */
+  /** The world-space drill point ON the face (mm), or null until a face is picked. */
   position: Vec3 | null;
-  /** Drill X in the face frame (see `./facePlacement`), as typed. */
-  xInput: string;
-  /** Drill Y in the face frame, as typed. */
-  yInput: string;
   /** Hole diameter (mm), as typed. */
   diameterInput: string;
   /** Through-all, or a blind pocket. */
@@ -173,20 +152,15 @@ export interface HoleForm {
  * on its centre — so the anchor block reads as confirmation rather than a
  * to-do list, and the modeller types a diameter and hits Enter.
  */
-export function defaultHoleForm(
-  seed: HoleFace | null | undefined,
-  unit: LengthUnit,
-): HoleForm {
+export function defaultHoleForm(seed?: HoleFace | null): HoleForm {
   const form = emptyHoleForm();
-  return seed == null ? form : applyHoleFace(form, seed, unit);
+  return seed == null ? form : applyHoleFace(form, seed);
 }
 
 function emptyHoleForm(): HoleForm {
   return {
     face: null,
     position: null,
-    xInput: "",
-    yInput: "",
     diameterInput: "6",
     depthMode: "through_all",
     depthInput: "10",
@@ -209,17 +183,13 @@ export function formFromHoleParams(
   const depth = params.depth;
   const type = params.type;
   const thread = params.thread;
-  const base = defaultHoleForm(null, unit);
-  const signature = params.face.selector.signature;
-  const point = toFacePoint(faceFrame(signature), params.position);
+  const base = defaultHoleForm();
   return {
     face: {
-      signature,
+      signature: params.face.selector.signature,
       anchorId: params.face.feature_id,
     },
     position: params.position,
-    xInput: lengthInputValue(point.x, unit),
-    yInput: lengthInputValue(point.y, unit),
     diameterInput: lengthInputValue(params.diameter_mm, unit),
     depthMode: depth.kind === "blind" ? "blind" : "through_all",
     depthInput:
@@ -265,90 +235,13 @@ function formatAngle(value: number): string {
  * to its centroid (a point guaranteed on the face), so the form is immediately
  * submittable and the point pick only REFINES the placement.
  */
-export function applyHoleFace(
-  form: HoleForm,
-  face: HoleFace,
-  unit: LengthUnit,
-): HoleForm {
-  return placeHole({ ...form, face }, face.signature.centroid, unit);
+export function applyHoleFace(form: HoleForm, face: HoleFace): HoleForm {
+  return { ...form, face, position: face.signature.centroid };
 }
 
 /** Fold a picked world point into the form as the drill position. */
-export function applyHolePosition(
-  form: HoleForm,
-  position: Vec3,
-  unit: LengthUnit,
-): HoleForm {
-  return placeHole(form, position, unit);
-}
-
-/**
- * Seat a world point as the drill position AND spell it back into the X/Y
- * cells, so a viewport pick and a typed coordinate are the same placement in
- * two notations — pick a bore centre and its coordinates are there to dial from.
- */
-function placeHole(form: HoleForm, position: Vec3, unit: LengthUnit): HoleForm {
-  if (form.face === null) return { ...form, position };
-  const point = toFacePoint(faceFrame(form.face.signature), position);
-  return {
-    ...form,
-    position,
-    xInput: lengthInputValue(point.x, unit),
-    yInput: lengthInputValue(point.y, unit),
-  };
-}
-
-/** The face frame the X/Y cells are dialled in, or null before a face. */
-export function holeFaceFrame(form: HoleForm): FaceFrame | null {
-  return form.face === null ? null : faceFrame(form.face.signature);
-}
-
-/**
- * Type one coordinate. The position re-derives on EVERY keystroke that leaves
- * both cells complete, so the readout, the viewport marker and the material
- * check all track the digit you just pressed; an incomplete cell leaves the
- * previous point standing and blocks the write instead of guessing at it.
- */
-export function applyHoleCoordinate(
-  form: HoleForm,
-  axis: "x" | "y",
-  raw: string,
-  unit: LengthUnit,
-): HoleForm {
-  const next: HoleForm =
-    axis === "x" ? { ...form, xInput: raw } : { ...form, yInput: raw };
-  if (next.face === null) return next;
-  const x = parseSignedLengthMm(next.xInput, unit);
-  const y = parseSignedLengthMm(next.yInput, unit);
-  if (x === null || y === null) return next;
-  return {
-    ...next,
-    position: toWorldPoint(faceFrame(next.face.signature), { x, y }),
-  };
-}
-
-/**
- * Field-level message for a coordinate cell, or null when it is valid OR still
- * being typed. `-`, `1.` and `12 i` are keystrokes on the way to a number, not
- * mistakes (`isPartialLength`, the design system's units core) — calling them
- * invalid mid-word is the lie this control must not tell.
- */
-export function coordinateError(
-  input: string,
-  unit: LengthUnit,
-  axis: "X" | "Y",
-): string | null {
-  if (parseSignedLengthMm(input, unit) !== null) return null;
-  if (isPartialLength(input)) return null;
-  return `${axis} must be a number.`;
-}
-
-/** True when both coordinate cells hold a complete number (the write gate). */
-export function coordinatesComplete(form: HoleForm, unit: LengthUnit): boolean {
-  return (
-    parseSignedLengthMm(form.xInput, unit) !== null &&
-    parseSignedLengthMm(form.yInput, unit) !== null
-  );
+export function applyHolePosition(form: HoleForm, position: Vec3): HoleForm {
+  return { ...form, position };
 }
 
 /** Field-level diameter message, or null when valid (empty is pending). */
@@ -571,10 +464,6 @@ export function buildHoleParams(
   unit: LengthUnit,
 ): HoleParams | null {
   if (form.face === null || form.position === null) return null;
-  // `position` deliberately survives a half-typed coordinate so the readout and
-  // the viewport marker hold still (see `HoleForm.position`) — which makes THIS
-  // the gate that refuses to drill at a point the cells no longer spell.
-  if (!coordinatesComplete(form, unit)) return null;
   const diameter = parsePositiveLengthMm(form.diameterInput, unit);
   if (diameter === null) return null;
 
