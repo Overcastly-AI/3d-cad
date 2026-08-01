@@ -13,6 +13,20 @@ library and cleared two of three images to publish (`c7f23dd`). OPEN: LIC-1,
 stripping jbigkit from the geometry image, which is what still blocks
 publishing it.
 
+**FOUNDER SESSION 2026-08-01 — the sketcher answers back.** Two of the evening's
+reports were closed at the source rather than worked around. FB-1b, *"sketches
+should be more visible"*: a sketch seated on a model face was putting ZERO
+pixels of scribe ink on the canvas (coplanar depth tie) and, once drawn, sat at
+1.32:1 against lit aluminium — the active sketch now draws over the solid while
+committed sketches stay occluded, and the picked face takes a layout-bluing wash
+that puts the scribe at 5.9:1. FB-12, *"the line wouldn't even select"*: a click
+that drifted more than 4 px was silently thrown away, which is most trackpad
+clicks; the click/drag rule is now intent-based (distance AND speed) in
+`sketch/clickIntent.ts`. Both gated by e2e that fail on the parent commit, and
+the shared `countSketchInkPixels` probe — which counted the aluminium body as
+ink and so went UP when the sketch became unusable — is an exact-token census
+now.
+
 **NEXT — FOUNDER-DIRECTED PRE-SELECTION / HOVER MODEL (2026-08-01,
 vision-steward, design only).** Same-night founder reports name one root
 cause three ways: a sketch line that "wouldn't even select," face picking

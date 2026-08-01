@@ -68,6 +68,26 @@ about to hit).
       trigger `fitKey` includes the geometry id, so every extrude re-imposed iso.
       Now re-frames distance/target only; direction/up preserved after the first
       fit. Not yet verified against the Playwright screenshot specs.
+- [x] **FB-1b — the other half of FB-1: the sketch you were drawing on the face
+      was not merely re-framed, it was NOT BEING DRAWN.** Measured on the real
+      stack before the fix: a rectangle scribed on the top face of a 20 mm cube
+      put **0** pixels of `sketch.scribe` on the canvas out of ~1 600 px of line,
+      and the mm grid appeared over roughly half the face in speckled patches —
+      a sketch seated on a face is coplanar with it, so the ink lost the depth
+      tie. Which side won was not even stable between runs (opaque-queue material
+      ordering), which is why one QA pass saw ink and another saw none. Fixed
+      three ways in `SketchScene.tsx`: the ACTIVE sketch's ink draws on top
+      (`depthTest:false` + `transparent` + renderOrder — WebGL has no polygon
+      offset for lines/points, so a bias was never available for the ink), the
+      sheet meshes and the plane grid take a coplanar polygon-offset decal, and
+      committed sketches are untouched so they still sit behind the solid. The
+      contrast half of the founder's report is a second, independent defect:
+      `scribe` measures **16.2:1** on the carbide ground and **1.32:1** on a lit
+      aluminium face, so white-on-stock was unreadable even with depth won. No
+      flat ink clears 3:1 on both grounds, so the GROUND changes — LAYOUT BLUING,
+      a feathered `carbide` wash laid on the picked face (the metaphor the token
+      file already claimed), taking the scribe to **5.9:1**. Gated by
+      `e2e/sketch-visibility.spec.ts`, which fails on the parent commit.
 - [ ] (P0, M) **FB-2 — a sketch line will not select at all**, so it cannot be
       dimensioned ("I try to click on a line to [assign] height"). Pick path, not
       discoverability: `applyConstraintAction("distance")` needs exactly one LINE
@@ -136,7 +156,7 @@ about to hit).
       time via Vite `define`, surface it quietly with a `data-testid`. Small, but
       it removes a whole class of wasted round-trip — two fixes landed mid-session
       and neither side can say whether the last report included them.
-- [ ] (P0, S) **FB-12 — a click that drifts 5 px is silently discarded, which is
+- [x] (P0, S) **FB-12 — a click that drifts 5 px is silently discarded, which is
       what "the line wouldn't even select" actually is** (qa-tester, measured
       2026-08-01; `docs/QA-REVIEW.md` "founder session: the picking reports").
       `SketchScene.tsx:353` returns early on r3f `e.delta > CLICK_SLOP_PX` (=4).
@@ -147,6 +167,15 @@ about to hit).
       pointer leave the target) rather than raising one constant, and add a
       real-pointer-drift case to the e2e so the gate stops flattering us.
       Encoded today as a `test.fail()` in `e2e/founder-picking.spec.ts`.
+      FIXED — the rule is now `sketch/clickIntent.ts`, shared by both call sites
+      (drawing surface + plane choice, which carried the same inline 4 and could
+      drift apart). Distance alone was the wrong discriminator, so it is not one
+      constant: <=12 px is a click at any speed (Qt 10 / GTK 8 / Windows 4-at-96dpi
+      = 8 at 2x / the web gates clicks by ZERO distance — 4 was below every
+      convention), 12-24 px is a click only under 0.2 px/ms (a slow wobble is a
+      hand, a fast flick is a pan), beyond that it is a drag. `e2e/click-drift.spec.ts`
+      drives down/move/up so it exercises real travel; mutation-verified by
+      restoring 4, which turns it red while the drag-rejection case stays green.
 - [ ] (P1, S) **FB-13 — Escape with nothing selected ENDS the sketch**, so the
       reflex after a click that appeared to do nothing throws you out of the
       sketcher (qa-tester, 2026-08-01). `escapeAction` (`sketch/tools.ts:402`)
