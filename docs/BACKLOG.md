@@ -1520,6 +1520,28 @@ frame refactor are v2/§11. Spike de-collected.
 
 ## Next (P2)
 
+- [ ] (P2, S) **PERF-1c — the prefetch headline is the BEST case, and we do not
+      know the typical one** (kernel + QA). PERF-1b's table is measured with the
+      warm run to COMPLETION: the 7.0x commit / 7.9x pick at N=200 `#192` assume
+      the user sat in the editor for the full 28.9 CPU s the warm costs. A real
+      edit is "open extrude, type 12, Enter" — 3-5 s. Since warming follows the
+      same `N^1.85` curve, a few seconds of dwell reaches only a short prefix and
+      removes a correspondingly small share of the rebuild (rough estimate, NOT
+      measured: ~5 s of dwell at N=200 removes on the order of 15 %, i.e. 34 s ->
+      ~28 s, not -> 4.8 s). Nothing is wasted — a partial prefix is a legitimate
+      resume point and the work is the commit's own, moved earlier — but the
+      number we publish should be the one a user gets.
+      Acceptance: measure warm-completion-vs-dwell at 2 s / 5 s / 15 s for N=50 /
+      100 / 200, publish the EXPECTED win beside the ceiling in `docs/PERF.md`,
+      and state which part sizes benefit at realistic dwell. Then decide, with
+      the data, whether the trigger should fire EARLIER than editor-open — e.g.
+      on feature-row selection, which precedes the dialog by a beat — and whether
+      the 30 s budget is still the right split once the commit lineage is known
+      to be the only one most dwells can reach.
+      Founder question that prompted this: "is this the numbers users are
+      experiencing or just what happens under the hood without them noticing?" —
+      a fair challenge to a table that answered a different question than it
+      appeared to. [src: founder 2026-08-01 · docs/PERF.md 2026-08-01]
 - [ ] (P2, M) **PERF-6 — prefetch the prefix an open editor has already
       declared stable** (kernel + frontend). BLOCKED ON PERF-1: with no cache,
       prefetching does the same 27 s of work twice with nowhere to put the
