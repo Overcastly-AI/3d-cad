@@ -8,6 +8,7 @@ import {
   fromMm,
   fromMmArea,
   fromMmVolume,
+  isPartialLength,
   LENGTH_UNITS,
   type LengthUnit,
   MASS_G_PER_UNIT,
@@ -276,5 +277,34 @@ describe("formatMass", () => {
   it("omits the suffix and respects a custom precision", () => {
     expect(formatMass(84.56, "mm", { unitSuffix: false })).toBe("84.56");
     expect(formatMass(84.56, "mm", { maxFractionDigits: 1 })).toBe("84.6 g");
+  });
+});
+
+describe("isPartialLength", () => {
+  it("calls the keystrokes on the way to a number PENDING, not invalid", () => {
+    for (const pending of ["", "  ", "-", "+", ".", "-.", "+."]) {
+      expect(isPartialLength(pending)).toBe(true);
+    }
+  });
+
+  it("calls a half-typed unit suffix pending", () => {
+    // "12 i" is on the way to "12 in"; "3c" to "3cm"; "5f" to "5ft".
+    expect(isPartialLength("12 i")).toBe(true);
+    expect(isPartialLength("3c")).toBe(true);
+    expect(isPartialLength("5f")).toBe(true);
+  });
+
+  it("calls a complete length NOT pending — nothing is owed", () => {
+    for (const done of ["0", "1.", "-12.5", ".5", "2in", "3.5 cm", "12 m"]) {
+      expect(parseLength(done, "mm")).not.toBeNull();
+      expect(isPartialLength(done)).toBe(false);
+    }
+  });
+
+  it("calls a genuine mistake INVALID, so a field can still say so", () => {
+    for (const wrong of ["abc", "12 x", "1.2.3", "12mmm", "--1", "1e3"]) {
+      expect(parseLength(wrong, "mm")).toBeNull();
+      expect(isPartialLength(wrong)).toBe(false);
+    }
   });
 });

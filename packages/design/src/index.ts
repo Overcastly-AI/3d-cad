@@ -7,6 +7,7 @@ export {
   fromMm,
   fromMmArea,
   fromMmVolume,
+  isPartialLength,
   LENGTH_UNITS,
   type FormatLengthOptions,
   type FormatMassOptions,

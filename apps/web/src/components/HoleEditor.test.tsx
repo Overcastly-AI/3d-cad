@@ -14,6 +14,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
+import type { OverlayEdge } from "../api/measure";
 import type { HoleParams } from "../api/parts";
 import {
   applyHoleFace,
@@ -37,7 +38,11 @@ const TOP = {
 
 /** A form with a picked face + seeded point — the state Create is reachable from. */
 const placed = (): HoleForm =>
-  applyHoleFace(defaultHoleForm(), { signature: TOP, anchorId: "extrude-1" });
+  applyHoleFace(
+    defaultHoleForm(null, "mm"),
+    { signature: TOP, anchorId: "extrude-1" },
+    "mm",
+  );
 
 function renderEditor(
   overrides: {
@@ -45,6 +50,7 @@ function renderEditor(
     unit?: LengthUnit;
     activePick?: HolePickTarget | null;
     onTogglePick?: (target: HolePickTarget) => void;
+    edges?: readonly OverlayEdge[] | null;
   } = {},
 ) {
   const onSubmit = vi.fn<(params: HoleParams) => void>();
@@ -63,6 +69,7 @@ function renderEditor(
         facePick={null}
         pointPick={null}
         pickError={null}
+        edges={overrides.edges ?? null}
         onPreviewChange={vi.fn()}
       />
     </DocumentUnitProvider>,
@@ -102,7 +109,7 @@ describe("HoleEditor — the pinned anchor block (UI-W3 / UI-W4)", () => {
     // select the same face again. Seeded from the pre-selection, the anchor
     // block reads as confirmation and Create is reachable immediately.
     const { onSubmit } = renderEditor({
-      initial: defaultHoleForm({ signature: TOP, anchorId: "extrude-1" }),
+      initial: defaultHoleForm({ signature: TOP, anchorId: "extrude-1" }, "mm"),
     });
     expect(screen.getByTestId("hole-face")).toHaveTextContent(
       "Face at 5, 5, 10",
@@ -121,7 +128,7 @@ describe("HoleEditor — the pinned anchor block (UI-W3 / UI-W4)", () => {
   });
 
   it("says what to do with the cursor while a pick is armed", () => {
-    renderEditor({ initial: defaultHoleForm(), activePick: "face" });
+    renderEditor({ initial: defaultHoleForm(null, "mm"), activePick: "face" });
     expect(screen.getByTestId("hole-face-pick")).toHaveAttribute(
       "aria-pressed",
       "true",
@@ -132,7 +139,7 @@ describe("HoleEditor — the pinned anchor block (UI-W3 / UI-W4)", () => {
   });
 
   it("blames the viewport click, not an arming step, when nothing is placed", () => {
-    renderEditor({ initial: defaultHoleForm() });
+    renderEditor({ initial: defaultHoleForm(null, "mm") });
     const gate = submit();
     expectGated(gate);
     expect(gate).toHaveAccessibleDescription(
@@ -144,7 +151,7 @@ describe("HoleEditor — the pinned anchor block (UI-W3 / UI-W4)", () => {
     // The disabled-trap rule: gated by aria-disabled, still focusable, and the
     // reason is in the accessible name AND on screen.
     const onTogglePick = vi.fn();
-    renderEditor({ initial: defaultHoleForm(), onTogglePick });
+    renderEditor({ initial: defaultHoleForm(null, "mm"), onTogglePick });
     const pick = screen.getByTestId("hole-point-pick");
     expect(pick).toHaveAttribute("aria-disabled", "true");
     expect(pick).toHaveAccessibleName(/point is placed on it/);
@@ -427,5 +434,140 @@ describe("HoleEditor — hole_thread_unsupported, shown and repairable", () => {
       "M10 is standardised at 1.5, 1.25, 1, 0.75 mm",
     );
     expectGated(submit());
+  });
+});
+
+/**
+ * The placement control (QA-REVIEW 2026-08-01, QA3-1). The hole used to be
+ * placeable only at the face's area centroid or one of its corners, which on a
+ * plate whose centre IS the shaft bore means it cannot be placed at all. These
+ * assert the three things that fix has to get right: the numbers move the hole,
+ * the frame they are in is stated, and a keystroke in progress is not called a
+ * mistake.
+ */
+describe("HoleEditor — dialling the position in (QA3-1)", () => {
+  /** A 10 mm square face at z = 10 with a Ø4 bore at its centre. */
+  const FACE_EDGES: OverlayEdge[] = (() => {
+    const z = 10;
+    const corners = [
+      { x: 0, y: 0, z },
+      { x: 10, y: 0, z },
+      { x: 10, y: 10, z },
+      { x: 0, y: 10, z },
+    ];
+    const line = (a: (typeof corners)[0], b: (typeof corners)[0]) => ({
+      kind: "line" as const,
+      start: a,
+      end: b,
+      polyline: [a, b],
+      signature: {
+        curve: "line" as const,
+        end_a: a,
+        end_b: b,
+        midpoint: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, z },
+        length_mm: 10,
+        subshape_type: "edge" as const,
+      },
+    });
+    const ring: { x: number; y: number; z: number }[] = [];
+    for (let i = 0; i <= 32; i += 1) {
+      const t = (2 * Math.PI * i) / 32;
+      ring.push({ x: 5 + 2 * Math.cos(t), y: 5 + 2 * Math.sin(t), z });
+    }
+    const first = ring[0]!;
+    return [
+      ...corners.map((a, i) => line(a, corners[(i + 1) % 4]!)),
+      {
+        kind: "circle" as const,
+        start: first,
+        end: first,
+        polyline: ring,
+        signature: {
+          curve: "circle" as const,
+          end_a: first,
+          end_b: first,
+          midpoint: { x: 3, y: 5, z },
+          length_mm: 4 * Math.PI,
+          subshape_type: "edge" as const,
+        },
+      },
+    ];
+  })();
+
+  const x = () => screen.getByTestId("hole-position-x") as HTMLInputElement;
+  const y = () => screen.getByTestId("hole-position-y") as HTMLInputElement;
+
+  it("opens with the seeded point spelled out in the cells", () => {
+    renderEditor({ initial: placed() });
+    expect(x()).toHaveValue("5");
+    expect(y()).toHaveValue("5");
+  });
+
+  it("drills where the numbers say — the placement the old UI could not express", () => {
+    const { onSubmit } = renderEditor({ initial: placed() });
+    fireEvent.change(x(), { target: { value: "2" } });
+    fireEvent.change(y(), { target: { value: "-3.5" } });
+    expect(submitted(onSubmit).position).toEqual({ x: 2, y: -3.5, z: 10 });
+  });
+
+  it("says WHERE zero is and which way the axes run", () => {
+    // An X/Y entry that does not name its origin is how QA3-2's 0.065 mm
+    // eccentric ring happened. The face is at z = 10, so the frame's zero is
+    // the part origin projected onto it.
+    renderEditor({ initial: placed() });
+    const frame = screen.getByTestId("hole-frame");
+    expect(frame).toHaveTextContent("0, 0, 10 mm");
+    expect(frame).toHaveTextContent("X→+X");
+    expect(frame).toHaveTextContent("Y→+Y");
+    expect(frame).toHaveAccessibleName(/part origin projected onto it/);
+  });
+
+  it("reads a keystroke in progress as PENDING, never as a mistake", () => {
+    const { onSubmit } = renderEditor({ initial: placed() });
+    fireEvent.change(x(), { target: { value: "-" } });
+    expect(x()).not.toHaveAttribute("aria-invalid");
+    // …and it refuses to drill at the point the cells no longer spell, saying
+    // which piece is missing rather than greying out in silence.
+    const gate = submit();
+    expectGated(gate);
+    expect(gate).toHaveAccessibleDescription("Finish the X and Y position.");
+    fireEvent.click(gate);
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("calls a genuine mistake a mistake, on the cell that has to change", () => {
+    renderEditor({ initial: placed() });
+    fireEvent.change(y(), { target: { value: "12x" } });
+    expect(y()).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByText("Y must be a number.")).toBeInTheDocument();
+  });
+
+  it("checks the point against the face as it is typed, and NAMES the opening", () => {
+    renderEditor({ initial: placed(), edges: FACE_EDGES });
+    const check = () => screen.getByTestId("hole-position-check");
+    // The seeded centre sits in the bore — the failure QA3-1 measured, said
+    // before the round-trip instead of after it.
+    expect(check()).toHaveAttribute("data-verdict", "opening");
+    expect(check()).toHaveTextContent("Ø4 mm");
+
+    fireEvent.change(x(), { target: { value: "2" } });
+    fireEvent.change(y(), { target: { value: "2" } });
+    expect(check()).toHaveAttribute("data-verdict", "material");
+
+    fireEvent.change(x(), { target: { value: "50" } });
+    expect(check()).toHaveAttribute("data-verdict", "outside");
+  });
+
+  it("WARNS about a bad point without blocking the write", () => {
+    // Deliberate: the kernel's typed `hole_off_body` is the authority and the
+    // control that stops a bad hole shipping silently. A client-side refusal
+    // would substitute a coplanarity approximation for it — and hide it.
+    const { onSubmit } = renderEditor({ initial: placed(), edges: FACE_EDGES });
+    expect(screen.getByTestId("hole-position-check")).toHaveAttribute(
+      "data-verdict",
+      "opening",
+    );
+    expect(submit()).not.toHaveAttribute("aria-disabled");
+    expect(submitted(onSubmit).position).toEqual({ x: 5, y: 5, z: 10 });
   });
 });

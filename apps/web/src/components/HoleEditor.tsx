@@ -54,7 +54,16 @@ import { useCommandBridge } from "../features/commandActions";
 import { EditorCard } from "./EditorCard";
 import { useDocumentLengthUnit } from "../units/documentUnit";
 import type { HoleParams } from "../api/parts";
+import type { OverlayEdge } from "../api/measure";
 import {
+  checkPlacement,
+  describeDirection,
+  facePlacement,
+  type PlacementCheck,
+} from "../features/facePlacement";
+import { parseSignedLengthMm } from "../units/length";
+import {
+  applyHoleCoordinate,
   applyHoleFace,
   applyHolePosition,
   applyTapDrill,
@@ -64,6 +73,8 @@ import {
   boreIsTapDrill,
   buildHoleParams,
   canSubmitHole,
+  coordinateError,
+  coordinatesComplete,
   csinkAngleError,
   CSINK_STANDARD_ANGLES,
   depthError,
@@ -72,6 +83,7 @@ import {
   type HoleFacePick,
   type HoleForm,
   holeFaceReadout,
+  holeFaceFrame,
   type HolePickTarget,
   type HolePointPick,
   type HolePreview,
@@ -150,6 +162,13 @@ export interface HoleEditorProps {
   pointPick: HolePointPick | null;
   /** Why a pick can't happen right now (no body / no anchor), or null. */
   pickError: string | null;
+  /**
+   * The evaluated body's B-rep edges (from the overlay), or null before it
+   * arrives. The ones lying in the picked face's plane are its outline and the
+   * mouths of everything bored through it — which is what makes the live
+   * material check and the concentric snaps possible (`../features/facePlacement`).
+   */
+  edges: readonly OverlayEdge[] | null;
   /** Mirror the live face + position up so the parent can draw the point overlay. */
   onPreviewChange: (preview: HolePreview | null) => void;
 }
@@ -302,6 +321,7 @@ export function HoleEditor({
   facePick,
   pointPick,
   pickError,
+  edges,
   onPreviewChange,
 }: HoleEditorProps) {
   const unit = useDocumentLengthUnit();
@@ -321,16 +341,16 @@ export function HoleEditor({
   useEffect(() => {
     if (facePick === null || facePick.nonce === lastFaceNonce.current) return;
     lastFaceNonce.current = facePick.nonce;
-    setForm((f) => applyHoleFace(f, facePick.face));
-  }, [facePick]);
+    setForm((f) => applyHoleFace(f, facePick.face, unit));
+  }, [facePick, unit]);
 
   const lastPointNonce = useRef(0);
   useEffect(() => {
     if (pointPick === null || pointPick.nonce === lastPointNonce.current)
       return;
     lastPointNonce.current = pointPick.nonce;
-    setForm((f) => applyHolePosition(f, pointPick.position));
-  }, [pointPick]);
+    setForm((f) => applyHolePosition(f, pointPick.position, unit));
+  }, [pointPick, unit]);
 
   // Mirror the live face + position up for the parent's point-pick overlay, and
   // clear it on unmount so a closed editor leaves no stray overlay.
@@ -402,8 +422,55 @@ export function HoleEditor({
       ? undefined
       : !hasFace
         ? "Click a face in the viewport to place the hole."
-        : "Check the highlighted fields."
+        : !coordinatesComplete(form, unit)
+          ? "Finish the X and Y position."
+          : "Check the highlighted fields."
     : undefined;
+  // --- Placement: the frame, the cells, and the live material check --------
+  // QA3-1: the point used to be a read-only readout offering the face centroid
+  // and its corners, which on a vendor plate whose centre IS the shaft bore
+  // means the hole cannot be placed at all. Coordinates fix that, and the frame
+  // row is what keeps them honest — an X/Y entry that does not say where its
+  // zero is, is how QA3-2's 0.065 mm eccentric ring happened.
+  const frame = holeFaceFrame(form);
+  const placement = useMemo(
+    () =>
+      form.face === null ? null : facePlacement(form.face.signature, edges),
+    [form.face, edges],
+  );
+  const xMsg = coordinateError(form.xInput, unit, "X");
+  const yMsg = coordinateError(form.yInput, unit, "Y");
+  const typedX = parseSignedLengthMm(form.xInput, unit);
+  const typedY = parseSignedLengthMm(form.yInput, unit);
+  const check: PlacementCheck | null =
+    placement === null || typedX === null || typedY === null
+      ? null
+      : checkPlacement(placement, { x: typedX, y: typedY });
+  const round = (n: number) => (Object.is(n, -0) ? 0 : Math.round(n * 10) / 10);
+  const frameValue =
+    frame === null
+      ? ""
+      : `${round(frame.origin.x)}, ${round(frame.origin.y)}, ${round(frame.origin.z)} mm · X→${describeDirection(frame.u)} · Y→${describeDirection(frame.v)}`;
+  const frameTitle =
+    frame === null
+      ? ""
+      : `X and Y are measured on this face from the part origin projected onto it, at ${round(frame.origin.x)}, ${round(frame.origin.y)}, ${round(frame.origin.z)} millimetres. X runs along world ${describeDirection(frame.u)}; Y runs along world ${describeDirection(frame.v)}.`;
+  // The check WARNS; it never blocks the write. The kernel's typed
+  // `hole_off_body` is the authority (and the control that stops a bad hole
+  // shipping silently) — this only gets there first, off an approximation the
+  // overlay can support. See `../features/facePlacement`.
+  const checkMessage =
+    check === null || check.verdict === "unknown"
+      ? null
+      : check.verdict === "material"
+        ? "On solid material."
+        : check.verdict === "opening" && check.circle !== null
+          ? `Inside the Ø${formatLength(check.circle.radiusMm * 2, unit)} opening — move it onto material.`
+          : check.verdict === "opening"
+            ? "Inside an opening in the face — move it onto material."
+            : "Off the face outline — move it onto the face.";
+  const checkOk = check?.verdict === "material";
+
   const diameterMsg = diameterError(form.diameterInput, unit);
   const depthMsg =
     form.depthMode === "blind" ? depthError(form.depthInput, unit) : null;
@@ -533,7 +600,7 @@ export function HoleEditor({
               armed={activePick === "point"}
               hint={
                 activePick === "point" && form.position !== null
-                  ? "Click a point on the face; it fixes the drill axis."
+                  ? "Click a corner, a bore centre, or the face centre."
                   : null
               }
               pickTestId="hole-point-pick"
@@ -543,6 +610,92 @@ export function HoleEditor({
               disabledReason="Pick a face first — the point is placed on it."
               onPick={() => onTogglePick("point")}
             />
+            {/* The DRO pair. A hole is dialled in, the way it is at a jig
+                borer: two coordinates in the face's own frame, re-checked on
+                every keystroke against the face's outline and its openings.
+                Held in the PINNED block because the position IS a reference —
+                it may not scroll out from under the numbers being typed. */}
+            {hasFace ? (
+              <div
+                className="flex flex-col gap-1 pb-1 pt-1"
+                data-testid="hole-placement"
+              >
+                <div className="flex gap-2">
+                  <NumberField
+                    className="flex-1"
+                    label="X"
+                    unit={unit}
+                    data-testid="hole-position-x"
+                    aria-label={`Drill X on the face, ${unit}`}
+                    value={form.xInput}
+                    error={xMsg}
+                    onChange={(e) =>
+                      setForm((f) =>
+                        applyHoleCoordinate(f, "x", e.target.value, unit),
+                      )
+                    }
+                    onFocus={(e) => e.currentTarget.select()}
+                  />
+                  <NumberField
+                    className="flex-1"
+                    label="Y"
+                    unit={unit}
+                    data-testid="hole-position-y"
+                    aria-label={`Drill Y on the face, ${unit}`}
+                    value={form.yInput}
+                    error={yMsg}
+                    onChange={(e) =>
+                      setForm((f) =>
+                        applyHoleCoordinate(f, "y", e.target.value, unit),
+                      )
+                    }
+                    onFocus={(e) => e.currentTarget.select()}
+                  />
+                </div>
+                {/* WHERE zero is, and which way the axes run — the one thing
+                    an X/Y entry must never leave the user to guess. The
+                    viewport draws the same frame on the face itself. */}
+                <div className="flex items-baseline gap-2">
+                  <span className="w-10 shrink-0 font-display text-2xs uppercase tracking-[0.14em] text-gauge">
+                    Frame
+                  </span>
+                  <span
+                    data-testid="hole-frame"
+                    // The compact readout is the precision instrument; the
+                    // sentence is what a screen reader (and a hover) gets.
+                    // `role="note"` because a bare span takes no accessible
+                    // name from `aria-label` in several engines.
+                    role="note"
+                    title={frameTitle}
+                    aria-label={frameTitle}
+                    className="min-w-0 grow font-data text-2xs leading-relaxed text-gauge"
+                  >
+                    {frameValue}
+                  </span>
+                </div>
+                {checkMessage !== null ? (
+                  <p
+                    data-testid="hole-position-check"
+                    data-verdict={check?.verdict}
+                    role="status"
+                    aria-live="polite"
+                    className={cx(
+                      "flex items-baseline gap-2 pl-12 font-body text-xs",
+                      checkOk ? "text-gauge" : "text-flag",
+                    )}
+                  >
+                    <span
+                      aria-hidden
+                      className={cx(
+                        "mt-1 h-1 w-1 shrink-0 rounded-full",
+                        checkOk ? "bg-brass" : "bg-flag",
+                      )}
+                    />
+                    {checkMessage}
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
           </div>
           {pickError ? (
             <p
