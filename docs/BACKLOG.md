@@ -173,13 +173,22 @@ frame refactor are v2/§11. Spike de-collected.
       adds sizing: ~500 MiB OCCT baseline per geometry worker and a PER-PROCESS
       8-entry rebuild cache, so `--scale geometry=N` divides the hit rate.
       [founder / open-source release]
-- [ ] (P2, M) **PERF-1b — a mid-tree edit still pays a full rebuild.** PERF-1's
-      cache keeps ONE checkpoint per lineage (the frontier) because an intermediate
-      ladder needs copies and a copy is not byte-transparent (evidence in
-      docs/PERF.md 2026-07-31c). The prefetch seam that fixes it already ships:
-      `warm_rebuild_cache()` (bounded, cancellable, returns an int so it cannot
-      publish). Wire a background re-warm of the prefix an edit consumed.
-      [kernel-architect PERF-1]
+- [x] (P2, M) **PERF-1b — a mid-tree edit paid a full rebuild, and so did the
+      first face pick after it.** SHIPPED 2026-08-01 (kernel-architect): prefetch on
+      the only two genuine declarations of intent — an OPEN FEATURE EDITOR (warms
+      the prefix before the edited feature, both lineages: the commit, then the
+      pick) and the TIMELINE TRAVEL STOP (warms the shorter tree; only BACKWARD
+      travel needs it, forward is an append the cache already serves). Measured on
+      the tray: editing feature #192 of 200 is **33.7 → 4.8 s** commit and **34.7 →
+      4.4 s** first pick; rolling the stop back to 100 features is **8.2 → 0.5 s
+      (16x)**. A mid-tree edit at the halfway point gains only ~25 %, and that is
+      the `N^1.85` curve, not the implementation (warming prefix k can remove at
+      most `(k/N)^1.85`). Bounded and cancellable: ONE warm thread per worker (the
+      DoS bound), 30 s shared budget in priority order, supersede + explicit
+      cancel observed between features. A warm CANNOT publish — `WarmTreeResult`
+      is a ticket and a boolean at both hops, and the gate asserts that after a
+      warm the `mesh_glb_id` a real evaluate publishes does not resolve: no
+      artifact exists to serve. docs/PERF.md "2026-08-01". [kernel-architect PERF-1]
 - [x] (P1, M) **PERF-2 — the CM-6 validity gate was O(features x faces): 22 % of a
       big-part rebuild.** SHIPPED 2026-07-31 (kernel-architect): `_admit` now checks
       only the faces the op CREATED (`healing.new_geometry_is_valid`) — sound because

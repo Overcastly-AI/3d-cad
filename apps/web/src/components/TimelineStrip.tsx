@@ -51,6 +51,7 @@ import type {
   FeatureTreeResponse,
 } from "../api/parts";
 import { featureTypeLabel } from "../features/featureLabels";
+import { usePrefetchIntent } from "../features/prefetch";
 import {
   barSlotIndex,
   nearestSlotIndex,
@@ -123,6 +124,30 @@ export function TimelineStrip({
 
   const slot = pendingSlot ?? committedSlot;
   const atTip = slot >= count - 1;
+
+  // TRIGGER 2 (docs/PERF.md PERF-1b): warm the stop the user is heading for.
+  //
+  // Only BACKWARD travel is worth speculating on, and the asymmetry is the
+  // rebuild cache's own shape rather than a guess: rolling FORWARD appends
+  // features to a tree the worker already holds a checkpoint for, so it costs
+  // one feature; rolling BACK asks for a shorter tree, which is a different
+  // content hash and pays the whole rebuild. Hence `< committedSlot`.
+  //
+  // Mid-drag the target is the stop being held (the likely drop point); at rest
+  // it is the stop one step back — the neighbour, which is where a scrub goes
+  // next. Both are held off while a move is in flight, so speculation never
+  // races the real rebuild that move just triggered.
+  const travelTarget = dragging ? slot : committedSlot - 1;
+  usePrefetchIntent(
+    !busy && travelTarget >= 0 && travelTarget < committedSlot
+      ? {
+          partId: tree?.part_id ?? "",
+          featureId: features[travelTarget]?.id ?? "",
+          kind: "travel_stop",
+        }
+      : null,
+    { enabled: tree !== undefined && features[travelTarget] !== undefined },
+  );
 
   // Release the optimistic stop when the write SETTLES — not when the server
   // agrees. A rejected move must snap the stop back to the truth rather than

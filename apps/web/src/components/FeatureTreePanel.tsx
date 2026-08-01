@@ -37,6 +37,7 @@ import {
 } from "../features/featureErrors";
 import { featureTypeLabel } from "../features/featureLabels";
 import { holeThreadDesignation } from "../features/hole";
+import { usePrefetchIntent } from "../features/prefetch";
 import {
   excludedNote,
   type PartBuild,
@@ -153,6 +154,22 @@ export function FeatureTreePanel({
     features.length > 0 ? `Feature tree · ${features.length}` : "Feature tree";
   const rollbackId = tree?.rollback_feature_id ?? null;
   const barSlot = barSlotIndex(features, rollbackId);
+  // TRIGGER 1 (docs/PERF.md PERF-1b). Selecting a row is what opens that
+  // feature's editor, and it is the moment the user declares every feature
+  // BEFORE it settled — so the worker starts rebuilding that prefix while the
+  // dialog is being read, and the commit resumes from it instead of from
+  // feature 0. It is also the only cure for the first face pick after an edit
+  // (the provenance lineage is warmed alongside). Deselecting, or leaving the
+  // part, cancels it: speculation outlives its reason for nobody.
+  usePrefetchIntent(
+    tree !== undefined && selectedFeatureId !== null
+      ? {
+          partId: tree.part_id,
+          featureId: selectedFeatureId,
+          kind: "feature_edit",
+        }
+      : null,
+  );
   // One derivation, read here and by the inspector's STATUS cell + EXPORT gate.
   const evalSummary = solveSummary(build);
   // WHY the rows below the failure say SKIP. The strict-prefix rule stops the

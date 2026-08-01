@@ -23,6 +23,13 @@ from py_kit.schemas.drawings import (
     EvaluateDrawingViewsRequest,
     EvaluateDrawingViewsResult,
 )
+from py_kit.schemas.features import (
+    EvaluateTreeRequest,
+    PrefetchRequest,
+    WarmCancelRequest,
+    WarmTreeRequest,
+    WarmTreeResult,
+)
 from py_kit.schemas.geometry import (
     EXPORT_MEDIA_TYPES,
     GLB_MEDIA_TYPE,
@@ -49,6 +56,8 @@ from py_kit.schemas.sketch import (
 from pydantic import BaseModel
 
 from gateway.auth import CurrentUser
+from gateway.db import User
+from gateway.parts import forward_documents
 from gateway.ratelimit import COMPUTE_RATE_LIMIT
 from gateway.upstream import create_upstream_client, forward, raise_upstream_error
 
@@ -57,6 +66,24 @@ GEOMETRY_TIMEOUT_S = 30.0
 
 #: Human-readable upstream name for shared error surfaces.
 _SERVICE = "Geometry"
+
+#: The other upstream this module reaches, on the prefetch path only: warming
+#: needs the evaluation-ready feature list, and documents owns it (rollback bar
+#: applied, params upcast). Same principal-scoped hop ``/parts/{id}/evaluate``
+#: makes, which is what makes ownership checking automatic here.
+_DOCUMENTS = "Documents"
+
+
+def _scoped_ticket(user: User, ticket: str) -> str:
+    """Namespace a client ticket per user.
+
+    The warm scheduler is per WORKER and shared by everyone it serves, so an
+    un-namespaced ticket would let one client's cancel retire another's
+    speculation (harmless to correctness — a warm publishes nothing — but a free
+    way to keep everybody else's prefetch permanently cold).
+    """
+    return f"{user.id}:{ticket}"
+
 
 router = APIRouter(prefix="/api/v1/geometry", tags=["geometry"])
 
@@ -128,6 +155,118 @@ async def tessellate(
         media_type=GLB_MEDIA_TYPE,
         headers=headers,
     )
+
+
+# Auth-protected like every geometry route, and additionally OWNERSHIP-scoped by
+# the documents hop it makes: the evaluation-request read is principal-scoped, so
+# a user can only ever warm a part they own. Rate-limited on the compute bucket
+# because a warm IS geometry CPU, even if it produces nothing.
+@router.post("/prefetch", dependencies=[COMPUTE_RATE_LIMIT])
+async def prefetch(
+    request: PrefetchRequest, user: CurrentUser, http_request: Request
+) -> WarmTreeResult:
+    """Speculatively warm the rebuild cache for one part (docs/PERF.md PERF-1b).
+
+    The client knows the INTENT — this editor is open, this travel stop is being
+    dragged — and documents knows the evaluation-ready feature list. This route
+    is where the two meet: it makes the same principal-scoped
+    ``/evaluation-request`` hop ``POST /parts/{id}/evaluate`` makes, so the warm
+    lands on exactly the content-addressed key the later real evaluate probes,
+    then hands geometry a :class:`WarmTreeRequest` and returns immediately.
+
+    The two intents ask for different things, and the difference is not cosmetic:
+
+    * ``feature_edit`` warms the features BEFORE the one being edited (the edit
+      cannot change their hashes), leaving the tree itself intact — so the commit
+      costs one feature's work instead of the whole tree, and the FIRST FACE PICK
+      after it resumes from the same point (the ``provenance`` lineage, which is
+      the 29 s the user actually sees on a 200-feature part);
+    * ``travel_stop`` warms the SHORTER TREE the stop defines, because that is a
+      tree in its own right and hashes as one. Only backwards travel needs it:
+      rolling forward is an append, which the cache already serves.
+
+    Nothing here can produce geometry — the reply is a
+    :class:`WarmTreeResult`, which carries a ticket and a boolean and cannot
+    carry a body. A target that is not in the current evaluation prefix is
+    ``accepted: false``, not an error.
+    """
+    upstream = await forward_documents(
+        http_request,
+        user,
+        "GET",
+        f"/api/v1/parts/{request.part_id}/evaluation-request",
+    )
+    if upstream.status_code != 200:
+        raise_upstream_error(upstream, service=_DOCUMENTS)
+    tree = EvaluateTreeRequest.model_validate_json(upstream.content)
+
+    index = next(
+        (
+            position
+            for position, item in enumerate(tree.features)
+            if item.id == request.feature_id
+        ),
+        None,
+    )
+    if index is None:
+        # Rolled back past, deleted, or suppressed out of the prefix: there is no
+        # settled prefix this intent names. Nothing to do, and nothing wrong.
+        return WarmTreeResult(ticket=request.ticket, accepted=False)
+
+    if request.kind == "feature_edit":
+        # Everything BEFORE the edited feature. Editing the first feature settles
+        # nothing, so there is nothing to warm.
+        if index == 0:
+            return WarmTreeResult(ticket=request.ticket, accepted=False)
+        warm = WarmTreeRequest(
+            ticket=_scoped_ticket(user, request.ticket),
+            tree=tree,
+            prefix_length=index,
+            # The commit first, then the face pick that follows it — in that
+            # order, under one budget (see `geometry.warm`).
+            lineages=["evaluate", "provenance"],
+        )
+    else:
+        # The stop includes the named feature, so the shorter tree is `index + 1`
+        # features long. Its mirror capture scope is computed over THAT list,
+        # which is why the tree is truncated here rather than passed whole with a
+        # prefix length — the two hash differently and only this one matches what
+        # a rolled-back evaluate will send.
+        warm = WarmTreeRequest(
+            ticket=_scoped_ticket(user, request.ticket),
+            tree=tree.model_copy(update={"features": tree.features[: index + 1]}),
+            # A travel stop is a body to look at, not a body to edit: warm the
+            # rebuild that draws it and leave provenance to the pick that may
+            # never come.
+            lineages=["evaluate"],
+        )
+
+    warmed = await _forward(http_request, "/api/v1/warm", warm)
+    if warmed.status_code != 200:
+        _raise_upstream_error(warmed)
+    accepted = WarmTreeResult.model_validate_json(warmed.content).accepted
+    # Echo the CLIENT's ticket, never the namespaced one — the namespace is the
+    # gateway's business and the client cancels with the ticket it chose.
+    return WarmTreeResult(ticket=request.ticket, accepted=accepted)
+
+
+@router.post("/prefetch/cancel", dependencies=[COMPUTE_RATE_LIMIT])
+async def prefetch_cancel(
+    request: WarmCancelRequest, user: CurrentUser, http_request: Request
+) -> WarmTreeResult:
+    """Retire a warm ticket — the editor closed, or the drag ended.
+
+    Required, not optional (docs/PERF.md PERF-1b): prefetch hides latency, it
+    does not reduce work, so speculation whose reason has gone away must stop.
+    The geometry worker acts on it within one feature's work. ``accepted:
+    false`` means it had already finished — a normal outcome.
+    """
+    cancel = WarmCancelRequest(ticket=_scoped_ticket(user, request.ticket))
+    upstream = await _forward(http_request, "/api/v1/warm/cancel", cancel)
+    if upstream.status_code != 200:
+        _raise_upstream_error(upstream)
+    accepted = WarmTreeResult.model_validate_json(upstream.content).accepted
+    return WarmTreeResult(ticket=request.ticket, accepted=accepted)
 
 
 # Auth-protected, identity-free upstream (same posture as ``/tessellate``).

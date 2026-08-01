@@ -61,10 +61,10 @@ the request handler returns, so the append case still hits; if a caller holds
 its evaluation forever, the entry is simply never cached. Correct degradation in
 both directions, no lease protocol, and nothing for a caller to remember.
 
-WHAT A FUTURE PREFETCH MAY DO, AND WHAT IT MUST NOT (written down now, on
-purpose). Speculative rebuilding is meaningless without this cache — it would do
-the 27 s twice with nowhere to put the result — and nearly free with it, so it
-is worth stating the rules before someone needs them:
+WHAT A PREFETCH MAY DO, AND WHAT IT MUST NOT (written before it existed, and
+still the contract now that :class:`WarmScheduler` below implements it).
+Speculative rebuilding is meaningless without this cache — it would do the 27 s
+twice with nowhere to put the result — and nearly free with it:
 
 * A prefetch **warms**, it never **answers**. The only entry point that
   populates the cache without producing an artifact is
@@ -84,8 +84,9 @@ is worth stating the rules before someone needs them:
   keeps what it evaluated: the checkpoint it stores is simply a shorter prefix,
   which is a legitimate resume point.
 * A warm must never evict a checkpoint a live request is about to use, which is
-  why speculation should stay well inside :data:`REBUILD_CACHE_CAPACITY` and
-  never be issued in bulk.
+  why speculation stays well inside :data:`REBUILD_CACHE_CAPACITY` and is never
+  issued in bulk — :class:`WarmScheduler` runs at most ONE warm per worker and
+  each warm stores at most one entry per lineage.
 
 WHY `detach()` BEFORE STORING. A checkpoint's shapes may have been TESSELLATED
 by the request that produced them (tessellate/STL/export all write a
@@ -104,10 +105,11 @@ after the producing request is done and before any resume.
 import hashlib
 import json
 import threading
+import time
 import uuid
 import weakref
 from collections import OrderedDict
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -378,3 +380,233 @@ class PrefixCache[CheckpointT: Detachable]:
                 evictions=self._evictions,
                 resumed_features=self._resumed_features,
             )
+
+
+#: Wall-clock ceiling for ONE warm ticket, across every lineage it warms
+#: (docs/PERF.md PERF-1b). **30 s, and the number was measured rather than
+#: chosen.** What it is NOT is the DoS bound: speculation is capped at one core
+#: by the single :class:`WarmScheduler` thread, whatever this says, and a client
+#: that resubmits can hold that one core at any budget. So this answers a
+#: narrower question — how much work is ONE declaration of intent worth?
+#:
+#: 1. **It is the cost of the thing it is speculating on.** Warming the prefix an
+#:    open editor settles on the docs/PERF.md tray measures **7.7 CPU s at
+#:    N=100** and **28.9 CPU s for feature 192 of 200** — so a 10 s budget (the
+#:    first value here) delivered the full win on a 100-feature part and
+#:    truncated the 200-feature one to a fraction, which is exactly the part the
+#:    fix exists for. 30 s covers a full-prefix warm at the top of the range the
+#:    tool is usable in, and still bounds the pathological tree
+#:    (``MAX_TREE_FEATURES`` is 1000, whose prefix would be minutes).
+#: 2. **The pessimal case is bounded by the USER, not by this.** A warm that
+#:    finishes stops; a warm whose reason goes away is cancelled within one
+#:    feature (~200 ms) of the editor closing or the stop moving. So "opened a
+#:    dialog and did nothing" costs the seconds they sat in it, not 30 — and if
+#:    they DO commit, none of it was waste: it is the same work the commit would
+#:    have done, moved earlier.
+#: 3. It is 1.5x ``DEFAULT_STEP_IMPORT_CPU_TIMEOUT_S``, which this service
+#:    already accepts for one unattended, NON-preemptible parse. This one yields.
+#:
+#: The budget is shared across a ticket's lineages in priority order, so a warm
+#: that runs out has always finished the more valuable half (see
+#: :mod:`geometry.warm`).
+DEFAULT_WARM_BUDGET_S = 30.0
+
+
+@dataclass(frozen=True)
+class WarmStats:
+    """Scheduler counters (tests + diagnostics), all per-worker and in-process.
+
+    ``superseded`` and ``cancelled`` are the interesting ones: they count the
+    speculation this worker was told to abandon, i.e. exactly the CPU the bounded
+    design gives back. ``completed`` counts runs that RETURNED, which includes a
+    run that returned early because it was superseded — the two are orthogonal,
+    and calling an abandoned run "not completed" would need the work to report
+    back, which is precisely the coupling this scheduler does not have.
+    """
+
+    submitted: int
+    started: int
+    completed: int
+    superseded: int
+    cancelled: int
+    failed: int
+
+
+class WarmScheduler:
+    """At most ONE speculative rebuild in flight per worker, always cancellable.
+
+    The prefetch triggers (an open feature editor, a dragged travel stop) are
+    genuine declarations of intent, but they are *guesses*, and a guess must not
+    be able to hurt the requests that are not guesses. Two properties do that,
+    and they are separate on purpose:
+
+    * **A hard concurrency bound.** One daemon thread, one slot. Speculation can
+      therefore consume at most one core of the box no matter how many prefetch
+      calls arrive — a hundred users mashing feature editors produce one warm
+      thread, not a hundred. Doing this in FastAPI's threadpool instead (a
+      request that simply is not awaited) would have made the DoS exactly as bad
+      as the number of concurrent clients, which is the wrong direction.
+    * **Supersede + explicit cancel.** A newer submission REPLACES an older one
+      (the newest intent is the only one worth spending on), and
+      :meth:`cancel` retires a ticket outright — what the UI calls when the
+      editor closes or the drag ends. Both are observed BETWEEN features by the
+      ``should_stop`` predicate handed to the work, so a warm stops within one
+      OCCT call of being asked to. There is no way to interrupt a single
+      ``BRepAlgoAPI`` call and this module does not pretend otherwise.
+
+    A *ticket* is an opaque caller-chosen string identifying the intent (the
+    gateway namespaces it per user). Submitting the SAME ticket that is already
+    running is deliberately a no-op: a React re-render that re-declares the same
+    open editor must not restart the warm it is waiting for.
+
+    Nothing here knows what a warm *is* — the work is a callable taking the stop
+    predicate — so this module stays free of evaluator and kernel imports.
+    """
+
+    def __init__(self, budget_s: float = DEFAULT_WARM_BUDGET_S) -> None:
+        if budget_s <= 0:
+            raise ValueError(f"budget_s must be > 0, got {budget_s}")
+        self._budget_s = budget_s
+        self._lock = threading.Lock()
+        self._wake = threading.Condition(self._lock)
+        self._idle = threading.Condition(self._lock)
+        self._thread: threading.Thread | None = None
+        #: Bumped by every submit and every matching cancel. A running warm
+        #: compares the generation it started with; anything else means "you have
+        #: been superseded or cancelled, stop at the next feature".
+        self._generation = 0
+        self._pending: tuple[str, Callable[[Callable[[], bool]], None]] | None = None
+        self._running: str | None = None
+        self._submitted = 0
+        self._started = 0
+        self._completed = 0
+        self._superseded = 0
+        self._cancelled = 0
+        self._failed = 0
+
+    def submit(self, ticket: str, work: Callable[[Callable[[], bool]], None]) -> bool:
+        """Queue *work* under *ticket*, retiring whatever the worker was doing.
+
+        Returns ``False`` when *ticket* is already the running or pending one —
+        the idempotent re-declaration case — and ``True`` when it was accepted.
+        """
+        with self._lock:
+            if ticket == self._running or (
+                self._pending is not None and self._pending[0] == ticket
+            ):
+                return False
+            if self._pending is not None:
+                self._superseded += 1
+            if self._running is not None:
+                self._superseded += 1
+            self._pending = (ticket, work)
+            self._submitted += 1
+            # Retire the incumbent: it observes the new generation on its next
+            # feature boundary and stops, keeping the shorter prefix it built.
+            self._generation += 1
+            self._ensure_thread()
+            self._wake.notify_all()
+        return True
+
+    def cancel(self, ticket: str) -> bool:
+        """Retire *ticket* if it is running or pending. Returns whether it was.
+
+        The editor closing, the drag ending, the part being navigated away from:
+        the intent is gone, so the speculation funded by it must stop rather than
+        finish out of politeness.
+        """
+        with self._lock:
+            hit = False
+            if self._pending is not None and self._pending[0] == ticket:
+                self._pending = None
+                hit = True
+            if self._running == ticket:
+                # Only a RUNNING ticket's cancellation moves the generation:
+                # that is the signal one in-flight warm reads, and bumping it for
+                # a merely-pending cancel would also retire whatever else is
+                # running — which nobody asked for.
+                self._generation += 1
+                hit = True
+            if hit:
+                self._cancelled += 1
+                self._idle.notify_all()
+            return hit
+
+    def wait_idle(self, timeout_s: float) -> bool:
+        """Block until nothing is running or pending (TEST SEAM).
+
+        Production never calls this: the whole point of the scheduler is that
+        nobody waits on speculation. A test that asserts what a warm left in the
+        cache does need to, and polling a private attribute would be worse.
+        """
+        deadline = time.monotonic() + timeout_s
+        with self._lock:
+            while self._running is not None or self._pending is not None:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return False
+                self._idle.wait(remaining)
+            return True
+
+    @property
+    def stats(self) -> WarmStats:
+        with self._lock:
+            return WarmStats(
+                submitted=self._submitted,
+                started=self._started,
+                completed=self._completed,
+                superseded=self._superseded,
+                cancelled=self._cancelled,
+                failed=self._failed,
+            )
+
+    def _ensure_thread(self) -> None:
+        """Start the worker on first use (caller holds the lock).
+
+        Daemon, so a warm can never hold up worker shutdown, and started lazily
+        so a process that never prefetches never spawns it.
+        """
+        if self._thread is not None and self._thread.is_alive():
+            return
+        self._thread = threading.Thread(
+            target=self._run, name="rebuild-warm", daemon=True
+        )
+        self._thread.start()
+
+    def _stopper(self, generation: int) -> Callable[[], bool]:
+        """The predicate one warm run polls between features: *my budget is
+        spent* OR *somebody has superseded/cancelled me*."""
+        deadline = time.monotonic() + self._budget_s
+
+        def should_stop() -> bool:
+            if time.monotonic() >= deadline:
+                return True
+            with self._lock:
+                return self._generation != generation
+
+        return should_stop
+
+    def _run(self) -> None:
+        while True:
+            with self._lock:
+                while self._pending is None:
+                    self._wake.wait()
+                ticket, work = self._pending
+                self._pending = None
+                self._running = ticket
+                generation = self._generation
+                self._started += 1
+            try:
+                work(self._stopper(generation))
+            except Exception:  # speculation must never kill the worker thread
+                # A warm produces no answer, so there is nobody to report to: the
+                # request that would have used it simply misses and rebuilds. The
+                # counter is the honest record.
+                with self._lock:
+                    self._failed += 1
+            else:
+                with self._lock:
+                    self._completed += 1
+            with self._lock:
+                self._running = None
+                self._idle.notify_all()

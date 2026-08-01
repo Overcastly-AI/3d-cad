@@ -724,6 +724,73 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/warm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Warm
+         * @description Speculatively cache a feature-tree prefix. **Publishes nothing.**
+         *
+         *     The prefetch route (docs/PERF.md PERF-1b). It returns as soon as the work is
+         *     QUEUED — the warm itself runs on the worker's single speculation thread — and
+         *     its reply carries no geometry at all (:class:`WarmTreeResult`), because the
+         *     one thing a speculative rebuild must never become is an answer. All it can do
+         *     is leave an evaluator checkpoint under the ordinary content-addressed key, so
+         *     a later *real* request that hashes to the identical prefix resumes there.
+         *
+         *     Why it is safe to spend CPU on a guess:
+         *
+         *     * **one warm per worker, ever** — :class:`~geometry.rebuild_cache.WarmScheduler`
+         *       holds a single slot, so speculation costs at most one core no matter how
+         *       many clients ask (the reason this is not "an evaluate nobody awaits", which
+         *       would scale the DoS with the client count);
+         *     * **a newer ticket supersedes an older one**, and ``POST /warm/cancel``
+         *       retires one outright — both observed between features, so a warm stops
+         *       within one OCCT call of the editor closing or the travel stop moving;
+         *     * **a spent budget just means a shorter prefix**, which is still a legitimate
+         *       resume point.
+         *
+         *     Always a 200 with ``accepted``; a warm has no failure mode a caller could act
+         *     on, since a miss is only ever slower.
+         */
+        post: operations["warm_api_v1_warm_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/warm/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Warm Cancel
+         * @description Retire a warm ticket (the editor closed, the drag ended, the tab left).
+         *
+         *     Prefetch hides latency; it does not reduce work — so the intent going away
+         *     must stop the speculation it funded rather than let it finish out of
+         *     politeness. ``accepted=false`` simply means it had already finished or was
+         *     never running.
+         */
+        post: operations["warm_cancel_api_v1_warm_cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -6848,6 +6915,79 @@ export interface components {
              */
             numerator: number;
         };
+        /**
+         * WarmCancelRequest
+         * @description Retire a warm ticket. Idempotent, and never an error.
+         */
+        WarmCancelRequest: {
+            /**
+             * Ticket
+             * @description The ticket submitted to `POST /warm`. Unknown or already finished → `accepted: false`, which is a normal outcome, not a fault.
+             */
+            ticket: string;
+        };
+        /**
+         * WarmTreeRequest
+         * @description Ask the geometry worker to speculatively cache a feature-tree prefix.
+         *
+         *     **This request cannot produce an artifact** (docs/PERF.md PERF-1b): the only
+         *     thing it can do is make a LATER, ordinary evaluate cheaper by leaving an
+         *     evaluator checkpoint in the per-worker rebuild cache, addressed by the same
+         *     content hash that evaluate probes. There is deliberately no "prefetched
+         *     result" to fetch — see :class:`WarmTreeResult`.
+         *
+         *     It is issued on a genuine declaration of intent, and only those two:
+         *
+         *     * an **open feature editor** — editing feature ``k`` declares ``0..k-1``
+         *       settled for as long as the dialog is open, so ``tree`` is the current tree
+         *       and ``prefix_length`` is ``k``;
+         *     * a **travel stop** on the timeline — that is a shorter tree in its own
+         *       right, so ``tree`` IS the shorter tree and ``prefix_length`` is omitted.
+         */
+        WarmTreeRequest: {
+            /**
+             * Lineages
+             * @description Which cache lineages to warm, in priority order, under ONE shared budget — so a truncated warm always got the first one done. An open editor asks for both: the commit reads `evaluate`, the face pick that follows it reads `provenance`.
+             */
+            lineages?: ("evaluate" | "provenance")[];
+            /**
+             * Prefix Length
+             * @description How many leading features of `tree` to evaluate; null = all of them. Clamped to the tree's length. An open editor for feature k sends k here (an edit at k cannot change the hash of anything before it); a travel stop sends null and a shorter tree.
+             */
+            prefix_length?: number | null;
+            /**
+             * Ticket
+             * @description Opaque identity of the INTENT, chosen by the caller and namespaced by the gateway per user. Submitting a ticket that is already running is a no-op (a re-render must not restart its own warm), a new ticket supersedes the running one, and `POST /warm/cancel` with this ticket retires it — which is what closing the editor or ending the drag does.
+             */
+            ticket: string;
+            /** @description The tree whose prefix to warm — the very request a later evaluate will send, so the warm lands on the key that request probes. */
+            tree: components["schemas"]["EvaluateTreeRequest"];
+        };
+        /**
+         * WarmTreeResult
+         * @description The reply to a warm — deliberately EMPTY of geometry.
+         *
+         *     There is no mesh id, no mass property, no feature status and no body here,
+         *     and that is a structural guarantee rather than an omission: a speculative
+         *     rebuild that could be published would eventually be published for a tree it
+         *     does not exactly correspond to, which is the silent-wrong-geometry class this
+         *     repo has closed five times. A warm can only ever be *used* by a request whose
+         *     feature prefix hashes identically, through the ordinary cache key.
+         *
+         *     So the two fields say what happened to the SCHEDULING, and nothing else.
+         */
+        WarmTreeResult: {
+            /**
+             * Accepted
+             * @description Whether this call changed the worker's speculation: true = queued (or, for /warm/cancel, a running ticket was retired); false = nothing to do — the same ticket was already in flight, the tree had no prefix worth warming, or the cancelled ticket had already finished. Never an error either way: prefetch is best-effort by construction.
+             */
+            accepted: boolean;
+            /**
+             * Ticket
+             * @description Echo of the submitted ticket.
+             */
+            ticket: string;
+        };
     };
     responses: never;
     parameters: never;
@@ -7581,6 +7721,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TessellationMetadata"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    warm_api_v1_warm_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WarmTreeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WarmTreeResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    warm_cancel_api_v1_warm_cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WarmCancelRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WarmTreeResult"];
                 };
             };
             /** @description Validation Error */

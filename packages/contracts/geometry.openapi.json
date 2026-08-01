@@ -8112,6 +8112,93 @@
         ],
         "title": "ViewScale",
         "type": "object"
+      },
+      "WarmCancelRequest": {
+        "description": "Retire a warm ticket. Idempotent, and never an error.",
+        "properties": {
+          "ticket": {
+            "description": "The ticket submitted to `POST /warm`. Unknown or already finished \u2192 `accepted: false`, which is a normal outcome, not a fault.",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Ticket",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticket"
+        ],
+        "title": "WarmCancelRequest",
+        "type": "object"
+      },
+      "WarmTreeRequest": {
+        "description": "Ask the geometry worker to speculatively cache a feature-tree prefix.\n\n**This request cannot produce an artifact** (docs/PERF.md PERF-1b): the only\nthing it can do is make a LATER, ordinary evaluate cheaper by leaving an\nevaluator checkpoint in the per-worker rebuild cache, addressed by the same\ncontent hash that evaluate probes. There is deliberately no \"prefetched\nresult\" to fetch \u2014 see :class:`WarmTreeResult`.\n\nIt is issued on a genuine declaration of intent, and only those two:\n\n* an **open feature editor** \u2014 editing feature ``k`` declares ``0..k-1``\n  settled for as long as the dialog is open, so ``tree`` is the current tree\n  and ``prefix_length`` is ``k``;\n* a **travel stop** on the timeline \u2014 that is a shorter tree in its own\n  right, so ``tree`` IS the shorter tree and ``prefix_length`` is omitted.",
+        "properties": {
+          "lineages": {
+            "description": "Which cache lineages to warm, in priority order, under ONE shared budget \u2014 so a truncated warm always got the first one done. An open editor asks for both: the commit reads `evaluate`, the face pick that follows it reads `provenance`.",
+            "items": {
+              "enum": [
+                "evaluate",
+                "provenance"
+              ],
+              "type": "string"
+            },
+            "maxItems": 2,
+            "title": "Lineages",
+            "type": "array"
+          },
+          "prefix_length": {
+            "anyOf": [
+              {
+                "maximum": 1000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How many leading features of `tree` to evaluate; null = all of them. Clamped to the tree's length. An open editor for feature k sends k here (an edit at k cannot change the hash of anything before it); a travel stop sends null and a shorter tree.",
+            "title": "Prefix Length"
+          },
+          "ticket": {
+            "description": "Opaque identity of the INTENT, chosen by the caller and namespaced by the gateway per user. Submitting a ticket that is already running is a no-op (a re-render must not restart its own warm), a new ticket supersedes the running one, and `POST /warm/cancel` with this ticket retires it \u2014 which is what closing the editor or ending the drag does.",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Ticket",
+            "type": "string"
+          },
+          "tree": {
+            "$ref": "#/components/schemas/EvaluateTreeRequest",
+            "description": "The tree whose prefix to warm \u2014 the very request a later evaluate will send, so the warm lands on the key that request probes."
+          }
+        },
+        "required": [
+          "ticket",
+          "tree"
+        ],
+        "title": "WarmTreeRequest",
+        "type": "object"
+      },
+      "WarmTreeResult": {
+        "description": "The reply to a warm \u2014 deliberately EMPTY of geometry.\n\nThere is no mesh id, no mass property, no feature status and no body here,\nand that is a structural guarantee rather than an omission: a speculative\nrebuild that could be published would eventually be published for a tree it\ndoes not exactly correspond to, which is the silent-wrong-geometry class this\nrepo has closed five times. A warm can only ever be *used* by a request whose\nfeature prefix hashes identically, through the ordinary cache key.\n\nSo the two fields say what happened to the SCHEDULING, and nothing else.",
+        "properties": {
+          "accepted": {
+            "description": "Whether this call changed the worker's speculation: true = queued (or, for /warm/cancel, a running ticket was retired); false = nothing to do \u2014 the same ticket was already in flight, the tree had no prefix worth warming, or the cancelled ticket had already finished. Never an error either way: prefetch is best-effort by construction.",
+            "title": "Accepted",
+            "type": "boolean"
+          },
+          "ticket": {
+            "description": "Echo of the submitted ticket.",
+            "title": "Ticket",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticket",
+          "accepted"
+        ],
+        "title": "WarmTreeResult",
+        "type": "object"
       }
     }
   },
@@ -9111,6 +9198,90 @@
           }
         },
         "summary": "Tessellate Meta",
+        "tags": [
+          "geometry"
+        ]
+      }
+    },
+    "/api/v1/warm": {
+      "post": {
+        "description": "Speculatively cache a feature-tree prefix. **Publishes nothing.**\n\nThe prefetch route (docs/PERF.md PERF-1b). It returns as soon as the work is\nQUEUED \u2014 the warm itself runs on the worker's single speculation thread \u2014 and\nits reply carries no geometry at all (:class:`WarmTreeResult`), because the\none thing a speculative rebuild must never become is an answer. All it can do\nis leave an evaluator checkpoint under the ordinary content-addressed key, so\na later *real* request that hashes to the identical prefix resumes there.\n\nWhy it is safe to spend CPU on a guess:\n\n* **one warm per worker, ever** \u2014 :class:`~geometry.rebuild_cache.WarmScheduler`\n  holds a single slot, so speculation costs at most one core no matter how\n  many clients ask (the reason this is not \"an evaluate nobody awaits\", which\n  would scale the DoS with the client count);\n* **a newer ticket supersedes an older one**, and ``POST /warm/cancel``\n  retires one outright \u2014 both observed between features, so a warm stops\n  within one OCCT call of the editor closing or the travel stop moving;\n* **a spent budget just means a shorter prefix**, which is still a legitimate\n  resume point.\n\nAlways a 200 with ``accepted``; a warm has no failure mode a caller could act\non, since a miss is only ever slower.",
+        "operationId": "warm_api_v1_warm_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WarmTreeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WarmTreeResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Warm",
+        "tags": [
+          "geometry"
+        ]
+      }
+    },
+    "/api/v1/warm/cancel": {
+      "post": {
+        "description": "Retire a warm ticket (the editor closed, the drag ended, the tab left).\n\nPrefetch hides latency; it does not reduce work \u2014 so the intent going away\nmust stop the speculation it funded rather than let it finish out of\npoliteness. ``accepted=false`` simply means it had already finished or was\nnever running.",
+        "operationId": "warm_cancel_api_v1_warm_cancel_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WarmCancelRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WarmTreeResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Warm Cancel",
         "tags": [
           "geometry"
         ]

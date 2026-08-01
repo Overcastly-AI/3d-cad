@@ -968,3 +968,106 @@ marginal cost, which is the honest way to state it.
   alive; three concurrent rebuilds of one tree all return the cold answer.
 * Goldens unchanged, byte-for-byte — a cache that moved one would be a bug in the
   cache.
+
+---
+
+## 2026-08-01 — PERF-1b landed: prefetch, so a mid-tree edit stops paying for the whole tree
+
+PERF-1's cache keeps ONE checkpoint per lineage — the frontier — so it serves an
+APPEND and a REPEAT and nothing else. Two things stayed cold, and both are the
+ones a modeller feels: a **mid-tree edit** (nothing exists for the prefix before
+the edited feature) and the **first face pick after an edit** (picks carry
+`record_history` in the key, so they are their own lineage; repeat picks were
+warm, the first was not). This wires the seam PERF-1 left behind
+(`warm_rebuild_cache`, which returns an `int` and therefore cannot publish) to
+the only two events in the product that are genuine declarations of intent.
+
+**Triggers, and only these two.** An **open feature editor** declares features
+`1..N-1` settled for as long as the dialog is open (`POST
+/api/v1/geometry/prefetch`, `kind: feature_edit` → the whole tree plus a
+`prefix_length`). The **timeline travel stop** — dragged, or at rest with its
+backward neighbour warmed — is a shorter tree in its own right (`kind:
+travel_stop` → the truncated tree, no prefix length; the two hash DIFFERENTLY,
+because the mirror capture scope in the key header is computed over the whole
+feature list, so only the right one is ever a hit). Register/document hover
+prefetch is deliberately not here: it is ordinary TanStack Query work and worth
+nothing against a rebuild curve.
+
+### Measured (housing tray, this container, 4 cores under sibling load)
+
+Wall-clock seconds; each pair runs back-to-back from the same starting state
+(the part is OPEN, so the frontier checkpoint exists) so the ratio is the honest
+part. CPU seconds in the last column are load-independent.
+
+| part | edit at | commit, cold | commit, warmed | first pick, cold | first pick, warmed | warm cost (CPU s) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| N=100 | #50 (mid) | 9.27 | **7.04** | 9.64 | **6.97** | 2.3 + 2.3 |
+| N=100 | #92 (late) | 9.19 | **1.58** (5.8x) | 8.72 | **1.57** (5.6x) | 7.1 + 7.4 |
+| N=200 | #100 (mid) | 35.18 | **25.87** | 33.22 | **24.70** | 7.7 + 8.0 |
+| N=200 | #192 (late) | 33.68 | **4.80** (7.0x) | 34.73 | **4.39** (7.9x) | 28.9 + 30.0 |
+
+Travel stop, rolling BACK from the tip to half the tree:
+
+| part | stop | cold | warmed | warm cost (CPU s) |
+| --- | ---: | ---: | ---: | ---: |
+| N=100 | 50 features | 2.87 | **0.23** (12x) | 2.1 |
+| N=200 | 100 features | 8.19 | **0.50** (16x) | 7.4 |
+
+**The mid-tree ceiling is the curve, not the implementation.** Rebuild is
+`N^1.85`, so warming prefix `k` can remove at most `(k/N)^1.85` of the work: 27 %
+at the halfway point, 91 % at `k = 0.95N`. The measured 24-28 % at `#50/#100` and
+7x at `#192` are that law, not a tuning failure. Prefetch hides latency; it does
+not bend the exponent, and nothing short of incremental topology will.
+
+### Budget and cancellation
+
+* **One warm per worker, ever** (`WarmScheduler`, a single daemon thread). This
+  is the DoS answer: speculation costs at most one core no matter how many
+  clients declare intent. Doing it as "an evaluate nobody awaits" on FastAPI's
+  threadpool would have scaled the burn with the client count.
+* **A newer ticket supersedes; an explicit cancel retires.** Both are observed
+  BETWEEN features — one OCCT call is not interruptible — so a warm stops within
+  ~200 ms of the editor closing or the stop moving. A stopped warm keeps what it
+  built: a shorter prefix is still a legitimate resume point.
+* **`DEFAULT_WARM_BUDGET_S = 30`**, shared across a ticket's lineages in priority
+  order (`evaluate` — the commit — before `provenance` — the pick). Fitted to the
+  table above: the first value tried was 10 s, which delivered the full win at
+  N=100 and truncated N=200, i.e. exactly the part the fix exists for.
+* **The pessimal case, measured:** a user opens an editor on the 200-feature part
+  and closes it having typed nothing. Cost = the seconds they sat in the dialog
+  (cancel is immediate), bounded by 30 CPU s on ONE core; at N=100 a *complete*
+  wasted warm of both lineages is 14.4 CPU s. And if they do commit, none of it
+  was waste — it is the commit's own work, moved earlier.
+
+### A warm cannot be published — how that is enforced, not just intended
+
+* `warm_rebuild_cache` returns an `int`. The wire reply (`WarmTreeResult`) has
+  two fields, a ticket and a boolean; there is no field a body, a mesh id or a
+  mass property could travel in, at either hop.
+* **`tests/test_prefetch.py` asserts there is nothing to serve:** after warming a
+  tree, the `mesh_glb_id` that a real evaluate of that very tree publishes does
+  not resolve in the mesh store. A warm derives no artifact, so no id exists —
+  the id becomes fetchable only once a real evaluate produced it, and it is the
+  same id, because the resume is transparent.
+* A warmed prefix is reachable ONLY through the ordinary content-addressed key:
+  editing a feature inside the warmed prefix MISSES (asserted), a 12-feature
+  checkpoint cannot answer the 9-feature tree that precedes it (asserted), and a
+  plain-lineage warm cannot serve a provenance rebuild (asserted). Every answer
+  is compared to a COLD rebuild down to the GLB bytes.
+* Goldens unchanged, byte-for-byte.
+
+### Still cold after this
+
+* **The first open of a part.** A cold worker still pays the full `N^1.85`
+  rebuild — 27 s at N=200. Prefetch cannot help; only incremental topology can.
+* **A deep edit on a 200-feature tree, partially.** The 30 s budget covers the
+  commit lineage (28.9 CPU s at `#192`) and leaves the provenance lineage short,
+  so the measured 7.9x on the first pick is what a *complete* warm gives; under
+  the budget the pick is warmed to whatever prefix the remaining seconds reach.
+* **A warm that RESUMES a checkpoint holds it** (ownership transfer — `take`
+  removes the entry), so a real request for that same checkpoint mid-warm misses.
+  Bounded by the budget and by cancellation, impossible for the editor trigger (a
+  prefix warm can only take checkpoints at or before `prefix_length`, and the
+  frontier is past it), and possible only for a travel stop already visited.
+* **Multi-worker deployments dilute it**, exactly as PERF-1 does: the cache and
+  the scheduler are per-process, so `--scale geometry=N` divides the hit rate.

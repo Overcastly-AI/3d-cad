@@ -3240,6 +3240,7 @@ def _dispatch_prefix(
 def warm_rebuild_cache(
     request: EvaluateTreeRequest,
     *,
+    prefix_length: int | None = None,
     record_history: bool = False,
     budget_s: float | None = None,
     cancelled: Callable[[], bool] | None = None,
@@ -3250,9 +3251,27 @@ def warm_rebuild_cache(
     the number of features now cached and **cannot** return a body, a mesh id or
     mass properties, so a speculative rebuild can never be served as an answer —
     a later request gets it only by hashing to the identical prefix, through the
-    ordinary key. Nothing else in the service calls this yet; it exists so the
-    prefetch that will want it does not have to reach for ``evaluate_tree`` and
-    throw the result away.
+    ordinary key.
+
+    *prefix_length* is how much of *request* to evaluate; ``None`` means all of
+    it. The distinction is the whole point of the seam, because the two triggers
+    ask different questions:
+
+    * **an open feature editor** declares features ``0..k-1`` settled while
+      feature ``k`` is being retyped — so *request* is the tree as it stands and
+      ``prefix_length=k``. The key is taken from the FULL request's chain
+      (:func:`~geometry.rebuild_cache.prefix_keys`), which is exactly the chain
+      the edited tree will probe, because an edit at ``k`` cannot change the hash
+      of anything before it;
+    * **a travel stop** is a shorter tree in its own right — the caller sends
+      that tree and leaves *prefix_length* alone.
+
+    A truncated *request* would answer neither question the same way: the
+    mirror capture scope in the key header is computed over the whole feature
+    list (a ``features``-scope mirror at index 150 changes what the state after
+    feature 10 must retain), so warming "the first k features" and warming "a
+    k-feature tree" are genuinely different keys. Both are correct; the caller
+    says which it means.
 
     Bounded and cancellable: *budget_s* (wall clock from entry) and *cancelled*
     are polled BETWEEN features, so a warm stops within one feature's work of
@@ -3261,9 +3280,23 @@ def warm_rebuild_cache(
     it evaluated; a warm whose tree FAILS caches nothing (see
     :func:`evaluate_tree` for why a failed prefix is not a resume point).
 
+    ONE COST WORTH KNOWING ABOUT, since it is the reverse of the intended one: a
+    warm that RESUMES from a cached checkpoint holds it for the duration (``take``
+    removes the entry — ownership transfer is what makes a resume byte-exact), so
+    a real request arriving for that same checkpoint mid-warm MISSES and rebuilds
+    from scratch. The exposure is bounded by the budget and by cancellation, and
+    it is why speculation is single-slot and retired the moment its reason goes
+    away. It cannot happen for the open-editor trigger — a prefix warm can only
+    take checkpoints at or before ``prefix_length``, and the tree's frontier is
+    past it — only for a travel stop the user had already visited.
+
     Returns 0 when nothing was cached (a failed tree, or cancelled before the
     first feature).
     """
+    target = len(request.features) if prefix_length is None else prefix_length
+    target = max(0, min(target, len(request.features)))
+    if target == 0:
+        return 0
     deadline = None if budget_s is None else time.monotonic() + budget_s
 
     def stop() -> bool:
@@ -3276,7 +3309,7 @@ def warm_rebuild_cache(
         capture_scope=_mirror_scope_ids(request),
         record_history=record_history,
     )
-    resume = _REBUILD_CACHE.take(keys)
+    resume = _REBUILD_CACHE.take(keys[: target + 1])
     start, checkpoint = resume if resume is not None else (0, None)
     if checkpoint is None:
         state = EvaluationState(
@@ -3292,8 +3325,25 @@ def warm_rebuild_cache(
         last_good = checkpoint.last_good_feature_id
         suppressed = set(checkpoint.suppressed_ids)
 
+    if start == target:
+        # Already cached at exactly the requested prefix — put it straight back
+        # (`take` REMOVED it) and do no kernel work. A re-declared editor open
+        # must not cost a rebuild, and must not leave the cache colder than it
+        # found it.
+        _REBUILD_CACHE.store(
+            keys[target],
+            _Checkpoint(
+                state=state,
+                results=results,
+                last_good_feature_id=last_good,
+                suppressed_ids=frozenset(suppressed),
+                artifacts=checkpoint.artifacts if checkpoint is not None else None,
+            ),
+        )
+        return target
+
     last_good, failed, consumed = _dispatch_prefix(
-        request.features[start:],
+        request.features[start:target],
         state,
         results,
         suppressed,

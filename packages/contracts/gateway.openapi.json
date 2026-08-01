@@ -7651,6 +7651,46 @@
         "title": "PointToPointMeasurement",
         "type": "object"
       },
+      "PrefetchRequest": {
+        "description": "Warm the rebuild cache for a part, addressed the way the CLIENT sees it.\n\nThe browser knows the intent and the feature id; it does not know (and must\nnot assemble) the evaluation-ready feature list \u2014 documents owns that,\nrollback bar and param upcasts included. So this carries the intent, and the\ngateway turns it into the geometry service's :class:`WarmTreeRequest` using\nthe SAME ``/evaluation-request`` hop a real evaluate uses, which is what\nmakes the warm land on the key the real evaluate will probe.\n\nBest-effort by construction: a target that is not in the current evaluation\nprefix (rolled back past, or already deleted) is a 200 with\n``accepted: false``, never an error \u2014 a prefetch that cannot be honoured just\nmeans the next rebuild is as slow as it always was.",
+        "properties": {
+          "feature_id": {
+            "description": "The feature the intent points at: the one whose editor is open, or the one the travel stop is being dropped after.",
+            "format": "uuid",
+            "title": "Feature Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "feature_edit",
+              "travel_stop"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "part_id": {
+            "description": "The part being edited or scrubbed.",
+            "format": "uuid",
+            "title": "Part Id",
+            "type": "string"
+          },
+          "ticket": {
+            "description": "Client-chosen identity of this intent (e.g. one per open editor). Namespaced per user by the gateway, so one client can never cancel another's speculation.",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Ticket",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticket",
+          "part_id",
+          "kind",
+          "feature_id"
+        ],
+        "title": "PrefetchRequest",
+        "type": "object"
+      },
       "ProjectedPoint": {
         "description": "A 2D point of a projected view edge, in view-plane mm at the view's scale.\n\nView-local millimetres (model-mm x the view scale, design \u00a79 q4) \u2014 NOT yet\nplaced at a sheet position (sheet layout is a later slice). A projected edge's\nendpoints, midpoint, centre, and polyline sample points are all this type.",
         "properties": {
@@ -10770,6 +10810,44 @@
         ],
         "title": "ViewUpdate",
         "type": "object"
+      },
+      "WarmCancelRequest": {
+        "description": "Retire a warm ticket. Idempotent, and never an error.",
+        "properties": {
+          "ticket": {
+            "description": "The ticket submitted to `POST /warm`. Unknown or already finished \u2192 `accepted: false`, which is a normal outcome, not a fault.",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Ticket",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticket"
+        ],
+        "title": "WarmCancelRequest",
+        "type": "object"
+      },
+      "WarmTreeResult": {
+        "description": "The reply to a warm \u2014 deliberately EMPTY of geometry.\n\nThere is no mesh id, no mass property, no feature status and no body here,\nand that is a structural guarantee rather than an omission: a speculative\nrebuild that could be published would eventually be published for a tree it\ndoes not exactly correspond to, which is the silent-wrong-geometry class this\nrepo has closed five times. A warm can only ever be *used* by a request whose\nfeature prefix hashes identically, through the ordinary cache key.\n\nSo the two fields say what happened to the SCHEDULING, and nothing else.",
+        "properties": {
+          "accepted": {
+            "description": "Whether this call changed the worker's speculation: true = queued (or, for /warm/cancel, a running ticket was retired); false = nothing to do \u2014 the same ticket was already in flight, the tree had no prefix worth warming, or the cancelled ticket had already finished. Never an error either way: prefetch is best-effort by construction.",
+            "title": "Accepted",
+            "type": "boolean"
+          },
+          "ticket": {
+            "description": "Echo of the submitted ticket.",
+            "title": "Ticket",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticket",
+          "accepted"
+        ],
+        "title": "WarmTreeResult",
+        "type": "object"
       }
     },
     "securitySchemes": {
@@ -13726,6 +13804,100 @@
           }
         ],
         "summary": "Overlay",
+        "tags": [
+          "geometry"
+        ]
+      }
+    },
+    "/api/v1/geometry/prefetch": {
+      "post": {
+        "description": "Speculatively warm the rebuild cache for one part (docs/PERF.md PERF-1b).\n\nThe client knows the INTENT \u2014 this editor is open, this travel stop is being\ndragged \u2014 and documents knows the evaluation-ready feature list. This route\nis where the two meet: it makes the same principal-scoped\n``/evaluation-request`` hop ``POST /parts/{id}/evaluate`` makes, so the warm\nlands on exactly the content-addressed key the later real evaluate probes,\nthen hands geometry a :class:`WarmTreeRequest` and returns immediately.\n\nThe two intents ask for different things, and the difference is not cosmetic:\n\n* ``feature_edit`` warms the features BEFORE the one being edited (the edit\n  cannot change their hashes), leaving the tree itself intact \u2014 so the commit\n  costs one feature's work instead of the whole tree, and the FIRST FACE PICK\n  after it resumes from the same point (the ``provenance`` lineage, which is\n  the 29 s the user actually sees on a 200-feature part);\n* ``travel_stop`` warms the SHORTER TREE the stop defines, because that is a\n  tree in its own right and hashes as one. Only backwards travel needs it:\n  rolling forward is an append, which the cache already serves.\n\nNothing here can produce geometry \u2014 the reply is a\n:class:`WarmTreeResult`, which carries a ticket and a boolean and cannot\ncarry a body. A target that is not in the current evaluation prefix is\n``accepted: false``, not an error.",
+        "operationId": "prefetch_api_v1_geometry_prefetch_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PrefetchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WarmTreeResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Prefetch",
+        "tags": [
+          "geometry"
+        ]
+      }
+    },
+    "/api/v1/geometry/prefetch/cancel": {
+      "post": {
+        "description": "Retire a warm ticket \u2014 the editor closed, or the drag ended.\n\nRequired, not optional (docs/PERF.md PERF-1b): prefetch hides latency, it\ndoes not reduce work, so speculation whose reason has gone away must stop.\nThe geometry worker acts on it within one feature's work. ``accepted:\nfalse`` means it had already finished \u2014 a normal outcome.",
+        "operationId": "prefetch_cancel_api_v1_geometry_prefetch_cancel_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WarmCancelRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WarmTreeResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Prefetch Cancel",
         "tags": [
           "geometry"
         ]

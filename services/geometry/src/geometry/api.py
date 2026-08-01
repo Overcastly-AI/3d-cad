@@ -36,6 +36,9 @@ from py_kit.schemas.features import (
     EvaluateTreeRequest,
     EvaluateTreeResult,
     ExportTreeRequest,
+    WarmCancelRequest,
+    WarmTreeRequest,
+    WarmTreeResult,
     export_tree_filename,
 )
 from py_kit.schemas.geometry import (
@@ -113,6 +116,7 @@ from geometry.sketch import (
     offset_sketch,
     trim_sketch,
 )
+from geometry.warm import warm_scheduler, warm_work
 
 router = APIRouter(prefix="/api/v1", tags=["geometry"])
 
@@ -170,6 +174,50 @@ def evaluate(request: EvaluateTreeRequest) -> EvaluateTreeResult:
     stays reserved for transport/validation failures of this call itself.
     """
     return evaluate_tree(request).result
+
+
+@router.post("/warm")
+def warm(request: WarmTreeRequest) -> WarmTreeResult:
+    """Speculatively cache a feature-tree prefix. **Publishes nothing.**
+
+    The prefetch route (docs/PERF.md PERF-1b). It returns as soon as the work is
+    QUEUED — the warm itself runs on the worker's single speculation thread — and
+    its reply carries no geometry at all (:class:`WarmTreeResult`), because the
+    one thing a speculative rebuild must never become is an answer. All it can do
+    is leave an evaluator checkpoint under the ordinary content-addressed key, so
+    a later *real* request that hashes to the identical prefix resumes there.
+
+    Why it is safe to spend CPU on a guess:
+
+    * **one warm per worker, ever** — :class:`~geometry.rebuild_cache.WarmScheduler`
+      holds a single slot, so speculation costs at most one core no matter how
+      many clients ask (the reason this is not "an evaluate nobody awaits", which
+      would scale the DoS with the client count);
+    * **a newer ticket supersedes an older one**, and ``POST /warm/cancel``
+      retires one outright — both observed between features, so a warm stops
+      within one OCCT call of the editor closing or the travel stop moving;
+    * **a spent budget just means a shorter prefix**, which is still a legitimate
+      resume point.
+
+    Always a 200 with ``accepted``; a warm has no failure mode a caller could act
+    on, since a miss is only ever slower.
+    """
+    accepted = warm_scheduler().submit(request.ticket, warm_work(request))
+    return WarmTreeResult(ticket=request.ticket, accepted=accepted)
+
+
+@router.post("/warm/cancel")
+def warm_cancel(request: WarmCancelRequest) -> WarmTreeResult:
+    """Retire a warm ticket (the editor closed, the drag ended, the tab left).
+
+    Prefetch hides latency; it does not reduce work — so the intent going away
+    must stop the speculation it funded rather than let it finish out of
+    politeness. ``accepted=false`` simply means it had already finished or was
+    never running.
+    """
+    return WarmTreeResult(
+        ticket=request.ticket, accepted=warm_scheduler().cancel(request.ticket)
+    )
 
 
 @router.post("/assembly/evaluate")

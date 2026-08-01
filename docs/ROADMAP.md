@@ -16,8 +16,10 @@ publishing it.
 Preceded today by a PERFORMANCE wave off the first big-part benchmark
 (`docs/PERF.md`): the wall was ~50 features and every route rebuilt the world,
 so an edit on a 200-feature part cost 27 s. Now 1.0 s, a repeat measure/export
-162 ms, and a 2 006-face STEP import 18.6 s → 3.5 s. Cold open is still ~26 s —
-the N^1.85 curve is untouched and needs incremental topology.
+162 ms, and a 2 006-face STEP import 18.6 s → 3.5 s. **PERF-1b (2026-08-01)**
+adds prefetch off an open editor / the travel stop, so a deep mid-tree edit is
+33.7 → 4.8 s and the first face pick after it 34.7 → 4.4 s. Cold open is still
+~26 s — the N^1.85 curve is untouched and needs incremental topology.
 
 **COMPLETE — FOUNDER-DIRECTED UI WAVE (2026-07-30/31)** — "this needs to look
 professional and comparable to Fusion 360 and Plasticity." All four of the
@@ -762,11 +764,22 @@ would have made `mesh_glb_id` depend on cache state. On the N=200 tray, adding a
 feature is **27 s → 1.0 s (26x)** and a repeat `/measure` `/tessellate` `/export`
 is **27 s → 0.16 s (164x)**; at N=100, 0.43 s and 0.06 s. The CM-6 validity gate
 is now proportional to the faces an op created (21.5 → 6.3 ms per feature, flat
-in body size). **The COLD rebuild is unchanged and the exponent is still
-`N^1.8`** — a first open of a 200-feature part still costs 26 s, and a mid-tree
-edit still misses (frontier-only checkpoints; PERF-1b filed with the prefetch
-seam that fixes it). So ❌ stands: the tool is now usable to KEEP modelling a big
-part, not yet to open one.
+in body size). **PERF-1b fixed 2026-08-01** (kernel-architect): the two cold
+cases left by the frontier-only cache — a mid-tree edit, and the first face pick
+after an edit (its own `record_history` lineage) — are now PREFETCHED off the two
+events that genuinely declare intent, an open feature editor and the timeline
+travel stop. Editing feature #192 of 200 is **33.7 → 4.8 s** to commit and
+**34.7 → 4.4 s** to the first pick; rolling the travel stop back to 100 features
+is **8.2 → 0.5 s (16x)**. A HALFWAY edit gains only ~25 %, which is the curve
+rather than the code — warming prefix k can remove at most `(k/N)^1.85` of a
+rebuild. Speculation is bounded by ONE warm thread per worker (the DoS bound, not
+the budget) and cancelled within one feature of the editor closing; it cannot
+publish, structurally — the reply is a ticket and a boolean, and the gate proves
+that after a warm the `mesh_glb_id` a real evaluate publishes does not resolve.
+**The COLD rebuild is still unchanged and the exponent is still
+`N^1.8`** — a first open of a 200-feature part still costs 26 s, and prefetch
+hides latency without bending the curve. So ❌ stands: the tool is now usable to
+KEEP modelling a big part, not yet to open one.
 
 Phase 2 (parametric core)
 **converged 2026-07-15**: Sketching and Part modeling both flipped their
