@@ -181,25 +181,23 @@ jobs:
         # and every job still reports success — the same "gate that quietly
         # stopped covering" shape, arriving by accident rather than by design.
         #
-        # --retries=1 is a deliberate, disclosed compromise, not a softened
-        # gate. A deterministic defect — which is what this gate exists for,
-        # and what a stale assertion is — fails both attempts and still goes
-        # red. What a retry hides is a RACY SPEC, and the measured suite has at
-        # least one: view-fit.spec.ts:309 sleeps a fixed 900 ms after collapsing
-        # a panel and then makes a NUMERIC assertion, which (unlike a locator
-        # assertion) does not auto-retry, so it reads the pre-collapse width
-        # under load. Measured at 60a9553: failed once and passed once on
-        # identical code in a quiet window. Without retries this gate would be
-        # red for reasons unrelated to the commit, and a gate people learn to
-        # re-run is worse than no gate. Retried tests are never swept under the
-        # rug: the reconcile job NAMES every one as a warning, and flipping
-        # `--fail-on-flaky` there makes them fatal the day the racy waits are
-        # gone (docs/BACKLOG.md GATE-1a, which carries the one-line fix).
+        # NO --retries (GATE-1a, closed 2026-08-01). The gate shipped with
+        # `--retries=1` and one disclosed reason for it: view-fit.spec.ts slept
+        # a fixed 900 ms after collapsing a panel and then asserted on a NUMBER,
+        # and a numeric assertion does not auto-retry the way a locator
+        # assertion does, so under load it read the pre-collapse width. That
+        # spec now waits for the camera rig's own settle stamp, and the two
+        # other specs that sampled canvas pixels after a fixed sleep wait for
+        # real PAINTS (`waitForFrames`) instead of wall-clock time. A retry is
+        # therefore a defect again rather than an allowance — which is the
+        # point: a gate people learn to re-run is worse than no gate, and
+        # `--retries=1` is where that habit starts. `--fail-on-flaky` below
+        # makes the reconcile job FAIL on a test that passed only on retry, so
+        # if a retry is ever reintroduced it cannot pass silently.
         run: >-
           scripts/e2e.sh --web-only --
           --shard=${{ matrix.shard }}/4
           --forbid-only
-          --retries=1
       # A CI job that dirties the working tree is a defect in its own right,
       # and the specific thing being guarded is the ~90 committed founder
       # screenshots: if the UPDATE_SCREENSHOTS gate ever regresses, every e2e
@@ -278,12 +276,19 @@ jobs:
       # this step reports as a coverage hole) still reaches the verdict step
       # below with its real reason. The outcome is not discarded — the verdict
       # fails on it.
+      # --fail-on-flaky: the shards run with NO retries (GATE-1a), so a test
+      # reported as "flaky" — passed only on a retry — can now only mean
+      # someone put retries back. Warning about it would let the gate decay
+      # into "e2e is a bit flaky, re-run it", which is the habit this gate
+      # exists to prevent; failing on it keeps the no-retry posture enforced by
+      # the workflow rather than by memory.
       - name: Every discovered test must have been executed exactly once
         id: audit
         continue-on-error: true
         run: |
           python3 scripts/e2e-shard-audit.py \
             --discovered discovered.json \
+            --fail-on-flaky \
             shard-reports/playwright-shard-*.json
       - name: Verdict
         run: |

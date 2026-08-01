@@ -93,14 +93,33 @@ and fails unless the shards ran it exactly once between them
 commits (30 % of the last 100 — `paths-ignore`, so no run at all), the browser
 against Postgres (native SQLite boot here; `deploy-path.yml` drives the real
 Postgres round-trip on every push), and non-Chromium browsers. One disclosed
-compromise: `--retries=1`, because the full-suite measurement found a racy spec
-(GATE-1a — a fixed sleep before a non-retrying assertion); retried tests are
-named as warnings every run, never swallowed. Proven by deliberate failure, not
+compromise, **closed the same day — see GATE-1a below**: `--retries=1`, because
+the full-suite measurement found a racy spec (a fixed sleep before a
+non-retrying assertion). Proven by deliberate failure, not
 by assertion — see BACKLOG GATE-1 for the red/green pair, on which `ci.yml`
 stayed green while `e2e` went red. The first attempt at that proof failed
 honestly: every run went red on a Vite that bound `::1` while the suite asked
 for `127.0.0.1` (invisible here — this container has no IPv6 loopback), so the
 negative control was red for the wrong reason and was not accepted as evidence.
+
+**GATE-1a CLOSED 2026-08-01 (frontend-builder) — the browser gate holds with no
+safety net.** `--retries=1` is gone from `.github/workflows/e2e.yml` and
+`--fail-on-flaky` is passed to the reconcile audit, so a test that passes only
+on retry now FAILS the gate. The one racy spec is fixed at the seam rather than
+papered over: `view-fit.spec.ts` slept a fixed 900 ms after collapsing a panel
+and then asserted on a NUMBER — and a numeric `expect` does not auto-retry the
+way a locator assertion does — so it now blanks the camera rig's `data-fit-rect`
+stamp and waits for the rig to write a fresh one (`onSettle`, i.e. the real
+event). Measured, not asserted: with four CPU burners on a 4-core box (load
+avg ~8), the OLD shape failed **1 of 10** repeats and the new one passed
+**10/10**, in the same window. The suite was then audited for the same shape —
+17 fixed sleeps, 4 of them gating a non-retrying assertion: the raster compare
+in `viewport-gestures` is now an `expect.poll`, and the pixel-census helpers in
+`part-visibility` / `assembly-visibility` wait for real PAINTS
+(`support.ts waitForFrames` — rAF ticks, which only happen when the browser
+actually draws) instead of 400/450 ms of wall clock. The rest are screenshot
+settles or absence assertions, where a sleep is the right tool. 30 specs
+re-run green under the same load.
 
 **COMPLETE — FOUNDER-DIRECTED UI WAVE (2026-07-30/31)** — "this needs to look
 professional and comparable to Fusion 360 and Plasticity." All four of the

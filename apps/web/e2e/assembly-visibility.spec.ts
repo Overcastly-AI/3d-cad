@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "./fixtures";
 
 import { setupTwoInstances, waitForSolved } from "./assemblyFlow";
-import { SCREENSHOT_DIR } from "./support";
+import { SCREENSHOT_DIR, waitForFrames } from "./support";
 
 /**
  * UI-W2 — per-instance visibility / opacity / isolate in the ASSEMBLY
@@ -59,9 +59,17 @@ async function canvasBands(page: Page): Promise<Bands> {
   });
 }
 
-/** Settle the on-demand render loop before sampling the drawing buffer. */
+/**
+ * Settle the on-demand render loop before sampling the drawing buffer: wait
+ * for real PAINTS (`waitForFrames`), not for 400 ms of wall clock, which under
+ * load can pass with nothing drawn — the sample would then be the pre-change
+ * frame and the numeric assertion below has no auto-retry to save it
+ * (docs/BACKLOG.md GATE-1a). Every call here follows a locator assertion that
+ * the state change has already committed, so what remains to wait for is the
+ * frame, which is exactly what this waits for.
+ */
 async function settledBands(page: Page): Promise<Bands> {
-  await page.waitForTimeout(400);
+  await waitForFrames(page);
   return canvasBands(page);
 }
 

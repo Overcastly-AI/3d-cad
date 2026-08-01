@@ -243,6 +243,35 @@ async function fitRect(page: Page): Promise<Box> {
   };
 }
 
+/**
+ * Blank the settle stamp, then run `move` and wait for the rig to write a
+ * FRESH one — the camera's own signal that its ease has landed, rather than a
+ * stopwatch guess at how long the ease takes.
+ *
+ * Why this shape (docs/BACKLOG.md GATE-1a): every assertion in this file is
+ * NUMERIC, and a numeric `expect` does not auto-retry the way a locator
+ * assertion does. A `waitForTimeout(900)` before one therefore has to be right
+ * on a loaded box every single time or the test reports a defect that is not
+ * there — which is exactly what happened, and what made the CI browser gate
+ * ship with `--retries=1`. `data-fit-rect` is written from `CameraRig`'s
+ * `onSettle` (viewport/Viewport.tsx), which fires when the tween reaches its
+ * goal, so waiting for it to reappear is the real event, arrives as soon as it
+ * has happened, and cannot pass early under load.
+ */
+async function afterCameraSettles(
+  page: Page,
+  move: () => Promise<void>,
+): Promise<void> {
+  const viewport = page.getByTestId("viewport");
+  await viewport.evaluate((node) => {
+    node.dataset["fitRect"] = "";
+  });
+  await move();
+  await expect(viewport).not.toHaveAttribute("data-fit-rect", "", {
+    timeout: 20_000,
+  });
+}
+
 /** Seed a part of the given extents, open it, fit it. */
 async function fitPart(
   page: Page,
@@ -261,8 +290,7 @@ async function fitPart(
     /[1-9]/,
     { timeout: 30_000 },
   );
-  await page.getByTestId("view-fit").click();
-  await page.waitForTimeout(900);
+  await afterCameraSettles(page, () => page.getByTestId("view-fit").click());
 }
 
 test.describe("view fit frames the UNOBSTRUCTED viewport", () => {
@@ -311,8 +339,11 @@ test.describe("view fit frames the UNOBSTRUCTED viewport", () => {
     await fitPart(page, "Enclosure", [120, 80, 40]);
     const before = await fitRect(page);
 
-    await page.getByTestId("panel-collapse-tree").click();
-    await page.waitForTimeout(900);
+    // The collapse announces itself to the viewport, which re-fits and stamps
+    // a fresh rect when the move lands — wait for THAT, not for a duration.
+    await afterCameraSettles(page, () =>
+      page.getByTestId("panel-collapse-tree").click(),
+    );
     const after = await fitRect(page);
     expect(after.right - after.left).toBeGreaterThan(
       before.right - before.left,

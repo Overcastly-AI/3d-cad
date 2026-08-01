@@ -1715,26 +1715,33 @@ frame refactor are v2/§11. Spike de-collected.
       ever wrong again, the log says so in one line rather than costing a round
       trip.
       [src: batch-end e2e 2026-08-01]
-- [ ] (P2, XS) **GATE-1a — one racy spec is the only reason the new browser gate
-      runs with `--retries=1`** (frontend or QA). Found while measuring the full
-      suite for GATE-1: `apps/web/e2e/view-fit.spec.ts:309` ("collapsing a panel
-      gives the space back") does `page.waitForTimeout(900)` after clicking
-      `panel-collapse-tree` and then asserts on a NUMBER — and a numeric
-      `expect(...).toBeGreaterThan(...)` does not auto-retry the way a locator
-      assertion does, so under load it reads the pre-collapse width and reports
-      `Expected: > 728, Received: 728`, i.e. the collapse simply had not landed
-      yet. Not a product defect: it failed once and passed once on identical
-      code in a quiet window at `60a9553`. Fix is one seam —
-      `await expect.poll(async () => (await fitRect(page)).right - ...)
-      .toBeGreaterThan(before…)` — which waits for the real signal instead of
-      guessing 900 ms; then audit the suite for other fixed `waitForTimeout`
-      followed by a non-retrying assertion, since this shape is invisible until
-      it is the only thing standing between the team and a trustworthy gate.
-      Acceptance: the spec passes 10/10 under `--repeat-each` on a loaded box,
-      no fixed sleep gating an assertion, and `.github/workflows/e2e.yml` drops
-      `--retries=1` while `scripts/e2e-shard-audit.py` gains `--fail-on-flaky`
-      in the reconcile job — so a retry becomes a red build again.
-      [src: GATE-1 full-suite measurement 2026-08-01]
+- [x] (P2, XS) **GATE-1a — the browser gate no longer needs `--retries=1`.
+      SHIPPED 2026-08-01** (frontend-builder). `--retries=1` is out of
+      `.github/workflows/e2e.yml` and `--fail-on-flaky` is passed to the reconcile
+      audit, so a retried pass is a red build again. The fix is the rig's own
+      signal rather than the suggested poll-the-width (which would have retried
+      the assertion but still guessed at the settle): the spec blanks
+      `data-fit-rect` and waits for `CameraRig`'s `onSettle` to write a fresh one,
+      so it returns as soon as the move lands and cannot pass early. Measured
+      both ways under four CPU burners on 4 cores (load avg ~8): the OLD shape
+      failed **1/10** repeats, the new one passed **10/10** in the same window —
+      the negative control matters, since "10/10 under load" is worthless if the
+      load was too light to expose the race. Suite audit: 17 `waitForTimeout`s,
+      4 gating a non-retrying assertion — `viewport-gestures`' raster compare is
+      now an `expect.poll`; `part-visibility` / `assembly-visibility` sample
+      after real PAINTS (`support.ts waitForFrames`, rAF ticks, which stop when
+      the browser stops drawing) instead of 400/450 ms of wall clock. The other
+      13 are screenshot settles or absence assertions, where a sleep is correct;
+      `viewport-makeover:373` is named explicitly — it sleeps to prove the camera
+      did NOT move, so a slow box can only make it pass, never fail. 30 specs
+      re-run green under the same load. Residual, filed rather than hidden: the
+      `--fail-on-flaky` help text in `scripts/e2e-shard-audit.py` still says the
+      flag is "off while the known racy specs are being hardened" (platform
+      territory, one line). The shape this closes, for whoever hits it next: a
+      fixed sleep is only ever safe before a LOCATOR assertion, which retries
+      itself; before a numeric one it IS the gate, and it has to be right every
+      time on a machine you do not control. [src: GATE-1 full-suite measurement
+      2026-08-01]
 - [x] (P2, S) **PERF-1c — the prefetch headline is the BEST case, and we do not
       know the typical one** (kernel + QA). PERF-1b's table is measured with the
       warm run to COMPLETION: the 7.0x commit / 7.9x pick at N=200 `#192` assume

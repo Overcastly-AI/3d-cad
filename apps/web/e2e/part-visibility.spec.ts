@@ -1,7 +1,12 @@
 import { expect, test, type Page } from "./fixtures";
 
 import { seedCube } from "./partSeed";
-import { createPartViaApi, SCREENSHOT_DIR, seedSession } from "./support";
+import {
+  createPartViaApi,
+  SCREENSHOT_DIR,
+  seedSession,
+  waitForFrames,
+} from "./support";
 
 /**
  * UI-W2 — the PART half: Origin / Sketches / Bodies view control (founder:
@@ -127,9 +132,17 @@ async function scribeInkPixels(page: Page): Promise<number> {
   });
 }
 
-/** Settle the on-demand render loop before sampling the drawing buffer. */
+/**
+ * Settle the on-demand render loop before sampling the drawing buffer: wait
+ * for real PAINTS (`waitForFrames`), not for 450 ms of wall clock, which under
+ * load can pass with nothing drawn — the sample would then be the pre-change
+ * frame and the numeric assertions below have no auto-retry to save them
+ * (docs/BACKLOG.md GATE-1a). Every call here follows a locator assertion that
+ * the state change has already committed, so what remains to wait for is the
+ * frame, which is exactly what this waits for.
+ */
 async function settled<T>(page: Page, probe: () => Promise<T>): Promise<T> {
-  await page.waitForTimeout(450);
+  await waitForFrames(page);
   return probe();
 }
 

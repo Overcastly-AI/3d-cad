@@ -195,6 +195,35 @@ export async function countSketchInkPixels(page: Page): Promise<number> {
   });
 }
 
+/**
+ * Wait for the page to actually PAINT `frames` times before sampling the
+ * drawing buffer — the render loop's own clock, not the wall clock.
+ *
+ * The specs that census canvas pixels assert on NUMBERS, and a numeric
+ * `expect` does not auto-retry the way a locator assertion does (GATE-1a), so
+ * whatever they wait on has to be right first time. `waitForTimeout(400)` is
+ * the wrong quantity for that job: under CPU contention — four agents, or a CI
+ * shard — 400 ms of wall clock can pass with no rendering opportunity at all,
+ * which is precisely the load where the sample is taken early. `rAF` callbacks
+ * fire on rendering opportunities, so counting them waits for the work rather
+ * than for time, and returns as soon as it has happened.
+ *
+ * The timeout race is a safety valve, not the mechanism: a page that somehow
+ * stops painting resolves late instead of hanging until the test timeout.
+ */
+export async function waitForFrames(page: Page, frames = 4): Promise<void> {
+  await page.evaluate(async (count: number) => {
+    await Promise.race([
+      (async () => {
+        for (let i = 0; i < count; i += 1) {
+          await new Promise((resolve) => requestAnimationFrame(resolve));
+        }
+      })(),
+      new Promise((resolve) => setTimeout(resolve, 2000)),
+    ]);
+  }, frames);
+}
+
 /** Count distinct colors on the WebGL canvas — proves a real render. */
 export async function distinctCanvasColors(page: Page): Promise<number> {
   return page.evaluate(() => {
