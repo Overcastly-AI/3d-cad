@@ -43,6 +43,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from documents.db import Assembly, Drawing, Feature, Instance, Part, Sheet, View
+from documents.filing import resolve_destination
 
 _logger = get_logger("documents.parts")
 
@@ -316,8 +317,20 @@ async def evaluated_scope(session: AsyncSession, part: Part) -> PartEvalScope:
 async def create_part(
     request: PartCreate, owner_id: Principal, session: SessionDep
 ) -> PartResponse:
-    """Create a part (201; envelope 409 on a duplicate name for this owner)."""
-    part = Part(owner_id=owner_id, name=request.name, length_unit=request.length_unit)
+    """Create a part (201; 409 on a duplicate name IN ITS FOLDER).
+
+    ``folder_id`` files it on creation (#WS2) — one call, so a create-then-move
+    pair can never fail between the two and leave the part somewhere the user
+    did not put it. The destination is validated by the SAME rule the move route
+    applies (:func:`documents.filing.resolve_destination`).
+    """
+    await resolve_destination(session, owner_id, request.folder_id, "part")
+    part = Part(
+        owner_id=owner_id,
+        name=request.name,
+        folder_id=request.folder_id,
+        length_unit=request.length_unit,
+    )
     session.add(part)
     try:
         await session.commit()

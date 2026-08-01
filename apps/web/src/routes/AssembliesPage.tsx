@@ -3,10 +3,12 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 
 import {
+  type AssemblyResponse,
   createAssembly,
   deleteAssembly,
   duplicateAssembly,
   fetchAssemblies,
+  moveAssembly,
   renameAssembly,
 } from "../api/assemblies";
 import {
@@ -15,6 +17,7 @@ import {
 } from "../components/DocumentRegister";
 import { SheetGrid } from "../components/SheetGrid";
 import { TopBar } from "../components/TopBar";
+import { useRegisterFiling } from "../components/useRegisterFiling";
 import { WorkspaceNav } from "../components/WorkspaceNav";
 import { usePreferencesStore } from "../settings/preferences";
 
@@ -55,6 +58,12 @@ export function AssembliesPage() {
     queryFn: () => fetchAssemblies(),
     staleTime: 30_000,
   });
+  // Filing (#WS2) — see PartsPage; the wiring is shared, not repeated.
+  const filing = useRegisterFiling<AssemblyResponse>(
+    "assembly",
+    "assemblies",
+    moveAssembly,
+  );
 
   return (
     <div className="flex h-full flex-col">
@@ -86,8 +95,9 @@ export function AssembliesPage() {
                 {assembly.name}
               </Link>
             )}
-            onCreate={async (name) => {
-              await createAssembly(name, newDocumentUnit);
+            filing={filing}
+            onCreate={async (name, folderId) => {
+              await createAssembly(name, newDocumentUnit, folderId);
               await queryClient.invalidateQueries({ queryKey: ["assemblies"] });
             }}
             onRename={async (assembly, name) => {

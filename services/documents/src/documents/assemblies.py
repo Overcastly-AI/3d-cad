@@ -62,6 +62,7 @@ from documents.assembly_history import (
     ordered_mates,
 )
 from documents.features import evaluation_prefix, part_materials
+from documents.filing import resolve_destination
 from documents.history_core import Direction
 from documents.parts import (
     Principal,
@@ -366,9 +367,17 @@ async def build_evaluate_assembly_request(
 async def create_assembly(
     request: AssemblyCreate, owner_id: Principal, session: SessionDep
 ) -> AssemblyResponse:
-    """Create an assembly (201; envelope 409 on a duplicate name for this owner)."""
+    """Create an assembly (201; 409 on a duplicate name IN ITS FOLDER).
+
+    ``folder_id`` files it on creation (#WS2) — see :func:`documents.parts.
+    create_part` for why filing is part of the create rather than a second call.
+    """
+    await resolve_destination(session, owner_id, request.folder_id, "assembly")
     assembly = db.Assembly(
-        owner_id=owner_id, name=request.name, length_unit=request.length_unit
+        owner_id=owner_id,
+        name=request.name,
+        folder_id=request.folder_id,
+        length_unit=request.length_unit,
     )
     session.add(assembly)
     try:
@@ -1030,8 +1039,11 @@ async def _restore_history_step(
             await session.commit()
         except IntegrityError:
             await session.rollback()
-            # Assumption (reviewed 2026-07-18): the only constraint a restore
-            # can violate at flush/commit is uq_assemblies_owner_name —
+            # Assumption (reviewed 2026-07-18; re-checked at #WS2): the only
+            # constraint a restore can violate at flush/commit is the assembly
+            # name's uniqueness — now the per-folder pair
+            # (uq_assemblies_folder_name / uq_assemblies_unfiled_name), which
+            # narrows what can collide rather than widening it —
             # instances/mates were bulk-replaced with internally-consistent
             # snapshot rows and cross-document refs are checked by the
             # integrity pass above. Revisit if the snapshot state ever grows

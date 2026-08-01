@@ -125,14 +125,28 @@ async def _taken_names(
     session: AsyncSession,
     model: type[Part] | type[Assembly] | type[Drawing],
     owner_id: uuid.UUID,
+    folder_id: uuid.UUID | None,
 ) -> set[str]:
-    """Every name this owner already used for that document kind.
+    """Every name already used IN THE FOLDER the copy will land in.
 
-    Read inside the same transaction as the insert; the per-owner unique index
-    is still the authority, so a concurrent duplicate of the same document
-    surfaces as the usual 409 rather than silently taking a name.
+    Folder-scoped since #WS2, because uniqueness is (documents/db.py). Scoping
+    it to the owner instead would still produce a legal name, but a needlessly
+    ugly one: duplicating "Bracket" in one folder would come back "Bracket copy
+    2" because an unrelated folder happens to hold a "Bracket copy". A user who
+    can see both names and neither collision would read that as a bug.
+
+    Read inside the same transaction as the insert; the partial unique indexes
+    are still the authority, so a concurrent duplicate surfaces as the usual 409
+    rather than silently taking a name.
     """
-    rows = await session.execute(select(model.name).where(model.owner_id == owner_id))
+    rows = await session.execute(
+        select(model.name).where(
+            model.owner_id == owner_id,
+            model.folder_id.is_(None)
+            if folder_id is None
+            else model.folder_id == folder_id,
+        )
+    )
     return set(rows.scalars())
 
 
@@ -147,9 +161,13 @@ async def duplicate_part(
     version, a branch or a link, and nothing about it stays tied to the source.
     """
     source = await get_owned_part(session, owner_id, part_id)
-    taken = await _taken_names(session, Part, owner_id)
+    taken = await _taken_names(session, Part, owner_id, source.folder_id)
     copy = Part(
         owner_id=owner_id,
+        # A copy is filed WHERE ITS SOURCE IS (#WS2): you duplicate a part to
+        # compare two variants, and a copy that landed at the root would put the
+        # two of them in different drawers of the same cabinet.
+        folder_id=source.folder_id,
         name=copy_name(source.name, taken, max_length=PART_NAME_MAX_LENGTH),
         length_unit=source.length_unit,
         materials=source.materials,
@@ -238,9 +256,10 @@ async def duplicate_assembly(
     docstring.
     """
     source = await get_owned_assembly(session, owner_id, assembly_id)
-    taken = await _taken_names(session, Assembly, owner_id)
+    taken = await _taken_names(session, Assembly, owner_id, source.folder_id)
     copy = Assembly(
         owner_id=owner_id,
+        folder_id=source.folder_id,  # filed where its source is (see the part)
         name=copy_name(source.name, taken, max_length=ASSEMBLY_NAME_MAX_LENGTH),
         length_unit=source.length_unit,
     )
@@ -323,9 +342,10 @@ async def duplicate_drawing(
     like an instance. See the module docstring.
     """
     source = await get_owned_drawing(session, owner_id, drawing_id)
-    taken = await _taken_names(session, Drawing, owner_id)
+    taken = await _taken_names(session, Drawing, owner_id, source.folder_id)
     copy = Drawing(
         owner_id=owner_id,
+        folder_id=source.folder_id,  # filed where its source is (see the part)
         name=copy_name(source.name, taken, max_length=DRAWING_NAME_MAX_LENGTH),
     )
     session.add(copy)

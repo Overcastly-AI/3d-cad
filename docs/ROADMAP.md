@@ -104,6 +104,30 @@ history or a rebuild verdict it never earned), and DELETE with the existing
 refusal you cannot act on is not a refusal. FOLDERS were deliberately NOT shipped
 and the surface does not pretend otherwise (filed #WS2). Shots
 `docs/screenshots/workspace-register-*.png`.
+**FOLDERS (#WS2) SHIPPED 2026-08-01** (frontend-builder) — the workspace row is
+closed, and the rail is backed by a real documents-side tree rather than drawn in
+front of nothing. Four decisions, stated in `py_kit/schemas/folders.py`: folders
+are PER-DRAWER (the registers are per-kind surfaces, so a shared tree would show
+folders holding nothing in the drawer you are looking at); "UNFILED" is a real
+state, not a synthetic root, so every existing document stays reachable with no
+backfill; names are unique PER FOLDER via a pair of PARTIAL unique indexes
+(a plain composite UNIQUE would have silently permitted two *unfiled* "Bracket"s,
+because SQL treats NULLs as distinct — that hole is the one the migration test
+asserts against); and deleting a non-empty folder is REFUSED, naming what is
+inside, which is the same 409 grammar the document delete already speaks — never
+a cascade, never a silent orphan-to-root. On screen a folder is a DIVIDER in the
+log book, not a sidebar (tab glyph in the scribed gutter, breadcrumb as the
+title, no rail — a rail would duplicate navigation the dividers already give);
+the filter searches the WHOLE drawer and labels each hit with where it lives, so
+filing can never lose a document; MOVE is a keyboard-first verb (drag filed as
+#WS3, additive). **Two long-standing honesty gaps closed in the same slice: F3**
+— deleting a feature now says WHO breaks, by name, before you commit (a new
+dependents route answered by the SAME query the delete's 409 is built from, so
+the warning and the refusal cannot disagree) — and **F4**, a `?` KEY CARD that is
+DERIVED from the tables the handlers index rather than hand-typed, with the one
+binding whose handler lives outside this slice pinned by a behavioural test.
+Shots `docs/screenshots/{workspace-folders-*,shortcut-sheet-*,
+feature-delete-dependents-1440}.png`.
 **#57 material/density — the KERNEL + WIRE half SHIPPED 2026-07-30**
 (kernel-architect; design `docs/design/materials.md`, decision record RESEARCH
 §9a). MASS PROPERTIES could not report mass because nothing in the codebase had

@@ -5,7 +5,9 @@ tree (:mod:`documents.features`, per docs/design/feature-tree.md), assembly
 CRUD (:mod:`documents.assemblies`, per docs/design/assemblies.md — a graph of
 instances + mates), and drawing CRUD (:mod:`documents.drawings`, per
 docs/design/drawings.md — a layout of sheets/views/dimensions/annotations),
-plus the static material library (:mod:`documents.materials`, per
+folder filing (:mod:`documents.folders`, per py_kit.schemas.folders — a
+per-drawer tree plus the document MOVE routes), plus the static material
+library (:mod:`documents.materials`, per
 docs/design/materials.md — densities served so nothing hardcodes one),
 backed by Postgres via the shared :mod:`py_kit.db` plumbing with the schema
 owned by ``services/documents/alembic``. This service never imports kernel
@@ -27,6 +29,10 @@ from documents.duplicate import assemblies_router as duplicate_assemblies_router
 from documents.duplicate import drawings_router as duplicate_drawings_router
 from documents.duplicate import parts_router as duplicate_parts_router
 from documents.features import router as features_router
+from documents.folders import assemblies_router as folder_assemblies_router
+from documents.folders import drawings_router as folder_drawings_router
+from documents.folders import parts_router as folder_parts_router
+from documents.folders import router as folders_router
 from documents.materials import router as materials_router
 from documents.parts import router as parts_router
 from documents.step_import import router as step_import_router
@@ -93,6 +99,13 @@ def build_app(settings: DocumentsSettings | None = None) -> FastAPI:
     app.include_router(duplicate_parts_router)
     app.include_router(duplicate_assemblies_router)
     app.include_router(duplicate_drawings_router)
+    # Filing (:mod:`documents.folders`) — the folder tree plus the three
+    # document MOVE routes, one implementation behind three registrations for
+    # the same reason ``duplicate`` is one module.
+    app.include_router(folders_router)
+    app.include_router(folder_parts_router)
+    app.include_router(folder_assemblies_router)
+    app.include_router(folder_drawings_router)
     return app
 
 

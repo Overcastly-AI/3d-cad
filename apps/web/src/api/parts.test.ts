@@ -121,20 +121,24 @@ describe("createPart", () => {
         posted.push(init.body);
         return Promise.resolve({ data: samplePart, error: undefined });
       },
-    } as unknown as Parameters<typeof createPart>[2];
-    await createPart("Inch part", "in", client);
-    await createPart("Default part", undefined, client);
+    } as unknown as Parameters<typeof createPart>[3];
+    await createPart("Inch part", "in", null, client);
+    await createPart("Default part", undefined, null, client);
+    // ...and the folder the register was standing in rides the SAME call
+    // (#WS2): a create-then-move pair could fail between the two.
+    await createPart("Filed part", "mm", "folder-1", client);
     expect(posted).toEqual([
-      { name: "Inch part", length_unit: "in" },
-      { name: "Default part", length_unit: "mm" },
+      { name: "Inch part", length_unit: "in", folder_id: null },
+      { name: "Default part", length_unit: "mm", folder_id: null },
+      { name: "Filed part", length_unit: "mm", folder_id: "folder-1" },
     ]);
   });
 
   it("returns the created part on 201", async () => {
     const client = clientReturning(json(samplePart, 201));
-    await expect(createPart("Bracket plate", "mm", client)).resolves.toEqual(
-      samplePart,
-    );
+    await expect(
+      createPart("Bracket plate", "mm", null, client),
+    ).resolves.toEqual(samplePart);
   });
 
   it("throws a typed PartNameTakenError on a 409 duplicate name", async () => {
@@ -149,7 +153,7 @@ describe("createPart", () => {
         409,
       ),
     );
-    const error = await createPart("Bracket plate", "mm", client).catch(
+    const error = await createPart("Bracket plate", "mm", null, client).catch(
       (e: unknown) => e,
     );
     expect(error).toBeInstanceOf(PartNameTakenError);
@@ -163,7 +167,9 @@ describe("createPart", () => {
     const client = clientReturning(
       json({ error: { code: "boom", message: "server exploded" } }, 500),
     );
-    const error = await createPart("X", "mm", client).catch((e: unknown) => e);
+    const error = await createPart("X", "mm", null, client).catch(
+      (e: unknown) => e,
+    );
     expect(error).toBeInstanceOf(Error);
     expect(error).not.toBeInstanceOf(PartNameTakenError);
     expect((error as Error).message).toMatch(/server exploded/);

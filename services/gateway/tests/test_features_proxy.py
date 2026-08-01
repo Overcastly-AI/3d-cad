@@ -365,9 +365,52 @@ def test_undo_stale_version_envelope_is_resurfaced(db_url: str) -> None:
     assert error["details"] == {"provided": 1, "current": 3}
 
 
+def test_feature_dependents_precheck_is_forwarded(
+    db_url: str, seen: list[httpx.Request]
+) -> None:
+    """The BEFORE half of UI-REVIEW F3: the tree can ask what breaks.
+
+    A read, answered by the same documents-side query the delete's 409 uses, so
+    the confirmation the user reads names what the refusal would have named.
+    """
+    dependents = {
+        "dependents": [
+            {"id": str(uuid.uuid4()), "name": "Extrude1", "kind": "feature"},
+            {"id": str(uuid.uuid4()), "name": "Assembly sheet", "kind": "drawing"},
+        ]
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json=dependents)
+
+    with make_client(db_url, handler) as client:
+        _, bearer = _register(client)
+        response = client.get(
+            f"/api/v1/parts/{PART}/features/{FEATURE}/dependents", headers=bearer
+        )
+
+    assert response.status_code == 200
+    assert response.json() == dependents
+    assert seen[-1].url.path == f"/api/v1/parts/{PART}/features/{FEATURE}/dependents"
+
+
+def test_feature_dependents_precheck_requires_auth(
+    db_url: str, seen: list[httpx.Request]
+) -> None:
+    with make_client(db_url, _echo_documents(seen)) as client:
+        response = client.get(f"/api/v1/parts/{PART}/features/{FEATURE}/dependents")
+    assert response.status_code == 401
+    assert seen == []
+
+
 def test_dependents_conflict_envelope_is_resurfaced(db_url: str) -> None:
-    """The 409-with-dependents from documents passes through verbatim."""
-    dependents = [{"id": str(uuid.uuid4()), "name": "Extrude1"}]
+    """The 409-with-dependents from documents passes through verbatim.
+
+    Entries carry their KIND since F3 — the typed DTO — so the tree can say
+    "Extrude1 (feature)" and a drawing dependent reads the same way.
+    """
+    dependents = [{"id": str(uuid.uuid4()), "name": "Extrude1", "kind": "feature"}]
 
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(

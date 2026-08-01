@@ -25,7 +25,7 @@ neither delay nor fail the evaluate.
 """
 
 import uuid
-from typing import Annotated
+from typing import Annotated, Any
 
 import httpx2 as httpx
 from fastapi import APIRouter, BackgroundTasks, Query, Request, Response, status
@@ -35,6 +35,8 @@ from py_kit.schemas.features import (
     EvaluateTreeResult,
     ExportTreeRequest,
     FeatureCreate,
+    FeatureDependents,
+    FeatureDependentsEnvelope,
     FeatureMutationResponse,
     FeatureReorderRequest,
     FeatureResponse,
@@ -60,6 +62,24 @@ _SERVICE = "Documents"
 
 #: The geometry hop of the evaluate aggregation (error surfaces name it).
 _GEOMETRY = "Geometry"
+
+#: The documented 409 of the feature delete. Declaring the model is what makes
+#: the refusal ACTIONABLE end to end: it puts
+#: :class:`~py_kit.schemas.features.FeatureDependents` in the OpenAPI contract
+#: and therefore in the generated TS client, so the feature tree names the
+#: features and drawings that hold the reference instead of printing "2 other
+#: document(s)" (UI-REVIEW 2026-07-30 F3). Same shape as the document-level
+#: ``DEPENDENCY_CONFLICT_RESPONSE`` in :mod:`gateway.parts` — one refusal
+#: grammar at both levels of the product.
+FEATURE_DEPENDENTS_RESPONSE: dict[int | str, dict[str, Any]] = {
+    status.HTTP_409_CONFLICT: {
+        "model": FeatureDependentsEnvelope,
+        "description": (
+            "Still referenced by later features or drawing views; "
+            "`details.dependents` names them."
+        ),
+    }
+}
 
 router = APIRouter(prefix="/api/v1/parts", tags=["features"])
 
@@ -161,7 +181,34 @@ async def suppress_feature(
     return FeatureMutationResponse.model_validate_json(upstream.content)
 
 
-@router.delete("/{part_id}/features/{feature_id}")
+@router.get("/{part_id}/features/{feature_id}/dependents")
+async def feature_dependents(
+    part_id: uuid.UUID,
+    feature_id: uuid.UUID,
+    user: CurrentUser,
+    http_request: Request,
+) -> FeatureDependents:
+    """What breaks if this feature is deleted (200; empty list when nothing).
+
+    Asked by the feature tree BEFORE it offers the delete, so the confirmation
+    names the features and drawings that would break rather than letting the
+    user discover them from a refusal. Answered by the same documents-side query
+    that builds the delete's 409, so the warning and the refusal cannot disagree.
+    """
+    upstream = await forward_documents(
+        http_request,
+        user,
+        "GET",
+        f"/api/v1/parts/{part_id}/features/{feature_id}/dependents",
+    )
+    if upstream.status_code != status.HTTP_200_OK:
+        raise_upstream_error(upstream, service=_SERVICE)
+    return FeatureDependents.model_validate_json(upstream.content)
+
+
+@router.delete(
+    "/{part_id}/features/{feature_id}", responses=FEATURE_DEPENDENTS_RESPONSE
+)
 async def delete_feature(
     part_id: uuid.UUID,
     feature_id: uuid.UUID,
@@ -171,7 +218,11 @@ async def delete_feature(
     user: CurrentUser,
     http_request: Request,
 ) -> FeatureTreeResponse:
-    """Delete a feature (409 envelope listing dependents when referenced)."""
+    """Delete a feature; 409 NAMING the dependents when it is still referenced.
+
+    See :data:`FEATURE_DEPENDENTS_RESPONSE` — the refusal's ``details`` is a
+    typed list of what breaks, not a count.
+    """
     upstream = await forward_documents(
         http_request,
         user,

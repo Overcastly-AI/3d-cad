@@ -3292,6 +3292,80 @@ class FeatureMutationResponse(BaseModel):
     tree_version: int
 
 
+#: What holds a reference to a feature: another FEATURE of the same part (an
+#: extrude consuming its sketch, a fillet naming an edge of an earlier result),
+#: or a DRAWING whose section view cuts on this feature's datum (audit P2 #16).
+#: Nothing else can — an assembly instances a whole PART, never a feature — so
+#: the union is closed and a client may exhaustively switch on it.
+FeatureDependentKind = Literal["feature", "drawing"]
+
+
+class FeatureDependent(BaseModel):
+    """One thing that breaks if a feature is deleted.
+
+    ``name`` rides beside the id for the same reason it does on
+    :class:`~py_kit.schemas.workspace.DocumentDependent`: the reader is a person
+    who named these things, and "referenced by 2 other document(s)" — which is
+    what this refusal used to say — ends the conversation instead of starting
+    the next action.
+    """
+
+    id: uuid.UUID = Field(description="The REFERENCING feature's or drawing's id")
+    name: str = Field(description="Its name, as the user sees it in the tree/register")
+    kind: FeatureDependentKind = Field(
+        description="'feature' (a later feature of this part) or 'drawing' (a "
+        "section view cutting on this feature)"
+    )
+
+
+class FeatureDependents(BaseModel):
+    """What depends on one feature — the answer to "what breaks if I delete it?"
+
+    Serves TWO surfaces from one shape, which is the point (CLAUDE.md DRY):
+
+    - the ``details`` payload of the delete's ``feature_has_dependents`` 409, and
+    - the body of ``GET …/features/{id}/dependents``, which the tree asks BEFORE
+      offering the delete, so the confirmation can name what breaks instead of
+      letting the user find out from a refusal.
+
+    Both are produced by one server-side query, so the warning a user reads and
+    the refusal the server would issue cannot disagree. Empty means the feature
+    is free to delete — an honest, common answer, unlike the 409 payload
+    (:class:`FeatureDependentsEnvelope`) which by construction is never empty.
+    Features first (tree order — the order the user reads them in), then
+    drawings alphabetically.
+    """
+
+    dependents: list[FeatureDependent] = Field(
+        description="Everything referencing this feature; EMPTY when nothing does"
+    )
+
+
+class FeatureDependencyConflictError(BaseModel):
+    """The ``error`` member of a feature-delete 409, with typed ``details``."""
+
+    code: str = Field(
+        description="'feature_has_dependents' — the code a client branches on"
+    )
+    message: str = Field(description="Human summary; the tree shows the list")
+    details: FeatureDependents
+    request_id: str | None = Field(
+        default=None, description="Correlation id of the refused request"
+    )
+
+
+class FeatureDependentsEnvelope(BaseModel):
+    """A feature-delete 409 as it appears on the wire (standard envelope).
+
+    Declared as the documented 409 model of the feature delete so it reaches
+    ``packages/contracts`` and therefore the generated TS client — the tree
+    lists the features by name from a TYPE rather than from a hopeful parse of
+    an untyped ``details`` blob (UI-REVIEW 2026-07-30 F3).
+    """
+
+    error: FeatureDependencyConflictError
+
+
 class FeatureReorderRequest(BaseModel):
     """Reorder the whole tree: the complete permutation of feature ids in the
     desired evaluation order. Backward-only references (design §2.2 rule 2)
@@ -3370,6 +3444,146 @@ class EvaluateTreeRequest(BaseModel):
         "null = no material, so the result reports NO mass (absent, not zero). "
         "Unlike length units — presentation metadata the kernel never sees — "
         "material is an INPUT to evaluation, because mass is derived from it.",
+    )
+
+
+#: Which cached lineage a warm should build. They are separate cache lineages,
+#: not variations of one (``record_history`` is part of the prefix key): a
+#: history-recording evaluation retains an intermediate body per body-affecting
+#: feature and a plain one retains none, so a plain prefix cannot serve per-face
+#: provenance. Named for what the user is about to do, not for the flag:
+#:
+#: * ``evaluate`` — the rebuild behind committing the edit;
+#: * ``provenance`` — the rebuild behind the FIRST FACE PICK after that commit,
+#:   which is the visible one (docs/PERF.md measures 29 s at 200 features).
+WarmLineage = Literal["evaluate", "provenance"]
+
+#: Cap on how many lineages one warm may chain. Two exist; the bound is here so
+#: a caller cannot turn one declaration of intent into unbounded speculation.
+MAX_WARM_LINEAGES = 2
+
+
+class WarmTreeRequest(BaseModel):
+    """Ask the geometry worker to speculatively cache a feature-tree prefix.
+
+    **This request cannot produce an artifact** (docs/PERF.md PERF-1b): the only
+    thing it can do is make a LATER, ordinary evaluate cheaper by leaving an
+    evaluator checkpoint in the per-worker rebuild cache, addressed by the same
+    content hash that evaluate probes. There is deliberately no "prefetched
+    result" to fetch — see :class:`WarmTreeResult`.
+
+    It is issued on a genuine declaration of intent, and only those two:
+
+    * an **open feature editor** — editing feature ``k`` declares ``0..k-1``
+      settled for as long as the dialog is open, so ``tree`` is the current tree
+      and ``prefix_length`` is ``k``;
+    * a **travel stop** on the timeline — that is a shorter tree in its own
+      right, so ``tree`` IS the shorter tree and ``prefix_length`` is omitted.
+    """
+
+    ticket: Annotated[str, StringConstraints(min_length=1, max_length=200)] = Field(
+        description="Opaque identity of the INTENT, chosen by the caller and "
+        "namespaced by the gateway per user. Submitting a ticket that is already "
+        "running is a no-op (a re-render must not restart its own warm), a new "
+        "ticket supersedes the running one, and `POST /warm/cancel` with this "
+        "ticket retires it — which is what closing the editor or ending the drag "
+        "does."
+    )
+    tree: EvaluateTreeRequest = Field(
+        description="The tree whose prefix to warm — the very request a later "
+        "evaluate will send, so the warm lands on the key that request probes."
+    )
+    prefix_length: int | None = Field(
+        default=None,
+        ge=1,
+        le=MAX_TREE_FEATURES,
+        description="How many leading features of `tree` to evaluate; null = all "
+        "of them. Clamped to the tree's length. An open editor for feature k "
+        "sends k here (an edit at k cannot change the hash of anything before "
+        "it); a travel stop sends null and a shorter tree.",
+    )
+    lineages: list[WarmLineage] = Field(
+        default_factory=lambda: ["evaluate"],
+        max_length=MAX_WARM_LINEAGES,
+        description="Which cache lineages to warm, in priority order, under ONE "
+        "shared budget — so a truncated warm always got the first one done. An "
+        "open editor asks for both: the commit reads `evaluate`, the face pick "
+        "that follows it reads `provenance`.",
+    )
+
+
+#: What the user did that makes a prefix worth speculating on. Both are genuine
+#: declarations of intent — which is the entire admission criterion, because
+#: prefetch hides latency and never reduces work:
+#:
+#: * ``feature_edit`` — the editor for this feature is OPEN, so every feature
+#:   before it is settled for as long as the dialog is;
+#: * ``travel_stop`` — the timeline's rollback marker is being dragged to this
+#:   feature, and that stop is a shorter tree in its own right.
+#:
+#: Register/document hover is deliberately NOT here: it is ordinary client-side
+#: query prefetch and worth nothing against a rebuild curve.
+PrefetchTargetKind = Literal["feature_edit", "travel_stop"]
+
+
+class PrefetchRequest(BaseModel):
+    """Warm the rebuild cache for a part, addressed the way the CLIENT sees it.
+
+    The browser knows the intent and the feature id; it does not know (and must
+    not assemble) the evaluation-ready feature list — documents owns that,
+    rollback bar and param upcasts included. So this carries the intent, and the
+    gateway turns it into the geometry service's :class:`WarmTreeRequest` using
+    the SAME ``/evaluation-request`` hop a real evaluate uses, which is what
+    makes the warm land on the key the real evaluate will probe.
+
+    Best-effort by construction: a target that is not in the current evaluation
+    prefix (rolled back past, or already deleted) is a 200 with
+    ``accepted: false``, never an error — a prefetch that cannot be honoured just
+    means the next rebuild is as slow as it always was.
+    """
+
+    ticket: Annotated[str, StringConstraints(min_length=1, max_length=100)] = Field(
+        description="Client-chosen identity of this intent (e.g. one per open "
+        "editor). Namespaced per user by the gateway, so one client can never "
+        "cancel another's speculation."
+    )
+    part_id: uuid.UUID = Field(description="The part being edited or scrubbed.")
+    kind: PrefetchTargetKind
+    feature_id: uuid.UUID = Field(
+        description="The feature the intent points at: the one whose editor is "
+        "open, or the one the travel stop is being dropped after."
+    )
+
+
+class WarmCancelRequest(BaseModel):
+    """Retire a warm ticket. Idempotent, and never an error."""
+
+    ticket: Annotated[str, StringConstraints(min_length=1, max_length=200)] = Field(
+        description="The ticket submitted to `POST /warm`. Unknown or already "
+        "finished → `accepted: false`, which is a normal outcome, not a fault."
+    )
+
+
+class WarmTreeResult(BaseModel):
+    """The reply to a warm — deliberately EMPTY of geometry.
+
+    There is no mesh id, no mass property, no feature status and no body here,
+    and that is a structural guarantee rather than an omission: a speculative
+    rebuild that could be published would eventually be published for a tree it
+    does not exactly correspond to, which is the silent-wrong-geometry class this
+    repo has closed five times. A warm can only ever be *used* by a request whose
+    feature prefix hashes identically, through the ordinary cache key.
+
+    So the two fields say what happened to the SCHEDULING, and nothing else.
+    """
+
+    ticket: str = Field(description="Echo of the submitted ticket.")
+    accepted: bool = Field(
+        description="Whether this call changed the worker's speculation: true = "
+        "queued (or, for /warm/cancel, a running ticket was retired); false = "
+        "nothing to do — the same ticket was already in flight, the tree had no "
+        "prefix worth warming, or the cancelled ticket had already finished. "
+        "Never an error either way: prefetch is best-effort by construction."
     )
 
 

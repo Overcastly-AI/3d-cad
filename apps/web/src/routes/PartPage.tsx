@@ -70,7 +70,10 @@ import {
   type FeatureResponse,
   type FeatureTreeResponse,
   type FeatureUpdate,
+  type FeatureDependent,
+  fetchFeatureDependents,
   fetchFeatureTree,
+  FeatureHasDependentsError,
   fetchPart,
   importStep,
   type OverlayFace,
@@ -140,6 +143,7 @@ import { BaseFlangeEditor } from "../components/BaseFlangeEditor";
 import { EdgeFlangeEditor } from "../components/EdgeFlangeEditor";
 import { HemEditor } from "../components/HemEditor";
 import { CornerReliefEditor } from "../components/CornerReliefEditor";
+import { FeatureDeleteConfirm } from "../components/FeatureDeleteConfirm";
 import { FeatureTreePanel } from "../components/FeatureTreePanel";
 import { FilletEditor } from "../components/FilletEditor";
 import { LoftEditor } from "../components/LoftEditor";
@@ -306,6 +310,11 @@ import { type HistoryStep, undoRedoStep } from "../lib/undoRedoShortcut";
 import { FacePickOverlay } from "../viewport/FacePickOverlay";
 import { useSketchStore } from "../sketch/store";
 import { escapeAction, TOOL_SHORTCUTS } from "../sketch/tools";
+import {
+  KEY_MEASURE,
+  KEY_SNAP,
+  PART_CREATE_SHORTCUTS,
+} from "../shortcuts/registry";
 import { partRoute } from "../router";
 import { useNavigate } from "@tanstack/react-router";
 import {
@@ -1047,7 +1056,7 @@ export function PartPage() {
         return;
       }
       const key = event.key.toLowerCase();
-      if (key === "g") {
+      if (key === KEY_SNAP) {
         event.preventDefault();
         toggleSnap();
         return;
@@ -1770,7 +1779,7 @@ export function PartPage() {
         }
         return;
       }
-      if (event.key.toLowerCase() === "m") {
+      if (event.key.toLowerCase() === KEY_MEASURE) {
         event.preventDefault();
         if (store.active) {
           store.deactivate();
@@ -2908,6 +2917,44 @@ export function PartPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [treeActionError, setTreeActionError] = useState<string | null>(null);
 
+  /**
+   * ASK BEFORE DESTROYING (UI-REVIEW F3). Delete used to fire straight off the
+   * context menu with no confirmation and no dependency check; a user found out
+   * what it broke when the extrude turned red on the next evaluate.
+   *
+   * The ask is a real question to the SERVER — `GET …/dependents`, answered by
+   * the same query the delete's 409 is built from — so the confirmation names
+   * the features and drawings that break, and when there are any the delete is
+   * not offered at all (the server would refuse it, and a button that cannot
+   * work is worse than no button). While the ask is in flight nothing is shown
+   * and nothing is destroyed.
+   */
+  const [deleteIntent, setDeleteIntent] = useState<{
+    feature: FeatureResponse;
+    dependents: FeatureDependent[];
+  } | null>(null);
+
+  const requestDeleteFeature = useCallback(
+    (feature: FeatureResponse) => {
+      if (deletingId !== null) return;
+      useMeasureStore.getState().deactivate();
+      setTreeActionError(null);
+      void (async () => {
+        try {
+          const dependents = await fetchFeatureDependents(partId, feature.id);
+          setDeleteIntent({ feature, dependents });
+        } catch (error) {
+          setTreeActionError(
+            error instanceof Error
+              ? error.message
+              : "What depends on this feature could not be read.",
+          );
+        }
+      })();
+    },
+    [partId, deletingId],
+  );
+
   // Delete a feature (OCC, stale-version retry once) — the same write grammar
   // suppress uses; a hard failure surfaces the server's message, never silent.
   const deleteFeatureAction = useCallback(
@@ -2934,13 +2981,23 @@ export function PartPage() {
             closeEditor();
           }
           if (renamingId === feature.id) setRenamingId(null);
+          setDeleteIntent(null);
           await refreshTreeAndBody();
         } catch (error) {
-          setTreeActionError(
-            error instanceof Error
-              ? error.message
-              : "The feature could not be deleted.",
-          );
+          // A clean pre-check is not a promise: another client could have added
+          // a reference in between, and the delete re-checks under the row lock.
+          // Re-open the confirmation with the names the REFUSAL carried, rather
+          // than reducing them to an error string.
+          if (error instanceof FeatureHasDependentsError) {
+            setDeleteIntent({ feature, dependents: error.dependents });
+          } else {
+            setDeleteIntent(null);
+            setTreeActionError(
+              error instanceof Error
+                ? error.message
+                : "The feature could not be deleted.",
+            );
+          }
         } finally {
           setDeletingId(null);
         }
@@ -3477,28 +3534,25 @@ export function PartPage() {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       if (isTypingTarget(event.target)) return;
+      // The keys come from `shortcuts/registry` — the SAME table the key card
+      // prints (UI-REVIEW F4), so a re-keyed verb cannot leave the reference
+      // teaching a letter nothing listens for.
       const key = event.key.toLowerCase();
-      if (key === "p" && hasBody) {
+      const openers: Record<string, { open: () => void; enabled: boolean }> = {
+        p: { open: openCreatePattern, enabled: hasBody },
+        s: { open: openCreateSweep, enabled: canSweep },
+        l: { open: openCreateLoft, enabled: canLoft },
+        h: { open: openCreateShell, enabled: hasBody },
+        d: { open: openCreateDraft, enabled: hasBody },
+        o: { open: openCreateHole, enabled: hasBody },
+        i: { open: openCreateMirror, enabled: hasBody },
+      };
+      const opener = PART_CREATE_SHORTCUTS.some((entry) => entry.key === key)
+        ? openers[key]
+        : undefined;
+      if (opener !== undefined && opener.enabled) {
         event.preventDefault();
-        openCreatePattern();
-      } else if (key === "s" && canSweep) {
-        event.preventDefault();
-        openCreateSweep();
-      } else if (key === "l" && canLoft) {
-        event.preventDefault();
-        openCreateLoft();
-      } else if (key === "h" && hasBody) {
-        event.preventDefault();
-        openCreateShell();
-      } else if (key === "d" && hasBody) {
-        event.preventDefault();
-        openCreateDraft();
-      } else if (key === "o" && hasBody) {
-        event.preventDefault();
-        openCreateHole();
-      } else if (key === "i" && hasBody) {
-        event.preventDefault();
-        openCreateMirror();
+        opener.open();
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -3737,7 +3791,7 @@ export function PartPage() {
             icon: <CloseIcon />,
             danger: true,
             disabled: deletingId === selected.id,
-            onSelect: () => deleteFeatureAction(selected),
+            onSelect: () => requestDeleteFeature(selected),
             "data-testid": "ctx-selected-delete",
           },
         ],
@@ -3784,7 +3838,7 @@ export function PartPage() {
             icon: <CloseIcon />,
             danger: true,
             disabled: deletingId === feature.id,
-            onSelect: () => deleteFeatureAction(feature),
+            onSelect: () => requestDeleteFeature(feature),
             "data-testid": "tree-ctx-delete",
           },
         ],
@@ -4441,6 +4495,16 @@ export function PartPage() {
                 </Panel>
               </aside>
             </FloatingPanel>
+          ) : null}
+          {/* What breaks if this feature goes — asked before it does (F3). */}
+          {deleteIntent !== null ? (
+            <FeatureDeleteConfirm
+              featureName={deleteIntent.feature.name}
+              dependents={deleteIntent.dependents}
+              pending={deletingId === deleteIntent.feature.id}
+              onCancel={() => setDeleteIntent(null)}
+              onConfirm={() => deleteFeatureAction(deleteIntent.feature)}
+            />
           ) : null}
           {/* Tree-action failure (rename/delete) — honest, dismissible chrome. */}
           {treeActionError !== null ? (

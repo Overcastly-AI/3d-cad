@@ -3,6 +3,7 @@ import { Navigate, Outlet } from "@tanstack/react-router";
 
 import { fetchMe } from "../api/auth";
 import { useSessionStore } from "../auth/session";
+import { ShortcutSheetHost } from "../components/ShortcutSheet";
 
 /**
  * Gate for everything behind sign-in. Reactive on purpose: a mid-session
@@ -16,6 +17,10 @@ export function AuthedLayout() {
   return (
     <>
       <SessionProbe token={token} />
+      {/* `?` opens the key card from any authed surface (UI-REVIEW F4).
+          Mounted HERE rather than per page so there is one listener and one
+          reference, and so no surface can ship without it. */}
+      <ShortcutSheetHost />
       <Outlet />
     </>
   );

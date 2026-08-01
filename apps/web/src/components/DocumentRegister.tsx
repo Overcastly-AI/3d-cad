@@ -16,13 +16,16 @@ import {
   useState,
 } from "react";
 
+import { childFolders, folderPath, type FolderResponse } from "../api/folders";
 import type {
   PartEvalScope,
   PartEvalState,
   PartLastEvalStatus,
 } from "../api/parts";
 import { validatePartName } from "../lib/partName";
+import { KEY_FILTER, KEY_NEW_DOCUMENT } from "../shortcuts/registry";
 import { DocumentRegisterRow } from "./DocumentRegisterRow";
+import { RegisterFolderRow } from "./RegisterFolderRow";
 
 /**
  * THE REGISTER — the index surface behind /, /assemblies and /drawings
@@ -96,11 +99,40 @@ import { DocumentRegisterRow } from "./DocumentRegisterRow";
  *     the unsorted state is a real state rather than a label over an arbitrary
  *     one.
  *
- * FOLDERS ARE NOT HERE, and the surface does not pretend otherwise: there is no
- * folder rail, no "unfiled" group and no drag target. A folder tree is a
- * documents-service change (a parent column, a move endpoint, cycle rules,
- * per-folder name uniqueness) and shipping the UI in front of nothing would be
- * the exact defect class this register is being held to. Filed in BACKLOG.
+ * ─────────────────────────────────────────────────────────────────────────────
+ * FOLDERS (#WS2, 2026-08-01) — now backed by a real documents-side tree
+ * (`py_kit/schemas/folders.py` states the four decisions; the register is a
+ * client of them). What the surface does, and what it refuses to do:
+ *
+ *   - A FOLDER IS A DIVIDER, not a sidebar. The register is a log book, and the
+ *     thing that divides a log book is a card divider with a raised tab. Folder
+ *     rows are ruled at the same rhythm as filed rows, on the carbide gutter
+ *     ground, carrying a `DividerTabIcon` where a filed row carries its ordinal
+ *     (a folder has no position in the document sequence, so printing one would
+ *     be the ordinal-as-identity mistake at a second address). No rail was
+ *     added: a rail would duplicate the navigation the dividers and the
+ *     breadcrumb already give, and a second place saying the same word is the
+ *     defect this register keeps deleting.
+ *   - THE BREADCRUMB IS THE TITLE. "Parts register › Gearbox › Housings" — the
+ *     eyebrow that was already there, extended. It costs no line and nothing
+ *     new.
+ *   - EVERY COUNT ON A FOLDER ROW CAME FROM THE SERVER (`document_count`,
+ *     `child_folder_count`), and both are DIRECT. The register cannot compute
+ *     them: at the root it is holding only the *unfiled* documents, so anything
+ *     it counted itself would be a number about a different set.
+ *   - A FILTER SEARCHES THE WHOLE DRAWER, not the folder you are standing in,
+ *     and each hit says where it lives. This is the reachability guarantee: a
+ *     document you filed and forgot is always findable, and the "4 of 12"
+ *     fraction keeps meaning what it meant before folders existed. While
+ *     filtering the drawer is FLAT — dividers are suppressed, because a filter
+ *     is a way of looking and not a place to stand.
+ *   - MOVE IS A VERB IN THE ROW, not a drag. Dragging is offered as well (rows
+ *     are draggable onto dividers), but the verb is the primary path: a filing
+ *     gesture only reachable by pointer would put the one destructive-ish
+ *     rearrangement in the product out of reach of the keyboard.
+ *   - DELETING A FOLDER THAT HOLDS THINGS IS REFUSED, and the refusal names
+ *     them — the same 409-with-contents grammar the document delete uses, so a
+ *     user meets one refusal, not two.
  * ─────────────────────────────────────────────────────────────────────────────
  *
  * DRY: one component, three thin configs. The three pages were ~410 lines of
@@ -114,6 +146,13 @@ export interface RegisterDocument {
   name: string;
   created_at: string;
   updated_at: string;
+  /**
+   * Where it is FILED — a folder id, or null for unfiled (#WS2). Absent on a
+   * caller that has not adopted filing; `undefined` and `null` are treated
+   * alike here (both mean "at the root"), which is safe because a document the
+   * server filed always carries a real id.
+   */
+  folder_id?: string | null;
   length_unit?: LengthUnit;
   /**
    * Rebuild health — the SERVER'S verdict, already folded against the part's
@@ -172,6 +211,32 @@ export interface RegisterCopy {
   placeholder: string;
   createLabel: string;
   createFirstLabel: string;
+}
+
+/**
+ * The filing half of a register (#WS2) — supplied by the page, which owns the
+ * queries and the invalidations. Absent means this drawer has no folders and
+ * the register draws none: a register cannot invent a tree, and one drawn in
+ * front of nothing is the over-claim this whole surface is held to.
+ *
+ * `T` rides through so `onMoveDocument` receives the page's own document type
+ * (a part carries `tree_version`, a drawing `doc_version`), the same reason
+ * `onRename` is the page's.
+ */
+export interface RegisterFiling<T extends RegisterDocument> {
+  /** The WHOLE tree for this drawer — ancestors for the breadcrumb, all of it
+   *  for the move picker. One request, never one per level. */
+  folders: FolderResponse[];
+  /** True while that request is in flight; the rail stays quiet rather than
+   *  briefly claiming the drawer has no folders. */
+  isLoading: boolean;
+  /** Create a folder inside the folder currently being viewed. */
+  onCreateFolder: (name: string, parentId: string | null) => Promise<void>;
+  onRenameFolder: (folder: FolderResponse, name: string) => Promise<void>;
+  /** Delete it; rejects with `FolderNotEmptyError` when it still holds things. */
+  onDeleteFolder: (folder: FolderResponse) => Promise<void>;
+  /** File a document, or un-file it with `folderId: null`. */
+  onMoveDocument: (document: T, folderId: string | null) => Promise<void>;
 }
 
 /** Which column the drawer is ordered by. */
@@ -256,8 +321,16 @@ export interface DocumentRegisterProps<T extends RegisterDocument> {
     document: T,
     props: { className: string; "data-testid": string },
   ) => ReactNode;
-  /** Create + invalidate (+ navigate, for parts). Rejects with a field error. */
-  onCreate: (name: string) => Promise<void>;
+  /**
+   * Create + invalidate (+ navigate, for parts). Rejects with a field error.
+   * `folderId` is the folder the register is standing in, so a document named
+   * inside a folder is FILED there in the one create call — a create-then-move
+   * pair could fail between the two and leave it somewhere the user did not
+   * put it.
+   */
+  onCreate: (name: string, folderId: string | null) => Promise<void>;
+  /** Folders, when this drawer has them (see `RegisterFiling`). */
+  filing?: RegisterFiling<T>;
   /**
    * Rename + invalidate. The page supplies the document's concurrency version
    * (parts carry `tree_version`, assemblies and drawings `doc_version`), which
@@ -284,16 +357,52 @@ export function DocumentRegister<T extends RegisterDocument>({
   onRename,
   onDuplicate,
   onDelete,
+  filing,
 }: DocumentRegisterProps<T>) {
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<RegisterSort>(DEFAULT_SORT);
+  /** The folder being viewed; null is the drawer root (the unfiled set). */
+  const [folderId, setFolderId] = useState<string | null>(null);
 
-  const shown = useMemo(
-    () => sortDocuments(filterDocuments(documents, query), sort),
-    [documents, query, sort],
-  );
   const filtering = query.trim() !== "";
-  const empty = !isLoading && !isError && documents.length === 0;
+  const folders = filing?.folders ?? [];
+
+  /**
+   * The documents on screen.
+   *
+   * FILTERING SEARCHES THE WHOLE DRAWER — the reachability guarantee. Standing
+   * in a folder and filtering there would make a document you filed and forgot
+   * unfindable, which is the one thing folders must not cost. Not filtering,
+   * the view is the folder you are standing in (at the root: the unfiled set).
+   */
+  const inScope = useMemo(
+    () =>
+      filtering || filing === undefined
+        ? documents
+        : documents.filter((entry) => (entry.folder_id ?? null) === folderId),
+    [documents, filtering, filing, folderId],
+  );
+  const shown = useMemo(
+    () => sortDocuments(filterDocuments(inScope, query), sort),
+    [inScope, query, sort],
+  );
+  /** Dividers at this level; suppressed while filtering (the drawer goes flat). */
+  const dividers = useMemo(
+    () => (filtering ? [] : childFolders(folders, folderId)),
+    [folders, folderId, filtering],
+  );
+  const path = useMemo(
+    () => folderPath(folders, folderId),
+    [folders, folderId],
+  );
+
+  /**
+   * "Empty" is about the WHOLE drawer, not this view: the first-run invitation
+   * belongs to a user who has filed nothing at all. A user standing in an empty
+   * folder gets `NothingHere` instead, which offers the right next action.
+   */
+  const empty =
+    !isLoading && !isError && documents.length === 0 && folders.length === 0;
   const showUnits = documents.some((d) => d.length_unit !== undefined);
   const showHealth = documents.some((d) => d.eval_state !== undefined);
 
@@ -303,9 +412,12 @@ export function DocumentRegister<T extends RegisterDocument>({
       data-testid={`${idPlural}-register`}
     >
       <header className="flex shrink-0 flex-wrap items-baseline gap-x-4 gap-y-2 border-b border-hairline px-3 py-3">
-        <h2 className="font-display text-2xs uppercase tracking-[0.2em] text-gauge">
-          {copy.title}
-        </h2>
+        <Breadcrumb
+          idPlural={idPlural}
+          title={copy.title}
+          path={path}
+          onOpen={setFolderId}
+        />
         {empty || isLoading || isError ? null : (
           <FilterField
             idPlural={idPlural}
@@ -319,10 +431,16 @@ export function DocumentRegister<T extends RegisterDocument>({
           <span
             className="font-data text-xs tabular-nums text-gauge"
             data-testid={`${idPlural}-count`}
+            title={
+              // The denominator is the whole drawer WHENEVER the view is a
+              // subset of it — filtered or filed. One rule, so the readout
+              // never has to be reinterpreted.
+              shown.length === documents.length
+                ? undefined
+                : `${documents.length} in this drawer altogether`
+            }
           >
-            {isLoading
-              ? "—"
-              : countLabel(shown.length, documents.length, filtering, copy)}
+            {isLoading ? "—" : countLabel(shown.length, documents.length, copy)}
           </span>
         )}
       </header>
@@ -357,6 +475,9 @@ export function DocumentRegister<T extends RegisterDocument>({
             idSingular={idSingular}
             copy={copy}
             documents={shown}
+            dividers={dividers}
+            folders={folders}
+            filtering={filtering}
             showUnits={showUnits}
             showHealth={showHealth}
             sort={sort}
@@ -365,8 +486,10 @@ export function DocumentRegister<T extends RegisterDocument>({
             onRename={onRename}
             onDuplicate={onDuplicate}
             onDelete={onDelete}
+            onOpenFolder={setFolderId}
+            filing={filing}
           />
-          {shown.length === 0 ? (
+          {shown.length === 0 && filtering ? (
             <NoMatches
               idPlural={idPlural}
               copy={copy}
@@ -374,17 +497,29 @@ export function DocumentRegister<T extends RegisterDocument>({
               onClear={() => setQuery("")}
             />
           ) : (
-            <ScribeLine
-              idSingular={idSingular}
-              copy={copy}
-              // While a filter is on, the rows above are numbered 1..n WITHIN
-              // the filtered view, so printing "6" under a row 2 would put two
-              // different counting systems in one column. The gutter goes blank
-              // rather than assert a position the view cannot support; filing
-              // still appends to the whole register.
-              nextOrdinal={filtering ? null : documents.length + 1}
-              onCreate={onCreate}
-            />
+            <>
+              {shown.length === 0 && dividers.length === 0 ? (
+                <NothingHere
+                  idPlural={idPlural}
+                  copy={copy}
+                  folderName={path[path.length - 1]?.name ?? null}
+                />
+              ) : null}
+              <ScribeLine
+                idSingular={idSingular}
+                idPlural={idPlural}
+                copy={copy}
+                // While a filter is on, the rows above are numbered 1..n WITHIN
+                // the filtered view, so printing "6" under a row 2 would put two
+                // different counting systems in one column. The gutter goes blank
+                // rather than assert a position the view cannot support; filing
+                // still appends to the whole register.
+                nextOrdinal={filtering ? null : inScope.length + 1}
+                folderId={folderId}
+                onCreate={onCreate}
+                filing={filing}
+              />
+            </>
           )}
           <RuledRemainder />
         </div>
@@ -402,14 +537,114 @@ export function DocumentRegister<T extends RegisterDocument>({
  * of arrays this same render is drawing from, so the readout cannot drift from
  * what is on screen.
  */
-function countLabel(
-  shown: number,
-  total: number,
-  filtering: boolean,
-  copy: RegisterCopy,
-): string {
+function countLabel(shown: number, total: number, copy: RegisterCopy): string {
   const noun = total === 1 ? copy.noun : copy.nounPlural;
-  return filtering ? `${shown} of ${total} ${noun}` : `${total} ${noun}`;
+  // ONE rule since folders (#WS2): a fraction whenever the view is a SUBSET of
+  // the drawer, for whatever reason — a filter, or standing in a folder. The
+  // alternative (a plain tally that silently means "here") would have made "12
+  // parts" mean two different things on two screens of the same register.
+  return shown === total ? `${total} ${noun}` : `${shown} of ${total} ${noun}`;
+}
+
+/**
+ * THE BREADCRUMB IS THE TITLE (#WS2).
+ *
+ * The header already carried a tracked eyebrow ("Parts register"); standing
+ * inside a folder extends it — "Parts register › Gearbox › Housings" — rather
+ * than adding a second navigation strip. Every segment before the last is a
+ * button back to that level, so the way out is always one click and always in
+ * the same place. The LAST segment is not a button: it is where you are, and a
+ * control that does nothing is a defect (mandate 3a).
+ */
+function Breadcrumb({
+  idPlural,
+  title,
+  path,
+  onOpen,
+}: {
+  idPlural: string;
+  title: string;
+  path: readonly FolderResponse[];
+  onOpen: (folderId: string | null) => void;
+}) {
+  return (
+    <h2
+      className="flex flex-wrap items-baseline gap-1.5 font-display text-2xs uppercase tracking-[0.2em] text-gauge"
+      data-testid={`${idPlural}-breadcrumb`}
+    >
+      {path.length === 0 ? (
+        title
+      ) : (
+        <button
+          type="button"
+          onClick={() => onOpen(null)}
+          data-testid={`${idPlural}-breadcrumb-root`}
+          className="rounded-sm uppercase tracking-[0.2em] outline-none transition-colors duration-fast hover:text-brass focus-visible:text-brass focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
+        >
+          {title}
+        </button>
+      )}
+      {path.map((folder, index) => {
+        const here = index === path.length - 1;
+        return (
+          <span key={folder.id} className="flex items-baseline gap-1.5">
+            <span aria-hidden="true" className="text-etch">
+              ›
+            </span>
+            {here ? (
+              <span className="text-mist" aria-current="page">
+                {folder.name}
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => onOpen(folder.id)}
+                data-testid={`${idPlural}-breadcrumb-step`}
+                className="rounded-sm uppercase tracking-[0.2em] outline-none transition-colors duration-fast hover:text-brass focus-visible:text-brass focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
+              >
+                {folder.name}
+              </button>
+            )}
+          </span>
+        );
+      })}
+    </h2>
+  );
+}
+
+/**
+ * You are standing somewhere with nothing in it. Distinct from `NoMatches`
+ * (a filter found nothing) and from `EmptyRegister` (you have filed nothing at
+ * all, ever): this one states WHERE it is empty and leaves the scribe line
+ * below it, because filing something here is exactly the right next action.
+ */
+function NothingHere({
+  idPlural,
+  copy,
+  folderName,
+}: {
+  idPlural: string;
+  copy: RegisterCopy;
+  folderName: string | null;
+}) {
+  return (
+    <div
+      className="flex shrink-0 items-stretch border-b border-hairline"
+      data-testid={`${idPlural}-nothing-here`}
+    >
+      <div
+        className={`${COLUMN.gutter} shrink-0 border-l-2 border-transparent bg-carbide`}
+        aria-hidden="true"
+      />
+      <div className="min-w-0 grow px-3 py-4">
+        <p className="font-body text-sm text-gauge" role="status">
+          {folderName === null
+            ? `No ${copy.nounPlural} are unfiled — everything is in a folder.`
+            : `Nothing is filed in ${folderName} yet.`}
+        </p>
+      </div>
+    </div>
+  );
 }
 
 /**
@@ -445,7 +680,7 @@ function FilterField({
       ) {
         return;
       }
-      if (event.key === "/") {
+      if (event.key === KEY_FILTER) {
         event.preventDefault();
         inputRef.current?.focus();
       }
@@ -491,7 +726,7 @@ function FilterField({
       {query === "" ? (
         <>
           <span className="sr-only">Press slash to jump to this field.</span>
-          <Kbd aria-hidden="true">/</Kbd>
+          <Kbd aria-hidden="true">{KEY_FILTER}</Kbd>
         </>
       ) : (
         // Only while there is something to clear — a dead control is chrome.
@@ -558,8 +793,11 @@ const COLUMN = {
   /** Wide enough for the longest stamped verdict ("Clean to stop") unwrapped. */
   health: "w-[9rem]",
   filed: "w-[7rem]",
-  /** Three verbs, always visible — see `DocumentRegisterRow`. */
-  action: "w-[13rem]",
+  /** FOUR verbs, always visible (MOVE joined at #WS2) — see
+   *  `DocumentRegisterRow`. Widened from 13rem when the fourth arrived: at
+   *  13rem the verbs ran into the FILED date, which is a legibility defect, not
+   *  a spacing preference. */
+  action: "w-[16rem]",
 } as const;
 
 function RegisterTable<T extends RegisterDocument>({
@@ -567,6 +805,9 @@ function RegisterTable<T extends RegisterDocument>({
   idSingular,
   copy,
   documents,
+  dividers,
+  folders,
+  filtering,
   showUnits,
   showHealth,
   sort,
@@ -575,11 +816,16 @@ function RegisterTable<T extends RegisterDocument>({
   onRename,
   onDuplicate,
   onDelete,
+  onOpenFolder,
+  filing,
 }: {
   idPlural: string;
   idSingular: string;
   copy: RegisterCopy;
   documents: T[];
+  dividers: FolderResponse[];
+  folders: FolderResponse[];
+  filtering: boolean;
   showUnits: boolean;
   showHealth: boolean;
   sort: RegisterSort;
@@ -588,6 +834,8 @@ function RegisterTable<T extends RegisterDocument>({
   onRename: (document: T, name: string) => Promise<void>;
   onDuplicate: (document: T) => Promise<void>;
   onDelete: (document: T) => Promise<void>;
+  onOpenFolder: (folderId: string | null) => void;
+  filing?: RegisterFiling<T>;
 }) {
   return (
     <table
@@ -638,6 +886,20 @@ function RegisterTable<T extends RegisterDocument>({
         </tr>
       </thead>
       <tbody>
+        {/* Dividers first, then filed rows — the order a drawer is read in.
+            Suppressed entirely while filtering (the caller passes none). */}
+        {dividers.map((folder) => (
+          <RegisterFolderRow
+            key={folder.id}
+            idPlural={idPlural}
+            copy={copy}
+            folder={folder}
+            columns={2 + (showUnits ? 1 : 0) + (showHealth ? 1 : 0)}
+            onOpen={() => onOpenFolder(folder.id)}
+            onRename={filing?.onRenameFolder}
+            onDelete={filing?.onDeleteFolder}
+          />
+        ))}
         {documents.map((entry, index) => (
           <DocumentRegisterRow
             key={entry.id}
@@ -651,6 +913,14 @@ function RegisterTable<T extends RegisterDocument>({
             onRename={onRename}
             onDuplicate={onDuplicate}
             onDelete={onDelete}
+            folders={folders}
+            // WHERE IT LIVES, and only while filtering: the filter searches the
+            // whole drawer, so a hit may be in a folder you are not standing
+            // in, and a row that did not say so would be a result you could not
+            // act on. At rest every row on screen is in the folder named by the
+            // breadcrumb, so the label would be a column of the same string.
+            showLocation={filtering && filing !== undefined}
+            onMove={filing?.onMoveDocument}
           />
         ))}
       </tbody>
@@ -755,18 +1025,34 @@ function SortableTh({
  */
 function ScribeLine({
   idSingular,
+  idPlural,
   copy,
   nextOrdinal,
+  folderId,
   onCreate,
+  filing,
 }: {
   idSingular: string;
+  idPlural: string;
   copy: RegisterCopy;
   /** Null while filtered — see the call site. */
   nextOrdinal: number | null;
-  onCreate: (name: string) => Promise<void>;
+  /** The folder being viewed — where a new document or divider is filed. */
+  folderId: string | null;
+  onCreate: (name: string, folderId: string | null) => Promise<void>;
+  /** Only `onCreateFolder` is used here, and it mentions no document type —
+   *  narrowed to that one callback so the scribe line stays non-generic. */
+  filing?: Pick<RegisterFiling<RegisterDocument>, "onCreateFolder">;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const focus = useCallback(() => inputRef.current?.focus(), []);
+  /**
+   * ONE LINE, TWO MODES. Filing a divider is the same gesture as filing a
+   * document — name it, scribe it — so it reuses this line rather than adding a
+   * second control to the header. "New folder" swaps the field's label and
+   * verb; Cancel swaps back.
+   */
+  const [scribing, setScribing] = useState<"document" | "folder">("document");
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -780,7 +1066,7 @@ function ScribeLine({
       ) {
         return;
       }
-      if (event.key.toLowerCase() === "n") {
+      if (event.key.toLowerCase() === KEY_NEW_DOCUMENT) {
         event.preventDefault();
         focus();
       }
@@ -797,15 +1083,51 @@ function ScribeLine({
       >
         {nextOrdinal ?? ""}
       </div>
-      <div className="min-w-0 grow px-3 py-3">
-        <CreateForm
-          idSingular={idSingular}
-          copy={copy}
-          inputRef={inputRef}
-          submitLabel={copy.createLabel}
-          onCreate={onCreate}
-          showChord
-        />
+      <div className="flex min-w-0 grow flex-wrap items-end gap-x-4 gap-y-2 px-3 py-3">
+        {scribing === "folder" && filing !== undefined ? (
+          <CreateForm
+            key="folder"
+            idSingular={`${idSingular}-folder`}
+            copy={{
+              ...copy,
+              fieldLabel: "Folder name",
+              placeholder: "e.g. Gearbox",
+              createError: "The folder could not be created.",
+            }}
+            inputRef={inputRef}
+            submitLabel="New folder"
+            onCreate={async (name) => {
+              await filing.onCreateFolder(name, folderId);
+              // Back to the line's resting state. It has to go back: `N`
+              // focuses this field and is taught as "name a new document", so
+              // a line parked in folder mode would make the one accelerator
+              // the register advertises do something else.
+              setScribing("document");
+            }}
+          />
+        ) : (
+          <CreateForm
+            key="document"
+            idSingular={idSingular}
+            copy={copy}
+            inputRef={inputRef}
+            submitLabel={copy.createLabel}
+            onCreate={(name) => onCreate(name, folderId)}
+            showChord
+          />
+        )}
+        {filing === undefined ? null : (
+          <button
+            type="button"
+            onClick={() =>
+              setScribing(scribing === "folder" ? "document" : "folder")
+            }
+            data-testid={`${idPlural}-new-folder`}
+            className="mb-2 inline-flex min-h-target-dense shrink-0 items-center rounded-sm px-1 font-display text-2xs uppercase tracking-[0.14em] text-gauge outline-none transition-colors duration-fast hover:text-brass focus-visible:text-brass focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
+          >
+            {scribing === "folder" ? `New ${copy.noun}` : "New folder"}
+          </button>
+        )}
       </div>
     </div>
   );
@@ -863,7 +1185,7 @@ function EmptyRegister({
   idPlural: string;
   idSingular: string;
   copy: RegisterCopy;
-  onCreate: (name: string) => Promise<void>;
+  onCreate: (name: string, folderId: string | null) => Promise<void>;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   useEffect(() => inputRef.current?.focus(), []);
@@ -894,7 +1216,9 @@ function EmptyRegister({
               copy={copy}
               inputRef={inputRef}
               submitLabel={copy.createFirstLabel}
-              onCreate={onCreate}
+              // A drawer with nothing in it has no folders either, so the
+              // first document is always filed at the root.
+              onCreate={(name) => onCreate(name, null)}
             />
           </div>
         </div>
@@ -975,7 +1299,7 @@ function CreateForm({
               cannot. */}
           <span className="sr-only">Press N to jump to this field.</span>
           <Kbd className="mb-2 shrink-0" aria-hidden="true">
-            N
+            {KEY_NEW_DOCUMENT.toUpperCase()}
           </Kbd>
         </>
       ) : null}

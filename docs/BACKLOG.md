@@ -317,18 +317,82 @@ frame refactor are v2/§11. Spike de-collected.
       `workspace-register-filtered-1440.png`. **FOLDERS REMAIN OPEN** and nothing
       on the surface pretends otherwise — filed below. [src: founder #WS1]
 
-- [ ] (P2, L) **#WS2 — FOLDERS in the registers (the half of #WS1 that was NOT
-      shipped, deliberately).** #WS1 shipped search + sort and stated plainly that
-      a folder tree is more than that slice could carry honestly; no folder rail,
-      no "unfiled" group and no drag target exists, because a folder UI backed by
-      nothing is the over-claiming defect class this repo keeps closing. Real work:
-      documents-side `parent_folder_id` (+ a folders table or a self-referencing
-      path column), an alembic migration, a MOVE endpoint, cycle rejection, and a
-      decision on whether per-owner name uniqueness becomes per-FOLDER uniqueness
-      (it must, or two folders cannot each hold a "Bracket"). Frontend: a folder
-      rail beside the drawer, breadcrumbs, drag-to-move with a keyboard equivalent,
-      and the count readout learning to say "in this folder" vs "everywhere".
-      [src: founder #WS1 scope item 5]
+- [x] (P2, S) **F3 — deleting a feature warned about nothing; it now says WHO
+      breaks, by name, before you commit. FIXED 2026-08-01** (frontend-builder).
+      `deleteFeatureAction` fired straight off the context menu with no
+      confirmation and no dependency check, and the refusal a user eventually met
+      said "referenced by 2 other document(s)" — a sentence that ends the
+      conversation. Now: the tree ASKS (`GET …/features/{id}/dependents`, a new
+      route answered by the SAME documents-side query that builds the delete's
+      409, so a warning and a refusal cannot disagree), and the confirmation
+      either names what breaks — "Extrude1 (feature)", "Assembly sheet (drawing)"
+      — and does not offer a delete the server would refuse, or says "nothing else
+      depends on it, and Undo brings it back". The 409 payload is now a typed DTO
+      (`FeatureDependents`) DOCUMENTED as the delete's 409 response, so it reaches
+      the generated TS client; a race that 409s after a clean pre-check re-opens
+      the confirmation with the refusal's own names. 3 documents + 2 gateway + 7
+      component tests (mutation-verified) + `e2e/feature-delete-warning.spec.ts`.
+      Shot `docs/screenshots/feature-delete-dependents-1440.png`.
+      [src: docs/UI-REVIEW.md 2026-07-30 F3]
+
+- [x] (P2, M) **F4 — a keyboard-first app with nowhere to learn the keyboard.
+      FIXED 2026-08-01** (frontend-builder). `?` opens a KEY CARD from any authed
+      surface. The point is not the overlay, it is that it CANNOT go stale: every
+      row is derived, by one of three mechanisms, from what the handlers actually
+      listen for. (a) The sketch tools, constraint verbs and view snaps are read
+      off `TOOL_SHORTCUTS` / `CONSTRAINT_SHORTCUTS` / `CONSTRUCTION_SHORTCUT` /
+      `VIEW_SHORTCUTS` — the very tables the handlers index, so a re-keyed tool
+      re-keys the card. (b) Everything that used to be an inline string literal
+      (the register's `N` and `/`, grid snap, measure, the seven part create
+      letters) is now a constant in `shortcuts/registry.ts` that the page
+      imports. (c) `V`/`⇧V` body isolation, whose handler is in another agent's
+      territory, is pinned by a BEHAVIOURAL test that mounts the real hook, fires
+      the key the registry declares and asserts the store moved — stronger than a
+      shared constant, because it proves the key works rather than that two files
+      agree about a string (mutation-verified: re-keying `KEY_ISOLATE` goes red).
+      10 registry + 8 component tests + `e2e/shortcuts.spec.ts` (2), which reads a
+      binding off the card and then FIRES it in the real app. Shots
+      `docs/screenshots/shortcut-sheet-{1440,1366}.png`.
+      [src: docs/UI-REVIEW.md 2026-07-30 F4]
+
+- [x] (P2, L) **#WS2 — FOLDERS in the registers, backed by a real tree. SHIPPED
+      2026-08-01** (frontend-builder). Four decisions, made explicitly and stated
+      in `py_kit/schemas/folders.py`: (1) folders are **per-drawer** (`kind` on
+      the row) because the registers are per-kind surfaces — a shared tree would
+      put folders in the parts drawer holding no parts, and would force the count
+      readout to lie or to report a number the drawer cannot show; (2) **"unfiled"
+      is a real state** (`folder_id` NULLABLE), so every existing document stays
+      reachable with no backfill and no per-owner root row to mint; (3) names are
+      unique **per folder**, enforced by a PAIR of partial unique indexes because
+      SQL treats NULLs as distinct and a plain composite UNIQUE would silently
+      permit two *unfiled* "Bracket"s; (4) deleting a non-empty folder is
+      **REFUSED and names its contents** — the same 409-with-contents grammar the
+      document delete already uses, never a cascade (deletes documents nobody
+      named) and never orphan-to-root (moves work invisibly). Ships `folders` +
+      `folder_id` on all three document tables (`0015_folders`), a folders router
+      with ancestor-walk cycle rejection and a depth bound, three `/move` routes
+      that move neither the concurrency counter nor `updated_at` (filing is not an
+      edit), and `folder_id` on the three CREATEs so filing inside a folder is ONE
+      call. UI: folders are DIVIDERS in the log book (tab glyph in the scribed
+      gutter, no rail — a rail would duplicate the breadcrumb), the breadcrumb IS
+      the title, the filter searches the WHOLE drawer and labels each hit with
+      where it lives (the reachability guarantee), and MOVE is a keyboard-first
+      verb. 16 documents + 10 gateway + 11 component tests (mutation-verified:
+      dropping the unfiled partial index, disabling the cycle check and skipping
+      the delete refusal each go red) + `e2e/folders.spec.ts` (2). Shots
+      `docs/screenshots/workspace-folders-{1440,1366}.png` +
+      `workspace-folders-inside-1440.png`. [src: founder #WS1 scope item 5]
+
+- [ ] (P3, S) **#WS3 — drag a register row onto a divider to file it.** #WS2
+      shipped MOVE as a verb (a select of every folder by path) and deliberately
+      did NOT ship drag: a filing gesture reachable only by pointer would put the
+      product's one rearrangement out of keyboard reach, so the keyboard path had
+      to be the primary one and is complete on its own. Drag is now purely
+      additive — HTML5 dnd on `DocumentRegisterRow` with `RegisterFolderRow` as
+      the drop target, calling the same `onMoveDocument`. Also open: moving a
+      FOLDER (the endpoint and its cycle rejection exist and are tested; no UI
+      calls `moveFolder` yet), and deep-linking the current folder into the URL so
+      a folder view can be shared or reloaded in place. [src: #WS2 follow-up]
 
 - [x] (P1, S) **The assembly panel stopped promising a mass it did not have — and
       the roll-up can now HAVE one. FIXED 2026-07-31** (frontend-builder,

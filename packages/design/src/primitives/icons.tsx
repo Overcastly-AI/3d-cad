@@ -949,3 +949,30 @@ export const SortDescIcon = (p: IconProps) => (
     <path d="M6 9 L12 15 L18 9" />
   </Icon>
 );
+
+// --- filing (#WS2) ---------------------------------------------------------
+//
+// Deliberately NOT the ubiquitous manila-folder glyph. The registers are a
+// LOG BOOK — scribed gutter, ruled lines, ordinals in the margin — and the
+// thing that divides a log book is a card DIVIDER with a raised tab. Drawn as
+// exactly that: a card edge with a tab at its top-left, in the same square-cap
+// mitered stroke as every other glyph, so it reads as part of the drawer
+// rather than as an operating-system icon that wandered in.
+
+/** A drawer divider — the folder mark in the register's scribed gutter. */
+export const DividerTabIcon = (p: IconProps) => (
+  <Icon {...p}>
+    {/* the raised tab */}
+    <path d="M4 7 L4 4 L10 4 L10 7" />
+    {/* the card edge it sits on */}
+    <path d="M2 7 L22 7 L22 20 L2 20 Z" />
+  </Icon>
+);
+
+/** One step up the filing tree — the breadcrumb's separator/parent verb. */
+export const FolderUpIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M12 19 L12 6" />
+    <path d="M6 12 L12 6 L18 12" />
+  </Icon>
+);

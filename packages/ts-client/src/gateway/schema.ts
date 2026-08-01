@@ -234,6 +234,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/assemblies/{assembly_id}/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move Assembly
+         * @description File an assembly into a folder, or un-file it — see :func:`move_part`.
+         */
+        post: operations["move_assembly_api_v1_assemblies__assembly_id__move_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/assemblies/{assembly_id}/redo": {
         parameters: {
             query?: never;
@@ -522,6 +542,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/drawings/{drawing_id}/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move Drawing
+         * @description File a drawing into a folder, or un-file it — see :func:`move_part`.
+         */
+        post: operations["move_drawing_api_v1_drawings__drawing_id__move_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/drawings/{drawing_id}/sheet": {
         parameters: {
             query?: never;
@@ -682,6 +722,81 @@ export interface paths {
          *     422 envelopes are re-surfaced verbatim.
          */
         post: operations["create_dimension_api_v1_drawings__drawing_id__views__view_id__dimensions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/folders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Folders
+         * @description The caller's whole folder tree for one drawer, name-ordered.
+         */
+        get: operations["list_folders_api_v1_folders_get"];
+        put?: never;
+        /**
+         * Create Folder
+         * @description Create a folder in one drawer (201; 409 on a duplicate sibling name).
+         */
+        post: operations["create_folder_api_v1_folders_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/folders/{folder_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Folder
+         * @description Delete an EMPTY folder (204); 409 naming its contents when it is not.
+         *
+         *     Never a cascade: a folder delete cannot take documents with it, so the
+         *     refusal names what to move out first (see :data:`FOLDER_NOT_EMPTY_RESPONSE`).
+         */
+        delete: operations["delete_folder_api_v1_folders__folder_id__delete"];
+        options?: never;
+        head?: never;
+        /**
+         * Rename Folder
+         * @description Rename a folder (404 unknown/foreign; 409 duplicate sibling name).
+         */
+        patch: operations["rename_folder_api_v1_folders__folder_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/folders/{folder_id}/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move Folder
+         * @description Re-parent a folder; ``parent_id: null`` moves it to the root.
+         *
+         *     422 ``folder_cycle`` when the destination is the folder itself or one of its
+         *     own descendants — a move that would put the subtree somewhere no register
+         *     view can reach.
+         */
+        post: operations["move_folder_api_v1_folders__folder_id__move_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1385,7 +1500,10 @@ export interface paths {
         post?: never;
         /**
          * Delete Feature
-         * @description Delete a feature (409 envelope listing dependents when referenced).
+         * @description Delete a feature; 409 NAMING the dependents when it is still referenced.
+         *
+         *     See :data:`FEATURE_DEPENDENTS_RESPONSE` — the refusal's ``details`` is a
+         *     typed list of what breaks, not a count.
          */
         delete: operations["delete_feature_api_v1_parts__part_id__features__feature_id__delete"];
         options?: never;
@@ -1395,6 +1513,31 @@ export interface paths {
          * @description Rename and/or replace a feature's params.
          */
         patch: operations["update_feature_api_v1_parts__part_id__features__feature_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/parts/{part_id}/features/{feature_id}/dependents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Feature Dependents
+         * @description What breaks if this feature is deleted (200; empty list when nothing).
+         *
+         *     Asked by the feature tree BEFORE it offers the delete, so the confirmation
+         *     names the features and drawings that would break rather than letting the
+         *     user discover them from a refusal. Answered by the same documents-side query
+         *     that builds the delete's 409, so the warning and the refusal cannot disagree.
+         */
+        get: operations["feature_dependents_api_v1_parts__part_id__features__feature_id__dependents_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/parts/{part_id}/features/{feature_id}/suppress": {
@@ -1420,6 +1563,30 @@ export interface paths {
          *     re-surfaced verbatim.
          */
         patch: operations["suppress_feature_api_v1_parts__part_id__features__feature_id__suppress_patch"];
+        trace?: never;
+    };
+    "/api/v1/parts/{part_id}/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move Part
+         * @description File a part into a folder, or un-file it with ``folder_id: null``.
+         *
+         *     Returns the part as STORED, so the register renders where the server put it.
+         *     Filing is not a document edit: it moves neither ``tree_version`` nor
+         *     ``updated_at``, so LAST WORKED keeps meaning "someone worked on it".
+         */
+        post: operations["move_part_api_v1_parts__part_id__move_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/parts/{part_id}/redo": {
@@ -1622,6 +1789,11 @@ export interface components {
          */
         AssemblyCreate: {
             /**
+             * Folder Id
+             * @description File it into this folder on creation, or null (the default) to leave it unfiled at the root of its drawer. Present so filing inside a folder is ONE call: a create-then-move pair could fail between the two and leave the document somewhere the user did not put it. Must be the caller's own folder OF THIS DOCUMENT'S KIND.
+             */
+            folder_id?: string | null;
+            /**
              * Length Unit
              * @description Document display unit (docs/design/units.md §1); DISPLAY metadata only — storage stays canonical mm. Defaults to 'mm'.
              * @default mm
@@ -1630,7 +1802,7 @@ export interface components {
             length_unit: "mm" | "cm" | "m" | "in" | "ft";
             /**
              * Name
-             * @description Assembly name; unique per owner, whitespace-trimmed, 1-200 characters
+             * @description Assembly name; unique per FOLDER (#WS2), whitespace-trimmed, 1-200 characters
              */
             name: string;
         };
@@ -1714,6 +1886,11 @@ export interface components {
              * @description Monotonic optimistic-concurrency counter (design §1.2)
              */
             doc_version: number;
+            /**
+             * Folder Id
+             * @description The folder this document is filed in, or null when it is UNFILED (at the root of its drawer). Null is a real state, not a missing value — see py_kit.schemas.folders. Changed only by the document's `/move` route, which is not a document edit: it moves neither the concurrency counter nor `updated_at`.
+             */
+            folder_id?: string | null;
             /**
              * Id
              * Format: uuid
@@ -3531,6 +3708,23 @@ export interface components {
             dependents: components["schemas"]["DocumentDependent"][];
         };
         /**
+         * DocumentMove
+         * @description File a document into a folder. ``folder_id: null`` un-files it.
+         *
+         *     Applies to a part, an assembly or a drawing (one DTO — the verb is identical
+         *     and only the route differs). Filing is NOT a document edit: it does not bump
+         *     the document's concurrency counter and does not move ``updated_at``, so the
+         *     register's LAST WORKED column keeps meaning "someone worked on it" rather
+         *     than "someone tidied up". Same reasoning as the last-evaluate record write.
+         */
+        DocumentMove: {
+            /**
+             * Folder Id
+             * @description The destination folder — must be the caller's own and OF THIS DOCUMENT'S KIND — or null to leave the document unfiled at the root of its drawer. Required; null is an explicit destination.
+             */
+            folder_id: string | null;
+        };
+        /**
          * DraftFeature
          * @description ``{"type": "draft", "version": 1, "params": {...}}`` envelope.
          */
@@ -3754,8 +3948,13 @@ export interface components {
          */
         DrawingCreate: {
             /**
+             * Folder Id
+             * @description File it into this folder on creation, or null (the default) to leave it unfiled at the root of its drawer. Present so filing inside a folder is ONE call: a create-then-move pair could fail between the two and leave the document somewhere the user did not put it. Must be the caller's own folder OF THIS DOCUMENT'S KIND.
+             */
+            folder_id?: string | null;
+            /**
              * Name
-             * @description Drawing name; unique per owner, whitespace-trimmed, 1-200 characters
+             * @description Drawing name; unique per FOLDER (#WS2), whitespace-trimmed, 1-200 characters
              */
             name: string;
         };
@@ -3815,6 +4014,11 @@ export interface components {
              * @description Monotonic optimistic-concurrency counter (design §2.1)
              */
             doc_version: number;
+            /**
+             * Folder Id
+             * @description The folder this document is filed in, or null when it is UNFILED (at the root of its drawer). Null is a real state, not a missing value — see py_kit.schemas.folders. Changed only by the document's `/move` route, which is not a document edit: it moves neither the concurrency counter nor `updated_at`.
+             */
+            folder_id?: string | null;
             /**
              * Id
              * Format: uuid
@@ -4649,6 +4853,94 @@ export interface components {
             name: string;
         };
         /**
+         * FeatureDependencyConflictError
+         * @description The ``error`` member of a feature-delete 409, with typed ``details``.
+         */
+        FeatureDependencyConflictError: {
+            /**
+             * Code
+             * @description 'feature_has_dependents' — the code a client branches on
+             */
+            code: string;
+            details: components["schemas"]["FeatureDependents"];
+            /**
+             * Message
+             * @description Human summary; the tree shows the list
+             */
+            message: string;
+            /**
+             * Request Id
+             * @description Correlation id of the refused request
+             */
+            request_id?: string | null;
+        };
+        /**
+         * FeatureDependent
+         * @description One thing that breaks if a feature is deleted.
+         *
+         *     ``name`` rides beside the id for the same reason it does on
+         *     :class:`~py_kit.schemas.workspace.DocumentDependent`: the reader is a person
+         *     who named these things, and "referenced by 2 other document(s)" — which is
+         *     what this refusal used to say — ends the conversation instead of starting
+         *     the next action.
+         */
+        FeatureDependent: {
+            /**
+             * Id
+             * Format: uuid
+             * @description The REFERENCING feature's or drawing's id
+             */
+            id: string;
+            /**
+             * Kind
+             * @description 'feature' (a later feature of this part) or 'drawing' (a section view cutting on this feature)
+             * @enum {string}
+             */
+            kind: "feature" | "drawing";
+            /**
+             * Name
+             * @description Its name, as the user sees it in the tree/register
+             */
+            name: string;
+        };
+        /**
+         * FeatureDependents
+         * @description What depends on one feature — the answer to "what breaks if I delete it?"
+         *
+         *     Serves TWO surfaces from one shape, which is the point (CLAUDE.md DRY):
+         *
+         *     - the ``details`` payload of the delete's ``feature_has_dependents`` 409, and
+         *     - the body of ``GET …/features/{id}/dependents``, which the tree asks BEFORE
+         *       offering the delete, so the confirmation can name what breaks instead of
+         *       letting the user find out from a refusal.
+         *
+         *     Both are produced by one server-side query, so the warning a user reads and
+         *     the refusal the server would issue cannot disagree. Empty means the feature
+         *     is free to delete — an honest, common answer, unlike the 409 payload
+         *     (:class:`FeatureDependentsEnvelope`) which by construction is never empty.
+         *     Features first (tree order — the order the user reads them in), then
+         *     drawings alphabetically.
+         */
+        FeatureDependents: {
+            /**
+             * Dependents
+             * @description Everything referencing this feature; EMPTY when nothing does
+             */
+            dependents: components["schemas"]["FeatureDependent"][];
+        };
+        /**
+         * FeatureDependentsEnvelope
+         * @description A feature-delete 409 as it appears on the wire (standard envelope).
+         *
+         *     Declared as the documented 409 model of the feature delete so it reaches
+         *     ``packages/contracts`` and therefore the generated TS client — the tree
+         *     lists the features by name from a TYPE rather than from a hopeful parse of
+         *     an untyped ``details`` blob (UI-REVIEW 2026-07-30 F3).
+         */
+        FeatureDependentsEnvelope: {
+            error: components["schemas"]["FeatureDependencyConflictError"];
+        };
+        /**
          * FeatureError
          * @description Why one feature failed to evaluate (§4.3).
          */
@@ -4904,6 +5196,206 @@ export interface components {
              */
             kind: "fixed";
             point: components["schemas"]["EntityPointRef"];
+        };
+        /**
+         * FolderContents
+         * @description The ``details`` payload of a non-empty-folder 409 — everything inside.
+         *
+         *     A LIST, never a count: the caller's next action is to move those things out,
+         *     which needs their names. Sub-folders first, then documents, each
+         *     alphabetical, so two identical refusals read identically.
+         */
+        FolderContents: {
+            /**
+             * Contents
+             * @description Direct children of the folder; never empty (an empty folder deletes cleanly)
+             */
+            contents: components["schemas"]["FolderMember"][];
+        };
+        /**
+         * FolderCreate
+         * @description Create a folder in one drawer, at the root or inside another folder.
+         */
+        FolderCreate: {
+            /**
+             * Kind
+             * @description Which drawer this folder belongs to. It may only ever hold documents of this kind (see module docstring).
+             * @enum {string}
+             */
+            kind: "part" | "assembly" | "drawing";
+            /**
+             * Name
+             * @description Folder name; unique among its siblings (per parent, per kind, per owner), whitespace-trimmed, 1-120 chars
+             */
+            name: string;
+            /**
+             * Parent Id
+             * @description Containing folder, or null for a top-level folder. Must be the caller's own folder OF THE SAME KIND.
+             */
+            parent_id?: string | null;
+        };
+        /**
+         * FolderListResponse
+         * @description Every folder of ONE kind for the caller — the whole tree, one query.
+         *
+         *     The whole tree rather than one level: the register needs ancestors for the
+         *     breadcrumb and the full set for the move picker, and a per-level fetch would
+         *     make "which folder is this document in?" an N+1. A wrapper leaves room for
+         *     pagination the day a tree is big enough to need it — which, for a structure
+         *     a human types by hand, it will not be.
+         */
+        FolderListResponse: {
+            /** Folders */
+            folders: components["schemas"]["FolderResponse"][];
+        };
+        /**
+         * FolderMember
+         * @description One thing inside a folder whose delete was refused.
+         *
+         *     Deliberately NOT reusing :class:`~py_kit.schemas.workspace.DocumentDependent`:
+         *     that model means "something REFERENCES you" and its ``kind`` documents why a
+         *     part can never appear in it. Membership is the opposite relation, and a part
+         *     is its commonest member. Two relations, two models; one shared refusal
+         *     GRAMMAR (409, ``details`` naming what blocks it), which is the part that
+         *     matters to a user.
+         */
+        FolderMember: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Kind
+             * @description 'folder' for a sub-folder, else the document kind
+             * @enum {string}
+             */
+            kind: "folder" | "part" | "assembly" | "drawing";
+            /**
+             * Name
+             * @description Its name, as filed — for the refusal message
+             */
+            name: string;
+        };
+        /**
+         * FolderMove
+         * @description Re-parent a folder. ``parent_id: null`` moves it to the root.
+         *
+         *     Refused (422) when the target is the folder itself or one of its own
+         *     descendants — that would detach the subtree from the register entirely, so
+         *     it is a cycle in effect as well as in the graph.
+         */
+        FolderMove: {
+            /**
+             * Parent Id
+             * @description The new containing folder, or null to move to the root of its drawer. Required — null is an explicit destination, not an omission.
+             */
+            parent_id: string | null;
+        };
+        /**
+         * FolderNotEmptyEnvelope
+         * @description A non-empty-folder 409 as it appears on the wire (standard envelope).
+         *
+         *     Declared as the documented 409 model of the folder delete route so it reaches
+         *     ``packages/contracts`` and therefore the generated TS client — the register
+         *     reads ``details.contents`` as a TYPE rather than narrowing an ``unknown``.
+         */
+        FolderNotEmptyEnvelope: {
+            error: components["schemas"]["FolderNotEmptyError"];
+        };
+        /**
+         * FolderNotEmptyError
+         * @description The ``error`` member of a non-empty-folder 409, with typed ``details``.
+         */
+        FolderNotEmptyError: {
+            /**
+             * Code
+             * @description 'folder_not_empty' — the code a client branches on
+             */
+            code: string;
+            details: components["schemas"]["FolderContents"];
+            /**
+             * Message
+             * @description Human summary; the register shows the list
+             */
+            message: string;
+            /**
+             * Request Id
+             * @description Correlation id of the refused request
+             */
+            request_id?: string | null;
+        };
+        /**
+         * FolderRename
+         * @description Rename a folder. Renaming cannot move it — that is :class:`FolderMove`.
+         *
+         *     Separate verbs on purpose: a PATCH carrying an optional ``parent_id`` cannot
+         *     tell "leave it where it is" (field omitted) from "move it to the root"
+         *     (field null), and a move that silently did nothing because a client sent the
+         *     wrong one of those is precisely the "reported success while the document is
+         *     still in the old place" defect this slice is being held to.
+         */
+        FolderRename: {
+            /**
+             * Name
+             * @description New folder name
+             */
+            name: string;
+        };
+        /**
+         * FolderResponse
+         * @description A folder as stored, plus the two counts a register row may state.
+         *
+         *     Both counts are DIRECT (this folder's own children), computed server-side in
+         *     the list query. A register renders them; it never derives one from the rows
+         *     it happens to be holding, because at the root it is holding only the unfiled
+         *     documents and would count them as the folder's.
+         */
+        FolderResponse: {
+            /**
+             * Child Folder Count
+             * @description Folders directly inside this one (not recursive)
+             */
+            child_folder_count: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Document Count
+             * @description Documents filed DIRECTLY in this folder — not counting sub-folders' contents. A register may print this; it may not add it up.
+             */
+            document_count: number;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Kind
+             * @description The drawer this folder belongs to
+             * @enum {string}
+             */
+            kind: "part" | "assembly" | "drawing";
+            /** Name */
+            name: string;
+            /**
+             * Owner Id
+             * Format: uuid
+             * @description Owning user id (gateway-verified)
+             */
+            owner_id: string;
+            /**
+             * Parent Id
+             * @description Containing folder, or null for a top-level folder
+             */
+            parent_id: string | null;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -6281,6 +6773,11 @@ export interface components {
          */
         PartCreate: {
             /**
+             * Folder Id
+             * @description File it into this folder on creation, or null (the default) to leave it unfiled at the root of its drawer. Present so filing inside a folder is ONE call: a create-then-move pair could fail between the two and leave the document somewhere the user did not put it. Must be the caller's own folder OF THIS DOCUMENT'S KIND.
+             */
+            folder_id?: string | null;
+            /**
              * Length Unit
              * @description Document display unit (docs/design/units.md §1); DISPLAY metadata only — storage stays canonical mm. Defaults to 'mm'.
              * @default mm
@@ -6289,7 +6786,7 @@ export interface components {
             length_unit: "mm" | "cm" | "m" | "in" | "ft";
             /**
              * Name
-             * @description Part name; unique per owner, whitespace-trimmed, 1-200 characters
+             * @description Part name; unique per FOLDER (#WS2), whitespace-trimmed, 1-200 characters
              */
             name: string;
         };
@@ -6328,6 +6825,11 @@ export interface components {
              * @enum {string}
              */
             eval_state: "never" | "ok" | "failed" | "stale";
+            /**
+             * Folder Id
+             * @description The folder this document is filed in, or null when it is UNFILED (at the root of its drawer). Null is a real state, not a missing value — see py_kit.schemas.folders. Changed only by the document's `/move` route, which is not a document edit: it moves neither the concurrency counter nor `updated_at`.
+             */
+            folder_id?: string | null;
             /**
              * Id
              * Format: uuid
@@ -9139,6 +9641,41 @@ export interface operations {
             };
         };
     };
+    move_assembly_api_v1_assemblies__assembly_id__move_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                assembly_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DocumentMove"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssemblyResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     redo_assembly_api_v1_assemblies__assembly_id__redo_post: {
         parameters: {
             query?: never;
@@ -9616,6 +10153,41 @@ export interface operations {
             };
         };
     };
+    move_drawing_api_v1_drawings__drawing_id__move_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drawing_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DocumentMove"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DrawingResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     compose_drawing_sheet_api_v1_drawings__drawing_id__sheet_post: {
         parameters: {
             query?: {
@@ -9922,6 +10494,179 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DimensionMutationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_folders_api_v1_folders_get: {
+        parameters: {
+            query: {
+                /** @description Which drawer's tree to return */
+                kind: "part" | "assembly" | "drawing";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FolderListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_folder_api_v1_folders_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FolderCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FolderResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_folder_api_v1_folders__folder_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                folder_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Folder still holds items; `details.contents` names them. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FolderNotEmptyEnvelope"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rename_folder_api_v1_folders__folder_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                folder_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FolderRename"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FolderResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    move_folder_api_v1_folders__folder_id__move_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                folder_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FolderMove"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FolderResponse"];
                 };
             };
             /** @description Validation Error */
@@ -10944,6 +11689,15 @@ export interface operations {
                     "application/json": components["schemas"]["FeatureTreeResponse"];
                 };
             };
+            /** @description Still referenced by later features or drawing views; `details.dependents` names them. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeatureDependentsEnvelope"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -10991,6 +11745,38 @@ export interface operations {
             };
         };
     };
+    feature_dependents_api_v1_parts__part_id__features__feature_id__dependents_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                part_id: string;
+                feature_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeatureDependents"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     suppress_feature_api_v1_parts__part_id__features__feature_id__suppress_patch: {
         parameters: {
             query?: never;
@@ -11014,6 +11800,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FeatureMutationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    move_part_api_v1_parts__part_id__move_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                part_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DocumentMove"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PartResponse"];
                 };
             };
             /** @description Validation Error */

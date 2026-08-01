@@ -180,6 +180,19 @@
       "AssemblyCreate": {
         "description": "Create an assembly owned by the calling user (design \u00a71.2).",
         "properties": {
+          "folder_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "File it into this folder on creation, or null (the default) to leave it unfiled at the root of its drawer. Present so filing inside a folder is ONE call: a create-then-move pair could fail between the two and leave the document somewhere the user did not put it. Must be the caller's own folder OF THIS DOCUMENT'S KIND.",
+            "title": "Folder Id"
+          },
           "length_unit": {
             "default": "mm",
             "description": "Document display unit (docs/design/units.md \u00a71); DISPLAY metadata only \u2014 storage stays canonical mm. Defaults to 'mm'.",
@@ -194,7 +207,7 @@
             "type": "string"
           },
           "name": {
-            "description": "Assembly name; unique per owner, whitespace-trimmed, 1-200 characters",
+            "description": "Assembly name; unique per FOLDER (#WS2), whitespace-trimmed, 1-200 characters",
             "maxLength": 200,
             "minLength": 1,
             "title": "Name",
@@ -313,6 +326,19 @@
             "description": "Monotonic optimistic-concurrency counter (design \u00a71.2)",
             "title": "Doc Version",
             "type": "integer"
+          },
+          "folder_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The folder this document is filed in, or null when it is UNFILED (at the root of its drawer). Null is a real state, not a missing value \u2014 see py_kit.schemas.folders. Changed only by the document's `/move` route, which is not a document edit: it moves neither the concurrency counter nor `updated_at`.",
+            "title": "Folder Id"
           },
           "id": {
             "format": "uuid",
@@ -1367,6 +1393,29 @@
         "title": "DistanceMate",
         "type": "object"
       },
+      "DocumentMove": {
+        "description": "File a document into a folder. ``folder_id: null`` un-files it.\n\nApplies to a part, an assembly or a drawing (one DTO \u2014 the verb is identical\nand only the route differs). Filing is NOT a document edit: it does not bump\nthe document's concurrency counter and does not move ``updated_at``, so the\nregister's LAST WORKED column keeps meaning \"someone worked on it\" rather\nthan \"someone tidied up\". Same reasoning as the last-evaluate record write.",
+        "properties": {
+          "folder_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The destination folder \u2014 must be the caller's own and OF THIS DOCUMENT'S KIND \u2014 or null to leave the document unfiled at the root of its drawer. Required; null is an explicit destination.",
+            "title": "Folder Id"
+          }
+        },
+        "required": [
+          "folder_id"
+        ],
+        "title": "DocumentMove",
+        "type": "object"
+      },
       "DraftFeature": {
         "description": "``{\"type\": \"draft\", \"version\": 1, \"params\": {...}}`` envelope.",
         "properties": {
@@ -1575,8 +1624,21 @@
       "DrawingCreate": {
         "description": "Create a drawing owned by the calling user (design \u00a72.1).",
         "properties": {
+          "folder_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "File it into this folder on creation, or null (the default) to leave it unfiled at the root of its drawer. Present so filing inside a folder is ONE call: a create-then-move pair could fail between the two and leave the document somewhere the user did not put it. Must be the caller's own folder OF THIS DOCUMENT'S KIND.",
+            "title": "Folder Id"
+          },
           "name": {
-            "description": "Drawing name; unique per owner, whitespace-trimmed, 1-200 characters",
+            "description": "Drawing name; unique per FOLDER (#WS2), whitespace-trimmed, 1-200 characters",
             "maxLength": 200,
             "minLength": 1,
             "title": "Name",
@@ -1618,6 +1680,19 @@
             "description": "Monotonic optimistic-concurrency counter (design \u00a72.1)",
             "title": "Doc Version",
             "type": "integer"
+          },
+          "folder_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The folder this document is filed in, or null when it is UNFILED (at the root of its drawer). Null is a real state, not a missing value \u2014 see py_kit.schemas.folders. Changed only by the document's `/move` route, which is not a document edit: it moves neither the concurrency counter nor `updated_at`.",
+            "title": "Folder Id"
           },
           "id": {
             "format": "uuid",
@@ -2432,6 +2507,56 @@
         "title": "FeatureCreate",
         "type": "object"
       },
+      "FeatureDependent": {
+        "description": "One thing that breaks if a feature is deleted.\n\n``name`` rides beside the id for the same reason it does on\n:class:`~py_kit.schemas.workspace.DocumentDependent`: the reader is a person\nwho named these things, and \"referenced by 2 other document(s)\" \u2014 which is\nwhat this refusal used to say \u2014 ends the conversation instead of starting\nthe next action.",
+        "properties": {
+          "id": {
+            "description": "The REFERENCING feature's or drawing's id",
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "description": "'feature' (a later feature of this part) or 'drawing' (a section view cutting on this feature)",
+            "enum": [
+              "feature",
+              "drawing"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "description": "Its name, as the user sees it in the tree/register",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "kind"
+        ],
+        "title": "FeatureDependent",
+        "type": "object"
+      },
+      "FeatureDependents": {
+        "description": "What depends on one feature \u2014 the answer to \"what breaks if I delete it?\"\n\nServes TWO surfaces from one shape, which is the point (CLAUDE.md DRY):\n\n- the ``details`` payload of the delete's ``feature_has_dependents`` 409, and\n- the body of ``GET \u2026/features/{id}/dependents``, which the tree asks BEFORE\n  offering the delete, so the confirmation can name what breaks instead of\n  letting the user find out from a refusal.\n\nBoth are produced by one server-side query, so the warning a user reads and\nthe refusal the server would issue cannot disagree. Empty means the feature\nis free to delete \u2014 an honest, common answer, unlike the 409 payload\n(:class:`FeatureDependentsEnvelope`) which by construction is never empty.\nFeatures first (tree order \u2014 the order the user reads them in), then\ndrawings alphabetically.",
+        "properties": {
+          "dependents": {
+            "description": "Everything referencing this feature; EMPTY when nothing does",
+            "items": {
+              "$ref": "#/components/schemas/FeatureDependent"
+            },
+            "title": "Dependents",
+            "type": "array"
+          }
+        },
+        "required": [
+          "dependents"
+        ],
+        "title": "FeatureDependents",
+        "type": "object"
+      },
       "FeatureMutationResponse": {
         "description": "Result of a single-feature mutation: the affected feature + the new\ntree version (the client's next ``expected_tree_version``).",
         "properties": {
@@ -2917,6 +3042,182 @@
           "point"
         ],
         "title": "FixedConstraint",
+        "type": "object"
+      },
+      "FolderCreate": {
+        "description": "Create a folder in one drawer, at the root or inside another folder.",
+        "properties": {
+          "kind": {
+            "description": "Which drawer this folder belongs to. It may only ever hold documents of this kind (see module docstring).",
+            "enum": [
+              "part",
+              "assembly",
+              "drawing"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "description": "Folder name; unique among its siblings (per parent, per kind, per owner), whitespace-trimmed, 1-120 chars",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Containing folder, or null for a top-level folder. Must be the caller's own folder OF THE SAME KIND.",
+            "title": "Parent Id"
+          }
+        },
+        "required": [
+          "name",
+          "kind"
+        ],
+        "title": "FolderCreate",
+        "type": "object"
+      },
+      "FolderListResponse": {
+        "description": "Every folder of ONE kind for the caller \u2014 the whole tree, one query.\n\nThe whole tree rather than one level: the register needs ancestors for the\nbreadcrumb and the full set for the move picker, and a per-level fetch would\nmake \"which folder is this document in?\" an N+1. A wrapper leaves room for\npagination the day a tree is big enough to need it \u2014 which, for a structure\na human types by hand, it will not be.",
+        "properties": {
+          "folders": {
+            "items": {
+              "$ref": "#/components/schemas/FolderResponse"
+            },
+            "title": "Folders",
+            "type": "array"
+          }
+        },
+        "required": [
+          "folders"
+        ],
+        "title": "FolderListResponse",
+        "type": "object"
+      },
+      "FolderMove": {
+        "description": "Re-parent a folder. ``parent_id: null`` moves it to the root.\n\nRefused (422) when the target is the folder itself or one of its own\ndescendants \u2014 that would detach the subtree from the register entirely, so\nit is a cycle in effect as well as in the graph.",
+        "properties": {
+          "parent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The new containing folder, or null to move to the root of its drawer. Required \u2014 null is an explicit destination, not an omission.",
+            "title": "Parent Id"
+          }
+        },
+        "required": [
+          "parent_id"
+        ],
+        "title": "FolderMove",
+        "type": "object"
+      },
+      "FolderRename": {
+        "description": "Rename a folder. Renaming cannot move it \u2014 that is :class:`FolderMove`.\n\nSeparate verbs on purpose: a PATCH carrying an optional ``parent_id`` cannot\ntell \"leave it where it is\" (field omitted) from \"move it to the root\"\n(field null), and a move that silently did nothing because a client sent the\nwrong one of those is precisely the \"reported success while the document is\nstill in the old place\" defect this slice is being held to.",
+        "properties": {
+          "name": {
+            "description": "New folder name",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "FolderRename",
+        "type": "object"
+      },
+      "FolderResponse": {
+        "description": "A folder as stored, plus the two counts a register row may state.\n\nBoth counts are DIRECT (this folder's own children), computed server-side in\nthe list query. A register renders them; it never derives one from the rows\nit happens to be holding, because at the root it is holding only the unfiled\ndocuments and would count them as the folder's.",
+        "properties": {
+          "child_folder_count": {
+            "description": "Folders directly inside this one (not recursive)",
+            "minimum": 0.0,
+            "title": "Child Folder Count",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "document_count": {
+            "description": "Documents filed DIRECTLY in this folder \u2014 not counting sub-folders' contents. A register may print this; it may not add it up.",
+            "minimum": 0.0,
+            "title": "Document Count",
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "description": "The drawer this folder belongs to",
+            "enum": [
+              "part",
+              "assembly",
+              "drawing"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "owner_id": {
+            "description": "Owning user id (gateway-verified)",
+            "format": "uuid",
+            "title": "Owner Id",
+            "type": "string"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Containing folder, or null for a top-level folder",
+            "title": "Parent Id"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "owner_id",
+          "kind",
+          "name",
+          "parent_id",
+          "document_count",
+          "child_folder_count",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "FolderResponse",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -4192,6 +4493,19 @@
       "PartCreate": {
         "description": "Create a part owned by the calling user.",
         "properties": {
+          "folder_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "File it into this folder on creation, or null (the default) to leave it unfiled at the root of its drawer. Present so filing inside a folder is ONE call: a create-then-move pair could fail between the two and leave the document somewhere the user did not put it. Must be the caller's own folder OF THIS DOCUMENT'S KIND.",
+            "title": "Folder Id"
+          },
           "length_unit": {
             "default": "mm",
             "description": "Document display unit (docs/design/units.md \u00a71); DISPLAY metadata only \u2014 storage stays canonical mm. Defaults to 'mm'.",
@@ -4206,7 +4520,7 @@
             "type": "string"
           },
           "name": {
-            "description": "Part name; unique per owner, whitespace-trimmed, 1-200 characters",
+            "description": "Part name; unique per FOLDER (#WS2), whitespace-trimmed, 1-200 characters",
             "maxLength": 200,
             "minLength": 1,
             "title": "Name",
@@ -4296,6 +4610,19 @@
             ],
             "title": "Eval State",
             "type": "string"
+          },
+          "folder_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The folder this document is filed in, or null when it is UNFILED (at the root of its drawer). Null is a real state, not a missing value \u2014 see py_kit.schemas.folders. Changed only by the document's `/move` route, which is not a document edit: it moves neither the concurrency counter nor `updated_at`.",
+            "title": "Folder Id"
           },
           "id": {
             "format": "uuid",
@@ -6871,7 +7198,7 @@
         ]
       },
       "post": {
-        "description": "Create an assembly (201; envelope 409 on a duplicate name for this owner).",
+        "description": "Create an assembly (201; 409 on a duplicate name IN ITS FOLDER).\n\n``folder_id`` files it on creation (#WS2) \u2014 see :func:`documents.parts.\ncreate_part` for why filing is part of the create rather than a second call.",
         "operationId": "create_assembly_api_v1_assemblies_post",
         "parameters": [
           {
@@ -7694,6 +8021,78 @@
         ]
       }
     },
+    "/api/v1/assemblies/{assembly_id}/move": {
+      "post": {
+        "description": "File an assembly into a folder, or un-file it (200) \u2014 see :func:`move_part`.",
+        "operationId": "move_assembly_api_v1_assemblies__assembly_id__move_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "assembly_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Assembly Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DocumentMove"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssemblyResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Move Assembly",
+        "tags": [
+          "assemblies"
+        ]
+      }
+    },
     "/api/v1/assemblies/{assembly_id}/redo": {
       "post": {
         "description": "Restore the next history snapshot VERBATIM (ids preserved).\n\nClean no-op at the top of the ring; stale ``expected_version`` \u2192 422.",
@@ -7890,7 +8289,7 @@
         ]
       },
       "post": {
-        "description": "Create a drawing (201; envelope 409 on a duplicate name for this owner).",
+        "description": "Create a drawing (201; 409 on a duplicate name IN ITS FOLDER).\n\n``folder_id`` files it on creation (#WS2) \u2014 see :func:`documents.parts.\ncreate_part` for why filing is part of the create rather than a second call.",
         "operationId": "create_drawing_api_v1_drawings_post",
         "parameters": [
           {
@@ -8441,6 +8840,78 @@
           }
         },
         "summary": "Duplicate Drawing",
+        "tags": [
+          "drawings"
+        ]
+      }
+    },
+    "/api/v1/drawings/{drawing_id}/move": {
+      "post": {
+        "description": "File a drawing into a folder, or un-file it (200) \u2014 see :func:`move_part`.",
+        "operationId": "move_drawing_api_v1_drawings__drawing_id__move_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "drawing_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Drawing Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DocumentMove"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DrawingResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Move Drawing",
         "tags": [
           "drawings"
         ]
@@ -9092,6 +9563,331 @@
         ]
       }
     },
+    "/api/v1/folders": {
+      "get": {
+        "description": "The caller's WHOLE folder tree for one drawer, name-ordered.\n\nThe whole tree rather than one level: the register needs ancestors for its\nbreadcrumb and the full set for the move picker, and one flat response makes\n\"which folder is this in?\" a lookup rather than a request.",
+        "operationId": "list_folders_api_v1_folders_get",
+        "parameters": [
+          {
+            "description": "Which drawer's tree: 'part' / 'assembly' / 'drawing'",
+            "in": "query",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "description": "Which drawer's tree: 'part' / 'assembly' / 'drawing'",
+              "enum": [
+                "part",
+                "assembly",
+                "drawing"
+              ],
+              "title": "Kind",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FolderListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Folders",
+        "tags": [
+          "folders"
+        ]
+      },
+      "post": {
+        "description": "Create a folder in one drawer (201; 409 on a duplicate sibling name).",
+        "operationId": "create_folder_api_v1_folders_post",
+        "parameters": [
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FolderCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FolderResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Folder",
+        "tags": [
+          "folders"
+        ]
+      }
+    },
+    "/api/v1/folders/{folder_id}": {
+      "delete": {
+        "description": "Delete an EMPTY folder (204); 409 naming its contents when it is not.\n\nNot a cascade and not an orphan-to-root: see\n:mod:`py_kit.schemas.folders` for why refusal is the only one of the three\nthat neither destroys work the user never named nor moves it somewhere they\nwere not told about. The refusal lists what is inside, because the caller's\nnext action is to move those things out and a count would not tell them\nwhich.",
+        "operationId": "delete_folder_api_v1_folders__folder_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "folder_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Folder Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Folder",
+        "tags": [
+          "folders"
+        ]
+      },
+      "patch": {
+        "description": "Rename a folder (200; 404 unknown/foreign; 409 duplicate sibling name).\n\nRenaming cannot move \u2014 see :class:`~py_kit.schemas.folders.FolderRename`.",
+        "operationId": "rename_folder_api_v1_folders__folder_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "folder_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Folder Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FolderRename"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FolderResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rename Folder",
+        "tags": [
+          "folders"
+        ]
+      }
+    },
+    "/api/v1/folders/{folder_id}/move": {
+      "post": {
+        "description": "Re-parent a folder (200); ``parent_id: null`` moves it to the root.\n\n422 ``folder_cycle`` when the destination is the folder itself or one of its\ndescendants, ``folder_too_deep`` past the nesting bound, and\n``folder_kind_mismatch`` across drawers; 409 when a sibling of that name\nalready exists at the destination.",
+        "operationId": "move_folder_api_v1_folders__folder_id__move_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "folder_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Folder Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FolderMove"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FolderResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Move Folder",
+        "tags": [
+          "folders"
+        ]
+      }
+    },
     "/api/v1/materials": {
       "get": {
         "description": "The built-in materials, in display order (metals, then polymers).\n\nv1 is a closed library (docs/design/materials.md \u00a71/\u00a75): a fixed\n``MaterialKey`` literal means an unknown material is a parse error at the\nboundary instead of a silent \"no mass\" three services later. User-defined\nmaterials extend this response additively when they land.",
@@ -9166,7 +9962,7 @@
         ]
       },
       "post": {
-        "description": "Create a part (201; envelope 409 on a duplicate name for this owner).",
+        "description": "Create a part (201; 409 on a duplicate name IN ITS FOLDER).\n\n``folder_id`` files it on creation (#WS2) \u2014 one call, so a create-then-move\npair can never fail between the two and leave the part somewhere the user\ndid not put it. The destination is validated by the SAME rule the move route\napplies (:func:`documents.filing.resolve_destination`).",
         "operationId": "create_part_api_v1_parts_post",
         "parameters": [
           {
@@ -9973,6 +10769,78 @@
         ]
       }
     },
+    "/api/v1/parts/{part_id}/features/{feature_id}/dependents": {
+      "get": {
+        "description": "What would break if this feature were deleted (200; possibly empty).\n\nA read, so it is safe to ask on hover or on opening a confirmation. An EMPTY\nlist is the honest common answer and means the delete will go through; it is\nnever dressed up as a guarantee about anything else (another client could\nadd a reference a millisecond later, which is why the delete still re-checks\nunder the row lock and can still refuse).",
+        "operationId": "dependents_of_feature_api_v1_parts__part_id__features__feature_id__dependents_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Part Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "feature_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Feature Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeatureDependents"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Dependents Of Feature",
+        "tags": [
+          "features"
+        ]
+      }
+    },
     "/api/v1/parts/{part_id}/features/{feature_id}/suppress": {
       "patch": {
         "description": "Flip ONLY a feature's suppress flag (feature-tree.md \u00a74.3a).\n\nA dedicated, minimal mutation: unlike :func:`update_feature` it never\ntouches ``params`` (no re-validation, no dependency-edge rewrite) \u2014 it sets\nthe envelope-level ``suppressed`` column and, like every tree write, bumps\n``tree_version`` under the optimistic-concurrency guard (stale \u2192 422) and\nrecords a history snapshot so the toggle is undoable. A suppressed feature\nis SKIPPED at rebuild (the evaluation-request marks it, geometry skips it),\nso this changes what an evaluation of the part means.",
@@ -10122,6 +10990,78 @@
           }
         },
         "summary": "Record Last Evaluation",
+        "tags": [
+          "parts"
+        ]
+      }
+    },
+    "/api/v1/parts/{part_id}/move": {
+      "post": {
+        "description": "File a part into a folder, or un-file it with ``folder_id: null`` (200).\n\nReturns the part AS STORED, so the register renders where the server put it\nrather than where the click assumed it went. 409 when the destination\nalready holds a part of that name (names are unique per folder).",
+        "operationId": "move_part_api_v1_parts__part_id__move_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Part Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DocumentMove"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Move Part",
         "tags": [
           "parts"
         ]

@@ -18,6 +18,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
+from py_kit.schemas.folders import FOLDER_ID_DESCRIPTION
 from py_kit.schemas.materials import EMPTY_MATERIAL_ASSIGNMENT, MaterialAssignment
 from py_kit.schemas.units import DEFAULT_LENGTH_UNIT, LengthUnit
 
@@ -169,8 +170,16 @@ class PartCreate(BaseModel):
     """Create a part owned by the calling user."""
 
     name: PartName = Field(
-        description="Part name; unique per owner, whitespace-trimmed, "
+        description="Part name; unique per FOLDER (#WS2), whitespace-trimmed, "
         f"1-{PART_NAME_MAX_LENGTH} characters"
+    )
+    folder_id: uuid.UUID | None = Field(
+        default=None,
+        description="File it into this folder on creation, or null (the default) "
+        "to leave it unfiled at the root of its drawer. Present so filing inside "
+        "a folder is ONE call: a create-then-move pair could fail between the "
+        "two and leave the document somewhere the user did not put it. Must be "
+        "the caller's own folder OF THIS DOCUMENT'S KIND.",
     )
     length_unit: LengthUnit = Field(
         default=DEFAULT_LENGTH_UNIT,
@@ -262,6 +271,7 @@ class PartResponse(BaseModel):
     id: uuid.UUID
     name: str
     owner_id: uuid.UUID = Field(description="Owning user id (gateway-verified)")
+    folder_id: uuid.UUID | None = Field(default=None, description=FOLDER_ID_DESCRIPTION)
     length_unit: LengthUnit = Field(
         description="Document display unit (docs/design/units.md §1); DISPLAY "
         "metadata only — storage stays canonical mm."

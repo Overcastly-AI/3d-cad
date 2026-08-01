@@ -289,6 +289,12 @@ export async function fetchParts(
 export async function createPart(
   name: string,
   lengthUnit: LengthUnit = "mm",
+  /**
+   * File it into this folder on creation (#WS2), or null for unfiled. ONE call
+   * on purpose: a create-then-move pair could fail between the two and leave a
+   * document somewhere the user did not put it.
+   */
+  folderId: string | null = null,
   client: GatewayClient = gatewayClient,
 ): Promise<PartResponse> {
   const { data, error } = await client.POST("/api/v1/parts", {
@@ -296,7 +302,7 @@ export async function createPart(
     // creation. The default is canonical mm; the caller passes the user's
     // "units for new documents" preference (#58) when there is one, and the
     // document-unit selector (U2) changes it afterwards via the update route.
-    body: { name, length_unit: lengthUnit },
+    body: { name, length_unit: lengthUnit, folder_id: folderId },
   });
   if (error !== undefined) {
     if (envelopeCode(error) === "part_name_taken") {
@@ -395,6 +401,33 @@ export async function deletePart(
     throwIfDependents(error, "The part could not be deleted.");
     throw new Error(envelopeMessage(error, "The part could not be deleted."));
   }
+}
+
+/**
+ * File a part into a folder, or un-file it with `folderId: null` (#WS2).
+ *
+ * The RESPONSE is the part as stored, and callers render that rather than
+ * assuming the click landed: a move that reported success while the document
+ * was still in the old place is the defect this whole row is being held to.
+ *
+ * No `expected_tree_version`: filing is not a document edit (it moves neither
+ * the version nor `updated_at`), so it cannot collide with a modeling write and
+ * has nothing to guard against. A folder that already holds a part of this name
+ * refuses with 409 `part_name_taken` — names are unique per folder.
+ */
+export async function movePart(
+  partId: string,
+  folderId: string | null,
+  client: GatewayClient = gatewayClient,
+): Promise<PartResponse> {
+  const { data, error } = await client.POST("/api/v1/parts/{part_id}/move", {
+    params: { path: { part_id: partId } },
+    body: { folder_id: folderId },
+  });
+  if (error !== undefined) {
+    throw new Error(envelopeMessage(error, "The part could not be moved."));
+  }
+  return data;
 }
 
 /** One of the caller's parts. */
@@ -1237,6 +1270,82 @@ export async function suppressFeature(
 }
 
 /**
+ * One thing that breaks if a feature is deleted — a later FEATURE of this part,
+ * or a DRAWING whose section view cuts on it. The generated contract type; the
+ * union is closed server-side (an assembly instances a whole part, never a
+ * feature), so a consumer may switch on `kind` exhaustively.
+ */
+export type FeatureDependent = components["schemas"]["FeatureDependent"];
+
+/**
+ * What breaks if this feature is deleted — asked BEFORE the delete is offered
+ * (UI-REVIEW 2026-07-30 F3).
+ *
+ * A read, answered by the SAME documents-side query that builds the delete's
+ * 409, which is the property that matters: a confirmation saying "nothing
+ * depends on this" and a refusal naming two features cannot both be right, and
+ * one query makes that impossible rather than unlikely.
+ *
+ * An empty list is the honest common answer, not a guarantee: another client
+ * could add a reference a moment later, and the delete re-checks under the row
+ * lock. The UI therefore still handles the 409.
+ */
+export async function fetchFeatureDependents(
+  partId: string,
+  featureId: string,
+  client: GatewayClient = gatewayClient,
+): Promise<FeatureDependent[]> {
+  const { data, error } = await client.GET(
+    "/api/v1/parts/{part_id}/features/{feature_id}/dependents",
+    { params: { path: { part_id: partId, feature_id: featureId } } },
+  );
+  if (error !== undefined) {
+    throw new Error(
+      envelopeMessage(error, "What depends on this feature could not be read."),
+    );
+  }
+  return data.dependents;
+}
+
+/**
+ * A feature delete was refused because other features or drawings reference it
+ * (409 `feature_has_dependents`) — the feature-level sibling of
+ * `DocumentHasDependentsError`, and typed for the same reason: the refusal has
+ * to NAME what breaks.
+ */
+export class FeatureHasDependentsError extends Error {
+  constructor(
+    readonly dependents: FeatureDependent[],
+    message: string,
+  ) {
+    super(message);
+    this.name = "FeatureHasDependentsError";
+  }
+}
+
+/** Runtime narrowing of a feature 409's `details.dependents`, or null. */
+export function parseFeatureDependents(
+  body: unknown,
+): FeatureDependent[] | null {
+  if (typeof body !== "object" || body === null) return null;
+  const error = (body as Record<string, unknown>).error;
+  if (typeof error !== "object" || error === null) return null;
+  const details = (error as Record<string, unknown>).details;
+  if (typeof details !== "object" || details === null) return null;
+  const raw = (details as Record<string, unknown>).dependents;
+  if (!Array.isArray(raw)) return null;
+  const dependents: FeatureDependent[] = [];
+  for (const entry of raw) {
+    if (typeof entry !== "object" || entry === null) return null;
+    const { id, name, kind } = entry as Record<string, unknown>;
+    if (typeof id !== "string" || typeof name !== "string") return null;
+    if (kind !== "feature" && kind !== "drawing") return null;
+    dependents.push({ id, name, kind });
+  }
+  return dependents.length > 0 ? dependents : null;
+}
+
+/**
  * Delete a feature from the tree (200; 422 on stale version). A history-
  * recording, undoable tree edit under the SAME optimistic-concurrency guard as
  * every write; downstream features rebuild off the shortened tree. The route +
@@ -1264,9 +1373,16 @@ export async function deleteFeature(
       error,
       "The feature could not be deleted — reload and try again.",
     );
-    throw envelopeCode(error) === "stale_tree_version"
-      ? new StaleTreeVersionError(message)
-      : new Error(message);
+    if (envelopeCode(error) === "stale_tree_version") {
+      throw new StaleTreeVersionError(message);
+    }
+    // The refusal NAMES what breaks (F3). Thrown typed so the tree renders the
+    // list the server sent rather than the message's prose.
+    const dependents = parseFeatureDependents(error);
+    if (dependents !== null) {
+      throw new FeatureHasDependentsError(dependents, message);
+    }
+    throw new Error(message);
   }
   return data;
 }

@@ -381,6 +381,70 @@ async def _table_names(url: str) -> set[str]:
         await engine.dispose()
 
 
+def test_0015_offline_sql_renders_the_partial_uniques(
+    alembic_ini: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#WS2 — the folder tree, and per-FOLDER document name uniqueness.
+
+    The assertions worth having here are the PARTIAL predicates. Uniqueness that
+    only covers filed documents would silently permit two unfiled "Bracket"s
+    (SQL treats NULLs as distinct), which is the state most documents are in;
+    the ``WHERE folder_id IS NULL`` half is the one that closes it, and it is
+    invisible from the ORM metadata alone.
+    """
+    sql = _offline_sql(alembic_ini, monkeypatch, "0014:0015")
+
+    # The tree: self-FK, RESTRICT so a folder delete can never take a folder
+    # with it, and sibling-name uniqueness split over the NULL boundary.
+    assert "CREATE TABLE folders" in sql
+    assert (
+        "CONSTRAINT fk_folders_parent FOREIGN KEY(parent_id) REFERENCES folders (id) "
+        "ON DELETE RESTRICT" in sql
+    )
+    assert (
+        "CREATE UNIQUE INDEX uq_folders_parent_name ON folders "
+        "(owner_id, kind, parent_id, name) WHERE parent_id IS NOT NULL" in sql
+    )
+    assert (
+        "CREATE UNIQUE INDEX uq_folders_root_name ON folders (owner_id, kind, name) "
+        "WHERE parent_id IS NULL" in sql
+    )
+
+    for table in ("parts", "assemblies", "drawings"):
+        assert f"ALTER TABLE {table} ADD COLUMN folder_id UUID" in sql
+        # RESTRICT: the DB backstop behind the 409-with-contents refusal.
+        assert (
+            f"ALTER TABLE {table} ADD CONSTRAINT fk_{table}_folder "
+            "FOREIGN KEY(folder_id) REFERENCES folders (id) ON DELETE RESTRICT" in sql
+        )
+        # The old per-owner rule goes; the per-folder PAIR replaces it.
+        assert f"ALTER TABLE {table} DROP CONSTRAINT" in sql
+        assert (
+            f"CREATE UNIQUE INDEX uq_{table}_folder_name ON {table} "
+            "(owner_id, folder_id, name) WHERE folder_id IS NOT NULL" in sql
+        )
+        assert (
+            f"CREATE UNIQUE INDEX uq_{table}_unfiled_name ON {table} (owner_id, name) "
+            "WHERE folder_id IS NULL" in sql
+        )
+        # The owner-scoped list scan the dropped constraint used to serve.
+        assert f"CREATE INDEX ix_{table}_owner ON {table} (owner_id)" in sql
+
+
+def test_0015_offline_downgrade_restores_the_owner_unique(
+    alembic_ini: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sql = _offline_sql(alembic_ini, monkeypatch, "0015:0014", downgrade=True)
+    assert "DROP TABLE folders" in sql
+    for table in ("parts", "assemblies", "drawings"):
+        assert f"DROP INDEX uq_{table}_folder_name" in sql
+        assert f"ALTER TABLE {table} DROP COLUMN folder_id" in sql
+        assert (
+            f"ALTER TABLE {table} ADD CONSTRAINT uq_{table}_owner_name "
+            "UNIQUE (owner_id, name)" in sql
+        )
+
+
 def test_migrations_apply_and_downgrade_on_real_postgres(
     pg_url: str, alembic_runner: Callable[..., None]
 ) -> None:
@@ -401,11 +465,13 @@ def test_migrations_apply_and_downgrade_on_real_postgres(
         "annotations",
         "part_snapshots",
         "assembly_snapshots",
+        "folders",
         "alembic_version",
     }
 
     alembic_runner(pg_url, "base", downgrade=True)
     remaining = asyncio.run(_table_names(pg_url))
+    assert "folders" not in remaining
     assert "assembly_snapshots" not in remaining
     assert "part_snapshots" not in remaining
     assert "features" not in remaining
@@ -435,4 +501,5 @@ def test_migrations_apply_and_downgrade_on_real_postgres(
         "annotations",
         "part_snapshots",
         "assembly_snapshots",
+        "folders",
     }

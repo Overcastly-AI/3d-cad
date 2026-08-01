@@ -119,10 +119,16 @@ export async function fetchDrawings(
 /** Create a drawing owned by the caller (201). A duplicate name → 409. */
 export async function createDrawing(
   name: string,
+  /**
+   * File it into this folder on creation (#WS2), or null for unfiled. ONE call
+   * on purpose: a create-then-move pair could fail between the two and leave a
+   * document somewhere the user did not put it.
+   */
+  folderId: string | null = null,
   client: GatewayClient = gatewayClient,
 ): Promise<DrawingResponse> {
   const { data, error } = await client.POST("/api/v1/drawings", {
-    body: { name },
+    body: { name, folder_id: folderId },
   });
   if (error !== undefined) {
     if (
@@ -452,6 +458,28 @@ export async function composeDrawingSheet(
     throw new Error(
       envelopeMessage(error, "The drawing sheet could not be composed."),
     );
+  }
+  return data;
+}
+
+/**
+ * File a drawing into a folder, or un-file it with `folderId: null` (#WS2).
+ * See `movePart` for why the response is rendered rather than assumed.
+ */
+export async function moveDrawing(
+  drawingId: string,
+  folderId: string | null,
+  client: GatewayClient = gatewayClient,
+): Promise<DrawingResponse> {
+  const { data, error } = await client.POST(
+    "/api/v1/drawings/{drawing_id}/move",
+    {
+      params: { path: { drawing_id: drawingId } },
+      body: { folder_id: folderId },
+    },
+  );
+  if (error !== undefined) {
+    throw new Error(envelopeMessage(error, "The drawing could not be moved."));
   }
   return data;
 }

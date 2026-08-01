@@ -29,6 +29,10 @@ from gateway.assemblies import router as assemblies_router
 from gateway.auth import auth_router, resolve_auth_config
 from gateway.drawings import router as drawings_router
 from gateway.features import router as features_router
+from gateway.folders import assemblies_router as folder_assemblies_router
+from gateway.folders import drawings_router as folder_drawings_router
+from gateway.folders import parts_router as folder_parts_router
+from gateway.folders import router as folders_router
 from gateway.geometry import create_geometry_client
 from gateway.geometry import router as geometry_router
 from gateway.materials import router as materials_router
@@ -165,6 +169,13 @@ def build_app(
     app.include_router(drawings_router)
     app.include_router(step_import_router)
     app.include_router(assembly_import_router)
+    # Filing (:mod:`gateway.folders`): the folder tree + the three document
+    # MOVE routes, registered after their document routers so the static
+    # `/move` suffix never shadows a document's own `/{id}` route.
+    app.include_router(folders_router)
+    app.include_router(folder_parts_router)
+    app.include_router(folder_assemblies_router)
+    app.include_router(folder_drawings_router)
     return app
 
 

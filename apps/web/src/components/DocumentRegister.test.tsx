@@ -397,7 +397,11 @@ describe("DocumentRegister — actions", () => {
     const field = screen.getByTestId("create-part-name");
     fireEvent.change(field, { target: { value: "  Motor mount  " } });
     fireEvent.submit(screen.getByTestId("create-part-form"));
-    await waitFor(() => expect(onCreate).toHaveBeenCalledWith("Motor mount"));
+    // The folder the register is standing in rides the create (#WS2); at the
+    // root — where this test stands — that is null.
+    await waitFor(() =>
+      expect(onCreate).toHaveBeenCalledWith("Motor mount", null),
+    );
     await waitFor(() => expect(field).toHaveValue(""));
   });
 

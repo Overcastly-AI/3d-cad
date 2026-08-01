@@ -105,6 +105,12 @@ export async function fetchAssemblies(
 export async function createAssembly(
   name: string,
   lengthUnit: LengthUnit = "mm",
+  /**
+   * File it into this folder on creation (#WS2), or null for unfiled. ONE call
+   * on purpose: a create-then-move pair could fail between the two and leave a
+   * document somewhere the user did not put it.
+   */
+  folderId: string | null = null,
   client: GatewayClient = gatewayClient,
 ): Promise<AssemblyResponse> {
   const { data, error } = await client.POST("/api/v1/assemblies", {
@@ -112,7 +118,7 @@ export async function createAssembly(
     // creation: the default is canonical mm, the caller passes the user's
     // "units for new documents" preference (#58), and the document-unit
     // selector (U2) changes it afterwards via the update route.
-    body: { name, length_unit: lengthUnit },
+    body: { name, length_unit: lengthUnit, folder_id: folderId },
   });
   if (error !== undefined) {
     if (
@@ -245,6 +251,29 @@ export async function deleteAssembly(
       envelopeMessage(error, "The assembly could not be deleted."),
     );
   }
+}
+
+/**
+ * File an assembly into a folder, or un-file it with `folderId: null` (#WS2).
+ * See `movePart` for why the response is rendered rather than assumed and why
+ * this carries no concurrency guard.
+ */
+export async function moveAssembly(
+  assemblyId: string,
+  folderId: string | null,
+  client: GatewayClient = gatewayClient,
+): Promise<AssemblyResponse> {
+  const { data, error } = await client.POST(
+    "/api/v1/assemblies/{assembly_id}/move",
+    {
+      params: { path: { assembly_id: assemblyId } },
+      body: { folder_id: folderId },
+    },
+  );
+  if (error !== undefined) {
+    throw new Error(envelopeMessage(error, "The assembly could not be moved."));
+  }
+  return data;
 }
 
 /** The assembly's full instance + mate graph and its concurrency token. */

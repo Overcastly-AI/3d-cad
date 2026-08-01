@@ -7,6 +7,7 @@ import {
   deletePart,
   duplicatePart,
   fetchParts,
+  movePart,
   renamePart,
 } from "../api/parts";
 import {
@@ -15,8 +16,10 @@ import {
 } from "../components/DocumentRegister";
 import { SheetGrid } from "../components/SheetGrid";
 import { TopBar } from "../components/TopBar";
+import { useRegisterFiling } from "../components/useRegisterFiling";
 import { WorkspaceNav } from "../components/WorkspaceNav";
 import { usePreferencesStore } from "../settings/preferences";
+import type { PartResponse } from "../api/parts";
 
 /**
  * The parts home — the landing surface after sign-in. The drawer itself lives
@@ -57,6 +60,9 @@ export function PartsPage() {
     queryFn: () => fetchParts(),
     staleTime: 30_000,
   });
+  // Filing (#WS2) — the folder tree for THIS drawer plus its four verbs, wired
+  // once for all three registers.
+  const filing = useRegisterFiling<PartResponse>("part", "parts", movePart);
 
   return (
     <div className="flex h-full flex-col">
@@ -85,8 +91,11 @@ export function PartsPage() {
                 {part.name}
               </Link>
             )}
-            onCreate={async (name) => {
-              const part = await createPart(name, newDocumentUnit);
+            filing={filing}
+            onCreate={async (name, folderId) => {
+              // The folder the register is standing in rides the create, so a
+              // part named inside a folder is filed there in one call.
+              const part = await createPart(name, newDocumentUnit, folderId);
               await queryClient.invalidateQueries({ queryKey: ["parts"] });
               await navigate({
                 to: "/parts/$partId",

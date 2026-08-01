@@ -6,7 +6,9 @@ import {
   createDrawing,
   deleteDrawing,
   duplicateDrawing,
+  type DrawingResponse,
   fetchDrawings,
+  moveDrawing,
   renameDrawing,
 } from "../api/drawings";
 import {
@@ -15,6 +17,7 @@ import {
 } from "../components/DocumentRegister";
 import { SheetGrid } from "../components/SheetGrid";
 import { TopBar } from "../components/TopBar";
+import { useRegisterFiling } from "../components/useRegisterFiling";
 import { WorkspaceNav } from "../components/WorkspaceNav";
 
 /**
@@ -51,6 +54,12 @@ export function DrawingsPage() {
     queryFn: () => fetchDrawings(),
     staleTime: 30_000,
   });
+  // Filing (#WS2) — see PartsPage; the wiring is shared, not repeated.
+  const filing = useRegisterFiling<DrawingResponse>(
+    "drawing",
+    "drawings",
+    moveDrawing,
+  );
 
   return (
     <div className="flex h-full flex-col">
@@ -82,8 +91,9 @@ export function DrawingsPage() {
                 {drawing.name}
               </Link>
             )}
-            onCreate={async (name) => {
-              await createDrawing(name);
+            filing={filing}
+            onCreate={async (name, folderId) => {
+              await createDrawing(name, folderId);
               await queryClient.invalidateQueries({ queryKey: ["drawings"] });
             }}
             onRename={async (drawing, name) => {

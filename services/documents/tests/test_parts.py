@@ -8,7 +8,9 @@ because the sandbox has no Postgres daemon. The column types in
 NOT cover:
 
 - The duplicate-name 409 relies on ``IntegrityError`` from
-  ``uq_parts_owner_name``. SQLite raises it too (asserted here), but the
+  the per-folder name indexes (``uq_parts_folder_name`` /
+  ``uq_parts_unfiled_name``, #WS2). SQLite raises it too (asserted here,
+  including that PARTIAL unique indexes behave the same on both), but the
   asyncpg ``UniqueViolationError`` → ``IntegrityError`` mapping itself is
   only exercised against real Postgres (compose stack / e2e).
 - Native ``UUID`` / ``TIMESTAMPTZ`` columns and the ``now()`` server default
@@ -114,6 +116,9 @@ def test_create_part_returns_full_dto(client: TestClient) -> None:
         "id",
         "name",
         "owner_id",
+        # Where it is FILED (#WS2) — null is "unfiled", a real state rather
+        # than a missing value, which is what a fresh part is.
+        "folder_id",
         "length_unit",
         # What the part is made of (docs/design/materials.md) — always present,
         # empty until assigned, because mass is derived from it.
@@ -132,6 +137,7 @@ def test_create_part_returns_full_dto(client: TestClient) -> None:
     uuid.UUID(body["id"])  # well-formed id
     assert body["name"] == "Bracket"
     assert body["owner_id"] == OWNER
+    assert body["folder_id"] is None
     # A part with no tree yet sits at version 0 (feature-tree.md §1.2).
     assert body["tree_version"] == 0
     # Never evaluated: the record is all-null and the derived state says so

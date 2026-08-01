@@ -32,6 +32,7 @@ from py_kit.schemas.features import (
     PlanarFaceSignature,
     document_slug,
 )
+from py_kit.schemas.folders import FOLDER_ID_DESCRIPTION
 from py_kit.schemas.geometry import (
     DEFAULT_ANGULAR_DEFLECTION,
     DEFAULT_LINEAR_DEFLECTION,
@@ -318,8 +319,16 @@ class AssemblyCreate(BaseModel):
     """Create an assembly owned by the calling user (design §1.2)."""
 
     name: AssemblyName = Field(
-        description="Assembly name; unique per owner, whitespace-trimmed, "
+        description="Assembly name; unique per FOLDER (#WS2), whitespace-trimmed, "
         f"1-{ASSEMBLY_NAME_MAX_LENGTH} characters"
+    )
+    folder_id: uuid.UUID | None = Field(
+        default=None,
+        description="File it into this folder on creation, or null (the default) "
+        "to leave it unfiled at the root of its drawer. Present so filing inside "
+        "a folder is ONE call: a create-then-move pair could fail between the "
+        "two and leave the document somewhere the user did not put it. Must be "
+        "the caller's own folder OF THIS DOCUMENT'S KIND.",
     )
     length_unit: LengthUnit = Field(
         default=DEFAULT_LENGTH_UNIT,
@@ -463,6 +472,7 @@ class AssemblyResponse(BaseModel):
     id: uuid.UUID
     name: str
     owner_id: uuid.UUID = Field(description="Owning user id (gateway-verified)")
+    folder_id: uuid.UUID | None = Field(default=None, description=FOLDER_ID_DESCRIPTION)
     length_unit: LengthUnit = Field(
         description="Document display unit (docs/design/units.md §1); DISPLAY "
         "metadata only — storage stays canonical mm."

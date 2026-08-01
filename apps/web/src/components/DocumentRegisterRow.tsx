@@ -1,6 +1,11 @@
-import { Button, Stamp, TextField } from "@loft/design";
+import { Button, SelectField, Stamp, TextField } from "@loft/design";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 
+import {
+  type FolderResponse,
+  folderPathLabel,
+  UNFILED_LABEL,
+} from "../api/folders";
 import {
   DocumentHasDependentsError,
   type DocumentDependent,
@@ -64,6 +69,15 @@ export interface DocumentRegisterRowProps<T extends RegisterDocument> {
   onRename: (document: T, name: string) => Promise<void>;
   onDuplicate: (document: T) => Promise<void>;
   onDelete: (document: T) => Promise<void>;
+  /** The drawer's whole folder tree — the move picker's options and the
+   *  location label's names. Empty when the drawer has no folders. */
+  folders?: readonly FolderResponse[];
+  /** Print WHERE this document lives beside its name (only while filtering —
+   *  see the call site: at rest the breadcrumb already says it). */
+  showLocation?: boolean;
+  /** File it, or un-file it with null. Absent = this drawer has no folders,
+   *  and the MOVE verb is not offered rather than offered and inert. */
+  onMove?: (document: T, folderId: string | null) => Promise<void>;
 }
 
 export function DocumentRegisterRow<T extends RegisterDocument>({
@@ -77,8 +91,13 @@ export function DocumentRegisterRow<T extends RegisterDocument>({
   onRename,
   onDuplicate,
   onDelete,
+  folders = [],
+  showLocation = false,
+  onMove,
 }: DocumentRegisterRowProps<T>) {
-  const [mode, setMode] = useState<"idle" | "rename" | "confirm">("idle");
+  const [mode, setMode] = useState<"idle" | "rename" | "confirm" | "move">(
+    "idle",
+  );
   const [pending, setPending] = useState(false);
   const [rowError, setRowError] = useState<string | null>(null);
   /** The referents a refused delete named — rendered, never summarised. */
@@ -122,6 +141,31 @@ export function DocumentRegisterRow<T extends RegisterDocument>({
   );
   /** Data cells between NAME and FILED — the takeover span has to follow them. */
   const dataSpan = 2 + (showUnits ? 1 : 0) + (showHealth ? 1 : 0);
+
+  if (mode === "move" && onMove !== undefined) {
+    return (
+      <tr
+        data-testid={`${idSingular}-row`}
+        {...{ [`data-${idSingular}-id`]: entry.id }}
+        data-moving="true"
+        className="border-b border-hairline last:border-b-0 bg-carbide"
+      >
+        <Gutter ordinal={ordinal} idSingular={idSingular} addressed />
+        <td colSpan={dataSpan + 2} className="px-3 py-2">
+          <MoveField
+            idSingular={idSingular}
+            entry={entry}
+            folders={folders}
+            onCancel={() => setMode("idle")}
+            onSubmit={async (folderId) => {
+              await onMove(entry, folderId);
+              setMode("idle");
+            }}
+          />
+        </td>
+      </tr>
+    );
+  }
 
   if (mode === "confirm") {
     return (
@@ -209,13 +253,24 @@ export function DocumentRegisterRow<T extends RegisterDocument>({
             }}
           />
         ) : (
-          openLink(entry, {
-            className:
-              // `min-h-target-dense`: the row stays dense, the TAP TARGET does not go
-              // under the 24px floor (design `target` policy; it measured 84x18).
-              "inline-flex min-h-target-dense items-center rounded-sm font-body text-md text-mist underline-offset-4 outline-none hover:text-brass hover:underline focus-visible:text-brass focus-visible:underline",
-            "data-testid": `${idSingular}-open`,
-          })
+          <span className="flex flex-wrap items-baseline gap-x-2">
+            {openLink(entry, {
+              className:
+                // `min-h-target-dense`: the row stays dense, the TAP TARGET does not go
+                // under the 24px floor (design `target` policy; it measured 84x18).
+                "inline-flex min-h-target-dense items-center rounded-sm font-body text-md text-mist underline-offset-4 outline-none hover:text-brass hover:underline focus-visible:text-brass focus-visible:underline",
+              "data-testid": `${idSingular}-open`,
+            })}
+            {showLocation ? (
+              <span
+                className="font-display text-2xs uppercase tracking-[0.14em] text-gauge"
+                data-testid={`${idSingular}-location`}
+                title="Where this document is filed"
+              >
+                {folderPathLabel(folders, entry.folder_id ?? null)}
+              </span>
+            ) : null}
+          </span>
         )}
       </td>
       {showUnits ? (
@@ -287,6 +342,20 @@ export function DocumentRegisterRow<T extends RegisterDocument>({
             >
               {pending ? "Copying…" : "Duplicate"}
             </button>
+            {onMove === undefined ? null : (
+              <button
+                type="button"
+                onClick={() => {
+                  setRowError(null);
+                  setMode("move");
+                }}
+                data-testid={`${idSingular}-move`}
+                aria-label={`Move ${entry.name} to a folder`}
+                className={`${ACTION_BUTTON} text-gauge hover:text-brass focus-visible:text-brass`}
+              >
+                Move
+              </button>
+            )}
             <button
               type="button"
               onClick={() => {
@@ -353,6 +422,132 @@ function BlockedByDependents({
         ))}
       </ul>
     </div>
+  );
+}
+
+/**
+ * MOVE — the keyboard-first filing gesture (#WS2).
+ *
+ * A SELECT of every folder in the drawer by full path, plus "Unfiled", rather
+ * than a drag target. Dragging is a fine second way to file, but a move
+ * reachable only by pointer would put the product's one rearrangement out of
+ * reach of a keyboard, in an app whose own design docs call it keyboard-first —
+ * so the select is the primary path and it is complete on its own.
+ *
+ * The takeover spans the row for the same reason DELETE does: filing is a
+ * decision, and a control that shares a line with five other cells is a control
+ * people operate by accident. The current folder is preselected and Save is
+ * inert until it changes, so the common miss (opening it and pressing Enter)
+ * costs nothing.
+ *
+ * On success the register REFETCHES and the row re-renders from the list the
+ * server sent; nothing here paints the destination optimistically. A move that
+ * reported success while the document was still in the old place is the exact
+ * defect this row is being held to.
+ */
+function MoveField<T extends RegisterDocument>({
+  idSingular,
+  entry,
+  folders,
+  onSubmit,
+  onCancel,
+}: {
+  idSingular: string;
+  entry: T;
+  folders: readonly FolderResponse[];
+  onSubmit: (folderId: string | null) => Promise<void>;
+  onCancel: () => void;
+}) {
+  /** "" is Unfiled — a select's value is a string, and null is not one. */
+  const current = entry.folder_id ?? "";
+  const [choice, setChoice] = useState(current);
+  const [pending, setPending] = useState(false);
+  const [fieldError, setFieldError] = useState<string | null>(null);
+  const selectRef = useRef<HTMLSelectElement>(null);
+
+  useEffect(() => selectRef.current?.focus(), []);
+
+  const options = [
+    { value: "", label: UNFILED_LABEL },
+    // Sorted by the path a human reads, so a nested folder sits under its
+    // parent rather than wherever the server's name order happened to put it.
+    ...[...folders]
+      .map((folder) => ({
+        value: folder.id,
+        label: folderPathLabel(folders, folder.id),
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label)),
+  ];
+
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (choice === current) {
+      onCancel();
+      return;
+    }
+    setPending(true);
+    try {
+      await onSubmit(choice === "" ? null : choice);
+    } catch (caught) {
+      setPending(false);
+      setFieldError(
+        caught instanceof Error
+          ? caught.message
+          : "The document could not be moved.",
+      );
+    }
+  };
+
+  return (
+    <form
+      className="flex flex-wrap items-end gap-3"
+      onSubmit={(event) => void submit(event)}
+      noValidate
+      data-testid={`${idSingular}-move-form`}
+    >
+      <span className="mb-1 font-body text-sm text-mist">
+        File <span className="font-data">{entry.name}</span> in
+      </span>
+      <SelectField
+        ref={selectRef}
+        label="Folder"
+        hideLabel
+        value={choice}
+        options={options}
+        error={fieldError}
+        disabled={pending}
+        data-testid={`${idSingular}-move-folder`}
+        className="min-w-[12rem]"
+        onChange={(event) => {
+          setChoice(event.currentTarget.value);
+          if (fieldError !== null) setFieldError(null);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            onCancel();
+          }
+        }}
+      />
+      <Button
+        type="submit"
+        variant="solid"
+        disabled={pending || choice === current}
+        data-testid={`${idSingular}-move-save`}
+        className="shrink-0"
+      >
+        {pending ? "Moving…" : "Move"}
+      </Button>
+      <Button
+        type="button"
+        onClick={onCancel}
+        disabled={pending}
+        data-testid={`${idSingular}-move-cancel`}
+        className="shrink-0"
+      >
+        Cancel
+      </Button>
+    </form>
   );
 }
 

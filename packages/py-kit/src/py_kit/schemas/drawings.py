@@ -49,6 +49,7 @@ from py_kit.schemas.features import (
     GeomRef,
     document_slug,
 )
+from py_kit.schemas.folders import FOLDER_ID_DESCRIPTION
 
 #: Upper bound for a user-facing drawing name ("Bracket — Detail").
 DRAWING_NAME_MAX_LENGTH = 200
@@ -532,8 +533,16 @@ class DrawingCreate(BaseModel):
     """Create a drawing owned by the calling user (design §2.1)."""
 
     name: DrawingName = Field(
-        description="Drawing name; unique per owner, whitespace-trimmed, "
+        description="Drawing name; unique per FOLDER (#WS2), whitespace-trimmed, "
         f"1-{DRAWING_NAME_MAX_LENGTH} characters"
+    )
+    folder_id: uuid.UUID | None = Field(
+        default=None,
+        description="File it into this folder on creation, or null (the default) "
+        "to leave it unfiled at the root of its drawer. Present so filing inside "
+        "a folder is ONE call: a create-then-move pair could fail between the "
+        "two and leave the document somewhere the user did not put it. Must be "
+        "the caller's own folder OF THIS DOCUMENT'S KIND.",
     )
 
 
@@ -556,6 +565,7 @@ class DrawingResponse(BaseModel):
     id: uuid.UUID
     name: str
     owner_id: uuid.UUID = Field(description="Owning user id (gateway-verified)")
+    folder_id: uuid.UUID | None = Field(default=None, description=FOLDER_ID_DESCRIPTION)
     doc_version: int = Field(
         description="Monotonic optimistic-concurrency counter (design §2.1)"
     )
