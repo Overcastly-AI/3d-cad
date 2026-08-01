@@ -1646,23 +1646,62 @@ frame refactor are v2/§11. Spike de-collected.
 
 ## Next (P2)
 
-- [ ] (P2, S) **GATE-1 — CI does not run e2e, so a behaviour change can leave the
-      browser suite red for a day and every commit still reads green.** Found
-      2026-08-01: F3 made feature-delete ask before acting, which is correct, but
-      `interaction-depth.spec.ts` still clicked Delete and expected the tree to
-      shrink. That spec was red at HEAD while five consecutive CI runs said
-      success, because `.github/workflows/ci.yml` runs lint / unit / contracts /
-      compose / licences and NOTHING that drives a browser. The only thing that
-      caught it was an orchestrator running `just e2e` by hand in a quiet window.
-      This is the "gate that cannot fail" class one level up: the gate is honest,
-      it simply is not wired to the thing it would have caught.
-      Not as simple as adding a job — e2e needs a real stack and takes ~42 min,
-      which is why it was left out. Options to weigh: a nightly/scheduled
-      workflow; a PR-only job; or a fast subset (the ~20 specs that cover the
-      write paths) on every push with the full suite nightly. Acceptance: a
-      pushed commit whose only defect is a stale browser assertion comes back
-      RED from CI, demonstrated on a deliberately broken spec.
+- [x] (P2, S) **GATE-1 — CI ran nothing that drove a browser, so a stale spec
+      could sit red at HEAD for a day while every commit read green. CLOSED
+      2026-08-01** (platform-builder). `.github/workflows/e2e.yml` runs the FULL
+      Playwright suite on every push that touches code, sharded 4 ways
+      (`scripts/e2e.sh --web-only -- --shard=i/4`; `just e2e-web` reproduces a
+      red shard locally). The choice was argued from cost and coverage, not
+      preferred: **PR-only** would never have run (we push straight to
+      `claude/**` and open no PRs); **nightly-only** attributes a failure to ~20
+      commits up to 24 h later, which IS the defect being closed; a **write-path
+      subset** is a hand-maintained list — the "enumerated gate quietly stops
+      covering" class this repo has now hit four times — and would not have
+      caught this bug either, since `interaction-depth.spec.ts` is a
+      right-click/ghost-preview spec no honest subset would list. Sharding is
+      derived from the FILESYSTEM, so a spec added tomorrow is gated the day it
+      lands. Wall clock ~8-15 min per push (352 tests / 81 files; ~30 min serial
+      quiet, ~60 min under four-agent load), i.e. at or under ci.yml's `python`
+      job, so feedback latency does not regress; ~45-75 runner-min per code push.
+      A `reconcile` job re-derives the expected set with `playwright test --list`
+      and fails unless the shards executed it exactly once between them
+      (`scripts/e2e-shard-audit.py`, proven against three negative controls:
+      a spec no shard ran, a spec two shards ran, a missing shard report).
+      **NOT covered per push, named so nobody assumes otherwise:** markdown-only
+      commits (30 % of the last 100 — `paths-ignore`, so no e2e run exists for
+      that SHA at all; `git show --name-only` distinguishes it from an eviction),
+      the browser against Postgres (this gate uses the native SQLite boot —
+      `deploy-path.yml` drives the real Postgres/MinIO round-trip per push), and
+      non-Chromium browsers (the config declares only Chromium). One disclosed
+      compromise: the gate runs `--retries=1`, because the measurement found a
+      racy spec (GATE-1a) and a gate people learn to re-run is worse than no
+      gate — a deterministic defect still fails both attempts, and a retried
+      test is NAMED as a warning every run rather than swallowed.
+      Acceptance met by deliberate failure, not assertion: the exact stale
+      assertion from `60a9553` was re-introduced, pushed, and CI rejected it —
+      run ids in the batch report, with `ci.yml` GREEN on the same commit, which
+      is the whole point.
       [src: batch-end e2e 2026-08-01]
+- [ ] (P2, XS) **GATE-1a — one racy spec is the only reason the new browser gate
+      runs with `--retries=1`** (frontend or QA). Found while measuring the full
+      suite for GATE-1: `apps/web/e2e/view-fit.spec.ts:309` ("collapsing a panel
+      gives the space back") does `page.waitForTimeout(900)` after clicking
+      `panel-collapse-tree` and then asserts on a NUMBER — and a numeric
+      `expect(...).toBeGreaterThan(...)` does not auto-retry the way a locator
+      assertion does, so under load it reads the pre-collapse width and reports
+      `Expected: > 728, Received: 728`, i.e. the collapse simply had not landed
+      yet. Not a product defect: it failed once and passed once on identical
+      code in a quiet window at `60a9553`. Fix is one seam —
+      `await expect.poll(async () => (await fitRect(page)).right - ...)
+      .toBeGreaterThan(before…)` — which waits for the real signal instead of
+      guessing 900 ms; then audit the suite for other fixed `waitForTimeout`
+      followed by a non-retrying assertion, since this shape is invisible until
+      it is the only thing standing between the team and a trustworthy gate.
+      Acceptance: the spec passes 10/10 under `--repeat-each` on a loaded box,
+      no fixed sleep gating an assertion, and `.github/workflows/e2e.yml` drops
+      `--retries=1` while `scripts/e2e-shard-audit.py` gains `--fail-on-flaky`
+      in the reconcile job — so a retry becomes a red build again.
+      [src: GATE-1 full-suite measurement 2026-08-01]
 - [ ] (P2, S) **PERF-1c — the prefetch headline is the BEST case, and we do not
       know the typical one** (kernel + QA). PERF-1b's table is measured with the
       warm run to COMPLETION: the 7.0x commit / 7.9x pick at N=200 `#192` assume
@@ -2608,6 +2647,11 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
   bounded FIFO admission queue on the OCCT routes (0 of 16 -> 11 of 16 delivered
   inside a 30 s deadline), and a timeout that says 504 "still working" instead
   of 502 "unreachable". `docs/OPERATIONS.md` §6.
+
+- 2026-08-01 — **GATE-1: CI drives a browser now (platform-builder):** the full
+  Playwright suite on every code push, sharded 4 ways, with a reconcile job that
+  fails unless the shards covered `playwright test --list` exactly once. Proven
+  by pushing the stale assertion back and watching CI reject it.
 
 - 2026-07-31 — **OBS-1: the stack can be watched (backend-builder):** Prometheus
   `/metrics` from py-kit for all three services — rebuild histogram by cache ×

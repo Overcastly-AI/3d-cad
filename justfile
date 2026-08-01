@@ -117,3 +117,14 @@ licence-selftest:
 # healthy ones; Playwright starts/reuses the Vite dev server.
 e2e:
     scripts/e2e.sh
+
+# Just the BROWSER leg — the same command CI's `e2e` workflow runs, minus the
+# shard flag. Use it to reproduce a red CI shard locally: pass the shard
+# through and you run exactly what that job ran, e.g.
+#     just e2e-web --shard=3/4
+# The geometry leg is skipped because `just test` (and CI's `python` job)
+# already runs the whole geometry suite. MEASURED 352 tests in 50.6 min under
+# load (nearer 30 quiet); one shard is a quarter of that. Narrow it further
+# with a file: `just e2e-web e2e/measure.spec.ts`.
+e2e-web *args:
+    scripts/e2e.sh --web-only -- {{args}}

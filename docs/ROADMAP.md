@@ -59,6 +59,29 @@ green; 32 further responses audited clean under load. `docs/OPERATIONS.md` §6
 rewritten again (it had been rewritten that morning to say affinity was "not
 shipped"). OPEN from that run: CONC-4..CONC-8.
 
+**GATE-1 CLOSED 2026-08-01 (platform-builder) — CI drives a browser now.** CI
+ran lint / unit / contracts / compose / licences and nothing that opened a page,
+so `interaction-depth.spec.ts` sat red at HEAD through five consecutive green
+runs and only a hand-run `just e2e` found it. New `.github/workflows/e2e.yml`
+runs the FULL Playwright suite on every push that touches code, sharded 4 ways
+(`scripts/e2e.sh --web-only -- --shard=i/4`). Full-and-sharded was argued, not
+preferred: PR-only would never run (we push straight to `claude/**`),
+nightly-only blames ~20 commits a day later — which is the defect itself — and a
+"write-path subset" is a hand-maintained list, the failure class that has bitten
+this repo four times, which would not have caught this bug either. Sharding is
+derived from the filesystem, so a spec added tomorrow is gated the day it lands,
+and a `reconcile` job re-derives the expected set from `playwright test --list`
+and fails unless the shards ran it exactly once between them
+(`scripts/e2e-shard-audit.py`). NOT covered per push, by name: markdown-only
+commits (30 % of the last 100 — `paths-ignore`, so no run at all), the browser
+against Postgres (native SQLite boot here; `deploy-path.yml` drives the real
+Postgres round-trip on every push), and non-Chromium browsers. One disclosed
+compromise: `--retries=1`, because the full-suite measurement found a racy spec
+(GATE-1a — a fixed sleep before a non-retrying assertion); retried tests are
+named as warnings every run, never swallowed. Proven by deliberate failure, not
+by assertion — see BACKLOG GATE-1 for the red/green pair, on which `ci.yml`
+stayed green while `e2e` went red.
+
 **COMPLETE — FOUNDER-DIRECTED UI WAVE (2026-07-30/31)** — "this needs to look
 professional and comparable to Fusion 360 and Plasticity." All four of the
 founder's questions are answered (timeline, component enablement, pre-selection
