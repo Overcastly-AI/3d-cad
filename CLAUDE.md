@@ -563,6 +563,15 @@ recipe here in the same commit as the fix.**
   file. A zero-byte 200 is the worst failure shape there is — every digest check
   downstream agrees with itself — so assert on size, and prefer the URL the
   index gives you over a path you constructed.
+  **Measured egress map, extended 2026-08-01 (LIC-4).** REACHABLE: `git clone`
+  over HTTPS, `raw.githubusercontent.com`, `archive.ubuntu.com`,
+  `files.pythonhosted.org`, `conda.anaconda.org`. DENIED (`CONNECT 403`): every
+  distro source host probed — nine of them, incl. the CentOS/AlmaLinux vaults —
+  and github.com *release assets*. The practical consequence is that
+  distro-built binaries cannot have their SRPMs mirrored from here, so a task
+  needing corresponding source for one of them must either derive the answer
+  from artefacts already on disk or write down why it does not need the source
+  at all. Full table with the probe list: `docs/LICENSING.md` §7.5.
 - **The blocked registry means NOTHING about the image build is locally
   testable, so anything the build depends on needs a gate that does not build.**
   `.dockerignore` excludes `scripts`, `deploy` and `docs` wholesale and then
