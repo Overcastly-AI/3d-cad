@@ -403,12 +403,23 @@ frame refactor are v2/§11. Spike de-collected.
       compresses: it buffers upstream bodies, so `create_upstream_client` now asks
       geometry for `identity` — that alone cut the end-to-end gateway fetch
       57.8 ms → **31.4 ms**. docs/PERF.md "PERF-4 landed". [platform-builder]
-- [ ] (P2, M) **PERF-4b — `tessellate_glb` emits one glTF primitive per B-rep
-      face**, measured at **~425 bytes of JSON per face** plus one draw call per
-      face (2 006 on the sink). The split is required for picking, so carry the
-      face id as a vertex attribute instead of splitting primitives. Frontend-
-      coupled (viewport picks by primitive ordinal today). Compression blunts the
-      byte cost but not the draw calls. [geometry-qa PERF-4]
+- [x] (P2, M) **PERF-4b — one glTF primitive per B-rep face (~425 B of JSON
+      each). Done 2026-08-01 (kernel-architect), and CONDITIONAL, because always
+      fusing is a wire REGRESSION.** Face ids ride a compact side table
+      (`extras.LOFT_face_triangles`), not a vertex attribute — the partition is a
+      run-length by construction, so it costs one int per FACE instead of 4 B per
+      VERTEX. Sink 2 006 prims → **19**, 1 089 348 → **353 868** B raw but
+      **91 837 → 45 086** gzipped (2.04x — report this one). The tray DECLINES:
+      fusing re-bases indices and destroys the byte-identical local index runs
+      deflate was matching, costing 2.2 gz-B/triangle against ~25 gz-B/face, so
+      the first cut shipped it 23 % BIGGER on the wire. Break-even measured at
+      ~20 triangles/face (threshold 12). Draw calls on a selected feature
+      2 006 → **3** (tray 442 → 9) via material-run draw groups — that half
+      helps both encodings. Browser GLB parse 47.2 → **3.4 ms**. Picking proven
+      unmoved three ways (byte-identical per-face triangle streams; every
+      triangle resolves to the pre-PERF-4b ordinal; equal face-ordinal checksums
+      on both benchmark parts). Frame time NOT measured — no GPU here.
+      docs/PERF.md "PERF-4b landed". [geometry-qa PERF-4]
 - [x] (P2, M) **PERF-5a — per-face provenance went dark at ~103 features while its
       docstring said it never would. Done 2026-07-31 (kernel-architect).** Crossing
       point MEASURED, not bracketed: budget 7 242 at N=100, **8 180 at N=105**, so the

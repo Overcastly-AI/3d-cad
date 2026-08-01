@@ -881,7 +881,17 @@ per wire — never a face-count law); disabling it is byte-identical and takes a
 at the 16 MiB upload cap instead of 1.08x. **PERF-5a fixed 2026-07-31**:
 provenance crossed its budget at N ~= 103 (measured, not bracketed);
 `MAX_PROVENANCE_FACES` 8 000 → 30 000 crosses at N ~= 207 — PERF-5b (fingerprint
-snapshots instead of retaining B-reps) still open. **PERF-1 + PERF-2 fixed
+snapshots instead of retaining B-reps) still open. **PERF-4b fixed 2026-08-01**
+(kernel-architect): the per-face glTF primitive is fused behind a compact
+per-face triangle side table, but only where it pays — always fusing re-bases
+the indices and destroys the byte-identical local index runs deflate was
+matching, which shipped the tray 23 % BIGGER on the gzipped wire before the
+break-even (~20 triangles/face) was measured. The 2 006-face sink now fuses to
+19 primitives, **91.8 → 45.1 KiB gzipped (2.04x)** with browser GLB parse
+47.2 → **3.4 ms**; the triangle-dense tray declines and is bit-identical to
+before. Selecting a feature costs **3 draw calls instead of 2 006** (material-run
+draw groups, which helps both encodings), and face picking is proven unmoved
+byte-for-byte. **PERF-1 + PERF-2 fixed
 2026-07-31** (kernel-architect): `evaluate_tree` has a rebuild cache
 (`geometry/rebuild_cache.py`) keyed on the rolling hash of the feature PREFIX,
 with entries OWNED rather than copied — every re-materialisation of an OCCT

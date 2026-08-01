@@ -1683,3 +1683,161 @@ genuinely live.
 * **Multi-worker dilution.** The cache and the scheduler are per-process, so
   `--scale geometry=N` still divides the hit rate N ways (CONC-1's affinity is
   the fix, and it landed the same day).
+
+## 2026-08-01 — PERF-4b landed: the per-face glTF primitive, and why it is conditional
+
+Fix for "Payload: a 2 000-face body ships a 1 MiB uncompressed mesh" above —
+the *other* half. PERF-4a compressed the route; this attacks the ~425 bytes of
+glTF JSON per B-rep face that `RWGltf_CafWriter` emits because it writes **one
+primitive per face** (so three accessors and three JSON objects per face).
+
+`tessellate.fuse_faces` concatenates the primitives of each material run into
+one and records the per-face triangle counts in a side table on the primitive's
+`extras` (`LOFT_face_triangles`). The viewport rebuilds the exact per-face
+partition from it (`glbGeometry.faceStarts`), so `face ordinal ==
+OverlayFace.index` — the thing every `on_face` datum, shell opening, hole
+placement and sketch-on-face is keyed on — is untouched.
+
+**A side table, not a `_FACE_ID` vertex attribute**, because the information is
+a run-length by construction: a fused primitive's triangles stay in face order,
+so one integer per FACE describes the whole partition. A per-vertex attribute
+would have spent 4 bytes per VERTEX (~160 KiB raw on the tray, 32 260 vertices)
+to say the same thing.
+
+### The result that changed the design: fusion is a LOSS on triangle-dense parts
+
+Fusing re-bases each face's indices onto the shared vertex buffer. That destroys
+what made the index buffer compress: unfused, every face with the same topology
+has a *byte-identical* local index run (a quad is always `0,1,2,2,1,3`) and
+deflate matches them across the whole buffer. Since PERF-4a the wire is gzipped,
+so this is not a footnote — the first implementation shipped the tray **23 %
+BIGGER on the wire** while shrinking it 15 % raw.
+
+Chunk-level breakdown, N=200 tray, gzip level 6 (the shipped level):
+
+| | raw | gzipped |
+| --- | ---: | ---: |
+| JSON chunk, unfused | 179 396 | 14 815 |
+| JSON chunk, fused | 2 104 | 606 |
+| BIN chunk, unfused | 964 176 | **203 601** |
+| BIN chunk, fused (same bytes, global indices) | 964 176 | **272 018** |
+
+The BIN chunk is byte-for-byte the same SIZE either way; only the index *values*
+change, and that costs 68 KiB of gzip — 2.2 gzip-bytes per triangle — against a
+14 KiB JSON saving. Smaller fusion caps do not recover it (cap 128 still costs
++42 KiB), confirming the loss is pattern repetition, not index magnitude.
+
+### Where the break-even is — measured, not modelled
+
+A deflection sweep on ONE fixed topology (117-face tray, so only the triangles
+per face move), whole-payload gzip:
+
+| triangles / face | gz unfused | gz fused | delta |
+| ---: | ---: | ---: | ---: |
+| 66.2 | 55 349 | 72 175 | +30.4 % |
+| 41.9 | 32 168 | 46 853 | +45.7 % |
+| **20.3** | 18 727 | 18 722 | **-0.0 %** |
+| 8.8 | 10 886 | 8 430 | -22.6 % |
+
+Break-even is ~20 triangles per face. `FUSE_MAX_TRIANGLES_PER_FACE = 12` for
+margin: below it the kernel fuses, above it it returns OCCT's bytes **unchanged**
+(`fuse_faces(glb) is glb`), so a dense part is bit-identical to what shipped
+before PERF-4b. Cross-checked on nine parts — the sign of the delta tracks the
+ratio without exception (sink 4.0 t/f -> -51 %, box 2.0 -> -7 %, cylinder 166.7
+-> +1.8 %, single-face sphere/torus -> +0.0 %).
+
+The fused-primitive vertex cap is 512, also measured (sink, gzipped): 256 ->
+45 889 B, **512 -> 45 086 B**, 1 024 -> 45 689 B, 16 384 -> 57 779 B. It keeps
+indices in `UNSIGNED_SHORT`; widening to `UNSIGNED_INT` would double the index
+buffer and hand back the saving.
+
+### Payload, at the two benchmark sizes
+
+| part | faces | t/f | primitives | raw B | gzip B |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 500-fin sink, before | 2 006 | 4.0 | 2 006 | 1 089 348 | 91 837 |
+| 500-fin sink, **after** | 2 006 | 4.0 | **19** | **353 868** | **45 086** |
+| | | | | **3.08x** | **2.04x** |
+| N=200 tray, before | 442 | 71.6 | 442 | 1 143 600 | 220 873 |
+| N=200 tray, **after** | 442 | 71.6 | 442 | 1 143 600 | 220 873 |
+| | | | | declined | declined |
+
+**Report the gzipped column.** The raw 3.08x on the sink is 2.04x on the wire,
+because a good deal of the JSON that fusion removes was highly compressible.
+
+### Draw calls: the win that applies to BOTH encodings
+
+three.js pushes one render item per draw GROUP when a mesh has a material array
+(`WebGLRenderer.projectObject`), and exactly one when it has a single material.
+So the neutral body was always **1 draw call** — the "one draw call per face"
+in the original PERF-4 note is only true once a body is ghosted, hidden, or
+feature-selected, which is when the four-way material split turns on. It was
+then one draw call per B-rep FACE.
+
+`glbGeometry.setFaceMaterials` now lays down the minimum number of groups that
+expresses the assignment: one per RUN of consecutive faces sharing a material.
+Faces of one body are contiguous in face order and a feature's faces nearly are,
+so measured over EVERY attributed feature of both parts (via the real
+`/overlay` provenance):
+
+| part | faces | draw calls when a feature is selected | worst case |
+| --- | ---: | --- | ---: |
+| 500-fin sink | 2 006 | was 2 006 | **3** |
+| N=200 tray | 442 | was 442 | **9** |
+
+Per-body hide/ghost collapses to **2** groups on both. This is independent of
+fusion, so the tray gets it too.
+
+### Client-side parse: 47 -> 3 ms on the sink
+
+The viewport's real path (`GLTFLoader.parseAsync` + `mergeGeometries` + the face
+partition), median of 9, on the actual benchmark payloads:
+
+| part | parse, unfused | parse, fused |
+| --- | ---: | ---: |
+| 500-fin sink | 47.2 ms | **3.4 ms** (13.9x) |
+| N=200 tray | 15.1 ms | 14.3 ms (declined — same payload) |
+
+This is main-thread work on every rebuild, so it is felt directly. Pick
+resolution also went from a linear scan of the per-face groups to a binary
+search over the partition — 0.735 -> 0.048 us per pick on the sink — but at
+sub-microsecond scale that is a tidiness win, not a perceptible one; it is
+reported so the number is on the record, not as a headline.
+
+Kernel cost of fusing: **+62 ms** on the sink (`tessellate_glb` 425 -> 487 ms),
+0 on the tray (declined). It is paid once per tessellation and returns 13.9 ms
+of it immediately in browser parse time, plus 46 KiB of transfer.
+
+### Proving the pick did not move
+
+The silent-wrong-answer risk here is a face ordinal that shifts, which would
+mis-target every downstream reference without any test going red. Three
+independent checks:
+
+1. **Kernel** (`test_tessellate_fuse.py`): for every face ordinal, the fused
+   payload's triangle stream — positions AND normals, in order — is
+   byte-identical to the unfused primitive's. Not the same count; the same
+   bytes. Plus: no vertex is welded across faces (the per-body split depends on
+   faces sharing coordinates but never buffer indices).
+2. **Viewport** (`glbGeometry.test.ts`): both encodings of one real two-body
+   part are parsed and, for all 52 triangles, `faceOrdinalOfTriangle` agrees
+   with the *pre-PERF-4b* per-primitive group scan; the merged position, normal
+   and index buffers come out element-for-element identical; `faceLumps` finds
+   the same two bodies; `subsetEdges` traces the same edges.
+3. **Both benchmark parts**: the sum of the face ordinal of every triangle is
+   identical between encodings — 4 026 030 (sink) and 5 553 078 (tray).
+
+Geometry did not move: volume 1 775 999.999 999 913 mm³ (sink) /
+614 643.782 627 637 mm³ (tray), 2 006 / 442 faces, 6 012 / 1 014 edges, STEP
+7 530 595 / 1 354 159 bytes — all unchanged, and the full golden suite
+(mass properties, topology counts, STEP round-trip, cross-process byte
+determinism) is green. `mesh_glb_id` DOES change for every part that fuses, once
+— it is a content hash and the content is a new encoding of the same mesh.
+
+### What is NOT measured here
+
+**Frame time.** This container has no GPU; a browser here renders through
+software GL, where the per-draw-call cost is not representative of the hardware
+path the draw-call count matters for. Rather than publish a number that means
+nothing, the draw-call count is reported directly and the frame-time claim is
+left unmade.
