@@ -151,6 +151,20 @@ async function clickPlane(
   await page.mouse.click(px.x, px.y);
 }
 
+/**
+ * Shift-click: ADD this pick to the standing selection (FB-14) — a plain click
+ * replaces, so relating two entities holds the modifier from the second pick.
+ */
+async function addPlane(
+  page: Page,
+  at: (pt: { x: number; y: number }) => { x: number; y: number },
+  pt: { x: number; y: number },
+) {
+  await page.keyboard.down("Shift");
+  await clickPlane(page, at, pt);
+  await page.keyboard.up("Shift");
+}
+
 test.describe("sketch dimension expressions (desktop 1440)", () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
@@ -247,7 +261,7 @@ test.describe("sketch dimension expressions (desktop 1440)", () => {
 
     // Tie e3 EQUAL to e2, so e3's length tracks the expression (both = 10).
     await clickPlane(page, at, { x: 15, y: -15 }); // e2 body
-    await clickPlane(page, at, { x: 12, y: -30 }); // e3 body
+    await addPlane(page, at, { x: 12, y: -30 }); // + e3 body
     await expect(page.getByTestId("selection-readout")).toContainText("2 ent");
     await page.keyboard.press("e");
     await expect(page.getByTestId("glyph-3")).toHaveText("=");

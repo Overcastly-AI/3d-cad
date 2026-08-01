@@ -27,6 +27,20 @@ the shared `countSketchInkPixels` probe — which counted the aluminium body as
 ink and so went UP when the sketch became unusable — is an exact-token census
 now.
 
+**FOUNDER SESSION 2026-08-01 — Escape stopped ending the sketch, and a click
+stopped piling up.** FB-13: the Escape cascade's last rung was `finishSketch()`,
+so the reflex after a click that appeared to do nothing ("tap Esc, start over")
+persisted and CLOSED the sketcher, while the strip advertised Esc as SAVE. Escape
+is a cancel key now — it unwinds the most local thing and then stops, raising a
+hint that names the chip which does finish; it still backs out of a sketch that
+holds no work, so an accidental entry is still a keystroke away from gone. FB-14:
+a plain click REPLACES the selection (stacked candidates cycle one at a time) and
+Shift or Ctrl/Cmd ADDS, so dimensioning a second line works instead of refusing
+"Select one line to dimension" — every multi-entity constraint stays authorable
+with the modifier held. Gated by `e2e/sketch-escape-select.spec.ts`, six specs
+that go red on the old behaviour. Left for the strip's owner: `SketchStrip.tsx`
+still captions the Save chip "Esc".
+
 **NEXT — FOUNDER-DIRECTED PRE-SELECTION / HOVER MODEL (2026-08-01,
 vision-steward, design only).** Same-night founder reports name one root
 cause three ways: a sketch line that "wouldn't even select," face picking

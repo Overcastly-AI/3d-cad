@@ -52,27 +52,100 @@ describe("plane choice", () => {
 });
 
 describe("selection", () => {
-  it("selectAt toggles picks and clears on empty clicks", () => {
+  it("selectAt picks, and clears on empty clicks", () => {
     rectangleAt();
     const store = useSketchStore.getState;
     store().selectAt({ x: 20, y: 0.5 }, 2); // bottom line curve
     expect(store().selection).toEqual([{ kind: "entity", id: "e1" }]);
-    store().selectAt({ x: 20, y: 0.5 }, 2); // same spot → deselect
-    expect(store().selection).toEqual([]);
-    store().selectAt({ x: 20, y: 0.5 }, 2);
+    store().selectAt({ x: 20, y: 0.5 }, 2); // same spot → still the line
+    expect(store().selection).toEqual([{ kind: "entity", id: "e1" }]);
     store().selectAt({ x: 500, y: 500 }, 2); // empty steel → clear
     expect(store().selection).toEqual([]);
   });
 
-  it("corner clicks cycle through the stacked endpoints", () => {
+  // FB-14: the founder's path — click one line, then another, and dimension
+  // the SECOND. Appending left both selected and `distance` refused.
+  it("a plain click on a second entity replaces the first", () => {
+    rectangleAt();
+    const store = useSketchStore.getState;
+    store().selectAt({ x: 20, y: 0.5 }, 2); // bottom line e1
+    store().selectAt({ x: 40, y: 12 }, 2); // right line e2
+    expect(store().selection).toEqual([{ kind: "entity", id: "e2" }]);
+    store().applyConstraint("distance"); // one line → the editor opens
+    expect(store().dimensionEdit).toMatchObject({
+      kind: "distance",
+      entity: "e2",
+    });
+    expect(store().hint).toBeNull();
+  });
+
+  it("Shift (axis-lock modifier) adds — the two-entity constraint path", () => {
+    rectangleAt();
+    const store = useSketchStore.getState;
+    store().selectAt({ x: 20, y: 0.5 }, 2); // bottom line e1
+    store().setSnapModifiers({ suppressed: false, axisLock: true });
+    store().selectAt({ x: 40, y: 12 }, 2); // right line e2, Shift held
+    expect(store().selection).toEqual([
+      { kind: "entity", id: "e1" },
+      { kind: "entity", id: "e2" },
+    ]);
+    store().applyConstraint("perpendicular");
+    expect(store().constraints).toHaveLength(1);
+  });
+
+  it("Ctrl/Cmd (snap-suppress modifier) adds too", () => {
+    rectangleAt();
+    const store = useSketchStore.getState;
+    store().selectAt({ x: 20, y: 0.5 }, 2);
+    store().setSnapModifiers({ suppressed: true, axisLock: false });
+    store().selectAt({ x: 40, y: 12 }, 2);
+    expect(store().selection).toHaveLength(2);
+    // A modifier-click that MISSES keeps what is being assembled.
+    store().selectAt({ x: 500, y: 500 }, 2);
+    expect(store().selection).toHaveLength(2);
+  });
+
+  it("an explicit mode beats the tracked modifier state", () => {
+    rectangleAt();
+    const store = useSketchStore.getState;
+    store().selectAt({ x: 20, y: 0.5 }, 2);
+    store().setSnapModifiers({ suppressed: false, axisLock: true });
+    store().selectAt({ x: 40, y: 12 }, 2, "replace");
+    expect(store().selection).toEqual([{ kind: "entity", id: "e2" }]);
+  });
+
+  it("corner clicks cycle through the stacked endpoints, one at a time", () => {
     rectangleAt();
     const store = useSketchStore.getState;
     store().selectAt({ x: 40, y: 0 }, 1);
+    expect(store().selection).toEqual([
+      { kind: "point", entity: "e1", point: "end" },
+    ]);
+    store().selectAt({ x: 40, y: 0 }, 1);
+    expect(store().selection).toEqual([
+      { kind: "point", entity: "e2", point: "start" },
+    ]);
+    // Shift on the second click collects BOTH — how a coincident is authored.
+    store().clearSelection();
+    store().selectAt({ x: 40, y: 0 }, 1);
+    store().setSnapModifiers({ suppressed: false, axisLock: true });
     store().selectAt({ x: 40, y: 0 }, 1);
     expect(store().selection).toEqual([
       { kind: "point", entity: "e1", point: "end" },
       { kind: "point", entity: "e2", point: "start" },
     ]);
+  });
+
+  it("the fit-point handles stay toggles (aria-pressed, modifier-free)", () => {
+    rectangleAt();
+    const store = useSketchStore.getState;
+    const a = { kind: "point", entity: "e1", point: "start" } as const;
+    const b = { kind: "point", entity: "e2", point: "end" } as const;
+    store().togglePick(a);
+    store().togglePick(b);
+    expect(store().selection).toEqual([a, b]);
+    store().togglePick(b);
+    expect(store().selection).toEqual([a]);
   });
 
   it("switching tools clears selection and pending state", () => {
@@ -403,7 +476,7 @@ describe("adoptSolved — the loop terminator", () => {
 });
 
 describe("escape cascade", () => {
-  it("editor → placement → tool → selection → exit", () => {
+  it("editor → placement → tool → selection → and then STOPS", () => {
     rectangleAt();
     const store = useSketchStore.getState;
     store().selectAt({ x: 20, y: 0.5 }, 2);
@@ -413,6 +486,52 @@ describe("escape cascade", () => {
     expect(store().selection).toHaveLength(1); // selection survived
     store().escape();
     expect(store().selection).toEqual([]);
+    // FB-13: the founder's reflex — one more Escape at rest. The sketch stays
+    // open with its geometry intact, and says where finishing lives.
+    store().escape();
+    expect(store().mode).toBe("draw");
+    expect(store().entities).toHaveLength(4);
+    expect(store().hint).toMatch(/nothing to cancel/i);
+    store().escape(); // …and it never falls through on the next press either
+    expect(store().mode).toBe("draw");
+  });
+
+  it("a bound sketch's rest hint names Finish, not Save", () => {
+    rectangleAt();
+    const store = useSketchStore.getState;
+    store().bind("feat-1");
+    store().escape();
+    expect(store().hint).toMatch(/finish sketch/i);
+    expect(store().mode).toBe("draw");
+  });
+
+  // The latent second half of FB-13: `escape` weighed only `selection`, so a
+  // picked constraint GLYPH left the cascade one rung short and fell straight
+  // through to exit — Escape wiped the session with a dimension selected.
+  it("a selected constraint glyph is a selection rung, not an exit", () => {
+    rectangleAt();
+    const store = useSketchStore.getState;
+    store().selectAt({ x: 20, y: 0.5 }, 2);
+    store().applyConstraint("horizontal");
+    store().selectConstraint(0);
+    store().escape();
+    expect(store().mode).toBe("draw");
+    expect(store().selectedConstraint).toBeNull();
+    expect(store().constraints).toHaveLength(1);
+  });
+
+  it("still backs out of the plane-pick step (nothing drawn yet)", () => {
+    const store = useSketchStore.getState;
+    store().begin();
+    expect(store().mode).toBe("plane");
+    store().escape();
+    expect(store().mode).toBe("off");
+  });
+
+  it("still backs out of an empty sketch opened by mistake", () => {
+    const store = useSketchStore.getState;
+    store().begin();
+    store().choosePlane("XY");
     store().escape();
     expect(store().mode).toBe("off");
   });

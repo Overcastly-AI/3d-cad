@@ -176,7 +176,7 @@ about to hit).
       hand, a fast flick is a pan), beyond that it is a drag. `e2e/click-drift.spec.ts`
       drives down/move/up so it exercises real travel; mutation-verified by
       restoring 4, which turns it red while the drag-rejection case stays green.
-- [ ] (P1, S) **FB-13 — Escape with nothing selected ENDS the sketch**, so the
+- [x] (P1, S) **FB-13 — Escape with nothing selected ENDS the sketch**, so the
       reflex after a click that appeared to do nothing throws you out of the
       sketcher (qa-tester, 2026-08-01). `escapeAction` (`sketch/tools.ts:402`)
       falls through to `"exit"` for tool `select` + empty selection and
@@ -184,12 +184,33 @@ about to hit).
       caption advertises Esc as SAVE, so one key has two advertised meanings in
       one state. Compounds FB-12/FB-2: the recovery gesture costs you the sketch.
       Encoded as a `test.fail()` in `e2e/founder-picking.spec.ts`.
-- [ ] (P2, S) **FB-14 — a plain click ACCUMULATES picks instead of replacing
+      FIXED — the cascade unwinds (editor -> placement -> tool -> selection) and
+      then STOPS: `escapeAction` answers `"none"` at rest, and the store raises a
+      hint naming the chip that does finish rather than doing nothing silently.
+      It still answers `"exit"` when the sketch holds no work (the plane-pick
+      step, or an empty buffer), so backing out of a sketch opened by mistake
+      stays keyboard-first. The latent twin went with it: `escape` weighed only
+      `selection`, so a picked constraint GLYPH fell through the same rung and
+      wiped the session. CALLER WORK LEFT, outside this territory —
+      `SketchStrip.tsx` still puts `shortcut="Esc"` on the Save chip (caption and
+      binding must agree), `PartPage.tsx`'s `if (action === "exit")
+      finishSketch()` is now dead for a drawn sketch, and `founder-picking.spec
+      .ts`'s FB-13 `test.fail()` now fails for a NEW reason (no feature is minted
+      at all).
+- [x] (P2, S) **FB-14 — a plain click ACCUMULATES picks instead of replacing
       them** (`pick.ts:168` `toggleSelection`), so clicking line A then line B
       selects both and `distance` refuses with "Select one line to dimension."
       Every other CAD replaces on a plain click and adds on Ctrl/Shift. A user
       hunting for a click that works builds a selection that cannot be
       dimensioned. Found while measuring FB-2.
+      FIXED — `applyPick` (`sketch/pick.ts`): a plain click REPLACES (stacked
+      candidates still cycle, one pick at a time), Shift or Ctrl/Cmd ADDS, and a
+      modifier-click that MISSES keeps the selection being assembled. The store
+      reads the modifier state the aim already tracks (Shift = `axisLock`,
+      Ctrl/Cmd = `snapSuppressed`), so no scene change was needed; `selectAt`
+      also takes an explicit mode for a caller holding the click event. The
+      `aria-pressed` fit-point handles stay toggles — the modifier-free
+      multi-select path. Every multi-entity constraint spec now Shift-clicks.
 - [ ] (P1, M) **FB-15 — every draw tool is click-then-click; users expect
       click-and-DRAG.** `tools.ts` `case "rect"` takes a corner click then a
       second point click (same shape for line/circle/arc). Press-drag-release is
@@ -3215,6 +3236,11 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
       engineering-audit debt items closed. [src: engineering-auditor]
 
 ## Changelog
+
+- 2026-08-01 — **Escape no longer ends your sketch, and a click no longer piles
+  up (frontend-builder):** FB-13/FB-14 — the cascade unwinds and then stops (it
+  still backs out of a sketch holding no work); plain click replaces, Shift or
+  Ctrl/Cmd adds. `e2e/sketch-escape-select.spec.ts` is red on the old behaviour.
 
 - 2026-08-01 — **You can drill where you want (frontend-builder):** QA3-1 —
   numeric X/Y in the picked face's STATED frame, a per-keystroke material check

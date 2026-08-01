@@ -291,9 +291,30 @@ describe("previewEntities", () => {
 });
 
 describe("escapeAction cascade", () => {
-  it("cancels the placement first, then the tool, then exits", () => {
+  it("closes the editor, then the placement, then the tool, then the selection", () => {
+    expect(escapeAction("line", 1, true, true)).toBe("close-editor");
     expect(escapeAction("line", 1)).toBe("cancel-placement");
     expect(escapeAction("line", 0)).toBe("reset-tool");
-    expect(escapeAction("select", 0)).toBe("exit");
+    expect(escapeAction("select", 0, true)).toBe("clear-selection");
+  });
+
+  // FB-13: the last rung is NOT "finish the sketch".
+  it("does NOTHING at rest once the sketch holds work", () => {
+    expect(escapeAction("select", 0)).toBe("none");
+    expect(escapeAction("select", 0, false, false, false)).toBe("none");
+  });
+
+  it("still backs out of a sketch that holds nothing to lose", () => {
+    expect(escapeAction("select", 0, false, false, true)).toBe("exit");
+  });
+
+  it("never exits while a more local thing is open, even unstarted", () => {
+    expect(escapeAction("line", 1, false, false, true)).toBe(
+      "cancel-placement",
+    );
+    expect(escapeAction("line", 0, false, false, true)).toBe("reset-tool");
+    expect(escapeAction("select", 0, true, false, true)).toBe(
+      "clear-selection",
+    );
   });
 });

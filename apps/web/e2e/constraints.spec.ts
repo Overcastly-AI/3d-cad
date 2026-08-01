@@ -204,6 +204,22 @@ async function clickPlane(
   await page.mouse.click(px.x, px.y);
 }
 
+/**
+ * Shift-click: ADD this pick to the standing selection (FB-14). A plain click
+ * replaces, so every constraint that relates two or more entities is authored
+ * by holding Shift (or Ctrl/Cmd) from the second pick on — the gesture every
+ * other CAD uses, and the one the sketcher now speaks.
+ */
+async function addPlane(
+  page: Page,
+  at: (pt: { x: number; y: number }) => { x: number; y: number },
+  pt: { x: number; y: number },
+) {
+  await page.keyboard.down("Shift");
+  await clickPlane(page, at, pt);
+  await page.keyboard.up("Shift");
+}
+
 test.describe("sketcher constraints", () => {
   test("worked example: 40×25 rectangle, five constraints, solved corners, 40→60 moves them", async ({
     page,
@@ -252,7 +268,7 @@ test.describe("sketcher constraints", () => {
     // 3) Coincident at the shared corner — two clicks cycle through the
     //    stacked endpoints (e1.end, then e2.start).
     await clickPlane(page, at, { x: 40, y: 0 });
-    await clickPlane(page, at, { x: 40, y: 0 });
+    await addPlane(page, at, { x: 40, y: 0 });
     await expect(page.getByTestId("selection-readout")).toContainText("2 pts");
     await page.keyboard.press("c");
     await expect(page.getByTestId("glyph-2")).toHaveText("C");
@@ -473,7 +489,7 @@ test.describe("sketcher relational constraints", () => {
     await page.keyboard.press("Escape");
 
     await clickPlane(page, at, { x: 20, y: 0 }); // e1 body
-    await clickPlane(page, at, { x: 17.5, y: 4.5 }); // e2 body (midpoint)
+    await addPlane(page, at, { x: 17.5, y: 4.5 }); // + e2 body (midpoint)
     await expect(page.getByTestId("selection-readout")).toContainText("2 ent");
     await page.keyboard.press("p");
     await expect(page.getByTestId("glyph-0")).toHaveText("∥");
@@ -522,7 +538,7 @@ test.describe("sketcher relational constraints", () => {
     await page.keyboard.press("Escape");
 
     await clickPlane(page, at, { x: 20, y: 0 }); // e1 body
-    await clickPlane(page, at, { x: 22.5, y: 15 }); // e2 body (midpoint)
+    await addPlane(page, at, { x: 22.5, y: 15 }); // + e2 body (midpoint)
     await expect(page.getByTestId("selection-readout")).toContainText("2 ent");
     await page.keyboard.press("l"); // L = perpendicular in the constraint vocab
     await expect(page.getByTestId("glyph-0")).toHaveText("⊥");
@@ -568,7 +584,7 @@ test.describe("sketcher relational constraints", () => {
     await page.keyboard.press("Escape");
 
     await clickPlane(page, at, { x: 20, y: 0 }); // e2 line body
-    await clickPlane(page, at, { x: 0, y: 10 }); // e1 circle body (top)
+    await addPlane(page, at, { x: 0, y: 10 }); // + e1 circle body (top)
     await expect(page.getByTestId("selection-readout")).toContainText("2 ent");
     await page.keyboard.press("t");
     await expect(page.getByTestId("glyph-0")).toHaveText("T");
@@ -626,7 +642,7 @@ test.describe("sketcher relational constraints small laptop (1280×800)", () => 
     await clickPlane(page, at, { x: 35, y: 25 });
     await page.keyboard.press("Escape");
     await clickPlane(page, at, { x: 20, y: 0 });
-    await clickPlane(page, at, { x: 22.5, y: 15 });
+    await addPlane(page, at, { x: 22.5, y: 15 });
     await page.keyboard.press("l");
     await expect(page.getByTestId("glyph-0")).toHaveText("⊥");
 
@@ -639,7 +655,7 @@ test.describe("sketcher relational constraints small laptop (1280×800)", () => 
     await clickPlane(page, at, { x: 45, y: -30 });
     await page.keyboard.press("Escape");
     await clickPlane(page, at, { x: 25, y: -30 }); // line body
-    await clickPlane(page, at, { x: 30, y: -12 }); // circle body (top)
+    await addPlane(page, at, { x: 30, y: -12 }); // + circle body (top)
     await page.keyboard.press("t");
     await expect(page.getByTestId("glyph-1")).toHaveText("T");
 
@@ -756,7 +772,7 @@ test.describe("sketcher size/shape constraints", () => {
     await page.keyboard.press("Escape");
 
     await clickPlane(page, at, { x: 0, y: 10 }); // e1 body (top)
-    await clickPlane(page, at, { x: 35, y: 5 }); // e2 body (top)
+    await addPlane(page, at, { x: 35, y: 5 }); // + e2 body (top)
     await expect(page.getByTestId("selection-readout")).toContainText("2 ent");
     await page.keyboard.press("e");
     await expect(page.getByTestId("glyph-0")).toHaveText("=");
@@ -800,7 +816,7 @@ test.describe("sketcher size/shape constraints", () => {
     await page.keyboard.press("Escape");
 
     await clickPlane(page, at, { x: 0, y: 10 }); // e1 body (top)
-    await clickPlane(page, at, { x: 30, y: 11 }); // e2 body (top)
+    await addPlane(page, at, { x: 30, y: 11 }); // + e2 body (top)
     await expect(page.getByTestId("selection-readout")).toContainText("2 ent");
     await page.keyboard.press("o");
     await expect(page.getByTestId("glyph-0")).toHaveText("◎");
@@ -852,8 +868,8 @@ test.describe("sketcher size/shape constraints", () => {
 
     // Symmetric: the bottom edge's two corners about the centerline.
     await clickPlane(page, at, { x: 0, y: 0 }); // e1.start (bottom-left)
-    await clickPlane(page, at, { x: 40, y: 0 }); // e1.end (bottom-right)
-    await clickPlane(page, at, { x: 15, y: -17 }); // the centerline axis
+    await addPlane(page, at, { x: 40, y: 0 }); // + e1.end (bottom-right)
+    await addPlane(page, at, { x: 15, y: -17 }); // + the centerline axis
     await expect(page.getByTestId("selection-readout")).toContainText("2 pts");
     await page.keyboard.press("s");
     await expect(page.getByTestId("glyph-0")).toHaveText("⟷");
@@ -908,7 +924,7 @@ async function buildSizeShapeShowcase(
   await clickPlane(page, at, { x: 11, y: 3 });
   await page.keyboard.press("Escape");
   await clickPlane(page, at, { x: 0, y: 12 }); // e1 body (top)
-  await clickPlane(page, at, { x: 5, y: 9 }); // e2 body (top of r6)
+  await addPlane(page, at, { x: 5, y: 9 }); // + e2 body (top of r6)
   await page.keyboard.press("o");
   await expect(page.locator('[data-kind="concentric"]')).toHaveText("◎");
 
@@ -923,8 +939,8 @@ async function buildSizeShapeShowcase(
   await clickPlane(page, at, { x: 0, y: -42 }); // centerline body
   await page.keyboard.press("n"); // construction
   await clickPlane(page, at, { x: -20, y: -30 }); // e3 start
-  await clickPlane(page, at, { x: 30, y: -30 }); // e3 end
-  await clickPlane(page, at, { x: 0, y: -42 }); // centerline axis
+  await addPlane(page, at, { x: 30, y: -30 }); // + e3 end
+  await addPlane(page, at, { x: 0, y: -42 }); // + centerline axis
   await page.keyboard.press("s");
   await expect(page.locator('[data-kind="symmetric"]')).toHaveText("⟷");
 }

@@ -127,6 +127,20 @@ async function clickPlane(
 }
 
 /**
+ * Shift-click: ADD this pick to the standing selection (FB-14) — a plain click
+ * replaces, so a coincident's second point is picked with the modifier held.
+ */
+async function addPlane(
+  page: Page,
+  at: (pt: { x: number; y: number }) => { x: number; y: number },
+  pt: { x: number; y: number },
+) {
+  await page.keyboard.down("Shift");
+  await clickPlane(page, at, pt);
+  await page.keyboard.up("Shift");
+}
+
+/**
  * Draw a 40 × 25 mm rectangle and dimension it: horizontal + vertical on two
  * edges, coincident at the shared corner, and the two DRIVING dimensions
  * (40, 25). Leaves the sketch persisted and solved. `s1`/`s2` calibrate the
@@ -156,9 +170,11 @@ async function sketchDimensionedRectangle(
   await page.keyboard.press("v");
   await expect(page.getByTestId("glyph-1")).toHaveText("V");
 
-  // Coincident at the shared bottom-right corner (two clicks cycle the stack).
+  // Coincident at the shared bottom-right corner: the first click takes the
+  // nearer stacked endpoint, Shift adds the other (FB-14 — a plain second
+  // click would CYCLE to it, not collect it).
   await clickPlane(page, at, { x: 40, y: 0 });
-  await clickPlane(page, at, { x: 40, y: 0 });
+  await addPlane(page, at, { x: 40, y: 0 });
   await page.keyboard.press("c");
   await expect(page.getByTestId("glyph-2")).toHaveText("C");
 

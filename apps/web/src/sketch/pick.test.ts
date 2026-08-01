@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  applyPick,
   curveDistance,
   namedPoints,
   pickCandidates,
@@ -185,5 +186,57 @@ describe("toggleSelection", () => {
   it("samePick distinguishes grains", () => {
     expect(samePick(cornerA, { kind: "entity", id: "e1" })).toBe(false);
     expect(samePick(cornerA, { ...cornerA })).toBe(true);
+  });
+});
+
+describe("applyPick — plain click replaces, modifier adds (FB-14)", () => {
+  const lineA: SketchPick = { kind: "entity", id: "e1" };
+  const lineB: SketchPick = { kind: "entity", id: "e2" };
+  const cornerA: SketchPick = { kind: "point", entity: "e1", point: "end" };
+  const cornerB: SketchPick = { kind: "point", entity: "e9", point: "start" };
+
+  // The founder's exact path: click line A, click line B, expect ONE line
+  // selected so `distance` dimensions it instead of refusing.
+  it("a plain click on a second line replaces the first", () => {
+    expect(applyPick([lineA], [lineB], "replace")).toEqual([lineB]);
+  });
+
+  it("a plain click starts over from a multi-selection", () => {
+    expect(applyPick([lineA, lineB], [lineB], "replace")).toEqual([lineB]);
+  });
+
+  it("plain clicks CYCLE through stacked candidates, one at a time", () => {
+    expect(applyPick([], [cornerA, cornerB], "replace")).toEqual([cornerA]);
+    expect(applyPick([cornerA], [cornerA, cornerB], "replace")).toEqual([
+      cornerB,
+    ]);
+    // …and back round, so a click-through never strands you on nothing.
+    expect(applyPick([cornerB], [cornerA, cornerB], "replace")).toEqual([
+      cornerA,
+    ]);
+  });
+
+  it("a plain click on the only candidate keeps it selected", () => {
+    expect(applyPick([lineA], [lineA], "replace")).toEqual([lineA]);
+  });
+
+  it("a plain click on empty steel clears", () => {
+    expect(applyPick([lineA, lineB], [], "replace")).toEqual([]);
+  });
+
+  it("a modifier click ADDS — the two-entity constraint path", () => {
+    expect(applyPick([lineA], [lineB], "add")).toEqual([lineA, lineB]);
+    expect(applyPick([cornerA], [cornerA, cornerB], "add")).toEqual([
+      cornerA,
+      cornerB,
+    ]);
+  });
+
+  it("a modifier click un-picks a candidate that is already held", () => {
+    expect(applyPick([lineA, lineB], [lineB], "add")).toEqual([lineA]);
+  });
+
+  it("a modifier MISS keeps the selection being assembled", () => {
+    expect(applyPick([lineA, lineB], [], "add")).toEqual([lineA, lineB]);
   });
 });
