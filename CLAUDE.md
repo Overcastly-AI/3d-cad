@@ -546,6 +546,29 @@ recipe here in the same commit as the fix.**
   file. A zero-byte 200 is the worst failure shape there is — every digest check
   downstream agrees with itself — so assert on size, and prefer the URL the
   index gives you over a path you constructed.
+- **The blocked registry means NOTHING about the image build is locally
+  testable, so anything the build depends on needs a gate that does not build.**
+  `.dockerignore` excludes `scripts`, `deploy` and `docs` wholesale and then
+  re-includes named files with `!` negations; a `COPY` whose source is not
+  negated resolves to NOTHING and fails the build. That failure is unreachable
+  here by construction — no `just` target can produce it — so its first and only
+  signal is the `deploy-path` workflow, the slowest one we run. It cost two red
+  commits on 2026-08-01: LIC-2 added `scripts/corresponding_source.py` to the
+  runtime COPY (check-licences.py imports it) with no negation, and all three
+  service images failed while `ci` and `e2e` stayed green, because neither
+  builds an image. Second time the list had lost an entry, which is the tell
+  that the *allow-list* is the defect. Fix: `scripts/check-build-context.py`
+  re-implements moby's `MatchesOrParentMatches` and asserts every Dockerfile
+  COPY source exists and survives `.dockerignore` — stdlib, no daemon, ~10 ms,
+  wired into `just lint` and CI's `compose` job. Two things generalise. (a) When
+  a whole class of failure is unreachable locally, re-implement just enough of
+  the absent tool to gate it, and CROSS-CHECK the re-implementation against a
+  real one rather than trusting it (this matcher was diffed against the docker
+  SDK's own context walk over all 445 included entries — zero disagreements; a
+  naive comparison against the SDK's `matches()` shows 190 false differences,
+  because that method is the depth-limited variant and directory pruning happens
+  in `walk()`). (b) Ship the gate with a `--self-test` that reproduces the
+  defect and demands a failure, exactly as `just licence-selftest` does.
 - **The Docker *registry* is blocked here, but the stack does NOT need Docker —
   a native, container-free boot works and CAN drive `just e2e` + founder
   screenshots.** `docker pull` of `postgres:16` / `redis:7` / `minio/minio:*`
