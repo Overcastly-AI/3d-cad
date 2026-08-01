@@ -493,6 +493,25 @@ recipe here in the same commit as the fix.**
   picks up `/usr/bin/python3.12` automatically. PyPI + npm registries are
   direct (proxy no-proxy list), so `uv sync` / `pnpm install` just work.
 - `just` is not preinstalled: `uv tool install rust-just` → `~/.local/bin/just`.
+- **This container has NO IPv6 loopback, so `localhost` here can only ever mean
+  `127.0.0.1` — and every CI runner is dual-stack.** Anything that BINDS or
+  PROBES a loopback address is therefore untestable locally in a way that *looks*
+  tested: it passes here for the wrong reason. Cost a full round trip on
+  2026-08-01, when the new e2e workflow's first three runs were ALL red —
+  including the two that should have been green, which made the negative control
+  worthless because it died in setup like the others. Cause: Vite forces
+  `dns.setDefaultResultOrder("verbatim")`, so its default `localhost` host bound
+  `::1` while `baseURL`/`webServer.url` asked for `127.0.0.1`; the process stayed
+  alive and never answered. **The tell is the wording** — Playwright says
+  "Timed out waiting Nms from config.webServer" for a live-but-silent server and
+  "exited early" for a crash, and they are different bugs. Two rules: bind the
+  LITERAL address (`--host 127.0.0.1`) rather than trusting name resolution, and
+  **when a diagnosis cannot be reproduced locally, ship the PROBE with the fix** —
+  `scripts/e2e.sh`'s CI preflight prints `127.0.0.1 -> 200, [::1] -> 000`, so a
+  wrong diagnosis costs one log line instead of another round trip. Note the
+  first instinct here (raise the 60 s timeout) was ruled out by measurement: with
+  `apps/web/node_modules/.vite` deleted, Vite served in 1.3 s. A timeout is
+  headroom, never a fix.
 - **The Docker *registry* is blocked here, but the stack does NOT need Docker —
   a native, container-free boot works and CAN drive `just e2e` + founder
   screenshots.** `docker pull` of `postgres:16` / `redis:7` / `minio/minio:*`
