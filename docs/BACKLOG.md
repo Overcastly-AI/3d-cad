@@ -1998,19 +1998,14 @@ frame refactor are v2/§11. Spike de-collected.
 
 ## Later (P3)
 
-- [ ] (P3, XS) **`MAX_PROVENANCE_FACES`' docstring still files a fix that shipped**
-      (py-kit territory, filed by kernel-architect while landing PERF-5b).
-      `packages/py-kit/src/py_kit/schemas/overlay.py:79-82` says the budget's shape
-      "is still wrong and the fix is filed (BACKLOG PERF-5b): ... fingerprinting at
-      production time in `EvaluationState.body_history` would make the pass
-      O(final faces)". That landed on 2026-08-01; the field it names no longer
-      exists (`EvaluationState.provenance` / `TreeEvaluation.face_provenance`). The
-      BUDGET arithmetic the constant documents is unchanged and correct, so this is
-      four stale comment lines and no behaviour — but a shared package telling every
-      reader that a shipped fix is pending is exactly the stale-doc defect class.
-      Left untouched deliberately: `packages/**` was outside that slice's territory.
-      Acceptance: those lines describe the shipped design and point at docs/PERF.md
-      2026-08-01 PERF-5b. [kernel-architect PERF-5b tail]
+- [x] (P3, XS) **`MAX_PROVENANCE_FACES`' docstring still files a fix that shipped.**
+      DONE 2026-08-01 (orchestrator, same day it was filed): the four lines now
+      describe the shipped design — attribution is O(final faces) since PERF-5b —
+      and say what is still TRUE of the arithmetic, namely that the budget counts
+      summed snapshot faces because that bounds the work of PRODUCING the
+      fingerprints. So 30 000 is headroom against the recording pass, not against a
+      quadratic attribution pass. Filed by kernel-architect, which correctly
+      declined to reach into `packages/**` outside its territory.
 
 - [ ] (P3, S) **A lost dimension's caption can overrun into a neighbouring view
       — and it does so identically on the exported sheet** (kernel/drawings).
