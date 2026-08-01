@@ -512,6 +512,26 @@ recipe here in the same commit as the fix.**
   first instinct here (raise the 60 s timeout) was ruled out by measurement: with
   `apps/web/node_modules/.vite` deleted, Vite served in 1.3 s. A timeout is
   headroom, never a fix.
+- **"github.com is blocked" is TOO COARSE: release-asset downloads are 403, but
+  `git clone` over HTTPS WORKS — and so do `archive.ubuntu.com` and
+  `files.pythonhosted.org`.** Measured 2026-08-01 while mirroring
+  corresponding source (LIC-2): `curl -L
+  https://github.com/Open-Cascade-SAS/OCCT/archive/refs/tags/V7_9_3.tar.gz` →
+  **403**, same policy-denial class as the python-build-standalone block, while
+  `git clone --depth 1 --branch V7_9_3 https://github.com/...` → **succeeds**
+  (36 119 files). The brief for that task reasonably assumed the whole host was
+  denied and pre-authorised a documented-only outcome; taking that at face value
+  would have shipped an unverified recipe when the work could be — and was —
+  fully executed and checksummed here. Rule: when you need bytes from a denied
+  host, check whether a DIFFERENT protocol or a different upstream serves the
+  same artefact before concluding it is unfetchable. Corollary in the same
+  session: the legacy PyPI path
+  `files.pythonhosted.org/packages/source/<l>/<name>/<file>` returned a
+  **zero-byte body with a SUCCESS status**, while the hashed
+  `/packages/<a>/<b>/<sha>/<file>` URL from the JSON index returned the real
+  file. A zero-byte 200 is the worst failure shape there is — every digest check
+  downstream agrees with itself — so assert on size, and prefer the URL the
+  index gives you over a path you constructed.
 - **The Docker *registry* is blocked here, but the stack does NOT need Docker —
   a native, container-free boot works and CAN drive `just e2e` + founder
   screenshots.** `docker pull` of `postgres:16` / `redis:7` / `minio/minio:*`

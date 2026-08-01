@@ -468,23 +468,141 @@ Executable, in the order it should be done.
 
 ---
 
-## 7. Where corresponding source comes from
+## 7. Corresponding source — what to fetch, and the release procedure
 
-For LGPL-2.1 §6(d)/(c), the materials must be the **exact** versions shipped.
+Written for a maintainer who has not read the rest of this file. If you are
+about to publish container images, everything you must do about LGPL source is
+here.
 
-| component | version   | upstream |
-| --------- | --------- | -------- |
-| OCCT      | 7.9.3     | `https://github.com/Open-Cascade-SAS/OCCT` (tag `V7_9_3`) |
-| planegcs  | 0.8.0     | `https://github.com/spookylukey/planegcs` |
-| LibRaw    | 0.19.5    | Ubuntu 20.04 source package `libraw` |
-| FreeImage | 3.18.0    | Ubuntu 20.04 source package `libfreeimage` |
-| FreeType  | 2.10.1    | Ubuntu 20.04 source package `freetype` |
+For LGPL-2.1 §6(d)/(c) the materials must be the **exact** versions shipped, so
+none of the versions below are typed by hand into a document and trusted — they
+are recorded in `deploy/licenses/corresponding-source.json` and **checked
+against the binaries in the installed environment on every `just lint` and
+every CI run**. If a wheel bump moves one, the build goes red before anything
+can be published (see §7.4).
 
-"Offer equivalent access from the same place" is cleanest to satisfy by
-attaching a source bundle to the same release the images are published under,
-rather than pointing at a third party who may retire a URL. A link to upstream
-alone is the weakest defensible reading of 6(d); a mirrored archive under our
-own release is the strong one. **Recommend mirroring.**
+### 7.1 What actually carries a source obligation
+
+| component | version              | licence                        | source                                                          |
+| --------- | -------------------- | ------------------------------ | --------------------------------------------------------------- |
+| OCCT      | 7.9.3                | LGPL-2.1 + OCCT exception      | `github.com/Open-Cascade-SAS/OCCT`, tag `V7_9_3`, commit `a016080` |
+| planegcs  | 0.8.0                | LGPL-2.1-or-later              | PyPI sdist `planegcs-0.8.0.tar.gz`                                |
+| LibRaw    | **0.19.5-1ubuntu1.4** | LGPL-2.1 (our election)        | Ubuntu 20.04 source package: `.orig.tar.gz` + `.debian.tar.xz` + `.dsc` |
+
+Three corrections to the table that used to stand here, each of which would
+have produced a wrong bundle:
+
+- **LibRaw is `0.19.5-1ubuntu1.4`, not `0.19.5`.** The binary we ship is
+  Ubuntu's build, so the corresponding source is upstream **plus the Ubuntu
+  patch series**. Shipping only the `.orig` tarball would be source that does
+  not correspond. The version comes from the CycloneDX SBOM auditwheel writes
+  into the OCP wheel's `dist-info/sboms/`; LibRaw's SONAME says `19.0.2` and is
+  not the release version, so filename parsing would have pinned the wrong
+  thing with complete confidence.
+- **FreeImage and FreeType carry no source obligation.** They are dual-licensed
+  and we elect the permissive arm (FIPL-1.0, FTL). They stay on the record in
+  §6 but they are not in the bundle, and listing them as "corresponding source"
+  would misdescribe what we owe.
+- **certifi (MPL-2.0) needs nothing extra** — it is pure Python, so the image
+  itself contains the Source Code Form that MPL-2.0 §3.2 asks for.
+
+Not settled, deliberately: `libgomp` / `libgfortran` / `libquadmath`
+(GPL-3.0 **with** the GCC Runtime Library Exception), auditwheel-vendored from
+manylinux build images. The exception plainly frees compiled *output*;
+redistributing the runtime libraries themselves is arguably still a GPL-3.0
+conveyance with its own source duty, and the exact GCC build they came from is
+not recorded anywhere we can read. Tracked as **LIC-4**. It is left out of the
+manifest rather than papered over with a plausible-looking GCC tarball.
+
+### 7.2 Fetch it
+
+```sh
+just corresponding-source v0.1.0      # writes dist/corresponding-source/
+```
+
+`scripts/fetch-corresponding-source.py`, in this order:
+
+1. checks the manifest's versions against the binaries in `.venv` and **stops**
+   if they disagree — a bundle for 7.9.3 built while shipping 7.9.4 is a
+   confidently wrong compliance artefact, which is worse than none;
+2. fetches each artefact from its pinned upstream and verifies its SHA-256
+   against the recorded value;
+3. for OCCT, clones at the tag, asserts the resolved **commit** equals the pin,
+   asserts the tree's own `adm/cmake/version.cmake` declares 7.9.3, and packs
+   the worktree deterministically;
+4. assembles `loft-corresponding-source-<release>.tar.gz` with `MANIFEST.md`,
+   `SHA256SUMS`, the licence texts and a relinking `README.md`;
+5. prints the upload command **and does not run it**.
+
+If any artefact is missing or fails verification, **no bundle is written** and
+the exit code is 2. There is no partial corresponding source.
+
+Why OCCT is cloned rather than downloaded as
+`/archive/refs/tags/V7_9_3.tar.gz`: GitHub generates those tarballs on demand
+and their bytes have changed under people before (a gzip settings change), so a
+SHA-256 pinned to one is a gate that fails for the wrong reason. A commit id is
+immutable, and the archive we build from it is byte-reproducible — verified by
+two independent clone-and-pack runs producing identical bytes.
+
+### 7.3 Publish it (the founder's step — one command)
+
+```sh
+gh release upload <tag> dist/corresponding-source/loft-corresponding-source-<tag>.tar.gz --clobber
+```
+
+Attach it to **the same release that publishes the images**. That is the whole
+point of §6(d): equivalent access to the source from the same place the object
+code is offered. A link to a third party who may retire a URL is the weakest
+defensible reading; a mirror under our own release is the strong one.
+
+Then, in the same release, the written offer must resolve. Check it:
+
+```sh
+# 1. the asset exists and is the bundle we built
+gh release view <tag> --json assets --jq '.assets[].name'
+curl -fsSL -o /tmp/cs.tar.gz "$(gh release view <tag> --json assets \
+    --jq '.assets[] | select(.name|startswith("loft-corresponding-source")) | .url')"
+sha256sum /tmp/cs.tar.gz          # must equal the digest the fetch script printed
+
+# 2. it verifies against its own manifest
+tar xzf /tmp/cs.tar.gz -C /tmp && (cd /tmp/loft-corresponding-source-<tag> && sha256sum -c SHA256SUMS)
+
+# 3. the offer in the IMAGE points at something that exists
+docker run --rm --entrypoint cat ghcr.io/.../loft-geometry:<tag> \
+    /app/licenses/CORRESPONDING-SOURCE.md | grep -i 'release'
+```
+
+Step 3 is the one that is easy to skip and the only one a recipient will
+actually exercise. The offer is a promise with a three-year term; a broken link
+is a broken promise.
+
+### 7.4 When a wheel bump moves a version
+
+This is not a paperwork step, it is the failure the gate exists for.
+`scripts/check-licences.py` reads the shipped binaries and compares them to the
+manifest, so a bump produces:
+
+```
+FAIL corresponding-source: occt (Open CASCADE Technology) is pinned at 7.9.3 …
+but this environment ships 7.9.4 (via 46 file(s) matching libTK*.so.*).
+```
+
+To clear it:
+
+1. re-derive the upstream identity by hand — new tag, new PyPI sdist, new
+   Ubuntu source package version out of the wheel's auditwheel SBOM;
+2. update `deploy/licenses/corresponding-source.json` (version, URLs, and
+   **null out the digests you are replacing**);
+3. `just corresponding-source-record <tag>` to compute the new digests, then
+   **read the diff** — an unreviewed digest attests to nothing;
+4. re-run §4's analysis: the vendored library set is a property of somebody
+   else's build machine and changes without notice, so a bump can introduce a
+   new GPL library exactly the way LIC-1 did.
+
+The gate proves it can still fail: `just licence-selftest` runs the committed
+manifest (must pass), each component's version bumped (each must fail), and a
+manifest whose version cannot be *read* (must fail — a rotted detector is the
+failure mode that shows up green).
 
 ---
 
@@ -586,8 +704,91 @@ output, not merely "close". The codec is unreachable, as §4 predicted.
 - The file ended with a stray `</content>` tag from the tool that wrote it;
   removed here.
 
-### Still open (LIC-2)
+### Still open (LIC-2) — closed, see §10
 
-The mirrored corresponding-source bundle attached to the release — §7's
-"recommend mirroring" — is not done. `CORRESPONDING-SOURCE.md` says so
-explicitly rather than implying coverage we do not have.
+---
+
+## 10. LIC-2 as shipped — platform-builder, 2026-08-01
+
+The source half of LIC-2 (the image half landed with LIC-1; §9). **Nothing here
+is published** — that is a founder decision, and the deliverable is that it is
+one reviewed command. §7 is the procedure; this is what was measured.
+
+### What was executed here, and what was not
+
+Everything except the publish step ran in the dev container, including the leg
+this task was briefed to expect would fail:
+
+| step                                             | result                                                                       |
+| ------------------------------------------------ | ---------------------------------------------------------------------------- |
+| planegcs sdist from PyPI                          | fetched; digest matches the PyPI index; contains `src/planegcs/GCS.cpp` etc. |
+| LibRaw `.orig` + `.debian` + `.dsc` from Ubuntu   | fetched; both digests match the `.dsc`'s own `Checksums-Sha256` stanza        |
+| OCCT clone at `V7_9_3`                            | fetched; commit `a016080…`; tree declares `OCC_VERSION 7.9.3`                 |
+| full bundle assembly                              | ~48.6 MB, `sha256sum -c SHA256SUMS` clean after extraction                     |
+| reproducibility                                   | three independent runs, fresh clone each → **byte-identical** `occt-7.9.3.tar.gz` (`71c6a724…`) |
+| `gh release upload`                               | **NOT RUN** — founder's call                                                  |
+
+The one environment fact worth writing down: the brief expected the OCCT leg to
+be blocked, and the *tarball* URL is —
+`https://github.com/…/archive/refs/tags/V7_9_3.tar.gz` returns **403** through
+the egress proxy, same policy-denial class as the python-build-standalone
+block. But **`git clone --depth 1 --branch V7_9_3` over HTTPS succeeds.** The
+block is on release-asset downloads, not on git. That is why the OCCT leg is a
+clone in the first place (§7.2 gives the byte-stability reason too), and it is
+why this landed fully verified rather than as a documented-only recipe.
+
+### The digests, and where each came from
+
+Recorded in `deploy/licenses/corresponding-source.json` with a
+`sha256_source` string on every one, because "a digest" and "a digest somebody
+actually computed from received bytes" are different claims:
+
+| artefact                                | sha256      | established by                                     |
+| --------------------------------------- | ----------- | -------------------------------------------------- |
+| `occt-7.9.3.tar.gz` (our repack)         | `71c6a724…` | computed; reproducible from commit `a016080…`       |
+| `planegcs-0.8.0.tar.gz`                  | `09e77e6e…` | PyPI index, re-verified against the downloaded bytes |
+| `libraw_0.19.5.orig.tar.gz`              | `44693f0c…` | computed; equals Ubuntu's `.dsc` stanza             |
+| `libraw_0.19.5-1ubuntu1.4.debian.tar.xz` | `cea751c4…` | computed; equals Ubuntu's `.dsc` stanza             |
+| `libraw_0.19.5-1ubuntu1.4.dsc`           | `bf3c8e2b…` | computed                                            |
+
+The **bundle's own** digest is deliberately not pinned in the manifest. It
+necessarily changes with the release tag (which appears in the bundle's
+directory name and README) and with any edit to the licence texts it carries,
+so a pinned value would be wrong the moment either moved and would train
+readers to ignore a mismatch. The manifest pins the *upstream artefacts*, whose
+digests are stable facts about somebody else's published bytes; the release
+pins the bundle, and `SHA256SUMS` inside it ties the two together.
+
+### One trap found while doing it
+
+The legacy PyPI path `https://files.pythonhosted.org/packages/source/p/planegcs/planegcs-0.8.0.tar.gz`
+returned a **zero-byte body with a success status** through the proxy. A naive
+fetcher would have mirrored an empty file as "the corresponding source", and
+every downstream check would have agreed with itself — the digest of nothing is
+a perfectly valid digest. The fetch script now rejects a zero-byte download by
+name, and the manifest pins the hashed URL with a note saying why.
+
+### Where the loudness lives
+
+`scripts/corresponding_source.py` — one implementation, imported by both the
+gate and the fetcher, because two copies of "which OCCT is this?" would drift
+silently in the direction that matters. Detection differs per component on
+purpose: OCCT from 46 SONAME tails, planegcs from its `dist-info`, LibRaw from
+auditwheel's SBOM (its SONAME is not its version). A component that is ABSENT
+is not a failure — we stopped shipping it, so the duty lapsed. A component that
+is present but whose version cannot be READ **is** a failure; that is the
+rubber-stamp shape LIC-3 exists to prevent.
+
+Runs in `just lint`, the CI `licences` job, and inside the image build (the
+Dockerfile now copies `corresponding_source.py` alongside the gate, and the
+manifest already lands at `/app/licenses/`).
+
+The in-image lookup is deliberately written **relative to the script**
+(`<prefix>/tools/` → `<prefix>/licenses/`) rather than as a literal
+`/app/licenses/...`. It resolves to the same path in the image, and unlike an
+absolute path it can be exercised without Docker — which matters here, because
+the registry is blocked in this container, so an in-image-only code path would
+first be tested by a CI Docker build. Both branches were run against a scratch
+`<prefix>` before commit: manifest present → the three versions detected and the
+only failure is the expected unstripped `libjbig`; manifest absent → **exit 2**
+naming both candidate paths, rather than a quiet pass.

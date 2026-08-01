@@ -230,16 +230,32 @@ frame refactor are v2/§11. Spike de-collected.
       `deploy/docker/service.Dockerfile` after `uv sync`, with a build-time
       assertion that no GPL `.so` survives. docs/LICENSING.md §4.
       [oss-curator, platform-builder]
-- [ ] (P1, M) **LIC-2 — we redistribute LGPL binaries with none of their required
-      text.** PARTIALLY DONE 2026-07-31 (platform-builder): the image half landed
+- [x] (P1, M) **LIC-2 — we redistribute LGPL binaries with none of their required
+      text.** SHIPPED 2026-08-01 (platform-builder): the source half — the
+      mirrored bundle is now one reviewed command, `just corresponding-source
+      <tag>`, and NOTHING is published (founder's call; the script prints the
+      `gh release upload` line instead of running it). Pinned in
+      `deploy/licenses/corresponding-source.json`: OCCT 7.9.3 (git `V7_9_3`,
+      commit `a016080`), planegcs 0.8.0 (PyPI sdist), LibRaw
+      **0.19.5-1ubuntu1.4** — `.orig` **plus** the Ubuntu patch series, the old
+      "0.19.5" would have been source that does not correspond. All five
+      artefacts fetched and verified here: LibRaw digests equal Ubuntu's own
+      `.dsc` stanza, planegcs equals the PyPI index and contains `GCS.cpp`, and
+      three OCCT clone-and-pack runs gave byte-identical archives
+      (`71c6a724…`). GitHub's release-asset URL is 403 here but `git clone`
+      works, so no leg was left undone. `scripts/corresponding_source.py` is
+      imported by BOTH the gate and the fetcher, so `just lint`, CI and the
+      image build fail loudly on a wheel bump that moves a version out from
+      under the pinned source — with negative controls in `just
+      licence-selftest`. docs/LICENSING.md §7 (procedure) + §10. PRIOR
+      2026-07-31 (platform-builder): the image half landed
       with LIC-1 — `/app/licenses/` now carries LICENSE, NOTICE, the five texts no
       wheel ships (LGPL-2.1, the OCCT exception, FTL, FIPL-1.0, MPL-2.0), a
       CORRESPONDING-SOURCE.md stating the §6(d) route and the §6(c) written offer,
       a THIRD-PARTY.md generated from the installed environment, and every licence
       file the wheels do ship; OCI `image.licenses`/`.source`/`.documentation`
       labels are set and the build FAILS if the licences label disagrees with the
-      binaries present. REMAINING: the mirrored corresponding-source bundle
-      attached to the release (§7 "recommend mirroring"). ORIGINAL: The OCP wheel ships ZERO licence files (`RECORD` has no
+      binaries present. ORIGINAL: The OCP wheel ships ZERO licence files (`RECORD` has no
       licen/copying/notice match across 398 entries) while carrying 68 LGPL-2.1
       OCCT libraries. LGPL-2.1 §6(b) does NOT cover us — clause (1) requires the
       library be "already present on the user's computer system", which is false
@@ -264,6 +280,24 @@ frame refactor are v2/§11. Spike de-collected.
       that walks `*.dist-info` AND the vendored `.libs` trees (`readelf -d`), and
       re-runs on every OCP/OCCT bump: the vendored set is a property of the
       wheel's build machine and changes without notice. [oss-curator]
+- [ ] (P2, S) **LIC-4 — the GCC runtime libraries may carry a source duty we are
+      not discharging.** Found 2026-08-01 while pinning LIC-2's manifest and left
+      OPEN on purpose rather than papered over. We redistribute `libgomp`,
+      `libgfortran` and `libquadmath` (9 files, GPL-3.0 **with** the GCC Runtime
+      Library Exception), auditwheel-vendored into the OCP/numpy/scipy/
+      scikit-learn wheels from manylinux build images. The exception plainly
+      frees compiled OUTPUT — that is why `check-licences.py` allows them and
+      that classification is right — but distributing the runtime library
+      BINARIES is arguably still a GPL-3.0 conveyance with its own §6 source
+      duty, which is how distros treat it. Blocker: the exact GCC build they came
+      from is not recorded anywhere we can read (the auditwheel SBOM names Ubuntu
+      packages for the OCP wheel's set, but not for numpy/scipy's), so a
+      plausible-looking GCC tarball would be a confident guess, not corresponding
+      source — the exact failure mode LIC-2 was written to avoid. Decide: either
+      derive the versions and add them to `deploy/licenses/corresponding-source.json`
+      (the manifest already supports it), or write the reasoning for why the
+      exception discharges it. Stated in the shipped `CORRESPONDING-SOURCE.md`
+      rather than left silent. docs/LICENSING.md §7.1. [platform-builder]
 - [x] (P2, S) **LIC-5 — `pnpm ... dev -- --port N` silently starts Vite on 5173.**
       Done 2026-07-31 (oss-curator, docs half). pnpm 10 DISCARDS the
       npm-idiomatic `--` separator, so the port argument never reaches vite and

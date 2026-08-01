@@ -184,14 +184,24 @@ jobs:
       # happens during the image build — so this profile tolerates it ONLY
       # because the inventory marks it strip-in-image and names a strip script
       # that provably targets it. Everything else must be classified.
+      #
+      # Since LIC-2 this step also checks the corresponding-source manifest
+      # (deploy/licenses/corresponding-source.json) against these binaries. If
+      # a wheel bump moves OCCT off 7.9.3, the pinned URLs, digests and the
+      # §6(c) written offer we publish all start describing source that does
+      # not correspond to what we ship — so it fails here, before a release,
+      # rather than being discovered by a recipient.
       - name: Licence gate (source environment)
         run: python3 scripts/check-licences.py --profile source-env
       # A gate nobody has seen fail is not a gate — this repo has been bitten
       # by that exact class three times. The self-test runs the IMAGE profile
       # against the real, unstripped GPL library (must fail, naming libjbig),
       # then applies the production strip script and runs it again (must pass).
-      # It fails if EITHER half comes out the wrong way, so a gate that has
-      # silently stopped detecting anything cannot show up green here.
+      # It then does the same for the corresponding-source half: the committed
+      # manifest must pass, every component's version bumped by hand must fail,
+      # and a manifest whose version cannot be READ must fail rather than pass
+      # quietly (a rotted detector is the failure mode that shows up green).
+      # It fails if ANY of those comes out the wrong way.
       - name: Prove the gate can fail (negative + positive control)
         run: python3 scripts/check-licences.py --self-test
 

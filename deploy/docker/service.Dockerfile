@@ -138,7 +138,13 @@ COPY --from=builder --chown=loft:loft /migrations /app/migrations
 # wheels DO ship. docs/LICENSING.md §6.
 COPY --chown=loft:loft LICENSE NOTICE /app/licenses/
 COPY --chown=loft:loft deploy/licenses/ /app/licenses/
-COPY --chown=loft:loft scripts/check-licences.py deploy/docker/licence/verify-kernel.py /app/tools/
+# corresponding_source.py rides along because the gate imports it: since LIC-2
+# the gate also checks that deploy/licenses/corresponding-source.json (copied
+# above, so it lands at /app/licenses/) still describes THESE binaries. An
+# image whose OCCT moved out from under the pinned source would carry a written
+# offer that is a false statement.
+COPY --chown=loft:loft scripts/check-licences.py scripts/corresponding_source.py \
+     deploy/docker/licence/verify-kernel.py /app/tools/
 
 ARG IMAGE_LICENSES="MIT"
 LABEL org.opencontainers.image.title="loft-${SERVICE_NAME}" \

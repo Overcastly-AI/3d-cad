@@ -51,6 +51,14 @@ Plus a metadata sweep over ``*.dist-info/METADATA`` — cheap, and it catches a
 new *Python* GPL dependency that ships no binary at all. It is a supplement to
 the binary scan, never a substitute for it.
 
+And, since LIC-2, one more thing that is not about GPL at all: the versions in
+``deploy/licenses/corresponding-source.json`` are checked against the binaries
+in this tree. Shipping LGPL object code obliges us to offer the source that
+CORRESPONDS to it, and a wheel bump that moves OCCT from 7.9.3 turns the
+written offer we publish into a false statement — with pinned URLs and digests
+for source we no longer ship. This gate already reads the binaries, so it is
+the natural place for that to be loud. See ``scripts/corresponding_source.py``.
+
 Scope, stated honestly: this covers the Python environment WE assemble, which
 is where every dependency decision of ours lands and where the P0 came from.
 The Debian base layer (``python:3.12-slim-bookworm`` plus seven named apt
@@ -71,6 +79,7 @@ has nothing but the service venv.
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import shutil
 import struct
@@ -80,6 +89,17 @@ import tempfile
 from dataclasses import dataclass
 from email.parser import BytesParser
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from corresponding_source import (
+    FOUND,
+    Detection,
+    ManifestError,
+    detect_version,
+    load_manifest,
+    verify_versions,
+)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -445,6 +465,8 @@ def check(
     roots: list[Path],
     quiet: bool = False,
     declared_licences: str = "",
+    verify_source_versions: bool = True,
+    manifest: Path | None = None,
 ) -> list[str]:
     failures: list[str] = []
     findings = scan_roots(roots)
@@ -616,8 +638,24 @@ def check(
                 "too: it tells users they have duties they do not have."
             )
 
+    # 7. the corresponding-source manifest must still describe these binaries.
+    #    LIC-2: shipping LGPL object code obliges us to offer the source that
+    #    corresponds to it. A wheel bump that moves OCCT from 7.9.3 silently
+    #    turns the written offer in CORRESPONDING-SOURCE.md into a false
+    #    statement — pinned URLs and digests for source we no longer ship. It
+    #    has to be loud, and this is the gate that already reads the binaries.
+    detections: list[tuple[str, Detection]] = []
+    if verify_source_versions:
+        try:
+            source_manifest = load_manifest(manifest)
+        except ManifestError as exc:
+            failures.append(str(exc))
+        else:
+            version_failures, detections = verify_versions(source_manifest, roots)
+            failures.extend(version_failures)
+
     if not quiet:
-        report(profile, roots, findings, failures)
+        report(profile, roots, findings, failures, detections)
     return failures
 
 
@@ -707,6 +745,7 @@ def report(
     roots: list[Path],
     findings: list[Finding],
     failures: list[str],
+    detections: list[tuple[str, Detection]] | None = None,
 ) -> None:
     loose = [f for f in findings if f.entry is not None]
     modules = len(findings) - len(loose)
@@ -728,6 +767,14 @@ def report(
         if entry.family in (GPL, GPL_WITH_EXCEPTION) or finding.is_stub:
             state = "GPL-FREE STUB" if finding.is_stub else entry.licence
             print(f"  ! {finding.path.name}: {state}")
+    # Print what the corresponding-source check actually MEASURED, not just its
+    # verdict: "OCCT 7.9.3, read from 46 libTK*.so" is checkable by a reader;
+    # a bare "clean" is not.
+    for component_id, detection in detections or ():
+        print(
+            f"  corresponding-source: {component_id} "
+            f"{detection.version or detection.status} ({detection.detail})"
+        )
     for failure in failures:
         print(f"\nFAIL {failure}")
     verdict = f"FAILED — {len(failures)} violation(s)" if failures else "clean"
@@ -774,7 +821,11 @@ def self_test(roots: list[Path]) -> int:
             shutil.copy2(src, positive / src.name)
 
         print("=== negative control: the real GPL library, image profile ===")
-        bad = check("image", [negative.parent])
+        # verify_source_versions=False: this synthetic tree holds libjbig and
+        # libtiff only, so the corresponding-source components are all legitimately
+        # ABSENT. Leaving it on would test nothing here and couple this self-test
+        # to the manifest, which has its own gate.
+        bad = check("image", [negative.parent], verify_source_versions=False)
         if not bad:
             print("\nself-test FAILED: the gate PASSED a tree containing GPL jbigkit.")
             return 1
@@ -796,16 +847,93 @@ def self_test(roots: list[Path]) -> int:
             return 1
 
         print("\n=== positive control: the stripped tree, image profile ===")
-        good = check("image", [positive.parent])
+        good = check("image", [positive.parent], verify_source_versions=False)
         if good:
             print("\nself-test FAILED: the gate rejected a correctly stripped tree.")
             return 1
 
+    if (rc := _self_test_corresponding_source(roots)) != 0:
+        return rc
+
     print(
         "\nself-test PASSED: the gate FAILS on the vendored GPL library "
         f"({len(bad)} violation(s) naming libjbig) and PASSES once "
-        "deploy/docker/licence/strip-gpl-jbig.sh has replaced it."
+        "deploy/docker/licence/strip-gpl-jbig.sh has replaced it; and the "
+        "corresponding-source version check FAILS on a manifest that does not "
+        "match these binaries and PASSES on the committed one."
     )
+    return 0
+
+
+def _self_test_corresponding_source(roots: list[Path]) -> int:
+    """Prove the LIC-2 half of the gate can fail, the same way the LIC-1 half
+    is proved: run it against inputs that MUST be rejected.
+
+    Without this, a broken detector — a renamed SONAME, a wheel that stopped
+    shipping its SBOM, a typo in a regex — would show up as a permanent green,
+    and the first anyone would hear of it is a published image whose written
+    offer points at the wrong source. That is the exact failure shape LIC-3 was
+    written to prevent, one level up.
+    """
+    print("\n=== corresponding-source: positive control (committed manifest) ===")
+    try:
+        manifest = load_manifest(None)
+    except ManifestError as exc:
+        print(f"self-test FAILED: {exc}")
+        return 1
+    failures, detections = verify_versions(manifest, roots)
+    for component_id, detection in detections:
+        print(f"  {component_id:<10} {detection.status:<7} {detection.version or '-'}")
+    if failures:
+        print(
+            "\nself-test FAILED: the committed manifest does not match this "
+            "environment:"
+        )
+        for failure in failures:
+            print(f"  {failure}")
+        return 1
+    if not any(d.status == FOUND for _, d in detections):
+        # Everything ABSENT is a legitimate state for a partial tree, but not
+        # for the environment the self-test runs against — it would mean the
+        # positive control proved nothing.
+        print(
+            "\nself-test FAILED: no manifest component was detected at all in "
+            f"{[str(r) for r in roots]}. The positive control asserted nothing."
+        )
+        return 1
+
+    print("\n=== corresponding-source: negative control (each version bumped) ===")
+    for component in manifest["components"]:
+        strippable = {k: v for k, v in manifest.items() if k != "_path"}
+        bumped = json.loads(json.dumps(strippable))
+        target = next(c for c in bumped["components"] if c["id"] == component["id"])
+        detection = detect_version(component, roots)
+        if detection.status != FOUND:
+            print(f"  {component['id']:<10} not present here — skipped")
+            continue
+        target["version"] = detection.version + ".999"
+        drift, _ = verify_versions(bumped, roots)
+        if not any(component["id"] in f for f in drift):
+            print(
+                f"\nself-test FAILED: the gate accepted a manifest pinning "
+                f"{component['id']} at {target['version']} while this "
+                f"environment ships {detection.version}."
+            )
+            return 1
+        print(f"  {component['id']:<10} drift detected — ok")
+
+    print("\n=== corresponding-source: negative control (detector broken) ===")
+    strippable = {k: v for k, v in manifest.items() if k != "_path"}
+    broken = json.loads(json.dumps(strippable))
+    broken["components"] = [broken["components"][0]]
+    broken["components"][0]["detect"] = {"kind": "no-such-detector"}
+    if not verify_versions(broken, roots)[0]:
+        print(
+            "\nself-test FAILED: a manifest whose version CANNOT be read was "
+            "accepted. An unreadable version must fail, not pass quietly."
+        )
+        return 1
+    print("  unreadable version rejected — ok")
     return 0
 
 
@@ -848,6 +976,13 @@ def main(argv: list[str]) -> int:
         "carry; checked against what the scan actually finds.",
     )
     parser.add_argument(
+        "--manifest",
+        type=Path,
+        default=None,
+        help="corresponding-source.json to check the shipped versions against "
+        "(default: deploy/licenses/ in the repo, /app/licenses/ in an image).",
+    )
+    parser.add_argument(
         "--emit-inventory",
         type=Path,
         default=None,
@@ -859,7 +994,12 @@ def main(argv: list[str]) -> int:
     roots: list[Path] = args.root or default_roots(args.profile)
     if args.self_test:
         return self_test(roots)
-    if check(args.profile, roots, declared_licences=args.expect_licences):
+    if check(
+        args.profile,
+        roots,
+        declared_licences=args.expect_licences,
+        manifest=args.manifest,
+    ):
         return 2
     if args.emit_inventory is not None:
         emit_inventory(args.emit_inventory, roots)

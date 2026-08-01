@@ -985,6 +985,26 @@ NOTICE, the five texts no wheel carries, the §6(d)/(c) statement, a generated
 THIRD-PARTY.md) and OCI `image.licenses`/`.source` labels — LIC-2's image half.
 Remaining LIC-2: the mirrored corresponding-source bundle. docs/LICENSING.md §9.
 
+**LIC-2 CLOSED, 2026-08-01 (platform-builder) — the source half: publishing is
+now one reviewed command, and a wheel bump can no longer falsify the offer.**
+`just corresponding-source <tag>` builds a mirrored bundle for OCCT 7.9.3 (git
+`V7_9_3`, commit `a016080`), planegcs 0.8.0 (PyPI sdist) and LibRaw
+**0.19.5-1ubuntu1.4** — `.orig` **plus** the Ubuntu patch series, because the
+binary we ship is Ubuntu's build; the old table said "0.19.5" and would have
+produced source that does not correspond. All five artefacts were fetched and
+verified HERE: the LibRaw digests equal Ubuntu's own `.dsc` stanza, planegcs
+equals the PyPI index and really contains `GCS.cpp`, and three independent OCCT
+clone-and-pack runs gave byte-identical archives (`71c6a724…`). The brief
+expected GitHub to be blocked — the *tarball* URL is 403, but `git clone`
+works, so the leg ran. Nothing published: that is the founder's call, and the
+script prints the `gh release upload` line rather than running it.
+`scripts/corresponding_source.py` is imported by BOTH the gate and the fetcher
+(one implementation of "which OCCT is this?"), so `just lint`, CI and the image
+build now fail loudly if a wheel bump moves a version out from under the pinned
+source — with its own negative controls in `just licence-selftest`. Left
+deliberately open as LIC-4: the GCC runtime libraries' own source duty.
+docs/LICENSING.md §7 (procedure) + §10.
+
 Source of truth for "what phase are we in." Every commit that ships an item
 ticks it here (and on `docs/BACKLOG.md`) in the same commit — see CLAUDE.md.
 

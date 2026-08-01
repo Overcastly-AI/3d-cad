@@ -20,8 +20,16 @@ wheel already provides.
 | `FreeImage-FIPL-1.0.txt`    | FreeImage (our elected arm)         | FreeImage `license-fi.txt`                                                                      |
 | `MPL-2.0.txt`               | certifi                             | SPDX `license-list-data`                                                                        |
 | `CORRESPONDING-SOURCE.md`   | the LGPL-2.1 §6(d)/(c) obligation   | written here                                                                                    |
+| `corresponding-source.json` | the machine-readable pin behind it  | written here; digests computed from real downloads (LIC-2, docs/LICENSING.md §10)              |
 
-All retrieved 2026-07-31.
+All retrieved 2026-07-31 (`corresponding-source.json`: 2026-08-01).
+
+`corresponding-source.json` is not documentation — `scripts/check-licences.py`
+reads it on every `just lint`, in CI, and inside the image build, and fails when
+the versions it pins stop matching the binaries in the tree. Editing a version
+in it to make a build pass would be exactly backwards: the pin is the claim, the
+binaries are the fact. Re-pin with `just corresponding-source-record <tag>` and
+read the diff. Procedure: docs/LICENSING.md §7.
 
 **The OCCT exception carries a duty, not just a permission.** It lets us
 distribute object code incorporating OCCT header material under terms of our

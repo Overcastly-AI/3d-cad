@@ -111,6 +111,22 @@ licences:
 licence-selftest:
     python3 scripts/check-licences.py --self-test
 
+# Build the mirrored corresponding-source bundle for the LGPL components we
+# redistribute (OCCT, planegcs, LibRaw) — LGPL-2.1 §6(d) wants source from the
+# same place as the object code, and a link to a third party who may retire a
+# URL is the weak reading. Verifies the shipped versions first, verifies every
+# download against deploy/licenses/corresponding-source.json, and writes
+# dist/corresponding-source/. It does NOT publish: attaching a release asset is
+# a human decision. Release procedure: docs/LICENSING.md §7.
+corresponding-source release="dev":
+    python3 scripts/fetch-corresponding-source.py --release {{release}}
+
+# Same, but write freshly computed digests (and the resolved git commit) back
+# into the manifest. Only for a version bump — REVIEW THE DIFF before
+# committing; an unreviewed digest attests to nothing.
+corresponding-source-record release="dev":
+    python3 scripts/fetch-corresponding-source.py --release {{release}} --record
+
 # End-to-end gate: geometry gates (goldens + STEP round-trip), then the
 # Playwright suite for @loft/web. Boots geometry (:8002) + gateway (:8000)
 # itself (background uvicorn, PID-tracked, cleaned up on exit) or reuses
