@@ -3463,6 +3463,17 @@ WarmLineage = Literal["evaluate", "provenance"]
 MAX_WARM_LINEAGES = 2
 
 
+# ATTRIBUTION NOTE (orchestrator, 2026-08-01): the four prefetch/warm DTOs below
+# (WarmTreeRequest, WarmTreeResult, WarmCancelRequest, PrefetchRequest, plus
+# WarmLineage / PrefetchTargetKind) were written by the kernel agent for PERF-1b
+# and shipped in `e2f3fa0`. They landed in the *tree* one commit earlier, in
+# `17404ab` (folders), because that agent staged this file wholesale while the
+# prefetch work was uncommitted in it. No work was lost and `17404ab` is green on
+# its own — the models are unreachable from any route in that tree, so its
+# OpenAPI is unchanged — but `git log` credits the wrong slice. Annotating rather
+# than rewriting shared history that siblings have already rebased onto.
+
+
 class WarmTreeRequest(BaseModel):
     """Ask the geometry worker to speculatively cache a feature-tree prefix.
 

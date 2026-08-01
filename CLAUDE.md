@@ -385,6 +385,24 @@ on completion with a watchdog fallback (`docs/AUTONOMOUS-LOOP.md` §1.4).
   `"OPS-1 — there was no backup"` rather than `"OPS-1"` — so the match cannot
   land inside somebody else's prose. The tool now prints the entry-start line of
   everything it stages; read that output rather than trusting the count.
+- **THE SWEEP IS NOT A DOCS PROBLEM — it happens in SOURCE files too, and there
+  the hunk tooling does not apply.** The staging rule names `docs/ROADMAP.md` and
+  `docs/BACKLOG.md` because those are the two files every agent is REQUIRED to
+  touch. That framing is too narrow: any file two agents happen to edit at once
+  has the same hazard, and `git add <one source file>` is just as wholesale as
+  `git add <one doc>`. Seen 2026-08-01: the folders agent staged
+  `packages/py-kit/src/py_kit/schemas/features.py` while the prefetch agent had
+  four uncommitted DTOs in it, so `17404ab` (a folders commit) shipped
+  `WarmTreeRequest`/`WarmTreeResult`/`WarmCancelRequest`/`PrefetchRequest`, and
+  the prefetch commit that followed contains no py-kit hunk at all. Nothing was
+  lost and BOTH commits are green on their own — the models were unreachable from
+  any route in the folders tree, so its OpenAPI was unchanged, which is precisely
+  why no gate objected. The universal check is cheap and needs no tool:
+  **`git diff --cached` and READ IT before every commit.** Not `--name-only` —
+  the names looked right here; the hunks were the problem. If a hunk is not
+  yours, unstage that path (`git reset -q HEAD -- <path>`), re-add only your own
+  changes, and tell the other agent. Annotate rather than rewrite once siblings
+  have rebased onto it.
   **AND THEN RESYNC THE DEFAULT INDEX, or your own commit reads as uncommitted.**
   `.git/index` never learns about a commit made through another index, so it keeps
   the PRE-commit blob for every path you just committed and `git status` reports
