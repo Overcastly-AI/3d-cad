@@ -392,20 +392,24 @@ frame refactor are v2/§11. Spike de-collected.
       :3099) + `kernel/provenance.py:180`. Blocked on evaluate.py territory only.
       [geometry-qa PERF-5]
 
-- [ ] (P1, S) **Audit N4 tail — SET the export `name` at the callers.** The
-      geometry service now names the exported STEP PRODUCT and derives the download
-      filename from an OPTIONAL `name` on `ExportTreeRequest` / `ExportAssemblyRequest`
-      (kernel-architect, 2026-07-31; every gate asserts on the exported bytes). Until
-      the callers populate it, the id fallback keeps today's behaviour, so this is the
-      last hop between the fix and the user. Two one-line changes, both OUTSIDE the
-      geometry territory: (a) gateway `export_part` (`services/gateway/src/gateway/
-      features.py`) already fetches the part to build `ExportTreeRequest` — add the
-      part's `name` to the spread; (b) the web's `buildEvaluateAssemblyRequest`
-      (`apps/web/src/assembly/evaluateRequest.ts`) holds `graph.assembly.name` — pass
-      it on the EXPORT request (the gateway proxies the client's request verbatim).
-      Acceptance: `Content-Disposition` is `motor-mount-bracket.step`, the STEP holds
-      `PRODUCT('Motor Mount Bracket')`, and two assemblies exported in a row do not
-      overwrite each other in Downloads. [src: AUDIT-PRODUCT.md N4]
+- [x] (P1, S) **Audit N4 tail — SET the export `name` at the callers. SHIPPED
+      2026-08-01** (frontend-builder). Geometry had honoured an optional `name` on
+      `ExportTreeRequest` / `ExportAssemblyRequest` since 2026-07-31; no caller set
+      it, so every download still fell back to a uuid. Both sites now do. The
+      gateway's `export_part` takes a SECOND auth-scoped documents fetch for the
+      part header rather than the one-line spread the item assumed — the name is
+      deliberately not on `EvaluateTreeRequest` (a name must never be an input to
+      geometry, `DocumentName`), so there was nothing to spread; same reason the
+      web passes it through `exportAssembly(request, format, name)` rather than
+      through `buildEvaluateAssemblyRequest`, whose output feeds the SOLVE.
+      Acceptance met against the exported bytes over the real three-service stack
+      (`test_part_export_carries_the_part_name_end_to_end`): disposition
+      `motor-mount-bracket.step`, `PRODUCT('Motor Mount Bracket')` present and
+      `PRODUCT('SOLID')` absent, a sibling part downloads as `spindle-cap.step`
+      (no Downloads collision), and a foreign caller still gets 404 with no name
+      leaked. Browser-level: `full-flow` demands `baseplate.step`/`.stl`,
+      `assembly-inspect` demands `bolted-plates.step` holding
+      `PRODUCT('Bolted plates')`. [src: AUDIT-PRODUCT.md N4]
 
 - [x] (P1, M) **#58 — the SETTINGS surface exists, and every row on it is wired.
       SHIPPED 2026-07-31** (frontend-builder, 2026-07-31; founder-raised "units and

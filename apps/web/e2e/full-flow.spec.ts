@@ -274,9 +274,13 @@ async function runFullFlow(
   const stepDownload = page.waitForEvent("download");
   await page.getByTestId("part-export-step").click();
   const step = await stepDownload;
-  expect(step.suggestedFilename()).toMatch(/\.step$/);
+  // Named after the PART, and so is the PRODUCT inside it (audit N4): what
+  // lands in a vendor's Downloads is `baseplate.step` carrying
+  // PRODUCT('Baseplate'), never a uuid holding PRODUCT('SOLID').
+  expect(step.suggestedFilename()).toBe("baseplate.step");
   const stepContent = await readFile(await step.path(), "utf-8");
   expect(stepContent.startsWith("ISO-10303-21")).toBe(true);
+  expect(stepContent).toContain("PRODUCT('Baseplate'");
   expect(stepContent).toContain("END-ISO-10303-21");
   await expect(page.getByTestId("part-export-status")).toHaveText("Ready");
   await expect(page.getByTestId("part-export-error")).toHaveCount(0);
@@ -286,7 +290,7 @@ async function runFullFlow(
   const stlDownload = page.waitForEvent("download");
   await page.keyboard.press("Enter");
   const stl = await stlDownload;
-  expect(stl.suggestedFilename()).toMatch(/\.stl$/);
+  expect(stl.suggestedFilename()).toBe("baseplate.stl");
   const { size } = await stat(await stl.path());
   expect(size).toBeGreaterThan(0);
 }

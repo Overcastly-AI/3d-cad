@@ -121,6 +121,22 @@ actually draws) instead of 400/450 ms of wall clock. The rest are screenshot
 settles or absence assertions, where a sleep is the right tool. 30 specs
 re-run green under the same load.
 
+**Audit N4's last hop CLOSED 2026-08-01 (frontend-builder) — exports carry the
+document's name for real.** Geometry has honoured an optional `name` on
+`ExportTreeRequest`/`ExportAssemblyRequest` since 2026-07-31, but no caller SET
+it, so every download still fell back to a uuid. Both call sites now do: the
+gateway's `export_part` reads the part header (a second auth-scoped documents
+fetch — the name is deliberately absent from the evaluation request, because a
+name must never be an input to geometry) and the web's assembly exporter passes
+`graph.assembly.name`. Asserted against the EXPORTED BYTES over the real
+three-service stack: `Content-Disposition: attachment;
+filename="motor-mount-bracket.step"` and `PRODUCT('Motor Mount Bracket')` in the
+file, with `PRODUCT('SOLID')` absent; a second part of the same owner downloads
+as `spindle-cap.step`, so two exports in a row no longer overwrite each other.
+Browser-level too: `full-flow` now demands `baseplate.step`/`baseplate.stl` and
+`assembly-inspect` demands `bolted-plates.step` carrying
+`PRODUCT('Bolted plates')`.
+
 **COMPLETE — FOUNDER-DIRECTED UI WAVE (2026-07-30/31)** — "this needs to look
 professional and comparable to Fusion 360 and Plasticity." All four of the
 founder's questions are answered (timeline, component enablement, pre-selection

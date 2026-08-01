@@ -412,7 +412,9 @@ def test_extruded_body_mesh_reaches_browser_through_gateway(stack: Stack) -> Non
     assert via_gateway.content == direct.content
 
 
-def _seed_extruded_part(client: httpx.Client, email: str) -> tuple[dict[str, str], str]:
+def _seed_extruded_part(
+    client: httpx.Client, email: str, name: str = "exportable"
+) -> tuple[dict[str, str], str]:
     """Register, create a part, and add sketch + extrude — returns (auth, id)."""
     register = client.post(
         "/api/v1/auth/register",
@@ -420,8 +422,15 @@ def _seed_extruded_part(client: httpx.Client, email: str) -> tuple[dict[str, str
     )
     assert register.status_code == 201, register.text
     bearer = {"Authorization": f"Bearer {register.json()['access_token']}"}
+    return bearer, _seed_extruded_part_for(client, bearer, name)
 
-    part = client.post("/api/v1/parts", json={"name": "exportable"}, headers=bearer)
+
+def _seed_extruded_part_for(
+    client: httpx.Client, bearer: dict[str, str], name: str
+) -> str:
+    """The same sketch + extrude seed for an ALREADY-registered caller, so a
+    test can own two parts (the export-collision case) without two accounts."""
+    part = client.post("/api/v1/parts", json={"name": name}, headers=bearer)
     assert part.status_code == 201, part.text
     part_id = part.json()["id"]
 
@@ -457,7 +466,77 @@ def _seed_extruded_part(client: httpx.Client, email: str) -> tuple[dict[str, str
         headers=bearer,
     )
     assert extruded.status_code == 201, extruded.text
-    return bearer, part_id
+    return part_id
+
+
+def test_part_export_carries_the_part_name_end_to_end(stack: Stack) -> None:
+    """The exported file is named after the PART — filename AND STEP PRODUCT.
+
+    Audit N4's last hop: geometry has honoured ``ExportTreeRequest.name`` since
+    2026-07-31, but the gateway never SET it, so every download still fell back
+    to ``part-<uuid>.step`` containing ``PRODUCT('SOLID')`` — a file a vendor
+    cannot identify. Asserted against the EXPORTED BYTES and the real response
+    header (this repo's standard: a claim about an export is checked against the
+    export), over the same real three-service HTTP stack as the rest of this
+    module."""
+    with httpx.Client(base_url=stack.gateway_url, timeout=30.0) as client:
+        bearer, part_id = _seed_extruded_part(
+            client, "n4-name@example.com", "Motor Mount Bracket"
+        )
+
+        step = client.post(
+            f"/api/v1/parts/{part_id}/export", params={"format": "step"}, headers=bearer
+        )
+        assert step.status_code == 200, step.text
+        assert (
+            step.headers["content-disposition"]
+            == 'attachment; filename="motor-mount-bracket.step"'
+        )
+        # The bytes themselves, not just the header: OCCT's default is
+        # PRODUCT('SOLID'), so this string can only come from the name we set.
+        assert b"PRODUCT('Motor Mount Bracket'" in step.content
+        assert b"PRODUCT('SOLID'" not in step.content
+
+        # STL carries no product names, but it IS named after the part.
+        stl = client.post(
+            f"/api/v1/parts/{part_id}/export", params={"format": "stl"}, headers=bearer
+        )
+        assert stl.status_code == 200, stl.text
+        assert (
+            stl.headers["content-disposition"]
+            == 'attachment; filename="motor-mount-bracket.stl"'
+        )
+
+        # Two of the SAME caller's parts exported in a row land as two files in
+        # Downloads, not one overwriting the other.
+        other_id = _seed_extruded_part_for(client, bearer, "Spindle Cap")
+        other = client.post(
+            f"/api/v1/parts/{other_id}/export",
+            params={"format": "step"},
+            headers=bearer,
+        )
+        assert other.status_code == 200, other.text
+        assert (
+            other.headers["content-disposition"]
+            == 'attachment; filename="spindle-cap.step"'
+        )
+        assert b"PRODUCT('Spindle Cap'" in other.content
+
+        # A foreign caller still cannot read the name through the export route:
+        # the second documents fetch the name costs is auth-scoped like the
+        # first, so an unowned part is a 404, never a leaked document name.
+        intruder = client.post(
+            "/api/v1/auth/register",
+            json={"email": "n4-intruder@example.com", "password": "hunter2-passphrase"},
+        )
+        assert intruder.status_code == 201, intruder.text
+        stolen = client.post(
+            f"/api/v1/parts/{part_id}/export",
+            params={"format": "step"},
+            headers={"Authorization": f"Bearer {intruder.json()['access_token']}"},
+        )
+        assert stolen.status_code == 404, stolen.text
+        assert b"Motor Mount Bracket" not in stolen.content
 
 
 def test_part_export_downloads_evaluated_body_through_gateway(stack: Stack) -> None:

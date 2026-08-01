@@ -478,10 +478,17 @@ export async function evaluateAssembly(
  * (baked compound). The `request` is the evaluate request plus a `format`; the
  * file bytes stream back with a `Content-Disposition` filename (server is
  * authoritative). `client` is injectable for tests.
+ *
+ * `name` is the assembly's document name and rides the EXPORT request only
+ * (audit N4): it becomes the STEP's root `PRODUCT` and the download filename —
+ * `motor-mount-assembly.step` instead of a uuid — and nothing else. It is
+ * deliberately absent from {@link evaluateAssembly}'s request, because a name
+ * must never be an input to the solve; `null` keeps the id fallback.
  */
 export async function exportAssembly(
   request: EvaluateAssemblyRequest,
   format: AssemblyExportFormat,
+  name: string | null = null,
   client: GatewayClient = gatewayClient,
 ): Promise<ExportedFile> {
   const { data, error, response } = await client.POST(
@@ -490,6 +497,7 @@ export async function exportAssembly(
       body: {
         ...request,
         format,
+        name,
         angular_deflection: MESH_ANGULAR_DEFLECTION_RAD,
         linear_deflection: MESH_LINEAR_DEFLECTION_MM,
       },

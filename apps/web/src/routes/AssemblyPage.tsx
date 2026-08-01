@@ -266,14 +266,22 @@ export function AssemblyPage() {
   // Export the WHOLE solved assembly as one STEP/STL file. Bound to the shared
   // ExportRow (the same strip the part page exports from). Disabled until a
   // request exists and at least one instance produced a body.
+  //
+  // The assembly's NAME rides the export request (audit N4): it becomes the
+  // STEP's root PRODUCT and the download filename, so two assemblies exported
+  // in a row land as two named files instead of overwriting each other.
   const exporter = useCallback(
     (format: ExportFormat) => {
       if (evaluateRequest === null) {
         return Promise.reject(new Error("The assembly is still loading."));
       }
-      return exportAssembly(evaluateRequest, format);
+      return exportAssembly(
+        evaluateRequest,
+        format,
+        graph?.assembly.name ?? null,
+      );
     },
-    [evaluateRequest],
+    [evaluateRequest, graph],
   );
   const hasExportableBody = (evaluation?.instances ?? []).some(
     (instance) => instance.part_mesh_glb_id !== null,

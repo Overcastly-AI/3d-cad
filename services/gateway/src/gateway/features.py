@@ -46,7 +46,7 @@ from py_kit.schemas.features import (
     UndoRedoRequest,
 )
 from py_kit.schemas.geometry import EXPORT_MEDIA_TYPES, ExportFormat, export_responses
-from py_kit.schemas.parts import PartEvaluationRecord
+from py_kit.schemas.parts import PartEvaluationRecord, PartResponse
 
 from gateway.affinity import forward_geometry
 from gateway.auth import CurrentUser
@@ -393,14 +393,39 @@ async def export_part(
     A tree with no body is the geometry service's 422 ``tree_export_failed``
     envelope, re-surfaced verbatim.
     """
+    # (Kept as a COMMENT, not docstring text: a route docstring is the
+    # `description` of this operation in `packages/contracts` and in the
+    # generated TS client, and the internal reason for a second upstream read is
+    # not something an API consumer should have to read.)
+    #
+    # The file is NAMED after the part (audit N4): `ExportTreeRequest.name`
+    # becomes the STEP `PRODUCT` and the `Content-Disposition` filename through
+    # geometry's one slug rule, so what lands in a vendor's Downloads is
+    # `motor-mount-bracket.step` rather than a uuid. That name is deliberately
+    # NOT on the evaluation request — a name must never be an input to geometry
+    # (`py_kit.schemas.features.DocumentName`) — so it costs a second documents
+    # read, here, on an export: the one hop that holds both the verified
+    # principal and the thing that produces a file.
     upstream = await forward_documents(
         http_request, user, "GET", f"/api/v1/parts/{part_id}/evaluation-request"
     )
     if upstream.status_code != status.HTTP_200_OK:
         raise_upstream_error(upstream, service=_SERVICE)
     evaluation_request = EvaluateTreeRequest.model_validate_json(upstream.content)
+
+    part_upstream = await forward_documents(
+        http_request, user, "GET", f"/api/v1/parts/{part_id}"
+    )
+    if part_upstream.status_code != status.HTTP_200_OK:
+        raise_upstream_error(part_upstream, service=_SERVICE)
+    part = PartResponse.model_validate_json(part_upstream.content)
+
     export_request = ExportTreeRequest.model_validate(
-        {**evaluation_request.model_dump(mode="json"), "format": format}
+        {
+            **evaluation_request.model_dump(mode="json"),
+            "format": format,
+            "name": part.name,
+        }
     )
 
     exported = await forward_geometry(
