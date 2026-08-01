@@ -83,10 +83,27 @@ twice with nowhere to put the result — and nearly free with it:
   uninterruptible OCCT call (up to ~200 ms on a 442-face body). A cancelled warm
   keeps what it evaluated: the checkpoint it stores is simply a shorter prefix,
   which is a legitimate resume point.
-* A warm must never evict a checkpoint a live request is about to use, which is
-  why speculation stays well inside :data:`REBUILD_CACHE_CAPACITY` and is never
-  issued in bulk — :class:`WarmScheduler` runs at most ONE warm per worker and
-  each warm stores at most one entry per lineage.
+* A warm must never evict a checkpoint a live request is about to use, and — the
+  2026-08-01 correction — *saying so was not enough*. The load run measured four
+  modelers on one worker with the prefetch on: evictions 24 -> 35 and the hit
+  rate 0.40 -> 0.31, because on a full LRU every warm displaced somebody's live
+  checkpoint (CONC-4/CONC-6). "Speculation stays well inside the capacity" is not
+  a property a bounded LRU has; it is a hope about the working set. So the claim
+  is now STRUCTURAL and enforced by :meth:`PrefixCache.store`: a speculative
+  entry is marked as such, is always the first victim, and a speculative store
+  that would have to evict live work is REFUSED outright (counted, never
+  silent). A warm losing its slot to a real request is correct; the reverse is a
+  self-inflicted regression.
+* A warm must never take the CORE from a live request either, which is the same
+  mistake one layer down and cost 1.8x. Measured (CONC-6): committing
+  immediately after opening an editor went 2 589 -> 4 742 ms, because OCP holds
+  the GIL (CONC-5) so speculation and the real rebuild simply split one core. A
+  warm therefore BANKS the prefix it has built and PAUSES between features for as
+  long as any real evaluation is in flight in this process
+  (:class:`LiveWorkGate`, consulted by
+  :func:`geometry.features.evaluate.warm_rebuild_cache`, which is the only code
+  that can act on it — it holds the half-built state). The worst case is then
+  "the warm achieved nothing", never "the user waited longer".
 
 WHY `detach()` BEFORE STORING. A checkpoint's shapes may have been TESSELLATED
 by the request that produced them (tessellate/STL/export all write a
@@ -109,9 +126,10 @@ import time
 import uuid
 import weakref
 from collections import OrderedDict
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Generator, Iterable, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Protocol
+from typing import NamedTuple, Protocol
 
 from OCP.BRepTools import BRepTools
 from py_kit.metrics import (
@@ -131,18 +149,41 @@ from geometry.kernel.types import BodyShape
 #: future change is a deliberate, greppable bust rather than a silent stale hit.
 CACHE_KEY_VERSION = 1
 
-#: Max live checkpoints (LRU). Small on purpose: with ownership transfer each
-#: entry is ONE lineage's frontier, so the useful working set is "parts being
-#: edited in this worker right now", and each entry retains a whole evaluator
-#: state — bodies, sketch profiles and any captured mirror tools. MEASURED on
-#: the docs/PERF.md tray at N=100 (219 faces), eight distinct lineages held at
-#: once: **+2 MiB of RSS per retained checkpoint** past the first, ~4 MiB
-#: extrapolated at the N=200 body's 442 faces — so a full cache is tens of MiB
-#: against OCCT's ~500 MiB baseline. (Releasing them does not return RSS to the
-#: OS — glibc keeps the arena — which is why the figure is measured as a
-#: marginal cost, not a delta after a clear.) An assembly evaluates one tree per
-#: unique part, so 8 also covers a small assembly without thrashing.
-REBUILD_CACHE_CAPACITY = 8
+#: Max live checkpoints (LRU). **32, derived from concurrency and priced in RAM
+#: — not a leftover.** With ownership transfer each entry is ONE lineage's
+#: frontier, so the working set is "lineages being worked on in this worker right
+#: now", and the arithmetic that sizes it is:
+#:
+#: * a working modeler holds **two** lineages, the plain one an edit rebuilds and
+#:   the ``record_history`` one a face pick uses (measured, docs/PERF.md
+#:   2026-08-01 §2), so entries = 2x users;
+#: * docs/OPERATIONS.md §6 sizes a host for up to **8 concurrent modelers**, and
+#:   without session affinity every one of them can land on any worker — so one
+#:   worker must be able to hold 8 users x 2 lineages = **16** live checkpoints;
+#: * speculation now has a strictly weaker claim (see :meth:`PrefixCache.store`),
+#:   but it still needs room to be worth having: one warm ticket is up to 2
+#:   entries, plus the stale ones superseded tickets leave behind;
+#: * an assembly evaluates one tree per unique part inside a single request, so a
+#:   ~10-part assembly wants ~10 transient entries of its own.
+#:
+#: 16 + headroom, rounded to a power of two, is 32. The OLD value was 8 — exactly
+#: four modelers — and the fifth user knocked over everybody's cache: hit rate
+#: 0.40 -> 0.28 -> 0.15 and ``/measure`` 244 ms -> 19 189 ms, a 79x regression on
+#: the cheapest operation in the product (CONC-4).
+#:
+#: THE PRICE, measured rather than assumed. On the docs/PERF.md tray at N=100
+#: (219 faces), eight distinct lineages held at once cost **+2 MiB of RSS per
+#: retained checkpoint** past the first, ~4 MiB at the N=200 body's 442 faces.
+#: So a *completely full* cache of big parts is ~128 MiB (32 x 4 MiB), and of
+#: mid-sized ones ~64 MiB, against the ~1 GiB per-worker budget in
+#: docs/OPERATIONS.md §6 whose floor is OCCT's ~500 MiB plus the resident part.
+#: That is the tradeoff, stated: **up to ~13 % of a worker's budget spent to stop
+#: the fifth user costing everyone 79x.** It is a ceiling, not a reservation —
+#: one modeler occupies two entries, and RSS only grows if 32 distinct large
+#: lineages are genuinely live. (Releasing them does not return RSS to the OS —
+#: glibc keeps the arena — which is why the per-entry figure is measured as a
+#: marginal cost, not as a delta after a clear.)
+REBUILD_CACHE_CAPACITY = 32
 
 
 def drop_triangulation(shape: BodyShape) -> None:
@@ -178,13 +219,44 @@ class CacheStats:
     """In-process counters, read by the tests. The operator-facing versions of
     the same events are Prometheus counters moved at the SAME lines that move
     these (:mod:`py_kit.metrics`), so the two cannot drift apart: there is one
-    increment site per event, not two."""
+    increment site per event, not two.
+
+    ``speculative_refused`` is the exception, and deliberately so: it counts warm
+    checkpoints DROPPED because the cache held only live work, which is the
+    mechanism CONC-4 asked for behaving correctly rather than an operator-facing
+    fault. It has no Prometheus twin yet because the counter would have to be
+    declared in :mod:`py_kit.metrics`, which this change does not own.
+    """
 
     hits: int
     misses: int
     stores: int
     evictions: int
     resumed_features: int
+    speculative_refused: int = 0
+
+
+class Resume[CheckpointT: Detachable](NamedTuple):
+    """What :meth:`PrefixCache.take` hands back: a checkpoint, and its claim.
+
+    ``speculative`` travels with the entry because a re-store must not LAUNDER
+    it: :func:`geometry.features.evaluate.warm_rebuild_cache` puts back an entry
+    it took when the requested prefix is already cached, and if that put-back
+    guessed the flag it would either downgrade a live checkpoint to speculative
+    (making it evictable by somebody else's guess) or promote a guess to live.
+    """
+
+    prefix_length: int
+    checkpoint: CheckpointT
+    speculative: bool
+
+
+@dataclass(frozen=True)
+class _Entry[CheckpointT: Detachable]:
+    """One cached checkpoint plus the strength of its claim on a slot."""
+
+    checkpoint: CheckpointT
+    speculative: bool
 
 
 def prefix_keys(
@@ -270,6 +342,9 @@ class PrefixCache[CheckpointT: Detachable]:
       only once *owner* is unreachable, i.e. once nothing else can touch it.
     * :meth:`clear` — test isolation seam (a test asserting a MISS must not be
       served a hit warmed by an earlier test in the same process).
+
+    SPECULATION HAS A WEAKER CLAIM THAN LIVE WORK, and it is this class that
+    makes that true rather than the callers' good manners — see :meth:`store`.
     """
 
     def __init__(self, capacity: int) -> None:
@@ -277,14 +352,15 @@ class PrefixCache[CheckpointT: Detachable]:
             raise ValueError(f"capacity must be > 0, got {capacity}")
         self._capacity = capacity
         self._lock = threading.Lock()
-        self._entries: OrderedDict[str, CheckpointT] = OrderedDict()
+        self._entries: OrderedDict[str, _Entry[CheckpointT]] = OrderedDict()
         self._hits = 0
         self._misses = 0
         self._stores = 0
         self._evictions = 0
         self._resumed_features = 0
+        self._speculative_refused = 0
 
-    def take(self, keys: Sequence[str]) -> tuple[int, CheckpointT] | None:
+    def take(self, keys: Sequence[str]) -> Resume[CheckpointT] | None:
         """The longest cached prefix of *keys*, removed, or ``None``.
 
         Searches longest-first, so a repeat of the same tree resumes at the full
@@ -309,7 +385,7 @@ class PrefixCache[CheckpointT: Detachable]:
                     self._resumed_features += length
                     record_rebuild_cache_hit()
                     note_rebuild(features=len(keys) - 1, resumed=length)
-                    return length, entry
+                    return Resume(length, entry.checkpoint, entry.speculative)
             self._misses += 1
             record_rebuild_cache_miss()
             note_rebuild(features=len(keys) - 1, resumed=0)
@@ -345,7 +421,9 @@ class PrefixCache[CheckpointT: Detachable]:
         # needs have started tearing down.
         finalizer.atexit = False
 
-    def store(self, key: str, checkpoint: CheckpointT) -> None:
+    def store(
+        self, key: str, checkpoint: CheckpointT, *, speculative: bool = False
+    ) -> bool:
         """Take ownership of *checkpoint* and cache it under *key*.
 
         The caller MUST own the checkpoint exclusively — nothing else may hold
@@ -353,17 +431,62 @@ class PrefixCache[CheckpointT: Detachable]:
         :meth:`store_on_release` and the direct call is reserved for a warm,
         whose state was never published. :meth:`Detachable.detach` runs here, on
         the cache's side of the transfer.
+
+        *speculative* marks a checkpoint a PREFETCH built (nobody asked for it
+        yet), and it buys the entry a strictly weaker claim on a slot. Returns
+        whether the entry was cached — ``False`` only ever for a refused
+        speculative store. The rule, in the order the code applies it:
+
+        * **evict speculation first.** The victim is the least-recently-used
+          SPECULATIVE entry if there is one, and only otherwise the LRU overall.
+          So a real checkpoint outlives a guess even when the guess is newer,
+          which is the direction CONC-6 says is correct.
+        * **refuse a speculative store that would evict live work.** When the
+          cache is full of real checkpoints, the warm's own result is dropped —
+          the speculation simply achieved nothing, which is a far better outcome
+          than a live modeler's checkpoint becoming a 19-second `/measure`
+          (CONC-4). Counted in :attr:`CacheStats.speculative_refused`.
+
+        Together these make "a warm never evicts a live user's checkpoint" a
+        property of this method rather than an assumption about the working set —
+        the assumption that measurably failed at four users on one worker.
+
+        ``detach`` runs before the decision, so a refused checkpoint is detached
+        and then dropped. That is deliberate: doing it inside the lock would hold
+        the lock across an OCCT call, and the only cost is a ``BRepTools::Clean``
+        on shapes about to be garbage anyway.
         """
         checkpoint.detach()
         with self._lock:
             self._entries.pop(key, None)
-            self._entries[key] = checkpoint
+            full = len(self._entries) >= self._capacity
+            if speculative and full and self._victim_key() is None:
+                # Every slot holds live work. Speculation yields — silently to
+                # the user, and loudly to the counters.
+                self._speculative_refused += 1
+                return False
+            self._entries[key] = _Entry(checkpoint, speculative)
             self._stores += 1
             record_rebuild_cache_store()
             while len(self._entries) > self._capacity:
-                self._entries.popitem(last=False)
+                speculative_victim = self._victim_key()
+                victim = (
+                    next(iter(self._entries))
+                    if speculative_victim is None
+                    else speculative_victim
+                )
+                del self._entries[victim]
                 self._evictions += 1
                 record_rebuild_cache_eviction()
+        return True
+
+    def _victim_key(self) -> str | None:
+        """The least-recently-used SPECULATIVE entry, or ``None`` if every entry
+        is live work (caller holds the lock)."""
+        for candidate, entry in self._entries.items():
+            if entry.speculative:
+                return candidate
+        return None
 
     def clear(self) -> None:
         """Drop every entry (test isolation; production never calls this)."""
@@ -379,8 +502,126 @@ class PrefixCache[CheckpointT: Detachable]:
                 stores=self._stores,
                 evictions=self._evictions,
                 resumed_features=self._resumed_features,
+                speculative_refused=self._speculative_refused,
             )
 
+
+class WorkGate(Protocol):
+    """What a warm needs of the world to decide whether it may use the core.
+
+    A Protocol so :func:`geometry.features.evaluate.warm_rebuild_cache` — which
+    is where the yield has to be implemented, because that is where the
+    half-built state lives — does not import a concrete gate, and so a test can
+    hand it a deterministic one instead of racing real threads.
+    """
+
+    def busy(self) -> bool:
+        """Whether real (non-speculative) work is in flight right now."""
+        ...
+
+    def wait_until_idle(self, timeout_s: float) -> bool:
+        """Block up to *timeout_s* for it to stop being. Returns idle-ness."""
+        ...
+
+
+class LiveWorkGate:
+    """How many REAL evaluations are in flight in this process, and a way to wait.
+
+    The counterpart to the cache's eviction rule, one layer down: speculation
+    must have a weaker claim on the CORE as well as on a slot. It exists because
+    the alternative was measured and it was bad — CONC-6, on the 50-feature tray:
+    a warm issued immediately before the commit took the commit from **2 589 ms
+    to 4 742 ms**, 1.8x WORSE than never speculating at all. Nothing was wrong
+    with the warm; OCP does not release the GIL (CONC-5), so one worker has one
+    effective core and the guess and the real request simply halved each other.
+
+    Two things follow, and both are policy the :class:`WarmScheduler` applies
+    rather than anything this class decides:
+
+    * a warm does not START while real work is in flight, so the pessimal case is
+      "the speculation achieved nothing", never "the user waited longer";
+    * a warm PAUSES at its next feature boundary when real work arrives, STORES
+      the prefix it has built so far, and resumes from it when the worker is idle
+      again. Storing is not tidiness — it is what makes a partial dwell worth
+      anything at all. Measured 2026-08-01 on the N=100 tray: work a warm is
+      still holding is invisible, so a face pick that arrived while the warm sat
+      mid-provenance paid the full 9.2 s; with the prefix banked at the pause it
+      resumes instead. Nothing in flight can be resumed from; only something in
+      the cache can.
+
+    NOT A LOCK, and it must never become one: :meth:`tracked` is a counter, so
+    two real requests never serialise on it (``test_concurrent_modelers.py``
+    depends on genuinely concurrent rebuilds). The only thread that ever waits is
+    the single speculative one.
+
+    Scope note: it counts :func:`geometry.features.evaluate.evaluate_tree`, which
+    is where every rebuild in the product funnels (the same argument that makes
+    ``take`` the metrics seam), and so covers tessellation, mass properties and
+    export as well as the dispatch loop. A STEP import is a bounded SUBPROCESS
+    and deliberately not counted.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._idle = threading.Condition(self._lock)
+        self._count = 0
+        self._waits = 0
+
+    @contextmanager
+    def tracked(self) -> Generator[None]:
+        """Mark real work in flight for the duration of the block."""
+        with self._lock:
+            self._count += 1
+        try:
+            yield
+        finally:
+            with self._lock:
+                self._count -= 1
+                if self._count == 0:
+                    self._idle.notify_all()
+
+    def busy(self) -> bool:
+        with self._lock:
+            return self._count > 0
+
+    def wait_until_idle(self, timeout_s: float) -> bool:
+        """Block up to *timeout_s* for the last real evaluation to finish.
+
+        Returns whether the worker is idle. Callers poll this in short slices
+        rather than waiting once for a long time, because the waiter also has to
+        notice being superseded or cancelled, and that signal lives elsewhere.
+        """
+        with self._lock:
+            if self._count == 0:
+                return True
+            self._waits += 1
+            return self._idle.wait_for(lambda: self._count == 0, timeout_s)
+
+    @property
+    def waits(self) -> int:
+        """How many times speculation has stood aside for real work.
+
+        Nonzero is the design working, not a fault: it counts the CPU a
+        committing user did NOT have to share with a guess.
+        """
+        with self._lock:
+            return self._waits
+
+
+#: The process's live-work counter. Process-global for the same reason the caches
+#: are: it describes THIS worker's one effective core.
+_LIVE_WORK = LiveWorkGate()
+
+
+def live_work() -> LiveWorkGate:
+    """The process's live-work gate (the evaluator marks it; a warm waits on it)."""
+    return _LIVE_WORK
+
+
+#: How long one speculative pause lasts before the warm re-examines its world.
+#: Short enough that a cancelled or superseded ticket is not held up by it, long
+#: enough that a warm waiting out a 27-second rebuild is not spinning.
+WARM_YIELD_SLICE_S = 0.05
 
 #: Wall-clock ceiling for ONE warm ticket, across every lineage it warms
 #: (docs/PERF.md PERF-1b). **30 s, and the number was measured rather than
@@ -453,6 +694,12 @@ class WarmScheduler:
       ``should_stop`` predicate handed to the work, so a warm stops within one
       OCCT call of being asked to. There is no way to interrupt a single
       ``BRepAlgoAPI`` call and this module does not pretend otherwise.
+    Neither of those is the PRIORITY rule. One warm per worker bounds the CPU
+    speculation can consume; it does not stop that one core being the core
+    somebody's commit needed, and CONC-6 measured the difference at 1.8x. That
+    rule is :class:`LiveWorkGate`, applied inside
+    :func:`geometry.features.evaluate.warm_rebuild_cache` — a bound and a
+    priority are different jobs and this class only does the first.
 
     A *ticket* is an opaque caller-chosen string identifying the intent (the
     gateway namespaces it per user). Submitting the SAME ticket that is already
@@ -575,7 +822,15 @@ class WarmScheduler:
 
     def _stopper(self, generation: int) -> Callable[[], bool]:
         """The predicate one warm run polls between features: *my budget is
-        spent* OR *somebody has superseded/cancelled me*."""
+        spent* OR *somebody has superseded/cancelled me*.
+
+        Deliberately NOT the live-work yield. "Give the core back" and "give up"
+        are different instructions — a yielding warm banks its prefix and carries
+        on later, a stopped one is finished — and only the code holding the
+        half-built state can act on the first. So the yield lives in
+        :func:`geometry.features.evaluate.warm_rebuild_cache` (which owns that
+        state) and this predicate keeps meaning exactly one thing.
+        """
         deadline = time.monotonic() + self._budget_s
 
         def should_stop() -> bool:

@@ -1442,7 +1442,244 @@ that without affinity the extra workers buy about 20-100 % rather than 300 %.
    below the shipped cost of a 200-feature face pick on an *idle* machine, and
    the resulting 502 blames the wrong component.
 4. **A bigger, per-user-aware rebuild cache** (CONC-4, P2) — 8 entries is 4
-   modelers; the fifth costs everyone 79x on `/measure`.
+   modelers; the fifth costs everyone 79x on `/measure`. **LANDED, see the next
+   section.**
 5. **Release the GIL around OCCT** (CONC-5, P3, likely upstream) — the only
    fix that makes one worker use one machine. Everything above is working
    around it.
+
+### Addendum — CONC-1/2/3 shipped the same day (measured by the backend agent,
+relayed here because this file has one owner)
+
+Their window was **not quiet either** (load average 4.2-5.3 on 4 cores, partly
+the dwell run below), so these are back-to-back A/B ratios, and they explicitly
+declined to publish the 1-worker vs 4-worker gateway walls (52.1 s vs 57.0 s) as
+noise rather than a result.
+
+* **Admission control** (CONC-2), 16 simultaneous cold 50-feature evaluates on
+  one worker: before, 45.4 s wall and **0 of 16** delivered inside 30 s —
+  fourteen completions bunched within six seconds of each other at the end,
+  textbook processor sharing. Shipped defaults: 22.6 s and **8 of 16**, with 8
+  shed as 503 + `Retry-After`. Depth 16 / wait 60 s: 41.6 s and **11 of 16**,
+  none shed — the FIFO number this file predicted.
+* **Session affinity** (CONC-1), 4 users / 4 workers with the queue active:
+  sticky 30.6 s wall, cache hit 0.40, `/measure` p50 **81 ms**; random 64.9 s,
+  cache hit 0.10, `/measure` p50 **3 284 ms**. 2.1x on wall, 4x on hit rate,
+  **41x on measure**.
+* **The upstream timeout** (CONC-3) is now 90 s, and the 504 says the request is
+  still working and its progress is cached. In-flight work is deliberately NOT
+  cancelled, so an abandoned rebuild banks its checkpoint and the retry resumes
+  from it: **40.3 s cold → 22.7 s**. That checkpoint is live work, and the
+  eviction rule below is what stops a warm displacing it.
+
+---
+
+## 2026-08-01b — CONC-4 + CONC-6 + PERF-1c: what the prefetch is worth to a USER
+
+**Why this run exists.** Three findings converged on one thing: the rebuild
+cache and its speculation were sized and triggered for one person doing one
+thing. The founder asked the question that started it — *"is this the numbers
+users are experiencing, or just what happens under the hood without them
+noticing?"* — about PERF-1b's table, which was measured with the warm run to
+COMPLETION. A real edit is "open the editor, type 12, Enter" in three to five
+seconds, and nobody had measured that.
+
+### Method, and the honest caveat about the window
+
+In-process, one thread of real work, same tray builder as every other run here
+(`services/geometry/tests/_big_part_builders.py`), driving the SHIPPED seam —
+`geometry.warm.warm_work` on a real `WarmScheduler`, not a hand-rolled
+imitation. One scenario is one modeler: open the part (a real evaluate, so the
+frontier checkpoint exists), select the last editable feature (the prefetch goes
+out), sit in the dialog for D seconds, commit the edit, pick a face.
+
+**The window was NOT quiet.** A sibling agent's Playwright suite and a
+concurrency load run were live for most of it (load average 3.3-5.3 on 4 cores).
+So absolutes here run ~10 % above the quiet numbers earlier in this file (a cold
+N=200 commit measures 34.7-37.5 s here against 33.7 s on 2026-08-01), and every
+comparison below is a **back-to-back A/B inside one scenario** rather than a
+cross-run absolute. Where a single number carried the argument, it was
+re-measured interleaved with its own baseline.
+
+### 1. The prefetch was a 2x PESSIMISATION when it did not get its head start
+
+CONC-6 measured this over HTTP at N=50; it reproduces in-process at every size,
+and it gets worse in absolute terms as the part grows. "Race" is the pre-fix
+behaviour: the warm keeps working while the commit runs, and with one effective
+core per worker (CONC-5 — OCP does not release the GIL) they simply halve each
+other.
+
+| part | commit, no prefetch | commit, warm racing it | |
+| --- | ---: | ---: | --- |
+| N=50 | 2 723 ms | **5 492 ms** | 2.0x WORSE |
+| N=100 | 8 965 ms | **20 509 ms** | 2.3x WORSE |
+| N=200 | 37 498 ms | **77 633 ms** | 2.1x WORSE |
+
+The first face pick after the commit pays it twice: 2 341 → 4 403 ms at N=50,
+9 931 → 20 487 ms at N=100. **A feature meant to hide latency was doubling it**,
+and the only reason it did not show in PERF-1b's table is that the table let the
+warm finish first.
+
+### 2. The fix: speculation loses to live work, on the core AND in the cache
+
+Two rules, both structural, both now enforced by code rather than by a docstring
+asking nicely:
+
+* **The core.** `evaluate_tree` marks itself live for its duration
+  (`LiveWorkGate`, a counter — never a lock, so real rebuilds still run
+  concurrently). A warm checks it between features and, when real work is in
+  flight, **banks the prefix it has built and waits**. It resumes from its own
+  checkpoint when the worker goes idle.
+* **The cache.** A warm's checkpoint is stored SPECULATIVE: it is always the
+  first eviction victim, and a speculative store that would have to evict a live
+  checkpoint is **refused outright** (the warm achieved nothing — the acceptable
+  failure). Before this, on a full LRU every warm evicted somebody's live
+  checkpoint: measured 2026-08-01 at four users, evictions 24 → 35 and hit rate
+  0.40 → 0.31. This is also what protects an *abandoned* rebuild's checkpoint —
+  CONC-3's 90 s timeout deliberately lets in-flight work finish so its checkpoint
+  is banked for the retry, and that checkpoint is live work by exactly this rule.
+
+Result — the same "commit immediately after opening the editor" case, gated:
+
+| part | no prefetch | prefetch, commit immediately | |
+| --- | ---: | ---: | --- |
+| N=50 | 2 254 ms | **2 369 ms** | +5 % (was +102 %) |
+| N=100 | 7 773 ms | **7 586 ms** | -2 % (was +129 %) |
+| N=200 | 35 007 ms | **35 567 ms** | +1.6 % (was +107 %) |
+
+**The worst case is now "the speculation achieved nothing", never "the user
+waited longer"** — which is the property CONC-6 asked for. The N=200 row is the
+mean of an INTERLEAVED pair (baseline, warmed, warmed, baseline, run back to
+back) because a single sample of it came out +37 % in a contended window and a
+single sample is not evidence: the spread on the baseline alone across that pair
+is 32.3-37.7 s, i.e. ±15 %, which swallows the difference being claimed. The
+other two sizes are cheap enough to be repeated and moved by <10 % between runs.
+
+**Banking the prefix on the way out is load-bearing, not tidiness.** Work a warm
+is still holding is invisible: a request can only resume from something in the
+CACHE. The first version of this fix paused without storing, and at N=100 with a
+15 s dwell the face pick that arrived while the warm sat mid-provenance paid the
+full **9 227 ms** — fifteen seconds of speculation bought nothing. With the
+prefix banked at the pause the same pick resumes from it (2 204 ms, and 480 ms
+once the loop below was also fixed).
+
+**And the yield's own bookkeeping can BE the bug.** The first pause loop
+re-banked every 50 ms slice, running `BRepTools::Clean` over a 442-face body
+twenty times a second for the whole pause — the commit it had stepped aside for
+came out **12 % slower than with no prefetch at all**. Caught by measuring the
+fix rather than by trusting it. The loop now waits without churn.
+
+### 3. The dwell table: EXPECTED win beside the ceiling (PERF-1c)
+
+Commit latency after D seconds in the editor, each row against its own
+back-to-back cold baseline. "Ceiling" is PERF-1b's number: the warm run to
+completion (or, at N=200, to its 30 s budget).
+
+| part | cold commit | D = 2 s | D = 5 s | D = 15 s | ceiling |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| N=50 | 2 254 ms | 2 347 ms (1.0x) | **321 ms (7.0x)** | **302 ms (7.5x)** | 7.5x |
+| N=100 | 7 773 ms | 8 499 ms (1.0x) | 8 388 ms (1.0x) | **483 ms (16x)** | 16x |
+| N=200 | 34 681 ms | 39 024 ms (1.0x) | 36 498 ms (1.0x) | 35 424 ms (1.0x) | **18.8x** (D ≥ 30 s) |
+
+And the first face pick after that commit — the second thing the warm buys:
+
+| part | cold pick | D = 5 s | D = 15 s | ceiling |
+| --- | ---: | ---: | ---: | ---: |
+| N=50 | 2 224 ms | **341 ms (6.5x)** | **304 ms (7.3x)** | 7.3x |
+| N=100 | 7 479 ms | 7 994 ms (1.0x) | **480 ms (15.6x)** | 15.6x |
+| N=200 | 36 387 ms | 36 538 ms (1.0x) | 33 757 ms (1.0x) | 1.0x — the 30 s budget never reaches this lineage |
+
+**THE WIN IS A STEP, NOT A RAMP, and the step is the warm's own completion.**
+A partial prefix cannot help the request that is already running (it probed the
+cache before the warm banked anything), so the commit is either resumed or cold.
+The step lands at **~0.85x the cold rebuild per lineage** — measured warm
+completion 2.0 s against a 2.25 s rebuild at N=50, 7.1 s against 7.8 s at N=100 —
+because a warm does the same features without tessellating or measuring. Both
+lineages (the commit's, then the pick's) is **~1.7x the rebuild**.
+
+So the required dwell, which is the number a user actually feels:
+
+| part | dwell for the COMMIT win | dwell for the PICK too | realistic edit? |
+| --- | ---: | ---: | --- |
+| N=50 | ~2.5 s | ~4.5 s | **yes** — a typed dimension takes that long |
+| N=100 | ~8 s | ~14 s | only if you stop to think |
+| N=200 | ~30 s | never (budget) | **no** |
+
+**One thing the app does that the table above leaves out, measured because it
+changes the answer:** selecting a feature row also fires the feature-localized
+selection overlay (`PartPage`, a real provenance evaluate of the tree as it
+stands), so the warm's first ~one-rebuild of head start is spent waiting for it.
+At N=50 that pushes the commit threshold from ~2.5 s to ~4.5 s — and a 5 s dwell
+still lands the full win (**332 ms, 7.1x**), while the pick gets a partial one
+(**1 302 ms vs 2 373 cold**) from the provenance prefix banked when the warm
+stepped aside. At 8 s both are complete (347 / 380 ms). This is the clearest
+demonstration that banking on the yield is worth its complexity: without it that
+1.3 s pick is a full 2.4 s cold rebuild.
+
+**The honest headline, replacing PERF-1b's:** the prefetch delivers 7x on a
+50-feature part at a realistic 3-5 second edit, and **nothing at all** on a
+200-feature part, where the published 7.0x needs a dwell longer than the
+rebuild it is hiding. It is not wasted — a banked prefix is a legitimate resume
+point and the work is the commit's own, moved earlier — but the number to quote
+to a user is the dwell table, not the ceiling. Above ~100 features only
+incremental topology helps; prefetch cannot bend `N^1.85`.
+
+### 4. The trigger did NOT move, and the measurement says why
+
+PERF-1c asked whether the trigger should fire earlier than editor-open — on
+feature-row selection, "which precedes the dialog by a beat". Two findings:
+
+1. **It already does.** `FeatureTreePanel` fires `usePrefetchIntent` off
+   `selectedFeatureId`, and `PartPage.selectFeature` sets the selection and opens
+   the editor in the same handler. There is no beat between them to reclaim.
+2. **No trigger nudge could pay.** The deficit at N=100 is ~3 s and at N=200
+   ~25 s of missing dwell. The only earlier signal is HOVER, which is (a) a
+   guess rather than a declaration and (b) actively harmful here: one warm slot
+   per worker means a hover-scrub down the tree would supersede the warm the
+   user's real selection is waiting on.
+
+**No dwell TIMER either, and this is a reversal of the hypothesis in CONC-6.**
+The idea was that warming should not start until it can plausibly pay for
+itself. The measurement says the pessimisation was *contention*, not earliness —
+with contention removed, starting early costs the committing user nothing (table
+in §2), while a start delay would push the completion step further out and
+strictly REDUCE the win. The break-even is published (the dwell table) rather
+than enforced.
+
+### 5. `REBUILD_CACHE_CAPACITY` 8 → 32, priced against the worker budget
+
+Eight entries was exactly four modelers, because a working modeler holds two
+lineages (the plain one an edit rebuilds, and the `record_history` one a face
+pick uses), and the fifth user cost everyone 79x on `/measure` (244 ms → 19 189
+ms). The new number is derived, not chosen:
+
+| input | value | source |
+| --- | ---: | --- |
+| lineages per working modeler | 2 | §2 of the concurrency run |
+| modelers a host is sized for | 8 | docs/OPERATIONS.md §6 |
+| live checkpoints one worker must hold (no affinity) | **16** | 8 x 2 |
+| speculation + an assembly's per-part trees | headroom | one warm ticket is ≤2 entries |
+| **capacity** | **32** | 16 + headroom, rounded to a power of two |
+
+The price, measured rather than assumed: **+2 MiB of RSS per retained checkpoint
+at 219 faces, ~4 MiB at 442**. A completely full cache of big parts is therefore
+~128 MiB (32 x 4 MiB), ~64 MiB of mid-sized ones, against the **~1 GiB per
+geometry worker** budgeted in docs/OPERATIONS.md §6 whose floor is OCCT's ~500
+MiB plus the resident part. **Up to ~13 % of a worker's budget to stop the fifth
+user costing everyone 79x** — a ceiling and not a reservation, since one modeler
+occupies two entries and RSS only grows if 32 distinct large lineages are
+genuinely live.
+
+### What this does NOT fix
+
+* **The cold open.** Untouched, and it is the biggest number on the page: 34 s
+  at N=200 in this window. Prefetch cannot help a tree nobody has evaluated.
+* **A mid-tree edit on a big part.** The dwell table's N=200 row is the honest
+  statement: at any dwell a human produces, the prefetch is a no-op there.
+* **The 30 s warm budget at N=200.** It covers the commit lineage (28.9 CPU s)
+  and never reaches the provenance one, so the first face pick after a deep edit
+  on a 200-feature part is cold whatever the user does. Raising it trades a
+  bigger DoS surface for a case the dwell table says nobody reaches anyway.
+* **Multi-worker dilution.** The cache and the scheduler are per-process, so
+  `--scale geometry=N` still divides the hit rate N ways (CONC-1's affinity is
+  the fix, and it landed the same day).

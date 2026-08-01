@@ -214,9 +214,12 @@ from geometry.kernel.types import BodyShape
 from geometry.mesh_store import store_mesh_glb
 from geometry.rebuild_cache import (
     REBUILD_CACHE_CAPACITY,
+    WARM_YIELD_SLICE_S,
     CacheStats,
     PrefixCache,
+    WorkGate,
     drop_triangulation,
+    live_work,
     prefix_keys,
 )
 from geometry.sheet_metal import (
@@ -3244,6 +3247,7 @@ def warm_rebuild_cache(
     record_history: bool = False,
     budget_s: float | None = None,
     cancelled: Callable[[], bool] | None = None,
+    yield_to: WorkGate | None = None,
 ) -> int:
     """Evaluate *request*'s prefix into the cache WITHOUT publishing anything.
 
@@ -3290,8 +3294,34 @@ def warm_rebuild_cache(
     take checkpoints at or before ``prefix_length``, and the tree's frontier is
     past it — only for a travel stop the user had already visited.
 
-    Returns 0 when nothing was cached (a failed tree, or cancelled before the
-    first feature).
+    *yield_to* is the live-work gate (:class:`~geometry.rebuild_cache.WorkGate`),
+    and it is what stops a prefetch being a pessimisation. One geometry worker has
+    ONE effective core (OCP holds the GIL), so a warm that keeps working through a
+    real rebuild does not use spare capacity — it takes half of the only capacity
+    there is, and CONC-6 measured that at **2 589 -> 4 742 ms** on a commit issued
+    right after the editor opened. So between features this function checks the
+    gate, and when real work is in flight it:
+
+    1. **banks the prefix it has built** as a speculative checkpoint and gives up
+       ownership of it — because work still held by the warm is invisible, and a
+       request that arrives mid-warm can only resume from something that is in the
+       CACHE. (Measured the same day: a face pick landing while the warm sat
+       mid-provenance paid the full 9.2 s with nothing to show for the warm's 15
+       seconds of work.) A real request may then take it, which is the win;
+    2. **waits** for the worker to go idle, in short slices so a cancel is still
+       observed promptly;
+    3. **takes its own checkpoint back** and carries on. If it is gone — somebody
+       used it, or a store was refused for want of a slot — the warm stops: its
+       reason for existing has either been served or cannot be served here.
+
+    The whole loop is still bounded by *budget_s* and *cancelled*, so a warm on a
+    worker that never goes idle spends its budget waiting and achieves nothing,
+    which is the correct outcome on a machine with no spare cycles. Pass
+    ``yield_to=None`` (the default) for a warm that should simply run — the direct
+    callers in the tests, not the prefetch route.
+
+    Returns 0 when nothing was cached (a failed tree, cancelled before the first
+    feature, or a cache with no room for speculation).
     """
     target = len(request.features) if prefix_length is None else prefix_length
     target = max(0, min(target, len(request.features)))
@@ -3310,7 +3340,8 @@ def warm_rebuild_cache(
         record_history=record_history,
     )
     resume = _REBUILD_CACHE.take(keys[: target + 1])
-    start, checkpoint = resume if resume is not None else (0, None)
+    start = 0 if resume is None else resume.prefix_length
+    checkpoint = None if resume is None else resume.checkpoint
     if checkpoint is None:
         state = EvaluationState(
             linear_deflection=request.linear_deflection,
@@ -3329,7 +3360,10 @@ def warm_rebuild_cache(
         # Already cached at exactly the requested prefix — put it straight back
         # (`take` REMOVED it) and do no kernel work. A re-declared editor open
         # must not cost a rebuild, and must not leave the cache colder than it
-        # found it.
+        # found it. The entry goes back with the claim it ARRIVED with: a real
+        # checkpoint a warm happened to land on stays real (downgrading it would
+        # let the next guess evict work somebody is using), and a speculative one
+        # stays speculative (promoting it would launder a guess into live work).
         _REBUILD_CACHE.store(
             keys[target],
             _Checkpoint(
@@ -3339,37 +3373,102 @@ def warm_rebuild_cache(
                 suppressed_ids=frozenset(suppressed),
                 artifacts=checkpoint.artifacts if checkpoint is not None else None,
             ),
+            speculative=resume is not None and resume.speculative,
         )
         return target
 
-    last_good, failed, consumed = _dispatch_prefix(
-        request.features[start:target],
-        state,
-        results,
-        suppressed,
-        last_good,
-        record_history=record_history,
-        stop=stop,
-    )
-    prefix_len = start + consumed
-    if failed or prefix_len == 0:
-        return 0
-    # The warm owns this state exclusively — nothing was published — so it can be
-    # stored directly rather than on the release of a caller's evaluation.
-    _REBUILD_CACHE.store(
-        keys[prefix_len],
-        _Checkpoint(
-            state=state,
-            results=results,
-            last_good_feature_id=last_good,
-            suppressed_ids=frozenset(suppressed),
-            artifacts=None,
-        ),
-    )
-    return prefix_len
+    def dispatching() -> bool:
+        """The dispatch loop's stop signal: give up, OR give the core back."""
+        return stop() or (yield_to is not None and yield_to.busy())
+
+    built = start
+    while True:
+        last_good, failed, consumed = _dispatch_prefix(
+            request.features[built:target],
+            state,
+            results,
+            suppressed,
+            last_good,
+            record_history=record_history,
+            stop=dispatching,
+        )
+        built += consumed
+        if failed:
+            return 0
+        if built > 0:
+            # The warm owns this state exclusively — nothing was published — so
+            # it can be stored directly rather than on the release of a caller's
+            # evaluation. It is marked SPECULATIVE, which is what stops it
+            # evicting a live modeler's checkpoint on a full cache (CONC-4); when
+            # every slot is live work the store is refused and this warm simply
+            # achieved nothing, which is the honest return value.
+            stored = _REBUILD_CACHE.store(
+                keys[built],
+                _Checkpoint(
+                    state=state,
+                    results=results,
+                    last_good_feature_id=last_good,
+                    suppressed_ids=frozenset(suppressed),
+                    artifacts=None,
+                ),
+                speculative=True,
+            )
+            if not stored:
+                return 0
+        if built >= target or stop() or yield_to is None:
+            return built
+        # PAUSED, not stopped: real work wants the core. The prefix above is
+        # banked (and may be taken by that very request, which is the point), so
+        # wait for the worker to go idle and then reclaim it.
+        #
+        # WAIT IN A LOOP HERE, and do not fall through to the store/take above
+        # each slice. Measured 2026-08-01 on the N=200 tray: re-banking every
+        # 50 ms ran ``BRepTools::Clean`` over a 442-face body twenty times a
+        # second for the whole pause, and the commit it had stepped aside for
+        # came out 12 % SLOWER than with no prefetch at all — the exact defect
+        # the yield exists to prevent, reintroduced by the yield's own bookkeeping.
+        while yield_to.busy() and not stop():
+            yield_to.wait_until_idle(WARM_YIELD_SLICE_S)
+        if stop():
+            return built
+        if built == 0:
+            continue  # nothing was stored, so there is nothing to reclaim
+        reclaimed = _REBUILD_CACHE.take(keys[: built + 1])
+        if reclaimed is None or reclaimed.prefix_length != built:
+            # Somebody used it (the speculation paid off) or it lost its slot.
+            # Either way this ticket's reason to keep spending is gone; starting
+            # the prefix again from zero would be pure waste.
+            if reclaimed is not None:
+                _REBUILD_CACHE.store(
+                    keys[reclaimed.prefix_length],
+                    reclaimed.checkpoint,
+                    speculative=reclaimed.speculative,
+                )
+            return built
+        state = reclaimed.checkpoint.state
+        results = list(reclaimed.checkpoint.results)
+        last_good = reclaimed.checkpoint.last_good_feature_id
+        suppressed = set(reclaimed.checkpoint.suppressed_ids)
 
 
 def evaluate_tree(
+    request: EvaluateTreeRequest, *, record_history: bool = False
+) -> TreeEvaluation:
+    """Evaluate a feature tree — the ONE funnel every rebuild in the product
+    passes through, and therefore where real work announces itself.
+
+    The body is :func:`_evaluate_tree`; this wrapper exists only to mark the
+    evaluation live for its duration (:class:`~geometry.rebuild_cache.
+    LiveWorkGate`), which is what makes a speculative warm step aside instead of
+    halving the core this request is using (CONC-6: a prefetch racing the commit
+    it was meant to help measured 1.8x SLOWER than not prefetching at all). It is
+    a counter, never a lock: concurrent real rebuilds do not serialise on it.
+    """
+    with live_work().tracked():
+        return _evaluate_tree(request, record_history=record_history)
+
+
+def _evaluate_tree(
     request: EvaluateTreeRequest, *, record_history: bool = False
 ) -> TreeEvaluation:
     """Evaluate an ordered feature prefix under the strict-prefix rule (§4.3).
@@ -3416,7 +3515,8 @@ def evaluate_tree(
         record_history=record_history,
     )
     resume = _REBUILD_CACHE.take(keys)
-    start, checkpoint = resume if resume is not None else (0, None)
+    start = 0 if resume is None else resume.prefix_length
+    checkpoint = None if resume is None else resume.checkpoint
     if checkpoint is None:
         state = EvaluationState(
             linear_deflection=request.linear_deflection,

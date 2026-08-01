@@ -34,7 +34,11 @@ from geometry.features.evaluate import (
     reset_rebuild_cache,
     warm_rebuild_cache,
 )
-from geometry.rebuild_cache import PrefixCache, prefix_keys
+from geometry.rebuild_cache import (
+    REBUILD_CACHE_CAPACITY,
+    PrefixCache,
+    prefix_keys,
+)
 from py_kit.schemas.features import EvaluateTreeRequest
 
 _BUILDERS_PATH = Path(__file__).resolve().parent / "_big_part_builders.py"
@@ -408,6 +412,85 @@ def test_the_cache_is_bounded_and_evicts_the_least_recently_used() -> None:
     assert cache.take(["root", "key-a"]) is None, "the oldest entry must be evicted"
     assert cache.take(["root", "key-c"]) is not None
     assert cache.stats.evictions == 1
+
+
+def test_a_warm_can_never_evict_a_live_checkpoint() -> None:
+    """THE load-bearing rule of CONC-4, as a unit.
+
+    The docstring of ``rebuild_cache.py`` always said a warm must not evict a
+    checkpoint a live request is about to use, and the load run measured it doing
+    exactly that on a full LRU (evictions 24 -> 35, hit rate 0.40 -> 0.31). A
+    guess losing its slot to real work is correct; real work losing its slot to a
+    guess is a self-inflicted regression, so the speculative store is REFUSED
+    instead — the warm achieved nothing, which is the acceptable failure.
+    """
+    cache: PrefixCache[_FakePayload] = PrefixCache(2)
+    cache.store("live-a", _FakePayload("live-a"))
+    cache.store("live-b", _FakePayload("live-b"))
+
+    assert cache.store("guess", _FakePayload("guess"), speculative=True) is False
+    assert cache.stats.speculative_refused == 1
+    assert cache.stats.evictions == 0, "no live checkpoint may be dropped for a guess"
+
+    assert cache.take(["root", "guess"]) is None
+    assert cache.take(["root", "live-a"]) is not None, "the LRU live entry survived"
+    assert cache.take(["root", "live-b"]) is not None
+
+
+def test_a_live_checkpoint_evicts_speculation_before_older_live_work() -> None:
+    """The other half of the rule: speculation is always the first victim, even
+    when it is the NEWEST entry and the live checkpoint beside it is the LRU."""
+    cache: PrefixCache[_FakePayload] = PrefixCache(2)
+    cache.store("live-old", _FakePayload("live-old"))
+    cache.store("guess", _FakePayload("guess"), speculative=True)
+
+    cache.store("live-new", _FakePayload("live-new"))
+
+    assert cache.stats.evictions == 1
+    assert cache.take(["root", "guess"]) is None, "the guess gave up its slot"
+    assert cache.take(["root", "live-old"]) is not None, "live work outlives a guess"
+
+
+def test_speculation_may_replace_speculation() -> None:
+    """A weaker claim than live work is not the same as no claim: a new warm can
+    still take a stale warm's slot, which is what keeps the prefetch useful on a
+    worker whose cache is not full of other people's checkpoints."""
+    cache: PrefixCache[_FakePayload] = PrefixCache(2)
+    cache.store("live", _FakePayload("live"))
+    cache.store("guess-old", _FakePayload("guess-old"), speculative=True)
+
+    assert cache.store("guess-new", _FakePayload("guess-new"), speculative=True) is True
+
+    assert cache.stats.speculative_refused == 0
+    assert cache.take(["root", "guess-old"]) is None
+    assert cache.take(["root", "guess-new"]) is not None
+    assert cache.take(["root", "live"]) is not None
+
+
+def test_a_resumed_entry_reports_the_claim_it_was_stored_with() -> None:
+    """``take`` carries the flag out because the warm's re-store path has to put
+    it back unchanged: laundering a guess into live work (or demoting a live
+    checkpoint to evictable) would defeat both halves of the rule above."""
+    cache: PrefixCache[_FakePayload] = PrefixCache(4)
+    cache.store("live", _FakePayload("live"))
+    cache.store("guess", _FakePayload("guess"), speculative=True)
+
+    live = cache.take(["root", "live"])
+    guess = cache.take(["root", "guess"])
+    assert live is not None and live.speculative is False
+    assert guess is not None and guess.speculative is True
+
+
+def test_the_capacity_is_sized_for_more_than_four_modelers() -> None:
+    """CONC-4: a working modeler holds TWO lineages (the plain one an edit
+    rebuilds, and the ``record_history`` one a face pick uses), so the old
+    capacity of 8 was exactly four users and the fifth cost everyone 79x on
+    ``/measure``. docs/OPERATIONS.md §6 sizes a host for up to 8 concurrent
+    modelers, and without affinity all of them can land on one worker.
+    """
+    assert REBUILD_CACHE_CAPACITY >= 8 * 2, (
+        "8 modelers x 2 lineages is the working set one worker must hold"
+    )
 
 
 def test_taking_an_entry_removes_it() -> None:

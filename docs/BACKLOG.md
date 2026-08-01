@@ -122,7 +122,7 @@ duplication.
       whose client left before its turn is discarded at the front of the queue
       (`loft_admission_abandoned_total`).
 
-- [ ] (P2, S) **CONC-4 — `REBUILD_CACHE_CAPACITY = 8` is exactly four
+- [x] (P2, S) **CONC-4 — `REBUILD_CACHE_CAPACITY = 8` is exactly four
       modelers, and the fifth costs everyone 79x** (kernel). A working modeler
       holds TWO lineages (evaluate + the `record_history` one a face pick uses),
       so 8 entries is 4 users. Measured hit rate 0.40 (1-4 users) → 0.28 (5) →
@@ -134,6 +134,14 @@ duplication.
       Fix: size the LRU from concurrency (per-worker users x 2 lineages, or make
       it configurable and default higher), and keep warm entries in a separate
       reservation so speculation cannot evict live work. [docs/PERF.md 2026-08-01]
+      **SHIPPED 2026-08-01** (kernel): capacity **32**, derived — 8 modelers
+      (docs/OPERATIONS.md §6) x 2 lineages = 16 live checkpoints one worker must
+      hold without affinity, plus headroom, rounded to a power of two. Priced:
+      ~2 MiB/entry at 219 faces and ~4 MiB at 442, so a completely full cache is
+      64-128 MiB of the ~1 GiB per-worker budget. Speculation now has a strictly
+      weaker claim than live work: a warm's checkpoint is stored SPECULATIVE, is
+      always the first eviction victim, and a speculative store that would evict
+      a live checkpoint is refused outright. [docs/PERF.md 2026-08-01b]
 
 - [ ] (P3, L) **CONC-5 — OCP does not release the GIL, so one geometry worker
       can never use more than one core** (kernel, likely upstream). Measured at
@@ -145,7 +153,7 @@ duplication.
       Filed at P3 because it is upstream work with a shipped workaround, not
       because it is small. [docs/PERF.md 2026-08-01]
 
-- [ ] (P2, M) **CONC-6 — the prefetch is a pessimisation when it does not get
+- [x] (P2, M) **CONC-6 — the prefetch is a pessimisation when it does not get
       its head start, and the head start scales with load** (kernel + web).
       Measured on the 50-feature tray, one user, idle: no warm 2 589 ms; warm
       committed immediately **4 742 ms (1.8x WORSE)**; warm + 1 s 3 259 ms; warm
@@ -157,6 +165,14 @@ duplication.
       to start when one is in flight) so the worst case is "no benefit" rather
       than "1.8x slower". Complements PERF-1c, which asks the dwell question for
       one user; this one is the multi-user half. [docs/PERF.md 2026-08-01]
+      **SHIPPED 2026-08-01** (kernel): a warm yields the CORE, not just the
+      slot. `evaluate_tree` marks itself live (`LiveWorkGate`, a counter, never a
+      lock), and between features a warm banks the prefix it has built and waits
+      for the worker to go idle, then reclaims its own checkpoint. Measured
+      commit-immediately-after-open: N=50 2.0x worse -> +5 %, N=100 2.3x worse ->
+      -2 %, N=200 2.1x worse -> +1.6 %. Banking is load-bearing — work a warm is
+      still holding is invisible, so an unbanked pause cost a face pick the full
+      9.2 s at N=100. [docs/PERF.md 2026-08-01b]
 
 - [ ] (P3, S) **CONC-7 — nobody sized the connection pools, and the defaults
       are wrong in the direction that hurts** (backend). Neither pool is
@@ -1719,7 +1735,7 @@ frame refactor are v2/§11. Spike de-collected.
       `--retries=1` while `scripts/e2e-shard-audit.py` gains `--fail-on-flaky`
       in the reconcile job — so a retry becomes a red build again.
       [src: GATE-1 full-suite measurement 2026-08-01]
-- [ ] (P2, S) **PERF-1c — the prefetch headline is the BEST case, and we do not
+- [x] (P2, S) **PERF-1c — the prefetch headline is the BEST case, and we do not
       know the typical one** (kernel + QA). PERF-1b's table is measured with the
       warm run to COMPLETION: the 7.0x commit / 7.9x pick at N=200 `#192` assume
       the user sat in the editor for the full 28.9 CPU s the warm costs. A real
@@ -1741,6 +1757,18 @@ frame refactor are v2/§11. Spike de-collected.
       experiencing or just what happens under the hood without them noticing?" —
       a fair challenge to a table that answered a different question than it
       appeared to. [src: founder 2026-08-01 · docs/PERF.md 2026-08-01]
+      **ANSWERED 2026-08-01** (kernel): the win is a STEP at the warm's own
+      completion (~0.85x the cold rebuild per lineage), not a ramp, because a
+      partial prefix cannot help a request that already probed the cache.
+      Expected commit win by dwell — N=50: 1.0x / **7.0x** / 7.5x at 2 / 5 / 15 s;
+      N=100: 1.0x / 1.0x / **16x**; N=200: 1.0x at every dwell a human produces
+      (its ceiling of 18.8x needs D >= 30 s). So the prefetch is worth 7x on a
+      50-feature part at a realistic 3-5 s edit and NOTHING at 200. The trigger
+      did not move: it already fires on feature-row selection (the same event
+      that opens the editor), and the deficit at N>=100 is seconds-to-tens-of-
+      seconds, which no trigger nudge closes. No dwell timer either — the
+      pessimisation was contention, not earliness, and a start delay would push
+      the step further out. [docs/PERF.md 2026-08-01b]
 - [ ] (P2, M) **PERF-6 — prefetch the prefix an open editor has already
       declared stable** (kernel + frontend). BLOCKED ON PERF-1: with no cache,
       prefetching does the same 27 s of work twice with nowhere to put the

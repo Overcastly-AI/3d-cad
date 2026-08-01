@@ -30,7 +30,7 @@ from collections.abc import Callable
 from py_kit.schemas.features import WarmTreeRequest
 
 from geometry.features.evaluate import warm_rebuild_cache
-from geometry.rebuild_cache import WarmScheduler
+from geometry.rebuild_cache import WarmScheduler, live_work
 
 #: The per-worker speculation slot (process-global like the caches themselves).
 #: ONE, so prefetch across every client of this worker can never cost more than
@@ -53,6 +53,13 @@ def warm_work(request: WarmTreeRequest) -> Callable[[Callable[[], bool]], None]:
     OCCT call — and re-checked between lineages so a cancelled ticket cannot start
     the second one.
 
+    Each lineage is handed the process's live-work gate, which is what makes the
+    prefetch safe to fire early: with one effective core per worker (CONC-5),
+    speculation that keeps running through a real rebuild takes half of it — the
+    measured cost was a commit going 2 589 -> 4 742 ms. With the gate the warm
+    banks its prefix and steps aside instead, so the worst case is "the guess
+    achieved nothing" rather than "the user waited longer".
+
     Nothing is returned to anybody: the count each warm cached is deliberately
     dropped on the floor, because there is no caller left to tell. What the warm
     leaves behind is reachable only through the ordinary content-addressed key.
@@ -67,6 +74,7 @@ def warm_work(request: WarmTreeRequest) -> Callable[[Callable[[], bool]], None]:
                 prefix_length=request.prefix_length,
                 record_history=lineage == "provenance",
                 cancelled=should_stop,
+                yield_to=live_work(),
             )
 
     return run

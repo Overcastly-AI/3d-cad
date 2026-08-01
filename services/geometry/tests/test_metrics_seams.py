@@ -120,7 +120,8 @@ def test_recording_does_not_change_what_the_cache_returns() -> None:
     assert checkpoint.detached is True
 
     taken = cache.take(keys)
-    assert taken == (3, checkpoint)
+    # A live (non-speculative) checkpoint, resumed at its full prefix length.
+    assert taken == (3, checkpoint, False)
     # `take` REMOVES the entry (ownership transfer), so a second take misses.
     assert cache.take(keys) is None
     stats = cache.stats

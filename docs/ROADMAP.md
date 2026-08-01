@@ -59,6 +59,23 @@ green; 32 further responses audited clean under load. `docs/OPERATIONS.md` §6
 rewritten again (it had been rewritten that morning to say affinity was "not
 shipped"). OPEN from that run: CONC-4..CONC-8.
 
+**CONC-4 + CONC-6 + PERF-1c CLOSED 2026-08-01 (kernel-architect) — the prefetch
+stopped being a pessimisation, and the published win is now the one a user
+gets.** Speculation now loses to live work on BOTH resources: in the cache (a
+warm's checkpoint is stored speculative, is the first eviction victim, and a
+speculative store that would evict live work is refused) and on the core (a warm
+banks the prefix it has built and waits while any real evaluate is in flight,
+then reclaims it). Measured commit-immediately-after-opening-the-editor: **2.0x /
+2.3x / 2.1x WORSE than no prefetch at N=50/100/200 → +5 % / -2 % / +1.6 %**.
+`REBUILD_CACHE_CAPACITY` 8 → **32**, derived from 8 modelers x 2 lineages and
+priced at 64-128 MiB of the ~1 GiB worker budget. And the honest answer to the
+founder's question about PERF-1b's table: the win is a **step at the warm's own
+completion**, so a realistic 3-5 s edit gets **7.0x at N=50, nothing at N=100
+(needs ~8 s) and nothing at N=200** — its 18.8x ceiling needs a 30 s dwell. The
+trigger did not move (it already fires on feature-row selection) and no dwell
+timer was added; the measurement says the pessimisation was contention, not
+earliness. `docs/PERF.md` 2026-08-01b.
+
 **GATE-1 CLOSED 2026-08-01 (platform-builder) — CI drives a browser now.** CI
 ran lint / unit / contracts / compose / licences and nothing that opened a page,
 so `interaction-depth.spec.ts` sat red at HEAD through five consecutive green
