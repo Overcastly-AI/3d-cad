@@ -88,29 +88,31 @@ test.describe("founder picking reports", () => {
     await expect(page.getByTestId("constraint-hint")).toHaveCount(0);
   });
 
-  test.fail(
-    "FB-12: a click with 6 px of pointer travel is silently discarded",
-    async ({ page }) => {
-      const account = await seedSession(page);
-      const part = await createPartViaApi(page, account.token, "Slop");
-      await page.goto(`/parts/${part.id}`);
-      await sketchOnXY(page);
-      await drawProbeRectangle(page);
+  test("FB-12 FIXED: a click that drifts 6 px still selects the line", async ({
+    page,
+  }) => {
+    const account = await seedSession(page);
+    const part = await createPartViaApi(page, account.token, "Slop");
+    await page.goto(`/parts/${part.id}`);
+    await sketchOnXY(page);
+    await drawProbeRectangle(page);
 
-      // A real hand on a trackpad drifts between press and release. r3f reports
-      // that travel as `e.delta`, and SketchScene's click handler returns early
-      // above CLICK_SLOP_PX = 4 — so a 6 px click does nothing at all, with no
-      // hint, no cursor change and no log. Measured threshold: 4 px selects,
-      // 5 px is dead.
-      await page.mouse.move(BOTTOM_EDGE.x, BOTTOM_EDGE.y);
-      await page.mouse.down();
-      await page.mouse.move(BOTTOM_EDGE.x + 6, BOTTOM_EDGE.y);
-      await page.mouse.up();
-      await page.keyboard.press("d");
+    // A real hand on a trackpad drifts between press and release, and r3f
+    // reports that travel as `e.delta`. This USED to be discarded: the handler
+    // returned early above CLICK_SLOP_PX = 4, so a 6 px click did nothing at
+    // all — no hint, no cursor change, no log (measured: 4 px selected, 5 px
+    // was dead). That is the defect the founder hit as "the line wouldn't even
+    // select", and no spec could see it because `mouse.click()` moves 0 px.
+    // `sketch/clickIntent.ts` now decides by intent rather than one constant;
+    // this asserts the fix and fails if the old threshold ever returns.
+    await page.mouse.move(BOTTOM_EDGE.x, BOTTOM_EDGE.y);
+    await page.mouse.down();
+    await page.mouse.move(BOTTOM_EDGE.x + 6, BOTTOM_EDGE.y);
+    await page.mouse.up();
+    await page.keyboard.press("d");
 
-      await expect(page.getByTestId("dimension-input")).toBeVisible();
-    },
-  );
+    await expect(page.getByTestId("dimension-input")).toBeVisible();
+  });
 
   test.fail(
     "FB-13: Escape with nothing selected throws you out of the sketch",
