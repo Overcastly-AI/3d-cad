@@ -161,6 +161,33 @@ about to hit).
       Every other CAD replaces on a plain click and adds on Ctrl/Shift. A user
       hunting for a click that works builds a selection that cannot be
       dimensioned. Found while measuring FB-2.
+- [ ] (P1, M) **FB-15 — every draw tool is click-then-click; users expect
+      click-and-DRAG.** `tools.ts` `case "rect"` takes a corner click then a
+      second point click (same shape for line/circle/arc). Press-drag-release is
+      the near-universal convention for a rectangle in every tool the founder
+      compares us to, and the two-click form should remain as the fallback (it is
+      better for precision and for touch), not be replaced. NOTE this composes
+      with FB-12: the click/drag discriminator being built for the 4 px slop is
+      exactly the machinery a drag-to-draw tool needs — do these together or the
+      second will fight the first. Acceptance: press-drag-release draws the
+      rectangle, a click-click still works, and a drag that turns out to be an
+      orbit still orbits. [src: founder 2026-08-01]
+- [ ] (P1, L) **FB-16 — dimensions should be typed AS YOU DRAW, in inline text
+      boxes, not applied afterwards.** "usually dimensions are applied
+      automatically with text boxes." This is how Fusion / SolidWorks / Onshape
+      sketching actually works: draw a rectangle and width/height fields appear at
+      the cursor, Tab moves between them, typing a value DRIVES that dimension and
+      Enter commits — you rarely go back and dimension afterwards. It closes the
+      loop on the founder's very FIRST report ("dimensions are not working when I
+      click a line to [assign] height"): the reason that path felt broken is that
+      it is the wrong path — the dimension is supposed to be offered at creation.
+      We already have the pieces: `dimensionExpr.ts` parses driving expressions,
+      `applyConstraintAction("distance")` returns an editor request rather than a
+      constraint, and `dimension-input` exists. What is missing is the
+      at-the-cursor input during the draw gesture and the Tab order between
+      fields. Design it against `docs/design/pre-selection.md`'s vocabulary so the
+      snap glyph and the dimension field do not fight for the same pixels.
+      [src: founder 2026-08-01]
 
 **QA verdicts on the founder block (qa-tester, 2026-08-01, HEAD + bisect):**
 `d8a4126` (PERF-4b) is **EXONERATED — do not revert**: face picking uses drei
