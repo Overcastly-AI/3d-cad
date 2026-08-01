@@ -42,6 +42,22 @@ bore axis with every number on screen correct. Six defects filed QA3-1..6;
 probes in `apps/web/e2e/import-remix.spec.ts` (desktop + touch), regression
 slice 46/46.
 
+**QA3-3 CLOSED (2026-08-01, kernel-architect) — feature-localized selection now
+lights what a feature MADE, not what it merely re-cut.** Face provenance
+attributed a face to the earliest feature after which it existed in its FINAL
+form, so on the dogfooding remix a Ø3 mount hole owned the vendor plate's entire
+1 323.8 mm² top and 1 682.7 mm² back as well as its own 75.4 mm² bore wall — the
+"highlight only this feature" promise of FINDINGS #9 lighting most of the part.
+The rule is now the geometric one Fusion and SolidWorks use: a face belongs to
+the earliest snapshot that already had its **supporting surface** (canonical
+plane / cylinder / cone / sphere / torus off the exact B-rep), with an extent
+guard so two disjoint coplanar patches are not confused for one. Deliberately not
+an area threshold — that would fit this plate and invert on a small face, which a
+gate now proves. Remix ownership **3/15 → 1/17 of 18**; 28 of 47 feature-tree
+goldens re-attribute, **zero stored golden numbers move**. The interactive pass
+stays O(final faces) (PERF-5b's shape defended by a gate): 46 ms at tray N=100
+against 39 ms. `docs/GEOMETRY-QA.md` 2026-08-01.
+
 **GATE-2 (2026-08-01) — the image build broke for two commits and only the
 slowest workflow could see it.** LIC-2's `scripts/corresponding_source.py` went
 into the runtime `COPY` without a `.dockerignore` negation, so all three service

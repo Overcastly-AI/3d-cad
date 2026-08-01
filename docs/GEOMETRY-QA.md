@@ -5840,3 +5840,119 @@ rebuild), the audit-H4 hash-indexed face matcher (0.93 ms/face, linear — it di
 its job and still is), the sketch solver (57 sketches, 64 ms, 0.2 %), memory
 (619 MiB at N=200 over an ~500 MiB OCCT baseline), STL export (exactly
 50 B/triangle).
+
+---
+
+## 2026-08-01 — QA3-3: face provenance now follows the SURFACE, not the final form (kernel-architect)
+
+`provenance.attribute_faces` credited a face to the earliest feature after which
+it existed in its FINAL geometric form. Every cut that re-bounds a face therefore
+took ownership of it, so on the dogfooding remix (docs/QA-REVIEW.md 2026-08-01)
+the 5th Ø3 mount hole owned **3 of 18 faces** — its own 75.4 mm² bore wall plus
+the vendor plate's entire 1 323.8 mm² top and 1 682.7 mm² back. On screen the
+"feature-localized" highlight read as *this hole owns the vendor's top surface*,
+which is the state FINDINGS #9 exists to remove. Fusion and SolidWorks light the
+bore wall and its edges.
+
+### The rule, and why it is geometric rather than heuristic
+
+> A face belongs to the EARLIEST snapshot that already had its **supporting
+> surface**, provided the final patch lies inside the extent that surface had
+> then. A feature that only moved a boundary owns nothing.
+
+Surface identity is read from the exact B-rep (`BRepAdaptor_Surface`) and
+canonicalised — plane → unit normal with a fixed sign + signed distance from the
+origin; cylinder → axis direction + the axis point nearest the origin + radius;
+cone → apex + axis + |semi-angle|; sphere → centre + radius; torus → centre +
+axis + both radii. A boolean re-uses the `Geom_Surface` of a face it only
+re-bounds, so those numbers are **bit-identical across snapshots** and the keys
+compare by exact equality: no new epsilon, and a hypothetical OCCT perturbation
+degrades to the OLD rule rather than to a wrong answer.
+
+**An area cutoff was rejected, not overlooked.** It would have fitted this plate
+and inverted on the first small face anybody drills.
+`test_a_bore_through_a_face_smaller_than_its_own_wall` is that part: a 3×3×20 mm
+post drilled Ø2, where the re-cut top is **5.86 mm²** and the wall the same bore
+creates is **125.66 mm²** — twenty-one times larger — so no ordering by size can
+separate them. The remix says it too: the new hole's wall is 75.3982 mm², and so
+is every one of the four vendor bores.
+
+**The extent guard is half the rule.** A plane is unbounded, so surface identity
+alone also links patches that merely happen to be coplanar: two disjoint cubes
+share Z=0. Measured before the guard, `multibody-two-disjoint-boxes` and
+`boolean-union-two-disjoint-cubes` went from a correct 6/6 to **10/2**. A face is
+only a re-bound if its bounding box sits inside the union of that snapshot's
+boxes on the same surface, to `KERNEL_LINEAR_TOL_MM`. Cutting only shrinks a
+face, so every genuine re-bound passes; growth (a boss merging into a coplanar
+wall) fails it and the later feature correctly takes the enlarged face.
+
+### Ownership before → after, on real parts
+
+| part | faces | before | after |
+| --- | ---: | --- | --- |
+| NEMA 17 remix (`nema17-front-plate.step` + Ø3 hole) | 18 | import 15, **hole 3** | import 17, **hole 1** (the bore wall) |
+| plate + pocket (the fused-encoding e2e part) | 11 | extrude 5, pocket 6 | extrude 6, pocket 5 |
+| `hole-through-r5-40x25x10` | 7 | 4 / 3 | 6 / 1 |
+| `chamfer-plate-d5` | 10 | 0 / **10** | 6 / 4 |
+| `fillet-plate-r5` | 10 | 0 / **10** | 6 / 4 |
+| `shell-pinch-boundary-plate…` | 36 | 0 / 0 / 17 / 19 | 7 / 4 / 8 / 17 |
+| `pattern-cut-6hole-boltcircle-60x60x10` | 12 | 4 / 1 / 7 | 6 / 1 / 5 |
+| tray `housing_tree(10)` | 28 | 0 / 8 / 9 / 2 / 4 / 2 / 3 | 6 / 4 / 9 / 5 / 1 / 1 / 2 |
+
+**28 of the 47 feature-tree goldens re-attribute; none of their stored numbers
+move** — attribution is not a golden field, and the mass-property/topology gates
+are untouched (whole geometry suite green, one pre-existing skip).
+
+Attribution is MONOTONE by construction and gated as such: both indices are
+consulted and the earlier wins, so a face can only move EARLIER in the tree,
+never later and never to `None`.
+
+### Honest limits (all cosmetic — this is rendering provenance)
+
+* a cut whose wall is exactly coplanar/coaxial with an existing surface **and**
+  inside its old extent is credited to the earlier feature; settling that exactly
+  needs a per-pair OCCT overlap test, which is the `O(features × faces)` cost
+  PERF-5b deleted;
+* free-form faces (B-spline, offset, revolution/extrusion of a spline) have no
+  analytic descriptor, carry no key, and keep the old final-form answer;
+* a feature that creates no surface — an intersect boolean, a pattern whose
+  copies land on the original's planes — honestly owns **zero** faces. The
+  viewport already treats an empty face set as the whole-body select state
+  (`ModelMesh.localized` requires a non-empty proper subset), so this reads as
+  "selected", not as a dead highlight.
+
+### Cost, re-measured against PERF-5b
+
+Same harness parts (`tests/_big_part_builders.py`), same in-process method,
+median of 5, with the **before** column generated from a git worktree at
+`19945bd` so the only variable is the geometry source. Per face the new reads are
+`BRepAdaptor_Surface` **~10 µs** and `BRepBndLib` **~3.5 µs**, against the
+~62–186 µs the GProp area/centroid beside them already costs.
+
+| tray | faces | snapshots | record before | record after | pass before | pass after |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| N=25 | 60 | 15 | 20.8 ms | 26.8 ms | 10.2 ms | **14.4 ms** |
+| N=50 | 117 | 31 | 54.8 ms | 70.7 ms | 20.4 ms | **23.1 ms** |
+| N=100 | 219 | 61 | 154.5 ms | 202.7 ms | 39.6 ms | **46.1 ms** |
+
+PERF-5b's shape is intact: the interactive pass is still `O(final faces)` with no
+OCCT beyond the final body, and it is still 7.5×/14×/24× cheaper than the
+pre-PERF-5b pass (108/326/1 126 ms). It stays that way because the **recorder**
+builds the surface index, not the pass — doing it in `attribute_faces` measured
+**+44 % on the N=100 tray** (42.6 → 61.2 ms, same process, same rule) since it
+is an `O(Σ snapshot faces)`
+loop over 7 023 fingerprints, and a warm `/overlay` off the rebuild cache would
+have paid it again on every pick. `test_the_pass_consumes_the_prebuilt_surface_index`
+pins that behaviourally. The index stores only extent CHANGES, so a plate's top
+plane survives fifty drilled holes as one entry.
+
+### Gates added — `services/geometry/tests/test_provenance_surface.py` (11)
+
+The vendor-plate headline (1/17 of 18, both large faces named), the
+smaller-face-than-its-own-wall anti-heuristic gate, the two extent-guard
+directions (disjoint coplanar cubes keep their own faces; a grown wall goes to
+the grower), a cylindrical re-bound (cross-hole through a shaft), all five
+analytic families reachable, the free-form fallback, monotonicity on the tray,
+the prebuilt-index perf contract, determinism of the index itself, and the sign
+canonicalisation. `test_provenance.py`'s headline gate flipped with the rule: the
+drilled top/bottom now assert EXTRUDE, and the hole owns exactly one face.

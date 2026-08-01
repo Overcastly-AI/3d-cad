@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from build123d import CenterOf, Compound, Face, GeomType, Solid
+from build123d import Compound, Face, GeomType, Solid
 from fastapi.testclient import TestClient
 from geometry.features import evaluate_tree
 from geometry.kernel import FaceProvenance, attribute_faces, provenance
@@ -147,10 +147,15 @@ def _glb_primitive_count(glb: bytes) -> int:
 
 
 def test_hole_wall_attributes_to_hole_base_faces_to_extrude() -> None:
-    """HEADLINE GATE (acceptance): on a base-extrude + hole-cut body, the hole's
-    cylindrical wall attributes to the HOLE feature and the untouched base side
-    faces to the EXTRUDE feature; the drilled top/bottom faces (re-cut by the
-    bore) attribute to the HOLE."""
+    """HEADLINE GATE (acceptance): on a base-extrude + hole-cut body, the hole owns
+    its cylindrical wall and NOTHING ELSE. Every planar face — the four untouched
+    sides AND the drilled top/bottom — belongs to the extrude that created those
+    planes.
+
+    The top/bottom half of this used to assert the opposite (QA3-3, 2026-08-01):
+    the bore re-cut them, so under the old final-form rule they moved to the hole,
+    and on the dogfooding remix a Ø3 hole therefore owned a 1 323.8 mm^2 vendor
+    plate top. Fusion and SolidWorks light the bore wall; so does this now."""
     evaluation = evaluate_tree(
         EvaluateTreeRequest.model_validate(_block_and_hole_tree()),
         record_history=True,
@@ -173,16 +178,15 @@ def test_hole_wall_attributes_to_hole_base_faces_to_extrude() -> None:
         if face.geom_type != GeomType.PLANE:
             cylinder_owners.append(owner)
             continue
-        normal = face.normal_at(face.center(CenterOf.MASS))
-        if abs(normal.Z) < 0.5:
-            # A side face (normal ⟂ Z) is untouched by the bore → the extrude.
-            assert owner == EXTRUDE_ID
-        else:
-            # The drilled top/bottom (normal ‖ Z) were re-cut → the hole.
-            assert owner == HOLE_ID
+        # Every plane of this body was created by the extrude — the sides untouched,
+        # the top/bottom merely RE-BOUNDED by the bore (same plane, new wire).
+        assert owner == EXTRUDE_ID
 
-    # Exactly one cylindrical wall, owned by the hole that produced it.
+    # Exactly one cylindrical wall, owned by the hole that produced it — and it is
+    # the hole's ONLY face, which is the whole point of QA3-3.
     assert cylinder_owners == [HOLE_ID]
+    assert owners.count(HOLE_ID) == 1
+    assert owners.count(EXTRUDE_ID) == 6
 
 
 def test_attribution_is_deterministic() -> None:

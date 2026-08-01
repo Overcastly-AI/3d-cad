@@ -1756,21 +1756,31 @@ frame refactor are v2/§11. Spike de-collected.
 
 ## Next (P2)
 
-- [ ] (P2, M) **QA3-3 — selecting a Ø3 hole lights the whole plate, because the
-      provenance rule cannot tell a face a feature CREATED from one it merely
-      re-bounded** (geometry). `provenance.attribute_faces` attributes a face to
-      the earliest feature after which it exists in its FINAL form, so any cut
-      that re-cuts a large face takes ownership of it. Measured on the dogfooding
-      remix: the 5th hole owns 3 of 18 faces — its 75.4 mm² wall plus the plate's
-      1 323.8 mm² top and 1 682.7 mm² back — and on screen the "feature-localized"
-      highlight reads as *this hole owns the vendor's entire top surface*, which
-      is what FINDINGS #9 exists to prevent. Fusion/SolidWorks light the bore wall
-      and its edges. Acceptance: a face whose SURFACE is unchanged and only whose
-      boundary moved stays with its creating feature (or is reported as a distinct
-      weaker class the client can render differently); the exact-count assertions
-      in `import-remix.spec.ts` are updated in the same commit. Note
-      `feature-selection.spec.ts` cannot detect this class at all — it asserts
-      only `0 < lit < total`. [docs/QA-REVIEW.md 2026-08-01 QA3-3]
+- [x] (P2, M) **QA3-3 — selecting a Ø3 hole lit the whole plate; a feature now owns
+      the faces whose SURFACE it created. CLOSED 2026-08-01** (kernel-architect).
+      `attribute_faces` credited a face to the earliest feature after which it
+      existed in its FINAL form, so any cut re-bounding a large face took it: the
+      remix's 5th hole owned 3 of 18 — its 75.4 mm² wall plus the vendor plate's
+      1 323.8 mm² top and 1 682.7 mm² back. The rule is now geometric, not a size
+      heuristic (an area cutoff would fit this plate and invert on the first small
+      face drilled — gated by a 3×3×20 post whose 5.9 mm² drilled top is smaller
+      than the 125.7 mm² wall of the same bore): each face resolves to the earliest
+      snapshot that already had its supporting `SurfaceKey` — canonical plane /
+      cylinder / cone / sphere / torus read off the exact B-rep — provided the final
+      patch lies INSIDE that surface's extent then, since a plane is unbounded and
+      two disjoint coplanar cubes would otherwise merge (6/6 → 10/2 on
+      `multibody-two-disjoint-boxes` before the guard). NEMA remix now **1/17 of 18**
+      (hole owns only its bore wall); block+hole 1/6 of 7; chamfer-plate 4/6 not
+      10/0; shell-pinch 8+17 not 17+19; 28 of 47 feature-tree goldens change
+      ownership, none change stored numbers (attribution is not a golden field).
+      No contract change — a face still carries one `feature_id`. Cost: the surface
+      key + extent add ~13.5 µs/face and the index is built by the RECORDER, so the
+      interactive pass stays O(final faces) at 14/23/46 ms (tray N=25/50/100, was
+      13/21/39 by PERF-5b) and recording goes 21/56/155 → 27/71/203 ms.
+      New `test_provenance_surface.py` (11 gates, incl. monotonicity and free-form
+      fallback). `import-remix.spec.ts` exact counts need 3→1 / 15→17 and 6→5 / 5→6
+      (frontend territory; handed over, not edited here).
+      [docs/QA-REVIEW.md 2026-08-01 QA3-3]
 
 - [x] (P2, S) **GATE-1 — CI ran nothing that drove a browser, so a stale spec
       could sit red at HEAD for a day while every commit read green. CLOSED
