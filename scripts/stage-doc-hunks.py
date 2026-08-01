@@ -35,9 +35,11 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
-def run(args: list[str], stdin: str | None = None) -> subprocess.CompletedProcess[str]:
+def run(
+    args: list[str], stdin: str | None = None, cwd: Path | None = None
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        args, cwd=REPO_ROOT, input=stdin, capture_output=True, text=True
+        args, cwd=cwd or REPO_ROOT, input=stdin, capture_output=True, text=True
     )
 
 
@@ -111,12 +113,28 @@ def mine_only_subhunks(hunk: str, marker: str) -> list[str]:
     surrounding context, so a colleague's added lines simply do not appear in the
     patch and stay in the working tree for them.
 
+    THE NEW-SIDE NUMBER IS DERIVED, NOT COUNTED, and that is the whole subtlety.
+    The first version counted `b` by walking the working-tree diff, which numbers
+    the new side of a file that contains the colleague's lines too. The patch we
+    emit does NOT contain them, so every sub-hunk after a dropped foreign line
+    carried a `b` too large by exactly the number of lines dropped, and
+    `git apply` placed the insertion somewhere else in the file — while the tool
+    printed success. Measured 2026-08-01 (dogfooding pass #3 hit it for real): a
+    sibling's in-flight entry sitting directly above mine produced `@@ -5,0 +9,3`
+    where `+6` was correct, and the staged tree carried my entry at the END of the
+    file, after an unrelated item, with its blank-line separator gone. The
+    colleague's text was correctly left alone; MY text was silently relocated.
+
+    So `b` is computed from the old-side anchor plus only the lines this patch
+    actually emits — `run_old_anchor + 1 + emitted` — which cannot drift from
+    what the patch contains because it is a function of it.
+
     Only valid when the hunk adds and never deletes — the caller enforces that.
     """
     lines = hunk.splitlines(keepends=True)
     m = HUNK_HEADER.match(lines[0])
     assert m, f"unparsable hunk header: {lines[0]!r}"
-    old_line, new_line = int(m.group(1)), int(m.group(3))
+    old_line = int(m.group(1))
 
     # Attribute each added line to its entry, exactly as foreign_entries does,
     # so "mine" means the same thing in both places.
@@ -138,34 +156,36 @@ def mine_only_subhunks(hunk: str, marker: str) -> list[str]:
 
     out: list[str] = []
     run: list[str] = []
-    run_new_start = new_line
     run_old_anchor = old_line - 1
+    emitted = 0  # lines this patch has already inserted, ahead of the current run
+
+    def flush() -> None:
+        nonlocal run, emitted
+        if not run:
+            return
+        # `+ b` is where these lines land in the file this patch PRODUCES: after
+        # old-file line `run_old_anchor`, shifted by whatever we inserted earlier.
+        out.append(
+            f"@@ -{run_old_anchor},0 +{run_old_anchor + 1 + emitted},{len(run)} @@\n"
+            + "".join(run)
+        )
+        emitted += len(run)
+        run = []
+
     for idx, ln in enumerate(lines[1:], start=1):
         if ln.startswith("+"):
             if owner.get(idx):
                 if not run:
-                    run_new_start, run_old_anchor = new_line, old_line - 1
+                    run_old_anchor = old_line - 1
                 run.append(ln)
-            elif run:
-                out.append(
-                    f"@@ -{run_old_anchor},0 +{run_new_start},{len(run)} @@\n"
-                    + "".join(run)
-                )
-                run = []
-            new_line += 1
-        else:  # context line: advances both sides
-            if run:
-                out.append(
-                    f"@@ -{run_old_anchor},0 +{run_new_start},{len(run)} @@\n"
-                    + "".join(run)
-                )
-                run = []
+            else:
+                # A colleague's line: dropped from the patch entirely, so it must
+                # NOT advance the new-side count. Advancing here was the bug.
+                flush()
+        else:  # context line: advances the old side only (we emit no context)
+            flush()
             old_line += 1
-            new_line += 1
-    if run:
-        out.append(
-            f"@@ -{run_old_anchor},0 +{run_new_start},{len(run)} @@\n" + "".join(run)
-        )
+    flush()
     return out
 
 
@@ -182,13 +202,8 @@ def hunk_adds_marker(hunk: str, marker: str) -> bool:
     )
 
 
-def main() -> int:
-    if len(sys.argv) != 3:
-        print(__doc__)
-        return 2
-    path, marker = sys.argv[1], sys.argv[2]
-
-    diff = run(["git", "diff", "--", path]).stdout
+def stage(path: str, marker: str, cwd: Path | None = None) -> int:
+    diff = run(["git", "diff", "--", path], cwd=cwd).stdout
     if not diff.strip():
         print(f"stage-doc-hunks: {path} has no unstaged changes.")
         return 2
@@ -241,7 +256,9 @@ def main() -> int:
         return 4
 
     patch = "".join(header) + "".join(filtered)
-    applied = run(["git", "apply", "--cached", "--unidiff-zero", "-"], stdin=patch)
+    applied = run(
+        ["git", "apply", "--cached", "--unidiff-zero", "-"], stdin=patch, cwd=cwd
+    )
     if applied.returncode != 0:
         print(f"stage-doc-hunks: patch did not apply.\n{applied.stderr}")
         return 3
@@ -268,6 +285,106 @@ def main() -> int:
         for head in staged_entries:
             print(f"    {head}")
     return 0
+
+
+#: The exact shape that broke it: a colleague's in-flight entry directly ABOVE
+#: mine, both uncommitted, with an unrelated entry below. Git merges all of it
+#: into one hunk, so the emitted patch drops the colleague's lines — and every
+#: new-side line number after them used to be wrong.
+_SELF_TEST_BASE = """## Later (P3)
+
+- [ ] (P3, S) **Their existing item.** Some text on the
+      second line of their entry, and a third line here.
+
+- [ ] (P3, S) **Another older item.** Body text.
+"""
+
+_SELF_TEST_MINE = """      and my second line of body text.
+"""
+
+_SELF_TEST_DIRTY = _SELF_TEST_BASE.replace(
+    "- [ ] (P3, S) **Another older item.**",
+    "- [ ] (P3, S) **SIBLING IN-FLIGHT entry.** Sibling body line one\n"
+    "      and sibling body line two.\n"
+    "\n"
+    "- [x] (P3, XS) **MY NEW ENTRY marker-phrase.** My first line of body\n"
+    "" + _SELF_TEST_MINE + "\n"
+    "- [ ] (P3, S) **Another older item.**",
+)
+
+#: What the INDEX must contain afterwards: my entry in its right place, the
+#: colleague's entry absent (still theirs, in the working tree).
+_SELF_TEST_EXPECTED = _SELF_TEST_BASE.replace(
+    "- [ ] (P3, S) **Another older item.**",
+    "- [x] (P3, XS) **MY NEW ENTRY marker-phrase.** My first line of body\n"
+    "" + _SELF_TEST_MINE + "\n"
+    "- [ ] (P3, S) **Another older item.**",
+)
+
+
+def self_test() -> int:
+    """Stage a hunk shared with a colleague and demand the INDEX be exactly right.
+
+    This tool had no self-test until 2026-08-01, which is precisely how it
+    shipped a defect that RELOCATED the author's own entry to the end of the file
+    while printing success. Asserting the exit code would not have caught it —
+    only reading the resulting tree does. So this compares `git show :FILE`
+    byte-for-byte, and separately demands the colleague's line never entered the
+    index and never left the working tree.
+    """
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp)
+        doc = repo / "BACKLOG.md"
+        for args in (
+            ["git", "init", "-q", "."],
+            ["git", "config", "user.email", "self-test@loft.invalid"],
+            ["git", "config", "user.name", "self-test"],
+        ):
+            run(args, cwd=repo)
+        doc.write_text(_SELF_TEST_BASE)
+        run(["git", "add", "BACKLOG.md"], cwd=repo)
+        run(["git", "commit", "-qm", "base"], cwd=repo)
+
+        doc.write_text(_SELF_TEST_DIRTY)
+        code = stage("BACKLOG.md", "MY NEW ENTRY marker-phrase", cwd=repo)
+        staged = run(["git", "show", ":BACKLOG.md"], cwd=repo).stdout
+
+        ok_exit = code == 0
+        ok_tree = staged == _SELF_TEST_EXPECTED
+        ok_theirs = "SIBLING IN-FLIGHT" not in staged
+        ok_kept = "SIBLING IN-FLIGHT" in doc.read_text()
+
+    print(f"  {'ok  ' if ok_exit else 'FAIL'} staging a shared hunk exits 0")
+    print(
+        f"  {'ok  ' if ok_tree else 'FAIL'} the staged tree places my entry EXACTLY "
+        "where I wrote it"
+    )
+    print(f"  {'ok  ' if ok_theirs else 'FAIL'} the colleague's entry is NOT staged")
+    print(
+        f"  {'ok  ' if ok_kept else 'FAIL'} the colleague's entry survives in the "
+        "working tree"
+    )
+    if not ok_tree:
+        print("\n--- staged ---")
+        print(staged)
+        print("--- expected ---")
+        print(_SELF_TEST_EXPECTED)
+    if ok_exit and ok_tree and ok_theirs and ok_kept:
+        print("\nstage-doc-hunks: self-test passed.")
+        return 0
+    print("\nstage-doc-hunks: SELF-TEST FAILED — do not stage shared docs with this.")
+    return 1
+
+
+def main() -> int:
+    if len(sys.argv) == 2 and sys.argv[1] == "--self-test":
+        return self_test()
+    if len(sys.argv) != 3:
+        print(__doc__)
+        return 2
+    return stage(sys.argv[1], sys.argv[2])
 
 
 if __name__ == "__main__":

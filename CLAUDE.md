@@ -360,6 +360,26 @@ on completion with a watchdog fallback (`docs/AUTONOMOUS-LOOP.md` §1.4).
   (measured). It reported "left 1 hunk(s) unstaged for their author" while doing
   it, which is worse than failing. Note `git add -p` is NOT a fallback here:
   interactive git is unavailable in this container.
+  **And that line-granularity filtering then MIS-PLACED the author's own entry —
+  the failure nobody was watching for, because everyone was watching the
+  colleague's text.** Fixed 2026-08-01, found by the dogfooding pass, reproduced
+  deterministically. The tool emits `--unidiff-zero` sub-hunks and DROPS the
+  colleague's added lines from the patch, but it was numbering the new side by
+  walking the full working-tree diff — which counts those dropped lines. So every
+  sub-hunk after a colleague's entry carried a `+b` too large by exactly the
+  number of lines dropped, and `git apply` inserted the text somewhere else: in
+  the measured case `@@ -5,0 +9,3` where `+6` was right, landing the author's
+  entry at the END of the file, after an unrelated item, blank-line separator
+  gone — while printing "staged 1 hunk(s) … left 0 hunk(s) unstaged". The
+  colleague's text was untouched, which is why the existing guard (does it sweep
+  a neighbour?) sailed past it. `+b` is now DERIVED as
+  `run_old_anchor + 1 + emitted`, a function of what the patch actually contains,
+  so it cannot drift from it. Two general lessons: **a tool that guards commits
+  needs its own guard** — `python3 scripts/stage-doc-hunks.py --self-test` builds
+  a throwaway repo with a colleague's entry directly above yours and compares
+  `git show :FILE` BYTE-FOR-BYTE, because asserting the exit code would have
+  passed all along; and **check the staged tree, not the staging report** —
+  `git show :<file>` after staging a shared doc, not just `git diff --cached`.
   **When you are ready to commit and ANOTHER agent already has files staged, do
   not touch their index — build your commit against an isolated one.** The
   staging protocol above assumes the index is yours to arrange, and under four
