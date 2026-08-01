@@ -1618,6 +1618,23 @@ frame refactor are v2/§11. Spike de-collected.
 
 ## Next (P2)
 
+- [ ] (P2, S) **GATE-1 — CI does not run e2e, so a behaviour change can leave the
+      browser suite red for a day and every commit still reads green.** Found
+      2026-08-01: F3 made feature-delete ask before acting, which is correct, but
+      `interaction-depth.spec.ts` still clicked Delete and expected the tree to
+      shrink. That spec was red at HEAD while five consecutive CI runs said
+      success, because `.github/workflows/ci.yml` runs lint / unit / contracts /
+      compose / licences and NOTHING that drives a browser. The only thing that
+      caught it was an orchestrator running `just e2e` by hand in a quiet window.
+      This is the "gate that cannot fail" class one level up: the gate is honest,
+      it simply is not wired to the thing it would have caught.
+      Not as simple as adding a job — e2e needs a real stack and takes ~42 min,
+      which is why it was left out. Options to weigh: a nightly/scheduled
+      workflow; a PR-only job; or a fast subset (the ~20 specs that cover the
+      write paths) on every push with the full suite nightly. Acceptance: a
+      pushed commit whose only defect is a stale browser assertion comes back
+      RED from CI, demonstrated on a deliberately broken spec.
+      [src: batch-end e2e 2026-08-01]
 - [ ] (P2, S) **PERF-1c — the prefetch headline is the BEST case, and we do not
       know the typical one** (kernel + QA). PERF-1b's table is measured with the
       warm run to COMPLETION: the 7.0x commit / 7.9x pick at N=200 `#192` assume
