@@ -2,7 +2,12 @@ import { fileURLToPath } from "node:url";
 
 import { expect, test, type Page } from "./fixtures";
 
-import { createPartViaApi, distinctCanvasColors, seedSession } from "./support";
+import {
+  createPartViaApi,
+  distinctCanvasColors,
+  SCREENSHOT_DIR,
+  seedSession,
+} from "./support";
 
 /**
  * Imported-STEP REMIX — the interop dogfooding leg (BACKLOG "Model-a-REAL-part
@@ -18,14 +23,16 @@ import { createPartViaApi, distinctCanvasColors, seedSession } from "./support";
  *   vendor plate as imported          17 faces (back + top + 4 perimeter + 4
  *                                     corner chamfers + boss top + 4 hole walls
  *                                     + bore + boss OD)
- *   after a 5th Ø3 through hole       18 faces; the hole owns exactly 3 of them
- *                                     (its wall + the two planes it re-cut)
- *   the import then owns the other    15
+ *   after a 5th Ø3 through hole       18 faces; the hole owns exactly 1 of them
+ *                                     (its bore wall — the one SURFACE it made)
+ *   the import then owns the other    17
  *
  * The 5th hole's wall is geometrically IDENTICAL to the four the vendor drilled
  * — same diameter, same depth, same 75.398 mm² area — and differs only in
  * centroid, so a provenance fingerprint that discriminated by area alone would
- * light 7 faces here instead of 3.
+ * light 5 walls here instead of 1. (Counts updated for `dafc62a`, QA3-3: a
+ * feature owns the faces whose surface it MADE, not the ones it merely re-cut,
+ * so the bore no longer lights the vendor's whole top and back.)
  *
  * BOTH glTF encodings are exercised deliberately (PERF-4b): the imported plate
  * is triangle-DENSE (~181 tris/face) so it stays one primitive per B-rep face,
@@ -106,6 +113,33 @@ async function clickLowestFace(page: Page): Promise<void> {
     }
   }
   await nodes.nth(bestIndex).click();
+}
+
+/**
+ * Import the vendor plate and open the Hole command on its BACK face (z = 0) —
+ * the face whose area centroid is the Ø5.2 shaft bore, i.e. the placement QA3-1
+ * measured as impossible before coordinates existed.
+ */
+async function openHoleOnBackFace(page: Page, partId: string): Promise<void> {
+  await page.goto(`/parts/${partId}`);
+  await page.getByTestId("import-step-input").setInputFiles(STEP_FIXTURE);
+  await expect(page.getByTestId("eval-status")).toHaveText("Solved", {
+    timeout: 60_000,
+  });
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("new-hole")).toBeEnabled({ timeout: 30_000 });
+  await page.getByTestId("new-hole").click();
+  await expect(page.getByTestId("hole-editor")).toBeVisible();
+  await expect(page.getByTestId("hole-face-pick")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  // Only the plate's 11 PLANAR faces are pickable; the six cylinders are not.
+  await expect(page.locator('[data-testid^="plane-pick-face-"]')).toHaveCount(
+    11,
+  );
+  await clickLowestFace(page);
+  await expect(page.getByTestId("hole-face")).toBeVisible();
 }
 
 /** Append a feature through the real gateway, honouring the tree-version guard. */
@@ -283,8 +317,8 @@ test.describe("imported-STEP remix", () => {
     expect((await faceCensus(page)).lit).toBe(17);
 
     // ---- remix: a 5th mount hole on an IMPORTED face ---------------------
-    // (Authored through the API: the Hole command cannot place a point at a
-    // dimensioned location — see the sibling test for what it CAN do.)
+    // (Authored through the API so this test stays about ATTRIBUTION; the
+    // sibling test drives the same placement through the UI's X/Y cells.)
     const back = await pickFace(
       page,
       account.token,
@@ -321,19 +355,20 @@ test.describe("imported-STEP remix", () => {
       { timeout: 20_000 },
     );
     expect(await faceCensus(page)).toMatchObject({
-      lit: 3,
+      lit: 1,
       total: 18,
       highlight: "feature",
     });
 
-    // ...and the import keeps the other 15, including all four vendor holes.
+    // ...and the import keeps the other 17, including all four vendor holes
+    // AND the top and back planes the bore merely re-cut (`dafc62a`).
     await page.getByTestId("feature-select-0").click();
     await expect(page.getByTestId("viewport")).toHaveAttribute(
       "data-body-highlight",
       "feature",
       { timeout: 20_000 },
     );
-    expect((await faceCensus(page)).lit).toBe(15);
+    expect((await faceCensus(page)).lit).toBe(17);
 
     // ---- a reload agrees with all of it ---------------------------------
     await page.reload();
@@ -347,7 +382,7 @@ test.describe("imported-STEP remix", () => {
       "feature",
       { timeout: 20_000 },
     );
-    expect((await faceCensus(page)).lit).toBe(3);
+    expect((await faceCensus(page)).lit).toBe(1);
   });
 
   test("the FUSED encoding recovers the same face partition", async ({
@@ -494,15 +529,16 @@ test.describe("imported-STEP remix", () => {
       .poll(async () => (await faceCensus(page)).total, { timeout: 30_000 })
       .toBe(11);
 
-    // The pocket owns its 4 walls + floor + the top it re-cut = 6; the base
-    // extrude keeps the 4 side walls and the bottom it never lost = 5.
+    // The pocket owns the 5 surfaces it MADE — its 4 walls + the floor; the
+    // base extrude keeps the 4 sides, the bottom, AND the top it merely
+    // re-cut = 6 (`dafc62a`: a feature owns the faces whose surface it made).
     await page.getByTestId("feature-select-4").click();
     await expect(page.getByTestId("viewport")).toHaveAttribute(
       "data-body-highlight",
       "feature",
       { timeout: 20_000 },
     );
-    expect(await faceCensus(page)).toMatchObject({ lit: 6, total: 11 });
+    expect(await faceCensus(page)).toMatchObject({ lit: 5, total: 11 });
 
     await page.getByTestId("feature-select-1").click();
     await expect(page.getByTestId("viewport")).toHaveAttribute(
@@ -510,61 +546,156 @@ test.describe("imported-STEP remix", () => {
       "feature",
       { timeout: 20_000 },
     );
-    expect((await faceCensus(page)).lit).toBe(5);
+    expect((await faceCensus(page)).lit).toBe(6);
   });
 
-  test("the Hole command's seeded point on a bored plate fails HONESTLY", async ({
+  test("the 5th mounting hole goes in by COORDINATE on a plate whose centre is a bore", async ({
     page,
   }) => {
-    // A vendor plate whose face centre is a through bore is the ordinary case,
-    // and the Hole command offers exactly two placements: the face's area
-    // centroid ("Centre of face") and its corner vertices. The centroid here is
-    // inside the Ø5.2 shaft bore. What must NOT happen is a body that builds
-    // anyway — the contract is a TYPED per-feature error naming the cause.
+    // This test replaces the QA3-1 gate that pinned the defect. Until
+    // 2026-08-01 the Hole command offered exactly two placements — the face's
+    // area centroid and its corner vertices — so on this plate, whose face
+    // centre IS the Ø5.2 shaft bore, adding a fifth mounting hole was
+    // IMPOSSIBLE through the UI. Every number below is closed-form for the
+    // fixture, so a placement that lands anywhere else fails here.
     const account = await seedSession(page);
-    const part = await createPartViaApi(page, account.token, "Hole seed probe");
-    await page.goto(`/parts/${part.id}`);
-    await page.getByTestId("import-step-input").setInputFiles(STEP_FIXTURE);
-    await expect(page.getByTestId("eval-status")).toHaveText("Solved", {
-      timeout: 60_000,
-    });
+    const part = await createPartViaApi(page, account.token, "Hole by number");
+    await openHoleOnBackFace(page, part.id);
 
-    await page.keyboard.press("Escape");
-    await expect(page.getByTestId("new-hole")).toBeEnabled({ timeout: 30_000 });
-    await page.getByTestId("new-hole").click();
-    await expect(page.getByTestId("hole-editor")).toBeVisible();
-    await expect(page.getByTestId("hole-face-pick")).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
-    // Only the plate's 11 PLANAR faces are pickable; the six cylinders are not.
-    await expect(page.locator('[data-testid^="plane-pick-face-"]')).toHaveCount(
-      11,
-    );
-    await clickLowestFace(page);
+    // The seed is unchanged — and now the editor says what is wrong with it
+    // BEFORE the round trip, naming the bore the point fell into.
     await expect(page.getByTestId("hole-position")).toContainText(
       "Centre of face",
     );
+    const check = page.getByTestId("hole-position-check");
+    await expect(check).toHaveAttribute("data-verdict", "opening", {
+      timeout: 30_000,
+    });
+    await expect(check).toContainText("Ø5.2 mm");
 
-    // Per-keystroke: the diameter field re-validates as it is typed.
+    // WHERE the numbers are measured from, on screen: the part origin projected
+    // onto this face, and the axis directions. The back face's outward normal
+    // is -Z, so a right-handed frame runs Y the other way — and says so.
+    await expect(page.getByTestId("hole-frame")).toContainText("0, 0, 0");
+    await expect(page.getByTestId("hole-frame")).toContainText("X→+X");
+    await expect(page.getByTestId("hole-frame")).toContainText("Y→-Y");
+
+    // Concentric snapping: every circular edge in the face's plane is a pick —
+    // the Ø5.2 bore and the four Ø3 mounting holes, and nothing from the
+    // front face 8 mm away.
+    await page.getByTestId("hole-point-pick").click();
+    const circles = page.locator('[data-testid^="hole-point-circle-"]');
+    await expect(circles).toHaveCount(5, { timeout: 30_000 });
+    await circles.first().click();
+    await expect(page.getByTestId("hole-position-x")).toHaveValue("0");
+    await expect(page.getByTestId("hole-position-y")).toHaveValue("0");
+
+    // Dial the bolt circle in from there. Per keystroke: "1" is still in the
+    // bore's neighbourhood and off material, "15.5" is on the pitch circle.
+    const x = page.getByTestId("hole-position-x");
+    await x.click();
+    await x.press("Control+a");
+    await x.pressSequentially("1", { delay: 40 });
+    await expect(check).toHaveAttribute("data-verdict", "opening");
+    await x.pressSequentially("5.5", { delay: 40 });
+    await expect(x).toHaveValue("15.5");
+    await expect(check).toHaveAttribute("data-verdict", "material");
+    await expect(check).toContainText("On solid material");
+
     const diameter = page.getByTestId("hole-diameter");
     await diameter.click();
     await diameter.press("Control+a");
     await diameter.pressSequentially("3", { delay: 40 });
-    await expect(diameter).toHaveValue("3");
-
-    await expect(page.getByTestId("hole-submit")).toBeEnabled();
+    await page.screenshot({
+      path: `${SCREENSHOT_DIR}/hole-placement-after-1600.png`,
+    });
     await page.getByTestId("hole-submit").click();
 
-    // Failed, with the typed code on the row — never a silently wrong solid.
+    // THE PROOF: it drilled, and it drilled exactly Ø3 x 8 of material out.
+    // 14 236.0191 - π·1.5²·8 = 14 179.4704 mm³.
+    await expect(page.getByTestId("eval-status")).toHaveText("Solved", {
+      timeout: 60_000,
+    });
+    await expect(page.getByTestId("feature-error-1")).toHaveCount(0);
+    await expect(page.getByTestId("prop-volume")).toContainText("14,179.47", {
+      timeout: 30_000,
+    });
+  });
+
+  test("a coordinate off the body is called out as you type — and still fails HONESTLY", async ({
+    page,
+  }) => {
+    // The typed `hole_off_body` is the AUTHORITY and stays reachable: the live
+    // check warns, it never blocks the write, because a client-side refusal
+    // would substitute a coplanarity approximation for the kernel's verdict —
+    // and hide the one control that stops a bad hole shipping silently.
+    const account = await seedSession(page);
+    const part = await createPartViaApi(page, account.token, "Hole off body");
+    await openHoleOnBackFace(page, part.id);
+
+    const x = page.getByTestId("hole-position-x");
+    const y = page.getByTestId("hole-position-y");
+    const check = page.getByTestId("hole-position-check");
+
+    // A half-typed coordinate reads as INCOMPLETE, not as a mistake: no error
+    // on the cell, and the gated action names the missing piece.
+    await x.click();
+    await x.press("Control+a");
+    await x.pressSequentially("-", { delay: 40 });
+    await expect(x).not.toHaveAttribute("aria-invalid", "true");
+    const submit = page.getByTestId("hole-submit");
+    await expect(submit).toHaveAttribute("aria-disabled", "true");
+    await expect(submit).toHaveAccessibleDescription(
+      "Finish the X and Y position.",
+    );
+
+    // Off the 42.3 mm plate entirely (its half-width is 21.15 mm).
+    await x.press("Control+a");
+    await x.pressSequentially("30", { delay: 40 });
+    await y.click();
+    await y.press("Control+a");
+    await y.pressSequentially("30", { delay: 40 });
+    await expect(check).toHaveAttribute("data-verdict", "outside", {
+      timeout: 30_000,
+    });
+    await expect(check).toContainText("Off the face outline");
+
+    // Drill it anyway: the kernel's typed per-feature error is still what a
+    // wrong hole gets, and the last-good body is untouched.
+    await expect(submit).not.toHaveAttribute("aria-disabled", "true");
+    await submit.click();
     await expect(page.getByTestId("eval-status")).toHaveText("Failed", {
       timeout: 60_000,
     });
     await expect(page.getByTestId("feature-error-1")).toContainText(
       "hole_off_body",
     );
-    // The last-good body is still the import's, unchanged.
     await expect(page.getByTestId("prop-volume")).toContainText("14,236.02");
+  });
+
+  test("the placement control fits a small laptop (1280x800)", async ({
+    page,
+  }) => {
+    // The hole editor is the tallest card in the app and the placement block
+    // lives in its PINNED header, so the one thing that must be re-proved at
+    // the small width is that the action row is still reachable under it.
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const account = await seedSession(page);
+    const part = await createPartViaApi(
+      page,
+      account.token,
+      "Hole placement laptop",
+    );
+    await openHoleOnBackFace(page, part.id);
+    await expect(page.getByTestId("hole-position-x")).toBeVisible();
+    await expect(page.getByTestId("hole-frame")).toBeVisible();
+    await expect(page.getByTestId("hole-submit")).toBeVisible();
+    const card = await page.getByTestId("hole-editor-shell").boundingBox();
+    expect(card).not.toBeNull();
+    expect((card?.y ?? 0) + (card?.height ?? 0)).toBeLessThanOrEqual(800);
+    await page.screenshot({
+      path: `${SCREENSHOT_DIR}/hole-placement-after-1280.png`,
+    });
   });
 
   test("the remixed vendor part ships a full package: STEP, drawing, PDF", async ({

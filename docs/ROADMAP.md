@@ -68,6 +68,21 @@ bore axis with every number on screen correct. Six defects filed QA3-1..6;
 probes in `apps/web/e2e/import-remix.spec.ts` (desktop + touch), regression
 slice 46/46.
 
+**QA3-1 CLOSED (2026-08-01, frontend-builder) — a hole is dialled in now.** The
+pass above's headline *cannot*: hole placement offered the face's area centroid
+and its corners, so on the NEMA plate (centre = the Ø5.2 shaft bore) a 5th
+mounting hole could not be authored at all. The Hole card now carries X/Y cells
+in the face's frame, re-checked against the face's outline and its openings on
+every keystroke (a lone `-` reads as PENDING, `12x` as a mistake), and the point
+pick snaps to every circular edge in the face's plane for concentric /
+bolt-circle work. The frame is stated, not implied — zero is the part origin
+projected onto the face (never the centroid, whose drift is QA3-2's mechanism),
+printed in the card and drawn on the model as a labelled datum. The typed
+`hole_off_body` is untouched: the client check warns, it never blocks the write,
+so the kernel keeps the last word. e2e drills the 5th hole at (15.5, 0) →
+14 179.47 mm³ closed-form exact, and the off-body point still fails honestly.
+Before/after: `docs/screenshots/hole-placement-{before,after}-{1600,1280}.png`.
+
 **QA3-3 CLOSED (2026-08-01, kernel-architect) — feature-localized selection now
 lights what a feature MADE, not what it merely re-cut.** Face provenance
 attributed a face to the earliest feature after which it existed in its FINAL
