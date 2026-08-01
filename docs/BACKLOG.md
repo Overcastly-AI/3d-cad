@@ -254,6 +254,28 @@ about to hit).
       a Fusion/Plasticity reference at 1600 AND 1280, and measure the viewport
       pixels reclaimed rather than asserting it feels tighter. [src: founder
       2026-08-01]
+- [ ] (P0, L) **FB-20 — the FLOW from sketch to feature, and the parts page,
+      both need an overhaul.** Founder: "we need to fine tune the flow from
+      drawing the sketch. Also, the main pages for selecting parts... Flow is
+      critical for users. Think about it as you build. How should we direct the
+      user? Hopefully in a way to leave fusion and go OS." Now a standing rule in
+      CLAUDE.md's design mandate, so this item is the first concrete cash-out,
+      not the whole of it. TWO surfaces. (a) SKETCH -> FEATURE: today you draw,
+      then hunt. The solved sketch should OFFER its likely next action with the
+      profile already selected; extrude wants a draggable arrow in the viewport
+      with the numeric field as the precision fallback (we have the form and no
+      handle, which is the biggest "not a modeling tool" gap we have); dimensions
+      typed during the draw (FB-16); and no ambiguous exit (FB-13). (b) PARTS
+      PAGE: benchmark Onshape's document list, NOT Fusion's data panel which is
+      genuinely weak — recent-first, searchable, thumbnails that show STATE
+      (solved / errored / stale), folders that do not read as a filesystem (WS2
+      folders already shipped, so this is presentation over an existing model).
+      Acceptance: a named flow walked end to end with the CLICK and KEYSTROKE
+      count before and after, at 1600 and 1280, against a Fusion/Onshape
+      reference — a flow claim with no count is an opinion. Deliberately P0/L:
+      every FB-1..FB-19 report was a flow failure rather than a missing
+      capability, so this is the root the others are symptoms of. [src: founder
+      2026-08-01]
 
 **QA verdicts on the founder block (qa-tester, 2026-08-01, HEAD + bisect):**
 `d8a4126` (PERF-4b) is **EXONERATED — do not revert**: face picking uses drei

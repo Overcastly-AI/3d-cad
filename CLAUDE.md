@@ -44,7 +44,36 @@ quality — that is your job.
 
 Frontend design is a first-class product goal, not polish. CAD tools are
 where engineers live all day; ours must look and feel **premium, distinctive,
-and intentional** — never templated. Standing rules:
+and intentional** — never templated.
+
+**FLOW IS THE FIRST RULE (founder directive 2026-08-01: "Flow is critical for
+users. Think about it as you build. How should we direct the user? Hopefully in
+a way to leave fusion and go OS").** Judge every surface by what the user does
+NEXT, not by whether the current screen is correct in isolation. The strategic
+reasoning, because it changes priorities: people leave Fusion for licensing,
+cost and cloud lock-in — that gets them to TRY us. They only STAY if modelling
+does not cost them time. Nobody trades muscle memory for a philosophy. So flow
+is the RETENTION mechanic, and feature parity without it produces a tool people
+admire and do not use. Four concrete tests, each one a defect when it fails:
+
+- **The next step is visible from the current state.** A solved sketch's likely
+  next action is extrude — present, with the profile pre-selected, not hunted
+  for in a toolbar. The tool proposes, the user disposes.
+- **Direct manipulation beats forms.** Fusion's extrude is a draggable arrow;
+  the numeric field is the precision fallback. Ours is a form with no handle at
+  all — the single biggest "does not feel like a modeling tool" gap we have,
+  bigger than any missing feature.
+- **Capture intent where it forms, not afterwards.** Dimensions typed while
+  drawing (FB-16), not recovered by re-selecting geometry later.
+- **No dead ends, no ambiguous exits.** A key that sometimes saves and sometimes
+  discards (FB-13) does more than risk work: it makes people hesitate at every
+  step, which is what actually destroys flow.
+
+Every founder report on 2026-08-01 (FB-1..FB-19) was a flow failure, not a
+missing capability — the capability was almost always there and unreachable.
+That is the class of defect this rule exists to catch BEFORE the founder does.
+
+Standing rules:
 
 1. **Always use the `frontend-design` skill** (`.claude/skills/frontend-design/`,
    vendored Anthropic skill). ANY UI work — new surface, component, or
