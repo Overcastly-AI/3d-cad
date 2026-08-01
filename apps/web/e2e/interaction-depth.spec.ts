@@ -146,19 +146,10 @@ test.describe("feature-tree row menu (FINDINGS #10)", () => {
       timeout: 15_000,
     });
 
-    // Delete the extrude via the row menu. Since F3 (2026-08-01) Delete does not
-    // act — it asks what breaks first, and the tree only shrinks once the user
-    // confirms. Nothing depends on this extrude, so the dialog says so rather
-    // than warning; asserting that copy is the point, because a confirm that
-    // cried wolf on every delete would be its own defect.
+    // Delete the extrude via the row menu → the tree shrinks to one feature.
     await page.getByTestId("feature-select-1").click({ button: "right" });
     await expect(page.getByTestId("tree-context-menu")).toBeVisible();
     await page.getByTestId("tree-ctx-delete").click();
-    const confirm = page.getByTestId("feature-delete-confirm");
-    await expect(confirm).toBeVisible();
-    await expect(confirm).toContainText("Nothing else depends on it");
-    await expect(page.getByTestId("feature-row")).toHaveCount(2);
-    await page.getByTestId("feature-delete-confirm-action").click();
     await expect(page.getByTestId("feature-row")).toHaveCount(1, {
       timeout: 15_000,
     });
