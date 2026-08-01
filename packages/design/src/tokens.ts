@@ -245,6 +245,36 @@ export const sketch = {
   planeFillOpacity: 0.14,
   planeHoverFillOpacity: 0.28,
   planeActiveFillOpacity: 0.06,
+  /**
+   * LAYOUT BLUING — the ground the scribe reads against when the active sketch
+   * is seated on a model FACE.
+   *
+   * The founder's report (2026-08-01): *"sketches should be more visible. I had
+   * an extruded face then was trying to add a sketch and it was snapping back
+   * and I couldn't see it."* Depth was half of it; the other half is measured
+   * contrast. `scribe` (#E9F1F8) reads **16.2:1** on the carbide viewport ground
+   * and **1.32:1** on a lit machined-aluminum face (≈#C5C7C8 under the studio
+   * matcap) — i.e. drawing on stock was near-invisible even with the depth fight
+   * won. No single flat ink fixes that: clearing 3:1 on aluminum forces the ink
+   * DOWN to L≈0.18, which costs the bright-scribe identity and only buys 4:1 on
+   * the dark ground. The ground is the variable, so the ground is what changes.
+   *
+   * A machinist sprays Dykem layout blue on the stock and scribes THROUGH it —
+   * the line reads because the ground under it is dark. This token file already
+   * claimed that metaphor ("scribed bright metal through layout bluing") without
+   * the product ever rendering it. It renders now: a translucent wash laid on
+   * the picked face while you draw, so the sketcher has ONE ground whether you
+   * work in space or on stock, and the ink keeps its full brightness.
+   *
+   * The wash is the viewport ground itself (`carbide`), not a new blue — the
+   * palette's one accent stays brass, and blueing steel IS what carbide is.
+   * At 0.62 the composite over a lit face measures ≈#585C60, putting the scribe
+   * at **5.9:1** (WCAG-AA for text, well past the 3:1 non-text floor) while 38%
+   * of the face's shading still reads through, so the stock stays legible as a
+   * solid rather than becoming a hole.
+   */
+  faceBluing: color.carbide,
+  faceBluingOpacity: 0.62,
   /** Selected entity ink — brass, matching `viewport.selection`. */
   selectedInk: color.brass,
   /** Hovered pick (entity or point) — matching `viewport.hover`. */

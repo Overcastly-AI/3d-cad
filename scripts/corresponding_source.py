@@ -37,6 +37,15 @@ A component that is ABSENT is not a failure — we stopped shipping it, so the
 obligation lapsed. A component that is present but whose version cannot be
 determined IS a failure: that is detection rotting into a rubber stamp, which
 is the same class of defect as the metadata-only scan LIC-3 replaced.
+
+The GCC runtime libraries (LIC-4) are handled separately, at the bottom of this
+file, because the question about them is a different one. They are not in the
+mirrored bundle — the GCC Runtime Library Exception discharges the duty for the
+way we convey them — but the manifest records the exact GCC build behind every
+one of them, and ``verify_gcc_runtime`` requires the tree to contain no
+GPL-with-exception binary we have not identified. Identity is the GNU build-id,
+not the filename: auditwheel renames these files per wheel build, and two
+different distro builds of "GCC 8.5.0" are two different sources.
 """
 
 from __future__ import annotations
@@ -124,8 +133,40 @@ def load_manifest(explicit: Path | None = None) -> JsonDict:
                     f"{path}: component {component.get('id', '?')!r} is missing "
                     f"required field {field!r}"
                 )
+    _validate_gcc_runtime(path, manifest)
     manifest["_path"] = str(path)
     return manifest
+
+
+def _validate_gcc_runtime(path: Path, manifest: JsonDict) -> None:
+    """The LIC-4 block is required, not optional.
+
+    Making it optional would mean a manifest that simply lost the section still
+    passes the gate — and the section IS the record that every GPL-with-exception
+    binary we ship has been identified. Absence must be loud.
+    """
+    block = manifest.get("gcc_runtime")
+    if not isinstance(block, dict):
+        raise ManifestError(
+            f"{path}: no 'gcc_runtime' object. It records the decision about the "
+            "GCC runtime libraries we redistribute and the exact GCC build behind "
+            "each of them (LIC-4, docs/LICENSING.md §7.5); without it the gate "
+            "cannot tell a known runtime from one a wheel bump slipped in."
+        )
+    gcc_runtime = cast(JsonDict, block)
+    if not str(gcc_runtime.get("decision", "")).strip():
+        raise ManifestError(f"{path}: gcc_runtime.decision is empty")
+    files = gcc_runtime.get("files")
+    if not isinstance(files, list):
+        raise ManifestError(f"{path}: expected gcc_runtime.files to be a list")
+    for record in cast(list[JsonDict], files):
+        for field in ("library", "file", "sha256", "size", "gcc", "build_id"):
+            if field not in record:
+                raise ManifestError(
+                    f"{path}: gcc_runtime file {record.get('file', '?')!r} is "
+                    f"missing required field {field!r} (null is allowed for "
+                    "build_id — some toolchains strip it — but the key is not)"
+                )
 
 
 # ---------------------------------------------------------------------------
@@ -314,3 +355,121 @@ def verify_versions(
                 f"docs/LICENSING.md §7 before publishing anything."
             )
     return failures, detections
+
+
+# ---------------------------------------------------------------------------
+# LIC-4 — the GCC runtime libraries
+# ---------------------------------------------------------------------------
+@dataclass(frozen=True)
+class GccRuntimeBinary:
+    """A GPL-with-exception binary as found in the tree we are about to ship."""
+
+    path: str
+    library: str
+    sha256: str
+    size: int
+    build_id: str = ""  # "" when the toolchain stripped the note
+    comment: str = ""  # the .comment section's GCC string, when present
+
+    @property
+    def identity(self) -> str:
+        return self.build_id or self.sha256
+
+
+def _record_identity(record: JsonDict) -> str:
+    build_id = record.get("build_id")
+    return str(build_id) if build_id else str(record.get("sha256", ""))
+
+
+def verify_gcc_runtime(
+    manifest: JsonDict, observed: list[GccRuntimeBinary]
+) -> tuple[list[str], list[str]]:
+    """Every GCC runtime library in the tree must be one we have identified.
+
+    Returns (failures, notes). The notes say what was MEASURED — which GCC
+    builds are in this tree, and how many files each accounts for — because a
+    bare "clean" from a gate like this is not checkable by a reader.
+
+    A recorded file that is absent is not a failure (a wheel stopped vendoring
+    it, the same lapse-of-obligation rule the components use). A file we did not
+    record IS a failure: the decision in ``gcc_runtime.decision`` is about
+    binaries we have looked at, and an unidentified one is outside it.
+    """
+    gcc_runtime = cast(JsonDict, manifest.get("gcc_runtime") or {})
+    records = cast(list[JsonDict], gcc_runtime.get("files") or [])
+    # A build-id maps to a LIST, not to one record: the same GCC build is
+    # vendored into several wheels, so numpy's and scipy's copies of the el8
+    # libgfortran are two distinct files sharing one build-id. Keying this on
+    # identity alone silently made each of them look like a stale copy of the
+    # other — caught by running the gate, which is why the self-test below
+    # exists.
+    by_identity: dict[str, list[int]] = {}
+    for index, record in enumerate(records):
+        by_identity.setdefault(_record_identity(record), []).append(index)
+
+    failures: list[str] = []
+    matched: set[int] = set()
+    identified = 0
+    versions: dict[str, int] = {}
+    for binary in observed:
+        candidates = by_identity.get(binary.identity, [])
+        found = next(
+            (
+                i
+                for i in candidates
+                if str(records[i].get("sha256")) == binary.sha256
+                and int(records[i].get("size", -1)) == binary.size
+            ),
+            None,
+        )
+        record = None if found is None else records[found]
+        if record is None and candidates:
+            same_build = records[candidates[0]]
+            failures.append(
+                f"{binary.path}: matches the recorded build "
+                f"{same_build.get('gcc')} by build-id, but no record has its "
+                f"bytes (observed sha256={binary.sha256} size={binary.size}). "
+                "The GCC build is unchanged, so this is a re-patched copy from a "
+                "new wheel build: re-pin sha256/size in gcc_runtime.files so the "
+                "record still describes THESE binaries."
+            )
+            continue
+        if record is None:
+            failures.append(
+                f"{binary.path}: unidentified GCC runtime library. It is "
+                "GPL-3.0 WITH the Runtime Library Exception, and Loft's position "
+                "that the exception discharges the source duty (deploy/licenses/"
+                "CORRESPONDING-SOURCE.md) is a statement about binaries we have "
+                "identified — this one is not among them, so a wheel bump has "
+                "changed the set. Derive its provenance and add a record to "
+                "gcc_runtime.files in the manifest. Observed: build_id="
+                f"{binary.build_id or '(none — key the record on sha256)'} "
+                f"sha256={binary.sha256} size={binary.size}"
+                + (f" comment={binary.comment!r}" if binary.comment else "")
+                + ". Where to look: the .comment section above, the auditwheel "
+                "SBOM in the vendoring wheel's dist-info/sboms/, and — when the "
+                "filename carries a doubled hash tag — the wheel it was "
+                "re-vendored from, whose own SBOM names the distro package. "
+                "docs/LICENSING.md §7.5."
+            )
+            continue
+        assert found is not None
+        matched.add(found)
+        identified += 1
+        gcc = str(record.get("gcc", "?"))
+        versions[gcc] = versions.get(gcc, 0) + 1
+
+    notes: list[str] = []
+    if observed or records:
+        summary = ", ".join(f"GCC {v} ({n})" for v, n in sorted(versions.items()))
+        notes.append(
+            f"gcc-runtime: {identified}/{len(observed)} identified"
+            + (f" — {summary}" if summary else "")
+        )
+    absent = [r for i, r in enumerate(records) if i not in matched]
+    for record in absent:
+        notes.append(
+            f"gcc-runtime: {record.get('file')} recorded but absent here "
+            "(a wheel stopped vendoring it — not a failure)"
+        )
+    return failures, notes

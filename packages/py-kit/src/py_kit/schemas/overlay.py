@@ -76,10 +76,15 @@ from py_kit.schemas.geometry import Vec3
 #: (N=200 rebuilds in 27 s), while still degrading the pathological case audit H4
 #: named — a 20 000-face imported body is one snapshot, budget 40 000.
 #:
-#: The budget's SHAPE is still wrong and the fix is filed (BACKLOG PERF-5b):
-#: attribution needs each snapshot's FINGERPRINTS, not a retained B-rep, so
-#: fingerprinting at production time in ``EvaluationState.body_history`` would make
-#: the pass O(final faces) and delete both this quadratic and the retained memory.
+#: **The SHAPE was fixed by PERF-5b (2026-08-01), and this constant outlived the
+#: quadratic it was sized against.** Evaluation now fingerprints each snapshot as
+#: it produces it, so attribution is O(final faces) rather than O(features x
+#: faces) — measured 11-16 % of the request down to 3.0-6.2 %, and a warm
+#: 200-feature pick 2 667 -> 435 ms. The ARITHMETIC below is unchanged and still
+#: correct: the budget still counts summed snapshot faces, because that is what
+#: bounds the work of *producing* the fingerprints. What is no longer true is the
+#: implied reason for keeping the number tight, so treat 30 000 as headroom
+#: against the recording pass, not against a quadratic attribution pass.
 #:
 #: Over-bound DEGRADES, never errors: :func:`geometry.kernel.attribute_faces`
 #: returns all-``None`` attribution, so ``OverlayFace.feature_id`` is null and the

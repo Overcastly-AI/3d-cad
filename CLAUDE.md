@@ -44,7 +44,36 @@ quality — that is your job.
 
 Frontend design is a first-class product goal, not polish. CAD tools are
 where engineers live all day; ours must look and feel **premium, distinctive,
-and intentional** — never templated. Standing rules:
+and intentional** — never templated.
+
+**FLOW IS THE FIRST RULE (founder directive 2026-08-01: "Flow is critical for
+users. Think about it as you build. How should we direct the user? Hopefully in
+a way to leave fusion and go OS").** Judge every surface by what the user does
+NEXT, not by whether the current screen is correct in isolation. The strategic
+reasoning, because it changes priorities: people leave Fusion for licensing,
+cost and cloud lock-in — that gets them to TRY us. They only STAY if modelling
+does not cost them time. Nobody trades muscle memory for a philosophy. So flow
+is the RETENTION mechanic, and feature parity without it produces a tool people
+admire and do not use. Four concrete tests, each one a defect when it fails:
+
+- **The next step is visible from the current state.** A solved sketch's likely
+  next action is extrude — present, with the profile pre-selected, not hunted
+  for in a toolbar. The tool proposes, the user disposes.
+- **Direct manipulation beats forms.** Fusion's extrude is a draggable arrow;
+  the numeric field is the precision fallback. Ours is a form with no handle at
+  all — the single biggest "does not feel like a modeling tool" gap we have,
+  bigger than any missing feature.
+- **Capture intent where it forms, not afterwards.** Dimensions typed while
+  drawing (FB-16), not recovered by re-selecting geometry later.
+- **No dead ends, no ambiguous exits.** A key that sometimes saves and sometimes
+  discards (FB-13) does more than risk work: it makes people hesitate at every
+  step, which is what actually destroys flow.
+
+Every founder report on 2026-08-01 (FB-1..FB-19) was a flow failure, not a
+missing capability — the capability was almost always there and unreachable.
+That is the class of defect this rule exists to catch BEFORE the founder does.
+
+Standing rules:
 
 1. **Always use the `frontend-design` skill** (`.claude/skills/frontend-design/`,
    vendored Anthropic skill). ANY UI work — new surface, component, or
@@ -360,6 +389,47 @@ on completion with a watchdog fallback (`docs/AUTONOMOUS-LOOP.md` §1.4).
   (measured). It reported "left 1 hunk(s) unstaged for their author" while doing
   it, which is worse than failing. Note `git add -p` is NOT a fallback here:
   interactive git is unavailable in this container.
+  **And that line-granularity filtering then MIS-PLACED the author's own entry —
+  the failure nobody was watching for, because everyone was watching the
+  colleague's text.** Fixed 2026-08-01, found by the dogfooding pass, reproduced
+  deterministically. The tool emits `--unidiff-zero` sub-hunks and DROPS the
+  colleague's added lines from the patch, but it was numbering the new side by
+  walking the full working-tree diff — which counts those dropped lines. So every
+  sub-hunk after a colleague's entry carried a `+b` too large by exactly the
+  number of lines dropped, and `git apply` inserted the text somewhere else: in
+  the measured case `@@ -5,0 +9,3` where `+6` was right, landing the author's
+  entry at the END of the file, after an unrelated item, blank-line separator
+  gone — while printing "staged 1 hunk(s) … left 0 hunk(s) unstaged". The
+  colleague's text was untouched, which is why the existing guard (does it sweep
+  a neighbour?) sailed past it. `+b` is now DERIVED as
+  `run_old_anchor + 1 + emitted`, a function of what the patch actually contains,
+  so it cannot drift from it. Two general lessons: **a tool that guards commits
+  needs its own guard** — `python3 scripts/stage-doc-hunks.py --self-test` builds
+  a throwaway repo with a colleague's entry directly above yours and compares
+  `git show :FILE` BYTE-FOR-BYTE, because asserting the exit code would have
+  passed all along; and **check the staged tree, not the staging report** —
+  `git show :<file>` after staging a shared doc, not just `git diff --cached`.
+  **AND THE SELF-TEST I ADDED THAT MORNING PASSED WHILE THE TOOL SWEPT A
+  COLLEAGUE'S ROADMAP ENTRY THAT AFTERNOON — a fixture in the wrong FORMAT is a
+  gate that cannot fail for the reason you care about.** `ENTRY_START` knew list
+  items and headings, so it found boundaries in `docs/BACKLOG.md` (`- [ ] …`) and
+  none at all in `docs/ROADMAP.md`, whose entries are bold-lead PARAGRAPHS
+  (`**QA3-1 CLOSED (…) — …**`). Two adjacent ROADMAP entries therefore read as ONE
+  run of added lines, the marker made the whole run "mine", and it staged 31 lines
+  where 16 were mine — printing "left 0 hunk(s) unstaged for their author" as it
+  did. My self-test used the BACKLOG shape only, so it sailed through. Caught by
+  the kernel agent reading `git diff --cached` in full; nothing was lost. Three
+  changes, and the second is the one that generalises: (a) `ENTRY_START` learned
+  bold-lead paragraphs; (b) a SECOND, independently-derived entry count (added
+  lines separated by an added blank line) now cross-checks it, and the tool
+  REFUSES when the two disagree rather than guessing — so the next format nobody
+  taught it fails loudly instead of eating a neighbour; (c) `--self-test` carries
+  BOTH doc shapes, and the negative control is that reverting the regex makes the
+  ROADMAP case refuse. Note a post-condition that compares the staged tree
+  against what attribution CLAIMED does NOT catch this: a wrong claim verifies
+  happily against itself. That is the `gen-check`-measuring-the-wrong-input trap
+  wearing different clothes, and the fix is the same — get a second opinion from
+  a different derivation, not a louder assertion of the first.
   **When you are ready to commit and ANOTHER agent already has files staged, do
   not touch their index — build your commit against an isolated one.** The
   staging protocol above assumes the index is yours to arrange, and under four
@@ -563,6 +633,15 @@ recipe here in the same commit as the fix.**
   file. A zero-byte 200 is the worst failure shape there is — every digest check
   downstream agrees with itself — so assert on size, and prefer the URL the
   index gives you over a path you constructed.
+  **Measured egress map, extended 2026-08-01 (LIC-4).** REACHABLE: `git clone`
+  over HTTPS, `raw.githubusercontent.com`, `archive.ubuntu.com`,
+  `files.pythonhosted.org`, `conda.anaconda.org`. DENIED (`CONNECT 403`): every
+  distro source host probed — nine of them, incl. the CentOS/AlmaLinux vaults —
+  and github.com *release assets*. The practical consequence is that
+  distro-built binaries cannot have their SRPMs mirrored from here, so a task
+  needing corresponding source for one of them must either derive the answer
+  from artefacts already on disk or write down why it does not need the source
+  at all. Full table with the probe list: `docs/LICENSING.md` §7.5.
 - **The blocked registry means NOTHING about the image build is locally
   testable, so anything the build depends on needs a gate that does not build.**
   `.dockerignore` excludes `scripts`, `deploy` and `docs` wholesale and then

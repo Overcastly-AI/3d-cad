@@ -164,6 +164,10 @@ export function pickCandidates(
  * Click toggle rule: the first candidate not already selected gets added;
  * if every candidate is selected, the best one is removed (click-through,
  * then un-pick). No candidates → clear the selection (click on empty steel).
+ *
+ * This is the ADD grain — reached by a modifier-click (`applyPick` below) and
+ * by the DOM fit-point handles, which are `aria-pressed` buttons and so are
+ * toggles by contract.
  */
 export function toggleSelection(
   selection: readonly SketchPick[],
@@ -177,4 +181,56 @@ export function toggleSelection(
     }
   }
   return selection.filter((pick) => !samePick(pick, first));
+}
+
+/**
+ * How a click composes with the standing selection.
+ * `replace` = a plain click; `add` = Shift or Ctrl/Cmd held.
+ */
+export type PickMode = "replace" | "add";
+
+/**
+ * Apply one click to the selection.
+ *
+ * A PLAIN click REPLACES (FB-14, founder session 2026-08-01). It used to
+ * append: clicking line A then line B left BOTH selected, so `distance`
+ * refused with "Select one line to dimension" while the user believed they had
+ * selected one line — and a user hunting for a click that works (FB-12) built
+ * a selection that could not be dimensioned. Every tool a working engineer
+ * comes from replaces on a plain click and adds on a modifier.
+ *
+ * Multi-entity constraints (parallel / perpendicular / equal / symmetric /
+ * concentric / coincident) are authored by holding **Shift** or **Ctrl/Cmd**,
+ * which switches this to the toggle grain above. Both modifiers, because Shift
+ * is the CAD convention (Onshape, Plasticity, Rhino) and Ctrl/Cmd is the
+ * desktop-selection one (SolidWorks, Fusion; Cmd on macOS, Ctrl elsewhere) —
+ * neither is bound to anything else while the select tool is live.
+ *
+ * Click-through survives the change: repeated plain clicks on stacked
+ * candidates (the two endpoints meeting at a corner) CYCLE, one at a time,
+ * instead of piling up. Empty steel clears — unless a modifier is held, where
+ * a miss must not throw away the selection being assembled.
+ */
+export function applyPick(
+  selection: readonly SketchPick[],
+  candidates: readonly SketchPick[],
+  mode: PickMode,
+): SketchPick[] {
+  if (mode === "add") {
+    if (candidates.length === 0) return [...selection];
+    return toggleSelection(selection, candidates);
+  }
+  const first = candidates[0];
+  if (first === undefined) return [];
+  // Cycle only when the selection IS exactly one of these candidates — the
+  // click-through case. Anything else (a different pick, a multi-selection)
+  // starts over at the best candidate.
+  const sole = selection.length === 1 ? selection[0] : undefined;
+  if (sole !== undefined) {
+    const at = candidates.findIndex((candidate) => samePick(candidate, sole));
+    if (at >= 0) {
+      return [candidates[(at + 1) % candidates.length] as SketchPick];
+    }
+  }
+  return [first];
 }

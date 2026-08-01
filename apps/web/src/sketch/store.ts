@@ -26,7 +26,13 @@ import {
 import { toggleCornerPick, type CornerOp } from "./corner";
 import { toggleMirrorTarget, type MirrorAxis } from "./mirror";
 import type { DatumPlaneName, Point2D, SketchPlaneSpec } from "./plane";
-import { pickCandidates, toggleSelection, type SketchPick } from "./pick";
+import {
+  applyPick,
+  pickCandidates,
+  toggleSelection,
+  type PickMode,
+  type SketchPick,
+} from "./pick";
 import { resolveSnap, type SnapCandidate, type SnapResolution } from "./snap";
 import {
   escapeAction,
@@ -211,12 +217,20 @@ export interface SketchState {
    * finish gesture. A no-op for tools that self-finish on a click.
    */
   finishPlacement: () => void;
-  /** Select-tool click at a raw (unsnapped) plane point. */
-  selectAt: (point: Point2D, toleranceMm: number) => void;
+  /**
+   * Select-tool click at a raw (unsnapped) plane point. A plain click REPLACES
+   * the selection; Shift or Ctrl/Cmd ADDS to it (`applyPick`, FB-14). `mode`
+   * is for a caller that reads the modifier off the click event itself; when
+   * omitted the live modifier state the aim already tracks decides.
+   */
+  selectAt: (point: Point2D, toleranceMm: number, mode?: PickMode) => void;
   /**
    * Toggle one exact pick into/out of the selection — the DOM fit-point
    * handles' path (a keyboard/pointer surface that names the pick directly,
-   * rather than the coordinate raycast `selectAt` does). Same toggle rule.
+   * rather than the coordinate raycast `selectAt` does). Stays a TOGGLE under
+   * a plain click, unlike `selectAt`: those handles are `aria-pressed` buttons
+   * that say what they hold, so nothing is hidden from the user — and they are
+   * the modifier-free multi-select path for a keyboard-only user.
    */
   togglePick: (pick: SketchPick) => void;
   setHoverPick: (pick: SketchPick | null) => void;
@@ -307,7 +321,12 @@ export interface SketchState {
     solve: SolveInfo | null,
     dimensions?: readonly SolvedDimension[],
   ) => void;
-  /** Escape cascade: editor → placement → tool → selection → exit. */
+  /**
+   * Escape cascade: editor → placement → tool → selection → and then STOP.
+   * Escape leaves the sketch only when there is no work to lose (`escapeAction`
+   * `unstarted`); with entities drawn it answers with a hint naming the chip
+   * that finishes (FB-13).
+   */
   escape: () => void;
   /** Leave sketch mode, discarding the local buffer. */
   exit: () => void;
@@ -360,6 +379,21 @@ const freshSession = (state: SketchState) => ({
   snapEnabled: state.snapEnabled,
   snapStepMm: state.snapStepMm,
 });
+
+/**
+ * Does this click ADD to the selection, or replace it (FB-14)?
+ *
+ * Shift or Ctrl/Cmd adds. The store already holds both, live: `axisLock` is
+ * Shift and `snapSuppressed` is Ctrl/Cmd, tracked from every key event
+ * (`setSnapModifiers`) and every pointer move (`aim`). Both are PLACEMENT
+ * modifiers — the axis lock pivots on a placement anchor, the suppressor turns
+ * the snap magnet off — and the select tool places nothing and takes the raw
+ * point, so reading them here collides with no other binding. A caller holding
+ * the click event can pass the mode explicitly instead (`selectAt`'s third
+ * argument), which is exact rather than one repaint fresh.
+ */
+const pickModeOf = (state: SketchState): PickMode =>
+  state.axisLock || state.snapSuppressed ? "add" : "replace";
 
 /** The one aim resolution — shared by `aim` and the modifier re-resolve. */
 function resolveAim(
@@ -495,11 +529,15 @@ export const useSketchStore = create<SketchState>()((set, get) => ({
     });
   },
 
-  selectAt: (point, toleranceMm) => {
-    const { entities, selection } = get();
-    const candidates = pickCandidates(entities, point, toleranceMm);
+  selectAt: (point, toleranceMm, mode) => {
+    const state = get();
+    const candidates = pickCandidates(state.entities, point, toleranceMm);
     set({
-      selection: toggleSelection(selection, candidates),
+      selection: applyPick(
+        state.selection,
+        candidates,
+        mode ?? pickModeOf(state),
+      ),
       selectedConstraint: null,
       hint: null,
     });
@@ -919,9 +957,14 @@ export const useSketchStore = create<SketchState>()((set, get) => ({
 
   escape: () => {
     const {
+      mode,
       tool,
       pending,
       selection,
+      selectedConstraint,
+      entities,
+      constraints,
+      featureId,
       dimensionEdit,
       offsetDraft,
       mirror,
@@ -954,12 +997,21 @@ export const useSketchStore = create<SketchState>()((set, get) => ({
       set({ tool: "select", mirror: null, hint: null });
       return;
     }
+    // A selected constraint glyph counts as a selection: without it the cascade
+    // skipped a rung it was holding, and (before FB-13) fell straight through
+    // to exit — so Escape with a glyph picked wiped the session.
+    const hasSelection = selection.length > 0 || selectedConstraint !== null;
+    // Nothing to lose: the plane-pick step, or a draw session that holds no
+    // entities and no constraints. Only there does Escape leave the sketch.
+    const unstarted =
+      mode === "plane" || (entities.length === 0 && constraints.length === 0);
     switch (
       escapeAction(
         tool,
         pending.length,
-        selection.length > 0,
+        hasSelection,
         dimensionEdit !== null || offsetDraft !== null,
+        unstarted,
       )
     ) {
       case "close-editor":
@@ -976,6 +1028,17 @@ export const useSketchStore = create<SketchState>()((set, get) => ({
         return;
       case "exit":
         set(freshSession(get()));
+        return;
+      case "none":
+        // Never silent (the FB-12 lesson: a gesture that does nothing at all
+        // reads as a broken app) and never a dead end — name the chip that
+        // does end the sketch, by the label it is wearing.
+        set({
+          hint:
+            featureId === null
+              ? "Nothing to cancel — Save sketch keeps this work, Exit discards it."
+              : "Nothing to cancel — Finish sketch closes it; edits are saved.",
+        });
         return;
     }
   },

@@ -69,6 +69,11 @@ lint:
     # failure out of local reach entirely — it surfaced only in `deploy-path`,
     # the slowest signal we have (2026-08-01, scripts/corresponding_source.py).
     python3 scripts/check-build-context.py
+    # ~150ms. stage-doc-hunks.py is the control EVERY agent uses on the shared
+    # docs, and it had no test until it silently relocated an author's own entry
+    # to the end of BACKLOG.md while printing success (2026-08-01, found by the
+    # dogfooding pass). A tool that guards commits needs its own guard.
+    python3 scripts/stage-doc-hunks.py --self-test
 
 # Unit tests: pytest across the uv workspace + vitest via pnpm (recursive)
 test:

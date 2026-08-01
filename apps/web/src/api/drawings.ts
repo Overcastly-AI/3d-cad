@@ -51,6 +51,11 @@ export type DrawingDimensionInput =
 export type MeasuredDimension = components["schemas"]["MeasuredDimension"];
 export type MeasuredDimensionResult =
   components["schemas"]["MeasuredDimensionResult"];
+/** Where a measured dimension's reference(s) landed on the CURRENT body
+ * (topological-naming §11): `tier` says whether the stored signature matched
+ * verbatim (`exact`) or had to be re-anchored on its rebuild invariant
+ * (`durable`), and `primary`/`secondary` carry the signatures to heal it with. */
+export type DimensionAnchor = components["schemas"]["DimensionAnchor"];
 
 // --- Composed sheet (DE-1c: the single server-side placement source) ---------
 // The gateway `/sheet` route returns a fully-placed `ComposedSheet` — every
@@ -87,6 +92,10 @@ export type ComposedDimensionError =
 /** The discriminated placed-dimension union (measured | error). */
 export type ComposedDimension =
   ComposedMeasuredDimension | ComposedDimensionError;
+/** Two placed views that collide (`views_overlap`, an error) or nearly do
+ * (`views_crowded`, a warning), measured in millimetres by the composer — the
+ * sheet-level diagnostic every serializer stamps as a banner (audit N2). */
+export type ComposedLayoutIssue = components["schemas"]["ComposedLayoutIssue"];
 
 /**
  * The chosen name already belongs to another of the caller's drawings

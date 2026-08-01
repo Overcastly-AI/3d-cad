@@ -10,9 +10,13 @@
  * halo ring reads on the aluminum — visible either way, quiet at rest. It takes
  * the brass accent on hover/focus and a brass fill when selected — the
  * selection language of the rest of the app. The shape encodes the entity kind:
- * a round node marks a vertex (a point), a diamond marks an edge (a curve), and
- * an upright square marks a face (a plane you can sketch on). The transparent
- * hit area is a comfortable ≥24px target for mouse and touch.
+ * a round node marks a vertex (a point), a diamond marks an edge (a curve), an
+ * upright square marks a face (a plane you can sketch on), and a HOLLOW ring
+ * marks a centre — the drafting centre-mark, for a point that is derived from a
+ * circular edge rather than being a vertex of the body (a bore mouth, a boss
+ * rim). A filled dot and a ring are told apart at a glance, which is the whole
+ * job: on a bored face the two kinds sit millimetres apart. The transparent hit
+ * area is a comfortable ≥24px target for mouse and touch.
  */
 import type { ButtonHTMLAttributes } from "react";
 
@@ -22,8 +26,11 @@ export interface PickNodeProps extends Omit<
   ButtonHTMLAttributes<HTMLButtonElement>,
   "aria-label"
 > {
-  /** Vertex = round point mark; edge = diamond curve mark; face = upright square. */
-  shape?: "vertex" | "edge" | "face";
+  /**
+   * Vertex = round point mark; edge = diamond curve mark; face = upright
+   * square; center = hollow ring (a circular edge's centre).
+   */
+  shape?: "vertex" | "edge" | "face" | "center";
   /** Chosen as a measurement target — brass fill + `aria-pressed`. */
   selected?: boolean;
   /** Required: the target's accessible name (e.g. "Vertex at 10, 20, 30 mm"). */
@@ -59,12 +66,18 @@ export function PickNode({
           "block h-3 w-3 ring-2 transition-colors duration-fast",
           shape === "vertex"
             ? "rounded-full"
-            : shape === "face"
-              ? "rounded-none"
-              : "rotate-45 rounded-none",
-          selected
-            ? "bg-brass ring-carbide"
-            : "bg-mist ring-carbide group-hover/pn:bg-brass-hover group-hover/pn:ring-anvil group-focus-visible/pn:bg-brass-hover",
+            : shape === "center"
+              ? "rounded-full border-2 bg-transparent"
+              : shape === "face"
+                ? "rounded-none"
+                : "rotate-45 rounded-none",
+          shape === "center"
+            ? selected
+              ? "border-brass ring-carbide"
+              : "border-mist ring-carbide group-hover/pn:border-brass-hover group-hover/pn:ring-anvil group-focus-visible/pn:border-brass-hover"
+            : selected
+              ? "bg-brass ring-carbide"
+              : "bg-mist ring-carbide group-hover/pn:bg-brass-hover group-hover/pn:ring-anvil group-focus-visible/pn:bg-brass-hover",
         )}
       />
     </button>

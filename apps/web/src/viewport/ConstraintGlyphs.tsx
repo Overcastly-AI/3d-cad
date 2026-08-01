@@ -9,6 +9,14 @@
  * DOM-in-canvas via drei `Html`: real buttons and a real input — keyboard
  * focusable, screen-reader named, e2e drivable — with zero chrome, so it
  * reads as annotation, not UI.
+ *
+ * NB for anyone applying the sketcher's depth policy (see the note at the top
+ * of `SketchScene.tsx`): nothing in this file needs it. `Html` renders into a
+ * DOM layer ABOVE the canvas and drei's optional `occlude` mode is not used
+ * here, so every glyph, editor and handle already floats over the solid on any
+ * plane. The z-fight that made a sketch on a face vanish could never reach
+ * them — which is also why the constraint annotations stayed visible in the
+ * founder's report while the ink they annotate did not.
  */
 import {
   ExpressionField,

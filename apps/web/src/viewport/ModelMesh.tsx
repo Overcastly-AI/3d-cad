@@ -17,7 +17,14 @@ import {
 import { useThree, type ThreeEvent } from "@react-three/fiber";
 
 import { bodyFaceSets, faceLumps } from "./bodyPartition";
-import { loadGlbGeometry, subsetEdges } from "./glbGeometry";
+import {
+  faceCount,
+  faceOrdinalOfTriangle,
+  faceStarts,
+  loadGlbGeometry,
+  setFaceMaterials,
+  subsetEdges,
+} from "./glbGeometry";
 import { instanceView } from "./instanceVisibility";
 import { usePartViewStore } from "./partView";
 import { studioMatcap } from "./studioMatcap";
@@ -51,8 +58,8 @@ export interface ModelMeshProps {
    */
   selected?: boolean;
   /**
-   * `body.faces()` ordinals owned by the selected feature (== the GLB primitive
-   * ordinals / merged draw groups). When these are a PROPER subset of the
+   * `body.faces()` ordinals owned by the selected feature (== `OverlayFace.index`
+   * == the merged geometry's face partition). When these are a PROPER subset of the
    * body's faces, the selection localizes to just them — brass face tint + brass
    * boundary edges — and the studio matcap is preserved on every other face
    * (FINDINGS #9). Covering every face (or `null`, e.g. an overlay not yet
@@ -115,7 +122,7 @@ export function ModelMesh({
         : null,
     [selectedFaceIndices],
   );
-  const totalFaces = geometry?.groups.length ?? 0;
+  const totalFaces = geometry === null ? 0 : faceCount(geometry);
   // Localize only when the selected feature owns a PROPER subset of the faces
   // (a feature that owns every face — the base extrude of a plain box — reads
   // as the whole-body select state instead, so the two stay distinct).
@@ -275,37 +282,27 @@ export function ModelMesh({
     invalidate();
   }, [highlight, baseMaterial, featureMaterial, edgeMaterial, invalidate]);
 
-  // Route each merged draw group to the base (0) or the selected (1) material
-  // for the localized state — group ordinal `i` is B-rep face `i`. Layout
+  // Route each B-rep face to the base (0), selected (1), ghost (2) or hidden
+  // (3) material. `setFaceMaterials` lays down the MINIMUM number of draw
+  // groups that expresses the assignment (one per run of consecutive faces
+  // sharing a material) — three.js emits one render item per group whenever the
+  // mesh has a material array, so per-face groups cost one draw call per B-rep
+  // face the moment a body is ghosted, hidden or feature-selected. Layout
   // effect so the assignment lands before the demanded frame paints (a
-  // two-material mesh with a stale materialIndex would drop that group).
+  // multi-material mesh with stale groups would drop faces).
   useLayoutEffect(() => {
     if (geometry === null) return;
-    if (bodyStatesActive) {
-      // Four-way split: hidden wins, then ghost, then the localized selection.
-      geometry.groups.forEach((group, ordinal) => {
-        group.materialIndex = bodyFaceState.hidden.has(ordinal)
-          ? 3
-          : bodyFaceState.ghosted.has(ordinal)
-            ? 2
-            : localized && faceSet !== null && faceSet.has(ordinal)
-              ? 1
-              : 0;
-      });
-    } else if (localized && faceSet !== null) {
-      geometry.groups.forEach((group, ordinal) => {
-        group.materialIndex = faceSet.has(ordinal) ? 1 : 0;
-      });
-    }
+    setFaceMaterials(geometry, (ordinal) =>
+      bodyFaceState.hidden.has(ordinal)
+        ? 3
+        : bodyFaceState.ghosted.has(ordinal)
+          ? 2
+          : localized && faceSet !== null && faceSet.has(ordinal)
+            ? 1
+            : 0,
+    );
     invalidate();
-  }, [
-    geometry,
-    localized,
-    faceSet,
-    bodyStatesActive,
-    bodyFaceState,
-    invalidate,
-  ]);
+  }, [geometry, localized, faceSet, bodyFaceState, invalidate]);
 
   // Report the highlight + face selection up so the viewport can stamp QA hooks.
   useEffect(() => {
@@ -331,7 +328,7 @@ export function ModelMesh({
    * Hidden means NOTHING drawn — including no pick target. `Mesh.raycast` walks
    * every draw group regardless of its material's `visible`, so a hidden body
    * would still light the hover state from under the parts you can see. The
-   * intersected triangle's group is resolved back to a face ordinal and dropped
+   * intersected triangle is resolved back to a B-rep face ordinal and dropped
    * when that face is hidden, which also lets the pointer fall THROUGH to
    * whatever is genuinely behind it.
    */
@@ -341,13 +338,7 @@ export function ModelMesh({
       if (geometry === null || faceIndex === undefined || faceIndex === null) {
         return null;
       }
-      const triangleStart = faceIndex * 3;
-      const ordinal = geometry.groups.findIndex(
-        (group) =>
-          triangleStart >= group.start &&
-          triangleStart < group.start + group.count,
-      );
-      return ordinal < 0 ? null : ordinal;
+      return faceOrdinalOfTriangle(geometry, faceIndex);
     },
     [geometry],
   );
@@ -439,10 +430,11 @@ export function ModelMesh({
     }
     const box = new Box3();
     const point = new Vector3();
-    geometry.groups.forEach((group, ordinal) => {
-      if (!drawnFaces.has(ordinal)) return;
-      const end = group.start + group.count;
-      for (let i = group.start; i < end; i += 1) {
+    const starts = faceStarts(geometry);
+    for (let ordinal = 0; ordinal + 1 < starts.length; ordinal += 1) {
+      if (!drawnFaces.has(ordinal)) continue;
+      const end = starts[ordinal + 1] as number;
+      for (let i = starts[ordinal] as number; i < end; i += 1) {
         const vertex = index.array[i] as number;
         box.expandByPoint(
           point.set(
@@ -452,7 +444,7 @@ export function ModelMesh({
           ),
         );
       }
-    });
+    }
     onVisibleBounds(box.isEmpty() ? null : box);
   }, [geometry, bodyFaceState, drawnFaces, onVisibleBounds]);
 

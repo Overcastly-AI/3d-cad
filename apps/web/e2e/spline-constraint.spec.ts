@@ -135,6 +135,16 @@ async function clickPlane(page: Page, at: (pt: Pt) => Pt, pt: Pt) {
 }
 
 /**
+ * Shift-click: ADD this pick to the standing selection (FB-14) — a plain click
+ * replaces, so a two-point coincident is authored with the modifier held.
+ */
+async function addPlane(page: Page, at: (pt: Pt) => Pt, pt: Pt) {
+  await page.keyboard.down("Shift");
+  await clickPlane(page, at, pt);
+  await page.keyboard.up("Shift");
+}
+
+/**
  * Draw the shared scene: a vertical line whose lower endpoint is FIXED at
  * (30, −10), and an S-curve spline whose FIRST fit point sits far off at
  * (−25, 0). Returns the calibration mapper. Leaves the select tool active.
@@ -219,7 +229,7 @@ test.describe("spline fit-point constraints", () => {
     });
 
     // Add the second point — the fixed line endpoint — and make them coincident.
-    await clickPlane(page, at, { x: 30, y: -10 });
+    await addPlane(page, at, { x: 30, y: -10 });
     await expect(page.getByTestId("selection-readout")).toContainText("2 pts");
     await page.keyboard.press("c");
     await expect(page.getByTestId("glyph-1")).toHaveText("C");
@@ -276,7 +286,7 @@ test.describe("spline fit-point constraints — small laptop (1280×800)", () =>
 
     await clickPlane(page, at, { x: -25, y: 0 });
     await expect(page.getByTestId("fit-handle-e2-0")).toBeVisible();
-    await clickPlane(page, at, { x: 30, y: -10 });
+    await addPlane(page, at, { x: 30, y: -10 });
     await expect(page.getByTestId("selection-readout")).toContainText("2 pts");
     await page.keyboard.press("c");
     await expect(page.getByTestId("glyph-1")).toHaveText("C");

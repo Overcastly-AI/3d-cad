@@ -13,13 +13,119 @@ library and cleared two of three images to publish (`c7f23dd`). OPEN: LIC-1,
 stripping jbigkit from the geometry image, which is what still blocks
 publishing it.
 
+**FOUNDER SESSION 2026-08-01 — the sketcher answers back.** Two of the evening's
+reports were closed at the source rather than worked around. FB-1b, *"sketches
+should be more visible"*: a sketch seated on a model face was putting ZERO
+pixels of scribe ink on the canvas (coplanar depth tie) and, once drawn, sat at
+1.32:1 against lit aluminium — the active sketch now draws over the solid while
+committed sketches stay occluded, and the picked face takes a layout-bluing wash
+that puts the scribe at 5.9:1. FB-12, *"the line wouldn't even select"*: a click
+that drifted more than 4 px was silently thrown away, which is most trackpad
+clicks; the click/drag rule is now intent-based (distance AND speed) in
+`sketch/clickIntent.ts`. Both gated by e2e that fail on the parent commit, and
+the shared `countSketchInkPixels` probe — which counted the aluminium body as
+ink and so went UP when the sketch became unusable — is an exact-token census
+now.
+
+**FOUNDER SESSION 2026-08-01 — Escape stopped ending the sketch, and a click
+stopped piling up.** FB-13: the Escape cascade's last rung was `finishSketch()`,
+so the reflex after a click that appeared to do nothing ("tap Esc, start over")
+persisted and CLOSED the sketcher, while the strip advertised Esc as SAVE. Escape
+is a cancel key now — it unwinds the most local thing and then stops, raising a
+hint that names the chip which does finish; it still backs out of a sketch that
+holds no work, so an accidental entry is still a keystroke away from gone. FB-14:
+a plain click REPLACES the selection (stacked candidates cycle one at a time) and
+Shift or Ctrl/Cmd ADDS, so dimensioning a second line works instead of refusing
+"Select one line to dimension" — every multi-entity constraint stays authorable
+with the modifier held. Gated by `e2e/sketch-escape-select.spec.ts`, six specs
+that go red on the old behaviour. Left for the strip's owner: `SketchStrip.tsx`
+still captions the Save chip "Esc".
+
+**NEXT — FOUNDER-DIRECTED PRE-SELECTION / HOVER MODEL (2026-08-01,
+vision-steward, design only).** Same-night founder reports name one root
+cause three ways: a sketch line that "wouldn't even select," face picking
+"very difficult," a cut that "misses everything going a different way" —
+Loft never previews what a click will do before it does it. Design spec
+`docs/design/pre-selection.md`: default hover moves from whole-body to the
+FACE under the cursor (`ModelMesh.tsx`'s `faceOrdinalOf` already resolves the
+ordinal and discards it), the sketcher's UI-W5 snap-glyph vocabulary extends
+from drawing to the SELECT tool so a hovered pick names itself before the
+click, a stacked-candidate count badge answers "how many are here" instead of
+silent click-cycling, and a normal-arrow pair on the addressed face doubles
+as the extrude/cut direction control. Also root-caused: armed face picks hit
+only a 24px button at the face centroid today, not the face itself — measured
+cause of `docs/UI-REVIEW.md`'s still-open "DOM-square blanket" P2. Filed
+SEL-1..SEL-6, Ready queue, `[src: founder]`.
+
+**QA verdict on that wave's premise (qa-tester, 2026-08-01, HEAD + bisect at
+`d8a4126` / `3cf6650`): `d8a4126` is EXONERATED, do not revert — face picking
+never used a raycast, and every pick probe is identical at all three commits.**
+The pick MATH is fine: a clean click selects the line and `D` dimensions it. The
+reproducible defects behind "wouldn't even select" are a 5 px pointer drift that
+silently discards the click (FB-12) and an Escape that ends the sketch (FB-13);
+face picking is quantified at 2.2 % of the body being a live target (FB-3/FB-5);
+FB-9's geometry is exact to 0. Numbers, screenshots and the bisect table:
+`docs/QA-REVIEW.md`; regression spec `apps/web/e2e/founder-picking.spec.ts`.
+
 Preceded today by a PERFORMANCE wave off the first big-part benchmark
 (`docs/PERF.md`): the wall was ~50 features and every route rebuilt the world,
 so an edit on a 200-feature part cost 27 s. Now 1.0 s, a repeat measure/export
 162 ms, and a 2 006-face STEP import 18.6 s → 3.5 s. **PERF-1b (2026-08-01)**
 adds prefetch off an open editor / the travel stop, so a deep mid-tree edit is
-33.7 → 4.8 s and the first face pick after it 34.7 → 4.4 s. Cold open is still
+33.7 → 4.8 s and the first face pick after it 34.7 → 4.4 s. **PERF-5b
+(2026-08-01)** deletes the last quadratic on the pick path: face provenance is
+fingerprinted as evaluation produces it instead of being re-derived from
+retained B-reps, so the attribution pass is 2 347 → 67 ms at N=150 (11-16 % of
+the request → 3.0-6.2 %) and a repeat pick 2 667 → 435 ms, with attribution
+proved identical on 54 parts / 1 573 faces. Cold open is still
 ~26 s — the N^1.85 curve is untouched and needs incremental topology.
+
+**DOGFOODING PASS #3 — the imported-STEP remix (2026-08-01, qa-tester;
+`docs/QA-REVIEW.md`).** The recurring model-a-real-part gate, aimed at the day's
+two perf commits: a NEMA 17 vendor plate imported, drilled, sketched on,
+chamfered, re-revved twice and shipped as STEP + a four-view A3 drawing.
+**Every number exact** — seven closed-form comparisons (worst Δ 2.0e-10 mm³,
+including a Pappus check on a chamfered circular edge), 18/18 glTF face ordinals
+resolving to the right B-rep face on the UNFUSED encoding and 11/11 on the
+FUSED one, and a rev-B/rev-C STEP swap that re-anchored all five downstream
+remix features to twelve significant figures. **The flow is nonetheless not
+completable in the UI:** the Hole command can only drill at a face's centroid or
+a corner (QA3-1), and a sketch on an imported face has no reference to the
+import at all (QA3-2) — measured, a register ring 0.065111070 mm off the vendor's
+bore axis with every number on screen correct. Six defects filed QA3-1..6;
+probes in `apps/web/e2e/import-remix.spec.ts` (desktop + touch), regression
+slice 46/46.
+
+**QA3-1 CLOSED (2026-08-01, frontend-builder) — a hole is dialled in now.** The
+pass above's headline *cannot*: hole placement offered the face's area centroid
+and its corners, so on the NEMA plate (centre = the Ø5.2 shaft bore) a 5th
+mounting hole could not be authored at all. The Hole card now carries X/Y cells
+in the face's frame, re-checked against the face's outline and its openings on
+every keystroke (a lone `-` reads as PENDING, `12x` as a mistake), and the point
+pick snaps to every circular edge in the face's plane for concentric /
+bolt-circle work. The frame is stated, not implied — zero is the part origin
+projected onto the face (never the centroid, whose drift is QA3-2's mechanism),
+printed in the card and drawn on the model as a labelled datum. The typed
+`hole_off_body` is untouched: the client check warns, it never blocks the write,
+so the kernel keeps the last word. e2e drills the 5th hole at (15.5, 0) →
+14 179.47 mm³ closed-form exact, and the off-body point still fails honestly.
+Before/after: `docs/screenshots/hole-placement-{before,after}-{1600,1280}.png`.
+
+**QA3-3 CLOSED (2026-08-01, kernel-architect) — feature-localized selection now
+lights what a feature MADE, not what it merely re-cut.** Face provenance
+attributed a face to the earliest feature after which it existed in its FINAL
+form, so on the dogfooding remix a Ø3 mount hole owned the vendor plate's entire
+1 323.8 mm² top and 1 682.7 mm² back as well as its own 75.4 mm² bore wall — the
+"highlight only this feature" promise of FINDINGS #9 lighting most of the part.
+The rule is now the geometric one Fusion and SolidWorks use: a face belongs to
+the earliest snapshot that already had its **supporting surface** (canonical
+plane / cylinder / cone / sphere / torus off the exact B-rep), with an extent
+guard so two disjoint coplanar patches are not confused for one. Deliberately not
+an area threshold — that would fit this plate and invert on a small face, which a
+gate now proves. Remix ownership **3/15 → 1/17 of 18**; 28 of 47 feature-tree
+goldens re-attribute, **zero stored golden numbers move**. The interactive pass
+stays O(final faces) (PERF-5b's shape defended by a gate): 46 ms at tray N=100
+against 39 ms. `docs/GEOMETRY-QA.md` 2026-08-01.
 
 **GATE-2 (2026-08-01) — the image build broke for two commits and only the
 slowest workflow could see it.** LIC-2's `scripts/corresponding_source.py` went
@@ -643,6 +749,22 @@ units (`tests/test_drawings_anchor.py`, 11); the five compose byte-goldens were
 regenerated for the new (clear) layout — a clean sheet still composes with no
 banner ink.
 
+**N1/N2 FRONTEND HALF — the screen now says what the print said (2026-08-01,
+frontend-builder).** Everything above shipped on the WIRE and the app dropped
+it, so the product told the truth on the PDF and not on screen. Three surfaces
+close that: a re-anchored dimension (`anchor.tier == "durable"`) is stamped
+RE-ANCHORED in the Dimensions panel with a one-click **Confirm** that stores
+the signature geometry landed on (append-then-delete, so a failure can only
+leave a visible duplicate, never a lost dimension); `ComposedSheet.layout_issues`
+raises a **sheet check strip** above the paper in the composer's own sentences,
+each row carrying the Auto-place that actually fixes it, and stamps the SAME
+`drawing-layout-issue` banner on the DOM sheet the three serializers stamp — so
+"export the SVG you see" carries the warning too; and an unresolved dimension's
+typed reason now reads beside "unresolved" instead of nothing. Gate: `apps/web/
+e2e/drawing-reanchor.spec.ts` resizes a dimensioned part 100 -> 120 and reads
+`120.000` IN-APP, then confirms the reference and watches the badge retire.
+Before/after: `docs/screenshots/drawing-{reanchor,layout-check}-{old,after}-*.png`.
+
 **Sheet metal → full incumbent parity (PAUSED 2026-07-23, resumed on founder
 call).** The bar remains **full parity with SolidWorks/Fusion 360, not "good
 enough"**; `docs/design/sheet-metal-parity.md` (vision-steward, 2026-07-19) is
@@ -880,8 +1002,21 @@ per wire — never a face-count law); disabling it is byte-identical and takes a
 2 006-face import 18.58 → **3.46 CPU s**, so the 20 s ceiling now has ~3x headroom
 at the 16 MiB upload cap instead of 1.08x. **PERF-5a fixed 2026-07-31**:
 provenance crossed its budget at N ~= 103 (measured, not bracketed);
-`MAX_PROVENANCE_FACES` 8 000 → 30 000 crosses at N ~= 207 — PERF-5b (fingerprint
-snapshots instead of retaining B-reps) still open. **PERF-1 + PERF-2 fixed
+`MAX_PROVENANCE_FACES` 8 000 → 30 000 crosses at N ~= 207. **PERF-5b fixed
+2026-08-01** (kernel-architect): snapshots are fingerprinted as evaluation
+produces them instead of retained as B-reps, so the pass is O(final faces) —
+2 347 → 67 ms at N=150, a repeat face pick 2 667 → 435 ms, and attribution
+identical face-for-face on 54 parts / 1 573 faces. **PERF-4b fixed 2026-08-01**
+(kernel-architect): the per-face glTF primitive is fused behind a compact
+per-face triangle side table, but only where it pays — always fusing re-bases
+the indices and destroys the byte-identical local index runs deflate was
+matching, which shipped the tray 23 % BIGGER on the gzipped wire before the
+break-even (~20 triangles/face) was measured. The 2 006-face sink now fuses to
+19 primitives, **91.8 → 45.1 KiB gzipped (2.04x)** with browser GLB parse
+47.2 → **3.4 ms**; the triangle-dense tray declines and is bit-identical to
+before. Selecting a feature costs **3 draw calls instead of 2 006** (material-run
+draw groups, which helps both encodings), and face picking is proven unmoved
+byte-for-byte. **PERF-1 + PERF-2 fixed
 2026-07-31** (kernel-architect): `evaluate_tree` has a rebuild cache
 (`geometry/rebuild_cache.py`) keyed on the rolling hash of the feature PREFIX,
 with entries OWNED rather than copied — every re-materialisation of an OCCT
@@ -1014,6 +1149,27 @@ build now fail loudly if a wheel bump moves a version out from under the pinned
 source — with its own negative controls in `just licence-selftest`. Left
 deliberately open as LIC-4: the GCC runtime libraries' own source duty.
 docs/LICENSING.md §7 (procedure) + §10.
+
+**LIC-4 CLOSED, 2026-08-01 (platform-builder) — the GCC runtime libraries need
+no source offer, and all eight are now identified rather than assumed.** The
+Runtime Library Exception's §1 lets us propagate the Runtime Library combined
+with Independent Modules "under terms of your choice", and a combined work of
+Target Code is the only form Loft ever conveys, so nothing is mirrored. The
+open item claimed the GCC build behind numpy/scipy's copies was unreadable; it
+is readable in every case, and the answer came from four different signals —
+the `.comment` string (conda-forge GCC 15.2.0-19 for OCP's `libgomp`), the
+wheels' auditwheel SBOMs (AlmaLinux 8 `gcc 8.5.0-28.el8_10.alma.1`, five
+files), **GNU build-id transfer** for numpy's two (it ships no SBOM at all, but
+its files are byte-identical builds to scipy's SBOM-identified pair), and one
+wheel further up the vendoring chain for scipy's last two (scipy-openblas32's
+SBOM names CentOS 7 `libgfortran5 8.3.1-2.1.1.el7` + `libquadmath 4.8.5-44.el7`
+— confirmed by downloading that wheel and matching build-ids). There is no
+upstream GCC 8.3.1, so mirroring an FSF tarball would have repeated the
+LibRaw-`.orig`-without-patches mistake §7.1 was written about. Shipped: both
+GCC licence texts (GCC's own copies), the reasoning and a per-file table in the
+image's `CORRESPONDING-SOURCE.md`, per-file records in the manifest, and a gate
+that fails on any GCC runtime library the manifest does not account for — with
+four negative controls in `just licence-selftest`. docs/LICENSING.md §7.5.
 
 Source of truth for "what phase are we in." Every commit that ships an item
 ticks it here (and on `docs/BACKLOG.md`) in the same commit — see CLAUDE.md.

@@ -256,19 +256,57 @@ function CameraRig({
     [camera, framing],
   );
 
+  // Has the auto-fit ever run for this viewport? The FIRST fit has no viewpoint
+  // to respect and picks iso; every later one does, and must keep it.
+  const framedOnce = useRef(false);
+
   // Auto-fit whenever the subject changes (a fresh geometry, or an assembly
-  // instance's mesh landing). Instant, exactly as the shell always fit.
+  // instance's mesh landing).
+  //
+  // RE-FRAME, DO NOT RE-ORIENT. This used to slam the camera back to ISO_DIR
+  // with up=+Y on every run, and `fitKey` includes the geometry's identity — so
+  // every extrude built a new mesh and took the user's viewpoint away. The
+  // founder hit it twice in one session: "after the extrude it flipped to xy",
+  // and, fatally, while trying to sketch on an extruded face — "it was snapping
+  // back and I couldn't see it". Sketching on a face means looking AT that face;
+  // a fit that reimposes iso the moment the body changes makes the workflow
+  // impossible, not merely disorienting. Fusion and Plasticity never take the
+  // viewpoint away when a feature completes.
+  //
+  // So: fit the DISTANCE and target to the new bounds always — that is the part
+  // people want, and it is why this effect exists — but keep the direction and
+  // up the user is currently looking from once they have one. `userMoved` is
+  // likewise only cleared on the first fit; clearing it afterwards discarded the
+  // fact that the user had deliberately positioned the view.
   useEffect(() => {
     const box = boundsRef.current;
     if (box === null || box.isEmpty()) return;
     const center = box.getCenter(new Vector3());
     const diagonal = box.getSize(new Vector3()).length();
     setClipPlanes(diagonal);
-    userMoved.current = false;
+
+    const first = !framedOnce.current;
+    framedOnce.current = true;
+    if (first) userMoved.current = false;
+
+    // Direction points from the target TO the camera, matching framePose's
+    // convention. Falling back to iso covers a degenerate pose (camera sitting
+    // exactly on its target), which would otherwise normalise to a zero vector.
+    let dir = ISO_DIR.clone();
+    let up = new Vector3(0, 1, 0);
+    if (!first) {
+      const currentTarget = controls?.target.clone() ?? center.clone();
+      const offset = camera.position.clone().sub(currentTarget);
+      if (offset.lengthSq() > 1e-12) {
+        dir = offset.normalize();
+        up = camera.up.clone();
+      }
+    }
+
     applyPose(
       framePose(
-        ISO_DIR.clone(),
-        new Vector3(0, 1, 0),
+        dir,
+        up,
         center,
         Math.max(diagonal, 1) * FIT_FACTOR,
         "fit-auto",

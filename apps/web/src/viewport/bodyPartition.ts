@@ -9,8 +9,8 @@
  *
  * Two facts make that exact rather than a guess:
  *
- *  1. the merged geometry keeps ONE DRAW GROUP PER B-REP FACE (`glbGeometry.ts`
- *     merges with `useGroups`), so a face is addressable by ordinal; and
+ *  1. the merged geometry carries the body's FACE PARTITION (`glbGeometry.ts`
+ *     `faceStarts`), so a face is addressable by ordinal; and
  *  2. separate bodies are, by construction, not fused — they share no vertex —
  *     so the connected components of the mesh ARE the kernel's LUMPS.
  *
@@ -26,29 +26,30 @@
  */
 import type { BufferGeometry } from "three";
 
+import { faceStarts } from "./glbGeometry";
+
 /** Weld tolerance for "these two faces touch" (mm). */
 const WELD_MM = 1e-4;
 
 /**
- * Connected components of a face-grouped geometry, each the sorted list of face
- * ordinals it contains, ordered by their first face. Returns one component per
- * disjoint solid (a LUMP). An ungrouped or unindexed geometry yields `null`.
+ * Connected components of a face-partitioned geometry, each the sorted list of
+ * face ordinals it contains, ordered by their first face. Returns one component
+ * per disjoint solid (a LUMP). An unpartitioned or unindexed geometry yields
+ * `null`.
  *
- * O(V) with a positional hash: OCCT writes each B-rep face as its own glTF
- * primitive with its own vertices (per-face normals), so faces of one solid do
- * not share buffer indices — only coordinates. Runs once per mesh load.
+ * O(V) with a positional hash: OCCT gives each B-rep face its own vertices
+ * (per-face normals), and fusing primitives concatenates those vertices without
+ * welding, so faces of one solid do not share buffer indices — only
+ * coordinates. Runs once per mesh load.
  */
 export function faceLumps(geometry: BufferGeometry): number[][] | null {
   const index = geometry.getIndex();
   const position = geometry.getAttribute("position");
-  if (
-    index === null ||
-    position === undefined ||
-    geometry.groups.length === 0
-  ) {
+  const starts = faceStarts(geometry);
+  if (index === null || position === undefined || starts.length < 2) {
     return null;
   }
-  const faceCount = geometry.groups.length;
+  const faceCount = starts.length - 1;
   const parent = new Int32Array(faceCount);
   for (let i = 0; i < faceCount; i += 1) parent[i] = i;
   const find = (x: number): number => {
@@ -71,9 +72,9 @@ export function faceLumps(geometry: BufferGeometry): number[][] | null {
   const owner = new Map<string, number>();
   const idx = index.array;
   const quantize = (value: number): number => Math.round(value / WELD_MM);
-  geometry.groups.forEach((group, ordinal) => {
-    const end = group.start + group.count;
-    for (let i = group.start; i < end; i += 1) {
+  for (let ordinal = 0; ordinal < faceCount; ordinal += 1) {
+    const end = starts[ordinal + 1] as number;
+    for (let i = starts[ordinal] as number; i < end; i += 1) {
       const vertex = idx[i] as number;
       const key = `${quantize(position.getX(vertex))},${quantize(
         position.getY(vertex),
@@ -82,7 +83,7 @@ export function faceLumps(geometry: BufferGeometry): number[][] | null {
       if (seen === undefined) owner.set(key, ordinal);
       else union(seen, ordinal);
     }
-  });
+  }
 
   const byRoot = new Map<number, number[]>();
   for (let ordinal = 0; ordinal < faceCount; ordinal += 1) {

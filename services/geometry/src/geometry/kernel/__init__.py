@@ -117,7 +117,11 @@ from geometry.kernel.pattern import (
     linear_pattern_placements,
 )
 from geometry.kernel.properties import combine_properties, measure_shape
-from geometry.kernel.provenance import attribute_faces
+from geometry.kernel.provenance import (
+    FaceProvenance,
+    FaceProvenanceRecorder,
+    attribute_faces,
+)
 from geometry.kernel.removal import removal_reaches_body
 from geometry.kernel.revolve import (
     AxisIntersectsProfileError,
@@ -179,6 +183,8 @@ __all__ = [
     "DraftError",
     "EdgeIndexError",
     "EdgeRecord",
+    "FaceProvenance",
+    "FaceProvenanceRecorder",
     "FaceResolutionError",
     "FilletError",
     "HoleError",

@@ -34,6 +34,7 @@ from geometry.features.evaluate import (
     reset_rebuild_cache,
     warm_rebuild_cache,
 )
+from geometry.kernel import FaceProvenance
 from geometry.rebuild_cache import (
     REBUILD_CACHE_CAPACITY,
     PrefixCache,
@@ -82,7 +83,10 @@ class Answer:
     volume: float | None
     properties: object
     last_good: uuid.UUID | None
-    history: int
+    #: The per-feature face fingerprints themselves (PERF-5b), not merely how
+    #: many: a resume keeps the recorder — memo included — so warm-vs-cold
+    #: equality here is what gates that attribution cannot depend on cache state.
+    provenance: FaceProvenance
 
 
 def _answer(request: EvaluateTreeRequest, *, record_history: bool = False) -> Answer:
@@ -98,7 +102,7 @@ def _answer(request: EvaluateTreeRequest, *, record_history: bool = False) -> An
         volume=None if result.properties is None else result.properties.volume,
         properties=result.properties,
         last_good=result.last_good_feature_id,
-        history=len(evaluation.body_history),
+        provenance=evaluation.face_provenance,
     )
 
 
@@ -288,12 +292,12 @@ def test_history_recording_never_resumes_a_prefix_that_has_no_history() -> None:
     warm overlay sees is the COMPLETE one a cold overlay sees."""
     request = _request(_payload())
     cold = _cold(request, record_history=True)
-    assert cold.history > 0
+    assert len(cold.provenance.snapshots) > 0
 
     reset_rebuild_cache()
     _answer(request)  # a plain evaluate first — the tempting stale prefix
     warm = _answer(request, record_history=True)
-    assert warm.history == cold.history
+    assert warm.provenance == cold.provenance
     assert warm.glb == cold.glb
 
 

@@ -159,7 +159,9 @@ test.describe("sketcher", () => {
       "aria-pressed",
       "false",
     );
-    await page.keyboard.press("Escape"); // exits sketch mode
+    // Nothing was ever committed here, so this sketch has no work to lose and
+    // Escape still backs out of it (FB-13: with entities drawn it would not).
+    await page.keyboard.press("Escape"); // exits the empty sketch
     await expect(page.getByTestId("sketch-strip")).toHaveCount(0);
   });
 

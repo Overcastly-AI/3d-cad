@@ -54,6 +54,7 @@ import {
   type Point2D,
   type SvgEdge,
 } from "../drawing/layout";
+import { BANNER_TEXT_MM, bannerLines } from "../drawing/layoutIssues";
 import { titleBlockFields } from "../drawing/titleBlock";
 import { viewRowsByProjection } from "../drawing/views";
 
@@ -1666,6 +1667,41 @@ function SheetNote({ note }: { note: ComposedNote }) {
   );
 }
 
+/**
+ * The sheet's layout-issue banner (audit N2) — stamped down the top-left margin
+ * in the composer's own words, at the composer's own anchors. This is the
+ * on-paper twin of the SVG/PDF/DXF banner all three server serializers emit, and
+ * it carries the SAME `drawing-layout-issue` hook so QA drives one target set;
+ * it also means the client-side "export the SVG you see" (`exportSvg.ts`
+ * serializes this live node) carries the warning the server export does. An
+ * overlapping print used to reach the shop with nothing on it but the overlap.
+ *
+ * Additive: a clean sheet has no issues, draws nothing, and exports byte-for-byte
+ * as it did before.
+ */
+function SheetBanner({ composed }: { composed: ComposedSheet }) {
+  const lines = bannerLines(composed);
+  if (lines.length === 0) return null;
+  return (
+    <g data-testid="drawing-layout-banner">
+      {lines.map((line, i) => (
+        <text
+          key={i}
+          data-testid="drawing-layout-issue"
+          x={line.x}
+          y={line.y}
+          fill={line.error ? drawing.dimensionFlag : drawing.label}
+          fontFamily={font.data}
+          fontSize={BANNER_TEXT_MM}
+          letterSpacing={0.2}
+        >
+          {line.text}
+        </text>
+      ))}
+    </g>
+  );
+}
+
 export function DrawingSheet({
   composed,
   views,
@@ -1754,6 +1790,9 @@ export function DrawingSheet({
       {(composed.notes ?? []).map((note, i) => (
         <SheetNote key={i} note={note} />
       ))}
+      {/* Stamped LAST, exactly as the server serializers order it — the banner
+          reads over anything it lands on. */}
+      <SheetBanner composed={composed} />
     </svg>
   );
 }

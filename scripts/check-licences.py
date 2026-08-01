@@ -79,6 +79,7 @@ has nothing but the service venv.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import shutil
@@ -89,15 +90,18 @@ import tempfile
 from dataclasses import dataclass
 from email.parser import BytesParser
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from corresponding_source import (
     FOUND,
     Detection,
+    GccRuntimeBinary,
     ManifestError,
     detect_version,
     load_manifest,
+    verify_gcc_runtime,
     verify_versions,
 )
 
@@ -311,12 +315,15 @@ def lookup(normalised: str) -> Entry | None:
 # it parses the section headers itself. 64-bit little-endian only, which is
 # what we ship; anything else is reported as unparsed rather than guessed at.
 # ---------------------------------------------------------------------------
+SHT_PROGBITS = 1
 SHT_STRTAB = 3
 SHT_DYNAMIC = 6
+SHT_NOTE = 7
 SHT_DYNSYM = 11
 DT_NULL = 0
 DT_NEEDED = 1
 DT_SONAME = 14
+NT_GNU_BUILD_ID = 3
 
 
 @dataclass(frozen=True)
@@ -325,6 +332,14 @@ class Elf:
     needed: tuple[str, ...]
     defined: frozenset[str]
     undefined: frozenset[str]
+    # LIC-4: the GNU build-id is the only stable identity these libraries have.
+    # auditwheel renames them per wheel build and patches their SONAME/RPATH, so
+    # both the filename and the file hash move while the BUILD does not.
+    build_id: str = ""
+    # `.comment` is where a GCC runtime library says which GCC built it — which,
+    # for a library GCC builds as part of itself, is its own version. It is how
+    # the conda-forge libgomp in the OCP wheel was identified.
+    comment: str = ""
 
 
 def _cstr(blob: bytes, offset: int) -> str:
@@ -340,28 +355,33 @@ def read_elf(data: bytes) -> Elf | None:
     if e_shoff == 0 or e_shnum == 0:
         return None
 
-    sections: list[tuple[int, int, int, int, int]] = []  # type, off, size, link, entsz
+    e_shstrndx = struct.unpack_from("<H", data, 0x3E)[0]
+
+    # name, type, off, size, link, entsz
+    sections: list[tuple[int, int, int, int, int, int]] = []
     for i in range(e_shnum):
         base = e_shoff + i * e_shentsize
         if base + 64 > len(data):
             return None
-        sh_type = struct.unpack_from("<I", data, base + 4)[0]
+        sh_name, sh_type = struct.unpack_from("<II", data, base)
         sh_offset, sh_size = struct.unpack_from("<QQ", data, base + 0x18)
         sh_link = struct.unpack_from("<I", data, base + 0x28)[0]
         (sh_entsize,) = struct.unpack_from("<Q", data, base + 0x38)
-        sections.append((sh_type, sh_offset, sh_size, sh_link, sh_entsize))
+        sections.append((sh_name, sh_type, sh_offset, sh_size, sh_link, sh_entsize))
 
     def strtab(index: int) -> bytes:
         if index >= len(sections):
             return b""
-        sh_type, off, size, _, _ = sections[index]
+        _, sh_type, off, size, _, _ = sections[index]
         if sh_type != SHT_STRTAB:
             return b""
         return data[off : off + size]
 
+    shstrtab = strtab(e_shstrndx)
+
     soname = ""
     needed: list[str] = []
-    for sh_type, off, size, link, _ in sections:
+    for _, sh_type, off, size, link, _ in sections:
         if sh_type != SHT_DYNAMIC:
             continue
         strings = strtab(link)
@@ -376,7 +396,7 @@ def read_elf(data: bytes) -> Elf | None:
 
     defined: set[str] = set()
     undefined: set[str] = set()
-    for sh_type, off, size, link, entsize in sections:
+    for _, sh_type, off, size, link, entsize in sections:
         if sh_type != SHT_DYNSYM or entsize != 24:
             continue
         strings = strtab(link)
@@ -388,7 +408,48 @@ def read_elf(data: bytes) -> Elf | None:
             name = _cstr(strings, st_name)
             (undefined if st_shndx == 0 else defined).add(name)
 
-    return Elf(soname, tuple(needed), frozenset(defined), frozenset(undefined))
+    build_id = ""
+    comment = ""
+    for sh_name, sh_type, off, size, _, _ in sections:
+        section_name = _cstr(shstrtab, sh_name) if shstrtab else ""
+        if sh_type == SHT_NOTE and not build_id:
+            build_id = _build_id_from_notes(data[off : off + size])
+        elif sh_type == SHT_PROGBITS and section_name == ".comment":
+            strings_in = [
+                s.decode("utf-8", "replace")
+                for s in data[off : off + size].split(b"\0")
+                if s.startswith(b"GCC:")
+            ]
+            comment = "; ".join(strings_in)
+
+    return Elf(
+        soname,
+        tuple(needed),
+        frozenset(defined),
+        frozenset(undefined),
+        build_id=build_id,
+        comment=comment,
+    )
+
+
+def _build_id_from_notes(blob: bytes) -> str:
+    """NT_GNU_BUILD_ID out of an ELF note section, hand-parsed.
+
+    Same reason as the rest of this reader: it has to run inside the runtime
+    image, where there is no `readelf`.
+    """
+    pos = 0
+    while pos + 12 <= len(blob):
+        namesz, descsz, ntype = struct.unpack_from("<III", blob, pos)
+        name_at = pos + 12
+        desc_at = name_at + ((namesz + 3) & ~3)
+        end = desc_at + ((descsz + 3) & ~3)
+        if end > len(blob) or end <= pos:
+            break
+        if ntype == NT_GNU_BUILD_ID and blob[name_at : name_at + namesz] == b"GNU\0":
+            return blob[desc_at : desc_at + descsz].hex()
+        pos = end
+    return ""
 
 
 # ---------------------------------------------------------------------------
@@ -403,6 +464,11 @@ class Finding:
     says_gpl: bool
     says_lgpl: bool
     is_stub: bool
+    size: int = 0
+    # Only computed for the GPL-with-exception set (LIC-4). Hashing every
+    # shared object in the venv would add seconds to `just lint` to answer a
+    # question we only ask about eight files.
+    sha256: str = ""
 
 
 def is_extension_module(name: str) -> bool:
@@ -424,6 +490,7 @@ def scan_roots(roots: list[Path]) -> list[Finding]:
             data = path.read_bytes()
             normalised = normalise(path.name)
             entry = None if is_extension_module(path.name) else lookup(normalised)
+            wants_digest = entry is not None and entry.family == GPL_WITH_EXCEPTION
             findings.append(
                 Finding(
                     path=path,
@@ -433,6 +500,8 @@ def scan_roots(roots: list[Path]) -> list[Finding]:
                     says_gpl=any(p.search(data) for p in GPL_SIGNATURES),
                     says_lgpl=any(p.search(data) for p in LGPL_SIGNATURES),
                     is_stub=b"LOFT-GPL-FREE-JBIG-STUB" in data,
+                    size=len(data),
+                    sha256=hashlib.sha256(data).hexdigest() if wants_digest else "",
                 )
             )
     return findings
@@ -645,6 +714,7 @@ def check(
     #    statement — pinned URLs and digests for source we no longer ship. It
     #    has to be loud, and this is the gate that already reads the binaries.
     detections: list[tuple[str, Detection]] = []
+    notes: list[str] = []
     if verify_source_versions:
         try:
             source_manifest = load_manifest(manifest)
@@ -654,9 +724,35 @@ def check(
             version_failures, detections = verify_versions(source_manifest, roots)
             failures.extend(version_failures)
 
+            # 8. LIC-4: every GCC runtime library here must be one we have
+            #    identified. We do not mirror source for them — the Runtime
+            #    Library Exception discharges that for the way we convey them —
+            #    but that position is about binaries we have looked at. A wheel
+            #    bump that vendors a runtime from a different GCC build must be
+            #    loud, exactly as an OCCT move is.
+            gcc_failures, notes = verify_gcc_runtime(
+                source_manifest, observed_gcc_runtime(findings)
+            )
+            failures.extend(gcc_failures)
+
     if not quiet:
-        report(profile, roots, findings, failures, detections)
+        report(profile, roots, findings, failures, detections, notes)
     return failures
+
+
+def observed_gcc_runtime(findings: list[Finding]) -> list[GccRuntimeBinary]:
+    return [
+        GccRuntimeBinary(
+            path=str(finding.path),
+            library=finding.normalised,
+            sha256=finding.sha256,
+            size=finding.size,
+            build_id=finding.elf.build_id if finding.elf else "",
+            comment=finding.elf.comment if finding.elf else "",
+        )
+        for finding in findings
+        if finding.entry is not None and finding.entry.family == GPL_WITH_EXCEPTION
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -746,6 +842,7 @@ def report(
     findings: list[Finding],
     failures: list[str],
     detections: list[tuple[str, Detection]] | None = None,
+    notes: list[str] | None = None,
 ) -> None:
     loose = [f for f in findings if f.entry is not None]
     modules = len(findings) - len(loose)
@@ -775,6 +872,8 @@ def report(
             f"  corresponding-source: {component_id} "
             f"{detection.version or detection.status} ({detection.detail})"
         )
+    for note in notes or ():
+        print(f"  {note}")
     for failure in failures:
         print(f"\nFAIL {failure}")
     verdict = f"FAILED — {len(failures)} violation(s)" if failures else "clean"
@@ -854,13 +953,17 @@ def self_test(roots: list[Path]) -> int:
 
     if (rc := _self_test_corresponding_source(roots)) != 0:
         return rc
+    if (rc := _self_test_gcc_runtime(roots)) != 0:
+        return rc
 
     print(
         "\nself-test PASSED: the gate FAILS on the vendored GPL library "
         f"({len(bad)} violation(s) naming libjbig) and PASSES once "
-        "deploy/docker/licence/strip-gpl-jbig.sh has replaced it; and the "
+        "deploy/docker/licence/strip-gpl-jbig.sh has replaced it; the "
         "corresponding-source version check FAILS on a manifest that does not "
-        "match these binaries and PASSES on the committed one."
+        "match these binaries and PASSES on the committed one; and the GCC "
+        "runtime check FAILS on an unidentified runtime library and on a "
+        "stale digest."
     )
     return 0
 
@@ -934,6 +1037,112 @@ def _self_test_corresponding_source(roots: list[Path]) -> int:
         )
         return 1
     print("  unreadable version rejected — ok")
+    return 0
+
+
+def _self_test_gcc_runtime(roots: list[Path]) -> int:
+    """Prove the LIC-4 half can fail.
+
+    The thing it guards against is silent: a numpy/scipy/OCP bump swaps a
+    vendored GCC runtime for one built somewhere else, and the shipped
+    statement about which GCC builds we redistribute quietly stops being true.
+    A gate for that is worth nothing until it has been seen to reject.
+    """
+    print("\n=== gcc-runtime: positive control (committed manifest) ===")
+    try:
+        manifest = load_manifest(None)
+    except ManifestError as exc:
+        print(f"self-test FAILED: {exc}")
+        return 1
+    observed = observed_gcc_runtime(scan_roots(roots))
+    if not observed:
+        print(
+            "self-test FAILED: no GPL-with-exception library found under "
+            f"{[str(r) for r in roots]}. Either the wheels stopped vendoring "
+            "them — in which case delete gcc_runtime.files and this leg "
+            "together — or the roots are wrong. Asserting nothing is not a pass."
+        )
+        return 1
+    failures, notes = verify_gcc_runtime(manifest, observed)
+    for note in notes:
+        print(f"  {note}")
+    if failures:
+        print("\nself-test FAILED: the committed manifest does not identify:")
+        for failure in failures:
+            print(f"  {failure}")
+        return 1
+
+    def _copy() -> dict[str, Any]:
+        strippable = {k: v for k, v in manifest.items() if k != "_path"}
+        copied: dict[str, Any] = json.loads(json.dumps(strippable))
+        return copied
+
+    print("\n=== gcc-runtime: negative control (record removed) ===")
+    stripped = _copy()
+    dropped = stripped["gcc_runtime"]["files"].pop(0)
+    missed, _ = verify_gcc_runtime(stripped, observed)
+    if not any("unidentified GCC runtime" in f for f in missed):
+        print(
+            "\nself-test FAILED: a GCC runtime library with no record in the "
+            f"manifest ({dropped.get('file')}) was accepted."
+        )
+        return 1
+    print(f"  {dropped.get('file')} — unidentified, rejected — ok")
+
+    print("\n=== gcc-runtime: negative control (build-id moved) ===")
+    moved = _copy()
+    # Pick a record whose build-id is UNIQUE in the manifest. Several files
+    # legitimately share one (the same distro build vendored into two wheels),
+    # and moving a shared one would be caught by the digest check instead —
+    # which would leave the identity check itself unproven.
+    ids = [r.get("build_id") for r in moved["gcc_runtime"]["files"]]
+    keyed = next(
+        (
+            r
+            for r in moved["gcc_runtime"]["files"]
+            if r.get("build_id") and ids.count(r["build_id"]) == 1
+        ),
+        None,
+    )
+    if keyed is None:
+        print("self-test FAILED: no record is keyed on a unique build-id to move.")
+        return 1
+    keyed["build_id"] = "0" * 40
+    if not any(
+        "unidentified GCC runtime" in f for f in verify_gcc_runtime(moved, observed)[0]
+    ):
+        print(
+            "\nself-test FAILED: a record whose build-id matches nothing in the "
+            "tree was accepted — identity is not actually being checked."
+        )
+        return 1
+    print(f"  {keyed.get('file')} — build-id mismatch rejected — ok")
+
+    print("\n=== gcc-runtime: negative control (digest gone stale) ===")
+    stale = _copy()
+    target = next(r for r in stale["gcc_runtime"]["files"] if r.get("build_id"))
+    target["sha256"] = "0" * 64
+    if not any("re-pin sha256" in f for f in verify_gcc_runtime(stale, observed)[0]):
+        print("\nself-test FAILED: a stale recorded digest was accepted.")
+        return 1
+    print(f"  {target.get('file')} — stale digest rejected — ok")
+
+    print("\n=== gcc-runtime: negative control (block deleted) ===")
+    without = _copy()
+    del without["gcc_runtime"]
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "corresponding-source.json"
+        path.write_text(json.dumps(without), encoding="utf-8")
+        try:
+            load_manifest(path)
+        except ManifestError:
+            print("  manifest without a gcc_runtime block rejected — ok")
+        else:
+            print(
+                "\nself-test FAILED: a manifest that lost its gcc_runtime block "
+                "loaded cleanly. Losing the record must be loud."
+            )
+            return 1
     return 0
 
 

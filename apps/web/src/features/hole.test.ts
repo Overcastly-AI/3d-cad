@@ -38,14 +38,15 @@ const TOP: PlanarFaceSignature = {
 };
 
 const withFace = (): HoleForm =>
-  applyHoleFace(defaultHoleForm(), {
-    signature: TOP,
-    anchorId: "extrude-1",
-  });
+  applyHoleFace(
+    defaultHoleForm(null, "mm"),
+    { signature: TOP, anchorId: "extrude-1" },
+    "mm",
+  );
 
 describe("defaultHoleForm", () => {
   it("is a Ø6 through-all SIMPLE hole with nothing picked yet", () => {
-    const f = defaultHoleForm();
+    const f = defaultHoleForm(null, "mm");
     expect(f.face).toBeNull();
     expect(f.position).toBeNull();
     expect(f.diameterInput).toBe("6");
@@ -64,7 +65,7 @@ describe("applyHoleFace", () => {
 
 describe("applyHolePosition", () => {
   it("refines the drill point without touching the face", () => {
-    const moved = applyHolePosition(withFace(), { x: 2, y: 3, z: 10 });
+    const moved = applyHolePosition(withFace(), { x: 2, y: 3, z: 10 }, "mm");
     expect(moved.position).toEqual({ x: 2, y: 3, z: 10 });
     expect(moved.face?.anchorId).toBe("extrude-1");
   });
@@ -84,7 +85,7 @@ describe("diameterError / depthError", () => {
 
 describe("buildHoleParams", () => {
   it("returns null until a face + point + valid diameter are present", () => {
-    expect(buildHoleParams(defaultHoleForm(), "mm")).toBeNull();
+    expect(buildHoleParams(defaultHoleForm(null, "mm"), "mm")).toBeNull();
     const noDiameter: HoleForm = { ...withFace(), diameterInput: "0" };
     expect(buildHoleParams(noDiameter, "mm")).toBeNull();
   });
@@ -200,7 +201,7 @@ describe("parseCsinkAngleDeg / csinkAngleError", () => {
 
 describe("canSubmitHole", () => {
   it("mirrors buildHoleParams", () => {
-    expect(canSubmitHole(defaultHoleForm(), "mm")).toBe(false);
+    expect(canSubmitHole(defaultHoleForm(null, "mm"), "mm")).toBe(false);
     expect(canSubmitHole(withFace(), "mm")).toBe(true);
   });
 });
@@ -442,7 +443,7 @@ describe("holeThreadDesignation", () => {
 describe("positionReadout", () => {
   it("names the centre while the point sits on the centroid", () => {
     expect(positionReadout(withFace())).toContain("Centre of face");
-    const moved = applyHolePosition(withFace(), { x: 0, y: 0, z: 10 });
+    const moved = applyHolePosition(withFace(), { x: 0, y: 0, z: 10 }, "mm");
     expect(positionReadout(moved)).not.toContain("Centre");
     expect(positionReadout(moved)).toContain("mm");
   });

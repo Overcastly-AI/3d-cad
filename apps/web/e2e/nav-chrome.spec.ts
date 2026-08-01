@@ -14,8 +14,10 @@ import {
  *      its reason (the aria-disabled fix; native `disabled` made it mute).
  *   2. an open command SCOPES the band — Fillet locks Extrude, so switching
  *      tools can never silently discard the open command's picks.
- *   3. double-Escape from a fresh sketch mints EXACTLY ONE feature — never the
- *      duplicate "Sketch1" the audit reproduced.
+ *   3. finishing a sketch twice mints EXACTLY ONE feature — never the
+ *      duplicate "Sketch1" the audit reproduced. (Escape used to be the second
+ *      finish; since FB-13 it never ends a drawn sketch, so the hammering here
+ *      doubles as that regression guard.)
  */
 
 /** A 10×20 rectangle fixed at the origin on XY — solves to clean corners. */
@@ -261,7 +263,7 @@ test.describe("an open command scopes the band", () => {
 });
 
 test.describe("sketch exit is idempotent", () => {
-  test("double-Escape from a fresh sketch mints exactly one feature", async ({
+  test("Escape never ends a drawn sketch; finishing twice mints one feature", async ({
     page,
   }) => {
     const account = await seedSession(page);
@@ -280,12 +282,20 @@ test.describe("sketch exit is idempotent", () => {
     await page.mouse.click(950, 620);
     await expect(page.getByTestId("sketch-save")).toContainText("4 entities");
 
-    // Hammer Escape: reset the tool, then finish — and finish again while the
-    // create is still in flight. The idempotent guard must mint ONE feature.
+    // Hammer Escape: it resets the tool and then STOPS (FB-13). The rectangle
+    // is still there, the sketch is still open, and nothing was persisted by a
+    // key the strip advertises as a cancel.
     await page.keyboard.press("Escape");
     await page.keyboard.press("Escape");
     await page.keyboard.press("Escape");
     await page.keyboard.press("Escape");
+    await expect(page.getByTestId("sketch-strip")).toBeVisible();
+    await expect(page.getByTestId("sketch-save")).toContainText("4 entities");
+    await expect(page.getByTestId("feature-row")).toHaveCount(0);
+
+    // Finish twice — the second click lands while the create is still in
+    // flight. The idempotent guard must mint ONE feature.
+    await page.getByTestId("sketch-save").dblclick();
 
     // Sketch mode closes and exactly one "Sketch1" persists.
     await expect(page.getByTestId("sketch-strip")).toHaveCount(0);

@@ -391,23 +391,51 @@ export function previewEntities(
   }
 }
 
-/** What Escape does next, given the drawing state (cascade, most-local first). */
+/**
+ * What Escape does next, given the drawing state (cascade, most-local first).
+ *
+ * `"exit"` leaves the sketch and is reachable ONLY when there is no work to
+ * lose (see `escapeAction`); `"none"` is the resting answer — Escape unwinds,
+ * it never commits.
+ */
 export type EscapeAction =
   | "close-editor"
   | "cancel-placement"
   | "reset-tool"
   | "clear-selection"
-  | "exit";
+  | "exit"
+  | "none";
 
+/**
+ * The Escape cascade: close the editor, cancel the placement, drop the tool,
+ * clear the selection — most-local first, each rung undoing exactly one thing.
+ *
+ * THE LAST RUNG IS NOT "FINISH THE SKETCH" (FB-13, founder session 2026-08-01).
+ * It used to be: at rest `escapeAction` returned `"exit"` and `PartPage` routed
+ * that to `finishSketch()`, so the reflex after a click that appeared to do
+ * nothing — tap Escape, start over — persisted and CLOSED the sketch. Escape is
+ * a cancel key in every tool a working engineer comes from (Fusion, SolidWorks,
+ * Onshape, Plasticity): it backs out of the active thing and, with nothing
+ * active, does nothing. It is never the key that commits.
+ *
+ * So at rest Escape answers `"none"` — with ONE exception, `unstarted`: the
+ * plane-pick step, or a draw session that holds no entities and no constraints.
+ * There the sketch itself IS the most local thing and backing out of it
+ * destroys nothing, so Escape still gets you out of a sketch you opened by
+ * mistake (keyboard-first; the strip's Exit chip is the pointer path). A sketch
+ * with work in it is finished from the Finish/Save chip, deliberately.
+ */
 export function escapeAction(
   tool: SketchTool,
   pendingCount: number,
   hasSelection = false,
   editorOpen = false,
+  unstarted = false,
 ): EscapeAction {
   if (editorOpen) return "close-editor";
   if (pendingCount > 0) return "cancel-placement";
   if (tool !== "select") return "reset-tool";
   if (hasSelection) return "clear-selection";
-  return "exit";
+  if (unstarted) return "exit";
+  return "none";
 }

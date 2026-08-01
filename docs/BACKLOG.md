@@ -53,6 +53,386 @@ duplication.
 
 ## Ready (top of queue)
 
+### FOUNDER SESSION FEEDBACK 2026-08-01 — eleven reports from one evening of real use
+
+The founder modelled in the app and reported the following. These outrank the
+rest of the queue: they are the daily-driver question answered directly. The
+recurring shape is NOT missing capability — it is capability that cannot be
+REACHED (a dimension mode nobody added, sketch-on-face buried in a context menu,
+free-rect framing built but never triggered, picking that never says what it is
+about to hit).
+
+- [x] **FB-1 — the extrude "flipped to xy", and a sketch on a face kept "snapping
+      back" so it could not be seen.** ONE bug, FIXED `5bd4c46`. The auto-fit in
+      `Viewport.tsx` slammed the camera to `ISO_DIR`/up=+Y on every run, and its
+      trigger `fitKey` includes the geometry id, so every extrude re-imposed iso.
+      Now re-frames distance/target only; direction/up preserved after the first
+      fit. Not yet verified against the Playwright screenshot specs.
+- [x] **FB-1b — the other half of FB-1: the sketch you were drawing on the face
+      was not merely re-framed, it was NOT BEING DRAWN.** Measured on the real
+      stack before the fix: a rectangle scribed on the top face of a 20 mm cube
+      put **0** pixels of `sketch.scribe` on the canvas out of ~1 600 px of line,
+      and the mm grid appeared over roughly half the face in speckled patches —
+      a sketch seated on a face is coplanar with it, so the ink lost the depth
+      tie. Which side won was not even stable between runs (opaque-queue material
+      ordering), which is why one QA pass saw ink and another saw none. Fixed
+      three ways in `SketchScene.tsx`: the ACTIVE sketch's ink draws on top
+      (`depthTest:false` + `transparent` + renderOrder — WebGL has no polygon
+      offset for lines/points, so a bias was never available for the ink), the
+      sheet meshes and the plane grid take a coplanar polygon-offset decal, and
+      committed sketches are untouched so they still sit behind the solid. The
+      contrast half of the founder's report is a second, independent defect:
+      `scribe` measures **16.2:1** on the carbide ground and **1.32:1** on a lit
+      aluminium face, so white-on-stock was unreadable even with depth won. No
+      flat ink clears 3:1 on both grounds, so the GROUND changes — LAYOUT BLUING,
+      a feathered `carbide` wash laid on the picked face (the metaphor the token
+      file already claimed), taking the scribe to **5.9:1**. Gated by
+      `e2e/sketch-visibility.spec.ts`, which fails on the parent commit.
+- [ ] (P0, M) **FB-2 — a sketch line will not select at all**, so it cannot be
+      dimensioned ("I try to click on a line to [assign] height"). Pick path, not
+      discoverability: `applyConstraintAction("distance")` needs exactly one LINE
+      and `pick.ts` states "Points win within tolerance because they are the finer
+      target" (`PICK_TOLERANCE_PX = 8`) — a click near a line may resolve to an
+      endpoint POINT with nothing on screen saying so. Bisect vs `d8a4126`
+      (PERF-4b fused per-face primitives + changed draw groups) in flight.
+- [ ] (P0, M) **FB-3 — picking a FACE is "very difficult"** — finicky rather than
+      dead. Wants a measured hit region, small-vs-large faces, zoom and grazing
+      angle, not an impression. Likely the same defect as FB-2.
+- [ ] (P0, M) **FB-4 — a cut extrudes AWAY from the material and removes
+      nothing** ("I select a sketch do a cut it somehow misses everything going a
+      different way"). `defaultExtrudeForm` (`features/extrude.ts:66`) hardcodes
+      `direction: "normal"` and never consults the operation; an on_face datum's
+      `z_dir` is the OUTWARD face normal (`kernel/faces.py:13`). Fix: default
+      direction from operation + plane kind (cut on a face -> into the material),
+      re-default when the operation is switched unless overridden, show it in the
+      ghost. The typed `cut_removed_nothing` error made this look like user error
+      for months — an error message guarding a bad default.
+- [ ] (P1, M) **FB-5 — cannot attach a sketch to a face; hovering a face should
+      offer it.** The capability exists but only as `ctx-sketch-on-face` in a
+      right-click Tools menu, which then enters a face-pick mode (so FB-3 may
+      also block it). "New sketch" offers base planes only, so concluding it is
+      impossible is the correct reading of the UI.
+- [ ] (P1, S) **FB-6 — sketch ink is invisible on the face it sits on.**
+      `SketchScene.tsx` sets `depthWrite={false}` but leaves depth TESTING on and
+      has no `renderOrder`/`polygonOffset`; a sketch on a face is coplanar with it
+      by construction, so the ink z-fights away. Also check scribe contrast on a
+      bright aluminium face, not just the dark void. IN FLIGHT.
+- [ ] (P1, L) **FB-7 — editor panels cover the model and cannot be moved**
+      (Feature tree > new Datum plane; photographed). `Viewport.tsx:733` already
+      measures chrome obstructions into a FREE rect and `framePose` already fills
+      it — but `framing()` is only consulted during a fit, and the auto-fit runs
+      only on `fitKey`, so opening a panel triggers nothing. Order: dock editors
+      into a rail (overlap becomes structurally impossible), THEN trigger the
+      free-rect fit for residual floating chrome (safe only since `5bd4c46`),
+      THEN compact as a separate density pass. Compaction alone is not the fix —
+      a smaller panel still covers the part.
+- [ ] (P0, L) **FB-8 — "too many [points] to see what you are clicking"; wants
+      Fusion/Plasticity pre-selection** — a snapping pointer, the FACE (not the
+      body) highlighting under the cursor, and a small axis showing direction.
+      `ModelMesh.tsx:37` types highlight as per-BODY (`"none" | "hover" |
+      "selected" | "feature"`), so hovering glows the whole solid. This is the
+      root of FB-2/FB-3 as EXPERIENCED: a mis-aim is invisible instead of visible
+      and free. The hovered-face normal also pre-empts FB-4 — you would see which
+      way "out" points before authoring. Spec IN FLIGHT (vision-steward).
+- [ ] (P0, S) **FB-9 — "the extruded is not on the same plane"** (photographed,
+      base-plane sketch, ADD, NORMAL, 10 mm). Needs numeric settlement: solid min
+      extent along the normal vs the plane offset, and footprint coincidence with
+      the profile. Note `PartPage.tsx:976` says a sketch on XY+30 renders its ink
+      at z=30 — ink placement and the kernel's plane origin are computed in two
+      places, which is where they drift. Distinguish wrong GEOMETRY from wrong
+      RENDERING; they look identical on screen and have different fixes.
+- [ ] (P1, M) **FB-10 — drawings cannot dimension edge-to-edge, so a shell wall
+      thickness is unmeasurable.** `LinearMeasurement` (`schemas/drawings.py:320`)
+      is edge-length OR point-to-point between two ENDPOINTS. Point-to-point
+      measures those points, not the perpendicular thickness, and is wrong as soon
+      as they are not aligned across the wall. `angular` already takes
+      `edge_a`/`edge_b`, so the two-edge pattern exists and the union is designed
+      to extend additively. Add `EdgeToEdgeMeasurement` with a typed refusal for
+      non-parallel edges rather than a confidently wrong number. Needs a QUIET
+      tree: it regenerates contracts + ts-client.
+- [ ] (P2, S) **FB-11 — nothing in the app says which BUILD it is.** The founder
+      tests from a GitHub Codespace, so a report cannot be tied to a commit and
+      "already fixed or still broken" is unanswerable. Inject the git SHA + build
+      time via Vite `define`, surface it quietly with a `data-testid`. Small, but
+      it removes a whole class of wasted round-trip — two fixes landed mid-session
+      and neither side can say whether the last report included them.
+- [x] (P0, S) **FB-12 — a click that drifts 5 px is silently discarded, which is
+      what "the line wouldn't even select" actually is** (qa-tester, measured
+      2026-08-01; `docs/QA-REVIEW.md` "founder session: the picking reports").
+      `SketchScene.tsx:353` returns early on r3f `e.delta > CLICK_SLOP_PX` (=4).
+      Measured exactly: 0–4 px SELECTS, 5 px DEAD, and dead means nothing at all —
+      no hint, no cursor change, no log. Playwright's `mouse.click` moves ZERO
+      pixels, so the whole suite proves a path no hand takes; a trackpad drifts
+      5–10 px routinely. Fix by intent (did the camera actually orbit / did the
+      pointer leave the target) rather than raising one constant, and add a
+      real-pointer-drift case to the e2e so the gate stops flattering us.
+      Encoded today as a `test.fail()` in `e2e/founder-picking.spec.ts`.
+      FIXED — the rule is now `sketch/clickIntent.ts`, shared by both call sites
+      (drawing surface + plane choice, which carried the same inline 4 and could
+      drift apart). Distance alone was the wrong discriminator, so it is not one
+      constant: <=12 px is a click at any speed (Qt 10 / GTK 8 / Windows 4-at-96dpi
+      = 8 at 2x / the web gates clicks by ZERO distance — 4 was below every
+      convention), 12-24 px is a click only under 0.2 px/ms (a slow wobble is a
+      hand, a fast flick is a pan), beyond that it is a drag. `e2e/click-drift.spec.ts`
+      drives down/move/up so it exercises real travel; mutation-verified by
+      restoring 4, which turns it red while the drag-rejection case stays green.
+- [x] (P1, S) **FB-13 — Escape with nothing selected ENDS the sketch**, so the
+      reflex after a click that appeared to do nothing throws you out of the
+      sketcher (qa-tester, 2026-08-01). `escapeAction` (`sketch/tools.ts:402`)
+      falls through to `"exit"` for tool `select` + empty selection and
+      `PartPage.tsx:1029` routes that to `finishSketch()`. The strip's own
+      caption advertises Esc as SAVE, so one key has two advertised meanings in
+      one state. Compounds FB-12/FB-2: the recovery gesture costs you the sketch.
+      Encoded as a `test.fail()` in `e2e/founder-picking.spec.ts`.
+      FIXED — the cascade unwinds (editor -> placement -> tool -> selection) and
+      then STOPS: `escapeAction` answers `"none"` at rest, and the store raises a
+      hint naming the chip that does finish rather than doing nothing silently.
+      It still answers `"exit"` when the sketch holds no work (the plane-pick
+      step, or an empty buffer), so backing out of a sketch opened by mistake
+      stays keyboard-first. The latent twin went with it: `escape` weighed only
+      `selection`, so a picked constraint GLYPH fell through the same rung and
+      wiped the session. CALLER WORK LEFT, outside this territory —
+      `SketchStrip.tsx` still puts `shortcut="Esc"` on the Save chip (caption and
+      binding must agree), `PartPage.tsx`'s `if (action === "exit")
+      finishSketch()` is now dead for a drawn sketch, and `founder-picking.spec
+      .ts`'s FB-13 `test.fail()` now fails for a NEW reason (no feature is minted
+      at all).
+- [x] (P2, S) **FB-14 — a plain click ACCUMULATES picks instead of replacing
+      them** (`pick.ts:168` `toggleSelection`), so clicking line A then line B
+      selects both and `distance` refuses with "Select one line to dimension."
+      Every other CAD replaces on a plain click and adds on Ctrl/Shift. A user
+      hunting for a click that works builds a selection that cannot be
+      dimensioned. Found while measuring FB-2.
+      FIXED — `applyPick` (`sketch/pick.ts`): a plain click REPLACES (stacked
+      candidates still cycle, one pick at a time), Shift or Ctrl/Cmd ADDS, and a
+      modifier-click that MISSES keeps the selection being assembled. The store
+      reads the modifier state the aim already tracks (Shift = `axisLock`,
+      Ctrl/Cmd = `snapSuppressed`), so no scene change was needed; `selectAt`
+      also takes an explicit mode for a caller holding the click event. The
+      `aria-pressed` fit-point handles stay toggles — the modifier-free
+      multi-select path. Every multi-entity constraint spec now Shift-clicks.
+- [ ] (P1, M) **FB-15 — every draw tool is click-then-click; users expect
+      click-and-DRAG.** `tools.ts` `case "rect"` takes a corner click then a
+      second point click (same shape for line/circle/arc). Press-drag-release is
+      the near-universal convention for a rectangle in every tool the founder
+      compares us to, and the two-click form should remain as the fallback (it is
+      better for precision and for touch), not be replaced. NOTE this composes
+      with FB-12: the click/drag discriminator being built for the 4 px slop is
+      exactly the machinery a drag-to-draw tool needs — do these together or the
+      second will fight the first. Acceptance: press-drag-release draws the
+      rectangle, a click-click still works, and a drag that turns out to be an
+      orbit still orbits. [src: founder 2026-08-01]
+- [ ] (P1, L) **FB-16 — dimensions should be typed AS YOU DRAW, in inline text
+      boxes, not applied afterwards.** "usually dimensions are applied
+      automatically with text boxes." This is how Fusion / SolidWorks / Onshape
+      sketching actually works: draw a rectangle and width/height fields appear at
+      the cursor, Tab moves between them, typing a value DRIVES that dimension and
+      Enter commits — you rarely go back and dimension afterwards. It closes the
+      loop on the founder's very FIRST report ("dimensions are not working when I
+      click a line to [assign] height"): the reason that path felt broken is that
+      it is the wrong path — the dimension is supposed to be offered at creation.
+      We already have the pieces: `dimensionExpr.ts` parses driving expressions,
+      `applyConstraintAction("distance")` returns an editor request rather than a
+      constraint, and `dimension-input` exists. What is missing is the
+      at-the-cursor input during the draw gesture and the Tab order between
+      fields. Design it against `docs/design/pre-selection.md`'s vocabulary so the
+      snap glyph and the dimension field do not fight for the same pixels.
+      [src: founder 2026-08-01]
+- [ ] (P0, M) **FB-17 — the browser suite cannot catch the class of bug the
+      founder found, and that is fixable.** Every FB-* defect this evening lived
+      in the gap between Playwright's API and a hand/eye. Four gaps, each with a
+      concrete gate: (a) INPUT FIDELITY — `mouse.click()` moves 0 px and takes
+      0 ms; a trackpad drifts 5-10 px and dwells 40-120 ms, which is the entire
+      reason FB-12 survived. Add a `handClick(page, x, y, {drift, dwell})` helper
+      that moves, jitters, dwells and releases, sweep drift 0/2/4/6/10 in a spec,
+      and PREFER it over `mouse.click` for interaction tests. (b) REACHABILITY —
+      specs click `getByTestId(...)` on the DOM pick button, so they hit a 24 px
+      dot perfectly and never learn the face is dead; test IDs are right for
+      asserting STATE and wrong for asserting reachability, so pick tests must
+      click a COORDINATE over the rendered entity. (c) MEASURE the affordance:
+      assert a clickable FRACTION of a face's screen area (the QA pass measured
+      2.2 %), not a boolean "the pick worked", which passes on a dot.
+      (d) PERCEPTIBILITY — `countSketchInkPixels` returned 926 729 on the broken
+      screen vs 1 881 on the working one, i.e. it rewards the failure; assert
+      CONTRAST between ink and the surface behind it plus the presence of context
+      in frame. Plus: assert INVARIANTS across actions (record camera direction,
+      extrude, assert unchanged — one line, would have caught FB-1) and
+      occlusion (model screen bbox must not intersect panel rects — FB-7).
+      Acceptance: the helper exists, `founder-picking.spec.ts`'s `test.fail()`
+      cases flip to real assertions as each fix lands, and every new gate is
+      mutation-verified. [src: founder "How do you catch this stuff with
+      playwright?" 2026-08-01]
+- [ ] (P1, L) **FB-18 — a 50x mirror/rotate never finished; it "errored and
+      stopped".** Founder, 2026-08-01. Almost certainly the gateway's typed
+      `upstream_timeout` (`py_kit/errors.py:134`) — which says the honest thing
+      ("we gave up waiting") and is useless to the user, because the work may
+      have been progressing fine. TWO questions, and they have different fixes,
+      so MEASURE before building: (a) is a 50-instance pattern inherently that
+      expensive (rebuild scales ~N^1.85 per docs/PERF.md, so it may legitimately
+      be), or is the pattern RE-EVALUATING its source body per instance? If the
+      latter the fix is caching and no queue is needed. (b) If it is genuinely
+      long, a long compute must stop riding an HTTP request: move evaluation onto
+      the arq/redis queue already on the roadmap so it becomes a JOB — submitted,
+      progress-reported, cancellable, resumable — i.e. "47 of 50, 12 s left,
+      cancel?" instead of a dead request. Note K8s does NOT solve this and adding
+      it would not have helped: an HPA adds replicas for THROUGHPUT and cannot
+      speed up one in-flight request, CPU limits throttle rather than scale, and
+      vertical scaling is capped because OCP does not release the GIL (measured:
+      one geometry worker uses ~1.1 cores whatever the box has, docs/PERF.md
+      §CONCURRENCY). Acceptance: the 50x case named as a benchmark with its
+      measured cost and where the time goes, then the fix that measurement
+      implies. [src: founder 2026-08-01]
+- [ ] (P1, M) **FB-19 — the chrome is too sparse; compact it.** Founder,
+      2026-08-01, and distinct from FB-7: FB-7 stops panels COVERING the model,
+      this makes them worth the pixels they take. Note UI-W4 already did one pass
+      ("feature editors stop being 12-row web forms") and the founder still says
+      it is not dense enough — so treat the previous pass as insufficient rather
+      than done. Evidence is the founder's own photo: `EDIT EXTRUDE` spends six
+      full-width rows on Profile / Distance / Operation / Direction / Merge /
+      actions, every label stacked ABOVE its control, plus a permanently-visible
+      helper sentence ("Fuse into the touching body."); the left panel spends six
+      rows listing XY/XZ/YZ + X/Y/Z axis. Concrete levers, in order of return:
+      label BESIDE control instead of above (halves row height on a form that is
+      almost all short values); the two 2-state toggles (Operation, Direction)
+      onto one row as segmented controls; helper prose behind an info affordance
+      rather than permanently resident; the origin list as a 3x2 grid, not six
+      rows. THE FLOOR, which is not negotiable and must be stated in the commit:
+      WCAG 2.5.8 24px minimum target size (`PickNode` already cites it), visible
+      focus, AA contrast, and the touch specs still green — a panel compacted
+      into unusability on a laptop trackpad is a worse defect than a tall one.
+      Judge it the way the design mandate says: screenshots side by side against
+      a Fusion/Plasticity reference at 1600 AND 1280, and measure the viewport
+      pixels reclaimed rather than asserting it feels tighter. [src: founder
+      2026-08-01]
+- [ ] (P0, L) **FB-20 — the FLOW from sketch to feature, and the parts page,
+      both need an overhaul.** Founder: "we need to fine tune the flow from
+      drawing the sketch. Also, the main pages for selecting parts... Flow is
+      critical for users. Think about it as you build. How should we direct the
+      user? Hopefully in a way to leave fusion and go OS." Now a standing rule in
+      CLAUDE.md's design mandate, so this item is the first concrete cash-out,
+      not the whole of it. TWO surfaces. (a) SKETCH -> FEATURE: today you draw,
+      then hunt. The solved sketch should OFFER its likely next action with the
+      profile already selected; extrude wants a draggable arrow in the viewport
+      with the numeric field as the precision fallback (we have the form and no
+      handle, which is the biggest "not a modeling tool" gap we have); dimensions
+      typed during the draw (FB-16); and no ambiguous exit (FB-13). (b) PARTS
+      PAGE: benchmark Onshape's document list, NOT Fusion's data panel which is
+      genuinely weak — recent-first, searchable, thumbnails that show STATE
+      (solved / errored / stale), folders that do not read as a filesystem (WS2
+      folders already shipped, so this is presentation over an existing model).
+      Acceptance: a named flow walked end to end with the CLICK and KEYSTROKE
+      count before and after, at 1600 and 1280, against a Fusion/Onshape
+      reference — a flow claim with no count is an opinion. Deliberately P0/L:
+      every FB-1..FB-19 report was a flow failure rather than a missing
+      capability, so this is the root the others are symptoms of. [src: founder
+      2026-08-01]
+
+**QA verdicts on the founder block (qa-tester, 2026-08-01, HEAD + bisect):**
+`d8a4126` (PERF-4b) is **EXONERATED — do not revert**: face picking uses drei
+`Html` DOM buttons, `ModelMesh` has no click handler at any of `3cf6650` /
+`d8a4126` / `3f4fbe6`, and every pick probe is identical to the character at all
+three. **FB-2 does not reproduce as stated** (a clean click selects the line and
+`D` dimensions it, everywhere) — FB-12/FB-13 are the real defects behind it.
+**FB-3/FB-5 reproduce**: 32 of 1457 sample points (**2.2 %**) over the body are
+live face targets; the other 97.8 % is dead, and the markers for hidden faces
+draw over the visible ones. **FB-6's z-fighting diagnosis is REFUTED** — the ink
+renders fine; the plane card fills the frame as a featureless grey slab with no
+grid, no body, no scale, and `countSketchInkPixels` goes UP 500× when the sketch
+becomes unusable, so a gate built on it would pass. **FB-9 is not wrong
+geometry**: solid min along the normal equals the plane offset to 0 on XY, XZ,
+YZ and XY+30, volume exactly 10000.000000 mm³, footprint exactly the profile —
+so it is the pre-`5bd4c46` camera snap or a stale Codespace bundle (see FB-11).
+
+
+- [ ] (P1, L) **QA3-2 — a sketch on an imported face has NO reference to the
+      import, and its origin is the face's area centroid** (frontend + geometry).
+      Two things compound: `faces._face_plane` puts the datum origin at the face's
+      AREA centroid (not the part origin, not any feature of the part), and
+      `sketch/snap.ts` snaps only to the sketch's own entities and the grid —
+      never a body edge, a hole centre, or projected geometry — with no way to
+      dimension to imported geometry. Measured consequence: a register ring drawn
+      at sketch (0,0) on a vendor plate's back face came out **0.065111070 mm**
+      eccentric to the shaft bore, exactly the centroid shift a previously-added
+      Ø3 hole caused (`15.5·π·1.5²/(1739.29−15.76π−π·1.5²)`, agreeing to 9
+      decimals) — a scrap part with every number on screen correct. Acceptance:
+      projected/reference geometry from the body into the sketch (at minimum
+      circular-edge centres + straight edges of the sketched face), snappable and
+      dimensionable; and the sketch frame's origin drawn and named against the
+      part. [docs/QA-REVIEW.md 2026-08-01 QA3-2]
+
+- [ ] (P1, M) **SEL-1 — default hover lights the whole body; a working
+      engineer needs the FACE** (`apps/web`). `ModelMesh.tsx`'s pointer handler
+      already resolves the exact face ordinal under the cursor
+      (`faceOrdinalOf`) and throws it away; extend to `onPointerMove`, route
+      the hovered ordinal through the SAME localized-highlight machinery
+      "feature selected" already uses (`setFaceMaterials` + `subsetEdges`), and
+      reuse existing `viewport.facePick.hover`/`viewport.hover` tokens — zero
+      new palette. Graceful fallback to today's whole-body glow when the mesh
+      can't be face-partitioned. Also fixes armed face/edge picks (datum,
+      hole, shell, draft, sketch-on-face, fillet, chamfer): the raycast
+      becomes the PRIMARY hit-test (click anywhere on the face/edge), demoting
+      `PickNode`'s fixed 24px centroid/midpoint button to a keyboard/touch
+      fallback. Design + acceptance A1/A2/A7: `docs/design/pre-selection.md`
+      §1, §6. [src: founder]
+
+- [ ] (P1, S) **SEL-2 — a sketch pick never names what it's about to select**
+      (`apps/web`). `sketch/pick.ts` resolves a winning candidate silently;
+      extend the existing UI-W5 `SnapMarker` (glyph + word, already shipped
+      for drawing) to also render for `hoverPick` in select mode, with one new
+      "on-curve" glyph for the entity case (point cases reuse the endpoint/
+      centre glyphs already in `SNAP_MARKS`). No change to `toggleSelection`'s
+      click-cycle. Design + acceptance A3: `docs/design/pre-selection.md` §2,
+      §6. [src: founder]
+
+- [ ] (P2, S) **SEL-3 — stacked-candidate count badge** (`apps/web`). When
+      `pickCandidates(...).length > 1` (sketch) or a raycast hit disagrees
+      with a nearby armed-pick `PickNode` within tolerance, show a small `+N`
+      badge beside the SEL-2 marker (reuses the app's one round-badge
+      convention — no new tokens) so cycling is discoverable, not silent.
+      Design + acceptance A4: `docs/design/pre-selection.md` §3, §6.
+      [src: founder]
+
+- [ ] (P1, M) **SEL-4 — hovered-face normal arrow, doubling as the extrude/cut
+      direction control** (`apps/web`, `packages/design`). A single brass
+      arrow along the addressed face's normal (planar: `signature.normal`,
+      already computed; curved: the raycast-hit triangle normal) on hover;
+      while Extrude/Cut is armed it becomes a forward/reverse PAIR wired to
+      the editor's existing `direction` field, so the viewport — not a text
+      toggle nobody checks while aiming — shows which side removes material.
+      World-space length clamped to the face's own footprint (mirrors
+      `FacePatch`'s disc-radius formula). New token group `viewport.faceNormal`
+      — see `docs/design/pre-selection.md` §4 for the exact fields. Direct fix
+      for "a cut misses everything going a different way." Acceptance
+      A5/A6. [src: founder]
+
+- [ ] (P2, S) **SEL-5 — the PickNode "DOM-square blanket" is a measured,
+      still-open defect** (`packages/design`). `docs/UI-REVIEW.md`'s
+      2026-07-24 P2 is unfixed: every armed-pick target paints a visible
+      reticle AT REST, always (~22 squares/diamonds on a six-face plate the
+      moment Measure arms). Reduce `PickNode`'s rest-state opacity so the
+      topology highlight (not the DOM grid) carries the "what's under the
+      cursor" read; hover/focus/selected states unchanged. Cheap, isolated,
+      independent of SEL-1's larger raycast plumbing — can ship first.
+      Acceptance A7: `docs/design/pre-selection.md` §6. [src: founder]
+
+- [ ] (P2, M) **SEL-5b — touch two-phase preview/confirm for ambiguous picks**
+      (`apps/web`). Unambiguous tap commits immediately; a tap with >1
+      candidate within touch tolerance previews (SEL-2/SEL-3's marker+badge)
+      and needs a second tap (or a badge tap) to commit — Loft's own
+      considered default, not a verified competitor pattern (neither Fusion's
+      nor Plasticity's touch pre-selection behaviour could be confirmed from
+      public docs this pass). Acceptance A8: `docs/design/pre-selection.md`
+      §5, §6. [src: founder]
+
+- [ ] (P3, M) **SEL-6 — the sketch select tool has no keyboard path at all**
+      (`apps/web`). `sketch/pick.ts` resolves purely from pointer coordinates;
+      a keyboard user cannot Tab to an existing sketch entity or point.
+      Real fix mirrors the lift `FacePickOverlay`/`EdgePickOverlay` already
+      paid: give sketch entities/points focusable `PickNode`-style targets.
+      Named honestly as an open a11y gap, not implied-closed by SEL-2/SEL-3
+      (those extend the *visual* marker; this is the missing input path).
+      `docs/design/pre-selection.md` §5, §7. [src: founder]
+
 - [x] (P1, M) **CONC-1 — a modeler's next click lands on a random worker, and
       that throws away most of what scaling out buys** (platform + backend).
       Measured 2026-08-01 (`docs/PERF.md` §CONCURRENCY): 4 users on 4 geometry
@@ -280,24 +660,28 @@ frame refactor are v2/§11. Spike de-collected.
       that walks `*.dist-info` AND the vendored `.libs` trees (`readelf -d`), and
       re-runs on every OCP/OCCT bump: the vendored set is a property of the
       wheel's build machine and changes without notice. [oss-curator]
-- [ ] (P2, S) **LIC-4 — the GCC runtime libraries may carry a source duty we are
-      not discharging.** Found 2026-08-01 while pinning LIC-2's manifest and left
-      OPEN on purpose rather than papered over. We redistribute `libgomp`,
-      `libgfortran` and `libquadmath` (9 files, GPL-3.0 **with** the GCC Runtime
-      Library Exception), auditwheel-vendored into the OCP/numpy/scipy/
-      scikit-learn wheels from manylinux build images. The exception plainly
-      frees compiled OUTPUT — that is why `check-licences.py` allows them and
-      that classification is right — but distributing the runtime library
-      BINARIES is arguably still a GPL-3.0 conveyance with its own §6 source
-      duty, which is how distros treat it. Blocker: the exact GCC build they came
-      from is not recorded anywhere we can read (the auditwheel SBOM names Ubuntu
-      packages for the OCP wheel's set, but not for numpy/scipy's), so a
-      plausible-looking GCC tarball would be a confident guess, not corresponding
-      source — the exact failure mode LIC-2 was written to avoid. Decide: either
-      derive the versions and add them to `deploy/licenses/corresponding-source.json`
-      (the manifest already supports it), or write the reasoning for why the
-      exception discharges it. Stated in the shipped `CORRESPONDING-SOURCE.md`
-      rather than left silent. docs/LICENSING.md §7.1. [platform-builder]
+- [x] (P2, S) **LIC-4 — the GCC runtime libraries: decided, and all of them
+      identified.** Done 2026-08-01 (platform-builder). DECISION: the GCC Runtime
+      Library Exception discharges the source duty for the way we convey them —
+      §1 permits propagating the Runtime Library combined with Independent
+      Modules "under terms of your choice", and a combined work of Target Code is
+      the only form Loft ever ships. Nothing is mirrored for them. The item's
+      blocker was WRONG, which is the useful part: the exact GCC build IS
+      derivable for every file (8, not 9 — the gate counts). `.comment` →
+      conda-forge GCC 15.2.0-19 for OCP's `libgomp`; auditwheel SBOMs → AlmaLinux
+      8 `gcc 8.5.0-28.el8_10.alma.1` (5 files); GNU **build-id** transfer → numpy's
+      two (it ships no SBOM) are byte-identical builds to scipy's; one wheel
+      further up → scipy's other pair came from scipy-openblas32, whose SBOM names
+      CentOS 7 `libgfortran5 8.3.1-2.1.1.el7` + `libquadmath 4.8.5-44.el7`,
+      confirmed by downloading that wheel and matching build-ids. No upstream
+      GCC 8.3.1 exists, so an FSF tarball would have been the LibRaw-`.orig`
+      mistake again. Ships: `GPL-3.0.txt` + `GCC-RUNTIME-LIBRARY-EXCEPTION-3.1.txt`
+      (GCC's own copies, identical at all three tags), the reasoning + per-file
+      table in `CORRESPONDING-SOURCE.md`, per-file records in the manifest's new
+      `gcc_runtime` block, and a gate: `check-licences.py` reads each build-id and
+      fails on any runtime library the manifest does not account for (4 negative
+      controls in `just licence-selftest`). docs/LICENSING.md §7.5.
+      [platform-builder]
 - [x] (P2, S) **LIC-5 — `pnpm ... dev -- --port N` silently starts Vite on 5173.**
       Done 2026-07-31 (oss-curator, docs half). pnpm 10 DISCARDS the
       npm-idiomatic `--` separator, so the port argument never reaches vite and
@@ -399,12 +783,23 @@ frame refactor are v2/§11. Spike de-collected.
       compresses: it buffers upstream bodies, so `create_upstream_client` now asks
       geometry for `identity` — that alone cut the end-to-end gateway fetch
       57.8 ms → **31.4 ms**. docs/PERF.md "PERF-4 landed". [platform-builder]
-- [ ] (P2, M) **PERF-4b — `tessellate_glb` emits one glTF primitive per B-rep
-      face**, measured at **~425 bytes of JSON per face** plus one draw call per
-      face (2 006 on the sink). The split is required for picking, so carry the
-      face id as a vertex attribute instead of splitting primitives. Frontend-
-      coupled (viewport picks by primitive ordinal today). Compression blunts the
-      byte cost but not the draw calls. [geometry-qa PERF-4]
+- [x] (P2, M) **PERF-4b — one glTF primitive per B-rep face (~425 B of JSON
+      each). Done 2026-08-01 (kernel-architect), and CONDITIONAL, because always
+      fusing is a wire REGRESSION.** Face ids ride a compact side table
+      (`extras.LOFT_face_triangles`), not a vertex attribute — the partition is a
+      run-length by construction, so it costs one int per FACE instead of 4 B per
+      VERTEX. Sink 2 006 prims → **19**, 1 089 348 → **353 868** B raw but
+      **91 837 → 45 086** gzipped (2.04x — report this one). The tray DECLINES:
+      fusing re-bases indices and destroys the byte-identical local index runs
+      deflate was matching, costing 2.2 gz-B/triangle against ~25 gz-B/face, so
+      the first cut shipped it 23 % BIGGER on the wire. Break-even measured at
+      ~20 triangles/face (threshold 12). Draw calls on a selected feature
+      2 006 → **3** (tray 442 → 9) via material-run draw groups — that half
+      helps both encodings. Browser GLB parse 47.2 → **3.4 ms**. Picking proven
+      unmoved three ways (byte-identical per-face triangle streams; every
+      triangle resolves to the pre-PERF-4b ordinal; equal face-ordinal checksums
+      on both benchmark parts). Frame time NOT measured — no GPU here.
+      docs/PERF.md "PERF-4b landed". [geometry-qa PERF-4]
 - [x] (P2, M) **PERF-5a — per-face provenance went dark at ~103 features while its
       docstring said it never would. Done 2026-07-31 (kernel-architect).** Crossing
       point MEASURED, not bracketed: budget 7 242 at N=100, **8 180 at N=105**, so the
@@ -416,15 +811,25 @@ frame refactor are v2/§11. Spike de-collected.
       steady **11-16 % of the request**, so the bound spent the point of the request
       to save a sixth of it. Still degrades the audit-H4 case (20 000-face import =
       budget 40 000). Gated by `test_provenance_budget.py`. [geometry-qa PERF-5]
-- [ ] (P2, M) **PERF-5b — the provenance budget is still the wrong SHAPE: it sums
-      faces over EVERY snapshot, so it is `O(features x faces)`.** Raising the
-      ceiling (5a) bought headroom, not a fix. Attribution needs each snapshot's
-      FINGERPRINTS, not a retained B-rep: fingerprint at production time and keep
-      `list[fingerprint]` instead of `list[BodyShape]`, which makes the pass
-      `O(final faces)` and drops the retained snapshot memory too. Call sites:
-      `features/evaluate.py` `EvaluationState.body_history` (:380, :2907, appended
-      :3099) + `kernel/provenance.py:180`. Blocked on evaluate.py territory only.
-      [geometry-qa PERF-5]
+- [x] (P2, M) **PERF-5b — attribution stops re-deriving what evaluation already
+      knew. SHIPPED 2026-08-01** (kernel-architect). Evaluation now fingerprints each
+      snapshot as it produces it (`FaceProvenanceRecorder` on `EvaluationState.
+      provenance`) and retains `list[FaceFingerprint]`, not `list[BodyShape]`, so the
+      interactive pass is `O(final faces)`: 108.5 → 13 ms at N=25 and **2 347 → 67 ms
+      at N=150** (8.3-35x), and the "steady 11-16 % of the request" is **3.0-6.2 %**.
+      A repeat face pick on the rebuild-cache hit — the one a working user gets — is
+      1 238 → 185 ms at N=100, 2 667 → 435 at N=150. Two mechanisms: fingerprints
+      instead of shapes, and a memo on OCCT shape identity (a boolean shares the
+      `TShape` it did not touch — only **165 distinct faces** exist behind 1 930
+      snapshot faces at N=50), without which the quadratic would merely have moved
+      into the rebuild; the residual face WALK is raw `TopExp_Explorer` because
+      `Shape.faces()` costs 10x it (229 vs 21.6 ms per 61 walks). Attribution proved
+      IDENTICAL on 54 real parts / 1 573 faces (47 tree goldens + tray N=10..100 +
+      heat sink 8/32/128) against the pre-change tree, and permanently gated by a
+      memo-free replay, warm-vs-cold `FaceProvenance` equality, and operation-count
+      gates. Retained memory 4.04 → 2.82 MiB per held evaluation at N=100. NO win on
+      the FACE axis (3-feature heat sink: 1.0-1.1x — its pass was never quadratic),
+      cold only 11-21 % better; both stated in docs/PERF.md. [geometry-qa PERF-5]
 
 - [x] (P1, S) **Audit N4 tail — SET the export `name` at the callers. SHIPPED
       2026-08-01** (frontend-builder). Geometry had honoured an optional `name` on
@@ -1700,6 +2105,32 @@ frame refactor are v2/§11. Spike de-collected.
 
 ## Next (P2)
 
+- [x] (P2, M) **QA3-3 — selecting a Ø3 hole lit the whole plate; a feature now owns
+      the faces whose SURFACE it created. CLOSED 2026-08-01** (kernel-architect).
+      `attribute_faces` credited a face to the earliest feature after which it
+      existed in its FINAL form, so any cut re-bounding a large face took it: the
+      remix's 5th hole owned 3 of 18 — its 75.4 mm² wall plus the vendor plate's
+      1 323.8 mm² top and 1 682.7 mm² back. The rule is now geometric, not a size
+      heuristic (an area cutoff would fit this plate and invert on the first small
+      face drilled — gated by a 3×3×20 post whose 5.9 mm² drilled top is smaller
+      than the 125.7 mm² wall of the same bore): each face resolves to the earliest
+      snapshot that already had its supporting `SurfaceKey` — canonical plane /
+      cylinder / cone / sphere / torus read off the exact B-rep — provided the final
+      patch lies INSIDE that surface's extent then, since a plane is unbounded and
+      two disjoint coplanar cubes would otherwise merge (6/6 → 10/2 on
+      `multibody-two-disjoint-boxes` before the guard). NEMA remix now **1/17 of 18**
+      (hole owns only its bore wall); block+hole 1/6 of 7; chamfer-plate 4/6 not
+      10/0; shell-pinch 8+17 not 17+19; 28 of 47 feature-tree goldens change
+      ownership, none change stored numbers (attribution is not a golden field).
+      No contract change — a face still carries one `feature_id`. Cost: the surface
+      key + extent add ~13.5 µs/face and the index is built by the RECORDER, so the
+      interactive pass stays O(final faces) at 14/23/46 ms (tray N=25/50/100, was
+      13/21/39 by PERF-5b) and recording goes 21/56/155 → 27/71/203 ms.
+      New `test_provenance_surface.py` (11 gates, incl. monotonicity and free-form
+      fallback). `import-remix.spec.ts` exact counts need 3→1 / 15→17 and 6→5 / 5→6
+      (frontend territory; handed over, not edited here).
+      [docs/QA-REVIEW.md 2026-08-01 QA3-3]
+
 - [x] (P2, S) **GATE-1 — CI ran nothing that drove a browser, so a stale spec
       could sit red at HEAD for a day while every commit read green. CLOSED
       2026-08-01** (platform-builder). `.github/workflows/e2e.yml` runs the FULL
@@ -1873,16 +2304,19 @@ frame refactor are v2/§11. Spike de-collected.
       same everyday edits a dimension now does (today they still hard-fail on a
       resized/moved edge). Acceptance: one resolver, one set of tests, a
       fillet-on-a-widened-plate regression. [src: topological-naming §11]
-- [ ] (P2, S) **Frontend half of N1/N2 — say it on screen, not only on the print**
-      (frontend). `DrawingSheet.tsx` still renders its own bare-`!` glyph for a
-      broken dimension (the server now ships
-      `ComposedDimensionError.message`/`text`), `ComposedSheet.layout_issues` is not
-      surfaced at all (an overlapping sheet looks fine in-app and only warns once
-      exported), and `MeasuredDimension.anchor.tier == "durable"` is the signal for
-      a "this dimension re-anchored after your edit — confirm it" badge + a
-      one-click "heal the stored ref" using the returned signature. Acceptance:
-      words beside the marker on screen, a sheet-level layout warning strip, and an
-      e2e that resizes a dimensioned part and reads the new value in-app.
+- [x] (P2, S) **Frontend half of N1/N2 — say it on screen, not only on the print**
+      (frontend). DONE 2026-08-01: the sheet already stamped the composer's words
+      beside a broken marker (`6cc89b1`); this adds the two surfaces that were
+      still missing and the panel tier that dropped both. `ComposedSheet.layout_issues`
+      now raises a **sheet check strip** above the paper (composer's own sentences,
+      per-row Auto-place that resets exactly the hand-placed views of the pair, an
+      advice line where no reset would help) AND stamps the same
+      `drawing-layout-issue` banner on the DOM sheet the three serializers use, so
+      the client SVG export carries it too. `anchor.tier == "durable"` stamps a
+      dashed RE-ANCHORED badge with one-click **Confirm** (append-then-delete;
+      `drawing/anchorHeal.ts`), and an unresolved dimension's typed reason reads in
+      the panel. Gate: `e2e/drawing-reanchor.spec.ts` resizes a dimensioned part
+      100 -> 120 and reads `120.000` in-app, then confirms the reference.
       [src: AUDIT-PRODUCT 2026-07-30 N1/N2]
 - [ ] (P3, S) **A sheet too small for its part is still silent.** The N2 collision
       check measures view-vs-view, not view-vs-BORDER, so a part that outgrows its
@@ -1902,9 +2336,12 @@ frame refactor are v2/§11. Spike de-collected.
       ships the full package, files every friction point. WB-64 (pass #1,
       2026-07-20) and TB-1 (site toolbox, pass #2, 2026-07-20) both ran; the
       2026-07-23 product-audit pass doubles as a bolted-assembly check (found
-      the STEP-export/interference/import gaps now leading Ready). Next
-      scenario due: imported-STEP remix (interop) or spline/loft ergonomic
-      handle (surfacing). [src: WB-64 retro]
+      the STEP-export/interference/import gaps now leading Ready). **Pass #3 ran
+      2026-08-01 — imported-STEP remix (NEMA 17 vendor plate), docs/QA-REVIEW.md:
+      seven closed-form comparisons all exact (vendor rev-B/rev-C re-anchoring to
+      12 s.f.), six defects filed QA3-1..6, two of them P1 ergonomics that make
+      the scenario uncompletable in the UI.** Next scenario due: spline/loft
+      ergonomic handle (surfacing). [src: WB-64 retro]
 - [ ] (P2, S) SM-fmt-1 — bend-table ONE format, ONE layout pass (frontend +
       geometry). Pre-format display-ready cell strings into `ComposedBendTable`
       server-side (`cells: list[list[str]]` alongside numeric `rows`) so
@@ -1969,6 +2406,47 @@ frame refactor are v2/§11. Spike de-collected.
       engineering-auditor F2]
 
 ## Later (P3)
+
+- [ ] (P3, XS) **QA3-4 — the PUBLISHED overlay contract still promises the
+      pre-PERF-4b glTF layout.** `OverlayFace.feature_id`'s description (py-kit →
+      `packages/contracts/gateway.openapi.json`) tells clients "each face's `index`
+      is its `body.faces()` ordinal (== the GLB primitive ordinal, one glTF
+      primitive per B-rep face)". Since `d8a4126` that holds only on the UNFUSED
+      encoding; below 12 triangles/face the ordinal must be recovered from
+      `extras.LOFT_face_triangles`. Measured: 11 B-rep faces arriving in 6
+      primitives. `apps/web` does it right — the CONTRACT is what is wrong, and a
+      third-party client written to it mis-highlights every sparse part. Fix the
+      description + regenerate. [docs/QA-REVIEW.md 2026-08-01 QA3-4]
+- [ ] (P3, M) **QA3-5 — small features are tessellated ~200x finer than the
+      requested deflection, because the angular criterion is radius-independent**
+      (geometry). Every cylindrical face gets 126 circumferential segments
+      whatever its radius. Measured max chord error against the 0.1 mm
+      `DEFAULT_LINEAR_DEFLECTION`: Ø3 hole 0.000467 mm (214x finer), Ø5.2 bore
+      0.000808 (124x), Ø10 bore 0.001554 (64x), Ø22 boss 0.003419 (29x). A 24-face
+      plate meshes to 4 846 triangles, ~1 500 of them in six cylinders under 6 cm²
+      total, and the density pushes such parts to 202 tris/face — well past
+      PERF-4b's threshold of 12, so they decline the fusion that would have removed
+      their per-face JSON. A vendor STEP with a hundred tapped holes pays it on
+      every hole. Acceptance: honour the linear deflection as the binding criterion
+      on small radii (or scale the angular one by radius); goldens re-baselined in
+      the same commit since `mesh_glb_id` is a content hash. [docs/QA-REVIEW.md
+      2026-08-01 QA3-5]
+- [ ] (P3, XS) **QA3-6 — `data-camera-pos` reads like a live camera hook and is
+      not.** It is stamped only on a programmatic view SETTLE (fit / view command),
+      never on a user orbit or pan, so a touch-orbit probe that WORKS looks broken
+      — it produced a false positive during dogfooding pass #3 before being
+      root-caused. Either stamp it on control change or rename it to say what it
+      means. (`import-remix.spec.ts` asserts on a canvas raster fingerprint
+      instead.) [docs/QA-REVIEW.md 2026-08-01 QA3-6]
+
+- [x] (P3, XS) **`MAX_PROVENANCE_FACES`' docstring still files a fix that shipped.**
+      DONE 2026-08-01 (orchestrator, same day it was filed): the four lines now
+      describe the shipped design — attribution is O(final faces) since PERF-5b —
+      and say what is still TRUE of the arithmetic, namely that the budget counts
+      summed snapshot faces because that bounds the work of PRODUCING the
+      fingerprints. So 30 000 is headroom against the recording pass, not against a
+      quadratic attribution pass. Filed by kernel-architect, which correctly
+      declined to reach into `packages/**` outside its territory.
 
 - [ ] (P3, S) **A lost dimension's caption can overrun into a neighbouring view
       — and it does so identically on the exported sheet** (kernel/drawings).
@@ -2197,6 +2675,19 @@ Full narrative evidence lives in `docs/ROADMAP.md` (Phase 4/4b sections) and
 `CHANGELOG.md`; one line per item below per token economy.
 
 ### Recently shipped (2026-08-01)
+
+- **QA3-1 — you can drill where you want now.** Placement was two points, the
+  face's area CENTROID and its corners, so on the dogfooding plate (whose centre
+  IS the Ø5.2 shaft bore) a 5th mounting hole was impossible through the UI. The
+  point is now dialled in: X/Y cells in the face's frame re-checked on every
+  keystroke, a live material verdict that NAMES the opening a bad point fell
+  into, and a snap to every circular edge in the face's plane (concentric /
+  bolt-circle). The frame is STATED rather than implied — its zero is the part
+  origin projected onto the face, never the area centroid, because the centroid
+  moves and that is QA3-2's mechanism; the card says it and the viewport draws
+  it on the model. The typed `hole_off_body` is untouched and still reachable:
+  the client check WARNS, it never blocks the write. e2e drills the 5th hole at
+  (15.5, 0) and reads 14 179.47 mm³, closed-form exact.
 
 - **GATE-2 — the `.dockerignore` allow-list lost an entry and only `deploy-path`
   noticed.** LIC-2 added `scripts/corresponding_source.py` to the runtime `COPY`
@@ -2745,6 +3236,29 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
       engineering-audit debt items closed. [src: engineering-auditor]
 
 ## Changelog
+
+- 2026-08-01 — **Escape no longer ends your sketch, and a click no longer piles
+  up (frontend-builder):** FB-13/FB-14 — the cascade unwinds and then stops (it
+  still backs out of a sketch holding no work); plain click replaces, Shift or
+  Ctrl/Cmd adds. `e2e/sketch-escape-select.spec.ts` is red on the old behaviour.
+
+- 2026-08-01 — **You can drill where you want (frontend-builder):** QA3-1 —
+  numeric X/Y in the picked face's STATED frame, a per-keystroke material check
+  that names the opening you are in, and concentric snaps to every circular edge
+  on the face.
+
+- 2026-08-01 — **Dogfooding pass #3, the imported-STEP remix (qa-tester):** a
+  NEMA 17 vendor plate imported, remixed and re-revved through the real stack.
+  Seven closed-form comparisons exact (rev-B/rev-C swaps re-anchored five
+  downstream features to 12 s.f.); six defects filed QA3-1..6, two P1 —
+  you cannot drill where you want, and a sketch on an imported face has no
+  reference to the import (measured: a 0.065111070 mm eccentric register).
+
+- 2026-08-01 — **The drawing says on screen what it said on the print
+  (frontend-builder):** N1/N2's frontend half — a sheet check strip for
+  `layout_issues` (with the Auto-place that fixes each pair), a RE-ANCHORED badge
+  + one-click Confirm for a `durable` anchor, and the typed reason beside an
+  unresolved dimension. e2e resizes a dimensioned part and reads 120.000 in-app.
 
 - 2026-08-01 — **CONC-1/2/3: more than one person can use it now
   (backend-builder):** gateway session affinity over a comma-separated

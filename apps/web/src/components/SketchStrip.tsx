@@ -965,14 +965,17 @@ export function SketchStrip({
               />
             </ToolGroup>
 
-            {/* Esc is on SAVE, not on Exit. The sketch Escape cascade unwinds
-                the most local thing first and, at rest, calls `finishSketch` —
-                the same handler as this button — so Esc SAVES. Until 2026-07-30
-                the chip sat on Exit under the caption "Esc discards", which was
-                the exact opposite of the binding: a user who wanted the sketch
-                gone pressed Esc and PERSISTED it, and a user who wanted to keep
-                it avoided Esc, clicked Exit, and lost everything unasked
-                (UI-REVIEW 2026-07-30 F1). */}
+            {/* NO Esc chip here — finishing is a CLICK. History, because this
+                caption has been wrong twice in opposite directions. Until
+                2026-07-30 it sat on Exit saying "Esc discards" while Esc in fact
+                SAVED (UI-REVIEW F1); it was moved here to tell the truth. Then
+                FB-13 (founder, 2026-08-01) showed the binding itself was the
+                defect: Escape at rest ended the sketch, so the reflex after a
+                click that appeared to do nothing cost you the sketcher. Escape
+                is a CANCEL key in every tool we benchmark against and never
+                commits, so it now unwinds and then stops. Advertising it here
+                would restore exactly the caption-vs-binding disagreement F1
+                exists to prevent. */}
             <ToolGroup eyebrow="Finish" aria-label="Finish sketch">
               <ToolButton
                 icon={<CheckIcon />}
@@ -981,15 +984,14 @@ export function SketchStrip({
                 }
                 caption={
                   bound
-                    ? "Esc · edits save live"
-                    : `Esc · ${entityCount} ${entityCount === 1 ? "entity" : "entities"}`
+                    ? "edits save live"
+                    : `${entityCount} ${entityCount === 1 ? "entity" : "entities"}`
                 }
-                shortcut="Esc"
                 data-testid="sketch-save"
                 aria-label={
                   bound
-                    ? "Finish sketch (saved; Escape also finishes)"
-                    : "Save sketch (Escape also saves)"
+                    ? "Finish sketch (edits are already saved)"
+                    : "Save sketch"
                 }
                 aria-busy={saving}
                 disabled={saving || (!bound && entityCount === 0)}

@@ -30,9 +30,9 @@ def evaluate_overlay(request: OverlayRequest) -> OverlayResult:
     enumeration are pure functions of the request.
     """
     # The ONLY caller that asks for body history: per-face provenance below needs
-    # the per-feature snapshots, and no other evaluate path does (audit H4 — the
-    # flag keeps tessellate / export / measure / drawings / assembly from retaining
-    # an intermediate B-rep per feature they never read).
+    # the per-feature face fingerprints, and no other evaluate path does (audit H4 —
+    # the flag keeps tessellate / export / measure / drawings / assembly from paying
+    # a GProp per face per feature for an answer they never read).
     evaluation = evaluate_tree(request.tree, record_history=True)
     if evaluation.body is None:
         raise tree_no_body_error(
@@ -47,7 +47,7 @@ def evaluate_overlay(request: OverlayRequest) -> OverlayResult:
         # edges/signatures path is unchanged. Bounded by MAX_PROVENANCE_FACES
         # (audit H4): past it every feature_id is null and the client falls back to
         # whole-body selection — the picking/measure overlay itself still works.
-        face_features = attribute_faces(evaluation.body, evaluation.body_history)
+        face_features = attribute_faces(evaluation.body, evaluation.face_provenance)
         return selection_overlay(
             evaluation.body, request.tree.linear_deflection, face_features
         )

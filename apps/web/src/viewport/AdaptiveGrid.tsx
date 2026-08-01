@@ -10,7 +10,7 @@
  */
 import { Grid } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import type { Mesh, Quaternion, ShaderMaterial } from "three";
 
 export interface AdaptiveGridProps {
@@ -22,6 +22,16 @@ export interface AdaptiveGridProps {
   sectionColor: string;
   position?: readonly [number, number, number];
   quaternion?: Quaternion;
+  /**
+   * This grid is laid ON a surface (the sketcher's plane grid sits on the model
+   * face being sketched), so bias it toward the camera in depth-buffer units to
+   * break the coplanar tie. Depth TESTING stays on — anything genuinely in
+   * front still occludes it. Off for the world grid, which is coplanar with
+   * nothing. drei's `Grid` does not forward material props, so it is set on the
+   * material directly; polygon offset is read per-draw by WebGLState, so no
+   * shader recompile is involved.
+   */
+  coplanar?: boolean;
 }
 
 /** Fade reaches this many orbit radii — past the frame edge at any zoom. */
@@ -36,8 +46,17 @@ export function AdaptiveGrid({
   sectionColor,
   position,
   quaternion,
+  coplanar = false,
 }: AdaptiveGridProps) {
   const ref = useRef<Mesh>(null);
+
+  useEffect(() => {
+    const material = ref.current?.material as ShaderMaterial | undefined;
+    if (material === undefined) return;
+    material.polygonOffset = coplanar;
+    material.polygonOffsetFactor = coplanar ? -2 : 0;
+    material.polygonOffsetUnits = coplanar ? -2 : 0;
+  }, [coplanar]);
 
   useFrame(({ camera, controls }) => {
     const mesh = ref.current;

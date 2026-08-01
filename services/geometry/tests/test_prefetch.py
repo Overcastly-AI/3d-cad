@@ -45,6 +45,7 @@ from geometry.features.evaluate import (
     reset_rebuild_cache,
     warm_rebuild_cache,
 )
+from geometry.kernel import FaceProvenance
 from geometry.main import app
 from geometry.mesh_store import configure_mesh_store, fetch_mesh_glb
 from geometry.rebuild_cache import (
@@ -101,7 +102,10 @@ class Answer:
     glb: bytes | None
     volume: float | None
     last_good: uuid.UUID | None
-    history: int
+    #: The per-feature face fingerprints themselves (PERF-5b), not merely how
+    #: many: a resume keeps the recorder — memo included — so warm-vs-cold
+    #: equality here is what gates that attribution cannot depend on cache state.
+    provenance: FaceProvenance
 
 
 def _answer(request: EvaluateTreeRequest, *, record_history: bool = False) -> Answer:
@@ -113,7 +117,7 @@ def _answer(request: EvaluateTreeRequest, *, record_history: bool = False) -> An
         glb=evaluation.glb,
         volume=None if result.properties is None else result.properties.volume,
         last_good=result.last_good_feature_id,
-        history=len(evaluation.body_history),
+        provenance=evaluation.face_provenance,
     )
 
 
@@ -303,7 +307,7 @@ def test_warming_the_provenance_lineage_serves_the_first_face_pick() -> None:
     index = _first_editable_float_index(payload)
     edited = _request(_retype(payload, index))
     cold = _cold(edited, record_history=True)
-    assert cold.history > 0
+    assert len(cold.provenance.snapshots) > 0
 
     reset_rebuild_cache()
     warm_rebuild_cache(_request(payload), prefix_length=index)  # plain lineage only
