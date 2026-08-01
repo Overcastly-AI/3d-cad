@@ -12,10 +12,18 @@ import { createPartViaApi, distinctCanvasColors, seedSession } from "./support";
  * the dimension editor, at every commit tested. What is NOT fine is everything
  * around it, and each of those is pinned below.
  *
- * Three of these tests are `test.fail()`: they encode the defect as it exists
- * today, so the suite stays green while the bug is open AND turns red the
- * moment somebody fixes it without flipping the annotation. Deleting the
- * annotation (not the test) is part of each fix.
+ * The `test.fail()` cases here encode a defect as it exists TODAY, so the suite
+ * stays green while the bug is open AND turns red the moment somebody fixes it
+ * without flipping the annotation. Resolving the annotation is part of each fix.
+ *
+ * Status, kept current because a stale census here is itself a defect (this
+ * block said "three" for a while after two had been resolved):
+ *   - FB-2  — never reproduced; kept as a live baseline guard, a plain `test`.
+ *   - FB-12 — FIXED `b6d2f2d` (sketch/clickIntent.ts); flipped to a plain
+ *     `test` that fails if the 4 px slop ever returns.
+ *   - FB-13 — FIXED `d2e2162`; case REMOVED, not flipped (see the note below —
+ *     it had also gone stale, waiting on a row that is no longer minted).
+ *   - FB-3/FB-5 — STILL OPEN: the face itself is not a click target.
  */
 
 /** Enter the sketcher on a base plane with snap OFF, so clicks land on pixels. */
@@ -114,33 +122,23 @@ test.describe("founder picking reports", () => {
     await expect(page.getByTestId("dimension-input")).toBeVisible();
   });
 
-  test.fail(
-    "FB-13: Escape with nothing selected throws you out of the sketch",
-    async ({ page }) => {
-      const account = await seedSession(page);
-      const part = await createPartViaApi(page, account.token, "Escape");
-      await page.goto(`/parts/${part.id}`);
-      await sketchOnXY(page);
-      await drawProbeRectangle(page);
-
-      // `escapeAction` (sketch/tools.ts) falls through to "exit" when the tool
-      // is `select` with an empty selection — so the reflex "press Esc to start
-      // over" ends the sketch. The strip's own caption advertises Esc as SAVE,
-      // which is a second, different meaning for the same key in the same
-      // state. A user who thinks nothing selected and taps Esc loses the
-      // sketcher, which is how "the line wouldn't select" becomes unrecoverable.
-      await page.keyboard.press("Escape");
-
-      // Wait on the CONSEQUENCE, not a clock: `finishSketch` persists the
-      // sketch and the tree row appears, which proves the Escape was routed to
-      // "exit" and the save round trip has completed. Only then is it fair to
-      // ask whether the sketcher survived.
-      await expect(page.getByTestId("feature-row")).toHaveCount(1, {
-        timeout: 30_000,
-      });
-      await expect(page.getByTestId("sketch-strip")).toBeVisible();
-    },
-  );
+  /*
+   * FB-13 is FIXED and its case has been REMOVED rather than flipped.
+   *
+   * `d2e2162` gave `escapeAction` a "none" rung: at rest with work in the
+   * sketch Escape now unwinds nothing and says so, and "exit" survives only
+   * when there is nothing to lose. The behaviour is covered end to end by
+   * `sketch-escape-select.spec.ts` (6 tests), so re-asserting it here would be
+   * duplication.
+   *
+   * Deleting it also removes a live trap. The case was written to wait up to
+   * 30 s for the feature row that `finishSketch` used to mint — a row that is
+   * now never created. It still "failed as expected" under `test.fail()`, so
+   * the suite stayed green while the assertion had quietly stopped meaning
+   * anything, at a cost of ~35 s every run. A `test.fail()` that passes for a
+   * NEW reason is the same defect class as a green gate measuring the wrong
+   * thing: read why it failed, never just that it did.
+   */
 
   test.fail(
     "FB-3/FB-5: clicking a highlighted face does not seat the sketch on it",

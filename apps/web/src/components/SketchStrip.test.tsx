@@ -34,26 +34,36 @@ beforeEach(() => {
   useSketchStore.getState().exit();
 });
 
-describe("the Esc chip names the key's real behaviour", () => {
-  it("puts Esc on SAVE, because the Escape cascade calls finishSketch", () => {
+describe("no chip advertises Escape, because Escape no longer commits", () => {
+  /*
+   * This block used to assert the OPPOSITE — that Esc was advertised on SAVE —
+   * and it was correct at the time (UI-REVIEW F1: the caption had sat on Exit
+   * saying "Esc discards" while Esc actually saved). FB-13 then showed the
+   * BINDING was the defect: Escape at rest ended the sketch, so the reflex
+   * after a click that appeared to do nothing cost you the sketcher. `d2e2162`
+   * made Escape unwind and then stop, like every tool we benchmark against.
+   *
+   * So the invariant survives and its sign flips: caption and binding must
+   * AGREE. Neither chip may advertise a key that does not do that thing.
+   */
+  it("does not put Esc on SAVE — Escape no longer saves", () => {
     drawUnsavedRectangle();
     render(<SketchStrip onSave={vi.fn()} saving={false} saveError={null} />);
 
-    // The load-bearing half: Esc is advertised on the button it actually runs.
-    expect(screen.getByTestId("sketch-save").textContent).toContain("Esc");
+    const save = screen.getByTestId("sketch-save");
+    expect(save.textContent).not.toContain("Esc");
+    expect(save.getAttribute("aria-label")).not.toMatch(/escape/i);
   });
 
-  it("never tells the user Esc discards", () => {
+  it("never tells the user Esc discards, either", () => {
     drawUnsavedRectangle();
     render(<SketchStrip onSave={vi.fn()} saving={false} saveError={null} />);
 
+    // The original F1 inversion. Still guarded: Escape destroys nothing now,
+    // so claiming it discards would be as wrong as claiming it saves.
     const exit = screen.getByTestId("sketch-exit");
-    // The exact inversion that shipped for months. If someone reintroduces the
-    // old caption on either button, this fails.
     expect(exit.textContent).not.toContain("Esc");
-    expect(
-      screen.getByTestId("sketch-save").getAttribute("aria-label"),
-    ).toMatch(/Escape also saves/i);
+    expect(exit.getAttribute("aria-label")).not.toMatch(/escape/i);
   });
 
   it("says how much Exit would destroy, and that it asks first", () => {
