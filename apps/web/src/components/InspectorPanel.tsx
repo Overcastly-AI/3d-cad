@@ -60,7 +60,12 @@ export function InspectorPanel({
           />
         </PanelSection>
 
-        <PanelSection eyebrow="Mass properties">
+        {/* PROPERTIES, not "mass properties" (materials.md §6.1): a title is a
+            claim, and this demo surface tessellates a raw box — there is no
+            document to carry a material, so `properties.mass_g` is null here
+            forever. The part workspace's panel earns the word when a material
+            gives it a mass; this one never can, so it never says it. */}
+        <PanelSection eyebrow="Properties">
           <PanelRow
             label="Volume"
             unit={volumeUnitLabel(unit)}

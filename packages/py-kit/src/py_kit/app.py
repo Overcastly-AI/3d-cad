@@ -1,9 +1,10 @@
 """FastAPI app factory — every Loft service boots through :func:`create_app`.
 
-Wires (in one place, DRY): structured logging, request-id middleware, the
-standard error envelope, and the infra probes ``/healthz`` (liveness) and
-``/readyz`` (readiness). Probes are infrastructure, deliberately *not* under
-``/api/v1`` and excluded from the OpenAPI schema.
+Wires (in one place, DRY): structured logging, request-id middleware, response
+compression, the standard error envelope, Prometheus metrics, and the infra
+probes ``/healthz`` (liveness) and ``/readyz`` (readiness). Probes and
+``/metrics`` are infrastructure, deliberately *not* under ``/api/v1`` and
+excluded from the OpenAPI schema.
 """
 
 import uuid
@@ -11,8 +12,10 @@ from collections.abc import Awaitable, Callable, Sequence
 
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
+from starlette.middleware.gzip import GZipMiddleware
 from starlette.types import Lifespan
 
+from py_kit.admission import AdmissionGate
 from py_kit.config import BaseServiceSettings
 from py_kit.errors import install_error_handlers
 from py_kit.logging import (
@@ -21,6 +24,7 @@ from py_kit.logging import (
     configure_logging,
     get_logger,
 )
+from py_kit.metrics import install_metrics
 
 ReadinessCheck = Callable[[], Awaitable[str | None]]
 """Async callable that returns on success and raises on failure. Its
@@ -30,6 +34,24 @@ when the dependency isn't configured yet) to report a non-default healthy
 state."""
 
 REQUEST_ID_HEADER = "X-Request-ID"
+
+#: gzip level for response compression. Explicit, because Starlette's default
+#: (9) is strictly WORSE than 6 on our real payloads — measured on the two
+#: docs/PERF.md big parts, level 9 produced *more* bytes than level 6 (221 553
+#: vs 220 873 on the tray; 92 180 vs 91 837 on the heat sink — level 9's larger
+#: match window is a pessimisation on interleaved float streams) while costing
+#: 4-9x the CPU (73 ms vs 17 ms; 90 ms vs 10 ms). Level 6 keeps the full 5.2x /
+#: 11.9x ratio for ~10-17 ms on a ~1.1 MiB mesh. See docs/PERF.md PERF-4.
+COMPRESSION_LEVEL = 6
+
+#: Smallest response body worth compressing, in bytes. Set to one Ethernet MTU
+#: rather than Starlette's 500: below ~1 500 B the body still rides in a single
+#: TCP segment, so compression cannot save a round trip and only costs CPU on
+#: both ends plus a ``Vary: Accept-Encoding`` that fragments caches. The
+#: numbers this route actually sees (docs/PERF.md PERF-4): a small box mesh is
+#: ~3 KiB and DOES compress; an error envelope or a probe body is ~100 B and
+#: does not.
+COMPRESSION_MINIMUM_SIZE = 1500
 
 _logger = get_logger("py_kit.app")
 
@@ -50,6 +72,45 @@ def create_app(
     configure_logging(settings)
     app = FastAPI(title=title, version=version, lifespan=lifespan)
     install_error_handlers(app)
+
+    # The admission gate lives on app.state for every service, and costs two
+    # integers in the services that never queue anything: only routes carrying
+    # ``py_kit.admission.ADMISSION_CONTROL`` consult it (today, geometry's OCCT
+    # surface — docs/PERF.md CONC-2). Installed here rather than per service so
+    # the knobs, the metric names and the 503 envelope cannot drift apart.
+    app.state.admission_gate = (
+        AdmissionGate(
+            concurrency=settings.admission_concurrency,
+            queue_depth=settings.admission_queue_depth,
+            max_wait_s=settings.admission_max_wait_s,
+        )
+        if settings.admission_enabled
+        else None
+    )
+
+    # Response compression, wired ONCE for every service (DRY): the GLB mesh
+    # route is the hottest binary path in the product and shipped raw until
+    # PERF-4. Registered BEFORE the request-id middleware so it ends up
+    # INNERMOST — Starlette applies user middleware outermost-last, and gzip
+    # must sit closest to the routes so it sees a complete, buffered body and
+    # can emit a correct ``Content-Length``. Outside the request-id
+    # BaseHTTPMiddleware it would only ever see a stream and fall back to
+    # chunked, dropping the length the browser uses for download progress.
+    #
+    # WHEN THE FIRST STREAMING RESPONSE LANDS, READ THIS. Every response in the
+    # product is buffered today, which is the only reason the placement above is
+    # unambiguously right. A ``StreamingResponse`` or SSE endpoint inverts the
+    # trade: gzip would buffer it to compress, destroying the incrementality that
+    # was the point of streaming, and a long-lived SSE stream would simply never
+    # flush. Starlette's gzip has no per-route opt-out, so the exemption has to be
+    # explicit — send ``Content-Encoding: identity`` from that route, or move the
+    # streaming endpoints onto a sub-application without this middleware. Do not
+    # "fix" it by relaxing ``minimum_size``; the size is not the variable.
+    app.add_middleware(
+        GZipMiddleware,
+        minimum_size=COMPRESSION_MINIMUM_SIZE,
+        compresslevel=COMPRESSION_LEVEL,
+    )
 
     @app.middleware("http")
     async def request_id_middleware(
@@ -94,5 +155,12 @@ def create_app(
                 "checks": checks,
             },
         )
+
+    # Metrics LAST, so the middleware is OUTERMOST: what it times is what the
+    # client waits for (compression, request-id binding, the error envelope and
+    # the handler), not a handler-only slice that would flatter every number.
+    # See :mod:`py_kit.metrics` for what is exported and the ``/metrics``
+    # exposure posture — it is not public by default.
+    install_metrics(app, settings)
 
     return app

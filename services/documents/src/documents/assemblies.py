@@ -49,6 +49,7 @@ from py_kit.schemas.assemblies import (
     mate_instance_ids,
 )
 from py_kit.schemas.features import EvaluatedFeatureInput
+from py_kit.schemas.materials import MaterialAssignment
 from pydantic import TypeAdapter
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
@@ -60,7 +61,8 @@ from documents.assembly_history import (
     ordered_instances,
     ordered_mates,
 )
-from documents.features import evaluation_prefix
+from documents.features import evaluation_prefix, part_materials
+from documents.filing import resolve_destination
 from documents.history_core import Direction
 from documents.parts import (
     Principal,
@@ -274,10 +276,16 @@ def _instance_part_key(instance: db.Instance) -> str:
     return f"{instance.ref_document_id}@{version}"
 
 
-async def _instance_feature_prefix(
+async def _instance_part_inputs(
     session: AsyncSession, owner_id: uuid.UUID, instance: db.Instance
-) -> list[EvaluatedFeatureInput]:
-    """The instanced part's evaluation-ready feature prefix, or an empty list.
+) -> tuple[list[EvaluatedFeatureInput], MaterialAssignment | None]:
+    """The instanced part's evaluation-ready feature prefix AND its materials.
+
+    Both come from the SAME part row read (one query, not two) and both are what
+    the part's own evaluation-request carries, so an instance evaluates to the
+    identical body and the identical mass as opening that part does
+    (docs/design/materials.md §3). An empty prefix pairs with ``None`` materials:
+    a part that contributes no body contributes no mass either.
 
     A PART instance resolves to its referenced part's rollback-applied, upcast prefix
     (:func:`documents.features.evaluation_prefix`, reused VERBATIM — one rollback/upcast
@@ -294,11 +302,11 @@ async def _instance_feature_prefix(
     Owner-scoping is defense-in-depth (references are same-owner enforced at write).
     """
     if instance.ref_document_kind != "part":
-        return []  # nested sub-assembly flatten deferred (v1) — geometry no_body
+        return [], None  # nested sub-assembly flatten deferred (v1) — no_body
     part = await session.get(db.Part, instance.ref_document_id)
     if part is None or part.owner_id != owner_id:
-        return []  # deleted / foreign referenced part → typed no_body downstream
-    return await evaluation_prefix(session, part)
+        return [], None  # deleted / foreign referenced part → typed no_body
+    return await evaluation_prefix(session, part), part_materials(part)
 
 
 async def build_evaluate_assembly_request(
@@ -317,22 +325,30 @@ async def build_evaluate_assembly_request(
     """
     instances = await ordered_instances(session, assembly.id)
     mates = await ordered_mates(session, assembly.id)
-    return EvaluateAssemblyRequest(
-        assembly_id=assembly.id,
-        version=assembly.doc_version,
-        instances=[
+    evaluated: list[EvaluatedInstance] = []
+    for instance in instances:
+        features, materials = await _instance_part_inputs(
+            session, assembly.owner_id, instance
+        )
+        evaluated.append(
             EvaluatedInstance(
                 instance_id=instance.id,
                 part_key=_instance_part_key(instance),
                 name=instance.name,
-                features=await _instance_feature_prefix(
-                    session, assembly.owner_id, instance
-                ),
+                features=features,
+                # The instanced part's OWN materials (materials.md §3) — the
+                # assembly has no material of its own; its mass is the sum of
+                # what its parts are made of, and is unknown while any part has
+                # no material.
+                materials=materials,
                 placement=Placement.model_validate(instance.placement),
                 grounded=instance.grounded,
             )
-            for instance in instances
-        ],
+        )
+    return EvaluateAssemblyRequest(
+        assembly_id=assembly.id,
+        version=assembly.doc_version,
+        instances=evaluated,
         mates=[
             EvaluatedMate(
                 mate_id=mate.id,
@@ -351,9 +367,17 @@ async def build_evaluate_assembly_request(
 async def create_assembly(
     request: AssemblyCreate, owner_id: Principal, session: SessionDep
 ) -> AssemblyResponse:
-    """Create an assembly (201; envelope 409 on a duplicate name for this owner)."""
+    """Create an assembly (201; 409 on a duplicate name IN ITS FOLDER).
+
+    ``folder_id`` files it on creation (#WS2) — see :func:`documents.parts.
+    create_part` for why filing is part of the create rather than a second call.
+    """
+    await resolve_destination(session, owner_id, request.folder_id, "assembly")
     assembly = db.Assembly(
-        owner_id=owner_id, name=request.name, length_unit=request.length_unit
+        owner_id=owner_id,
+        name=request.name,
+        folder_id=request.folder_id,
+        length_unit=request.length_unit,
     )
     session.add(assembly)
     try:
@@ -1015,8 +1039,11 @@ async def _restore_history_step(
             await session.commit()
         except IntegrityError:
             await session.rollback()
-            # Assumption (reviewed 2026-07-18): the only constraint a restore
-            # can violate at flush/commit is uq_assemblies_owner_name —
+            # Assumption (reviewed 2026-07-18; re-checked at #WS2): the only
+            # constraint a restore can violate at flush/commit is the assembly
+            # name's uniqueness — now the per-folder pair
+            # (uq_assemblies_folder_name / uq_assemblies_unfiled_name), which
+            # narrows what can collide rather than widening it —
             # instances/mates were bulk-replaced with internally-consistent
             # snapshot rows and cross-document refs are checked by the
             # integrity pass above. Revisit if the snapshot state ever grows

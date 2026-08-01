@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+
 import { expect, test, type Page } from "./fixtures";
 
 import { setupTwoInstances, waitForSolved } from "./assemblyFlow";
@@ -43,9 +45,16 @@ test.describe("Assembly inspect — export + interference", () => {
     const downloadPromise = page.waitForEvent("download");
     await step.click();
     const download = await downloadPromise;
-    expect(download.suggestedFilename()).toMatch(/\.step$/);
+    // Named after the ASSEMBLY, inside and out (audit N4): the download is
+    // `bolted-plates.step` and its ROOT PRODUCT carries the document name, so
+    // a shop that receives the file can tell what it is — and two assemblies
+    // exported in a row do not overwrite each other in Downloads.
+    expect(download.suggestedFilename()).toBe("bolted-plates.step");
     const path = await download.path();
     expect(path).toBeTruthy();
+    const content = await readFile(path, "utf-8");
+    expect(content.startsWith("ISO-10303-21")).toBe(true);
+    expect(content).toContain("PRODUCT('Bolted plates'");
 
     await page.screenshot({
       path: `${SCREENSHOT_DIR}/assembly-export-desktop.png`,

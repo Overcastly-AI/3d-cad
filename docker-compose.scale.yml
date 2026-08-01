@@ -1,0 +1,72 @@
+# Loft geometry fan-out — four workers with session affinity (CONC-1).
+#
+#   docker compose -f docker-compose.yml -f docker-compose.scale.yml up -d
+#
+# WHY THIS FILE EXISTS AND `--scale geometry=4` DOES NOT REPLACE IT. Scaling one
+# service gives every replica the same DNS name, so the gateway cannot address
+# them individually and Docker's round-robin decides where each request lands.
+# That is measurably the WRONG policy here (docs/PERF.md 2026-08-01: four users,
+# four workers, four cores, against ONE worker as the baseline):
+#
+#   sticky (this file)   3.75x   each modeler pays single-user latency
+#   round-robin          2.06x   1.8x lost to rebuild-cache dilution alone
+#   random (--scale)     1.21x   a further 1.7x lost to arrival imbalance
+#
+# A geometry worker uses ~1.1 cores no matter what — OCP does not release the
+# GIL — so you get throughput by running MORE PROCESSES, and the processes only
+# pay for themselves if a modeler keeps landing on the one holding their rebuild
+# checkpoint. Naming the replicas is what lets the gateway do that.
+#
+# This overlay ADDS geometry-2/3/4; the base file's `geometry` is worker 1, so
+# nothing is left running idle and the base `depends_on` still holds.
+#
+# SIZING: one worker per core, ~1 GiB RAM each, one concurrent modeler per
+# worker. Four workers wants a 4-core / 8-16 GiB host. Four workers on two cores
+# is worse than two workers on two cores. See docs/OPERATIONS.md §6.
+#
+# REQUIRES a SHARED mesh store (S3_URL, which the base file already points at
+# the bundled MinIO). Without it each worker keeps meshes in its own process
+# memory and a mesh written by worker 2 is a 404 on worker 3 — geometry refuses
+# to start multi-worker in that configuration on purpose.
+#
+# TO USE A DIFFERENT COUNT: add or delete a geometry-N block and edit
+# GEOMETRY_URL to match. A listed-but-absent worker is not fatal — the gateway
+# marks it unhealthy on the first failure and re-routes its modelers to a live
+# one (cold cache, so slower; never stranded) — but those modelers pay a failed
+# connect on the way, so keep the list true.
+
+name: loft
+
+x-geometry-worker: &geometry-worker
+  build:
+    context: .
+    dockerfile: deploy/docker/service.Dockerfile
+    args:
+      SERVICE_NAME: geometry
+      IMAGE_LICENSES: "MIT AND LGPL-2.1-or-later"
+  environment:
+    PORT: "8002"
+    LOG_FORMAT: ${LOG_FORMAT:-json}
+    REDIS_URL: redis://redis:6379/0
+    S3_URL: http://minio:9000
+    S3_BUCKET: ${S3_BUCKET:-loft}
+    S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-loft-minio}
+    S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-loft-minio-dev-only}
+    LOFT_ENV: ${LOFT_ENV:-dev}
+    ADMISSION_CONCURRENCY: ${ADMISSION_CONCURRENCY:-1}
+    ADMISSION_QUEUE_DEPTH: ${ADMISSION_QUEUE_DEPTH:-8}
+    ADMISSION_MAX_WAIT_S: ${ADMISSION_MAX_WAIT_S:-20}
+  depends_on:
+    redis:
+      condition: service_healthy
+    minio:
+      condition: service_healthy
+
+services:
+  gateway:
+    environment:
+      GEOMETRY_URL: "http://geometry:8002,http://geometry-2:8002,http://geometry-3:8002,http://geometry-4:8002"
+
+  geometry-2: *geometry-worker
+  geometry-3: *geometry-worker
+  geometry-4: *geometry-worker

@@ -323,6 +323,52 @@ def test_0011_offline_downgrade_drops_projection_unique(
     assert "DROP CONSTRAINT uq_views_sheet_projection" in sql
 
 
+def test_0012_offline_sql_adds_the_nullable_last_evaluate_record(
+    alembic_ini: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sql = _offline_sql(alembic_ini, monkeypatch, "0011:0012")
+    # feature-tree.md §4.4a — three NULLABLE columns; all-NULL IS the "never
+    # evaluated" state, so there is deliberately NO server default to invent a
+    # verdict for a part nobody ever evaluated.
+    assert "ALTER TABLE parts ADD COLUMN last_eval_status VARCHAR(16)" in sql
+    assert "ALTER TABLE parts ADD COLUMN last_eval_at TIMESTAMP WITH TIME ZONE" in sql
+    assert "ALTER TABLE parts ADD COLUMN last_eval_tree_version BIGINT" in sql
+    assert "NOT NULL" not in sql
+    assert "DEFAULT" not in sql
+    # The version stamp is what makes staleness DERIVABLE rather than assumed;
+    # a status column on its own would be the stored-BOM-number failure mode.
+    assert sql.index("last_eval_status") < sql.index("last_eval_tree_version")
+
+
+def test_0012_offline_downgrade_drops_the_record(
+    alembic_ini: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sql = _offline_sql(alembic_ini, monkeypatch, "0012:0011", downgrade=True)
+    assert "ALTER TABLE parts DROP COLUMN last_eval_tree_version" in sql
+    assert "ALTER TABLE parts DROP COLUMN last_eval_at" in sql
+    assert "ALTER TABLE parts DROP COLUMN last_eval_status" in sql
+
+
+def test_0014_offline_sql_adds_the_nullable_scope(
+    alembic_ini: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sql = _offline_sql(alembic_ini, monkeypatch, "0013:0014")
+    assert "ALTER TABLE parts ADD COLUMN last_eval_scope VARCHAR(16)" in sql
+    # No backfill and no default: a row written before the column existed does
+    # not know its scope, and defaulting it to 'whole' would re-create the
+    # over-claim (audit J3) the column exists to prevent.
+    assert "NOT NULL" not in sql
+    assert "DEFAULT" not in sql
+    assert "UPDATE parts" not in sql
+
+
+def test_0014_offline_downgrade_drops_the_scope(
+    alembic_ini: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sql = _offline_sql(alembic_ini, monkeypatch, "0014:0013", downgrade=True)
+    assert "ALTER TABLE parts DROP COLUMN last_eval_scope" in sql
+
+
 async def _table_names(url: str) -> set[str]:
     engine = create_async_engine(async_dsn(url))
     try:
@@ -333,6 +379,70 @@ async def _table_names(url: str) -> set[str]:
             return {row[0] for row in result}
     finally:
         await engine.dispose()
+
+
+def test_0015_offline_sql_renders_the_partial_uniques(
+    alembic_ini: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#WS2 — the folder tree, and per-FOLDER document name uniqueness.
+
+    The assertions worth having here are the PARTIAL predicates. Uniqueness that
+    only covers filed documents would silently permit two unfiled "Bracket"s
+    (SQL treats NULLs as distinct), which is the state most documents are in;
+    the ``WHERE folder_id IS NULL`` half is the one that closes it, and it is
+    invisible from the ORM metadata alone.
+    """
+    sql = _offline_sql(alembic_ini, monkeypatch, "0014:0015")
+
+    # The tree: self-FK, RESTRICT so a folder delete can never take a folder
+    # with it, and sibling-name uniqueness split over the NULL boundary.
+    assert "CREATE TABLE folders" in sql
+    assert (
+        "CONSTRAINT fk_folders_parent FOREIGN KEY(parent_id) REFERENCES folders (id) "
+        "ON DELETE RESTRICT" in sql
+    )
+    assert (
+        "CREATE UNIQUE INDEX uq_folders_parent_name ON folders "
+        "(owner_id, kind, parent_id, name) WHERE parent_id IS NOT NULL" in sql
+    )
+    assert (
+        "CREATE UNIQUE INDEX uq_folders_root_name ON folders (owner_id, kind, name) "
+        "WHERE parent_id IS NULL" in sql
+    )
+
+    for table in ("parts", "assemblies", "drawings"):
+        assert f"ALTER TABLE {table} ADD COLUMN folder_id UUID" in sql
+        # RESTRICT: the DB backstop behind the 409-with-contents refusal.
+        assert (
+            f"ALTER TABLE {table} ADD CONSTRAINT fk_{table}_folder "
+            "FOREIGN KEY(folder_id) REFERENCES folders (id) ON DELETE RESTRICT" in sql
+        )
+        # The old per-owner rule goes; the per-folder PAIR replaces it.
+        assert f"ALTER TABLE {table} DROP CONSTRAINT" in sql
+        assert (
+            f"CREATE UNIQUE INDEX uq_{table}_folder_name ON {table} "
+            "(owner_id, folder_id, name) WHERE folder_id IS NOT NULL" in sql
+        )
+        assert (
+            f"CREATE UNIQUE INDEX uq_{table}_unfiled_name ON {table} (owner_id, name) "
+            "WHERE folder_id IS NULL" in sql
+        )
+        # The owner-scoped list scan the dropped constraint used to serve.
+        assert f"CREATE INDEX ix_{table}_owner ON {table} (owner_id)" in sql
+
+
+def test_0015_offline_downgrade_restores_the_owner_unique(
+    alembic_ini: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sql = _offline_sql(alembic_ini, monkeypatch, "0015:0014", downgrade=True)
+    assert "DROP TABLE folders" in sql
+    for table in ("parts", "assemblies", "drawings"):
+        assert f"DROP INDEX uq_{table}_folder_name" in sql
+        assert f"ALTER TABLE {table} DROP COLUMN folder_id" in sql
+        assert (
+            f"ALTER TABLE {table} ADD CONSTRAINT uq_{table}_owner_name "
+            "UNIQUE (owner_id, name)" in sql
+        )
 
 
 def test_migrations_apply_and_downgrade_on_real_postgres(
@@ -355,11 +465,13 @@ def test_migrations_apply_and_downgrade_on_real_postgres(
         "annotations",
         "part_snapshots",
         "assembly_snapshots",
+        "folders",
         "alembic_version",
     }
 
     alembic_runner(pg_url, "base", downgrade=True)
     remaining = asyncio.run(_table_names(pg_url))
+    assert "folders" not in remaining
     assert "assembly_snapshots" not in remaining
     assert "part_snapshots" not in remaining
     assert "features" not in remaining
@@ -389,4 +501,5 @@ def test_migrations_apply_and_downgrade_on_real_postgres(
         "annotations",
         "part_snapshots",
         "assembly_snapshots",
+        "folders",
     }

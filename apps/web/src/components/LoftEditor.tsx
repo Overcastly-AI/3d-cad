@@ -49,6 +49,7 @@ import {
   removeSectionAt,
   setSectionAt,
 } from "../features/loft";
+import { EditorCard } from "./EditorCard";
 
 export interface LoftEditorProps {
   mode: "create" | "edit";
@@ -121,10 +122,7 @@ export function LoftEditor({
   const canRemove = form.sections.length > MIN_LOFT_SECTIONS;
 
   return (
-    <div
-      className="absolute left-editor top-3 w-editor max-w-full"
-      onKeyDown={onKeyDown}
-    >
+    <EditorCard onKeyDown={onKeyDown}>
       <Panel aria-label="Loft" data-testid="loft-editor">
         <div className="border-b border-hairline">
           <h2 className="px-3 pb-1 pt-3 font-display text-2xs uppercase tracking-[0.18em] text-gauge">
@@ -270,7 +268,7 @@ export function LoftEditor({
           {error}
         </p>
       ) : null}
-    </div>
+    </EditorCard>
   );
 }
 

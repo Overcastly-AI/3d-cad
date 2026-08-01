@@ -14,10 +14,12 @@ millimetres, encoded in field names (``distance_mm``) exactly as
 :mod:`py_kit.schemas.geometry` does.
 """
 
+import re
 import uuid
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
 from datetime import datetime
+from types import MappingProxyType
 from typing import Annotated, Any, Literal, Self, assert_never, cast, get_args
 
 from pydantic import (
@@ -27,6 +29,7 @@ from pydantic import (
     model_validator,
 )
 
+from py_kit.metrics import record_feature_error
 from py_kit.schemas.geometry import (
     DEFAULT_ANGULAR_DEFLECTION,
     DEFAULT_LINEAR_DEFLECTION,
@@ -36,6 +39,7 @@ from py_kit.schemas.geometry import (
     ShapeProperties,
     Vec3,
 )
+from py_kit.schemas.materials import MaterialAssignment, MaterialKey
 from py_kit.schemas.sketch import (
     EntityId,
     SketchConstraintDiagnosis,
@@ -95,6 +99,14 @@ MAX_LOFT_SECTIONS = 100
 #: while bounding the resolve + kernel-op fan-out of one feature.
 MAX_SELECTOR_REFS = 500
 
+#: Ceiling on the features one `features`-scope mirror may name
+#: (docs/design/mirror-semantics.md §3.1/§9). Each selected feature costs one
+#: exact reflection plus one boolean at rebuild, so the bound is the same shape
+#: as MAX_SELECTOR_REFS — far past any real "mirror these features" selection
+#: (a whole part is tens of features) while keeping one mirror's kernel fan-out
+#: bounded. Over the ceiling is a parse-time 422, never a kernel blow-up.
+MAX_MIRROR_SCOPE_FEATURES = 500
+
 #: Non-empty (post-strip), bounded feature name.
 FeatureName = Annotated[
     str,
@@ -105,6 +117,23 @@ FeatureName = Annotated[
 
 #: A JSON object — the shape of a stored params payload before validation.
 JsonObject = dict[str, Any]
+
+
+def _drop_schema_default(schema: dict[str, Any]) -> None:
+    """Strip the ``default`` key from a field's generated JSON schema.
+
+    ``openapi-typescript`` (default ``default-non-nullable``) makes any property
+    that advertises a ``default`` NON-optional in the generated TS type — so a
+    defaulted field would force EVERY existing feature literal in the web app to
+    supply it, defeating the "additive-optional, backward-compatible" contract.
+    Dropping the schema ``default`` (the python default still applies on
+    validation) makes such a field OPTIONAL in the client, so existing callers
+    that omit it keep compiling and the server fills the default in. The
+    ``description`` still documents the absent-reads-<default> behaviour. Shared
+    (CLAUDE.md DRY) by the envelope's ``suppressed`` flag and the mirror's
+    ``scope``.
+    """
+    schema.pop("default", None)
 
 
 # --- §2.1 GeomRef — the reference vocabulary -----------------------------------
@@ -1521,6 +1550,101 @@ class PatternParamsV1(BaseModel):
 # `geometry.kernel.mirror`, surfacing as `mirror_failed` (a degenerate/failed
 # reflection) or `no_target_body` (no prior body) / `reference_unresolved` (the
 # plane names a missing/later/non-datum feature) under the strict-prefix rule.
+#
+# v2 — THE SCOPE (docs/design/mirror-semantics.md, 2026-07-29). The v1 contract is
+# ONE field (`plane`) and the semantic is INFERRED from the body chain; §1 of that
+# design proves with three measured numbers that no inference rule can be right for
+# every chain, because three legitimate intents map onto the SAME tree shape and
+# demand three different volumes (30629.3807 / 29600.0 / 28800.0). The ambiguity is
+# in the INPUT, so `scope` removes it there: a `kind`-discriminated union with
+# exactly two members — `body` (the v1 reading, now NAMED) and `features` (an
+# explicit, non-empty, TREE-ORDERED selection). This is what SolidWorks ("Features
+# to Mirror"), Fusion (Mirror → Type: Features) and Onshape all do.
+#
+# Additive under feature-tree §1.4 (`param_version` stays 1): a persisted mirror
+# with no `scope` key normalises to `{"kind": "body"}` through
+# :meth:`MirrorParamsV1._legacy_body_scope` — the SAME before-validator idiom
+# `DatumFeature._legacy_offset_kind` uses for legacy kind-less datum params — so
+# every existing row and every shipped golden validates AND evaluates on the
+# unchanged v1 code path. There is deliberately NO automatic "mirror everything up
+# to here" default (§3.3: the natural spelling of "everything" returns 28800.0 on a
+# chain that LOCKS 29600.0).
+
+
+class MirrorBodyScope(BaseModel):
+    """``scope: {"kind": "body"}`` — reflect the CURRENT BODY (the v1 reading).
+
+    The v1 semantic, NAMED rather than implied (design §3.1): the mirror reflects
+    the body that exists at its point in the tree, cut-aware — when the active body
+    carries a recorded cut whose reflected tool still reaches it the mirror reflects
+    that REMOVAL, otherwise it reflects and unions the whole body. Kept verbatim
+    (§6.1): the shipped goldens' byte identity is STRUCTURAL, not measured, because
+    this scope dispatches to code the v2 work did not touch.
+    """
+
+    kind: Literal["body"] = "body"
+
+
+class MirrorFeaturesScope(BaseModel):
+    """``scope: {"kind": "features", "features": [...]}`` — reflect these features.
+
+    The v2 reading (design §2b/§4): each selected feature's RECORDED RIGID TOOL
+    SOLID(S) are reflected about the plane and that feature's OWN operation
+    (``fuse``/``cut``) is re-applied to the active body, in TREE order — never array
+    order (§8.1: array order is UI-incidental, so honouring it would make identical
+    models tessellate to different bytes). Parameters are never re-derived: a
+    reflected circular pattern is correct precisely because its PLACEMENTS are
+    reflected, where re-deriving the axis would wind the ring backwards (§4.5).
+
+    ``features`` names :class:`FeatureRef`s rather than bare UUIDs so each selection
+    materialises into ``feature_dependencies`` for free (feature-tree §2.3): deleting
+    a mirrored feature is a 409-with-dependents, a reorder re-checks the
+    strict-backward rule, and a forward/self reference is a write-time 422. A
+    non-body-affecting or non-reflectable kind (``sketch``/``datum``, and every
+    MODIFIER — fillet/chamfer/shell/draft and the sheet-metal family, which have a
+    RESULT and no tool, §4.3) is refused with the typed per-feature
+    ``mirror_feature_unsupported`` at rebuild.
+
+    ``min_length=1`` because an empty selection is authoring nonsense, not a no-op
+    mirror (§3.1), and duplicate ids are a 422 rather than silently deduplicated —
+    naming a feature twice leaves the intent (twice? once?) unstated, which is the
+    mistake v1 made.
+    """
+
+    kind: Literal["features"]
+    features: list[FeatureRef] = Field(
+        min_length=1,
+        max_length=MAX_MIRROR_SCOPE_FEATURES,
+        description="The features to reflect, each a `FeatureRef` to an earlier "
+        "body-affecting feature of this tree. Applied in TREE order (the array "
+        "order is ignored — design §8.1); at least one, at most "
+        "MAX_MIRROR_SCOPE_FEATURES (work bound); duplicates are a 422.",
+    )
+
+    @model_validator(mode="after")
+    def _reject_duplicate_features(self) -> Self:
+        """Duplicate selected ids are a 422 (design §8.1), never deduplicated."""
+        seen: set[uuid.UUID] = set()
+        for ref in self.features:
+            if ref.feature_id in seen:
+                raise ValueError(
+                    f"Mirror scope names feature {ref.feature_id} more than once; "
+                    "a feature is reflected exactly once, so a duplicate leaves "
+                    "the intent unstated. Remove the repeat."
+                )
+            seen.add(ref.feature_id)
+        return self
+
+
+#: The mirror's SCOPE union (design §3.1), discriminated on ``kind``: `body` (v1)
+#: or `features` (v2). A discriminated union rather than
+#: ``features: list[FeatureRef] | None`` deliberately — ``None`` and "mirror the
+#: body" would be two spellings of one meaning, the exact smell that made v1's
+#: semantic implicit. A future third reading (``kind: "bodies"``, multi-body
+#: selection) joins additively with no ``param_version`` bump.
+MirrorScope = Annotated[
+    MirrorBodyScope | MirrorFeaturesScope, Field(discriminator="kind")
+]
 
 
 class MirrorParamsV1(BaseModel):
@@ -1548,6 +1672,12 @@ class MirrorParamsV1(BaseModel):
     body is unchanged. A degenerate/failed reflection is a per-feature
     ``mirror_failed`` rebuild error; a mirror with no prior body is
     ``no_target_body`` — never a silently wrong body.
+
+    ``scope`` (v2, design §3) states WHAT is reflected — the whole ``body`` (the
+    reading above, kept verbatim) or an explicit selection of ``features``. It
+    defaults to ``body`` and a persisted params blob with no ``scope`` key reads as
+    ``body`` (:meth:`_legacy_body_scope`), so every mirror authored before v2
+    evaluates on unchanged code.
     """
 
     plane: GeomRef = Field(
@@ -1555,6 +1685,34 @@ class MirrorParamsV1(BaseModel):
         "an earlier `datum` feature (`FeatureRef`); the SAME plane vocabulary a "
         "sketch uses (discriminated on `kind`)"
     )
+    scope: MirrorScope = Field(
+        default_factory=MirrorBodyScope,
+        description="WHAT to reflect (discriminated on `kind`): `body` reflects the "
+        "current body (the v1 reading — cut-aware, with the reflect-and-union "
+        "fallback), `features` reflects the recorded tool solids of an explicit "
+        "tree-ordered selection and re-applies each feature's own boolean. Absent "
+        "reads `body`, so pre-v2 mirrors are unchanged (design §3.2).",
+        json_schema_extra=_drop_schema_default,
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _legacy_body_scope(cls, data: Any) -> Any:
+        """Read a scope-less (or explicitly null) params blob as the ``body`` scope.
+
+        The v2 additive migration (design §3.2), the SAME idiom
+        :meth:`DatumFeature._legacy_offset_kind` uses: params persisted before
+        ``scope`` existed carry only ``{plane}``, so normalising the missing key to
+        ``{"kind": "body"}`` keeps them valid with NO stored-shape change and NO
+        ``param_version`` bump. ``scope: null`` is normalised too, so a client that
+        round-trips an omitted optional as an explicit null is not a 422.
+        """
+        if not isinstance(data, dict):
+            return data
+        fields = cast("dict[str, Any]", data)
+        if fields.get("scope") is not None:
+            return fields
+        return {**fields, "scope": {"kind": "body"}}
 
 
 # --- Import params — bring an external STEP part in as the base body ------------
@@ -2081,22 +2239,6 @@ class SheetMetalCornerReliefParamsV1(BaseModel):
 # --- §1.3 Versioned envelopes ----------------------------------------------------
 
 
-def _drop_schema_default(schema: dict[str, Any]) -> None:
-    """Strip the ``default`` key from a field's generated JSON schema.
-
-    ``openapi-typescript`` (default ``default-non-nullable``) makes any property
-    that advertises a ``default`` NON-optional in the generated TS type — so a
-    defaulted envelope field would force EVERY existing feature literal in the
-    web app to supply it, defeating the "additive-optional, backward-compatible"
-    contract. Dropping the schema ``default`` (the python default still applies
-    on validation) makes ``suppressed`` an OPTIONAL ``suppressed?: boolean`` in
-    the client, so existing callers that omit it keep compiling and the server
-    fills in ``False``. The ``description`` still documents the absent-reads-False
-    behaviour.
-    """
-    schema.pop("default", None)
-
-
 class FeatureEnvelopeBase(BaseModel):
     """Envelope fields EVERY feature type carries besides its typed ``params``.
 
@@ -2532,6 +2674,20 @@ class FeatureTypeRegistry[ModelT: BaseModel]:
                     f"{sources} does not reach v{current} contiguously"
                 )
 
+    def models(self) -> Mapping[str, type[ModelT]]:
+        """Every registered ``type`` → its CURRENT envelope model (read-only view).
+
+        Exposed so a GATE can enumerate the shipped feature vocabulary instead of
+        hand-listing it. The geometry composition matrix's coverage audit
+        (``test_pair_matrix_covers_every_shipped_verb``) derives its required rows
+        from here, so a new body-affecting verb — in particular a new CUT verb —
+        cannot ship without a matrix row or an explicitly-reasoned exemption
+        (docs/GEOMETRY-QA.md 2026-07-30: a hand-listed axis is exactly how
+        revolve/sweep/loft cuts stayed invisible to the matrix). Read-only: the
+        registry stays the only mutator of its own tables.
+        """
+        return MappingProxyType(self._models)
+
     def current_version(self, feature_type: str) -> int:
         """The current params version of *feature_type* (raises if unknown)."""
         try:
@@ -2916,6 +3072,25 @@ def feature_references(feature: FeatureEnvelope) -> tuple[FeatureReference, ...]
                         "plane", feature.params.plane, frozenset({"datum"})
                     )
                 )
+            # v2 `features` scope (mirror-semantics.md §3.1): each selected feature
+            # IS a real dependency — the mirror reflects that feature's recorded
+            # tools — so every ref materialises into feature_dependencies with the
+            # BODY-AFFECTING allowed-target rule (the same constraint the on-face
+            # datum / picked fillet use). Consequences bought for free at write
+            # time: deleting a mirrored feature is a 409-with-dependents, a reorder
+            # re-checks strict-backward, a forward/self reference is a 422, and a
+            # `sketch`/`datum` selection is a 422 long before it could be an
+            # evaluation-time `mirror_feature_unsupported` (§4.4). The `body` scope
+            # carries no refs — tree order remains its only dependency.
+            if isinstance(feature.params.scope, MirrorFeaturesScope):
+                for index, ref in enumerate(feature.params.scope.features):
+                    references.append(
+                        FeatureReference(
+                            f"scope.features[{index}]",
+                            ref,
+                            BODY_AFFECTING_FEATURE_TYPES,
+                        )
+                    )
         case ImportFeature():
             # An import PRODUCES the base body from its own inline STEP params
             # (step-import.md §1) — no picked geometry, no FeatureRef, so it
@@ -3117,6 +3292,80 @@ class FeatureMutationResponse(BaseModel):
     tree_version: int
 
 
+#: What holds a reference to a feature: another FEATURE of the same part (an
+#: extrude consuming its sketch, a fillet naming an edge of an earlier result),
+#: or a DRAWING whose section view cuts on this feature's datum (audit P2 #16).
+#: Nothing else can — an assembly instances a whole PART, never a feature — so
+#: the union is closed and a client may exhaustively switch on it.
+FeatureDependentKind = Literal["feature", "drawing"]
+
+
+class FeatureDependent(BaseModel):
+    """One thing that breaks if a feature is deleted.
+
+    ``name`` rides beside the id for the same reason it does on
+    :class:`~py_kit.schemas.workspace.DocumentDependent`: the reader is a person
+    who named these things, and "referenced by 2 other document(s)" — which is
+    what this refusal used to say — ends the conversation instead of starting
+    the next action.
+    """
+
+    id: uuid.UUID = Field(description="The REFERENCING feature's or drawing's id")
+    name: str = Field(description="Its name, as the user sees it in the tree/register")
+    kind: FeatureDependentKind = Field(
+        description="'feature' (a later feature of this part) or 'drawing' (a "
+        "section view cutting on this feature)"
+    )
+
+
+class FeatureDependents(BaseModel):
+    """What depends on one feature — the answer to "what breaks if I delete it?"
+
+    Serves TWO surfaces from one shape, which is the point (CLAUDE.md DRY):
+
+    - the ``details`` payload of the delete's ``feature_has_dependents`` 409, and
+    - the body of ``GET …/features/{id}/dependents``, which the tree asks BEFORE
+      offering the delete, so the confirmation can name what breaks instead of
+      letting the user find out from a refusal.
+
+    Both are produced by one server-side query, so the warning a user reads and
+    the refusal the server would issue cannot disagree. Empty means the feature
+    is free to delete — an honest, common answer, unlike the 409 payload
+    (:class:`FeatureDependentsEnvelope`) which by construction is never empty.
+    Features first (tree order — the order the user reads them in), then
+    drawings alphabetically.
+    """
+
+    dependents: list[FeatureDependent] = Field(
+        description="Everything referencing this feature; EMPTY when nothing does"
+    )
+
+
+class FeatureDependencyConflictError(BaseModel):
+    """The ``error`` member of a feature-delete 409, with typed ``details``."""
+
+    code: str = Field(
+        description="'feature_has_dependents' — the code a client branches on"
+    )
+    message: str = Field(description="Human summary; the tree shows the list")
+    details: FeatureDependents
+    request_id: str | None = Field(
+        default=None, description="Correlation id of the refused request"
+    )
+
+
+class FeatureDependentsEnvelope(BaseModel):
+    """A feature-delete 409 as it appears on the wire (standard envelope).
+
+    Declared as the documented 409 model of the feature delete so it reaches
+    ``packages/contracts`` and therefore the generated TS client — the tree
+    lists the features by name from a TYPE rather than from a hopeful parse of
+    an untyped ``details`` blob (UI-REVIEW 2026-07-30 F3).
+    """
+
+    error: FeatureDependencyConflictError
+
+
 class FeatureReorderRequest(BaseModel):
     """Reorder the whole tree: the complete permutation of feature ids in the
     desired evaluation order. Backward-only references (design §2.2 rule 2)
@@ -3170,7 +3419,13 @@ class EvaluateTreeRequest(BaseModel):
     """
 
     part_id: uuid.UUID
-    tree_version: int = Field(description="Echoed back; cache/correlation key")
+    tree_version: int = Field(
+        ge=0,
+        description="The part tree_version documents composed this request from. "
+        "Echoed back verbatim on the result, where it is the PROVENANCE stamp of "
+        "the returned body (EvaluateTreeResult.tree_version) as well as a "
+        "cache/correlation key.",
+    )
     features: list[EvaluatedFeatureInput] = Field(
         max_length=MAX_TREE_FEATURES,
         description="Ordered prefix (rollback already applied), bounded by "
@@ -3182,6 +3437,207 @@ class EvaluateTreeRequest(BaseModel):
         description="Presentation parameter (mm), NEVER persisted per feature "
         "(design §8.3). Floored at MIN_LINEAR_DEFLECTION (work bound, audit G2).",
     )
+    materials: MaterialAssignment | None = Field(
+        default=None,
+        description="What the part's bodies are made of (docs/design/"
+        "materials.md): a document default plus per-body overrides. Omitted / "
+        "null = no material, so the result reports NO mass (absent, not zero). "
+        "Unlike length units — presentation metadata the kernel never sees — "
+        "material is an INPUT to evaluation, because mass is derived from it.",
+    )
+
+
+#: Which cached lineage a warm should build. They are separate cache lineages,
+#: not variations of one (``record_history`` is part of the prefix key): a
+#: history-recording evaluation retains an intermediate body per body-affecting
+#: feature and a plain one retains none, so a plain prefix cannot serve per-face
+#: provenance. Named for what the user is about to do, not for the flag:
+#:
+#: * ``evaluate`` — the rebuild behind committing the edit;
+#: * ``provenance`` — the rebuild behind the FIRST FACE PICK after that commit,
+#:   which is the visible one (docs/PERF.md measures 29 s at 200 features).
+WarmLineage = Literal["evaluate", "provenance"]
+
+#: Cap on how many lineages one warm may chain. Two exist; the bound is here so
+#: a caller cannot turn one declaration of intent into unbounded speculation.
+MAX_WARM_LINEAGES = 2
+
+
+# ATTRIBUTION NOTE (orchestrator, 2026-08-01): the four prefetch/warm DTOs below
+# (WarmTreeRequest, WarmTreeResult, WarmCancelRequest, PrefetchRequest, plus
+# WarmLineage / PrefetchTargetKind) were written by the kernel agent for PERF-1b
+# and shipped in `e2f3fa0`. They landed in the *tree* one commit earlier, in
+# `17404ab` (folders), because that agent staged this file wholesale while the
+# prefetch work was uncommitted in it. No work was lost and `17404ab` is green on
+# its own — the models are unreachable from any route in that tree, so its
+# OpenAPI is unchanged — but `git log` credits the wrong slice. Annotating rather
+# than rewriting shared history that siblings have already rebased onto.
+
+
+class WarmTreeRequest(BaseModel):
+    """Ask the geometry worker to speculatively cache a feature-tree prefix.
+
+    **This request cannot produce an artifact** (docs/PERF.md PERF-1b): the only
+    thing it can do is make a LATER, ordinary evaluate cheaper by leaving an
+    evaluator checkpoint in the per-worker rebuild cache, addressed by the same
+    content hash that evaluate probes. There is deliberately no "prefetched
+    result" to fetch — see :class:`WarmTreeResult`.
+
+    It is issued on a genuine declaration of intent, and only those two:
+
+    * an **open feature editor** — editing feature ``k`` declares ``0..k-1``
+      settled for as long as the dialog is open, so ``tree`` is the current tree
+      and ``prefix_length`` is ``k``;
+    * a **travel stop** on the timeline — that is a shorter tree in its own
+      right, so ``tree`` IS the shorter tree and ``prefix_length`` is omitted.
+    """
+
+    ticket: Annotated[str, StringConstraints(min_length=1, max_length=200)] = Field(
+        description="Opaque identity of the INTENT, chosen by the caller and "
+        "namespaced by the gateway per user. Submitting a ticket that is already "
+        "running is a no-op (a re-render must not restart its own warm), a new "
+        "ticket supersedes the running one, and `POST /warm/cancel` with this "
+        "ticket retires it — which is what closing the editor or ending the drag "
+        "does."
+    )
+    tree: EvaluateTreeRequest = Field(
+        description="The tree whose prefix to warm — the very request a later "
+        "evaluate will send, so the warm lands on the key that request probes."
+    )
+    prefix_length: int | None = Field(
+        default=None,
+        ge=1,
+        le=MAX_TREE_FEATURES,
+        description="How many leading features of `tree` to evaluate; null = all "
+        "of them. Clamped to the tree's length. An open editor for feature k "
+        "sends k here (an edit at k cannot change the hash of anything before "
+        "it); a travel stop sends null and a shorter tree.",
+    )
+    lineages: list[WarmLineage] = Field(
+        default_factory=lambda: ["evaluate"],
+        max_length=MAX_WARM_LINEAGES,
+        description="Which cache lineages to warm, in priority order, under ONE "
+        "shared budget — so a truncated warm always got the first one done. An "
+        "open editor asks for both: the commit reads `evaluate`, the face pick "
+        "that follows it reads `provenance`.",
+    )
+
+
+#: What the user did that makes a prefix worth speculating on. Both are genuine
+#: declarations of intent — which is the entire admission criterion, because
+#: prefetch hides latency and never reduces work:
+#:
+#: * ``feature_edit`` — the editor for this feature is OPEN, so every feature
+#:   before it is settled for as long as the dialog is;
+#: * ``travel_stop`` — the timeline's rollback marker is being dragged to this
+#:   feature, and that stop is a shorter tree in its own right.
+#:
+#: Register/document hover is deliberately NOT here: it is ordinary client-side
+#: query prefetch and worth nothing against a rebuild curve.
+PrefetchTargetKind = Literal["feature_edit", "travel_stop"]
+
+
+class PrefetchRequest(BaseModel):
+    """Warm the rebuild cache for a part, addressed the way the CLIENT sees it.
+
+    The browser knows the intent and the feature id; it does not know (and must
+    not assemble) the evaluation-ready feature list — documents owns that,
+    rollback bar and param upcasts included. So this carries the intent, and the
+    gateway turns it into the geometry service's :class:`WarmTreeRequest` using
+    the SAME ``/evaluation-request`` hop a real evaluate uses, which is what
+    makes the warm land on the key the real evaluate will probe.
+
+    Best-effort by construction: a target that is not in the current evaluation
+    prefix (rolled back past, or already deleted) is a 200 with
+    ``accepted: false``, never an error — a prefetch that cannot be honoured just
+    means the next rebuild is as slow as it always was.
+    """
+
+    ticket: Annotated[str, StringConstraints(min_length=1, max_length=100)] = Field(
+        description="Client-chosen identity of this intent (e.g. one per open "
+        "editor). Namespaced per user by the gateway, so one client can never "
+        "cancel another's speculation."
+    )
+    part_id: uuid.UUID = Field(description="The part being edited or scrubbed.")
+    kind: PrefetchTargetKind
+    feature_id: uuid.UUID = Field(
+        description="The feature the intent points at: the one whose editor is "
+        "open, or the one the travel stop is being dropped after."
+    )
+
+
+class WarmCancelRequest(BaseModel):
+    """Retire a warm ticket. Idempotent, and never an error."""
+
+    ticket: Annotated[str, StringConstraints(min_length=1, max_length=200)] = Field(
+        description="The ticket submitted to `POST /warm`. Unknown or already "
+        "finished → `accepted: false`, which is a normal outcome, not a fault."
+    )
+
+
+class WarmTreeResult(BaseModel):
+    """The reply to a warm — deliberately EMPTY of geometry.
+
+    There is no mesh id, no mass property, no feature status and no body here,
+    and that is a structural guarantee rather than an omission: a speculative
+    rebuild that could be published would eventually be published for a tree it
+    does not exactly correspond to, which is the silent-wrong-geometry class this
+    repo has closed five times. A warm can only ever be *used* by a request whose
+    feature prefix hashes identically, through the ordinary cache key.
+
+    So the two fields say what happened to the SCHEDULING, and nothing else.
+    """
+
+    ticket: str = Field(description="Echo of the submitted ticket.")
+    accepted: bool = Field(
+        description="Whether this call changed the worker's speculation: true = "
+        "queued (or, for /warm/cancel, a running ticket was retired); false = "
+        "nothing to do — the same ticket was already in flight, the tree had no "
+        "prefix worth warming, or the cancelled ticket had already finished. "
+        "Never an error either way: prefetch is best-effort by construction."
+    )
+
+
+#: Upper bound for a document name carried on an export request (matches
+#: ``PartName`` / ``AssemblyName``, which is where these values come from).
+EXPORT_DOCUMENT_NAME_MAX_LENGTH = 200
+
+#: A document's human-readable name, carried on an EXPORT request only.
+#:
+#: **Why export-only** (the decision, since it looks like it belongs on the
+#: evaluate request): a name is presentation metadata, and the evaluation
+#: contract deliberately carries only INTENT plus the one non-geometric input
+#: mass is derived from (``materials``, materials.md §9a) — length units are kept
+#: off it for exactly this reason. But a FILE outlives the screen that explained
+#: it: a shop that receives ``a3f2c1e8-....step`` containing ``PRODUCT('SOLID')``
+#: cannot tell what it is, and exporting five parts to quote a job means five
+#: hand-renames (audit N4). So the name rides the request that produces a file,
+#: where it can change the file's NAME and its PRODUCT and nothing else — the
+#: kernel never sees it, and evaluation stays byte-identical with or without it.
+DocumentName = Annotated[
+    str,
+    StringConstraints(
+        strip_whitespace=True,
+        min_length=1,
+        max_length=EXPORT_DOCUMENT_NAME_MAX_LENGTH,
+    ),
+]
+
+
+def document_slug(name: str) -> str:
+    """A safe download basename component from a document name.
+
+    THE one slug rule for every download this product names after a document
+    (CLAUDE.md DRY): lower-case, non-alphanumeric runs collapsed to a single
+    hyphen, edges trimmed. Ported from ``apps/web/src/drawing/exportSvg.ts``
+    ``sanitizeDrawingFilename`` and shared by the drawing artifact
+    (``artifact_filename``), the part export (:func:`export_tree_filename`) and
+    the assembly export (``assembly_export_filename``), so all three name a file
+    identically. Returns ``""`` for a name with no alphanumerics at all — the
+    caller decides its own fallback, because "drawing" is not a sensible default
+    for a part.
+    """
+    return re.sub(r"[^a-z0-9]+", "-", name.strip().lower()).strip("-")
 
 
 class ExportTreeRequest(EvaluateTreeRequest):
@@ -3216,17 +3672,51 @@ class ExportTreeRequest(EvaluateTreeRequest):
             "(work bound, audit G2)."
         ),
     )
+    name: DocumentName | None = Field(
+        default=None,
+        description="The part's human-readable document name. Names the exported "
+        "STEP PRODUCT and the download filename; omitted / null falls back to the "
+        "part id. EXPORT-only on purpose (see DocumentName) — it is not on "
+        "EvaluateTreeRequest, because a name must never be an input to geometry.",
+    )
 
 
 def export_tree_filename(request: ExportTreeRequest) -> str:
     """Deterministic download filename for a tree export (Content-Disposition).
 
-    The part id keys the file to its part and stays byte-stable across
-    identical requests (determinism is a feature, RESEARCH §9).
+    Named after the PART (``motor-mount-bracket.step``) when the request carries
+    the document name, so what lands in Downloads is what a vendor can read
+    (audit N4). Falls back to ``part-<id>.<format>`` when it does not — still
+    unique, never a collision. Byte-stable for identical requests either way
+    (determinism is a feature, RESEARCH §9).
     """
-    return f"part-{request.part_id}.{request.format}"
+    slug = document_slug(request.name) if request.name is not None else ""
+    return f"{slug or f'part-{request.part_id}'}.{request.format}"
 
 
+# CONSTRUCTING A ``FeatureError`` IS INSTRUMENTED (see ``model_post_init`` below:
+# :func:`py_kit.metrics.record_feature_error`), which is a side effect on a DTO
+# and therefore owes an explanation. The alternative is a ``.inc()`` beside each
+# of the ~85 ``FeatureError(code=…)`` sites across the kernel handlers — and the
+# 86th, written next month by someone who has never read this file, would
+# silently not be counted. That is this repo's "a gate that cannot fail" defect
+# wearing a different hat: an operator would see a flat line and conclude nothing
+# was wrong. The contract DTO is the ONE thing every feature failure in the
+# product is rendered through, so it is the seam that cannot be bypassed. Cost is
+# a counter increment on a path that only runs when something already failed.
+#
+# One honest consequence: the gateway re-validates geometry's response into this
+# same model (``gateway/features.py``), so a proxied failure is counted once in
+# geometry (where it happened) and once in the gateway (where it was observed).
+# Each service exports its own ``/metrics``, so the two are distinct series —
+# attribute failures to the geometry job and do not sum across jobs.
+# ``docs/OBSERVABILITY.md`` says so where an operator will read it.
+#
+# The rationale lives in a COMMENT, not the docstring, on purpose: a model
+# docstring is the ``description`` of this schema in ``packages/contracts`` and
+# in the generated TS client, and instrumentation trivia is not something an API
+# consumer should have to read. (Written as a docstring first; `just gen-check`
+# showed the whole essay landing in `schema.ts`.)
 class FeatureError(BaseModel):
     """Why one feature failed to evaluate (§4.3)."""
 
@@ -3246,6 +3736,10 @@ class FeatureError(BaseModel):
         "so the sketcher reads the diagnosis by field instead of parsing "
         "``message`` (BACKLOG #6). None for non-sketch-conflict errors.",
     )
+
+    def model_post_init(self, context: Any, /) -> None:
+        """Count this failure by code (see the comment above the class)."""
+        record_feature_error(self.code)
 
 
 class SolvedSketchData(SolvedSketch):
@@ -3315,6 +3809,17 @@ class BodyLumpInfo(BaseModel):
         description="Number of disjoint connected solids (lumps) of this body; "
         "1 for a single-lump body, >1 for a disjoint union / multi-solid import.",
     )
+    material: MaterialKey | None = Field(
+        default=None,
+        description="The material RESOLVED for this body (its own override, "
+        "else the document default); null = none assigned, so no mass.",
+    )
+    mass_g: float | None = Field(
+        default=None,
+        description="This body's mass (g) = its volume x its material's density, "
+        "or null when it has no material. The whole-part `properties.mass_g` is "
+        "null as soon as ONE body is null; this says which (materials.md §4).",
+    )
 
 
 class EvaluateTreeResult(BaseModel):
@@ -3323,7 +3828,16 @@ class EvaluateTreeResult(BaseModel):
     the envelope stays reserved for transport/validation failures (§4.3)."""
 
     part_id: uuid.UUID
-    tree_version: int
+    tree_version: int = Field(
+        ge=0,
+        description="PROVENANCE: the part tree_version this result — every "
+        "`features` status, `mesh_glb_id`, and `properties` — was BUILT FROM "
+        "(echoed from the request documents composed off that exact tree). A "
+        "consumer compares it against the part's current "
+        "`PartResponse.tree_version` (the shared `is_stale_for_tree` rule) to "
+        "know whether the body it is displaying still reflects the tree, instead "
+        "of inferring currency from whether a request is in flight.",
+    )
     features: list[FeatureResult] = Field(description="Same order as the request")
     bodies: list[BodyLumpInfo] = Field(
         default_factory=list[BodyLumpInfo],

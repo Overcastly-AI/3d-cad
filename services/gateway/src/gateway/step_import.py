@@ -28,7 +28,6 @@ import onto a part that already has a body) is re-surfaced verbatim.
 import uuid
 from typing import Annotated, Any
 
-import httpx2 as httpx
 from fastapi import APIRouter, Query, Request, status
 from py_kit import ValidationApiError
 from py_kit.schemas.assemblies import ASSEMBLY_NAME_MAX_LENGTH
@@ -49,10 +48,11 @@ from py_kit.schemas.step_import import (
 )
 from pydantic import TypeAdapter
 
+from gateway.affinity import forward_geometry
 from gateway.auth import CurrentUser
 from gateway.parts import forward_documents
 from gateway.ratelimit import COMPUTE_RATE_LIMIT
-from gateway.upstream import forward, raise_upstream_error
+from gateway.upstream import raise_upstream_error
 
 #: Human-readable upstream name for shared error surfaces.
 _SERVICE = "Documents"
@@ -274,10 +274,9 @@ async def import_assembly_step(
         )
 
     # Identity-free geometry hop: read the STEP into its structured product list.
-    geometry_client: httpx.AsyncClient = http_request.app.state.geometry_client
-    read = await forward(
-        geometry_client,
+    read = await forward_geometry(
         http_request,
+        str(user.id),
         "POST",
         "/api/v1/assembly/import",
         service=_GEOMETRY_SERVICE,

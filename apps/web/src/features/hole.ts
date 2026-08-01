@@ -146,8 +146,18 @@ export interface HoleForm {
  * The default new-hole form: a Ø6 through-all simple hole — the common first
  * bolt hole. The recess fields carry ready M6-scale defaults (an ~Ø11 cbore, an
  * ~Ø12 90° csink) so switching type is one click, not four fields to fill.
+ *
+ * `seed` is the face the cursor had ALREADY selected when the command was
+ * invoked (UI-W3). Given one, the hole opens placed — face adopted, drill point
+ * on its centre — so the anchor block reads as confirmation rather than a
+ * to-do list, and the modeller types a diameter and hits Enter.
  */
-export function defaultHoleForm(): HoleForm {
+export function defaultHoleForm(seed?: HoleFace | null): HoleForm {
+  const form = emptyHoleForm();
+  return seed == null ? form : applyHoleFace(form, seed);
+}
+
+function emptyHoleForm(): HoleForm {
   return {
     face: null,
     position: null,

@@ -22,20 +22,55 @@ underneath). Both outputs are **byte-deterministic** for identical requests
 
 Kernel objects never leave ``geometry.kernel``: callers receive bytes.
 
-**Assembly export (AP214 product structure).** :func:`export_step_assembly_bytes`
-composes N placed part bodies into ONE multi-instance STEP where every instance
-is a named PRODUCT at its solved world placement (RESEARCH §10/§11). It reuses
-build123d's own XCAF path (``export_step`` drives ``STEPCAFControl_Writer`` with
-a full XDE document — auto-naming off so our per-child labels become the PRODUCT
-names), so the timestamp pinning above applies unchanged. The one EXTRA
-nondeterministic byte range that path introduces is a **process-global**
+**Assembly export (AP214 product structure, INSTANCED).**
+:func:`export_step_assembly_bytes` composes N placed part bodies into ONE
+multi-instance STEP. Twenty instances of one dowel pin write the pin's B-rep
+**once** and place it twenty times, as AP214 product structure does it: one
+``PRODUCT`` per unique part, one ``NEXT_ASSEMBLY_USAGE_OCCURRENCE`` +
+``CONTEXT_DEPENDENT_SHAPE_REPRESENTATION`` + ``ITEM_DEFINED_TRANSFORMATION``
+per occurrence (audit N8 — see below for why that triple, and not
+``MAPPED_ITEM``, is the instancing OCCT emits). The receiving CAD/PLM therefore
+sees ONE part used twenty times, so a change to the part is a change to all
+twenty and a derived BOM reads qty 20 rather than 20 line items — and the file
+stops scaling linearly with the fastener count.
+
+*What made every instance a fresh B-rep:* ``Shape.located()`` is a **deep
+geometric copy** (build123d runs ``BRepBuilderAPI_Copy`` inside its
+``__deepcopy__``), so the twenty placed bodies shared no underlying
+``TopoDS_TShape`` and there was no instancing for any writer to find. The STEP
+composer therefore places its bodies with :func:`_instanced_shape`
+(``TopoDS_Shape.Moved`` — a new shape over the SAME ``TShape``), which is what
+lets OCCT's XCAF instance detection collapse them. :func:`place_body` keeps the
+copying semantics for the interference + STL paths, where a boolean may
+invalidate its argument in place (RESEARCH §9) and sharing would be unsafe.
+
+*Naming.* Each occurrence label carries the INSTANCE name ("Dowel Pin 8x24 <17>"
+→ the NAUO), and the shared part label carries the PART name — the first
+occurrence's name with its ``<n>`` suffix stripped (:func:`_product_name`) →
+the ``PRODUCT``. So instance-level traceability (FINDINGS #7) survives while the
+file finally says the twenty are the same part. We drive
+``STEPCAFControl_Writer`` directly rather than through build123d's
+``export_step`` for exactly this: build123d names the referred (shared) label
+from every child in turn, so the shared PRODUCT would end up named after
+whichever instance happened to be written LAST ("Dowel Pin 8x24 <20>").
+
+*Why no MAPPED_ITEM.* AP214 has two encodings for "this geometry, placed there":
+``MAPPED_ITEM``/``REPRESENTATION_MAP`` (a representation re-used inside another
+representation) and the assembly product structure above. OCCT's XCAF writer
+emits the latter, which is the encoding every MCAD assembly exchange uses — the
+audit's ``MAPPED_ITEM`` count was a proxy for "is anything instanced at all",
+and the measurable that actually answers it is ``MANIFOLD_SOLID_BREP`` count ==
+unique part count (asserted on the emitted bytes by ``test_assembly_export``).
+
+Determinism (RESEARCH §9): the pinned timestamp above applies unchanged. The one
+EXTRA nondeterministic byte range this path introduces is a **process-global**
 occurrence counter OCCT stamps into each ``NEXT_ASSEMBLY_USAGE_OCCURRENCE`` id
 (it increments across writer invocations within a worker, so a second export of
 the same graph would differ); we canonicalise it to appearance order
 (:func:`_canonicalise_occurrence_ids`) so identical requests stay byte-identical
-(RESEARCH §9; decision + evidence in docs/GEOMETRY-QA.md). The NAUO id is an
-arbitrary label — STEP cross-references use ``#N`` entity ids, not this string —
-so renumbering it is semantically inert.
+(decision + evidence in docs/GEOMETRY-QA.md). The NAUO id is an arbitrary label
+— STEP cross-references use ``#N`` entity ids, not this string — so renumbering
+it is semantically inert.
 
 The OCP wheel ships no type stubs, so the raw ``gp_Trsf`` / ``gp_Quaternion``
 transform calls the assembly placement uses are opaque to pyright; the directives
@@ -45,7 +80,7 @@ fully-typed :data:`BodyShape` return keeps the boundary honest.
 """
 # pyright: reportMissingTypeStubs=false, reportUnknownMemberType=false
 # pyright: reportUnknownVariableType=false, reportAttributeAccessIssue=false
-# pyright: reportUnknownArgumentType=false
+# pyright: reportUnknownArgumentType=false, reportUnknownParameterType=false
 
 import io
 import re
@@ -56,11 +91,29 @@ from datetime import datetime
 from pathlib import Path
 
 from build123d import Compound, Location
+from build123d.build_common import UNITS_PER_METER
+from build123d.build_enums import PrecisionMode, Unit
 from build123d.exporters3d import (
     export_step,  # pyright: ignore[reportUnknownVariableType]  (Shape[Unknown] param upstream)
     export_stl,  # pyright: ignore[reportUnknownVariableType]
 )
+from OCP.APIHeaderSection import APIHeaderSection_MakeHeader
+from OCP.BRep import BRep_Builder
 from OCP.gp import gp_Quaternion, gp_Trsf, gp_Vec
+from OCP.IFSelect import IFSelect_ReturnStatus
+from OCP.Interface import Interface_Static
+from OCP.Message import Message, Message_Gravity
+from OCP.STEPCAFControl import STEPCAFControl_Controller, STEPCAFControl_Writer
+from OCP.STEPControl import STEPControl_Controller, STEPControl_StepModelType
+from OCP.TCollection import TCollection_ExtendedString, TCollection_HAsciiString
+from OCP.TDataStd import TDataStd_Name
+from OCP.TDF import TDF_Label, TDF_LabelSequence
+from OCP.TDocStd import TDocStd_Document
+from OCP.TopLoc import TopLoc_Location
+from OCP.TopoDS import TopoDS_Compound, TopoDS_Shape
+from OCP.XCAFApp import XCAFApp_Application
+from OCP.XCAFDoc import XCAFDoc_DocumentTool, XCAFDoc_ShapeTool
+from OCP.XSControl import XSControl_WorkSession
 
 from geometry.kernel.types import BodyShape
 
@@ -78,17 +131,31 @@ STL_HEADER_BYTES = 84
 STL_TRIANGLE_RECORD_BYTES = 50
 
 
-def export_step_bytes(shape: BodyShape) -> bytes:
+def export_step_bytes(shape: BodyShape, *, name: str | None = None) -> bytes:
     """Export *shape* as a STEP AP214 part 21 file (exact B-rep, mm units).
 
     *shape* is any B-rep :class:`~build123d.Shape` — a single :class:`Solid` or a
     :class:`~build123d.Compound` of a multi-body part's solids (multi-body §MB-0);
     a STEP file holds multiple solids natively (valid AP214). Deterministic: the
     creation timestamp is pinned (module docstring).
+
+    *name* becomes the file's ``PRODUCT`` name and its ``FILE_NAME`` name field:
+    ``PRODUCT('Motor Mount Bracket')`` instead of the OCCT default
+    ``PRODUCT('SOLID')`` (audit N4 — the exported file was the one place the
+    part's name never appeared). ``None`` leaves the default, so callers that
+    have no name to give are byte-identical to before. The label is restored
+    afterwards: build123d's ``label`` is a plain attribute on the caller's shape,
+    and an export must not rename the body it was handed.
     """
-    buffer = io.BytesIO()
-    if not export_step(shape, buffer, timestamp=STEP_EXPORT_TIMESTAMP):
-        raise RuntimeError("STEP export failed")
+    previous_label = shape.label
+    try:
+        if name is not None:
+            shape.label = name
+        buffer = io.BytesIO()
+        if not export_step(shape, buffer, timestamp=STEP_EXPORT_TIMESTAMP):
+            raise RuntimeError("STEP export failed")
+    finally:
+        shape.label = previous_label
     data = buffer.getvalue()
     if not data.startswith(STEP_MAGIC):
         raise RuntimeError("STEP export produced a non-part-21 payload")
@@ -150,23 +217,19 @@ class AssemblyComponent:
     quaternion: tuple[float, float, float, float]
 
 
-def place_body(
-    body: BodyShape,
+def placement_trsf(
     translation: tuple[float, float, float],
     quaternion: tuple[float, float, float, float],
-) -> BodyShape:
-    """Copy *body* to a world placement (``world = R(q)·local + t``).
+) -> gp_Trsf:
+    """THE assembly rigid-placement transform: ``world = R(q)·local + t``.
 
-    THE single source of the assembly rigid-placement transform (CLAUDE.md DRY
-    rule): the STEP/STL composer (:func:`_placed_body`) and the interference
-    check (:mod:`geometry.kernel.interference`) both position a solved instance
-    through here, so no path reinvents the quaternion→``gp_Trsf`` conversion
-    (rotation order geometry-QA-verified to 1e-14). ``quaternion`` is
-    ``(x, y, z, w)`` matching :class:`py_kit.schemas.assemblies.Quat`. Returns a
-    LOCATED copy — build123d ``.located`` leaves the original (and its shared
-    underlying geometry) untouched, so placing two instances of one part never
-    mutates the shared body. Deterministic: a fixed sequence of OCCT ops on the
-    numeric pose.
+    The single source of the quaternion→``gp_Trsf`` conversion (CLAUDE.md DRY
+    rule) — the STEP composer (:func:`_instanced_shape`), the STL composer and
+    the interference check (:mod:`geometry.kernel.interference`) all position a
+    solved instance through here, so no path reinvents it (rotation order
+    geometry-QA-verified to 1e-14). ``quaternion`` is ``(x, y, z, w)``, matching
+    :class:`py_kit.schemas.assemblies.Quat`. Deterministic: a fixed sequence of
+    OCCT ops on the numeric pose.
     """
     qx, qy, qz, qw = quaternion
     rotation = gp_Quaternion(qx, qy, qz, qw)
@@ -175,12 +238,47 @@ def place_body(
     trsf.SetRotation(rotation)
     tx, ty, tz = translation
     trsf.SetTranslationPart(gp_Vec(tx, ty, tz))
-    return body.located(Location(trsf))
+    return trsf
+
+
+def place_body(
+    body: BodyShape,
+    translation: tuple[float, float, float],
+    quaternion: tuple[float, float, float, float],
+) -> BodyShape:
+    """COPY *body* to a world placement (:func:`placement_trsf`).
+
+    Returns an independent copy: build123d's ``.located`` deep-copies the B-rep
+    (``BRepBuilderAPI_Copy``), so the placed body shares no geometry with the
+    part body or with a sibling instance. That is what the interference check
+    and the STL composer need — a boolean can invalidate its ARGUMENT in place
+    (RESEARCH §9), and one instance's clash test must not be able to corrupt
+    every other instance of the same part.
+
+    The STEP composer deliberately does NOT use this: instancing requires the
+    occurrences to SHARE a ``TShape`` (module docstring, :func:`_instanced_shape`).
+    """
+    return body.located(Location(placement_trsf(translation, quaternion)))
 
 
 def _placed_body(component: AssemblyComponent) -> BodyShape:
     """Copy *component*'s body to its world placement (see :func:`place_body`)."""
     return place_body(component.body, component.translation, component.quaternion)
+
+
+def _instanced_shape(component: AssemblyComponent) -> TopoDS_Shape:
+    """*component*'s body MOVED to its world placement, sharing its ``TShape``.
+
+    The STEP composer's placement (module docstring): ``TopoDS_Shape.Moved``
+    returns a new shape over the SAME underlying ``TopoDS_TShape``, so N
+    occurrences of one part are recognisably one B-rep and OCCT's XCAF instance
+    detection collapses them into one ``PRODUCT`` + N occurrences. The copying
+    :func:`place_body` cannot do this — it is a deep geometric copy by
+    construction, which is why the pre-instancing exporter wrote N identical
+    solids. Safe here because nothing in the write path mutates a shape.
+    """
+    trsf = placement_trsf(component.translation, component.quaternion)
+    return component.body.wrapped.Moved(TopLoc_Location(trsf))
 
 
 #: Matches the id (first) field of every ``NEXT_ASSEMBLY_USAGE_OCCURRENCE`` in a
@@ -209,17 +307,141 @@ def _canonicalise_occurrence_ids(data: bytes) -> bytes:
     return _NAUO_ID_RE.sub(_renumber, data)
 
 
+#: The occurrence suffix an instance name carries ("Dowel Pin 8x24 <17>"). The
+#: shared PRODUCT names the PART, so the suffix is stripped off the first
+#: occurrence's name to recover it (:func:`_product_name`).
+_OCCURRENCE_SUFFIX_RE = re.compile(r"\s*<\d+>\s*$")
+
+
+def _product_name(instance_name: str) -> str:
+    """The shared PRODUCT name for a part, from one of its instance names.
+
+    ``"Dowel Pin 8x24 <17>"`` → ``"Dowel Pin 8x24"``. Instances are named
+    ``<part name> <n>`` by convention (``InstanceName``, assemblies §1.2), and a
+    STEP PRODUCT under instancing names the PART — the occurrence number belongs
+    on the NAUO, which carries the un-stripped instance name. A name that carries
+    no suffix (a renamed instance) is used verbatim: the product is then named
+    after the first occurrence in request order, which is deterministic and still
+    traceable, and is strictly better than the ``PRODUCT('SOLID')`` a nameless
+    export would write.
+    """
+    stripped = _OCCURRENCE_SUFFIX_RE.sub("", instance_name).strip()
+    return stripped or instance_name
+
+
+def _assembly_xde_document(
+    assembly_name: str, components: Sequence[AssemblyComponent]
+) -> TDocStd_Document:
+    """Build the XDE document the assembly writer transfers (module docstring).
+
+    One compound of :func:`_instanced_shape`-placed occurrences goes in through
+    ``AddShape(..., makeAssembly=True)``; OCCT's instance detection gives every
+    UNIQUE part one label and every occurrence a reference to it. We then name
+    the labels: occurrence label → instance name (the NAUO), shared part label →
+    :func:`_product_name` of its FIRST occurrence (the PRODUCT). Deterministic:
+    the compound is built in request order and the components come back in that
+    order, so both the numbering and the chosen product name are fixed by the
+    request.
+    """
+    doc = TDocStd_Document(TCollection_ExtendedString("XmlOcaf"))
+    application = XCAFApp_Application.GetApplication_s()
+    application.NewDocument(TCollection_ExtendedString("MDTV-XCAF"), doc)
+    application.InitDocument(doc)
+    XCAFDoc_DocumentTool.SetLengthUnit_s(doc, 1 / UNITS_PER_METER[Unit.MM])
+    shape_tool = XCAFDoc_DocumentTool.ShapeTool_s(doc.Main())
+    # Our labels ARE the names; auto-naming would overwrite them (build123d's
+    # export_step keeps it on for the same reason it is off here — it names
+    # per-child, we name per-part).
+    shape_tool.SetAutoNaming_s(False)
+
+    builder = BRep_Builder()
+    compound = TopoDS_Compound()
+    builder.MakeCompound(compound)
+    for component in components:
+        builder.Add(compound, _instanced_shape(component))
+
+    root = shape_tool.AddShape(compound, True)
+    TDataStd_Name.Set_s(root, TCollection_ExtendedString(assembly_name))
+
+    occurrences = TDF_LabelSequence()
+    XCAFDoc_ShapeTool.GetComponents_s(root, occurrences)
+    if occurrences.Length() != len(components):
+        raise RuntimeError(
+            "assembly STEP export lost an occurrence: "
+            f"{occurrences.Length()} placed for {len(components)} components"
+        )
+    named_parts: list[TDF_Label] = []
+    for index, component in enumerate(components, start=1):
+        occurrence = occurrences.Value(index)
+        TDataStd_Name.Set_s(occurrence, TCollection_ExtendedString(component.name))
+        part = TDF_Label()
+        if not XCAFDoc_ShapeTool.GetReferredShape_s(occurrence, part) or part.IsNull():
+            continue
+        if any(part.IsEqual(seen) for seen in named_parts):
+            continue  # a later occurrence of an already-named part
+        named_parts.append(part)
+        TDataStd_Name.Set_s(
+            part, TCollection_ExtendedString(_product_name(component.name))
+        )
+    shape_tool.UpdateAssemblies()
+    return doc
+
+
+def _write_step_document(doc: TDocStd_Document, header_name: str) -> bytes:
+    """Transfer *doc* through ``STEPCAFControl_Writer`` to part-21 bytes.
+
+    The writer half of build123d's ``export_step`` (same session, same name /
+    colour / layer modes, same precision + p-curve statics, same pinned
+    ``FILE_NAME`` timestamp), driven directly so the assembly path can name the
+    SHARED part label itself (module docstring). Byte-equivalent to what
+    build123d writes for the same XDE document.
+    """
+    # Disable writing OCCT info to console (build123d does the same).
+    messenger = Message.DefaultMessenger_s()
+    for printer in messenger.Printers():
+        printer.SetTraceLevel(Message_Gravity.Message_Fail)
+
+    session = XSControl_WorkSession()
+    writer = STEPCAFControl_Writer(session, False)
+    writer.SetColorMode(True)
+    writer.SetLayerMode(True)
+    writer.SetNameMode(True)
+
+    header = APIHeaderSection_MakeHeader(writer.Writer().Model())
+    if not header.IsDone():  # as in OCCT 7.9.x
+        header = APIHeaderSection_MakeHeader(0)
+        header.Apply(writer.Writer().Model())
+    header.SetName(TCollection_HAsciiString(header_name))
+    header.SetTimeStamp(TCollection_HAsciiString(STEP_EXPORT_TIMESTAMP.isoformat()))
+    header.SetOriginatingSystem(TCollection_HAsciiString("build123d"))
+
+    STEPCAFControl_Controller.Init_s()
+    STEPControl_Controller.Init_s()
+    Interface_Static.SetIVal_s("write.surfacecurve.mode", 1)
+    Interface_Static.SetIVal_s("write.precision.mode", PrecisionMode.AVERAGE.value)
+    writer.Transfer(doc, STEPControl_StepModelType.STEPControl_AsIs)
+
+    buffer = io.BytesIO()
+    if writer.WriteStream(buffer) != IFSelect_ReturnStatus.IFSelect_RetDone:
+        raise RuntimeError("assembly STEP export failed")
+    return buffer.getvalue()
+
+
 def export_step_assembly_bytes(
     assembly_name: str, components: Sequence[AssemblyComponent]
 ) -> bytes:
-    """Export *components* as ONE AP214 STEP with named product structure.
+    """Export *components* as ONE AP214 STEP with INSTANCED product structure.
 
-    Each component becomes a named PRODUCT positioned at its solved world
-    placement under a single assembly root (``assembly_name``): re-opening the
-    file recovers every part body at its placement, traceable to its instance
-    name (RESEARCH §10/§11). Reuses build123d's XCAF writer (module docstring),
-    so the pinned creation timestamp applies; the per-occurrence id counter is
-    canonicalised so identical requests are byte-identical (RESEARCH §9).
+    Every UNIQUE part is written once as a named ``PRODUCT``; every component
+    becomes an occurrence of it at its solved world placement, named after its
+    instance. Re-opening the file recovers every body at its placement, traceable
+    to its instance name, and a downstream tool can tell that twenty occurrences
+    of a dowel pin ARE one part (RESEARCH §10/§11; audit N8 — module docstring
+    for the encoding and for why ``located()`` used to defeat this).
+
+    Deterministic (RESEARCH §9): the creation timestamp is pinned and the
+    per-occurrence id counter is canonicalised, so identical requests are
+    byte-identical in-process and across an interpreter restart.
 
     Raises:
         ValueError: if *components* is empty (nothing to place — the caller maps
@@ -227,18 +449,8 @@ def export_step_assembly_bytes(
     """
     if not components:
         raise ValueError("assembly STEP export requires at least one placed body")
-    children: list[BodyShape] = []
-    for component in components:
-        placed = _placed_body(component)
-        placed.label = component.name
-        children.append(placed)
-    root = Compound(children=children)
-    root.label = assembly_name
-
-    buffer = io.BytesIO()
-    if not export_step(root, buffer, timestamp=STEP_EXPORT_TIMESTAMP):
-        raise RuntimeError("assembly STEP export failed")
-    data = _canonicalise_occurrence_ids(buffer.getvalue())
+    doc = _assembly_xde_document(assembly_name, components)
+    data = _canonicalise_occurrence_ids(_write_step_document(doc, assembly_name))
     if not data.startswith(STEP_MAGIC):
         raise RuntimeError("assembly STEP export produced a non-part-21 payload")
     return data

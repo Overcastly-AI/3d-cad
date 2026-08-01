@@ -34,9 +34,12 @@ duplication.
   metal (bend chains + corner relief + closed hem + edge-flange WIDTH EXTENTS
   + auto bend-end relief shipped, all click-authorable in-app; still no open/
   teardrop/rolled hems, miters, tabs, or gauge tables).
-- **❌ rows (untouched, no design doc yet):** Performance (benchmark-suite
-  infra shipped, no real-part corpus yet), Collaboration & versioning (Phase
-  3, unstarted), Extensibility/scripting + MCP (Phase 5, unstarted).
+- **❌ rows (untouched, no design doc yet):** Performance — **the real-part
+  corpus now EXISTS and has been measured** (`docs/PERF.md`, geometry-qa
+  2026-07-31: the wall is ~50 features, unusable at 200; PERF-1..PERF-5 filed) —
+  so the row is ❌ on *substance*, not on ignorance, and has a numbered fix list;
+  Collaboration & versioning (Phase 3, unstarted), Extensibility/scripting + MCP
+  (Phase 5, unstarted).
 - **Stale VISION note (unchanged since last pass, still unfixed):** VISION's
   Interop row Notes still call "the untrusted-parse wall-clock/DoS bound" a
   tracked P1 fast-follow — closed twice over (`483d5ae` 2026-07-13 hard bound,
@@ -49,6 +52,148 @@ duplication.
   findings this pass, not from COMPETITIVE.
 
 ## Ready (top of queue)
+
+- [x] (P1, M) **CONC-1 — a modeler's next click lands on a random worker, and
+      that throws away most of what scaling out buys** (platform + backend).
+      Measured 2026-08-01 (`docs/PERF.md` §CONCURRENCY): 4 users on 4 geometry
+      workers pay **2 559 ms** per edit with per-user affinity and **4 753 ms**
+      with the random dispatch the stack actually gives (compose DNS
+      round-robin / a shared listening socket). Speedup vs. one worker: 3.75x
+      sticky, 2.06x balanced-but-affinity-free, **1.21x random.** The rebuild
+      cache hit rate is 0.40 with affinity and **0.075** without, at four
+      workers — a clean 1/N dilution. Fix: route geometry by a consistent hash
+      of `part_id` (the gateway already knows it on every compute route; for
+      `/overlay`/`/measure` the tree carries it), or document a
+      consistent-hash proxy in front of the replicas. Costs no CPU and is worth
+      1.8x on top of any fan-out. [docs/PERF.md 2026-08-01]
+      **SHIPPED 2026-08-01** (`gateway/affinity.py`): `GEOMETRY_URL` takes a
+      comma-separated list; rendezvous hash on the verified principal (not part
+      id — a modeler holds TWO lineages, and every route carries the principal
+      while only some carry a part id). Re-measured on the same fleet with the
+      queue active: **wall 30.6 s sticky vs 64.9 s random, hit 0.40 vs 0.10,
+      `/measure` p50 81 ms vs 3 284 ms**; 8/8 modelers pinned to one worker
+      through the real gateway. Degradation: dead worker -> 10 s cooldown +
+      retry on the next-preferred (cold, never stranded); set change -> only
+      1/N move; saturated worker -> deliberately NOT re-routed.
+      `docker-compose.scale.yml` ships the four-replica topology.
+
+- [x] (P1, M) **CONC-2 — overload deletes the service instead of degrading it:
+      no admission control anywhere** (platform + backend). 16 simultaneous
+      50-feature evaluates at one worker all finished within 0.4 s of each other
+      at ~40 s (processor sharing, not queueing). Against the gateway's 30 s
+      read timeout that delivers **1 of 16** requests where a plain FIFO queue
+      on identical hardware delivers **11 of 16** — same CPU, 11x the useful
+      output. Nothing bounds concurrent geometry work: httpx defaults to 100
+      connections, anyio's threadpool to 40 workers, and a geometry worker has
+      **one** effective core (CONC-5). Fix: a bounded semaphore + queue in front
+      of the OCCT routes, returning 503 + `Retry-After` past the bound rather
+      than admitting work that cannot finish. [docs/PERF.md 2026-08-01]
+      **SHIPPED 2026-08-01** (`py_kit.admission`, on 21 of 24 geometry routes —
+      `/meshes/{id}` and the two `/warm` routes are exempt, and the exemption
+      list is asserted by a test so a 22nd route cannot silently skip it).
+      Re-measured A/B, 16 simultaneous cold 50-feature evaluates, same worker,
+      minutes apart: **0 of 16 delivered inside 30 s -> 11 of 16** (8 of 16 at
+      the shipped depth-8 default, with the other 8 honestly shed).
+      `Retry-After` comes from the gate's own EWMA of service time; three
+      distinguishable refusal reasons; nothing is refused after work started.
+
+- [x] (P1, S) **CONC-3 — the gateway calls a healthy geometry service
+      "unreachable" after 30 s, on a part size we ship** (backend). Measured
+      with ONE user on an IDLE machine: a 200-feature `/overlay` costs 40.3 s
+      direct and returns **502 `upstream_unavailable` — "Geometry service is
+      unreachable"** through the gateway at exactly `GEOMETRY_TIMEOUT_S = 30.0`
+      (`services/gateway/src/gateway/geometry.py:65`). The work completes and is
+      discarded; the message blames the wrong component; the same click had to
+      be issued **three times** (two 502s, then 22.7 s once the abandoned
+      rebuild's checkpoint reached the cache). At 8 users the same thing happens
+      on a **50-feature** part (pick p95 30.0 s). Fix has three parts: raise or
+      make the ceiling proportional to tree size, distinguish "upstream timed
+      out" from "upstream unreachable" in the envelope, and stop paying for
+      abandoned work (cancel upstream on client disconnect).
+      [docs/PERF.md 2026-08-01]
+      **SHIPPED 2026-08-01**: 504 `upstream_timeout` (not 502), with a message
+      that says the work is still running and its progress cached; budget 90 s
+      by default (40.3 s worst measured cold op + the 20 s queue ceiling +
+      headroom), env-tunable via `GEOMETRY_TIMEOUT_S`. The third part was
+      resolved the OTHER way on purpose — **do not cancel**: the abandoned
+      rebuild's checkpoint reaches the rebuild cache, which is why the measured
+      retry was 22.7 s against 40.3 s cold, so cancelling would discard CPU
+      already spent. What IS dropped is work that never started — a request
+      whose client left before its turn is discarded at the front of the queue
+      (`loft_admission_abandoned_total`).
+
+- [x] (P2, S) **CONC-4 — `REBUILD_CACHE_CAPACITY = 8` is exactly four
+      modelers, and the fifth costs everyone 79x** (kernel). A working modeler
+      holds TWO lineages (evaluate + the `record_history` one a face pick uses),
+      so 8 entries is 4 users. Measured hit rate 0.40 (1-4 users) → 0.28 (5) →
+      0.15 (6) → 0.125 (8), and `/measure` — the operation PERF-1 made nearly
+      free — goes from **244 ms to 19 189 ms**. Related: PERF-1b's prefetch
+      takes a slot too, so on a full LRU every warm evicts a live user's
+      checkpoint (measured: evictions 24 → 35, hit 0.40 → 0.31), which is
+      precisely what `rebuild_cache.py`'s own docstring says must never happen.
+      Fix: size the LRU from concurrency (per-worker users x 2 lineages, or make
+      it configurable and default higher), and keep warm entries in a separate
+      reservation so speculation cannot evict live work. [docs/PERF.md 2026-08-01]
+      **SHIPPED 2026-08-01** (kernel): capacity **32**, derived — 8 modelers
+      (docs/OPERATIONS.md §6) x 2 lineages = 16 live checkpoints one worker must
+      hold without affinity, plus headroom, rounded to a power of two. Priced:
+      ~2 MiB/entry at 219 faces and ~4 MiB at 442, so a completely full cache is
+      64-128 MiB of the ~1 GiB per-worker budget. Speculation now has a strictly
+      weaker claim than live work: a warm's checkpoint is stored SPECULATIVE, is
+      always the first eviction victim, and a speculative store that would evict
+      a live checkpoint is refused outright. [docs/PERF.md 2026-08-01b]
+
+- [ ] (P3, L) **CONC-5 — OCP does not release the GIL, so one geometry worker
+      can never use more than one core** (kernel, likely upstream). Measured at
+      **1.05-1.15 cores** with 1/2/4/8 concurrent requests in flight and 11-18
+      OS threads live; throughput is flat and latency linear in user count. Every
+      other item above is a workaround for this. A `py::gil_scoped_release`
+      around the long OCCT calls in OCP would make one worker use one machine;
+      short of that, the per-core-worker rule in `docs/OPERATIONS.md` §6 stands.
+      Filed at P3 because it is upstream work with a shipped workaround, not
+      because it is small. [docs/PERF.md 2026-08-01]
+
+- [x] (P2, M) **CONC-6 — the prefetch is a pessimisation when it does not get
+      its head start, and the head start scales with load** (kernel + web).
+      Measured on the 50-feature tray, one user, idle: no warm 2 589 ms; warm
+      committed immediately **4 742 ms (1.8x WORSE)**; warm + 1 s 3 259 ms; warm
+      + 2 s **312 ms (8.3x better)**. The threshold is the rebuild time itself,
+      because speculation and the real request race for the single core. So the
+      required dwell is ~2.3 s at N=50 idle, ~26 s at N=200 idle, and ~4x that
+      again under 4-user load — exactly the sizes where the prefetch is pitched.
+      Fix: have the warm yield to a real request for the same lineage (or refuse
+      to start when one is in flight) so the worst case is "no benefit" rather
+      than "1.8x slower". Complements PERF-1c, which asks the dwell question for
+      one user; this one is the multi-user half. [docs/PERF.md 2026-08-01]
+      **SHIPPED 2026-08-01** (kernel): a warm yields the CORE, not just the
+      slot. `evaluate_tree` marks itself live (`LiveWorkGate`, a counter, never a
+      lock), and between features a warm banks the prefix it has built and waits
+      for the worker to go idle, then reclaims its own checkpoint. Measured
+      commit-immediately-after-open: N=50 2.0x worse -> +5 %, N=100 2.3x worse ->
+      -2 %, N=200 2.1x worse -> +1.6 %. Banking is load-bearing — work a warm is
+      still holding is invisible, so an unbanked pause cost a face pick the full
+      9.2 s at N=100. [docs/PERF.md 2026-08-01b]
+
+- [ ] (P3, S) **CONC-7 — nobody sized the connection pools, and the defaults
+      are wrong in the direction that hurts** (backend). Neither pool is
+      configured: `py_kit.db` takes SQLAlchemy's default 5+10 connections per
+      service process, and `create_upstream_client` takes httpx's default 100
+      max connections to geometry — i.e. the gateway will pile 100 requests onto
+      a worker with one effective core. Nothing exhausted during the 2026-08-01
+      run, so this is not a live defect; it is an undocumented default that
+      makes CONC-2 worse and belongs in `docs/OPERATIONS.md` §6 with a number
+      behind it. [docs/PERF.md 2026-08-01]
+
+- [ ] (P3, S) **CONC-8 — editing a dimension under a picked-edge fillet fails
+      `subshape_unresolved` on a 0.01 mm change** (kernel). Found while building
+      the load harness, not looked for: on the `housing_tree(50)` tray, bumping
+      the last `distance_mm` by 0.01 mm makes the picked-edge fillet that
+      consumes that extrude fail to resolve its edge signature, so a valid part
+      becomes a failed tree from a change no user would consider structural.
+      This is the known stage-1 topological-naming limitation showing its edge,
+      but the trigger is small enough to be worth a regression case and a better
+      error message. [docs/PERF.md 2026-08-01]
+
 
 Restocked 2026-07-23 (HEAD `0ed9f74`) — the overnight batch converged 18
 Ready items (WF-1/PB-1 width extents, drawings dead-capability drain D1-D4,
@@ -63,6 +208,646 @@ even-odd scanline clip) across SVG/PDF/DXF, `views.section_params jsonb` (0008);
 wrong-half + multi-loop + byte-determinism goldens; oblique + the `project_view`
 frame refactor are v2/§11. Spike de-collected.
 
+- [x] (P0, S) **LIC-1 — a GPL-2.0 library ships inside the OCP wheel and blocks
+      the geometry image.** SHIPPED 2026-07-31 (platform-builder): jbigkit is
+      replaced during the image build by a 16 KB MIT stub with the same file name
+      and SONAME (`deploy/docker/licence/jbig-stub.c` + `strip-gpl-jbig.sh`,
+      `--require` so a skipped strip fails the build). Proven inert, not assumed:
+      the whole geometry suite ran against the stub — **2385 passed, 1 skipped**,
+      goldens (stored content hashes = byte identity) included — boolean cut
+      **5151.769984 mm³** vs the analytic value, STEP export byte-identical at
+      19 020 bytes / 434 entities. `verify-kernel.py` re-proves it inside the
+      build (mapped libjbig must be the stub; volume must be analytic), and
+      `/app/licenses/` + OCI `image.licenses`/`.source` labels land with it
+      (LIC-2's image half). docs/LICENSING.md §9. ORIGINAL FINDING: `libjbig` (jbigkit, GPL-2.0-or-later) is vendored by
+      `cadquery-ocp-novtk` and hard-linked `libTKService → libfreeimage → libtiff
+      → libjbig`; it maps into every process that imports the kernel. Violates the
+      absolute "no GPL/AGPL" rule and would make a published geometry image
+      GPL-2.0. Deleting it fails (eager binding: `undefined symbol: jbg_enc_out`);
+      `libtiff` imports exactly 10 `jbg_*` symbols, and a GPL-free stub exporting
+      them was BUILT AND VERIFIED 2026-07-31 — OCCT loads, boolean cut gives the
+      analytic 5151.77 mm³, tessellation + STEP export fine. Apply in
+      `deploy/docker/service.Dockerfile` after `uv sync`, with a build-time
+      assertion that no GPL `.so` survives. docs/LICENSING.md §4.
+      [oss-curator, platform-builder]
+- [x] (P1, M) **LIC-2 — we redistribute LGPL binaries with none of their required
+      text.** SHIPPED 2026-08-01 (platform-builder): the source half — the
+      mirrored bundle is now one reviewed command, `just corresponding-source
+      <tag>`, and NOTHING is published (founder's call; the script prints the
+      `gh release upload` line instead of running it). Pinned in
+      `deploy/licenses/corresponding-source.json`: OCCT 7.9.3 (git `V7_9_3`,
+      commit `a016080`), planegcs 0.8.0 (PyPI sdist), LibRaw
+      **0.19.5-1ubuntu1.4** — `.orig` **plus** the Ubuntu patch series, the old
+      "0.19.5" would have been source that does not correspond. All five
+      artefacts fetched and verified here: LibRaw digests equal Ubuntu's own
+      `.dsc` stanza, planegcs equals the PyPI index and contains `GCS.cpp`, and
+      three OCCT clone-and-pack runs gave byte-identical archives
+      (`71c6a724…`). GitHub's release-asset URL is 403 here but `git clone`
+      works, so no leg was left undone. `scripts/corresponding_source.py` is
+      imported by BOTH the gate and the fetcher, so `just lint`, CI and the
+      image build fail loudly on a wheel bump that moves a version out from
+      under the pinned source — with negative controls in `just
+      licence-selftest`. docs/LICENSING.md §7 (procedure) + §10. PRIOR
+      2026-07-31 (platform-builder): the image half landed
+      with LIC-1 — `/app/licenses/` now carries LICENSE, NOTICE, the five texts no
+      wheel ships (LGPL-2.1, the OCCT exception, FTL, FIPL-1.0, MPL-2.0), a
+      CORRESPONDING-SOURCE.md stating the §6(d) route and the §6(c) written offer,
+      a THIRD-PARTY.md generated from the installed environment, and every licence
+      file the wheels do ship; OCI `image.licenses`/`.source`/`.documentation`
+      labels are set and the build FAILS if the licences label disagrees with the
+      binaries present. ORIGINAL: The OCP wheel ships ZERO licence files (`RECORD` has no
+      licen/copying/notice match across 398 entries) while carrying 68 LGPL-2.1
+      OCCT libraries. LGPL-2.1 §6(b) does NOT cover us — clause (1) requires the
+      library be "already present on the user's computer system", which is false
+      for a container image — so we ship under §6(d)+(c): licence texts at
+      `/app/licenses/`, `NOTICE` in the image, OCI `image.licenses`/`image.source`
+      labels, and a mirrored corresponding-source bundle for OCCT 7.9.3 +
+      planegcs 0.8.0. Checklist in docs/LICENSING.md §6. [oss-curator,
+      platform-builder]
+- [x] (P2, S) **LIC-3 — the licence gate must read bundled binaries, not wheel
+      metadata.** SHIPPED 2026-07-31 (platform-builder): `scripts/check-licences.py`
+      classifies all 96 loose `.so` files we ship from a written inventory
+      (unknown library = failure), reads each binary's own licence strings, and
+      parses ELF DT_NEEDED/dynsym itself so it runs in the runtime image (no
+      binutils there). No false alarm on libgomp/libgfortran/libquadmath — GPL-3
+      WITH the GCC Runtime Library Exception, each with a written reason. CI runs
+      it (`licences` job, no daemon) plus a **self-test that proves it fails**:
+      image profile against the real unstripped wheel must fail naming `libjbig`,
+      then the production strip script, then must pass. Also in `just lint`.
+      ORIGINAL FINDING: `cadquery-ocp-novtk` declares `License: Apache-2.0` and vendors
+      GPL-2.0 + LGPL-2.1 code, so any metadata-only scan reports this tree as
+      fully permissive — which is how LIC-1 survived to release week. Add a CI job
+      that walks `*.dist-info` AND the vendored `.libs` trees (`readelf -d`), and
+      re-runs on every OCP/OCCT bump: the vendored set is a property of the
+      wheel's build machine and changes without notice. [oss-curator]
+- [ ] (P2, S) **LIC-4 — the GCC runtime libraries may carry a source duty we are
+      not discharging.** Found 2026-08-01 while pinning LIC-2's manifest and left
+      OPEN on purpose rather than papered over. We redistribute `libgomp`,
+      `libgfortran` and `libquadmath` (9 files, GPL-3.0 **with** the GCC Runtime
+      Library Exception), auditwheel-vendored into the OCP/numpy/scipy/
+      scikit-learn wheels from manylinux build images. The exception plainly
+      frees compiled OUTPUT — that is why `check-licences.py` allows them and
+      that classification is right — but distributing the runtime library
+      BINARIES is arguably still a GPL-3.0 conveyance with its own §6 source
+      duty, which is how distros treat it. Blocker: the exact GCC build they came
+      from is not recorded anywhere we can read (the auditwheel SBOM names Ubuntu
+      packages for the OCP wheel's set, but not for numpy/scipy's), so a
+      plausible-looking GCC tarball would be a confident guess, not corresponding
+      source — the exact failure mode LIC-2 was written to avoid. Decide: either
+      derive the versions and add them to `deploy/licenses/corresponding-source.json`
+      (the manifest already supports it), or write the reasoning for why the
+      exception discharges it. Stated in the shipped `CORRESPONDING-SOURCE.md`
+      rather than left silent. docs/LICENSING.md §7.1. [platform-builder]
+- [x] (P2, S) **LIC-5 — `pnpm ... dev -- --port N` silently starts Vite on 5173.**
+      Done 2026-07-31 (oss-curator, docs half). pnpm 10 DISCARDS the
+      npm-idiomatic `--` separator, so the port argument never reaches vite and
+      it falls back to `server.port` (5173) with no error — measured on 10.33.0;
+      `dev --port N` and `exec vite --port N` both bind correctly. This is the
+      origin of the stale-Vite trap that has poisoned a whole e2e suite before
+      (`reuseExistingServer: true` makes the next `just e2e` reuse that stray
+      5173, whose `/api` proxy points at a torn-down gateway → every spec 500s at
+      seedSession). Correct invocations + the symptom are in docs/QUICKSTART.md.
+      REMAINING: `apps/web/vite.config.ts` has no `server.strictPort`, so a
+      dropped port silently falls back instead of failing — one line, app
+      territory, for frontend-builder. [oss-curator]
+- [x] (P1, M) **LIC-4 — the OSS front door was stale in both directions.** Done
+      2026-07-31 (oss-curator): README claimed WebSocket fan-out (no WS routes
+      exist anywhere), listed materials/mass, the settings surface and entity
+      snapping as missing when all three had shipped, and pointed "next up" at
+      Phase 1 while sitting past Phase 4b. The container-free run block omitted
+      the `documents` service and every schema step, so a stranger following it
+      got `503 database_unavailable` on registration — verified by running it.
+      New docs/QUICKSTART.md (both paths, verified end to end natively: 9/9
+      round-trip checks + browser → Vite → gateway → DB), honest PERF section,
+      SECURITY.md's false "no authentication yet" corrected. [oss-curator]
+- [x] (P1, L) **PERF-1 — `evaluate_tree` had NO rebuild cache, so every route
+      re-ran the whole tree from feature 0.** SHIPPED 2026-07-31 (kernel-architect):
+      `geometry/rebuild_cache.py`, a bounded thread-safe in-process LRU keyed on the
+      rolling content hash of the feature PREFIX, holding the evaluator state.
+      Entries are OWNED, not copied — a hit hands over the very shapes a cold
+      rebuild would have built — because every re-materialisation of an OCCT shape
+      (`BRepBuilderAPI_Copy` in all 4 flag combinations, BREP round-trip) keeps the
+      volume bit-identical and still moves the GLB by a ULP, which would make
+      `mesh_glb_id` depend on cache state. Serves APPEND + REPEAT; a mid-tree edit
+      still misses (frontier-only checkpoints — PERF-1b filed). docs/PERF.md
+      "2026-07-31c". [geometry-qa PERF-1]
+- [x] (P0, M) **OPS-1 — there was no backup, no restore, and no restore test.**
+      SHIPPED 2026-07-31 (platform-builder), the release blocker for self-hosting:
+      Postgres holds every feature tree and a lost volume lost everything.
+      `just backup` (both DBs, `pg_dump -Fc` online, manifest with alembic revision
+      + exact per-table row counts + sha256, TOC-verified), `just restore`
+      (works from nothing; `--single-transaction` so a failed restore leaves an
+      EMPTY database instead of a half-populated one reported as success; re-checks
+      revision + row counts against the manifest, exit 4 on drift), and version
+      skew answered before anything is written — at head → nothing; ancestor →
+      `MIGRATED <svc>: A -> B`; unknown revision (newer Loft) → REFUSED exit 3.
+      Object storage deliberately NOT backed up (content-addressed derived
+      artifacts; restore cost is one cold rebuild per part). Gate:
+      `just backup-drill` / CI `backup-restore-drill` seeds real data, destroys
+      the volumes (and asserts they are gone), restores, and demands the same
+      volume AND the same `mesh_glb_id` from a re-evaluate. `docs/OPERATIONS.md`
+      adds sizing: ~500 MiB OCCT baseline per geometry worker and a PER-PROCESS
+      8-entry rebuild cache, so `--scale geometry=N` divides the hit rate.
+      [founder / open-source release]
+- [x] (P2, M) **PERF-1b — a mid-tree edit paid a full rebuild, and so did the
+      first face pick after it.** SHIPPED 2026-08-01 (kernel-architect): prefetch on
+      the only two genuine declarations of intent — an OPEN FEATURE EDITOR (warms
+      the prefix before the edited feature, both lineages: the commit, then the
+      pick) and the TIMELINE TRAVEL STOP (warms the shorter tree; only BACKWARD
+      travel needs it, forward is an append the cache already serves). Measured on
+      the tray: editing feature #192 of 200 is **33.7 → 4.8 s** commit and **34.7 →
+      4.4 s** first pick; rolling the stop back to 100 features is **8.2 → 0.5 s
+      (16x)**. A mid-tree edit at the halfway point gains only ~25 %, and that is
+      the `N^1.85` curve, not the implementation (warming prefix k can remove at
+      most `(k/N)^1.85`). Bounded and cancellable: ONE warm thread per worker (the
+      DoS bound), 30 s shared budget in priority order, supersede + explicit
+      cancel observed between features. A warm CANNOT publish — `WarmTreeResult`
+      is a ticket and a boolean at both hops, and the gate asserts that after a
+      warm the `mesh_glb_id` a real evaluate publishes does not resolve: no
+      artifact exists to serve. docs/PERF.md "2026-08-01". [kernel-architect PERF-1]
+- [x] (P1, M) **PERF-2 — the CM-6 validity gate was O(features x faces): 22 % of a
+      big-part rebuild.** SHIPPED 2026-07-31 (kernel-architect): `_admit` now checks
+      only the faces the op CREATED (`healing.new_geometry_is_valid`) — sound because
+      OCCT shape identity is TShape identity, so an unchanged face cannot have
+      changed verdict — keeping the whole-body check for a body being STARTED and at
+      publish. Measured 21.5 → 6.3 ms per body-affecting feature at 219 faces, and
+      flat in N. NOT taken: neighbour expansion (docs/PERF.md — one big top face
+      borders every pocket, so it pulled in 71 % of the body and measured 27 %
+      SLOWER) and `clean_shape`'s two GProp integrations (they bracket an in-place
+      mutation; its toy-measured "~1.3 ms" docstring is corrected instead).
+      [geometry-qa PERF-2]
+- [x] (P1, M) **PERF-3 — STEP import of Loft's OWN export was at 92 % of the DoS
+      ceiling. Done 2026-07-31 (kernel-architect).** Root cause was NOT a face-count
+      law: OCCT's transfer runs `ShapeFix_Shape` after building the topology, and
+      `ShapeFix_Wire::FixSelfIntersection` is super-quadratic in **edges per wire**
+      (8/8 gdb stacks of a live 18 s import). The benchmark sink's comb faces carry
+      ONE `4*fins+4`-edge wire, so its worst wire grew with the part. Disabling that
+      one op (`FixShape.FixSelfIntersectionMode=0`, applied AFTER `ReadFile` or it is
+      silently a no-op) gives **byte-identical** output and 2 006 faces **18.58 →
+      3.46 CPU s** (5.4x), curve now linear. Ceiling stays 20 s, re-derived from the
+      16 MiB upload cap: ~1.0 s fixed + **0.23-0.36 CPU s/MiB** → ~3x headroom at the
+      cap, cliff at ~55 MiB, i.e. the upload cap binds first. docs/PERF.md
+      "2026-07-31b". [geometry-qa PERF-3]
+- [x] (P2, S) **PERF-4a — the mesh route shipped uncompressed** (no
+      `GZipMiddleware` anywhere in geometry/gateway/py-kit). **Done 2026-07-31:**
+      compression wired ONCE in py-kit `create_app`; measured on the real route
+      1 117 KiB → **216 KiB** (tray N=200, 5.2x, +20.6 ms) and 1 064 KiB →
+      **90 KiB** (2 006-face sink, 11.9x, +12.5 ms), `/openapi.json` 4.2x.
+      `compresslevel=6` (Starlette's default 9 is strictly worse — more bytes,
+      4-9x the CPU) and `minimum_size=1500` (one MTU; below it gzip cannot save a
+      packet and `/healthz` gets *bigger*). The **gateway** is the hop that
+      compresses: it buffers upstream bodies, so `create_upstream_client` now asks
+      geometry for `identity` — that alone cut the end-to-end gateway fetch
+      57.8 ms → **31.4 ms**. docs/PERF.md "PERF-4 landed". [platform-builder]
+- [ ] (P2, M) **PERF-4b — `tessellate_glb` emits one glTF primitive per B-rep
+      face**, measured at **~425 bytes of JSON per face** plus one draw call per
+      face (2 006 on the sink). The split is required for picking, so carry the
+      face id as a vertex attribute instead of splitting primitives. Frontend-
+      coupled (viewport picks by primitive ordinal today). Compression blunts the
+      byte cost but not the draw calls. [geometry-qa PERF-4]
+- [x] (P2, M) **PERF-5a — per-face provenance went dark at ~103 features while its
+      docstring said it never would. Done 2026-07-31 (kernel-architect).** Crossing
+      point MEASURED, not bracketed: budget 7 242 at N=100, **8 180 at N=105**, so the
+      old 8 000 ceiling was crossed at **N ~= 103** (~232 faces) — an ordinary
+      authored part. `MAX_PROVENANCE_FACES` **8 000 → 30 000** (crosses at N ~= 207),
+      re-derived from the measured 134-237 us/fingerprint: worst admitted pass
+      ~4.0-7.1 s. The old ~1.5 s sizing was moot — at N=125, the first size 8 000
+      refused, the same `/overlay` already pays ~11 s of rebuild and the pass is a
+      steady **11-16 % of the request**, so the bound spent the point of the request
+      to save a sixth of it. Still degrades the audit-H4 case (20 000-face import =
+      budget 40 000). Gated by `test_provenance_budget.py`. [geometry-qa PERF-5]
+- [ ] (P2, M) **PERF-5b — the provenance budget is still the wrong SHAPE: it sums
+      faces over EVERY snapshot, so it is `O(features x faces)`.** Raising the
+      ceiling (5a) bought headroom, not a fix. Attribution needs each snapshot's
+      FINGERPRINTS, not a retained B-rep: fingerprint at production time and keep
+      `list[fingerprint]` instead of `list[BodyShape]`, which makes the pass
+      `O(final faces)` and drops the retained snapshot memory too. Call sites:
+      `features/evaluate.py` `EvaluationState.body_history` (:380, :2907, appended
+      :3099) + `kernel/provenance.py:180`. Blocked on evaluate.py territory only.
+      [geometry-qa PERF-5]
+
+- [x] (P1, S) **Audit N4 tail — SET the export `name` at the callers. SHIPPED
+      2026-08-01** (frontend-builder). Geometry had honoured an optional `name` on
+      `ExportTreeRequest` / `ExportAssemblyRequest` since 2026-07-31; no caller set
+      it, so every download still fell back to a uuid. Both sites now do. The
+      gateway's `export_part` takes a SECOND auth-scoped documents fetch for the
+      part header rather than the one-line spread the item assumed — the name is
+      deliberately not on `EvaluateTreeRequest` (a name must never be an input to
+      geometry, `DocumentName`), so there was nothing to spread; same reason the
+      web passes it through `exportAssembly(request, format, name)` rather than
+      through `buildEvaluateAssemblyRequest`, whose output feeds the SOLVE.
+      Acceptance met against the exported bytes over the real three-service stack
+      (`test_part_export_carries_the_part_name_end_to_end`): disposition
+      `motor-mount-bracket.step`, `PRODUCT('Motor Mount Bracket')` present and
+      `PRODUCT('SOLID')` absent, a sibling part downloads as `spindle-cap.step`
+      (no Downloads collision), and a foreign caller still gets 404 with no name
+      leaked. Browser-level: `full-flow` demands `baseplate.step`/`.stl`,
+      `assembly-inspect` demands `bolted-plates.step` holding
+      `PRODUCT('Bolted plates')`. [src: AUDIT-PRODUCT.md N4]
+
+- [x] (P1, M) **#58 — the SETTINGS surface exists, and every row on it is wired.
+      SHIPPED 2026-07-31** (frontend-builder, 2026-07-31; founder-raised "units and
+      mass should be controlled from a settings page"). There was no settings
+      surface at all — zero hits for settings/preferences across every route — so a
+      user could not change the one binding CAD users have violent muscle memory
+      about. `/settings` is now a sibling of the three registers (`SettingsSheet`,
+      the register's drawer frame + the title block's field anatomy: control column
+      left, CONSEQUENCE beside it, ruled to the frame edge), reached from the
+      workspace switch. APPLICATION scope only, said on the sheet ("saved in this
+      browser"): length unit for NEW documents (stamped by `createPart` /
+      `createAssembly`, never a conversion), **scroll-to-zoom direction** (the
+      founder-priority row — carried by the SIGN of the orbit rig's `zoomSpeed`,
+      since it scales the radius by `0.95 ** zoomSpeed`; no event interception), and
+      orbit / pan / zoom sensitivity as three named steps. Persisted like the
+      session store (localStorage, per-field validation on load, injectable for
+      tests); the viewport stamps the numbers it was handed
+      (`data-nav-{rotate,pan,zoom}-speed`) so an unwired preference fails a spec.
+      DELIBERATELY NOT RENDERED because nothing honours them yet: angular unit,
+      display precision, grid/snap step, default material (filed below). 17 unit +
+      6 component tests + `e2e/settings.spec.ts` (5, each asserting the effect on
+      the surface that honours it, not the control). Shots
+      `docs/screenshots/settings-after-{1440,1366}.png`.
+      [src: founder #58 · ROADMAP "still queued: … a settings surface"]
+
+- [x] (P1, L) **#WS1 — workspace management: search, sort, rename, duplicate,
+      dependency-safe delete across all three registers. SHIPPED 2026-07-31**
+      (frontend-builder; founder-raised "the row a user hits on their tenth
+      document"). The three registers were create-and-open only: no way to find a
+      document, reorder the drawer, correct a name, or copy one. Now, in the
+      register's own title-block language and adding no floating chrome —
+      **FILTER** is a ruled field on the header rule (`/` focuses, Escape or a
+      quiet CLEAR empties it) filtering the whole drawer as you type, and the
+      count becomes the FRACTION `4 of 12 parts` derived from the two arrays on
+      screen so an empty result is legible instead of alarming; **SORT** is the
+      column headers themselves (NAME numeric-collated so "Rib 2" precedes
+      "Rib 10", LAST WORKED, FILED — `aria-sort` + a scribed chevron, default
+      FILED-asc which IS documents' own order, ties left to the stable sort so the
+      client never invents an order the server disagrees with); **RENAME** edits in
+      the name cell under the document's OCC version (`tree_version` / `doc_version`
+      -> 422 on a stale row) and the cell then renders what the refetched LIST says,
+      never the typed string; **DUPLICATE** is a real endpoint per kind
+      (`POST /{parts,assemblies,drawings}/{id}/duplicate`, `documents/duplicate.py`)
+      — a part copies its WHOLE feature tree with every intra-tree id reference
+      rewritten onto the copy plus dependency edges, travel stop, unit and
+      materials; an assembly copies instances + mates rewired onto the copied
+      instances but NOT the referenced parts; a drawing copies sheets/views/
+      dimensions/annotations but not the referenced document. No copy inherits undo
+      history or the last-evaluate record (a copy has never been built and its
+      register row says `never`). The copy's NAME is the server's
+      (`py_kit.schemas.workspace.copy_name`: "Bracket copy", "Bracket copy 2"…,
+      truncating the base not the suffix) and the created document is returned, so
+      the register never predicts it; **DELETE** now surfaces the existing
+      409-with-dependents by NAME — the payload is a real DTO
+      (`DocumentDependents`) DOCUMENTED as the delete routes' 409 response, so it
+      reaches the generated TS client and the row lists "gearbox (assembly)"
+      instead of "in use". 13 documents + 8 py-kit + 4 gateway + 37 component + 9
+      api-layer tests (all mutation-verified) + `e2e/workspace.spec.ts` (4). Shots
+      `docs/screenshots/workspace-register-{before-,}{1440,1366}.png` +
+      `workspace-register-filtered-1440.png`. **FOLDERS REMAIN OPEN** and nothing
+      on the surface pretends otherwise — filed below. [src: founder #WS1]
+
+- [x] (P2, S) **F3 — deleting a feature warned about nothing; it now says WHO
+      breaks, by name, before you commit. FIXED 2026-08-01** (frontend-builder).
+      `deleteFeatureAction` fired straight off the context menu with no
+      confirmation and no dependency check, and the refusal a user eventually met
+      said "referenced by 2 other document(s)" — a sentence that ends the
+      conversation. Now: the tree ASKS (`GET …/features/{id}/dependents`, a new
+      route answered by the SAME documents-side query that builds the delete's
+      409, so a warning and a refusal cannot disagree), and the confirmation
+      either names what breaks — "Extrude1 (feature)", "Assembly sheet (drawing)"
+      — and does not offer a delete the server would refuse, or says "nothing else
+      depends on it, and Undo brings it back". The 409 payload is now a typed DTO
+      (`FeatureDependents`) DOCUMENTED as the delete's 409 response, so it reaches
+      the generated TS client; a race that 409s after a clean pre-check re-opens
+      the confirmation with the refusal's own names. 3 documents + 2 gateway + 7
+      component tests (mutation-verified) + `e2e/feature-delete-warning.spec.ts`.
+      Shot `docs/screenshots/feature-delete-dependents-1440.png`.
+      [src: docs/UI-REVIEW.md 2026-07-30 F3]
+
+- [x] (P2, M) **F4 — a keyboard-first app with nowhere to learn the keyboard.
+      FIXED 2026-08-01** (frontend-builder). `?` opens a KEY CARD from any authed
+      surface. The point is not the overlay, it is that it CANNOT go stale: every
+      row is derived, by one of three mechanisms, from what the handlers actually
+      listen for. (a) The sketch tools, constraint verbs and view snaps are read
+      off `TOOL_SHORTCUTS` / `CONSTRAINT_SHORTCUTS` / `CONSTRUCTION_SHORTCUT` /
+      `VIEW_SHORTCUTS` — the very tables the handlers index, so a re-keyed tool
+      re-keys the card. (b) Everything that used to be an inline string literal
+      (the register's `N` and `/`, grid snap, measure, the seven part create
+      letters) is now a constant in `shortcuts/registry.ts` that the page
+      imports. (c) `V`/`⇧V` body isolation, whose handler is in another agent's
+      territory, is pinned by a BEHAVIOURAL test that mounts the real hook, fires
+      the key the registry declares and asserts the store moved — stronger than a
+      shared constant, because it proves the key works rather than that two files
+      agree about a string (mutation-verified: re-keying `KEY_ISOLATE` goes red).
+      10 registry + 8 component tests + `e2e/shortcuts.spec.ts` (2), which reads a
+      binding off the card and then FIRES it in the real app. Shots
+      `docs/screenshots/shortcut-sheet-{1440,1366}.png`.
+      [src: docs/UI-REVIEW.md 2026-07-30 F4]
+
+- [x] (P2, L) **#WS2 — FOLDERS in the registers, backed by a real tree. SHIPPED
+      2026-08-01** (frontend-builder). Four decisions, made explicitly and stated
+      in `py_kit/schemas/folders.py`: (1) folders are **per-drawer** (`kind` on
+      the row) because the registers are per-kind surfaces — a shared tree would
+      put folders in the parts drawer holding no parts, and would force the count
+      readout to lie or to report a number the drawer cannot show; (2) **"unfiled"
+      is a real state** (`folder_id` NULLABLE), so every existing document stays
+      reachable with no backfill and no per-owner root row to mint; (3) names are
+      unique **per folder**, enforced by a PAIR of partial unique indexes because
+      SQL treats NULLs as distinct and a plain composite UNIQUE would silently
+      permit two *unfiled* "Bracket"s; (4) deleting a non-empty folder is
+      **REFUSED and names its contents** — the same 409-with-contents grammar the
+      document delete already uses, never a cascade (deletes documents nobody
+      named) and never orphan-to-root (moves work invisibly). Ships `folders` +
+      `folder_id` on all three document tables (`0015_folders`), a folders router
+      with ancestor-walk cycle rejection and a depth bound, three `/move` routes
+      that move neither the concurrency counter nor `updated_at` (filing is not an
+      edit), and `folder_id` on the three CREATEs so filing inside a folder is ONE
+      call. UI: folders are DIVIDERS in the log book (tab glyph in the scribed
+      gutter, no rail — a rail would duplicate the breadcrumb), the breadcrumb IS
+      the title, the filter searches the WHOLE drawer and labels each hit with
+      where it lives (the reachability guarantee), and MOVE is a keyboard-first
+      verb. 16 documents + 10 gateway + 11 component tests (mutation-verified:
+      dropping the unfiled partial index, disabling the cycle check and skipping
+      the delete refusal each go red) + `e2e/folders.spec.ts` (2). Shots
+      `docs/screenshots/workspace-folders-{1440,1366}.png` +
+      `workspace-folders-inside-1440.png`. [src: founder #WS1 scope item 5]
+
+- [ ] (P3, S) **#WS3 — drag a register row onto a divider to file it.** #WS2
+      shipped MOVE as a verb (a select of every folder by path) and deliberately
+      did NOT ship drag: a filing gesture reachable only by pointer would put the
+      product's one rearrangement out of keyboard reach, so the keyboard path had
+      to be the primary one and is complete on its own. Drag is now purely
+      additive — HTML5 dnd on `DocumentRegisterRow` with `RegisterFolderRow` as
+      the drop target, calling the same `onMoveDocument`. Also open: moving a
+      FOLDER (the endpoint and its cycle rejection exist and are tested; no UI
+      calls `moveFolder` yet), and deep-linking the current folder into the URL so
+      a folder view can be shared or reloaded in place. [src: #WS2 follow-up]
+
+- [x] (P1, S) **The assembly panel stopped promising a mass it did not have — and
+      the roll-up can now HAVE one. FIXED 2026-07-31** (frontend-builder,
+      2026-07-31). `AssemblyInspector` carried a section headed **COMBINED MASS**
+      over Volume / Area / Centroid and no mass: #57b's defect at a second address.
+      The title is now earned (`Combined properties` until `mass_g` is real), the
+      mass row formats through the one `formatMass` seam, a mass-weighted CENTRE OF
+      MASS shows beside the volume centroid, and absence is stated in words naming
+      the component that lacks a material — never `0 g`, and never blaming an
+      instance whose part produced no body (that one never enters the roll-up).
+      Found en route and fixed in the same slice: the browser's
+      `buildEvaluateAssemblyRequest` never sent `EvaluatedInstance.materials`, so an
+      assembly of fully-assigned parts came back `mass_g: null` FOREVER and the mass
+      row was unreachable code; the request now carries each part's assignment and
+      the evaluate key is stamped with the referenced parts' `tree_version` (a
+      material edit does not bump the assembly's `doc_version`, so the cached
+      evaluation outlived it). 7 unit + 6 component tests (mutation-verified) +
+      `e2e/assembly-mass.spec.ts` driving a real assignment through the real stack.
+      Shots `docs/screenshots/assembly-mass-{before,after}-1440.png`.
+      [src: docs/design/materials.md §5/§6 · #57b, second address]
+
+- [x] (P0, M) **QA-1 / CM-6 — a mirror shipped a body OCCT calls invalid, 3.48 %
+      too heavy. FIXED 2026-07-30** (kernel-architect; QA wave `748a6ad`). Block →
+      revolve-CUT groove straddling the XZ plane → body-scope mirror measured
+      31,865.9587 mm³ against an analytic 30,793.62842102152, `is_valid` false, every
+      feature `ok`, and it meshed, measured and exported to STEP. Not the mirror: the
+      `fuse` is exact and valid, and the trigger is the groove's outer wall being
+      exactly TANGENT to the block's own wall (measured — move it 0.5 mm and `clean()`
+      behaves at every station). `Shape.clean()` welded the void shut. Fixes: (1)
+      `healing.clean_shape` is now the ONE `clean()` call site and discards a
+      simplification that moves material (bound measured over 3050 suite calls: worst
+      1.6e-16 relative); (2) `BRepCheck` validity is asked at the three
+      `EvaluationState` body funnels → typed `invalid_body`; (3) re-asked at publish
+      time, because OCCT's boolean invalidates this body's ARGUMENT in place, and the
+      artifacts are withheld rather than published wrong. Two hand-derived goldens
+      (`mirror-revolve-groove-tangent-wall-40x40x10` + the clear-of-plane control that
+      proves the fix discriminates), CM-6 matrix cases, kernel contract in
+      `test_healing.py`. Cost +9…20 ms/rebuild, an order under the §9 ceiling.
+      **Follow-up (apps/web, NOT this agent's territory): delete the `test.fail()` in
+      `e2e/qa-wave-0730.spec.ts` "G" — the spec now passes, so it goes RED as filed.**
+      [src: docs/QA-REVIEW.md 2026-07-30 QA-1 · GEOMETRY-QA 2026-07-30]
+- [x] (P1, M) **QA-3 — a diameter dimension the revision never touched was
+      destroyed. FIXED 2026-07-30** (kernel-architect; QA wave `748a6ad`). Tier-2
+      circle re-anchoring keys on the 3-D centre, and a thickness edit slides a bore's
+      rim along its own axis, so the Ø dimension went `unresolved` and left the sheet.
+      Tier 3 frees the offset ALONG THE AXIS only (radius / axis line / angular
+      station still pinned) and — because that alone cannot tell the two congruent
+      rims of a through hole apart — scopes candidates to the model edges the
+      dimension's own VIEW draws, the set the user could have picked from. Re-measures
+      Ø10.000 at the new height; refusals kept for a moved hole, a coaxial counterbore,
+      both-rims-drawn (ambiguous) and no-view-evidence. New revision gate asserts both
+      dimensions in the exported SVG/PDF/DXF bytes.
+      [src: docs/QA-REVIEW.md 2026-07-30 QA-3 · design drawings.md §3.5]
+- [x] (P1, M) **QA-2 — a thickness revision destroyed every hole on the face.
+      FIXED 2026-07-30** (kernel-architect; QA wave `748a6ad`). Retyping a bracket's
+      thickness 10 → 16 orphaned `Hole1` (`subshape_unresolved`), stranded the three
+      features after it and left a featureless 38,400 mm³ brick with the export
+      blocked. Both face-matching tiers pin the PLANE; a depth edit translates it and
+      changes nothing else. Third tier (`translated_signatures_match`,
+      topological-naming.md §12) frees the offset along the normal and pins the
+      normal SENSE, the area and the in-plane centroid — the sense being what stops a
+      top-face hole re-anchoring onto the congruent bottom face. Bracket rebuilds
+      6/6 ok at 227,397.93 mm³ (mirror-stage analytic dev 2.9e-11); first REVISION
+      golden `revise-thickness-hole-on-moved-face-60x40x16`. Four shipped tests had
+      encoded "the face is gone" as "the same face at a different z" — the very case
+      this fixes — and were re-fixtured.
+      [src: docs/QA-REVIEW.md 2026-07-30 QA-2 · GEOMETRY-QA 2026-07-30]
+- [x] (P1, S) **QA-4 — a lost dimension leaves no trace on the print. FIXED
+      2026-07-30** (kernel-architect; QA wave `748a6ad`). The composer SKIPPED any
+      dimension it could not place (edge not drawn in that view, or drawn as a
+      primitive the type cannot annotate) — it vanished from the sheet and from
+      every export with no marker and no words, so a print missing a number read as
+      a complete one. No skip branch now: every authored dimension lands, as its
+      annotation or as a stamped `dimension_not_placeable` marker. Gates assert the
+      EXPORTED BYTES through `POST /api/v1/drawing/compose` (SVG/PDF substrings,
+      DXF read back with ezdxf, `placed == authored` count) — the caption function
+      was already right; nothing called it on this path. Measured en route: the
+      exported SVG DOES carry "REFERENCE LOST" for an unresolvable ref (QA-4's
+      export claim not reproducible); the silent surface is the on-screen sheet,
+      which still draws the pre-N1 bare `!` — filed for the frontend owner below.
+      [src: docs/QA-REVIEW.md 2026-07-30 QA-4 · design drawings.md §3.4]
+- [x] (P1, S) **QA-4b — the on-screen sheet says what the export says. FIXED
+      2026-07-31** (frontend-builder, 2026-07-31). `DimensionGlyph` drew a 2.6 mm
+      dashed circle holding a bare `!` and dropped the `message`/`text` the
+      composer has carried since `7fde5d2`, so the engineer at the screen was told
+      less than the machinist holding the PDF. The caption is now stamped at
+      `dim.text` in the SERVER's words (no client-side phrase table) at the
+      composer's own cap height — a new `drawing.dimensionErrorTextMm` token
+      mirroring `_DIM_ERROR_TEXT_MM`, the same cross-renderer rule `noteTextMm`
+      carries — and the `<title>` spends it too. The stale QA-4 repro (revise a
+      thickness, which QA-3 made survivable) is rewritten to a genuine loss: the
+      hole is deleted from the sketch its edge came from, and one spec now asserts
+      the SAME sentence on the sheet and in the exported SVG. Shots
+      `docs/screenshots/drawing-dim-lost-{before,after}-1440.png`.
+      [src: docs/QA-REVIEW.md 2026-07-30 QA-4]
+- [x] (P1, L) **#57 — MASS PROPERTIES can report MASS. Kernel + wire SHIPPED
+      2026-07-30** (kernel-architect; founder-raised "units and mass should be
+      controlled from a settings page"; design `docs/design/materials.md`,
+      decision RESEARCH §9a, numbers GEOMETRY-QA 2026-07-30). The panel was named
+      for a thing it did not have: no density, no material, anywhere — and
+      `ShapeProperties.centroid` was even documented as "centre of mass". Now:
+      a 7-material handbook library in `py_kit.schemas.materials` (served at
+      `GET /api/v1/materials`, never hardcoded client-side); `mass = volume x
+      density` derived in `measure_shape` beside the volume it comes from;
+      assignment = document default + per-body overrides keyed by the §MB-0 base
+      feature id (`parts.materials` JSONB, migration 0013, wholesale PATCH
+      replacement) threaded through the part AND assembly evaluation requests.
+      **Absence is the contract:** no material -> `mass_g: null`, never 0 g and
+      never a defaulted steel; 45 goldens assert it. Both analytic roll-ups
+      compose mass and a genuinely MASS-weighted `center_of_mass` (the assembly
+      had been calling its volume weighting mass-weighted): measured 27.0 g
+      (dev 3.6e-15) single-material, **84.56 g at x=32.3368 mm vs the volume
+      centroid's 25 mm** mixed. GLB bytes identical with and without a material.
+      A material change marks the last-evaluate record stale (mass depends on
+      it), unlike a rename/unit change. FRONTEND FOLLOW-UP filed below.
+      [src: founder flow audit 2026-07-30 · UI-REVIEW "overstated surface" class]
+- [x] (P1, M) **#57b — the mass UI: stop promising mass before there is a
+      material. SHIPPED 2026-07-30** (frontend-builder). The panel is titled
+      PROPERTIES with NO mass row while `properties.mass_g` is null and earns
+      MASS PROPERTIES only when a material gives it one; absence reads as the
+      MATERIAL cell's "No material" + "Assign a material to get a mass", never
+      `0 g`. Picker + density come from `GET /api/v1/materials` through the
+      gateway (nothing client-side knows a density); assignment PATCHes
+      `materials` wholesale under `expected_tree_version` (document default +
+      per-body override rows), retrying once on a stale-version race. Mass rides
+      the ONE units seam (`MASS_G_PER_UNIT` / `formatMass` in
+      `packages/design/src/units.ts`): 21.6 g on a 20 mm aluminium cube, 0.1388
+      lb in an inch document, g->kg above 1000 g. A mixed part shows CENTRE OF
+      MASS apart from the centroid (measured on screen: 32.34 vs 25 mm on the
+      84.56 g two-cube part) and NAMES the body with no material
+      ("Extrude2 has no material, so the part has no total mass.") instead of
+      going quiet. 42 unit/component tests (mutation-verified) +
+      `e2e/materials.spec.ts` (6, real OCCT); shots
+      `docs/screenshots/materials-{before,after,after-assigned}-{1440,1366}.png`
+      + `materials-after-mixed-1440.png`. Original acceptance: (1) while `properties.mass_g` is null the
+      panel is NOT titled "MASS PROPERTIES" and shows no mass row — it offers the
+      assign-material affordance instead; (2) absence renders as absence (an em
+      dash / "no material"), never `0 g`; (3) a material picker reading
+      `GET /api/v1/materials` (document default + per-body override on the Bodies
+      panel, PATCH `materials` wholesale with `expected_tree_version`); (4) mass
+      formats through the SAME units seam lengths use — `MASS_G_PER_UNIT` +
+      `formatMass(g, lengthUnit)` in `packages/design/src/units.ts`, imperial
+      documents reading lb, metric promoting g->kg above 1000 g (materials.md §5);
+      (5) a mixed-material part shows the centre of MASS distinctly from the
+      centroid, and names the body that has no material when the part total is
+      null (`BodyLumpInfo.material`/`.mass_g` carry it). [src: materials.md §6]
+      UNBLOCKED 2026-07-30 (backend-builder): `GET /api/v1/materials` now has its
+      GATEWAY twin (`gateway/materials.py`, auth-gated proxy) — the picker in (3)
+      reads it through the gateway instead of 404-ing or reaching past it.
+- [x] (P1, M) **UI-W1 — the bottom TIMELINE strip with a draggable travel stop.
+      SHIPPED 2026-07-30** (frontend-builder; founder-directed, design
+      `docs/design/ui-wave-tool-grade.md` Surface 1). Rollback left the tree
+      panel's 1px `ROLLBACK` rule for a docked 48px machine way: verb-glyph op
+      chips + tabular ordinals, solid way through travelled ops and dashed past
+      the stop, and a brass travel stop that drags AND arrow-keys (`role=slider`,
+      Home/End, focus follows the move) with `TO TIP` as the escape hatch. Chips
+      dim as well as dash; error = `flag`, suppressed = the tree's struck-through
+      treatment. DRY: `features/rollback.ts` ported to the horizontal axis
+      unchanged, ONE `VERB_GLYPHS` map now feeds the command band and the timeline
+      (`CreateStrip` converted, drift-guarded), `BandActionCell` extracted as a
+      shared primitive. The design system's last target-size exception (the 8px
+      drop slots) is retired — every rollback control is 24x47, asserted. All
+      `rollback-slot-N` hooks preserved; `timeline.spec.ts` (7) + 50 regression
+      specs green; founder shots `timeline-{before,after}-{1440,1366}.png`.
+      [src: founder directive 2026-07-30 · ROADMAP current focus]
+- [x] (P1, L) **UI-W3 + UI-W4 — the cursor's selection prefills the editor, and
+      an editor's references stop scrolling away. SHIPPED 2026-07-30**
+      (frontend-builder; founder-directed "placement face looks like a text box?
+      Shouldn't it know based on the face I select with the cursor?", design
+      `ui-wave-tool-grade.md` Surface 3). `features/preselect.ts` keeps a pick
+      alive past the command that made it; hole / datum / sketch-on-face /
+      shell / draft / fillet / chamfer / edge-flange / hem all seed from it, and
+      a pick is withheld once the body it was taken from is no longer the tip
+      (anchor-scoped, so a stale signature never prefills an unresolvable ref).
+      Invoking Hole with nothing selected ARMS the face pick — arming is now for
+      CHANGING a reference. The picked faces stay LIT with no editor open.
+      UI-W4: references pinned in an `EditorCard.header` anchor block, Ø as
+      `NumberField emphasis="primary"`, the thread block behind a new
+      `Disclosure` primitive that reports its callout when shut, and the card
+      docked to the right rail clear of the reference cube. Web unit 1087 +
+      design 54; `preselection.spec.ts` + 18 hole specs + 12 regression specs
+      green on a live stack; shots `uiw34-hole-{before,after}-{1440,1366}.png`.
+      [src: founder report 2026-07-30 · ROADMAP current focus]
+- [x] (P1, M) **UI-W2 — per-instance visibility, opacity and isolate. ASSEMBLY
+      HALF SHIPPED 2026-07-30** (frontend-builder; founder-directed "what about
+      different components enablement, opacity, etc.", design
+      `ui-wave-tool-grade.md` Surface 2). The product audit measured a
+      21-instance assembly with no way to see inside it. Each component row
+      carries an EYE drawn in our hand (three forms differing by whole strokes,
+      after a hollow-vs-filled pupil measured illegible at 16px); the addressed
+      row discloses SOLID · GHOST · HIDE (`SegmentedControl`, quantized — the
+      320px row cannot hold a slider, and a hover-revealed control would reflow
+      the list under the cursor); ISOLATE is a right-click verb with `V` / `⇧V`,
+      `⇧V` doubling as the way back so no chord can strand you. Mandate 3c is
+      asserted on canvas PIXELS (luminance-banded census; mutation-verified to
+      fail when the WebGL wiring is stubbed). Hidden = nothing drawn (body, pool,
+      balloon, mate overlay) and out of the camera-fit bounds. GHOST references
+      the existing `viewport.preview` translucency but NOT its brass tint. View
+      state is client-only — the solve, the clash check and exports are
+      unchanged. The `ISOLATED` `Stamp` is DERIVED, renders only while something
+      is hidden, and is pointer-inert but for its control. Web unit 1140 + design
+      63; `assembly-visibility.spec.ts` (6) + 18 regression specs green on a live
+      native stack; shots `uiw2-visibility-before-{1440,1366}.png`,
+      `uiw2-{ghost,isolate}-{1440,1366}.png`. **PART HALF SHIPPED 2026-07-31**
+      (frontend-builder; founder: "what about the ability to enable planes,
+      sketches and bodies? Similar to fusion?"). Same vocabulary, three
+      categories: SKETCHES + ORIGIN sections in the browser, eyes + the
+      SOLID · GHOST · HIDE control on the Bodies list, `V` / `⇧V`, the derived
+      `ISOLATED` stamp. The origin planes and axes had never rendered AT ALL, so
+      every datum decision was made against geometry you could not see; they now
+      draw in the plane-picker's own tokens, sized 1.6x the subject so a sheet is
+      not hidden by the part it passes through, axes solid on + and phantom on −.
+      Four as-built corrections in the design doc: two stops (not three) on rows
+      where GHOST would mean nothing; disclosure on ADDRESSED not SELECTED
+      (selecting a body row opens its base feature's EDITOR — measured, the ghost
+      shot came back with the extrude editor open); a sketch's stop is DERIVED
+      from "does a body exist" with an explicit override either way; and per-body
+      hiding is recovered from the ONE fused GLB by connected components +
+      the per-body lump count (`bodyPartition.ts`), withheld with a reason rather
+      than guessing when the arithmetic does not line up. Web unit 1283 + design
+      66; `part-visibility.spec.ts` (7) + `view-fit.spec.ts` (5) + ~230 regression
+      specs green on a live native stack; mutation-verified — stubbing the WebGL
+      side fails 4 of 5 pixel tests while aria/`data-*` still flip. Shots
+      `uiw2-part-{origin,hidden,ghost}-after-{1440,1366}.png`.
+      [src: founder directive 2026-07-30 · AUDIT-PRODUCT 21-instance assembly]
+- [x] (P1, M) **UI-W5 — entity snapping in the sketcher, with a mark that says
+      WHICH snap you are about to take. SHIPPED 2026-07-31**
+      (frontend-builder; founder question "what about snapping to a face or
+      point? With control or command?"). The sketcher had ONE snap — a grid
+      hardcoded at 1 mm. Now `sketch/snap.ts` resolves endpoint / midpoint /
+      centre / intersection / tangent / perpendicular-foot analytically (exact
+      line/circle/arc crossings, not chord approximations; splines fall back to
+      the sampled ink), Shift locks the aim to an axis through the placement
+      anchor, and the grid step is a store value (`snapStepMm` / `setSnapStep`)
+      for the settings surface rather than a literal. **Polarity is inverted
+      from the phrasing on purpose: snapping is ON and Ctrl/Cmd SUPPRESSES it**
+      (all of it, grid included) — a precision you must hold a key to reach is
+      one a novice never finds; Alt is avoided (window managers fight for it).
+      The honesty half: a mark at the candidate names it before the click, four
+      new glyphs differing by WHOLE STROKES (square / triangle / circled cross /
+      bare X — a fill difference is not a difference at 16px), tangent and
+      perpendicular reusing the constraint glyphs of the same names. Measured,
+      not eyeballed: mark `brass-hover` on carbide 11.80:1, 5.49:1 worst case
+      over a major grid line; the word `mist` on anvil 13.21:1. The crosshair
+      stands down while a mark is up (it was poking through every form). e2e
+      proves the chain end-to-end — with the grid OFF, a click 6 px off a corner
+      persists as exactly (40, 25). web unit 1218 + design 66;
+      `sketch-snap.spec.ts` (6) + 55 sketch/flow regression specs green on a
+      live native stack; shots `uiw5-snap-before-{1440,1366}.png` and
+      `uiw5-snap-{endpoint,midpoint,center,intersection}-{1440,1366}.png`.
+      [src: founder question 2026-07-30 · ROADMAP current focus]
+- [x] (P1, M) **UI-REVIEW 2026-07-30 P1/P2/P3 — the export strip's second fold
+      regression, the timeline's false redundancy claims, and three silent
+      gates. FIXED 2026-07-30** (frontend-builder, folded into UI-W3/W4).
+      `FloatingPanel.footer` PINS the export strip so a clamped panel can never
+      push it (or its *partial* warning) under the fold — measured guard in
+      `body-status.spec.ts`, which reports `clipped by …` on the old layout.
+      Timeline chip border `hairline`→`etch` (1.54:1 → 3.06:1); the lifted-seat
+      claim corrected rather than restated; the in-flight rollback's stop, drop
+      slots and TO TIP now LOOK gated (`aria-disabled`, no grab cursor, honest
+      caption); `BandActionCell`'s reason off `opacity-40` + off `text-[9px]`;
+      chip `title`; Escape aborts a stop drag; `exportGate` blames the travel
+      stop instead of "No body". Plus, found while verifying: a gated
+      `PanelActionCell` keeps pointer events, so an editor card over the model
+      made the edge beneath it UNPICKABLE (reproduced at HEAD) — fillet/chamfer
+      take the right rail while picking. [src: docs/UI-REVIEW.md 2026-07-30]
 - [x] (P0, S) **CM-1 — a `mirror` re-ERASED a cut when ANY non-cut feature sat
       between the cut and the mirror. Fixed 2026-07-25.** Cut tools are now
       TRACKED PER FEATURE (`EvaluationState.record_cut_tools`, with the producing
@@ -75,18 +860,224 @@ frame refactor are v2/§11. Spike de-collected.
       **29834.8674**, both bores present (12 faces). `xfail` removed for those two
       params; +3 guards in `test_mirror.py`.
       [src: GEOMETRY-QA 2026-07-25 composition matrix]
-- [ ] (P2, M) **A mirror does not duplicate material an intervening ADD
-      contributed** (CM-1's re-scoped residual — no longer silent-wrong-geometry:
-      the void survives). `plate -> hole -> boss -> midplane mirror` = 30309.3807
-      (hole mirrored, boss single) where a modeler expects 30629.3807. Unreachable
-      under v1's "reflect the most recent recorded cut" rule, and the alternatives
-      break a lock (union-then-re-subtract welds an earlier pocket: 30400.0 vs
-      29600.0; reflecting every tracked cut gives 28800.0 there). The honest fix is
-      the incumbent semantic — mirror a SELECTED SET of features (a DTO change:
-      `features: [id, ...]`), which also retires the "a crossing mirror erases an
-      asymmetric modifier" limit. Design doc first. Pinned by
-      `CM1_BOSS_UNMIRRORED` in the composition matrix.
-      [src: CM-1 fix 2026-07-25]
+- [x] (P2, L) **Mirror v2 — mirror a SELECTED SET of features. SHIPPED
+      2026-07-30** (kernel; design `docs/design/mirror-semantics.md`). CM-1's
+      re-scoped residual is closed by the CONTRACT, not a cleverer heuristic:
+      `MirrorParamsV1.scope` is a `kind`-union (`body` = v1 verbatim, `features` =
+      an explicit tree-ordered selection). Measured, all four: **30629.3807**
+      (`features: [hole, boss]`), **30309.3807** (the same chain with no `scope` —
+      the locked `body` reading), **29600.0** (both spellings agree),
+      **28800.0** (`features: [A, B]`). `body`-path byte identity VERIFIED not
+      assumed: all **39** goldens' GLB sha256 + metadata identical to the pre-v2
+      kernel. New codes `mirror_feature_unsupported` / `_unreachable` /
+      `_other_body` / `_not_evaluated`; 3 new goldens; matrix verb
+      `mirror_features` (+8 cells, 112 asserted); `test_mirror_features.py` (33).
+      One documented divergence: a SUPPRESSED selected feature is
+      `references_suppressed` (the generic ref rule) rather than design §8.2's
+      "skip silently" — locked with its reasoning in
+      `test_a_suppressed_selection_is_references_suppressed`. Follow-ups filed
+      below (web authoring; the v1 cut slot's own coverage gap).
+      Original acceptance criteria, all met:
+      (1) `MirrorParamsV1` gains `scope`, a `kind`-discriminated union — `body`
+      (v1, **retained verbatim**: absent key normalises via a before-validator, so
+      `param_version` stays 1 and every shipped mirror golden is byte-identical
+      *structurally*, on unchanged code) and `features` (`list[FeatureRef]`,
+      `min_length=1`, duplicates = 422); `FeatureRef` so each selection
+      materialises into `feature_dependencies` (409-with-dependents +
+      strict-backward + body-affecting-target 422 for free).
+      (2) `record_cut_tools` widens to `op`-tagged, **opt-in** per-feature tool
+      recording (only ids a `features` mirror names retain tools — the
+      `body_history`/H4 posture, so trees without one pay nothing); **both v1
+      readers (`_mirror_cut_tools`, `_pattern_cut_tools`) must return the SAME
+      tools after the widening** — the highest-risk hunk — proven by the unchanged
+      goldens + `test_mirror.py`/`test_pattern.py` locks; also close the store's
+      coverage gaps (today only extrude-cut + hole record: add revolve/sweep/loft
+      cut, every additive verb, and `pattern`).
+      (3) Per-kind dispatch: reflect the recorded rigid tool + re-apply that
+      feature's own boolean, in **tree order** (never array order — RESEARCH §9).
+      In scope: additive extrude/revolve/sweep/loft/import, all cuts, all four
+      hole types, `pattern` (reflect PLACEMENTS not params — chirality), nested
+      `features`-scope mirror. Typed refusals (`mirror_feature_unsupported` /
+      `_unreachable` / `_other_body` / `_not_evaluated`): fillet/chamfer/shell/
+      draft + sheet-metal folds (no rigid tool — a reflected delta-sliver is
+      silent-wrong-geometry), `body`-scope nested mirror, cross-body, boolean,
+      non-body-affecting. A reflected cut that removes nothing is now an ERROR,
+      not v1's union fallback (explicit intent buys honesty).
+      (4) Three new goldens: `mirror-features-hole-boss-plate-40x40x20`
+      (**30629.3807**, CURVED_TOL), `mirror-features-pocket-b-only-40x40x20`
+      (**29600.0**, 21 faces, PLANAR_TOL), `mirror-features-both-pockets-40x40x20`
+      (**28800.0**, PLANAR_TOL) — no new epsilon.
+      (5) `CM1_BOSS_UNMIRRORED` is cleared by **giving the case an explicit
+      selection**, not by a silent green: it splits into a selection variant
+      asserting 30629.3807 (marker removed) + an implicit variant asserting
+      30309.3807 as the locked `body`-scope semantic. Read `mirror-semantics.md`
+      §5 before touching the marker.
+      **Correction to this item's earlier text (STILL TRUE after shipping):** v2
+      does **NOT** retire the "a crossing mirror erases an asymmetric modifier"
+      limit — a modifier cannot be named in a selection (design §4.3/§10.1), and
+      `test_observed_limit_a_crossing_mirror_erases_an_asymmetric_modifier` stays
+      green and unedited. Also not solved: symbolic "mirror image of face F" refs,
+      extent-derived tools, sheet-metal/assembly mirror.
+      [src: CM-1 fix 2026-07-25; design 2026-07-29; shipped 2026-07-30]
+
+- [ ] (P2, M) **Web authoring for the mirror scope** (frontend; unblocked by the
+      kernel above). Two radio buttons ("Mirror: body / features") plus a
+      feature-tree multi-select; `scope` is OPTIONAL in the generated client
+      (`scope?: MirrorBodyScope | MirrorFeaturesScope`), so existing callers are
+      unchanged and only the new UI sends it. Surface the four typed refusals by
+      `upstream_feature_id` (the offending SELECTED feature, so the tree row is
+      highlighted, not the mirror). Defaulting the UI to `features` while the
+      schema defaults to `body` is legitimate and probably right (design §11.2).
+      Open UX question §11.4: warn when a selected feature is suppressed — today
+      that is a typed `references_suppressed` error, so the warning is a
+      pre-flight nicety, not a correctness gap.
+      [src: mirror-semantics §11.2/§11.4]
+
+- [ ] (P3, S) **The v1 cut slot still records only extrude-cut + hole.** v2's
+      per-feature store covers every mirrorable verb, but `record_cut_tools` —
+      which `body`-scope mirror and `pattern` read — was deliberately NOT widened
+      (mirror-semantics §6.2: doing so silently changes what those two reflect on
+      trees with shipped goldens). Consequence: a `body`-scope mirror after a
+      revolve/sweep/loft CUT still takes the reflect-and-union path and can fill
+      that void — the FINDINGS #2 class, for the three non-extrude cuts. Fixing it
+      is a real behaviour change needing its own goldens; the `features` scope
+      already gives users a correct answer today.
+      [src: mirror v2 implementation 2026-07-30]
+
+- [x] (P2, M) **"Is broken" on the parts register — BACKEND SHIPPED 2026-07-30**
+      (backend-builder; design `docs/design/feature-tree.md` §4.4a). The one
+      column the 07-30 UI review argued back in. Migration `0012` adds nullable
+      `parts.last_eval_status` / `last_eval_at` / **`last_eval_tree_version`**,
+      and `PartResponse` serves a derived `eval_state` of
+      `never` / `ok` / `failed` / `stale` — the fourth state exists because a
+      bare status is a claim about a tree that moved (the stored-BOM-number
+      failure mode, `drawings.md` §8a.1), so staleness is derivable at the API,
+      not guessed from `updated_at > last_eval_at`. The **gateway** writes it
+      after a successful evaluate (a client-reported status is forgeable and this
+      lands on a dashboard), in a background task with all failures logged and
+      dropped — bookkeeping never slows or fails an evaluate. Monotonic in
+      `tree_version`; does not move `updated_at`; carried forward across a
+      rename/re-unit. 13 documents + 6 gateway + 2 migration tests; list endpoint
+      asserted still ONE query. Parts only — assemblies/drawings filed below.
+      [src: UI-REVIEW 2026-07-30 verdict 1]
+
+- [x] (P2, S) **Register column for `eval_state` — SHIPPED 2026-07-30**
+      (frontend-builder). Its OWN column (REBUILD), adjacent to LAST WORKED
+      rather than inside it: the two answer different questions and are both
+      worth saying at once ("20 min ago" + "broken"), and sharing the cell would
+      have quietly redefined LAST WORKED, which the backend protected by not
+      bumping `updated_at`. Four states, no client-side derivation (`eval_state`
+      is read, never recomputed): `—` + sr-only "not evaluated" for `never`;
+      quiet CLEAN for `ok`, whose title states it is not a claim of a body; a
+      flag-inked BROKEN stamp for `failed`; and for `stale` the dashed
+      indeterminate stamp the clash schedule uses for UNVERIFIED, spending the
+      raw record in past tense (WAS BROKEN / WAS CLEAN) so it says more than
+      "unknown" without dressing it up as current. New `Stamp` primitive is that
+      one vocabulary (extracted on its third use). Evidence:
+      `docs/screenshots/register-health-{before,after}-{1440,1280}.png`;
+      `e2e/p2-register-health.spec.ts` produces all four states from the REAL
+      stack (OCCT really fails the r50 fillet). [src: UI-REVIEW 2026-07-30
+      verdict 1]
+
+- [x] (P2, S) **F2 — "Up to date" was computed from request state, not from
+      staleness: the WIRE half SHIPPED 2026-07-30** (backend-builder).
+      `PartPage`'s `BodyStatus` says "up-to-date" whenever no request is in flight
+      and the last one did not error — which is NOT the claim "the body you are
+      looking at was built from the current tree", and under a concurrent edit
+      (nothing invalidates) it asserts currency indefinitely. Provenance is now
+      derivable at the API instead of inferred: `PartResponse.tree_version` serves
+      the part's CURRENT counter (the staleness DENOMINATOR, mirroring
+      `AssemblyResponse.doc_version` — the part header row was the only document
+      header missing its own version, so a client had to download a whole feature
+      tree to learn it), and `EvaluateTreeResult.tree_version` is now DOCUMENTED as
+      the version the returned body/mesh was BUILT FROM (already echoed, but
+      described as a "cache/correlation key", which entitles no truth claim). The
+      comparison is ONE py-kit function — `is_stale_for_tree`, which
+      `derive_part_eval_state` now folds through — so the register's four-state
+      verdict and a body readout cannot drift apart on what "stale" means. Purely
+      additive: no migration (the column exists), no new route, no new REQUEST
+      field; the one new required RESPONSE field's two Python constructors ship in
+      the same commit. 10 py-kit + 2 documents + 1 gateway regressions; contracts +
+      ts-client regenerated. [src: UI-REVIEW 2026-07-30 F2, re-scoped]
+
+- [x] (P1, M) **J3 — a verdict on a ROLLBACK PREFIX stops reading as a verdict on
+      the part. WIRE SHIPPED 2026-07-30** (backend-builder). Documents applies the
+      travel stop before the evaluate request leaves, so a part rolled back to
+      feature 2 of 9 evaluated two features, succeeded, recorded `ok` and the
+      register said **"Clean"** — about seven features nobody looked at. Fixed as a
+      SECOND, ORTHOGONAL axis (`PartResponse.eval_scope`: `whole`/`rolled_back`/
+      null), not a fifth state: the two combine (a rolled-back tree can also fail)
+      and the asymmetry is real — a `failed` prefix still means broken, an `ok`
+      prefix does not mean it builds. `derive_part_eval_state` stays the single
+      state fold; `derive_part_eval_scope` consumes its output. DOCUMENTS derives
+      it at record time (`parts.last_eval_scope`, migration `0014`) — the gateway
+      never learns rollback exists, so `PartEvaluationRecord` gains no field and no
+      caller broke; `eval_scope` is optional on the wire, so `apps/web` typechecks
+      untouched. A bar on the LAST feature reads `whole` (hedging a part that did
+      build is the mirror-image lie). 8 documents + 5 py-kit + 2 migration tests,
+      each mutation-verified; the audit's `grep -c rollback` → 0 gap is closed.
+      FRONTEND FOLLOW-UP filed below. [src: AUDIT-ENGINEERING J3]
+- [x] (P1, S) **J3b — the register cell SPENDS the scope the wire carries. FIXED
+      2026-07-31** (frontend-builder, 2026-07-31). A part rolled back to feature 2
+      of 9 read **Clean** in the drawer — a verdict on a prefix printed as a verdict
+      on the part. `HealthCell` is now a renderer over `registerHealthReadout` in
+      `features/partBuild.ts` (the same module the open part's SOLVE/STATUS/EXPORT
+      cells read, so the drawer and the workspace cannot drift): `ok` +
+      `rolled_back` reads **"Clean to stop"** in the dashed indeterminate stamp the
+      product already uses for "not established", `failed` + `rolled_back` still
+      reads Broken with the stop named in its title, and `eval_scope: null` renders
+      byte-identically to before — null is unqualified, never `whole`. A stop on the
+      LAST feature comes back `whole` and is NOT hedged. `data-health` stays the
+      state; `data-health-scope` carries the second axis. 7 unit + 1 component test
+      (mutation-verified) + an e2e that parks a real travel stop through the
+      rollback route. Shots `docs/screenshots/register-scope-{before,after}-1440.png`.
+      [src: AUDIT-ENGINEERING J3, wire half shipped above]
+
+- [x] (P1, M) **J2 + N3 + F2-frontend — the part workspace stopped asserting what
+      it did not know. SHIPPED 2026-07-30** (frontend-builder; one slice, because
+      they were one defect seen from three cells). ONE derivation
+      (`apps/web/src/features/partBuild.ts`) now feeds SOLVE, STATUS, EXPORT, the
+      SKIP rows and a viewport notice, over provenance (`EvaluateTreeResult
+      .tree_version` vs `PartResponse.tree_version`, the shared `is_stale_for_tree`
+      rule from `7d0ba8e`) instead of three local expressions over `isFetching`.
+      Export REFUSES a broken tree naming the feature to fix (it used to say
+      "Ready" and hand over a STEP of the last-good PREFIX — the harm, not just
+      the label); a DELIBERATE travel stop still exports, marked `Partial` in the
+      cell AND `-partial` in the filename; unverified provenance waits for the
+      rebuild. `last_good_feature_id` is finally consumed ("built to Extrude1"),
+      and every SKIP row names its blocker so an independent fillet vanishing no
+      longer reads as a fillet bug. The part query lost `staleTime: Infinity` so
+      the client can LEARN the tree moved. 30 tests (mutation-verified: reverting
+      any single derivation fails its own named test) + `e2e/body-status.spec.ts`
+      (5, real OCCT r50-fillet failure) — the four pre-existing `body-status`
+      assertions were all happy-path, which is why this shipped. Shots
+      `docs/screenshots/body-status-{before,after}-{1440,1366}.png`.
+      [src: AUDIT-ENGINEERING J2, AUDIT-PRODUCT N3, UI-REVIEW 2026-07-30 F2]
+
+- [x] (P2, XS) **The register's sheet number claimed a filing identity and was a
+      row ordinal — FIXED 2026-07-30** (frontend-builder). `001/002/003`, doc-
+      commented "filing identity: stable", computed `String(index+1).padStart(3)`:
+      delete row 1 and `001/002` address different parts, so a user who cited
+      "sheet 002" in a change note held a reference that silently retargeted.
+      The number is a POSITION and is now presented as one — `#` header with an
+      `sr-only` "Row" (the bare `№` glyph also announced as "numero sign"),
+      unpadded, `part-ordinal` hook. Form unchanged. e2e proves the renumber
+      against a real delete. [src: UI-REVIEW 2026-07-30 P2]
+
+- [ ] (P3, M) **Real sheet numbers: a stored per-owner monotonic sequence.** The
+      honest fix above keeps the gutter truthful but a drawing register arguably
+      wants a durable sheet number a person can cite across deletes — that is a
+      `documents` column + backfill (assign on insert, never reuse), plus a
+      decision on whether it is per-owner or per-project. Only worth building if
+      the founder wants citable sheet numbers; the ordinal is not a placeholder
+      for it, it is a different, correct thing. [src: UI-REVIEW 2026-07-30 P2]
+
+- [ ] (P3, S) **Same last-evaluate record for assemblies + drawings.** Parts got
+      `0012`; the assembly and drawing registers still cannot say "is broken".
+      Assemblies have their own evaluation-request path, so the pattern ports
+      directly (`doc_version` in place of `tree_version`); a drawing's health is
+      really its source documents' plus compose, so decide what it claims before
+      building it. [src: feature-tree.md §4.4a stated limit]
 - [x] (P0, S) **CM-2 — a `pattern` of a cut whose replicated tools ALL clear the
       body was a SILENT NO-OP: the exact defect `fa30220` fixed for `mirror`
       only. Fixed 2026-07-25.** The reachability question is now ONE shared
@@ -488,8 +1479,21 @@ frame refactor are v2/§11. Spike de-collected.
             byte-identical to its bore, so the UI is the only place it exists.
             e2e (derive → mismatch guard → Solved → survives reload; + a tapped
             counterbore) + founder shots at 1440/1280. [done 2026-07-25]
-      - [ ] Standard drill-size tables (+ MCP/scripting exposure); drawing hole
-            callouts read the designation from the feature params (never stored).
+      - [x] Drawing THREAD SCHEDULE (2026-07-31, kernel-architect) — BACKLOG #50,
+            the output half. A tapped hole's solid is byte-identical to its bore, so
+            the print is the only place the thread can exist; it reached none. Now a
+            derived QTY / THREAD / TAP DRILL block (bottom-left, the corner the title
+            block and bend table leave free) in SVG, PDF and DXF, rolled up per
+            designation from the feature params at compose time — never stored, so a
+            re-tapped hole cannot leave a stale callout. Asserted on the DOWNLOADED
+            bytes incl. a route-level POST. NOT done, with reasons on
+            `ComposedThreadSchedule`: a BOM column (a BOM line is a DOCUMENT; a part
+            with four M6 + two M8 has no single thread value) and a STEP thread
+            annotation (AP242 PMI, which OCCT does not write and AP214 cannot
+            express).
+      - [ ] Standard drill-size tables (+ MCP/scripting exposure). The tap drill is
+            already served on the drawing's thread schedule; this is the wider stock-
+            drill table + agent surface.
 - [x] (P2, S) Feature suppress — mark a feature suppressed (persisted flag); tree
       rebuild skips it, downstream features rebuild off the last non-suppressed
       state (or typed-fail if they reference the suppressed feature directly). A
@@ -696,6 +1700,202 @@ frame refactor are v2/§11. Spike de-collected.
 
 ## Next (P2)
 
+- [x] (P2, S) **GATE-1 — CI ran nothing that drove a browser, so a stale spec
+      could sit red at HEAD for a day while every commit read green. CLOSED
+      2026-08-01** (platform-builder). `.github/workflows/e2e.yml` runs the FULL
+      Playwright suite on every push that touches code, sharded 4 ways
+      (`scripts/e2e.sh --web-only -- --shard=i/4`; `just e2e-web` reproduces a
+      red shard locally). The choice was argued from cost and coverage, not
+      preferred: **PR-only** would never have run (we push straight to
+      `claude/**` and open no PRs); **nightly-only** attributes a failure to ~20
+      commits up to 24 h later, which IS the defect being closed; a **write-path
+      subset** is a hand-maintained list — the "enumerated gate quietly stops
+      covering" class this repo has now hit four times — and would not have
+      caught this bug either, since `interaction-depth.spec.ts` is a
+      right-click/ghost-preview spec no honest subset would list. Sharding is
+      derived from the FILESYSTEM, so a spec added tomorrow is gated the day it
+      lands. Wall clock ~8-15 min per push (352 tests / 81 files; ~30 min serial
+      quiet, ~60 min under four-agent load), i.e. at or under ci.yml's `python`
+      job, so feedback latency does not regress; ~45-75 runner-min per code push.
+      A `reconcile` job re-derives the expected set with `playwright test --list`
+      and fails unless the shards executed it exactly once between them
+      (`scripts/e2e-shard-audit.py`, proven against three negative controls:
+      a spec no shard ran, a spec two shards ran, a missing shard report).
+      **NOT covered per push, named so nobody assumes otherwise:** markdown-only
+      commits (30 % of the last 100 — `paths-ignore`, so no e2e run exists for
+      that SHA at all; `git show --name-only` distinguishes it from an eviction),
+      the browser against Postgres (this gate uses the native SQLite boot —
+      `deploy-path.yml` drives the real Postgres/MinIO round-trip per push), and
+      non-Chromium browsers (the config declares only Chromium). One disclosed
+      compromise: the gate runs `--retries=1`, because the measurement found a
+      racy spec (GATE-1a) and a gate people learn to re-run is worse than no
+      gate — a deterministic defect still fails both attempts, and a retried
+      test is NAMED as a warning every run rather than swallowed.
+      Acceptance met by deliberate failure, not assertion: the exact stale
+      assertion from `60a9553` was re-introduced, pushed, and CI rejected it —
+      run ids in the batch report, with `ci.yml` GREEN on the same commit, which
+      is the whole point.
+      **The first attempt at that proof FAILED, and the failure is the useful
+      part.** All three pushed runs came back red — including the two that
+      should have been green — because Vite never answered inside the 60 s
+      `webServer.timeout`: Vite forces `dns.setDefaultResultOrder("verbatim")`,
+      so on a DUAL-STACK host its default `localhost` binds `::1` while
+      `baseURL` asks for `127.0.0.1`; the process stays alive and never
+      answers ("Timed out", not "exited early"). Unreproducible here — the dev
+      container has no IPv6 loopback at all, which is exactly why it survived
+      every local run. The red negative-control commit was therefore red for
+      the WRONG reason and proved nothing, which is the same defect this repo
+      keeps closing: a gate asserting something it does not know. Fixed by
+      binding the literal IPv4 loopback (`pnpm dev --host 127.0.0.1`), piping
+      the webServer's output so a failure names its cause instead of timing out
+      silently, and a CI preflight in `scripts/e2e.sh` that serves the app on an
+      isolated port and PRINTS which address answered — so if the diagnosis is
+      ever wrong again, the log says so in one line rather than costing a round
+      trip.
+      [src: batch-end e2e 2026-08-01]
+- [x] (P2, XS) **GATE-1a — the browser gate no longer needs `--retries=1`.
+      SHIPPED 2026-08-01** (frontend-builder). `--retries=1` is out of
+      `.github/workflows/e2e.yml` and `--fail-on-flaky` is passed to the reconcile
+      audit, so a retried pass is a red build again. The fix is the rig's own
+      signal rather than the suggested poll-the-width (which would have retried
+      the assertion but still guessed at the settle): the spec blanks
+      `data-fit-rect` and waits for `CameraRig`'s `onSettle` to write a fresh one,
+      so it returns as soon as the move lands and cannot pass early. Measured
+      both ways under four CPU burners on 4 cores (load avg ~8): the OLD shape
+      failed **1/10** repeats, the new one passed **10/10** in the same window —
+      the negative control matters, since "10/10 under load" is worthless if the
+      load was too light to expose the race. Suite audit: 17 `waitForTimeout`s,
+      4 gating a non-retrying assertion — `viewport-gestures`' raster compare is
+      now an `expect.poll`; `part-visibility` / `assembly-visibility` sample
+      after real PAINTS (`support.ts waitForFrames`, rAF ticks, which stop when
+      the browser stops drawing) instead of 400/450 ms of wall clock. The other
+      13 are screenshot settles or absence assertions, where a sleep is correct;
+      `viewport-makeover:373` is named explicitly — it sleeps to prove the camera
+      did NOT move, so a slow box can only make it pass, never fail. 30 specs
+      re-run green under the same load. Residual, filed rather than hidden: the
+      `--fail-on-flaky` help text in `scripts/e2e-shard-audit.py` still says the
+      flag is "off while the known racy specs are being hardened" (platform
+      territory, one line). The shape this closes, for whoever hits it next: a
+      fixed sleep is only ever safe before a LOCATOR assertion, which retries
+      itself; before a numeric one it IS the gate, and it has to be right every
+      time on a machine you do not control. [src: GATE-1 full-suite measurement
+      2026-08-01]
+- [x] (P2, S) **PERF-1c — the prefetch headline is the BEST case, and we do not
+      know the typical one** (kernel + QA). PERF-1b's table is measured with the
+      warm run to COMPLETION: the 7.0x commit / 7.9x pick at N=200 `#192` assume
+      the user sat in the editor for the full 28.9 CPU s the warm costs. A real
+      edit is "open extrude, type 12, Enter" — 3-5 s. Since warming follows the
+      same `N^1.85` curve, a few seconds of dwell reaches only a short prefix and
+      removes a correspondingly small share of the rebuild (rough estimate, NOT
+      measured: ~5 s of dwell at N=200 removes on the order of 15 %, i.e. 34 s ->
+      ~28 s, not -> 4.8 s). Nothing is wasted — a partial prefix is a legitimate
+      resume point and the work is the commit's own, moved earlier — but the
+      number we publish should be the one a user gets.
+      Acceptance: measure warm-completion-vs-dwell at 2 s / 5 s / 15 s for N=50 /
+      100 / 200, publish the EXPECTED win beside the ceiling in `docs/PERF.md`,
+      and state which part sizes benefit at realistic dwell. Then decide, with
+      the data, whether the trigger should fire EARLIER than editor-open — e.g.
+      on feature-row selection, which precedes the dialog by a beat — and whether
+      the 30 s budget is still the right split once the commit lineage is known
+      to be the only one most dwells can reach.
+      Founder question that prompted this: "is this the numbers users are
+      experiencing or just what happens under the hood without them noticing?" —
+      a fair challenge to a table that answered a different question than it
+      appeared to. [src: founder 2026-08-01 · docs/PERF.md 2026-08-01]
+      **ANSWERED 2026-08-01** (kernel): the win is a STEP at the warm's own
+      completion (~0.85x the cold rebuild per lineage), not a ramp, because a
+      partial prefix cannot help a request that already probed the cache.
+      Expected commit win by dwell — N=50: 1.0x / **7.0x** / 7.5x at 2 / 5 / 15 s;
+      N=100: 1.0x / 1.0x / **16x**; N=200: 1.0x at every dwell a human produces
+      (its ceiling of 18.8x needs D >= 30 s). So the prefetch is worth 7x on a
+      50-feature part at a realistic 3-5 s edit and NOTHING at 200. The trigger
+      did not move: it already fires on feature-row selection (the same event
+      that opens the editor), and the deficit at N>=100 is seconds-to-tens-of-
+      seconds, which no trigger nudge closes. No dwell timer either — the
+      pessimisation was contention, not earliness, and a start delay would push
+      the step further out. [docs/PERF.md 2026-08-01b]
+- [ ] (P2, M) **PERF-6 — prefetch the prefix an open editor has already
+      declared stable** (kernel + frontend). BLOCKED ON PERF-1: with no cache,
+      prefetching does the same 27 s of work twice with nowhere to put the
+      result; with the cache it degenerates into warming it at the right moment,
+      which is a small feature rather than a system. Two triggers earn their
+      keep, and only two: (a) opening a feature editor is a genuine declaration
+      that the prefix below it is stable for as long as the dialog is open, so
+      warm 1..N-1 and let the commit cost one feature's work; (b) dragging the
+      timeline rollback marker is a walk through prefixes that are already cache
+      keys, so warm the neighbours of the current stop. Register/document hover
+      prefetch is standard TanStack Query and worth nothing against these
+      numbers — do not bother.
+      TWO CONSTRAINTS, both non-negotiable. **A speculative body must never be
+      publishable**: if a warm result is ever served for a tree it does not
+      exactly correspond to, that is the silent-wrong-geometry class this repo
+      has closed four times, so warming must be a distinct entry point from
+      evaluate. And **prefetch hides latency without reducing work** — it cannot
+      bend the N^1.85 curve, and on 4 cores with several users uncancellable
+      speculation is a self-inflicted DoS, so it needs a budget and real
+      cancellation.
+      Acceptance: a measured drop in perceived edit-commit latency at N=100 and
+      N=200 with the CPU budget stated, plus a test that a warmed prefix cannot
+      be returned as an answer. [src: founder question 2026-07-31 · docs/PERF.md]
+- [x] (P2, S) **"Fit model" frames the CANVAS, not the VISIBLE viewport — a
+      big part is clipped by its own panels. FIXED 2026-07-31** (frontend-builder).
+      `viewport/fitFraming.ts` measures the live DOM (every docked element carries
+      `data-viewport-chrome`, plus the in-canvas reference cube, which has no rect
+      of its own), charges each obstruction to the ONE edge that leaves the largest
+      free AREA, and the rig frames into that rect and slides the orbit target so
+      the part sits in its middle. A panel that collapses announces itself and the
+      fit re-runs — but only while the modeler has not taken the camera by hand
+      since, because yanking someone off a detail they zoomed into would be a worse
+      defect than the one being fixed. The fit DISTANCE is now solved from the
+      subject's projected corners under the real perspective (depth included: the
+      near end of a long part projects wider — an orthographic first cut measured
+      51px of overhang on a 260mm rail), replacing the fixed 1.75x-diagonal rule
+      that was blind to both the frame and the aspect ratio. `view-fit.spec.ts`
+      fits three aspect ratios and asserts the body's projected bbox — read from
+      canvas PIXELS, not from the same arithmetic — lies inside the rect on all
+      four sides; mutation-verified (framing the canvas instead fails 4 of 5).
+      Shots `viewfit-{before,after}-{1440,1366}.png`.
+      [src: founder capture 2026-07-31]
+- [x] (P3, XS) **The ViewCube is clipped by the window edge and the timeline
+      strip. FIXED 2026-07-31** (frontend-builder). The inset was 64px against a
+      cube whose ISOMETRIC silhouette is ~√3 wider than its face, so its lower
+      corner and the FRONT/RIGHT labels sat hard on the frame edge; it is now 96px,
+      which also puts it on the same 12px gutter the ViewBar and the panels use.
+      Its footprint is registered as a fit obstruction in the same pass, so a part
+      can no longer be framed underneath it either.
+      [src: founder capture 2026-07-31]
+- [ ] (P2, S) **Promote the durable EDGE tier into `geometry.kernel.edges`** (kernel
+      territory). N1's two-tier resolver ships in `geometry.drawings.anchor` because
+      the kernel module was held by another agent that batch; the predicate,
+      tolerances and error taxonomy are already the kernel's, so `resolve_edge`
+      should carry the tier and the drawings wrapper should shrink to
+      "resolve + report the tier". Then a picked-edge FILLET/CHAMFER survives the
+      same everyday edits a dimension now does (today they still hard-fail on a
+      resized/moved edge). Acceptance: one resolver, one set of tests, a
+      fillet-on-a-widened-plate regression. [src: topological-naming §11]
+- [ ] (P2, S) **Frontend half of N1/N2 — say it on screen, not only on the print**
+      (frontend). `DrawingSheet.tsx` still renders its own bare-`!` glyph for a
+      broken dimension (the server now ships
+      `ComposedDimensionError.message`/`text`), `ComposedSheet.layout_issues` is not
+      surfaced at all (an overlapping sheet looks fine in-app and only warns once
+      exported), and `MeasuredDimension.anchor.tier == "durable"` is the signal for
+      a "this dimension re-anchored after your edit — confirm it" badge + a
+      one-click "heal the stored ref" using the returned signature. Acceptance:
+      words beside the marker on screen, a sheet-level layout warning strip, and an
+      e2e that resizes a dimensioned part and reads the new value in-app.
+      [src: AUDIT-PRODUCT 2026-07-30 N1/N2]
+- [ ] (P3, S) **A sheet too small for its part is still silent.** The N2 collision
+      check measures view-vs-view, not view-vs-BORDER, so a part that outgrows its
+      sheet hangs over the frame with no diagnostic. Wants the honest pair: a
+      `views_off_sheet` issue AND an auto-fit scale suggestion (the sheet already
+      has a fit-scale control), not just a warning. [src: AUDIT-PRODUCT 2026-07-30]
+- [ ] (P3, S) **A dimension on a corner ROUND's arc cannot re-anchor.** Changing R4
+      -> R6 moves the arc's centre, so the circular invariant (centre + angular
+      station) does not hold and the dimension fails honestly rather than
+      re-measuring a differently-placed arc — the documented limit of stage-1
+      naming. The fix is adjacency ("the arc tangent to these two faces") = stage-2
+      provenance (topological-naming §2d), not a looser epsilon.
+      [src: topological-naming §11]
 - [ ] (P2, M, recurring) Model-a-REAL-part dogfooding gate — once per phase
       (or ~quarterly), an agent models a complete real product end-to-end
       through the actual app + APIs, verifies against closed-form analytics,
@@ -770,6 +1970,33 @@ frame refactor are v2/§11. Spike de-collected.
 
 ## Later (P3)
 
+- [ ] (P3, S) **A lost dimension's caption can overrun into a neighbouring view
+      — and it does so identically on the exported sheet** (kernel/drawings).
+      `DimensionGlyph` now stamps the server's `ComposedDimensionError.message` at
+      `dim.text`, which is right; the placement is not. `compose.py`'s
+      `_DIM_ERROR_TEXT_DX` offsets the caption by a fixed amount with no width
+      measurement and no collision check against the neighbouring view's extents,
+      so a long message crosses the gutter. Visible in
+      `docs/screenshots/drawing-dim-lost-after-1440.png`. The fix belongs in the
+      COMPOSER, not the client: the SVG export has byte-identical placement, so a
+      client-side nudge would make screen and print disagree — which is the defect
+      class this repo keeps closing. Acceptance: the caption is placed against the
+      view's measured extents (the N2 collision machinery already exists), with a
+      compose golden that has a caption long enough to have overrun.
+      [src: handback from the #58 settings slice, 2026-07-31]
+- [ ] (P3, M) Settings rows that need a PROPERTY before they can be rendered
+      (frontend-builder, 2026-07-31 — deliberately omitted from the shipped
+      `/settings` sheet rather than faked). Each needs its backing first:
+      **angular unit** (`packages/design/src/units.ts` is length-only — no angular
+      vocabulary, and angles are authored in degrees everywhere), **display
+      precision** (`formatLength` takes `maxFractionDigits` but nothing carries a
+      user value down to the readouts), **grid/snap step** (a sketch-store constant
+      being made configurable in a concurrent slice — read THAT value, never define
+      a second one), and **document-scope settings generally**: the sheet is
+      application-scope only because a document setting needs an open document, so
+      the unit/material controls stay in the workspace until there is a
+      document-settings surface there. [src: founder #58, scoped]
+
 - [ ] (P3, S) Drawings compose: the failed-view dashed box overlaps its error
       text with the view caption (e.g. "FLAT PATTERN") — small `_emit_view`
       polish; changes byte-pinned compose goldens, so it rides its own slice.
@@ -817,6 +2044,38 @@ frame refactor are v2/§11. Spike de-collected.
       collision (showcase F3) — backend behavior is correct (OCCT refuses
       the collision), this is discoverability only. [src: product-auditor
       showcase-QA F3]
+>>> ATTRIBUTION NOTE (orchestrator, 2026-07-30): the three P3 items below were
+>>> filed by kernel-architect as SH-1 follow-ups, but landed in commit `33b1b5a`
+>>> — an orchestrator commit about an unrelated gate — because I ran
+>>> `git add docs/BACKLOG.md` while their uncommitted hunks were in the file.
+>>> The protocol is stage YOUR hunks, never a shared doc wholesale. No work was
+>>> lost; the authorship in git history is simply wrong, and `33b1b5a`'s message
+>>> does not mention these items.
+
+- [ ] (P3, S) A typed `warnings` channel on `FeatureResult` + a distinct
+      `shell_pinched_wall` code — the honest follow-up to SH-1 (GEOMETRY-QA
+      2026-07-30). A thickness of exactly half an internal wall is refused today
+      under `shell_thickness_too_large` because the wire has no way to say
+      "built, but read this"; the kernel already computes the slit's area and
+      position, so the only missing piece is the schema. py-kit + generated
+      clients + tree-panel copy — NOT a kernel change. [src: kernel-architect,
+      SH-1]
+- [ ] (P3, S) Kernel: bucket `find_zero_width_slits` by support plane if a shell
+      of a many-FACE body ever becomes a real workflow. The pair test is O(N^2)
+      float arithmetic — measured ~1.2 us/pair (0.56 ms on the 11-face golden
+      tray, 6.3 ms on a 102-face comb), so a few hundred faces is still cheap
+      next to `MakeThickSolid`, but an imported STEP part with thousands would
+      not be. Bucketing must not quantise the comparison bounds (a missed
+      bucket = a missed slit). [src: kernel-architect, SH-1]
+- [ ] (P3, S) Sheet metal: floor `SheetMetalHemParamsV1.bend_radius_mm` at the
+      kernel linear tolerance (1e-4 mm). A closed hem's air gap is `2 x radius`
+      and the schema only requires `> 0`, so radius 1e-6 ships a body whose two
+      layers are 2e-6 mm apart — a zero-width slit by the kernel's own tolerance
+      (300 mm² measured), reported `ok`. Pinned live by
+      `test_observed_limit_a_sub_tolerance_closed_hem_ships_a_slit`; not
+      reachable by a sane author in mm units, and the fix belongs in the py-kit
+      schema (a validation 422), not a per-verb kernel probe. [src:
+      kernel-architect, SH-1 sibling audit]
 - [ ] (P3, M) Shell: partial-shell / add-a-flange-after-shell workflow —
       needs a design note first (what "a selected region" means for
       `MakeThickSolid`). Not urgent: showcase routed around it. [src:
@@ -936,6 +2195,112 @@ frame refactor are v2/§11. Spike de-collected.
 
 Full narrative evidence lives in `docs/ROADMAP.md` (Phase 4/4b sections) and
 `CHANGELOG.md`; one line per item below per token economy.
+
+### Recently shipped (2026-08-01)
+
+- **GATE-2 — the `.dockerignore` allow-list lost an entry and only `deploy-path`
+  noticed.** LIC-2 added `scripts/corresponding_source.py` to the runtime `COPY`
+  (the licence gate imports it) with no matching `!` negation, so the daemon
+  resolved that source to nothing and all three image builds failed on `42c4a0c`
+  and `4c2fdbe`. Unreachable locally by construction — the registry is blocked,
+  so the only signal was the slowest workflow we have. Negation added, and the
+  class closed: `scripts/check-build-context.py` re-implements moby's
+  `MatchesOrParentMatches` and asserts every Dockerfile COPY source survives
+  `.dockerignore` (stdlib, no daemon, ~10 ms) in `just lint` + CI's `compose`
+  job. Verified as a gate, not asserted: it reproduces the real failure by name
+  before the fix, and its matcher agrees with the docker SDK's context walk on
+  all 445 included entries. `--self-test` proves it can fail.
+
+### Recently shipped (2026-07-31)
+
+- **OBS-1 — there was no observability at all; now there is `/metrics`.** The
+  release-target gap of the same shape as OPS-1: `/healthz` + `/readyz` + logs
+  cannot distinguish a 26 s legitimate rebuild from an incident. Prometheus
+  exposition wired ONCE in `py_kit.metrics` (Apache-2.0 client), so all three
+  services inherit it: rebuild time as a histogram by `cache` × `tree_size` (2 s
+  = a bucket boundary), rebuild-cache hits/misses/evictions (the per-process LRU
+  is divided by worker count, not multiplied), feature failures by error code,
+  STEP import duration + refusals by reason (20 s = a boundary), HTTP by route
+  TEMPLATE, process/GC. Seams that cannot be bypassed; every test asserts a
+  DELTA. **+30 µs/request measured** (A/B vs `METRICS_ENABLED=false`).
+  `/metrics` is fail-closed outside `LOFT_ENV=dev` (bearer `METRICS_TOKEN`, 404
+  without it). Guide: `docs/OBSERVABILITY.md`.
+
+### Recently shipped (2026-07-30)
+
+> ATTRIBUTION NOTE (orchestrator): the `#57` materials entry below was filed by
+> kernel-architect but landed in commit `3248ad8` — an orchestrator commit about
+> the drawings projection guard — because I ran `git add docs/BACKLOG.md` while
+> its hunks were in the file. Second occurrence in one day of the same mistake,
+> after I had written the recipe against it. Annotated rather than rewritten:
+> agents have already rebased onto that commit. `scripts/stage-doc-hunks.py`
+> now exists so the correct path is the easy one.
+
+
+- **#31 — compose's projection-keyed anchors now REFUSE a repeated projection**
+  instead of silently dropping a view from the print. The invariant that made it
+  unreachable lives in another service's DB constraint; geometry now states and
+  checks its own dependency. Mutation-verified.
+
+- **N1 (P0) — revising a part destroyed the dimension that measured it.** Widening
+  100 -> 120 made the overall-length dim `subshape_unresolved` (a 2.6 mm `!`); edges
+  now get the two-tier resolver faces got in FINDINGS #3 (`drawings/anchor.py`,
+  topological-naming §11) — strict, then the curve-kind invariant (line: supporting
+  line + span overlap; circle: centre + angular station). Re-measures **120.000**,
+  reports `anchor.tier: durable`, placement uses the re-anchored name, and an
+  un-re-anchorable ref prints WORDS beside the view in SVG/PDF/DXF. A MOVED hole
+  stays an honest error. Gates: `test_drawings_resize.py` + `test_drawings_anchor.py`.
+
+- **N2 (P0) — auto-layout overlapped four views after a resize and exported it.**
+  6.33 x 60.00 mm iso-over-top with 82.8 mm of sheet empty; the 0.70 mm pre-edit
+  clearance WAS the diagnosis. Iso anchors are now derived from the extents they must
+  clear (**every pair clears the full 24 mm gutter at 100 and 120 mm**), hand-placed
+  views stay honored as intent, and `measure_layout_issues` reports
+  `views_overlap`/`views_crowded` on `ComposedSheet.layout_issues` + a
+  release-blocking banner in all three formats. Five compose byte-goldens
+  regenerated for the clear layout; a clean sheet carries no banner ink.
+
+- **J5 — the "backend drift guard" in `face.test.ts` could not fail for backend
+  drift.** It compared a hand-copy in the test to a hand-copy in `face.ts`, BOTH
+  inside `apps/web`, under a comment promising "a member added on ONE side fails
+  here". It now PARSES `py_kit.schemas.features.BODY_AFFECTING_FEATURE_TYPES`
+  (the `thread.test.ts` pattern: comments stripped first, since that frozenset's
+  comments quote prose) with a non-vacuity guard, and the comment says what the
+  gate actually does. Mutation-verified BOTH ways: a member added on the py-kit
+  side fails it; a regex that matches nothing trips the non-vacuity assert.
+
+- **J6 — the body-affecting feature-type set was declared twice, unguarded.**
+  Gated rather than merged (the two constants answer different questions and
+  coincide non-tautologically); the gate also asserts every member is a
+  REGISTERED verb, which is what catches a rename. Mutation-verified.
+
+- **#42 — shelling a rib at EXACTLY 2x the wall left a zero-width slit and
+  reported `ok`** (SH-1). Now a typed `shell_thickness_too_large` naming both
+  fixes, via ONE shared `kernel/degenerate.find_zero_width_slits` predicate;
+  no heal removes a slit (ShapeFix / UnifySameDomain / self-fuse all measured).
+  Knife edge proved: 1.999 ok / **2.000 refused** / 2.001 ok; new hand-derived
+  golden `shell-pinch-boundary-...-t1.9`; all 60 tree goldens slit-free (new
+  cross-verb gate). Evidence: GEOMETRY-QA 2026-07-30.
+
+- **J8 — the DoD's "geometry gates" ran 11% of the geometry suite.**
+  `scripts/e2e.sh` leg 1 was a hand-listed two-file allowlist that excluded the
+  309-test composition matrix; now the whole directory. Measured 233 -> 2200
+  tests selected. CI's repo-wide pytest was never blind — the LOCAL pre-commit
+  gate was.
+
+- **F1 — the sketch Exit destroyed unsaved work while the caption blamed Esc**
+  (which actually SAVES). Esc chip moved to Save; Exit states the count it would
+  discard and asks first; prompt is derived so it cannot outlive the work.
+  9 component tests, mutation-verified (old code fails 5).
+
+- **F2 wire half — the body's provenance is on the wire.** `PartResponse.
+  tree_version` (current) + `EvaluateTreeResult.tree_version` (built-from) folded
+  by one shared `is_stale_for_tree`; frontend readout filed as the follow-up.
+
+- **CM-5 — `body`-scope mirror after a revolve/sweep/loft CUT filled the void**
+  (FINDINGS #2 class, silent wrong geometry). One line in the shared `_cut_active`
+  funnel; matrix predecessor axis now derived from `FeatureTypeRegistry.models()`
+  so a new cut verb cannot ship matrix-blind. 3 goldens, 774 kernel tests green.
 
 ### Recently shipped (2026-07-25 batch — engineering audit H findings)
 
@@ -1141,6 +2506,16 @@ Full narrative evidence lives in `docs/ROADMAP.md` (Phase 4/4b sections) and
       entities/constraints ≤ 2000/4000; loft ≤ 100; selector refs ≤ 500.
       documents write-side `*_limit_exceeded` twins. 42 new tests.
       [src: AUDIT-ENGINEERING.md 2026-07-24 G2]
+- [x] (P0, M) Fail closed on default datastore credentials (publishing
+      blocker). `loft_env` hoisted into py-kit `BaseServiceSettings` (one
+      posture field for all three services; `gateway.auth.security` now reads
+      `py_kit.is_dev_env`) + one inherited `model_validator`: a publicly-known
+      default or blank password in `POSTGRES_URL`/`REDIS_URL`/`S3_URL`, or in
+      geometry's `S3_SECRET_ACCESS_KEY` (via `datastore_credential_fields`),
+      refuses to boot unless `LOFT_ENV=dev`, where it warns. Error names the
+      variable, the compose knob, and the fix. Compose passes `LOFT_ENV` to
+      all three; `.env.example` gap paragraph rewritten. 48 tests, each branch
+      mutation-verified. [src: cb0dcd0 follow-up / AUDIT-ENGINEERING J4]
 - [x] (P1, S) Compose audit fixes G1/G3/G4 — geometry S3 creds anchor-sourced
       from MinIO's (G1); documents/geometry host ports removed from base compose,
       loopback-bound in dev overlay (G3); stale S3 comment rewritten (G4); new
@@ -1371,6 +2746,74 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
+- 2026-08-01 — **CONC-1/2/3: more than one person can use it now
+  (backend-builder):** gateway session affinity over a comma-separated
+  `GEOMETRY_URL` (sticky 30.6 s vs random 64.9 s wall, hit 0.40 vs 0.10), a
+  bounded FIFO admission queue on the OCCT routes (0 of 16 -> 11 of 16 delivered
+  inside a 30 s deadline), and a timeout that says 504 "still working" instead
+  of 502 "unreachable". `docs/OPERATIONS.md` §6.
+
+- 2026-08-01 — **GATE-1: CI drives a browser now (platform-builder):** the full
+  Playwright suite on every code push, sharded 4 ways, with a reconcile job that
+  fails unless the shards covered `playwright test --list` exactly once. Proven
+  by pushing the stale assertion back and watching CI reject it.
+
+- 2026-07-31 — **OBS-1: the stack can be watched (backend-builder):** Prometheus
+  `/metrics` from py-kit for all three services — rebuild histogram by cache ×
+  tree size, cache hit rate, feature errors by code, STEP refusals; +30 µs/req
+  measured; fail-closed outside dev. `docs/OBSERVABILITY.md`.
+
+- 2026-07-31 — **UI-W2 part half + the two framing defects (frontend-builder):**
+  Origin / Sketches / Bodies get the assembly's eye vocabulary; origin planes and
+  axes render for the first time; "Fit model" frames the unobstructed rect at a
+  distance solved from the part's real projection, and the ViewCube clears its
+  own corner. Asserted on canvas pixels, mutation-verified.
+
+- 2026-07-31 — **What LEAVES the tool now says what it is (kernel-architect):**
+  audit N8 — an assembly STEP instances its parts (21 instances / 2 parts:
+  21 B-reps + 504 KB -> **2 B-reps + 58 KB**; `located()` was a deep geometric
+  copy, so no writer could see the instancing); N4 — part/assembly exports are
+  named after the document in both the filename and the PRODUCT, and
+  `assembly.step` no longer overwrites itself; #50 — the tapped-hole callout
+  reaches SVG/PDF/DXF; N5 (part) — the exported page is white, not grey.
+
+- 2026-07-31 — **Three surfaces stopped over-claiming, and settings exist
+  (frontend-builder, 2026-07-31):** the register no longer calls a rolled-back
+  prefix "Clean" (J3b), the assembly panel earns the words COMBINED MASS (and can
+  finally compute one — the browser never sent the parts' materials), a lost
+  dimension prints its reason on the sheet as well as in the export (QA-4b), and
+  `/settings` ships with five wired rows including invert-scroll.
+
+- 2026-07-30 — **The drawing survives the revision (kernel-architect):** audit N1 —
+  edges get the two-tier resolver faces have (`drawings/anchor.py`) so a widened
+  plate's dimension re-measures 120.000 instead of dying; N2 — iso anchors clear by
+  construction (24 mm at any size) and a colliding sheet stamps a banner, never
+  exports silently. (Ready-queue entries for both landed early in `3f5fc98`, which
+  swept this agent's in-flight BACKLOG hunks.)
+
+- 2026-07-30 — **UI-W1 bottom timeline (frontend-builder):** rollback is now a
+  docked machine way with a draggable/keyboard travel stop, verb-glyph op chips and
+  a dashed way past the stop; one shared `VERB_GLYPHS` map serves band + timeline.
+
+- 2026-07-30 — **UI-W3/W4 pre-selection + pinned references (frontend-builder):**
+  a viewport pick outlives its command and seeds the next one (hole/datum/sketch/
+  shell/draft/fillet/chamfer), the hole's face pick arms on open, and its
+  references sit in a pinned anchor block on the right rail. UI-REVIEW P1 (export
+  strip under the fold) fixed by pinning it, not by trimming copy.
+
+- 2026-07-30 — **UI-W2 visibility/opacity/isolate, assembly half (frontend-builder):**
+  every component row gets an eye, the addressed one a SOLID · GHOST · HIDE control,
+  isolate a right-click verb with `V`/`⇧V` and an `ISOLATED` stamp as the way back.
+  Asserted on canvas PIXELS, not aria state (mandate 3c).
+
+- 2026-07-31 — **UI-W5 entity snapping (frontend-builder):** endpoint / midpoint /
+  centre / intersection / tangent / perpendicular snap by default; Ctrl-Cmd
+  SUPPRESSES (inverted on purpose), Shift axis-locks, `G` still owns the grid.
+  A named mark says which snap you get before the click.
+
+- 2026-07-30 — **Last-evaluate record on the part row (backend-builder):**
+  migration `0012` + derived `eval_state` (`never`/`ok`/`failed`/`stale`), written
+  by the gateway post-evaluate; staleness derived from `tree_version`, not guessed.
 - 2026-07-25 — **Tapped-hole authoring (frontend-builder):** `Tapped` checkbox +
   ISO designation picker in `HoleEditor` derives the tap drill without locking
   it; the tree row carries `hole · M10x1.5` — the only place a tap is visible.

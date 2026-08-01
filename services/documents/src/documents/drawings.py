@@ -72,6 +72,7 @@ from sqlalchemy.orm import InstrumentedAttribute
 from documents import db
 from documents.assemblies import resolve_document_names
 from documents.assembly_history import ordered_instances
+from documents.filing import resolve_destination
 from documents.parts import (
     Principal,
     get_owned_drawing,
@@ -464,8 +465,15 @@ async def _tree_response(
 async def create_drawing(
     request: DrawingCreate, owner_id: Principal, session: SessionDep
 ) -> DrawingResponse:
-    """Create a drawing (201; envelope 409 on a duplicate name for this owner)."""
-    drawing = db.Drawing(owner_id=owner_id, name=request.name)
+    """Create a drawing (201; 409 on a duplicate name IN ITS FOLDER).
+
+    ``folder_id`` files it on creation (#WS2) — see :func:`documents.parts.
+    create_part` for why filing is part of the create rather than a second call.
+    """
+    await resolve_destination(session, owner_id, request.folder_id, "drawing")
+    drawing = db.Drawing(
+        owner_id=owner_id, name=request.name, folder_id=request.folder_id
+    )
     session.add(drawing)
     try:
         await session.commit()

@@ -707,6 +707,70 @@ def test_sketch_on_datum_plane_accepted_and_edge_materialized(
     assert _envelope_error(response.json())["code"] == "feature_has_dependents"
 
 
+def test_dependents_are_named_before_and_during_a_refused_delete(
+    client: TestClient,
+) -> None:
+    """UI-REVIEW F3: the tree may say WHO breaks, in words, before committing.
+
+    Two surfaces, one query — that is the property under test. The GET answers
+    before anything is destroyed; the delete's 409 answers with the SAME list,
+    typed, so a confirmation and a refusal cannot describe different worlds.
+    """
+    part_id = _create_part(client)
+    sketch_id, extrude_id = _sketch_and_extrude(client, part_id)
+
+    # BEFORE: what breaks if Sketch1 goes? Extrude1 — by name, not by count.
+    ahead = client.get(
+        f"/api/v1/parts/{part_id}/features/{sketch_id}/dependents", headers=_headers()
+    )
+    assert ahead.status_code == 200
+    assert ahead.json() == {
+        "dependents": [{"id": extrude_id, "name": "Extrude1", "kind": "feature"}]
+    }
+
+    # DURING: the refusal carries the same typed list.
+    refused = client.delete(
+        f"/api/v1/parts/{part_id}/features/{sketch_id}?expected_tree_version=2",
+        headers=_headers(),
+    )
+    assert refused.status_code == 409
+    error = _envelope_error(refused.json())
+    assert error["code"] == "feature_has_dependents"
+    assert error["details"] == ahead.json()
+
+
+def test_dependents_is_empty_for_a_feature_nothing_consumes(
+    client: TestClient,
+) -> None:
+    """An empty list is the honest common answer — a delete that will go through."""
+    part_id = _create_part(client)
+    _sketch_id, extrude_id = _sketch_and_extrude(client, part_id)
+    response = client.get(
+        f"/api/v1/parts/{part_id}/features/{extrude_id}/dependents", headers=_headers()
+    )
+    assert response.status_code == 200
+    assert response.json() == {"dependents": []}
+    # ...and the delete it predicted really does succeed.
+    assert (
+        client.delete(
+            f"/api/v1/parts/{part_id}/features/{extrude_id}?expected_tree_version=2",
+            headers=_headers(),
+        ).status_code
+        == 200
+    )
+
+
+def test_dependents_of_an_unknown_feature_is_a_uniform_404(
+    client: TestClient,
+) -> None:
+    part_id = _create_part(client)
+    response = client.get(
+        f"/api/v1/parts/{part_id}/features/{uuid.uuid4()}/dependents",
+        headers=_headers(),
+    )
+    assert response.status_code == 404
+
+
 def test_sketch_before_its_datum_rejected_not_earlier(client: TestClient) -> None:
     """Strict-backward still holds for the new edge (§5): a sketch cannot
     reference a datum that comes later. Here the sketch is created first, so a
@@ -907,7 +971,12 @@ def test_delete_with_dependents_409_lists_them(client: TestClient) -> None:
     assert response.status_code == 409
     error = _envelope_error(response.json())
     assert error["code"] == "feature_has_dependents"
-    assert error["details"] == {"dependents": [{"id": extrude_id, "name": "Extrude1"}]}
+    # The payload is the shared DTO since UI-REVIEW F3, so every entry carries
+    # its KIND — the tree can say "Extrude1 (feature)" and a drawing dependent
+    # reads the same way rather than through a second, untyped shape.
+    assert error["details"] == {
+        "dependents": [{"id": extrude_id, "name": "Extrude1", "kind": "feature"}]
+    }
     # Conflict is not a mutation: nothing deleted, version unchanged.
     tree = _tree(client, part_id)
     assert tree["tree_version"] == 2

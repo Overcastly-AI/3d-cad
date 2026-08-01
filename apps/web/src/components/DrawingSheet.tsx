@@ -580,6 +580,13 @@ function DimensionGlyph({ dim }: { dim: ComposedDimension }) {
   const dimensionId = dim.dimension_id ?? undefined;
   if (dim.kind === "error") {
     const { at, code } = dim;
+    // The WORDS the composer already carries (`message`/`text`, `7fde5d2`) —
+    // "DIAMETER DIM: REFERENCE LOST - RE-PICK THE EDGE". Every exporter stamps
+    // them beside the marker; this sheet drew a bare `!` and nothing else, so
+    // the engineer at the screen was told less than the machinist holding the
+    // PDF (QA-4b). The phrase is the SERVER's — there is deliberately no second
+    // phrase table on this side of the wire.
+    const caption = dim.message === "" ? null : dim.message;
     return (
       <g
         data-testid="drawing-dimension"
@@ -587,7 +594,7 @@ function DimensionGlyph({ dim }: { dim: ComposedDimension }) {
         data-dimension-type={dimensionType}
         data-dimension-error={code}
       >
-        <title>Dimension could not be measured ({code})</title>
+        <title>{caption ?? `Dimension could not be measured (${code})`}</title>
         <circle
           cx={at.x_mm}
           cy={at.y_mm}
@@ -608,6 +615,19 @@ function DimensionGlyph({ dim }: { dim: ComposedDimension }) {
         >
           !
         </text>
+        {caption !== null && dim.text ? (
+          <text
+            data-testid="drawing-dimension-error"
+            x={dim.text.x_mm}
+            y={dim.text.y_mm}
+            fill={drawing.dimensionFlag}
+            fontFamily={font.data}
+            fontSize={drawing.dimensionErrorTextMm}
+            letterSpacing={0.2}
+          >
+            {caption}
+          </text>
+        ) : null}
       </g>
     );
   }

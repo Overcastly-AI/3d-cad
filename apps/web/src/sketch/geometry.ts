@@ -19,6 +19,52 @@ export const CIRCLE_SEGMENTS = 96;
 
 const TWO_PI = Math.PI * 2;
 
+/** The arc member of the entity union (kept named — three modules narrow it). */
+export type ArcEntity = Extract<SketchEntity, { kind: "arc" }>;
+
+/**
+ * An arc resolved to its polar frame: centre, radius, start angle and CCW
+ * sweep (the schema invariant — start → end counter-clockwise). ONE place
+ * derives it; the renderer, the anchor and the snap math all read it, so an
+ * arc is never re-derived slightly differently in two files.
+ */
+export interface ArcFrame {
+  center: Point2D;
+  radius: number;
+  startAngle: number;
+  /** CCW sweep in radians, always in (0, 2π]. */
+  sweep: number;
+}
+
+export function arcFrame(entity: ArcEntity): ArcFrame {
+  const radius = Math.hypot(
+    entity.start.x - entity.center.x,
+    entity.start.y - entity.center.y,
+  );
+  const startAngle = Math.atan2(
+    entity.start.y - entity.center.y,
+    entity.start.x - entity.center.x,
+  );
+  const endAngle = Math.atan2(
+    entity.end.y - entity.center.y,
+    entity.end.x - entity.center.x,
+  );
+  // Zero comes back as a full sweep only when start === end, which placement
+  // rejects.
+  let sweep = endAngle - startAngle;
+  if (sweep <= 0) sweep += TWO_PI;
+  return { center: entity.center, radius, startAngle, sweep };
+}
+
+/** The point on the arc at a given fraction (0 = start, 1 = end) of its sweep. */
+export function arcPointAt(frame: ArcFrame, fraction: number): Point2D {
+  const angle = frame.startAngle + frame.sweep * fraction;
+  return {
+    x: frame.center.x + frame.radius * Math.cos(angle),
+    y: frame.center.y + frame.radius * Math.sin(angle),
+  };
+}
+
 function circlePolyline(
   center: Point2D,
   radius: number,
@@ -57,29 +103,12 @@ export function entityPolylines(entity: SketchEntity): Point2D[][] {
       return [polyline];
     }
     case "arc": {
-      const radius = Math.hypot(
-        entity.start.x - entity.center.x,
-        entity.start.y - entity.center.y,
-      );
-      const startAngle = Math.atan2(
-        entity.start.y - entity.center.y,
-        entity.start.x - entity.center.x,
-      );
-      const endAngle = Math.atan2(
-        entity.end.y - entity.center.y,
-        entity.end.x - entity.center.x,
-      );
-      // CCW start → end (schema invariant); zero comes back as full sweep
-      // only when start === end, which placement rejects.
-      let sweep = endAngle - startAngle;
-      if (sweep <= 0) sweep += TWO_PI;
+      const { center, radius, startAngle, sweep } = arcFrame(entity);
       const segments = Math.max(
         8,
         Math.ceil((CIRCLE_SEGMENTS * sweep) / TWO_PI),
       );
-      return [
-        circlePolyline(entity.center, radius, startAngle, sweep, segments),
-      ];
+      return [circlePolyline(center, radius, startAngle, sweep, segments)];
     }
     case "spline":
       // A centripetal Catmull-Rom sampled through the fit points — interpolating
@@ -107,27 +136,8 @@ export function entityAnchor(entity: SketchEntity): Point2D {
       };
     case "circle":
       return { x: entity.center.x + entity.radius, y: entity.center.y };
-    case "arc": {
-      const radius = Math.hypot(
-        entity.start.x - entity.center.x,
-        entity.start.y - entity.center.y,
-      );
-      const startAngle = Math.atan2(
-        entity.start.y - entity.center.y,
-        entity.start.x - entity.center.x,
-      );
-      const endAngle = Math.atan2(
-        entity.end.y - entity.center.y,
-        entity.end.x - entity.center.x,
-      );
-      let sweep = endAngle - startAngle;
-      if (sweep <= 0) sweep += TWO_PI;
-      const mid = startAngle + sweep / 2;
-      return {
-        x: entity.center.x + radius * Math.cos(mid),
-        y: entity.center.y + radius * Math.sin(mid),
-      };
-    }
+    case "arc":
+      return arcPointAt(arcFrame(entity), 0.5);
     case "spline": {
       // The mid-vertex of the sampled curve — a point that lies ON the ink, so
       // an inline editor reads as attached to the spline rather than to a fit

@@ -171,6 +171,18 @@ def attribute_faces(
     degrading is honest and strictly better than pinning a worker for minutes or
     taking the whole overlay away from a large imported body with a 422.
 
+    That budget sums over EVERY snapshot, so it is spent by ``features x faces`` —
+    quadratic in part size, NOT linear in face count, and the crossing point is a
+    FEATURE COUNT. Measured (docs/PERF.md 2026-07-31b, the mixed-vocabulary tray):
+    the old 8 000 ceiling was crossed at **N ~= 103 features** (~232 faces), so
+    feature-localized highlighting went dark on an ordinary authored part; the
+    re-derived 30 000 crosses at **N ~= 207**, past every size that rebuilds at all
+    today. The shape of the budget is still wrong, and the fix is not here: this
+    pass needs each snapshot's FINGERPRINTS, not its retained B-rep, so
+    fingerprinting at production time (``EvaluationState.body_history``, evaluate.py)
+    would make it O(final faces) and drop the retained snapshot memory with it
+    (BACKLOG PERF-5b).
+
     Deterministic (RESEARCH §9): ``final_body.faces()``, the snapshot order, the
     fixed cell-probe order and the ``min`` tie-break are all fixed, and
     :func:`fingerprints_match` is a pure boolean — so the same evaluation yields

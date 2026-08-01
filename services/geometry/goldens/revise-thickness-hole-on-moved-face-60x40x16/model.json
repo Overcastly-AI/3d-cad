@@ -1,0 +1,87 @@
+{
+  "part_id": "00000000-0000-0000-0000-0000000000f2",
+  "tree_version": 3,
+  "features": [
+    {
+      "id": "00000000-0000-0000-0000-0000000f2001",
+      "feature": {
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "plane": { "kind": "datum_plane", "plane": "XY" },
+          "entities": [
+            {
+              "id": "e1",
+              "kind": "line",
+              "start": { "x": 0.0, "y": 0.0 },
+              "end": { "x": 60.0, "y": 0.0 }
+            },
+            {
+              "id": "e2",
+              "kind": "line",
+              "start": { "x": 60.0, "y": 0.0 },
+              "end": { "x": 60.0, "y": 40.0 }
+            },
+            {
+              "id": "e3",
+              "kind": "line",
+              "start": { "x": 60.0, "y": 40.0 },
+              "end": { "x": 0.0, "y": 40.0 }
+            },
+            {
+              "id": "e4",
+              "kind": "line",
+              "start": { "x": 0.0, "y": 40.0 },
+              "end": { "x": 0.0, "y": 0.0 }
+            }
+          ],
+          "constraints": []
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-0000000f2002",
+      "feature": {
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "00000000-0000-0000-0000-0000000f2001"
+          },
+          "distance_mm": 16.0,
+          "operation": "add",
+          "direction": "normal"
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-0000000f2003",
+      "feature": {
+        "type": "hole",
+        "version": 1,
+        "params": {
+          "face": {
+            "kind": "subshape",
+            "feature_id": "00000000-0000-0000-0000-0000000f2002",
+            "subshape_type": "face",
+            "selector": {
+              "selector_version": 1,
+              "signature": {
+                "subshape_type": "face",
+                "surface": "plane",
+                "normal": { "x": 0.0, "y": 0.0, "z": 1.0 },
+                "centroid": { "x": 30.0, "y": 20.0, "z": 10.0 },
+                "area_mm2": 2400.0
+              }
+            }
+          },
+          "position": { "x": 15.0, "y": 20.0, "z": 10.0 },
+          "diameter_mm": 6.0,
+          "depth": { "kind": "through_all" }
+        }
+      }
+    }
+  ],
+  "linear_deflection": 0.1
+}

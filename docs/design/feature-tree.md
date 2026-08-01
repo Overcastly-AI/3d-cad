@@ -522,6 +522,157 @@ in object storage under a content-addressed key. Rows in the DB describe only
 product later wants persisted rebuild-status ("part is broken" badges in a
 part list), that is an additive cached column, listed in §7.
 
+### 4.4a Last-evaluate record — the four states (2026-07-30)
+
+§4.4's footnote came due. The UI review of the rebuilt registers
+(`docs/UI-REVIEW.md` 2026-07-30) agreed the registers were right to omit "has a
+body" and "has drawings", and right to *want* **"is broken"**: the most expensive
+surprise a returning engineer gets is opening a part whose rebuild fails, and the
+register is where they choose. Evaluating every row to find out is not on the
+table (a drawer of 40 parts is 40 kernel runs), so the verdict is persisted.
+
+**A bare status would be a lie waiting to happen.** `last_eval_status: "failed"`
+is a claim about the tree *as it was*; the user then fixes the feature and the
+register still says broken — the "confidently wrong" failure mode stored BOM item
+numbers were rejected for (`drawings.md` §8a.1). So the record stores **what the
+evaluate said, when, and which `tree_version` it said it about**:
+
+```
+parts.last_eval_status        VARCHAR(16) NULL   -- 'ok' | 'failed'
+parts.last_eval_at            TIMESTAMPTZ NULL   -- documents' clock
+parts.last_eval_tree_version  BIGINT      NULL   -- the tree it describes
+```
+
+and the API serves the **derived** verdict alongside them, so staleness is never
+something a consumer has to infer:
+
+| `eval_state` | Means | Derivation |
+|---|---|---|
+| `never` | Never evaluated; nothing is known | record all-NULL |
+| `ok` | Evaluated clean, and that still applies | `last_eval_tree_version == tree_version`, status `ok` |
+| `failed` | Evaluated with feature errors, still applies | same, status `failed` |
+| `stale` | Evaluated, but the tree moved since — **unknown** | `last_eval_tree_version != tree_version` |
+
+The fourth state is the design. `py_kit.schemas.parts.derive_part_eval_state` is
+the single implementation of the fold (documents derives the field; no client
+re-implements the comparison), and it compares **versions, not timestamps** —
+`tree_version` is monotonic and bumped in the same transaction as every tree
+write (§1.2), so it cannot skew, tie, or run backwards the way `updated_at >
+last_eval_at` can. The raw three fields ride along so a UI can say "failed 20 min
+ago, tree changed since" instead of only "unknown". Four scalars per row: the
+tree/list responses grow per DOCUMENT, never per feature or per sheet.
+
+**One deliberate carry-forward.** `PATCH /parts/{id}` (rename / display unit)
+bumps `tree_version` like any header edit, but it cannot change what the tree
+evaluates to — units are presentation metadata, storage stays canonical mm
+(`units.md` §U1) — so that route advances `last_eval_tree_version` with the bump.
+Renaming a part must not grey out its health, and the claim is still true. Every
+*other* write (feature create/update/delete, suppress, reorder, rollback,
+undo/redo) changes what an evaluation means and correctly leaves the record
+behind as `stale`.
+
+**The gateway writes it, not documents-on-request.** Only the gateway holds both
+the verified principal and geometry's actual answer, so it derives the verdict
+from the returned `FeatureResult` statuses (`failed` iff some feature is `error`;
+`suppressed`/`skipped` are not failures) and `PUT`s it to documents' internal
+`PUT /api/v1/parts/{id}/last-evaluation` — which has **no public gateway twin**,
+the same posture as `GET /{id}/evaluation-request`. The rejected alternative is
+documents recording a client-reported result: trivially forgeable, and this value
+ends up on a dashboard.
+
+**Bookkeeping may never cost or break an evaluate.** The write runs as a
+background task *after* the response is sent, and every failure (unreachable
+documents, a raced 404, a 5xx) is logged and dropped — a successful rebuild must
+not surface as an error because a status column could not be written. The cost of
+a lost write is bounded and self-healing: the record keeps its previous value,
+which `eval_state` reports as `stale` the moment the tree moves, and the next
+evaluate rewrites it. Three further guards: the write is **monotonic** in
+`tree_version` (a late duplicate for an older version is a no-op, so two
+in-flight evaluates cannot resurrect a superseded verdict), `last_eval_at` is
+stamped by **documents' clock** (the caller sends no timestamp), and the write
+moves **neither `updated_at` nor `tree_version`** — opening a part triggers an
+evaluate, and a register whose LAST WORKED column moved because someone *looked*
+at a part would be lying about the one thing it exists to report.
+
+Two honest limits, named rather than discovered: `ok` means "no feature errored",
+**not** "has a body" (an empty tree evaluates `ok` with `mesh_glb_id: null`), and
+the record is **parts only** — assemblies/drawings keep their own registers and
+would need the same treatment on their own rows. The `export` route evaluates too
+but has no per-feature statuses to read, so it records nothing.
+
+**A third limit, found the hard way — the verdict needs a SCOPE (audit J3,
+2026-07-30).** The four states answer *"did what ran build, and does that still
+apply?"* and say nothing about *how much ran*. Documents applies the rollback bar
+before the evaluate request leaves (§3), so a part rolled back to feature 2 of 9
+evaluates two features, succeeds, and records `ok` — which the register rendered
+as **"Clean"**, a claim about a part whose remaining seven features nobody looked
+at. The cell hedged BODIES meticulously and hedged SCOPE not at all.
+
+The fix is a second, **orthogonal** axis, not a fifth state: the two combine (a
+rolled-back tree can also fail, and a fifth `partial` would have to drop one fact
+to name the other), and the asymmetry matters — a `failed` prefix still means the
+part is broken, while an `ok` prefix does **not** mean the part builds.
+
+```
+parts.last_eval_scope  VARCHAR(16) NULL   -- 'whole' | 'rolled_back'   (0014)
+```
+
+| `eval_scope` | Means |
+|---|---|
+| `whole` | the evaluate ran the entire tree; `eval_state` is about the part |
+| `rolled_back` | the travel stop held features out; `eval_state` is about a PREFIX |
+| `null` | no live verdict to qualify (`never`/`stale`), or a pre-0014 record — **never read as `whole`** |
+
+Derived by **documents**, at record time, from its own tree: the gateway cannot
+supply it (it is never told rollback exists — that is the point of applying the
+bar upstream of it), so `PartEvaluationRecord` deliberately has no scope field
+and no browser can claim one. `py_kit.schemas.parts.derive_part_eval_scope` folds
+it and takes the already-derived state as an argument, so `derive_part_eval_state`
+remains the single implementation of the state fold. A bar parked on the LAST
+feature is `whole`: it excludes nothing, and hedging a part that did fully build
+is the mirror-image dishonesty. Stored rather than re-derived on read because the
+register reads a whole drawer in ONE query — a per-row "is anything past the bar"
+lookup would be the N+1 `cf4e006` removed. The two agree anyway while a verdict
+is live: moving the bar is a tree write, which bumps `tree_version` and makes the
+record `stale`.
+
+### 4.4b Body provenance — the same discriminator, for the thing on screen (2026-07-30)
+
+§4.4a made the *register* honest. The **viewport** had the same problem one layer
+down: `PartPage`'s body status was computed from request state — no request in
+flight and the last one did not error → "Up to date" — which is a strictly weaker
+claim than *"the body you are looking at was built from the current tree"*. Every
+in-app mutation refetches, so the usual window is a transient race; a concurrent
+edit arriving over the gateway's fan-out invalidates nothing, and the label then
+asserts currency indefinitely (`docs/UI-REVIEW.md` 2026-07-30 F2). Before an
+export or a dimension, that is the one claim a user must be able to trust.
+
+The fix is provenance on the wire, not a cleverer local guess. Two numbers, one
+rule:
+
+| Wire field | Meaning |
+|---|---|
+| `EvaluateTreeResult.tree_version` | the version the returned body/mesh/statuses were **BUILT FROM** (composed by documents off that exact tree, echoed by geometry) |
+| `PartResponse.tree_version` | the part's **CURRENT** counter — the staleness denominator |
+
+`py_kit.schemas.parts.is_stale_for_tree` is the single comparison
+(`built_from != current`), and `derive_part_eval_state` folds through it, so the
+register's four-state verdict and any body readout cannot disagree about what
+"stale" means. Notes on the shape:
+
+- **Inequality, not `<`.** An undo/redo restore also bumps the version, and a
+  result stamped with a version the part never reached is as unusable as an old
+  one.
+- **`PartResponse.tree_version` is new, and additive** — the column already
+  existed (§1.2), so no migration. It also removes an absurdity: the part header
+  row was the only document header lacking its own version
+  (`AssemblyResponse.doc_version` always carried one), so a client had to fetch a
+  whole feature tree to learn the current number. Five scalars is cheap enough to
+  refetch on window focus; a tree is not.
+- **No new field on the evaluate result.** The version was always echoed there —
+  it was merely described as a "cache/correlation key", which entitles no truth
+  claim. Duplicating it under a second name would have been the WET answer.
+
 ---
 
 ## 5. Alembic migration plan
@@ -665,8 +816,10 @@ by its owning item or a groom pass:
    dependency closure instead of the strict-prefix rule (§4.3). Product
    question about what a gap-history body means; revisit when multi-body or
    independent-branch trees exist.
-4. **Persisted rebuild status** ("broken" badge on part lists without
-   re-evaluating). Additive cached column if wanted; not correctness-bearing.
+4. ~~**Persisted rebuild status**~~ — **DECIDED + SHIPPED 2026-07-30, see
+   §4.4a**: three nullable `parts.last_eval_*` columns (migration 0012) plus a
+   derived four-state `eval_state`, written by the gateway after a real
+   evaluate. Remaining scope: the same record for assemblies/drawings.
 5. **Expressions/variables in params** (`distance = width/2`). Big,
    deliberately out of v1; would live inside `params` values as a tagged
    union, so the envelope already leaves room.

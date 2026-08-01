@@ -138,14 +138,16 @@ export function ToolButton({
       className={cx(
         "group/tt relative inline-flex select-none items-center rounded-sm py-1.5",
         // Padding + gap follow the label tier: icon-only spacing when the
-        // enclosing CommandBand has measured itself into the icon tier. A
-        // pure icon-only tool (undo/redo, no `showLabel`) also gets a
-        // comfortable ≥32px square hit target — the 16px glyph alone left a
-        // cramped ~32×28 tap area (UX audit #20d); `min-h`/`min-w` grow the
-        // click surface without shifting the band's centered rows.
+        // enclosing CommandBand has measured itself into the icon tier. EVERY
+        // tool gets the same comfortable ≥32px target (`min-h-8`), labelled or
+        // not, so one band row has one hover geometry; icon-only tools are
+        // square (`min-w-8`). This promise was made in 2026-07 and unmet until
+        // 2026-07-30, when `py-1.5` turned out to be a class the closed spacing
+        // scale never emitted, leaving every band tool 16px tall.
+        "min-h-8",
         showLabel
           ? "gap-2 px-3 [[data-band-tier=icon]_&]:px-2"
-          : "min-h-8 min-w-8 justify-center px-2",
+          : "min-w-8 justify-center px-2",
         "transition-colors duration-fast",
         "focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass",
         isDisabled ? "cursor-not-allowed opacity-40" : "hover:bg-carbide",
@@ -165,6 +167,11 @@ export function ToolButton({
       {active ? (
         <span
           aria-hidden
+          // QA hook: the signature accent is a LINE, so its size is the
+          // assertion. It measured 0x0 for months because the `inset-x-1.5` /
+          // `h-px` steps were missing from the closed spacing scale, and a 0x0
+          // element is invisible in a screenshot review (UI-REVIEW 2026-07-30).
+          data-scribe
           className="pointer-events-none absolute inset-x-1.5 bottom-0.5 h-px bg-brass"
         />
       ) : null}

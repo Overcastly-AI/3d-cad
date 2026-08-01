@@ -9,7 +9,9 @@
  * scroll. Default is expanded — collapse is a real, user-driven state.
  */
 import { cx } from "@loft/design";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+
+import { announceChromeChange } from "../viewport/fitFraming";
 
 export interface FloatingPanelProps {
   side: "left" | "right";
@@ -24,17 +26,31 @@ export interface FloatingPanelProps {
    * Defaults are side-aware (see below); pass to override.
    */
   maxHeightClassName?: string;
+  /**
+   * An action row pinned below the scrolling body — the panel's answer to the
+   * same problem `EditorCard.footer` solves: the panel's height is clamped, so
+   * whatever sits LAST in a scrolling column is whatever falls under the fold,
+   * and that is never what should be sacrificed. The inspector's EXPORT strip
+   * lives here for exactly that reason (UI-REVIEW 2026-07-30 P1: the 48px
+   * timeline shrank the frame and the strip — including the sentence warning
+   * that a file will be marked *partial* — went off the bottom at 1366x768).
+   *
+   * Trimming the copy above it is not a fix; that had already failed twice.
+   */
+  footer?: ReactNode;
 }
 
 // The reference cube (drei GizmoHelper) always lives bottom-RIGHT, occupying
 // roughly the 64–144px band above the frame's bottom edge. A tall right panel
-// at the default 4.5rem clearance would draw its opaque body over that band and
-// hide a table-stakes nav element (mandate 3a). Right panels therefore clear the
-// cube band; left panels keep the tight default (nothing but the DRO sits
-// bottom-left, and that lives below any panel).
+// at the default clearance would draw its opaque body over that band and hide a
+// table-stakes nav element (mandate 3a). Right panels therefore clear the cube
+// band; left panels keep the tight default (nothing but the DRO sits
+// bottom-left, and that lives below any panel). Both clamps are token-derived
+// (`maxHeight.hud-card` / `.cube-card`) so the feature-editor cards can use the
+// same one instead of inventing a second clamp.
 const DEFAULT_CLEARANCE = {
-  left: "max-h-[calc(100%-4.5rem)]",
-  right: "max-h-[calc(100%-9.5rem)]",
+  left: "max-h-hud-card",
+  right: "max-h-cube-card",
 } as const;
 
 export function FloatingPanel({
@@ -43,8 +59,15 @@ export function FloatingPanel({
   id,
   children,
   maxHeightClassName = DEFAULT_CLEARANCE[side],
+  footer,
 }: FloatingPanelProps) {
   const [collapsed, setCollapsed] = useState(false);
+  // A panel that opens or closes changes how much of the scene the modeler can
+  // see, so "Fit model" has to be re-solvable against the new free rect —
+  // announced rather than polled (see `fitFraming.VIEWPORT_CHROME_EVENT`).
+  useEffect(() => {
+    announceChromeChange();
+  }, [collapsed]);
 
   if (collapsed) {
     return (
@@ -52,6 +75,7 @@ export function FloatingPanel({
         type="button"
         data-testid={`panel-expand-${id}`}
         aria-expanded={false}
+        data-viewport-chrome={`panel-${id}`}
         onClick={() => setCollapsed(false)}
         className={cx(
           "absolute top-3 z-panel border border-hairline bg-anvil px-2 py-1.5 shadow-float",
@@ -68,6 +92,7 @@ export function FloatingPanel({
 
   return (
     <div
+      data-viewport-chrome={`panel-${id}`}
       className={cx(
         "absolute top-3 z-panel flex w-inspector max-w-[calc(100%-1.5rem)] flex-col",
         maxHeightClassName,
@@ -75,9 +100,7 @@ export function FloatingPanel({
       )}
     >
       {/* Collapse tab — pinned to the heading row's empty right corner (the
-          eyebrow text is left-aligned, so no content is ever covered). NB:
-          the preset's closed spacing scale has no `px` step — only scale
-          values (`top-0`/`right-0`) compile. */}
+          eyebrow text is left-aligned, so no content is ever covered). */}
       <button
         type="button"
         data-testid={`panel-collapse-${id}`}
@@ -94,6 +117,14 @@ export function FloatingPanel({
         {side === "left" ? "◂" : "▸"}
       </button>
       <div className="min-h-0 overflow-y-auto shadow-float">{children}</div>
+      {footer !== undefined ? (
+        <div
+          className="shrink-0 shadow-float"
+          data-testid={`panel-footer-${id}`}
+        >
+          {footer}
+        </div>
+      ) : null}
     </div>
   );
 }

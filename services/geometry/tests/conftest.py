@@ -10,6 +10,7 @@ from collections.abc import Callable
 from typing import Any
 
 import pytest
+from geometry.features.evaluate import reset_rebuild_cache
 from geometry.schemas import ShapeProperties
 
 #: Round-trip tolerance for mass properties: the CLAUDE.md kernel linear
@@ -19,6 +20,27 @@ from geometry.schemas import ShapeProperties
 #: endpoint-level (test_export) STEP round-trip gates. Loosening it is a
 #: reviewed decision recorded in docs/GEOMETRY-QA.md, never a quick fix.
 ROUNDTRIP_TOL = 1e-7
+
+
+@pytest.fixture(autouse=True)
+def _cold_rebuild_cache() -> None:
+    """Every test starts with an EMPTY rebuild cache (docs/PERF.md fix #1).
+
+    The rebuild cache (:mod:`geometry.rebuild_cache`) resumes any tree whose
+    feature prefix hashes identically — which in production is exactly right,
+    because the code that evaluates a feature does not change under a running
+    worker. **A test suite breaks that assumption on purpose**: a test that
+    monkeypatches a kernel op to fail, then evaluates a tree an earlier test
+    already evaluated successfully, would be served the earlier (unpatched)
+    answer and assert against a stale one. Measured, not imagined — it turned
+    ``test_hem_kernel_failure_maps_to_typed_edge_flange_failed`` green-for-the-
+    wrong-reason within minutes of the cache landing.
+
+    So the cache is per-test cold. Tests that WANT a hit warm it themselves
+    inside the test (``tests/test_rebuild_cache.py``), which also keeps every
+    other gate — goldens, determinism, timings — measuring a real rebuild.
+    """
+    reset_rebuild_cache()
 
 
 @pytest.fixture(scope="session")

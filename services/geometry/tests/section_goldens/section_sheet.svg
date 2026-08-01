@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 297.0000 210.0000" width="297.0000mm" height="210.0000mm" preserveAspectRatio="xMidYMid meet">
-  <rect x="0" y="0" width="297.0000" height="210.0000" fill="#ECEFF2" stroke="#C9CFD7" stroke-width="0.6000"/>
+  <rect x="0" y="0" width="297.0000" height="210.0000" fill="#FFFFFF" stroke="#C9CFD7" stroke-width="0.6000"/>
   <rect data-testid="drawing-border" x="10.0000" y="10.0000" width="277.0000" height="190.0000" fill="none" stroke="#1B222B" stroke-width="0.7000"/>
     <g data-testid="drawing-view" data-view="section" data-view-error="false">
       <g data-testid="drawing-hatch">

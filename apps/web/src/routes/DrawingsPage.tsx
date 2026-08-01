@@ -2,13 +2,22 @@ import { Chip } from "@loft/design";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 
-import { createDrawing, deleteDrawing, fetchDrawings } from "../api/drawings";
+import {
+  createDrawing,
+  deleteDrawing,
+  duplicateDrawing,
+  type DrawingResponse,
+  fetchDrawings,
+  moveDrawing,
+  renameDrawing,
+} from "../api/drawings";
 import {
   DocumentRegister,
   type RegisterCopy,
 } from "../components/DocumentRegister";
 import { SheetGrid } from "../components/SheetGrid";
 import { TopBar } from "../components/TopBar";
+import { useRegisterFiling } from "../components/useRegisterFiling";
 import { WorkspaceNav } from "../components/WorkspaceNav";
 
 /**
@@ -26,6 +35,8 @@ const COPY: RegisterCopy = {
   loading: "Loading drawings…",
   loadError: "Your drawings could not be loaded.",
   deleteError: "The drawing could not be deleted.",
+  renameError: "The drawing could not be renamed.",
+  duplicateError: "The drawing could not be duplicated.",
   createError: "The drawing could not be created.",
   emptyHeadline: "No drawings filed yet.",
   emptyBody:
@@ -43,6 +54,12 @@ export function DrawingsPage() {
     queryFn: () => fetchDrawings(),
     staleTime: 30_000,
   });
+  // Filing (#WS2) — see PartsPage; the wiring is shared, not repeated.
+  const filing = useRegisterFiling<DrawingResponse>(
+    "drawing",
+    "drawings",
+    moveDrawing,
+  );
 
   return (
     <div className="flex h-full flex-col">
@@ -74,8 +91,17 @@ export function DrawingsPage() {
                 {drawing.name}
               </Link>
             )}
-            onCreate={async (name) => {
-              await createDrawing(name);
+            filing={filing}
+            onCreate={async (name, folderId) => {
+              await createDrawing(name, folderId);
+              await queryClient.invalidateQueries({ queryKey: ["drawings"] });
+            }}
+            onRename={async (drawing, name) => {
+              await renameDrawing(drawing.id, name, drawing.doc_version);
+              await queryClient.invalidateQueries({ queryKey: ["drawings"] });
+            }}
+            onDuplicate={async (drawing) => {
+              await duplicateDrawing(drawing.id);
               await queryClient.invalidateQueries({ queryKey: ["drawings"] });
             }}
             onDelete={async (drawing) => {

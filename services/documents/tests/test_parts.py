@@ -8,7 +8,9 @@ because the sandbox has no Postgres daemon. The column types in
 NOT cover:
 
 - The duplicate-name 409 relies on ``IntegrityError`` from
-  ``uq_parts_owner_name``. SQLite raises it too (asserted here), but the
+  the per-folder name indexes (``uq_parts_folder_name`` /
+  ``uq_parts_unfiled_name``, #WS2). SQLite raises it too (asserted here,
+  including that PARTIAL unique indexes behave the same on both), but the
   asyncpg ``UniqueViolationError`` → ``IntegrityError`` mapping itself is
   only exercised against real Postgres (compose stack / e2e).
 - Native ``UUID`` / ``TIMESTAMPTZ`` columns and the ``now()`` server default
@@ -114,13 +116,37 @@ def test_create_part_returns_full_dto(client: TestClient) -> None:
         "id",
         "name",
         "owner_id",
+        # Where it is FILED (#WS2) — null is "unfiled", a real state rather
+        # than a missing value, which is what a fresh part is.
+        "folder_id",
         "length_unit",
+        # What the part is made of (docs/design/materials.md) — always present,
+        # empty until assigned, because mass is derived from it.
+        "materials",
+        "tree_version",
+        "eval_state",
+        # ...and HOW MUCH of the tree that state speaks for (audit J3): a
+        # verdict on a rollback prefix is not a verdict on the part.
+        "eval_scope",
+        "last_eval_status",
+        "last_eval_at",
+        "last_eval_tree_version",
         "created_at",
         "updated_at",
     }
     uuid.UUID(body["id"])  # well-formed id
     assert body["name"] == "Bracket"
     assert body["owner_id"] == OWNER
+    assert body["folder_id"] is None
+    # A part with no tree yet sits at version 0 (feature-tree.md §1.2).
+    assert body["tree_version"] == 0
+    # Never evaluated: the record is all-null and the derived state says so
+    # (feature-tree.md §4.4a) — a fresh part claims nothing about its health.
+    assert body["eval_state"] == "never"
+    assert body["eval_scope"] is None
+    assert body["last_eval_status"] is None
+    assert body["last_eval_at"] is None
+    assert body["last_eval_tree_version"] is None
 
 
 def test_create_part_trims_whitespace(client: TestClient) -> None:
@@ -279,6 +305,10 @@ def test_preexisting_row_backfills_to_mm(db_url: str) -> None:
     with TestClient(build_app(settings)) as client:
         fetched = client.get(f"/api/v1/parts/{part_id}", headers=_headers()).json()
     assert fetched["length_unit"] == "mm"
+    # Same row proves migration 0012's backfill: the three last_eval_* columns
+    # are absent from the INSERT, so they arrive NULL and read as "never
+    # evaluated" — the only honest state for a part nobody has evaluated.
+    assert fetched["eval_state"] == "never"
 
 
 # --- principal header (gateway trust boundary) ---------------------------------

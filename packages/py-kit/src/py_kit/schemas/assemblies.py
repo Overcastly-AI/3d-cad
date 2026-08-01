@@ -25,11 +25,14 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from py_kit.schemas.features import (
     MAX_TREE_FEATURES,
+    DocumentName,
     EdgeSignature,
     EvaluatedFeatureInput,
     FeatureError,
     PlanarFaceSignature,
+    document_slug,
 )
+from py_kit.schemas.folders import FOLDER_ID_DESCRIPTION
 from py_kit.schemas.geometry import (
     DEFAULT_ANGULAR_DEFLECTION,
     DEFAULT_LINEAR_DEFLECTION,
@@ -40,6 +43,7 @@ from py_kit.schemas.geometry import (
     ShapeProperties,
     Vec3,
 )
+from py_kit.schemas.materials import MaterialAssignment
 from py_kit.schemas.units import DEFAULT_LENGTH_UNIT, LengthUnit
 
 #: Upper bound for a user-facing assembly name ("Gearbox", "Bracket Stack").
@@ -315,8 +319,16 @@ class AssemblyCreate(BaseModel):
     """Create an assembly owned by the calling user (design §1.2)."""
 
     name: AssemblyName = Field(
-        description="Assembly name; unique per owner, whitespace-trimmed, "
+        description="Assembly name; unique per FOLDER (#WS2), whitespace-trimmed, "
         f"1-{ASSEMBLY_NAME_MAX_LENGTH} characters"
+    )
+    folder_id: uuid.UUID | None = Field(
+        default=None,
+        description="File it into this folder on creation, or null (the default) "
+        "to leave it unfiled at the root of its drawer. Present so filing inside "
+        "a folder is ONE call: a create-then-move pair could fail between the "
+        "two and leave the document somewhere the user did not put it. Must be "
+        "the caller's own folder OF THIS DOCUMENT'S KIND.",
     )
     length_unit: LengthUnit = Field(
         default=DEFAULT_LENGTH_UNIT,
@@ -460,6 +472,7 @@ class AssemblyResponse(BaseModel):
     id: uuid.UUID
     name: str
     owner_id: uuid.UUID = Field(description="Owning user id (gateway-verified)")
+    folder_id: uuid.UUID | None = Field(default=None, description=FOLDER_ID_DESCRIPTION)
     length_unit: LengthUnit = Field(
         description="Document display unit (docs/design/units.md §1); DISPLAY "
         "metadata only — storage stays canonical mm."
@@ -716,6 +729,14 @@ class EvaluatedInstance(BaseModel):
         max_length=MAX_TREE_FEATURES,
         description="The part's ordered feature prefix (feature-tree §4 "
         "contract), bounded by MAX_TREE_FEATURES (work bound, audit G2)",
+    )
+    materials: MaterialAssignment | None = Field(
+        default=None,
+        description="The instanced PART's material assignment (docs/design/"
+        "materials.md), forwarded verbatim into that part's evaluation so the "
+        "assembly rolls up a real mass. Null = the part has no material, so it "
+        "contributes no mass and the assembly total is null (never zero). Two "
+        "instances share a part_key and therefore a part, so they share this.",
     )
     placement: Placement = Field(
         default=IDENTITY_PLACEMENT, description="Authored seed pose (§2.3)"
@@ -986,8 +1007,35 @@ class ExportAssemblyRequest(EvaluateAssemblyRequest):
         "segments; ignored for STEP (exact B-rep). Floored at "
         "MIN_ANGULAR_DEFLECTION (work bound, audit G2).",
     )
+    name: DocumentName | None = Field(
+        default=None,
+        description="The assembly's human-readable document name. Names the "
+        "exported STEP's ROOT PRODUCT and the download filename; omitted / null "
+        "falls back to the assembly id. Export-only (see DocumentName): a name "
+        "must never be an input to the solve.",
+    )
+
+
+def assembly_export_root_name(request: ExportAssemblyRequest) -> str:
+    """The name the exported STEP's ROOT PRODUCT carries.
+
+    The assembly-level twin of the instance names already in the file (audit
+    N4/#7): before this, every assembly export was ``PRODUCT('<assembly uuid>')``
+    at the root, so a receiving shop could read the components and not the thing
+    they add up to. Falls back to the assembly id, which is at least unique.
+    """
+    return request.name if request.name is not None else str(request.assembly_id)
 
 
 def assembly_export_filename(request: ExportAssemblyRequest) -> str:
-    """Deterministic download filename for an assembly export (Content-Disposition)."""
-    return f"assembly.{request.format}"
+    """Deterministic download filename for an assembly export (Content-Disposition).
+
+    Named after the ASSEMBLY (``motor-mount-assembly.step``) when the request
+    carries the document name. The fallback is ``assembly-<id>.<format>``, NOT
+    the old constant ``assembly.<format>``: that named every assembly's download
+    identically, so exporting two of them silently overwrote the first (audit
+    N4). Shares the one slug rule with the part and drawing downloads
+    (:func:`~py_kit.schemas.features.document_slug`).
+    """
+    slug = document_slug(request.name) if request.name is not None else ""
+    return f"{slug or f'assembly-{request.assembly_id}'}.{request.format}"

@@ -119,10 +119,16 @@ export async function fetchDrawings(
 /** Create a drawing owned by the caller (201). A duplicate name → 409. */
 export async function createDrawing(
   name: string,
+  /**
+   * File it into this folder on creation (#WS2), or null for unfiled. ONE call
+   * on purpose: a create-then-move pair could fail between the two and leave a
+   * document somewhere the user did not put it.
+   */
+  folderId: string | null = null,
   client: GatewayClient = gatewayClient,
 ): Promise<DrawingResponse> {
   const { data, error } = await client.POST("/api/v1/drawings", {
-    body: { name },
+    body: { name, folder_id: folderId },
   });
   if (error !== undefined) {
     if (
@@ -136,6 +142,66 @@ export async function createDrawing(
     }
     throw new Error(
       envelopeMessage(error, "The drawing could not be created."),
+    );
+  }
+  return data;
+}
+
+/**
+ * Rename one of the caller's drawings under the OCC guard (`expected_version`).
+ * A drawing is a pure leaf — nothing references it — so a rename cannot orphan
+ * anything; the guard is there because a rename is still a real write.
+ */
+export async function renameDrawing(
+  drawingId: string,
+  name: string,
+  expectedVersion: number,
+  client: GatewayClient = gatewayClient,
+): Promise<DrawingResponse> {
+  const { data, error } = await client.PATCH("/api/v1/drawings/{drawing_id}", {
+    params: { path: { drawing_id: drawingId } },
+    body: { name, expected_version: expectedVersion },
+  });
+  if (error !== undefined) {
+    const code = envelopeCode(error);
+    if (code === "drawing_name_taken" || code === "name_taken") {
+      throw new DrawingNameTakenError(
+        name,
+        envelopeMessage(error, `A drawing named "${name}" already exists.`),
+      );
+    }
+    if (code === "stale_drawing_version") {
+      throw new Error(
+        envelopeMessage(
+          error,
+          "This drawing changed somewhere else. Reopen the register and try again.",
+        ),
+      );
+    }
+    throw new Error(
+      envelopeMessage(error, "The drawing could not be renamed."),
+    );
+  }
+  return data;
+}
+
+/**
+ * Copy a drawing's sheets, views, dimensions and annotations (201). The copied
+ * views keep pointing at the same part/assembly — a view is a reference — so
+ * this duplicates the LAYOUT, never the modelled document. The server names the
+ * copy and returns it.
+ */
+export async function duplicateDrawing(
+  drawingId: string,
+  client: GatewayClient = gatewayClient,
+): Promise<DrawingResponse> {
+  const { data, error } = await client.POST(
+    "/api/v1/drawings/{drawing_id}/duplicate",
+    { params: { path: { drawing_id: drawingId } } },
+  );
+  if (error !== undefined) {
+    throw new Error(
+      envelopeMessage(error, "The drawing could not be duplicated."),
     );
   }
   return data;
@@ -392,6 +458,28 @@ export async function composeDrawingSheet(
     throw new Error(
       envelopeMessage(error, "The drawing sheet could not be composed."),
     );
+  }
+  return data;
+}
+
+/**
+ * File a drawing into a folder, or un-file it with `folderId: null` (#WS2).
+ * See `movePart` for why the response is rendered rather than assumed.
+ */
+export async function moveDrawing(
+  drawingId: string,
+  folderId: string | null,
+  client: GatewayClient = gatewayClient,
+): Promise<DrawingResponse> {
+  const { data, error } = await client.POST(
+    "/api/v1/drawings/{drawing_id}/move",
+    {
+      params: { path: { drawing_id: drawingId } },
+      body: { folder_id: folderId },
+    },
+  );
+  if (error !== undefined) {
+    throw new Error(envelopeMessage(error, "The drawing could not be moved."));
   }
   return data;
 }

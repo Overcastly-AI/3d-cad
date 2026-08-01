@@ -8,6 +8,25 @@
 # SERVICE_NAME ∈ {gateway, documents, geometry}; the uv package installed is
 # loft-${SERVICE_NAME} and the app served is ${SERVICE_NAME}.main:app.
 # Build context is the repo root (see .dockerignore).
+#
+# LICENSING (docs/LICENSING.md — a container image redistributes every byte in
+# it, which `uv sync` on a laptop does not): the geometry image carries the OCP
+# wheel, and that wheel vendors a GPL-2.0 library (jbigkit) behind an
+# Apache-2.0 declaration. This Dockerfile is where that gets fixed and where
+# the fix is PROVEN, because a licence violation that regresses silently is the
+# worst kind. Three assertions, all of which FAIL THE BUILD:
+#   - strip-gpl-jbig.sh replaces jbigkit with a GPL-free stub (--require, so a
+#     skipped strip cannot pass as a clean build);
+#   - check-licences.py --profile image reads every .so we are about to publish
+#     and rejects any GPL-family library, the stub's absence, and a
+#     org.opencontainers.image.licenses label that disagrees with the contents;
+#   - verify-kernel.py imports OCCT and demands the analytic answer out of a
+#     real boolean cut, so "GPL-free" cannot come at the price of "wrong".
+# Geometry must therefore be built with
+#   --build-arg IMAGE_LICENSES="MIT AND LGPL-2.1-or-later"
+# (docker-compose.yml does this); the default MIT is correct for the other two
+# and the label check turns a wrong value into a failed build, not a lie on a
+# published artifact.
 # ---------------------------------------------------------------------------
 
 # --- builder: resolve + install into /app/.venv with uv --------------------
@@ -52,6 +71,22 @@ RUN mkdir -p /migrations \
         && cp -r "services/${SERVICE_NAME}/alembic" /migrations/alembic; \
     fi
 
+# LIC-1 — strip the GPL-2.0 jbigkit the OCP wheel vendors (docs/LICENSING.md §4).
+# Geometry only: it is the only image with the kernel, and gcc/binutils are a
+# build-stage cost we do not pay on the other two. `--require` makes "no libjbig
+# found" a FAILURE — if a future OCP wheel stops vendoring it (good) or stops
+# installing the kernel (bad), the build stops and a human decides which.
+# The runtime stage re-checks the RESULT, so this step cannot quietly no-op.
+COPY deploy/docker/licence /licence
+RUN if [ "${SERVICE_NAME}" = "geometry" ]; then \
+        apt-get update \
+        && apt-get install -y --no-install-recommends gcc libc6-dev binutils \
+        && rm -rf /var/lib/apt/lists/* \
+        && /licence/strip-gpl-jbig.sh /app/.venv --require; \
+    else \
+        echo "strip-gpl-jbig: skipped (${SERVICE_NAME} carries no kernel deps)"; \
+    fi
+
 # --- runtime: slim python + the venv, non-root ------------------------------
 FROM python:3.12-slim-bookworm AS runtime
 
@@ -89,6 +124,56 @@ COPY --from=builder --chown=loft:loft /app/.venv /app/.venv
 # `script_location = %(here)s/alembic` resolves relative to the ini, so the
 # tree is self-contained at this path; POSTGRES_URL comes from the service env.
 COPY --from=builder --chown=loft:loft /migrations /app/migrations
+
+# --- licence obligations that travel WITH the artifact ----------------------
+# LGPL-2.1 §6 says "You must supply a copy of this License" without
+# qualification, and the OCP wheel ships zero licence files across its 398
+# recorded entries — so if we copied the venv and pushed, we would convey 46
+# LGPL-covered OCCT libraries with none of their text. /app/licenses/ is that
+# text: our MIT LICENSE, the root NOTICE (which carries the prominent-notice
+# sentence the Open CASCADE exception requires), the texts no wheel ships
+# (LGPL-2.1, the OCCT exception, FTL, FIPL-1.0, MPL-2.0), a corresponding-source
+# statement, plus — emitted below from the installed environment itself, not
+# from a hand-maintained list — THIRD-PARTY.md and every licence file the
+# wheels DO ship. docs/LICENSING.md §6.
+COPY --chown=loft:loft LICENSE NOTICE /app/licenses/
+COPY --chown=loft:loft deploy/licenses/ /app/licenses/
+# corresponding_source.py rides along because the gate imports it: since LIC-2
+# the gate also checks that deploy/licenses/corresponding-source.json (copied
+# above, so it lands at /app/licenses/) still describes THESE binaries. An
+# image whose OCCT moved out from under the pinned source would carry a written
+# offer that is a false statement.
+COPY --chown=loft:loft scripts/check-licences.py scripts/corresponding_source.py \
+     deploy/docker/licence/verify-kernel.py /app/tools/
+
+ARG IMAGE_LICENSES="MIT"
+LABEL org.opencontainers.image.title="loft-${SERVICE_NAME}" \
+      org.opencontainers.image.description="Loft — open-source cloud-native parametric 3D CAD (${SERVICE_NAME} service)" \
+      org.opencontainers.image.licenses="${IMAGE_LICENSES}" \
+      org.opencontainers.image.source="https://github.com/Overcastly-AI/3d-cad" \
+      org.opencontainers.image.documentation="https://github.com/Overcastly-AI/3d-cad/blob/main/docs/LICENSING.md" \
+      org.opencontainers.image.vendor="Loft"
+
+# THE GATE. Reads the binaries in the image we are about to publish — not wheel
+# metadata, which said Apache-2.0 while shipping GPL-2.0 (LIC-3). Fails on: a
+# GPL-family library, jbigkit surviving the strip, jbigkit DELETED instead of
+# stubbed (eager binding → `undefined symbol: jbg_enc_out` at import), an
+# unclassified new vendored library, a GPL Python distribution, and a licence
+# label that disagrees with the contents. Emits THIRD-PARTY.md only after
+# passing. Prove it can fail: `just licence-selftest`.
+RUN python3 /app/tools/check-licences.py \
+        --profile image --root /app/.venv \
+        --expect-licences "${IMAGE_LICENSES}" \
+        --emit-inventory /app/licenses \
+    && chown -R loft:loft /app/licenses
+
+# …and prove the removal was INERT: import OCCT, assert the mapped libjbig is
+# our stub, then demand the closed-form answer (5151.769983530756 mm³) out of a
+# real boolean cut, a tessellation and a STEP export. A GPL-free image that
+# computes the wrong volume is not a fix.
+RUN if [ "${SERVICE_NAME}" = "geometry" ]; then \
+        python3 /app/tools/verify-kernel.py; \
+    fi
 
 USER loft
 

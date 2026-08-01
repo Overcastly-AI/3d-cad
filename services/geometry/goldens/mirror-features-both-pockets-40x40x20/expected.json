@@ -1,0 +1,29 @@
+{
+  "description": "FEATURES-SCOPE MIRROR — \"make the plate symmetric\" (mirror v2, docs/design/mirror-semantics.md §5, chain B'). The SAME tree as mirror-features-pocket-b-only-40x40x20 — a 40 x 40 x 20 plate, pocket A over x in [4,8], pocket B over x in [14,18], a YZ datum at x=20 — with `scope: {kind: features, features: [pocket A, pocket B]}`. BOTH recorded removal tools reflect about x=20, so the plate ends with four notches at x in [4,8], [14,18], [22,26], [32,36]: 28800.0 mm^3, mirror-symmetric about x=20. This number is the whole reason the v2 contract exists. Under v1 it was the SYMPTOM of a rejected inference rule (\"reflect every tracked cut\") that broke the 29600.0 lock; under v2 it is simply the correct answer to a request v1 could not express, and 29600.0 is the correct answer to a different one. The mutual exclusion §1 measured dissolves because the two requests are now distinguishable in the DTO — not because the kernel got cleverer. Pair this golden with its sibling: same tree, one field different, two intended solids, no heuristic anywhere.",
+  "derivation": [
+    "Expectations are HAND-DERIVED analytic values, not recorded harness output (geometry-gates skill). Plate: x,y in [0,40] on XY (unconstrained -> zero solver residual), extruded 20 mm = 32000 mm^3.",
+    "pockets A and B: 4 x 20 rectangles at x in [4,8] and x in [14,18], both y in [10,30], each extrude-CUT 10 mm along +Z from the XY plane, so each tool spans z in [0,10] and each notch opens only at the z=0 face: -800 mm^3 each.",
+    "mirror plane: a datum parallel to YZ slid +20 mm -> x=20, the plate's x-midplane.",
+    "mirror, scope features [pocket A, pocket B], applied in TREE order: A's recorded tool reflects from x in [4,8] to x in [32,36] and is CUT (-800); B's reflects from x in [14,18] to x in [22,26] and is CUT (-800). Reflected placements: the four notches sit at x in [4,8], [14,18], [22,26], [32,36] — mirror-symmetric about x=20, with 4 mm of material between the middle pair and 14 mm between the outer pairs, so all four are disjoint and the plate stays ONE connected solid (a reflected tool that severed a lump would be `mirror_failed`, never a silently split body).",
+    "volume = 32000 - 4*800 = 28800.0 mm^3.",
+    "surface_area: 6400 (un-notched plate) + 4 x 480 (each notch removes 80 from the bottom cap and adds a 48 mm x 10 mm wall plus an 80 mm^2 ceiling; see the sibling golden) = 8320.0 mm^2.",
+    "centroid = (20, 20, 10.555555555555555): x and y are EXACTLY the plate centre by symmetry (the four notches are symmetric about x=20 and each is centred on y=20 — a mirror that reflected the wrong solid, or reflected only one pocket, shows here). z = (32000*10 - 3200*5)/28800 = (320000 - 16000)/28800 = 304000/28800 = 10.555555555555555, the notches being in the bottom half.",
+    "bounding_box = [0,0,0]..[40,40,20]: every notch is interior in plan and opens downward.",
+    "topology: 26 faces = 6 outer + 5 per notch x 4. 60 edges = 12 box + 12 per notch x 4. 1 shell.",
+    "mesh (linear 0.1 mm, all-planar): bottom cap = 4 outer + 4*4 hole nodes = 20 boundary nodes with 4 holes -> 20 vertices, 20 - 2 + 2*4 = 26 triangles. Top cap 4 / 2. 4 plate side walls 16 / 8. Four notches at 5 faces each = 4*(20, 10) = 80 / 40. Totals = 20 + 4 + 16 + 80 = 120 vertices and 26 + 2 + 8 + 40 = 76 triangles.",
+    "GLB byte size is deliberately NOT pinned (see the sibling goldens)."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "ALL-PLANAR tolerance — the same reviewed planar tier as the sibling golden and the shipped planar mirror goldens (mirror-triangle-prism-2x, mirror-cut-clearing-plane-block-40x40x20); reused verbatim, no new epsilon. Measured deviations vs the analytic values (2026-07-29, build123d 0.11.1 / OCCT 7.9): volume |28800.0 - 28799.999999999996| = 3.6e-12, surface_area exactly 0.0, centroid.x exactly 0.0, centroid.y 3.6e-15, centroid.z 1.8e-15, AABB bounds exactly 0.0. ~275x headroom over the worst residual. Topology and mesh counts carry NO tolerance (exact-match). Loosening requires a reviewed kernel-level justification recorded here and in docs/GEOMETRY-QA.md.",
+  "properties": {
+    "volume": 28800.0,
+    "surface_area": 8320.0,
+    "centroid": { "x": 20.0, "y": 20.0, "z": 10.555555555555555 },
+    "bounding_box": {
+      "min": { "x": 0.0, "y": 0.0, "z": 0.0 },
+      "max": { "x": 40.0, "y": 40.0, "z": 20.0 }
+    }
+  },
+  "topology": { "faces": 26, "edges": 60, "shells": 1 },
+  "mesh": { "vertices": 120, "triangles": 76 }
+}

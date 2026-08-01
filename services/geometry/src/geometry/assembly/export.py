@@ -14,9 +14,15 @@ Pipeline (reusing the shipped solve VERBATIM):
 2. Hand each placed body + its instance name to the kernel composer
    (:func:`~geometry.kernel.export.export_step_assembly_bytes` /
    ``export_stl_assembly_bytes``), which positions every body and writes ONE file:
-   STEP as **AP214 product structure** (each instance a named PRODUCT at its
-   placement, so a re-import recovers every part traceable to its instance), or
-   STL as one faceted compound with placements baked in.
+   STEP as **INSTANCED AP214 product structure** (each unique PART is one named
+   PRODUCT, placed once per instance as a named occurrence — so a re-import
+   recovers every body traceable to its instance AND a downstream tool can see
+   that twenty dowel pins are one part, audit N8), or STL as one faceted compound
+   with placements baked in.
+
+The file is named after the ASSEMBLY, root PRODUCT and download alike
+(``assembly_export_root_name`` / ``assembly_export_filename``, audit N4), falling
+back to the assembly id when the request carries no name.
 
 No kernel type crosses the boundary — the caller gets bytes. Deterministic
 (RESEARCH §9): the solve is BLAS-pinned, the STEP timestamp is pinned, and the
@@ -28,7 +34,10 @@ zero-solid file or a 500 — mirroring the tree-export no-body posture (§4.3).
 
 from __future__ import annotations
 
-from py_kit.schemas.assemblies import ExportAssemblyRequest
+from py_kit.schemas.assemblies import (
+    ExportAssemblyRequest,
+    assembly_export_root_name,
+)
 
 from geometry.assembly.evaluate import PlacedInstance, solve_assembly
 from geometry.assembly.transform import Pose
@@ -56,10 +65,11 @@ def _component(placed: PlacedInstance) -> AssemblyComponent:
     """A solved instance as a kernel :class:`AssemblyComponent` (name + world pose).
 
     The instance's HUMAN-READABLE name (``PlacedInstance.name``) names the STEP
-    PRODUCT / occurrence, so a Loft->STEP->Loft round trip recovers the real part
-    name rather than the instance UUID (FINDINGS #7); a request that carries no
-    name falls back to the instance id (still traceable, never a nameless
-    PRODUCT). The world placement is decomposed into a translation + unit
+    occurrence, and — with its ``<n>`` suffix stripped — the shared PRODUCT, so a
+    Loft->STEP->Loft round trip recovers the real names rather than the instance
+    UUID (FINDINGS #7, audit N8); a request that carries no name falls back to
+    the instance id (still traceable, never a nameless occurrence). The world
+    placement is decomposed into a translation + unit
     quaternion via the same :class:`Pose` the solver uses, so no representation
     drift happens between solve and export.
     """
@@ -96,9 +106,10 @@ def export_assembly(request: ExportAssemblyRequest) -> bytes:
             "export. Check the parts' feature trees for errors."
         )
     components = [_component(placed) for placed in solved.placed]
-    assembly_name = str(request.assembly_id)
     if request.format == "step":
-        return export_step_assembly_bytes(assembly_name, components)
+        return export_step_assembly_bytes(
+            assembly_export_root_name(request), components
+        )
     return export_stl_assembly_bytes(
         components, request.linear_deflection, request.angular_deflection
     )

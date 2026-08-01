@@ -13,6 +13,7 @@ import {
   layout,
   radius,
   spacing,
+  target,
   zLayer,
 } from "./tokens";
 
@@ -65,14 +66,46 @@ export const loftPreset = {
       height: {
         toolbar: px(layout.toolbarHeight),
         band: px(layout.commandBandHeight),
+        timeline: px(layout.timelineHeight),
       },
       width: {
         inspector: px(layout.inspectorWidth),
         editor: px(layout.editorCardWidth),
       },
+      /**
+       * The written TARGET-SIZE policy as utilities (`min-h-target`,
+       * `min-w-target-dense`, …) — see `target` in tokens.ts. Named rather than
+       * spelled `min-h-6` at each site so the floor is one decision that can be
+       * audited, and so a reviewer sees the intent rather than a number.
+       */
+      minHeight: {
+        target: px(target.comfortable),
+        "target-dense": px(target.dense),
+      },
+      minWidth: {
+        target: px(target.comfortable),
+        "target-dense": px(target.dense),
+      },
       inset: {
         /** HUD-card left anchor clearing the floating tree panel. */
         editor: px(layout.editorInset),
+        /**
+         * The bottom-centre HUD lane — a centred instrument stacked over the
+         * view rail (`bottom-hud-lane`). See `layout.hudLaneBottom`.
+         */
+        "hud-lane": px(layout.hudLaneBottom),
+      },
+      maxHeight: {
+        /**
+         * Clamp for a card anchored at `top-3`: capped so the bottom HUD lane
+         * (view rail + centred instruments) stays reachable, with the card's
+         * own body scrolling instead of growing off-frame. Every floating
+         * panel and feature editor uses this — no editor can outgrow the
+         * frame as verbs keep landing (UI-REVIEW 2026-07-30 P1).
+         */
+        "hud-card": `calc(100% - ${px(layout.cardInset + layout.hudLaneBottom)})`,
+        /** As `hud-card`, but also clearing the in-canvas reference cube. */
+        "cube-card": `calc(100% - ${px(layout.cardInset + layout.referenceCubeBand)})`,
       },
       boxShadow: {
         /** Floating instrument panels lifting off the scene (token ground). */

@@ -2,13 +2,19 @@ export * from "./tokens";
 export {
   areaUnitLabel,
   formatLength,
+  formatMass,
+  fromGrams,
   fromMm,
   fromMmArea,
   fromMmVolume,
   LENGTH_UNITS,
   type FormatLengthOptions,
+  type FormatMassOptions,
   type LengthUnit,
   lengthUnitLabel,
+  MASS_G_PER_UNIT,
+  type MassUnit,
+  massUnitFor,
   MM_PER_UNIT,
   parseLength,
   toMm,
@@ -29,6 +35,7 @@ export type {
   PanelRowProps,
   PanelActionCellProps,
 } from "./primitives/Panel";
+export { Stamp, type StampProps, type StampTone } from "./primitives/Stamp";
 export { Toolbar, Chip } from "./primitives/Toolbar";
 export {
   ToolButton,
@@ -55,6 +62,15 @@ export {
   type SegmentOption,
 } from "./primitives/SegmentedControl";
 export * from "./primitives/icons";
+export {
+  VerbGlyph,
+  VERB_GLYPHS,
+  type VerbGlyphProps,
+} from "./primitives/verbGlyph";
+export {
+  BandActionCell,
+  type BandActionCellProps,
+} from "./primitives/BandActionCell";
 export { SketchGlyph, type SketchGlyphProps } from "./primitives/SketchGlyph";
 export { PickNode, type PickNodeProps } from "./primitives/PickNode";
 export { NumberField, type NumberFieldProps } from "./primitives/NumberField";
@@ -64,6 +80,7 @@ export {
 } from "./primitives/ExpressionField";
 export { TextField, type TextFieldProps } from "./primitives/TextField";
 export { Checkbox, type CheckboxProps } from "./primitives/Checkbox";
+export { Disclosure, type DisclosureProps } from "./primitives/Disclosure";
 export {
   SelectField,
   type SelectFieldProps,

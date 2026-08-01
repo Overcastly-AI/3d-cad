@@ -3,9 +3,13 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 
 import {
+  type AssemblyResponse,
   createAssembly,
   deleteAssembly,
+  duplicateAssembly,
   fetchAssemblies,
+  moveAssembly,
+  renameAssembly,
 } from "../api/assemblies";
 import {
   DocumentRegister,
@@ -13,7 +17,9 @@ import {
 } from "../components/DocumentRegister";
 import { SheetGrid } from "../components/SheetGrid";
 import { TopBar } from "../components/TopBar";
+import { useRegisterFiling } from "../components/useRegisterFiling";
 import { WorkspaceNav } from "../components/WorkspaceNav";
+import { usePreferencesStore } from "../settings/preferences";
 
 /**
  * The assemblies register — the same drawer as parts (`DocumentRegister`) with
@@ -31,6 +37,8 @@ const COPY: RegisterCopy = {
   loading: "Loading assemblies…",
   loadError: "Your assemblies could not be loaded.",
   deleteError: "The assembly could not be deleted.",
+  renameError: "The assembly could not be renamed.",
+  duplicateError: "The assembly could not be duplicated.",
   createError: "The assembly could not be created.",
   emptyHeadline: "No assemblies filed yet.",
   emptyBody:
@@ -43,11 +51,19 @@ const COPY: RegisterCopy = {
 
 export function AssembliesPage() {
   const queryClient = useQueryClient();
+  // The user's "units for new documents" preference (#58), stamped at creation.
+  const newDocumentUnit = usePreferencesStore((state) => state.newDocumentUnit);
   const assemblies = useQuery({
     queryKey: ["assemblies"],
     queryFn: () => fetchAssemblies(),
     staleTime: 30_000,
   });
+  // Filing (#WS2) — see PartsPage; the wiring is shared, not repeated.
+  const filing = useRegisterFiling<AssemblyResponse>(
+    "assembly",
+    "assemblies",
+    moveAssembly,
+  );
 
   return (
     <div className="flex h-full flex-col">
@@ -79,8 +95,19 @@ export function AssembliesPage() {
                 {assembly.name}
               </Link>
             )}
-            onCreate={async (name) => {
-              await createAssembly(name);
+            filing={filing}
+            onCreate={async (name, folderId) => {
+              await createAssembly(name, newDocumentUnit, folderId);
+              await queryClient.invalidateQueries({ queryKey: ["assemblies"] });
+            }}
+            onRename={async (assembly, name) => {
+              await renameAssembly(assembly.id, name, assembly.doc_version);
+              await queryClient.invalidateQueries({ queryKey: ["assemblies"] });
+            }}
+            onDuplicate={async (assembly) => {
+              // Instances and mates are copied; the PARTS they name are not —
+              // both assemblies reference the same parts afterwards.
+              await duplicateAssembly(assembly.id);
               await queryClient.invalidateQueries({ queryKey: ["assemblies"] });
             }}
             onDelete={async (assembly) => {

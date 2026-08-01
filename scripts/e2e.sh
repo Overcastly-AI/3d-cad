@@ -10,20 +10,65 @@
 #         running `just dev` loop. Playwright's webServer config
 #         starts/reuses the Vite dev server (:5173) itself.
 #
+# Usage:  scripts/e2e.sh [--geometry-only|--web-only] [-- <playwright args>...]
+#
+#         --web-only     skip leg 1. CI's e2e workflow uses this: ci.yml's
+#                        `python` job already runs whole-repo pytest, so
+#                        re-running the 2.4k geometry tests per shard would
+#                        pay ~12 min four times over for zero new coverage.
+#         --geometry-only  leg 1 only (no stack, no browser).
+#         trailing args  forwarded verbatim to `playwright test`, which is how
+#                        CI passes --shard=i/N. Sharding is why the per-push
+#                        browser gate is affordable, and it is DERIVED from the
+#                        filesystem: every spec lands in exactly one shard with
+#                        no list to maintain, so a new spec cannot be born
+#                        outside the gate (the failure mode that has bitten
+#                        this repo four times — see docs/BACKLOG.md GATE-1).
+#
 # Env:    GATEWAY_PORT / DOCUMENTS_PORT / GEOMETRY_PORT
 #                                        override ports (default 8000/8001/8002)
 #         PLAYWRIGHT_BROWSERS_PATH       honored if set; else /opt/pw-browsers
 #                                        when that directory exists
+#         E2E_JSON_REPORT                write Playwright's JSON report here
+#                                        (CI reconciles the executed test count
+#                                        against the discovered one, so a shard
+#                                        that silently ran nothing cannot pass)
+#         CI                             when set, NEVER reuse a listener: every
+#                                        port must be free and this script must
+#                                        boot the stack itself. Reuse exists so
+#                                        the gate composes with a local
+#                                        `just dev`; in CI an occupied port can
+#                                        only mean a stale/foreign process, and
+#                                        reusing one is how a green run gets
+#                                        served an app that isn't this commit.
 #
 # Idempotent and safe to re-run; exits non-zero on any failing leg.
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+RUN_GEOMETRY=1
+RUN_WEB=1
+case "${1:-}" in
+  --geometry-only)
+    RUN_WEB=0
+    shift
+    ;;
+  --web-only)
+    RUN_GEOMETRY=0
+    shift
+    ;;
+esac
+if [[ "${1:-}" == "--" ]]; then
+  shift
+fi
+PLAYWRIGHT_ARGS=("$@")
+
 HOST=127.0.0.1
 GATEWAY_PORT="${GATEWAY_PORT:-8000}"
 DOCUMENTS_PORT="${DOCUMENTS_PORT:-8001}"
 GEOMETRY_PORT="${GEOMETRY_PORT:-8002}"
+VITE_PORT=5173
 RUN_DIR="$(mktemp -d -t loft-e2e.XXXXXX)"
 STARTED_PIDS=()
 
@@ -46,8 +91,63 @@ trap cleanup EXIT
 # so swallow the exit code and only default when the output is empty.
 probe() {
   local code
-  code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 2 "$1" 2>/dev/null || true)"
+  code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time "${2:-2}" "$1" 2>/dev/null || true)"
   echo "${code:-000}"
+}
+
+# CI only: prove Vite can serve THIS app on 127.0.0.1 before handing the job to
+# Playwright, and say which address answered.
+#
+# Playwright's webServer failure is a bare "Timed out waiting …ms" that names no
+# cause (its stdout is discarded by default), so the first run of the e2e
+# workflow reported four identical setup deaths and zero test results — a red
+# build with nothing to diagnose from. The suspected cause is that Vite forces
+# dns.setDefaultResultOrder("verbatim"), so on a dual-stack host its default
+# `localhost` can bind ::1 only while everything here asks for 127.0.0.1. That
+# cannot be reproduced in the dev container (no IPv6 loopback), so rather than
+# assert the fix works, this probes BOTH families on an isolated port and prints
+# the answer. If the config fix is right this is a few quiet seconds; if it is
+# wrong, the log says so in one line instead of costing another round trip.
+# Side benefit: it warms node_modules/.vite before the timed webServer start.
+preflight_vite() {
+  local port=5199 log="${RUN_DIR}/vite-preflight.log" pid attempt v4 v6
+  echo "e2e: preflight — proving Vite serves the app on ${HOST}"
+  pnpm --filter @loft/web exec vite --host "$HOST" --port "$port" --strictPort \
+    >"$log" 2>&1 &
+  pid=$!
+  for ((attempt = 1; attempt <= 120; attempt++)); do
+    v4="$(probe "http://${HOST}:${port}/")"
+    [[ "$v4" == "200" ]] && break
+    kill -0 "$pid" 2>/dev/null || break
+    sleep 1
+  done
+  v4="$(probe "http://${HOST}:${port}/")"
+  v6="$(probe "http://[::1]:${port}/")"
+  echo "e2e: preflight — 127.0.0.1 -> ${v4}, [::1] -> ${v6}"
+  if [[ "$v4" != "200" ]]; then
+    echo "e2e: Vite did NOT serve the app on ${HOST}:${port}." >&2
+    if [[ "$v6" == "200" ]]; then
+      echo "e2e: it IS answering on [::1] — Vite bound IPv6-only, so the" >&2
+      echo "e2e: --host flag in apps/web/playwright.config.ts is not taking effect." >&2
+    fi
+    echo "e2e: vite log:" >&2
+    cat "$log" >&2 || true
+    kill "$pid" 2>/dev/null || true
+    return 1
+  fi
+  # The entry module is what actually forces dependency pre-bundling; index.html
+  # can answer well before the app is servable. Needs a REAL timeout: with the
+  # dep cache cold this took 5.5 s locally, and probing it with the default 2 s
+  # cap reported a confident "000" for a server that was working — a diagnostic
+  # line that lies is worse than no line at all.
+  local t0 entry
+  t0=$(date +%s%N)
+  entry="$(probe "http://${HOST}:${port}/src/main.tsx" 120)"
+  echo "e2e: preflight — entry module -> ${entry} in $((($(date +%s%N) - t0) / 1000000)) ms"
+  sed -n '1,6p' "$log" | sed 's/^/e2e: vite: /'
+  kill "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+  return 0
 }
 
 # start_service NAME APP_MODULE PORT — reuse a healthy listener or boot
@@ -56,6 +156,11 @@ start_service() {
   local name="$1" app="$2" port="$3" code attempt pid
   code="$(probe "http://${HOST}:${port}/readyz")"
   if [[ "$code" == "200" ]]; then
+    if [[ -n "${CI:-}" ]]; then
+      echo "e2e: :${port} already serves a healthy ${name}, but CI is set." >&2
+      echo "e2e: refusing to reuse it — a CI run must exercise THIS commit's code." >&2
+      return 1
+    fi
     echo "e2e: reusing healthy ${name} on :${port}"
     return 0
   fi
@@ -79,13 +184,53 @@ start_service() {
   return 1
 }
 
-echo "== e2e leg 1/2: geometry gates (goldens + STEP round-trip) =="
-uv run pytest \
-  services/geometry/tests/test_goldens.py \
-  services/geometry/tests/test_step_roundtrip.py
+# The WHOLE geometry suite, by directory — deliberately not a file list.
+#
+# This was a hand-written two-file allowlist (test_goldens.py +
+# test_step_roundtrip.py) until 2026-07-30. Engineering audit J8 measured what
+# that actually covered: 228 of 2118 geometry tests, and it EXCLUDED the
+# 309-test composition matrix — the suite built specifically to catch silent
+# wrong geometry, which had already found four real defects including two P0s.
+# So "geometry gates green" in our Definition of Done certified ~11% of the
+# suite while skipping the part that finds the P0s, and every new test file
+# landed outside the gate by default.
+#
+# Same defect as the matrix's own hand-listed predecessor axis and G3's
+# hand-listed service names: an enumerated gate cannot fail when the thing it
+# enumerates grows, it just quietly stops covering. A directory can.
+#
+# Note ci.yml's `python` job already runs `uv run pytest` over the whole repo,
+# so CI was never blind here — the gap was in the LOCAL gate an agent runs
+# before committing, which is where a false "geometry verified" is most
+# expensive because it is what the commit message then claims.
+if [[ "$RUN_GEOMETRY" == 1 ]]; then
+  echo "== e2e leg 1/2: geometry gates (full geometry suite) =="
+  uv run pytest services/geometry/tests
+fi
+
+if [[ "$RUN_WEB" == 0 ]]; then
+  echo
+  echo "e2e: geometry leg green (--geometry-only)."
+  exit 0
+fi
 
 echo
 echo "== e2e leg 2/2: Playwright suite (@loft/web) =="
+# Playwright's webServer sets reuseExistingServer, which is correct locally
+# (compose with a running `just dev`) and a trap in CI: a stray Vite proxies
+# /api at whatever gateway IT was told about, and every spec then 500s at
+# register — or worse, passes against a stale bundle. On a fresh runner nothing
+# should be listening, so say so loudly rather than discovering it as a spec
+# failure 10 minutes later.
+if [[ -n "${CI:-}" ]]; then
+  if [[ "$(probe "http://${HOST}:${VITE_PORT}/")" != "000" ]]; then
+    echo "e2e: something is already listening on :${VITE_PORT} in CI." >&2
+    echo "e2e: Playwright would REUSE it (reuseExistingServer) and test the wrong app." >&2
+    exit 1
+  fi
+  preflight_vite
+fi
+
 start_service geometry geometry.main:app "$GEOMETRY_PORT"
 export GEOMETRY_URL="${GEOMETRY_URL:-http://${HOST}:${GEOMETRY_PORT}}"
 
@@ -134,7 +279,29 @@ start_service gateway gateway.main:app "$GATEWAY_PORT"
 if [[ -z "${PLAYWRIGHT_BROWSERS_PATH:-}" && -d /opt/pw-browsers ]]; then
   export PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers
 fi
-pnpm --filter @loft/web e2e
+
+# `pnpm run <script> -- <args>` DROPS the separator in pnpm 10 and the args
+# never reach the script (CLAUDE.md recipe), so invoke the binary directly —
+# --shard has to arrive intact or a shard silently runs the WHOLE suite.
+if [[ -n "${E2E_JSON_REPORT:-}" ]]; then
+  export PLAYWRIGHT_JSON_OUTPUT_NAME="$E2E_JSON_REPORT"
+  PLAYWRIGHT_ARGS+=(--reporter=list,json)
+fi
+# NB `"${ARR[@]-}"` on an EMPTY array expands to one empty word, not zero
+# (measured, bash 5.2), and playwright would read that empty string as a
+# match-everything file filter. Branch on the length instead.
+if ((${#PLAYWRIGHT_ARGS[@]} > 0)); then
+  pnpm --filter @loft/web exec playwright test "${PLAYWRIGHT_ARGS[@]}"
+else
+  pnpm --filter @loft/web exec playwright test
+fi
 
 echo
-echo "e2e: all legs green."
+if [[ "$RUN_GEOMETRY" == 1 ]]; then
+  echo "e2e: all legs green."
+else
+  # Not "all legs green" — leg 1 did not run, and a gate that overstates what
+  # it checked is how "geometry verified" ends up in a commit message that
+  # never ran a golden.
+  echo "e2e: browser leg green (--web-only; the geometry leg did NOT run)."
+fi

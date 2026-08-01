@@ -1,23 +1,37 @@
 /**
- * The hole editor — the extrude/datum editor's twin in the same title-block
- * seat top-left of the viewport (you author one feature at a time, so they
- * share the "authoring lives here" anchor and the viewport keeps the pixels).
- * A hole drills a cylinder into the current body at a point on a picked planar
- * face, through-all or blind (design §7.6, the shell/draft sibling). DIAMETER
- * wears brass because it is THE parametric handle of the feature — the hole's
- * defining dimension, matching how the extrude editor accents its distance.
+ * The hole editor — references pinned, parameters scrolling (UI-W4), docked to
+ * the right rail so the viewport keeps the middle (design mandate 3).
  *
- * The face + the drill point are authored by clicking the highlighted face and
- * then a point ON it in the viewport (the parent renders `FacePickOverlay` +
- * `HolePointOverlay`); the editor arms each pick and folds the delivered value
- * into its form. Picking a face seeds the point to the face centre, so the form
- * is immediately submittable and the point step only REFINES it. Keyboard-first:
- * the diameter field autofocuses, Enter commits, Escape cancels — the sketcher's
- * dimension grammar (Escape disarms an armed pick first, handled by the parent).
+ * A hole drills a cylinder into the current body at a point on a picked planar
+ * face, through-all or blind (design §7.6, the shell/draft sibling).
+ *
+ * The structural truth this card is built on: a feature has REFERENCES (what it
+ * is attached to) and PARAMETERS (numbers), and those deserve different
+ * treatment. Losing sight of a reference was the actual reported defect — this
+ * was 12 stacked rows in a scrolling body, so "C'sink angle" could be on screen
+ * while the placement face had scrolled off the top. Now:
+ *
+ *   FACE / POINT   → a pinned anchor block that never scrolls (EditorCard
+ *                    `header`), scribed in brass: the references this feature
+ *                    hangs off, always in sight.
+ *   Ø              → THE parametric handle, `NumberField emphasis="primary"`
+ *                    (the hole's defining dimension, at DRO scale in brass).
+ *   Depth / Type   → secondary parameters, in the scrolling body.
+ *   Thread         → progressively disclosed; it was ~5 of the 12 rows and the
+ *                    everyday hole is not tapped.
+ *
+ * And the behavioural half (UI-W3): the anchor block opens ALREADY FILLED from
+ * whatever the cursor had selected (`features/preselect`), and when it is
+ * empty the parent arms the face pick on open — so clicking a face just takes
+ * it. Arming a pick is the way to CHANGE a reference, not the only way to set
+ * one. Keyboard-first throughout: the diameter field autofocuses, Enter
+ * commits, Escape cancels (the parent's window handler; while a pick is armed
+ * Escape disarms it first).
  */
 import {
   Checkbox,
   cx,
+  Disclosure,
   formatLength,
   NumberField,
   Panel,
@@ -37,6 +51,7 @@ import {
 } from "react";
 
 import { useCommandBridge } from "../features/commandActions";
+import { EditorCard } from "./EditorCard";
 import { useDocumentLengthUnit } from "../units/documentUnit";
 import type { HoleParams } from "../api/parts";
 import {
@@ -113,7 +128,8 @@ const TYPE_OPTIONS: ReadonlyArray<SegmentOption<HoleTypeKind>> = [
 
 export interface HoleEditorProps {
   mode: "create" | "edit";
-  /** The seed form (new-hole defaults, or an existing hole's params). */
+  /** The seed form (new-hole defaults — possibly pre-filled from the cursor
+   *  selection — or an existing hole's params). */
   initial: HoleForm;
   /** Commit the built params (documents/geometry handle the rest). */
   onSubmit: (params: HoleParams) => void;
@@ -138,44 +154,99 @@ export interface HoleEditorProps {
   onPreviewChange: (preview: HolePreview | null) => void;
 }
 
-/** A quiet, brass-when-armed toggle to arm a viewport pick (face / point). */
-function PickButton({
-  armed,
-  onClick,
-  testId,
+/**
+ * One reference of the pinned anchor block: what it is, what it currently
+ * points at, and the control that re-points it.
+ *
+ * The re-pick control is `aria-disabled` and stays hoverable, focusable and
+ * self-explaining — never a disabled trap (the treatment `ToolButton` and
+ * `PanelActionCell` carry): "Pick a point" is gated until a face exists, and
+ * that is exactly when the user most needs to be told why.
+ */
+function AnchorRow({
   label,
-  armedLabel,
-  ariaLabel,
+  value,
+  valueTestId,
+  filled,
+  armed,
+  hint,
+  pickTestId,
+  pickAriaLabel,
+  onPick,
+  showPick,
   disabled = false,
+  disabledReason,
 }: {
-  armed: boolean;
-  onClick: () => void;
-  testId: string;
   label: string;
-  armedLabel: string;
-  ariaLabel: string;
+  value: string;
+  valueTestId: string;
+  /** The reference is set — the row reads as confirmation, not a to-do. */
+  filled: boolean;
+  armed: boolean;
+  /** A quiet line under the row (what a click will do now), or null. */
+  hint: string | null;
+  pickTestId: string;
+  pickAriaLabel: string;
+  onPick: () => void;
+  showPick: boolean;
   disabled?: boolean;
+  disabledReason?: string;
 }) {
+  const hasReason = disabled && disabledReason !== undefined;
+  const note = hint ?? (hasReason ? disabledReason : null);
   return (
-    <button
-      type="button"
-      data-testid={testId}
-      aria-pressed={armed}
-      aria-label={ariaLabel}
-      disabled={disabled}
-      onClick={onClick}
-      className={cx(
-        "self-start rounded-sm border px-2 py-1 font-display text-2xs uppercase tracking-[0.14em] transition-colors duration-fast",
-        "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass",
-        disabled
-          ? "cursor-not-allowed border-etch text-gauge opacity-40"
-          : armed
-            ? "border-brass text-brass"
-            : "border-etch text-gauge hover:border-gauge hover:text-mist",
-      )}
-    >
-      {armed ? armedLabel : label}
-    </button>
+    <div className="flex flex-col">
+      <div className="flex min-h-target-dense items-center gap-2">
+        <span className="w-10 shrink-0 font-display text-2xs uppercase tracking-[0.14em] text-gauge">
+          {label}
+        </span>
+        <span
+          data-testid={valueTestId}
+          className={cx(
+            "min-w-0 grow truncate font-data text-sm",
+            filled ? "text-mist" : armed ? "text-brass" : "text-gauge",
+          )}
+        >
+          {value}
+        </span>
+        {showPick ? (
+          <button
+            type="button"
+            data-testid={pickTestId}
+            aria-pressed={armed}
+            aria-disabled={disabled || undefined}
+            aria-label={
+              hasReason ? `${pickAriaLabel} — ${disabledReason}` : pickAriaLabel
+            }
+            onClick={() => {
+              if (disabled) return;
+              onPick();
+            }}
+            className={cx(
+              "min-h-target-dense shrink-0 rounded-sm border px-2 font-display text-2xs uppercase tracking-[0.14em] transition-colors duration-fast",
+              "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass",
+              disabled
+                ? "cursor-not-allowed border-etch text-gauge opacity-40"
+                : armed
+                  ? "border-brass text-brass"
+                  : "border-etch text-gauge hover:border-gauge hover:text-mist",
+            )}
+          >
+            {armed ? "Picking" : filled ? "Change" : "Pick"}
+          </button>
+        ) : null}
+      </div>
+      {note !== null ? (
+        <p
+          data-testid={
+            hint !== null ? `${pickTestId}-hint` : `${pickTestId}-reason`
+          }
+          className="pl-12 font-body text-xs text-gauge"
+        >
+          {note}
+        </p>
+      ) : null}
+    </div>
   );
 }
 
@@ -183,8 +254,7 @@ function PickButton({
  * A quiet SHOP-STANDARD preset chip that fills a field with a published value —
  * the countersink's 82°/90° fastener angles, and the tap drill of the chosen
  * thread. Brass when the field already carries that value, so the standard
- * you're on reads back and the chip doubles as "restore the derived value"
- * (extracted from the countersink-only `AnglePreset` on its second real use).
+ * you're on reads back and the chip doubles as "restore the derived value".
  */
 function PresetChip({
   label,
@@ -207,7 +277,7 @@ function PresetChip({
       aria-label={ariaLabel}
       onClick={onClick}
       className={cx(
-        "rounded-sm border px-2 py-1 font-data text-xs tabular-nums transition-colors duration-fast",
+        "min-h-target-dense rounded-sm border px-2 font-data text-xs tabular-nums transition-colors duration-fast",
         "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass",
         active
           ? "border-brass text-brass"
@@ -216,31 +286,6 @@ function PresetChip({
     >
       {label}
     </button>
-  );
-}
-
-/** A labelled picked-value readout chip (the datum editor's picked-face chip). */
-function PickedChip({
-  label,
-  value,
-  readoutTestId,
-}: {
-  label: string;
-  value: string;
-  readoutTestId: string;
-}) {
-  return (
-    <div className="flex flex-col gap-0.5">
-      <span className="font-body text-xs text-gauge">{label}</span>
-      <div className="flex items-center justify-between gap-2 rounded-sm border border-brass/60 bg-carbide px-2 py-1">
-        <span
-          data-testid={readoutTestId}
-          className="min-w-0 truncate font-data text-md text-mist"
-        >
-          {value}
-        </span>
-      </div>
-    </div>
   );
 }
 
@@ -261,8 +306,14 @@ export function HoleEditor({
 }: HoleEditorProps) {
   const unit = useDocumentLengthUnit();
   const [form, setForm] = useState<HoleForm>(initial);
+  // The thread block is disclosed, not deleted: an already-tapped hole opens
+  // with it showing (its content is load-bearing there), a fresh hole does not.
+  const [threadOpen, setThreadOpen] = useState(initial.tapped);
   // Re-seed when the editor is retargeted at a different feature.
-  useEffect(() => setForm(initial), [initial]);
+  useEffect(() => {
+    setForm(initial);
+    setThreadOpen(initial.tapped);
+  }, [initial]);
 
   // Fold each delivered viewport pick into the form exactly once — the nonce
   // guards against a re-render re-applying the same pick.
@@ -316,6 +367,43 @@ export function HoleEditor({
   useCommandBridge(submit, canSubmit);
 
   const hasFace = form.face !== null;
+  /**
+   * What each reference row SAYS. An empty required reference under an armed
+   * pick is not "empty" — it is an instruction, so it reads as one and takes
+   * the brass of a live control. (The old copy, "No face chosen", described the
+   * form's state and left the user to work out that a viewport click was what
+   * it wanted.)
+   */
+  const faceValue =
+    form.face !== null
+      ? holeFaceReadout(form.face)
+      : !canPickFace
+        ? "Add a body to pick a face"
+        : activePick === "face"
+          ? // Short enough to fit the value column beside the armed button — a
+            // truncated instruction ("Click a face in the …") is not one. The
+            // gated Create cell carries the full sentence.
+            "Click a face"
+          : "No face chosen";
+  const pointValue =
+    form.position === null && activePick === "point"
+      ? "Click a point"
+      : positionReadout(form);
+  /**
+   * WHY the footer action is gated, said in the footer itself. The gate is
+   * `buildHoleParams(...) !== null`, i.e. "a face and every field valid", and
+   * until 2026-07-30 the greyed cell could not even be hovered, so a user had to
+   * hunt for the missing piece (UI-REVIEW 2026-07-30 P2). Cheapest honest
+   * version: name the ONE thing that is missing, face first because it is the
+   * only one the fields cannot show inline.
+   */
+  const submitReason = !canSubmit
+    ? saving
+      ? undefined
+      : !hasFace
+        ? "Click a face in the viewport to place the hole."
+        : "Check the highlighted fields."
+    : undefined;
   const diameterMsg = diameterError(form.diameterInput, unit);
   const depthMsg =
     form.depthMode === "blind" ? depthError(form.depthInput, unit) : null;
@@ -337,14 +425,19 @@ export function HoleEditor({
       : null;
 
   // --- Thread (tapped hole) -------------------------------------------------
-  // Threading is ORTHOGONAL to the recess, so this is a toggle beside the Type
-  // control, never a fourth segment inside it (the wire says the same: `thread`
-  // is a sibling of `type`). The bore is DERIVED from the designation but stays
-  // editable — a shop's rounded stock drill is a legitimate tap drill.
+  // Threading is ORTHOGONAL to the recess, so this is a toggle inside its own
+  // disclosed block, never a fourth segment inside Type (the wire says the same:
+  // `thread` is a sibling of `type`). The bore is DERIVED from the designation
+  // but stays editable — a shop's rounded stock drill is a legitimate tap drill.
   const designation = threadDesignation(form);
   const threadSizeMsg = threadSizeError(form);
   const threadPitchMsg = threadPitchError(form);
   const threadBoreMsg = threadBoreError(form, unit);
+  // A section may hide controls; it may not hide an ERROR. A thread the client
+  // cannot cut reports on the disclosure's own summary line, so a collapsed
+  // block still says what is wrong (and the block opens by itself whenever the
+  // hole arrives tapped, which is every edit of one).
+  const threadFault = threadSizeMsg ?? threadPitchMsg;
   // A stored designation the client's ISO table doesn't list (authored through
   // the API, or an older client) is SHOWN as a non-choosable option rather than
   // silently rewritten — the user sees what the feature actually says and can
@@ -387,353 +480,370 @@ export function HoleEditor({
         ];
   }, [form.threadNominalMm, form.threadPitchMm]);
 
-  // While a viewport pick is armed the card slides to the RIGHT edge so it
-  // never sits over the face/point the user must click (UX audit #20b — the
-  // editor was covering its own pick target at the left seat). It returns to
-  // the title-block seat once the pick is taken/disarmed.
   const picking = activePick !== null;
   return (
-    <div
+    <EditorCard
       data-testid="hole-editor-shell"
       data-picking={picking ? "true" : "false"}
-      className={cx(
-        "absolute top-3 w-editor max-w-full",
-        picking ? "right-3" : "left-editor",
-      )}
+      // The right rail, always. The card used to sit mid-frame at the left
+      // editor inset and hop to the right edge whenever a pick was armed (so it
+      // stopped covering its own pick target) — two seats, a jump between them,
+      // and the model shoved out of the middle in one of them. One seat on the
+      // rail with the inspector keeps the viewport's centre for the viewport.
+      seat="right"
       onKeyDown={onKeyDown}
-    >
-      <Panel aria-label="Hole" data-testid="hole-editor">
-        <div className="border-b border-hairline">
+      // The references, pinned. Nothing here scrolls: this block is the answer
+      // to "what is this hole attached to", and the card must never be able to
+      // hide it (UI-W4).
+      header={
+        <div className="border border-hairline bg-anvil">
           <h2 className="px-3 pb-1 pt-3 font-display text-2xs uppercase tracking-[0.18em] text-gauge">
             {mode === "create" ? "New hole" : "Edit hole"}
           </h2>
-          <div className="flex flex-col gap-2 px-3 pb-3 pt-1">
-            {/* Placement face — the picked planar face (a stage-1 SubshapeRef). */}
-            <div className="flex flex-col gap-1">
-              {hasFace && form.face !== null ? (
-                <PickedChip
-                  label="Placement face"
-                  value={holeFaceReadout(form.face)}
-                  readoutTestId="hole-face"
-                />
-              ) : (
-                <div className="flex flex-col gap-0.5">
-                  <span className="font-body text-xs text-gauge">
-                    Placement face
-                  </span>
-                  <p
-                    data-testid="hole-face-empty"
-                    className="font-data text-md text-gauge"
-                  >
-                    {canPickFace
-                      ? "No face chosen"
-                      : "Add a body to pick a face"}
-                  </p>
-                </div>
-              )}
-              {canPickFace ? (
-                <PickButton
-                  armed={activePick === "face"}
-                  testId="hole-face-pick"
-                  label={hasFace ? "Pick another face" : "Pick a face"}
-                  armedLabel="Picking… (click a face)"
-                  ariaLabel="Pick the planar face to drill into"
-                  onClick={() => onTogglePick("face")}
-                />
-              ) : null}
-            </div>
+          {/* The brass scribe rule marks the reference block — a drafting
+              leader down the two things this feature hangs off. The card's one
+              loud element; everything below it stays quiet. */}
+          <div
+            role="group"
+            aria-label="Hole placement"
+            data-testid="hole-anchor"
+            className="mx-3 mb-2 border-l-2 border-brass pl-2"
+          >
+            <AnchorRow
+              label="Face"
+              value={faceValue}
+              valueTestId={hasFace ? "hole-face" : "hole-face-empty"}
+              filled={hasFace}
+              armed={activePick === "face"}
+              hint={
+                activePick === "face" && hasFace
+                  ? "Click a face to replace it."
+                  : null
+              }
+              pickTestId="hole-face-pick"
+              pickAriaLabel="Pick the planar face to drill into"
+              showPick={canPickFace}
+              onPick={() => onTogglePick("face")}
+            />
+            <AnchorRow
+              label="Point"
+              value={pointValue}
+              valueTestId="hole-position"
+              filled={form.position !== null}
+              armed={activePick === "point"}
+              hint={
+                activePick === "point" && form.position !== null
+                  ? "Click a point on the face; it fixes the drill axis."
+                  : null
+              }
+              pickTestId="hole-point-pick"
+              pickAriaLabel="Pick the drill point on the face"
+              showPick={canPickFace}
+              disabled={!hasFace}
+              disabledReason="Pick a face first — the point is placed on it."
+              onPick={() => onTogglePick("point")}
+            />
+          </div>
+          {pickError ? (
+            <p
+              role="alert"
+              data-testid="hole-pick-error"
+              className="px-3 pb-2 font-body text-xs text-flag"
+            >
+              {pickError}
+            </p>
+          ) : null}
+        </div>
+      }
+      // The tallest form in the app (C'sink + Tapped + Blind reached 858px), so
+      // it is the editor that proves the clamp: the action row is pinned in the
+      // footer while the fields scroll, and the derived tap-drill chip stays
+      // reachable at 1366x768 (UI-REVIEW 2026-07-30 P1).
+      footer={
+        <>
+          {error ? (
+            <p
+              role="alert"
+              data-testid="hole-error"
+              className="border border-b-0 border-flag bg-anvil px-3 py-2 font-body text-xs text-flag"
+            >
+              {error}
+            </p>
+          ) : null}
+          <div className="grid grid-cols-2 divide-x divide-hairline border border-t-0 border-hairline bg-anvil">
+            <PanelActionCell
+              label="Cancel"
+              caption="Esc"
+              data-testid="hole-cancel"
+              disabled={saving}
+              onClick={onCancel}
+            />
+            <PanelActionCell
+              label={saving ? "Saving…" : mode === "create" ? "Create" : "Save"}
+              caption="Enter"
+              data-testid="hole-submit"
+              aria-busy={saving}
+              disabled={!canSubmit}
+              disabledReason={submitReason}
+              onClick={submit}
+            />
+          </div>
+        </>
+      }
+    >
+      <Panel aria-label="Hole" data-testid="hole-editor" className="border-t-0">
+        <div className="flex flex-col gap-2 px-3 pb-3 pt-2">
+          {/* Diameter — THE parametric handle. When the hole is tapped this IS
+              the tap drill, so an untappable bore reports here, on the field
+              that has to change. */}
+          <NumberField
+            label="Diameter"
+            emphasis="primary"
+            unit={unit}
+            data-testid="hole-diameter"
+            autoFocus
+            value={form.diameterInput}
+            error={diameterMsg ?? threadBoreMsg}
+            onChange={(e) =>
+              setForm((f) => ({ ...f, diameterInput: e.target.value }))
+            }
+            onFocus={(e) => e.currentTarget.select()}
+          />
 
-            {/* Drill point — a point ON the resolved face (world coords). */}
-            <div className="flex flex-col gap-1">
-              <PickedChip
-                label="Position"
-                value={positionReadout(form)}
-                readoutTestId="hole-position"
-              />
-              {canPickFace ? (
-                <PickButton
-                  armed={activePick === "point"}
-                  testId="hole-point-pick"
-                  label="Pick a point"
-                  armedLabel="Picking… (click a point)"
-                  ariaLabel="Pick the drill point on the face"
-                  disabled={!hasFace}
-                  onClick={() => onTogglePick("point")}
-                />
-              ) : null}
-              {hasFace ? (
-                <p className="-mt-0.5 font-body text-xs text-gauge">
-                  A point on the face; it's projected onto the face plane to fix
-                  the drill axis.
-                </p>
-              ) : null}
-            </div>
-
-            {/* Diameter — THE parametric handle (brass focus). When the hole is
-                tapped this IS the tap drill, so an untappable bore reports here,
-                on the field that has to change. */}
+          {/* Depth — through-all, or a blind pocket. */}
+          <SegmentedControl
+            label="Depth"
+            value={form.depthMode}
+            options={DEPTH_OPTIONS}
+            onChange={(depthMode) => setForm((f) => ({ ...f, depthMode }))}
+          />
+          {form.depthMode === "blind" ? (
             <NumberField
-              label="Diameter"
+              label="Blind depth"
               unit={unit}
-              data-testid="hole-diameter"
-              autoFocus
-              value={form.diameterInput}
-              error={diameterMsg ?? threadBoreMsg}
+              data-testid="hole-blind-depth"
+              value={form.depthInput}
+              error={depthMsg}
               onChange={(e) =>
-                setForm((f) => ({ ...f, diameterInput: e.target.value }))
+                setForm((f) => ({ ...f, depthInput: e.target.value }))
               }
               onFocus={(e) => e.currentTarget.select()}
             />
+          ) : null}
 
-            {/* Depth — through-all, or a blind pocket. */}
-            <SegmentedControl
-              label="Depth"
-              value={form.depthMode}
-              options={DEPTH_OPTIONS}
-              onChange={(depthMode) => setForm((f) => ({ ...f, depthMode }))}
-            />
-            {form.depthMode === "blind" ? (
+          {/* Type — a plain bore, or a coaxial recess at the face (a
+              counterbore cylinder for a cap screw, a countersink cone for a
+              flat head). Simple is the default; the recess fields reveal. */}
+          <SegmentedControl
+            label="Type"
+            value={form.typeKind}
+            options={TYPE_OPTIONS}
+            onChange={(typeKind) => setForm((f) => ({ ...f, typeKind }))}
+          />
+          {form.typeKind === "counterbore" ? (
+            <div className="flex gap-2">
               <NumberField
-                label="Blind depth"
+                className="flex-1"
+                label="C'bore Ø"
                 unit={unit}
-                data-testid="hole-blind-depth"
-                value={form.depthInput}
-                error={depthMsg}
+                data-testid="hole-cbore-diameter"
+                value={form.cboreDiameterInput}
+                error={cboreDiameterMsg}
                 onChange={(e) =>
-                  setForm((f) => ({ ...f, depthInput: e.target.value }))
+                  setForm((f) => ({
+                    ...f,
+                    cboreDiameterInput: e.target.value,
+                  }))
                 }
                 onFocus={(e) => e.currentTarget.select()}
               />
-            ) : null}
-
-            {/* Type — a plain bore, or a coaxial recess at the face (a
-                counterbore cylinder for a cap screw, a countersink cone for a
-                flat head). Simple is the default; the recess fields reveal. */}
-            <SegmentedControl
-              label="Type"
-              value={form.typeKind}
-              options={TYPE_OPTIONS}
-              onChange={(typeKind) => setForm((f) => ({ ...f, typeKind }))}
-            />
-            {form.typeKind === "counterbore" ? (
-              <div className="flex gap-2">
+              <NumberField
+                className="flex-1"
+                label="C'bore depth"
+                unit={unit}
+                data-testid="hole-cbore-depth"
+                value={form.cboreDepthInput}
+                error={cboreDepthMsg}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, cboreDepthInput: e.target.value }))
+                }
+                onFocus={(e) => e.currentTarget.select()}
+              />
+            </div>
+          ) : null}
+          {form.typeKind === "countersink" ? (
+            <div className="flex flex-col gap-2">
+              <NumberField
+                label="C'sink Ø"
+                unit={unit}
+                data-testid="hole-csink-diameter"
+                value={form.csinkDiameterInput}
+                error={csinkDiameterMsg}
+                onChange={(e) =>
+                  setForm((f) => ({
+                    ...f,
+                    csinkDiameterInput: e.target.value,
+                  }))
+                }
+                onFocus={(e) => e.currentTarget.select()}
+              />
+              <div className="flex items-end gap-2">
                 <NumberField
                   className="flex-1"
-                  label="C'bore Ø"
-                  unit={unit}
-                  data-testid="hole-cbore-diameter"
-                  value={form.cboreDiameterInput}
-                  error={cboreDiameterMsg}
+                  label="C'sink angle"
+                  unit="°"
+                  data-testid="hole-csink-angle"
+                  aria-label="Countersink included angle (degrees)"
+                  value={form.csinkAngleInput}
+                  error={csinkAngleMsg}
                   onChange={(e) =>
                     setForm((f) => ({
                       ...f,
-                      cboreDiameterInput: e.target.value,
+                      csinkAngleInput: e.target.value,
                     }))
                   }
                   onFocus={(e) => e.currentTarget.select()}
                 />
-                <NumberField
-                  className="flex-1"
-                  label="C'bore depth"
-                  unit={unit}
-                  data-testid="hole-cbore-depth"
-                  value={form.cboreDepthInput}
-                  error={cboreDepthMsg}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, cboreDepthInput: e.target.value }))
-                  }
-                  onFocus={(e) => e.currentTarget.select()}
-                />
-              </div>
-            ) : null}
-            {form.typeKind === "countersink" ? (
-              <div className="flex flex-col gap-2">
-                <NumberField
-                  label="C'sink Ø"
-                  unit={unit}
-                  data-testid="hole-csink-diameter"
-                  value={form.csinkDiameterInput}
-                  error={csinkDiameterMsg}
-                  onChange={(e) =>
-                    setForm((f) => ({
-                      ...f,
-                      csinkDiameterInput: e.target.value,
-                    }))
-                  }
-                  onFocus={(e) => e.currentTarget.select()}
-                />
-                <div className="flex items-end gap-2">
-                  <NumberField
-                    className="flex-1"
-                    label="C'sink angle"
-                    unit="°"
-                    data-testid="hole-csink-angle"
-                    aria-label="Countersink included angle (degrees)"
-                    value={form.csinkAngleInput}
-                    error={csinkAngleMsg}
-                    onChange={(e) =>
-                      setForm((f) => ({
-                        ...f,
-                        csinkAngleInput: e.target.value,
-                      }))
-                    }
-                    onFocus={(e) => e.currentTarget.select()}
-                  />
-                  <div
-                    role="group"
-                    aria-label="Standard countersink angles"
-                    className="flex shrink-0 items-center gap-1 pb-1"
-                  >
-                    {CSINK_STANDARD_ANGLES.map((angle) => (
-                      <PresetChip
-                        key={angle}
-                        testId={`hole-csink-angle-${angle}`}
-                        label={`${angle}°`}
-                        ariaLabel={`Set countersink angle to ${angle} degrees`}
-                        active={Number(form.csinkAngleInput) === angle}
-                        onClick={() =>
-                          setForm((f) => ({
-                            ...f,
-                            csinkAngleInput: String(angle),
-                          }))
-                        }
-                      />
-                    ))}
-                  </div>
+                <div
+                  role="group"
+                  aria-label="Standard countersink angles"
+                  className="flex shrink-0 items-center gap-1 pb-1"
+                >
+                  {CSINK_STANDARD_ANGLES.map((angle) => (
+                    <PresetChip
+                      key={angle}
+                      testId={`hole-csink-angle-${angle}`}
+                      label={`${angle}°`}
+                      ariaLabel={`Set countersink angle to ${angle} degrees`}
+                      active={Number(form.csinkAngleInput) === angle}
+                      onClick={() =>
+                        setForm((f) => ({
+                          ...f,
+                          csinkAngleInput: String(angle),
+                        }))
+                      }
+                    />
+                  ))}
                 </div>
               </div>
-            ) : null}
+            </div>
+          ) : null}
 
-            {/* Tapped — a thread callout over the bore. ORTHOGONAL to Type (a
-                counterbored tapped hole is one feature), so it is a toggle, not
-                a fourth segment. The thread adds no geometry: the kernel cuts
-                the tap drill and carries the designation for drawings/BOM, and
-                the description says so rather than leaving the modeler to
-                wonder why the viewport shows no helix. */}
-            <Checkbox
-              label="Tapped"
-              data-testid="hole-tapped"
-              description="Drills the tap drill and carries the callout to drawings — no helix is modelled."
-              checked={form.tapped}
-              onChange={(tapped) =>
-                setForm((f) => applyTapped(f, tapped, unit))
-              }
-            />
-            {form.tapped ? (
-              <div className="flex flex-col gap-2">
-                {/* THE callout — a drafting thread note, stamped: a leader tick
-                    into the designation, then the note rule running out. The one
-                    loud line in a quiet card, and the only place a tapped hole is
-                    visible at all (its solid is byte-identical to a plain bore). */}
-                <div className="flex flex-col gap-0.5">
-                  <span className="font-body text-xs text-gauge">
-                    Thread callout
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <span aria-hidden className="h-px w-3 shrink-0 bg-brass" />
-                    <span
-                      data-testid="hole-thread-designation"
-                      className="shrink-0 font-display text-lg leading-none tracking-[0.06em] text-brass"
-                    >
-                      {designation}
+          {/* Thread — disclosed, because the everyday hole is a clearance hole
+              and this block was ~5 of the card's 12 rows. The summary reports
+              the callout, so a tapped hole never hides behind a shut door.
+
+              The thread adds no geometry: the kernel cuts the tap drill and
+              records the designation on the feature. The description says
+              EXACTLY that and no more — it used to promise "carries the callout
+              to drawings", and no drawing note, BOM column, PDF/DXF or STEP path
+              reads the thread field at all (UI-REVIEW 2026-07-30 P1). */}
+          <Disclosure
+            label="Thread"
+            data-testid="hole-thread-toggle"
+            summary={
+              threadFault !== null
+                ? `Can't cut ${designation}`
+                : form.tapped
+                  ? designation
+                  : "None"
+            }
+            summaryTone={threadFault !== null ? "flag" : "quiet"}
+            open={threadOpen}
+            onOpenChange={setThreadOpen}
+          >
+            <div className="flex flex-col gap-2 pt-1">
+              <Checkbox
+                label="Tapped"
+                data-testid="hole-tapped"
+                description="Drills the tap drill and records the designation on the feature — the tree shows it. No helix is modelled, and the drawing note is not built yet."
+                checked={form.tapped}
+                onChange={(tapped) =>
+                  setForm((f) => applyTapped(f, tapped, unit))
+                }
+              />
+              {form.tapped ? (
+                <>
+                  {/* THE callout — a drafting thread note, stamped: a leader
+                      tick into the designation, then the note rule running out.
+                      The only place a tapped hole is visible at all (its solid
+                      is byte-identical to a plain bore). */}
+                  <div className="flex flex-col gap-0.5">
+                    <span className="font-body text-xs text-gauge">
+                      Thread callout
                     </span>
-                    <span
-                      aria-hidden
-                      className="h-px grow bg-brass/40"
-                      data-testid="hole-thread-rule"
+                    <div className="flex items-center gap-2">
+                      <span
+                        aria-hidden
+                        data-testid="hole-thread-tick"
+                        className="h-px w-3 shrink-0 bg-brass"
+                      />
+                      <span
+                        data-testid="hole-thread-designation"
+                        className="shrink-0 font-display text-lg leading-none tracking-[0.06em] text-brass"
+                      >
+                        {designation}
+                      </span>
+                      <span
+                        aria-hidden
+                        className="h-px grow bg-brass/40"
+                        data-testid="hole-thread-rule"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <SelectField
+                      className="flex-1"
+                      label="Size"
+                      data-testid="hole-thread-size"
+                      aria-label="Nominal thread size"
+                      value={String(form.threadNominalMm)}
+                      options={sizeOptions}
+                      error={threadSizeMsg}
+                      onChange={(e) =>
+                        setForm((f) =>
+                          applyThreadNominal(f, Number(e.target.value), unit),
+                        )
+                      }
+                    />
+                    <SelectField
+                      className="flex-1"
+                      label="Pitch"
+                      data-testid="hole-thread-pitch"
+                      aria-label="Thread pitch (millimetres)"
+                      value={String(form.threadPitchMm)}
+                      options={pitchOptions}
+                      error={threadPitchMsg}
+                      onChange={(e) =>
+                        setForm((f) =>
+                          applyThreadPitch(f, Number(e.target.value), unit),
+                        )
+                      }
                     />
                   </div>
-                </div>
 
-                <div className="flex gap-2">
-                  <SelectField
-                    className="flex-1"
-                    label="Size"
-                    data-testid="hole-thread-size"
-                    aria-label="Nominal thread size"
-                    value={String(form.threadNominalMm)}
-                    options={sizeOptions}
-                    error={threadSizeMsg}
-                    onChange={(e) =>
-                      setForm((f) =>
-                        applyThreadNominal(f, Number(e.target.value), unit),
-                      )
-                    }
-                  />
-                  <SelectField
-                    className="flex-1"
-                    label="Pitch"
-                    data-testid="hole-thread-pitch"
-                    aria-label="Thread pitch (millimetres)"
-                    value={String(form.threadPitchMm)}
-                    options={pitchOptions}
-                    error={threadPitchMsg}
-                    onChange={(e) =>
-                      setForm((f) =>
-                        applyThreadPitch(f, Number(e.target.value), unit),
-                      )
-                    }
-                  />
-                </div>
-
-                {/* The derived bore, one click away. Brass when the Diameter
-                    above already IS the tap drill, so an override reads back —
-                    and the chip restores it. */}
-                <div className="flex items-center justify-between gap-2">
-                  <span className="font-body text-xs text-gauge">
-                    Tap drill
-                  </span>
-                  <PresetChip
-                    testId="hole-thread-tap-drill"
-                    label={`Ø${formatLength(threadTapDrillMm(form), unit)}`}
-                    ariaLabel={`Set the diameter to the ${designation} tap drill`}
-                    active={boreIsTapDrill(form, unit)}
-                    onClick={() => setForm((f) => applyTapDrill(f, unit))}
-                  />
-                </div>
-              </div>
-            ) : null}
-
-            {pickError ? (
-              <p
-                role="alert"
-                data-testid="hole-pick-error"
-                className="-mt-1 font-body text-xs text-flag"
-              >
-                {pickError}
-              </p>
-            ) : null}
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 divide-x divide-hairline">
-          <PanelActionCell
-            label="Cancel"
-            caption="Esc"
-            data-testid="hole-cancel"
-            disabled={saving}
-            onClick={onCancel}
-          />
-          <PanelActionCell
-            label={saving ? "Saving…" : mode === "create" ? "Create" : "Save"}
-            caption="Enter"
-            data-testid="hole-submit"
-            aria-busy={saving}
-            disabled={!canSubmit}
-            onClick={submit}
-          />
+                  {/* The derived bore, one click away. Brass when the Diameter
+                      above already IS the tap drill, so an override reads back —
+                      and the chip restores it. */}
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-body text-xs text-gauge">
+                      Tap drill
+                    </span>
+                    <PresetChip
+                      testId="hole-thread-tap-drill"
+                      label={`Ø${formatLength(threadTapDrillMm(form), unit)}`}
+                      ariaLabel={`Set the diameter to the ${designation} tap drill`}
+                      active={boreIsTapDrill(form, unit)}
+                      onClick={() => setForm((f) => applyTapDrill(f, unit))}
+                    />
+                  </div>
+                </>
+              ) : null}
+            </div>
+          </Disclosure>
         </div>
       </Panel>
-
-      {error ? (
-        <p
-          role="alert"
-          data-testid="hole-error"
-          className="mt-2 max-w-full border border-flag bg-anvil px-3 py-2 font-body text-xs text-flag"
-        >
-          {error}
-        </p>
-      ) : null}
-    </div>
+    </EditorCard>
   );
 }

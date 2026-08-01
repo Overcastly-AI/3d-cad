@@ -1,0 +1,108 @@
+Loft
+Copyright (c) 2026 Overcastly AI
+
+This product is licensed under the MIT License. See the LICENSE file.
+
+This product includes third-party software. The analysis behind this file,
+including which obligations attach where, is in docs/LICENSING.md.
+
+================================================================================
+Open CASCADE Technology (OCCT)
+================================================================================
+
+This software makes use of facilities provided by the Open CASCADE Technology
+software.
+
+OCCT is licensed under the GNU Lesser General Public License version 2.1 with
+an additional exception granted by Open CASCADE S.A.S. (the "Open CASCADE
+exception version 1.0"). The above sentence is the prominent notice that
+exception requires.
+
+  Version shipped: 7.9.3
+  Consumed via:    cadquery-ocp-novtk (the OCP bindings, Apache-2.0)
+  Source:          https://github.com/Open-Cascade-SAS/OCCT (tag V7_9_3)
+
+Copies of the LGPL-2.1 text and of the Open CASCADE exception are distributed
+with any container image that contains OCCT, under /app/licenses/.
+
+Only the `geometry` service links OCCT. The `gateway` and `documents` images
+contain no copyleft-licensed components.
+
+================================================================================
+planegcs / FreeCAD PlaneGCS
+================================================================================
+
+This software uses planegcs, Python bindings for FreeCAD's PlaneGCS 2D
+geometric constraint solver, for sketch constraint solving.
+
+  Version shipped: 0.8.0
+  License:         GNU Lesser General Public License version 2.1 or later
+  Source:          https://github.com/spookylukey/planegcs
+  Upstream:        https://www.freecad.org/ (PlaneGCS, Sketcher workbench)
+
+================================================================================
+Libraries bundled inside the OCP wheel
+================================================================================
+
+The OCP wheel vendors several libraries from its build environment. Where a
+component offers a choice of licences, Loft elects the permissive arm and
+records that election here:
+
+  FreeImage 3.18.0   FreeImage Public License 1.0 (elected)
+                     -- also available under GPLv2/GPLv3, NOT elected
+  LibRaw 0.19.5      GNU LGPL 2.1 (elected)
+                     -- also available under CDDL-1.0, NOT elected
+  FreeType 2.10.1    FreeType License / FTL (elected)
+                     -- also available under GPLv2, NOT elected
+  zstd 1.5.7         BSD-3-Clause (elected)
+                     -- also available under GPLv2, NOT elected
+
+  libgomp, libgfortran, libquadmath
+                     GCC runtime libraries, GPL-3.0 WITH
+                     GCC-Runtime-Library-Exception. That exception expressly
+                     permits redistribution as part of non-GPL software.
+
+  Also bundled under permissive terms: OpenEXR/IlmBase (BSD-3-Clause),
+  libtiff, libjpeg, libjpeg-XR, libpng, libwebp, libopenjp2 (BSD/IJG-style),
+  lcms2 (MIT), fontconfig (MIT-style), liblzma (public domain / 0BSD),
+  libuuid (BSD-3-Clause).
+
+NOTE: jbigkit (GPL-2.0) is present in the unmodified upstream OCP wheel and is
+deliberately REMOVED from Loft container images -- see docs/LICENSING.md.
+Loft performs no TIFF or JBIG image I/O.
+
+================================================================================
+Fonts
+================================================================================
+
+  Hanken Grotesk    SIL Open Font License 1.1
+  Fragment Mono     SIL Open Font License 1.1
+
+Distributed unmodified via @fontsource. The OFL Reserved Font Name clause
+applies; Loft does not modify or rename these fonts.
+
+================================================================================
+Other notable components
+================================================================================
+
+  certifi           Mozilla Public License 2.0 (file-level copyleft)
+  build123d         Apache-2.0
+  FastAPI, pydantic, SQLAlchemy, uvicorn, structlog, numpy, scipy,
+  scikit-learn, reportlab, ezdxf, boto3, React, three.js, and the remainder
+  of the dependency tree are distributed under permissive terms
+  (MIT / BSD / Apache-2.0 / ISC / PSF / Unlicense).
+
+A complete per-image inventory ships at /app/licenses/THIRD-PARTY.md.
+
+================================================================================
+Corresponding source (LGPL-2.1 section 6)
+================================================================================
+
+For the LGPL-licensed components above, corresponding source for the exact
+versions shipped is made available from the same place the container images
+are distributed. This offer is valid for three years from the date of
+distribution.
+
+Loft loads every LGPL component through ordinary shared-library mechanisms, so
+a recipient may replace any of them with a modified, interface-compatible
+build without modifying Loft itself.

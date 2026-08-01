@@ -2,7 +2,12 @@
 
 Secret posture (documented honestly):
 
-- ``LOFT_ENV`` has NO default. The dev fallback secret requires the exact,
+- ``LOFT_ENV`` is the ONE deployment-posture variable, owned by
+  :mod:`py_kit.config` (:data:`py_kit.DEV_ENV` / :func:`py_kit.is_dev_env`)
+  and shared with the datastore-credential guard on
+  :class:`~py_kit.BaseServiceSettings` — the JWT rules below and that guard
+  are deliberately the same policy, read from the same field.
+  It has NO default. The dev fallback secret requires the exact,
   explicitly-set value ``LOFT_ENV=dev``: only then does an unset
   ``JWT_SECRET`` fall back to a fixed, publicly-known constant (so
   `just dev`/`just gen` work out of the box) — every dev token is therefore
@@ -43,7 +48,7 @@ from functools import lru_cache
 import jwt
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerifyMismatchError
-from py_kit import get_logger
+from py_kit import DEV_ENV, get_logger, is_dev_env
 
 _logger = get_logger("gateway.auth")
 
@@ -83,12 +88,12 @@ def resolve_auth_config(
     # signing secret can never differ.
     secret = (jwt_secret or "").strip() or None
     if secret is None:
-        if loft_env != "dev":
+        if not is_dev_env(loft_env):
             raise RuntimeError(
                 f"JWT_SECRET is required when LOFT_ENV={loft_env!r}. Either "
                 "set a real secret (generate one with `openssl rand -hex 32`) "
                 "or, for LOCAL DEV ONLY, opt into the forgeable fallback "
-                "explicitly with LOFT_ENV=dev."
+                f"explicitly with LOFT_ENV={DEV_ENV}."
             )
         _logger.warning(
             "jwt_dev_fallback_secret_in_use",

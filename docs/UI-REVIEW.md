@@ -1800,3 +1800,963 @@ unstarted + units replace the duplicate date columns) · token discipline ✅.
 41–45 (dense assembly, clash stress, 1280 sketch/editor) regenerated this
 session. Stack :8030–:8032 + Vite :5193 booted and torn down; other
 auditors' stacks untouched.
+
+## 2026-07-30 pass — verification of the 07-25 → 07-29 surfaces + a systemic token defect
+
+**Trigger.** ~25 commits since the 2026-07-24 hard audit; four specific claims
+to verify (registers `9203126`, tapped-hole authoring `a8cf9ec`, honest clash
+schedule `9e7f369`, cut ghost `92c9d5b`), plus a free sweep with the two lenses
+that have historically found the worst defects: *is this chrome element wired*
+and *does the UI assert something the backend never said*.
+
+**Method.** Isolated native stack (gateway :8040, documents :8041, geometry
+:8042 from fresh SQLite; Vite :5194 — all torn down, shared :8000–:8002 left
+alone). Real Chromium at 1280×800, 1366×768, 1440×900, 1600×1000, 1920×1080,
+1024×768; `reducedMotion: reduce` pass; keyboard-only pass on the register;
+CSSOM + `getBoundingClientRect` measurement rather than eyeballing; the app's
+Tailwind build inspected directly (`pnpm exec tailwindcss -c tailwind.config.ts
+-i src/index.css -o …`). Committed founder shots re-read for the four claims.
+No app code touched. Probe specs were temporary and are deleted; every number
+below is reproducible from the repro line on each finding.
+
+### Executive verdict
+
+**Three of the four claims hold; one is overstated. And underneath all of them
+sits a defect nobody has flagged in three audits: the design system silently
+voids ~118 of its own utility classes**, so several *deliberately designed*
+elements — including the feature tree's rollback bar, the tapped hole's thread
+callout rules, and the active-tool brass scribe that the token docs call "the
+accent is a line, never a fill" — **do not render at all**, the primary
+toolbar's tool buttons are 16 px tall instead of the intended 28, and the
+measure HUD renders at the top of the frame instead of above the view rail.
+This is the "fix the primitive" rule failing at the root of the primitive: it
+is one line of `tokens.ts` plus a guard, and it is the highest-leverage change
+available.
+
+Otherwise the burn-down is real and holds up under measurement: the 07-24 P0
+(band width tiers) is properly fixed — the band measures itself
+(`data-band-tier`) and `scrollWidth == clientWidth` at 1280/1440/1600/1920 with
+INSPECT visible at all four; tooltips now win the stacking contest (`z-band`);
+right-click exists; feature-localized face selection landed; a mouse legend
+chip closed the orbit/pan/zoom discoverability gap; `prefers-reduced-motion`
+is clean (zero transitioning transform/opacity/geometry properties under
+`reduce`); focus rings are 2 px solid on every register control and the tab
+order is correct.
+
+### P1 — breaks a shipped surface
+
+- **P1 — DESIGN SYSTEM — the closed `spacing` scale silently deletes ~118
+  utility classes, and five visible elements with them.**
+  `packages/design/src/tailwind-preset.ts:60` sets `spacing: mapPx(spacing)`,
+  *replacing* Tailwind's scale with the closed one at
+  `packages/design/src/tokens.ts:537`, which has no `1.5`, no `2.5` and no
+  `px` step. Tailwind emits **no rule at all** for a utility whose step is
+  absent — no warning, no build error — and Preflight zeroes `button` padding,
+  so the intent just evaporates. Verified against the built CSS: `.py-1\.5`,
+  `.gap-1\.5`, `.px-1\.5`, `.h-px`, `.w-px`, `.inset-x-1\.5`, `.bottom-16`,
+  `.max-h-64`, `.w-24/40/44/48/52`, `.min-w-20/24/28` are **absent**; only
+  `py-0.5 / 1 / 2 / 3 / 6 / 10` exist. 118 usages across 40 files. Confirmed
+  user-visible consequences, each measured in the browser:
+  - **The feature tree's ROLLBACK BAR does not exist.**
+    `FeatureTreePanel.tsx:181,187,192` draw it as `h-px grow bg-brass` +
+    `h-px w-3 bg-brass`, and the *hover* drop hint as `h-px grow
+    bg-transparent group-hover:bg-etch` — all three collapse to 0 px. The word
+    "ROLLBACK" renders with no line, and the drop slots (`rollback-slot-N`,
+    measured 294×8 px) have **no hover affordance whatsoever**. *Scenario:* a
+    Fusion user looks for the rollback bar to step back through the tree,
+    sees a stray label, and concludes history rollback isn't there. Visible in
+    every committed part shot (e.g. `docs/screenshots/hole-tapped-tree-desktop.png`,
+    tree row 03 area — bare "ROLLBACK", no rule).
+  - **The tapped hole's thread callout has no leader tick and no note rule.**
+    `HoleEditor.tsx:633` (`h-px w-3 bg-brass`) and `:642`
+    (`h-px grow bg-brass/40`) measure **12×0** and **223×0**. The code calls
+    this "the one loud line in a quiet card"; it renders as plain brass text.
+    Evidence: `docs/screenshots/hole-tapped-laptop.png` — "M10x1.5" with
+    nothing either side of it.
+  - **The active-tool brass scribe never renders, on the toolbar or in any
+    SegmentedControl.** `ToolButton.tsx:168` and `SegmentedControl.tsx:86` are
+    both `absolute inset-x-1.5 bottom-0.5 h-px bg-brass` — measured **0×0**
+    with `aria-pressed="true"`. Selection is carried by ink colour alone, i.e.
+    the token system's stated signature ("the accent is a line, never a fill")
+    is not on screen anywhere.
+  - **Every tool button in the primary command band is a 32×16 px target.**
+    `ToolButton.tsx:139` `py-1.5` → computed `padding: 0px 8px`, so the button
+    is exactly its 16 px glyph. Identical at 1280/1440/1600/1920. The doc
+    comment two lines up promises "a comfortable ≥32px square hit target".
+    Same cause makes `SegmentedControl` segments 15 px tall
+    (`SegmentedControl.tsx:67`) and the new viewport context menu's rows
+    **222×17 px at 23 px pitch** (`ContextMenu.tsx:237`, `gap-2.5 py-1.5` both
+    dead — which is also why the menu's glyph sits flush against its label;
+    see the cramped menu in the 1440 repro).
+  - **The measure HUD renders at the top of the viewport.**
+    `MeasureReadout.tsx:105,125,174` position it `absolute bottom-16
+    left-1/2`; `bottom-16` is dead → `bottom: auto` → static position.
+    Measured at 1440×900: `top: 90, bottom: 144` in a 900 px window, i.e.
+    pinned under the command band and **partially occluded by the band's own
+    "Measure M" tooltip**, at the opposite end of the frame from the picks the
+    user is making.
+  - **`AddInstancePanel.tsx:61` `max-h-64 overflow-y-auto` never caps or
+    scrolls** — the add-part list is unbounded, so an assembly library of 40
+    parts grows the panel past the frame. That is a missing long-content state
+    created by the same defect.
+  **Fix (primitive, one commit):** add the half-steps the design language
+  actually uses to `tokens.ts` `spacing` — `"1.5": 6, "2.5": 10, px: 1` — and
+  convert the one-off large widths (`w-24/28/40/44/48/52`, `min-w-20/24/28`,
+  `max-h-64`, `bottom-16`) to either named `layout` tokens or arbitrary values
+  (`w-[11rem]`), since those are genuinely outside a closed scale.
+  **Then make it impossible to regress:** a unit test in `packages/design`
+  that greps `apps/web/src` + `packages/design/src` for spacing-family
+  utilities and fails on any step not present in `theme.spacing`. The failure
+  mode is *silent*, so a guard is the deliverable, not the scale edit.
+  *Repro:* `pnpm exec tailwindcss -c apps/web/tailwind.config.ts -i
+  apps/web/src/index.css -o /tmp/built.css && grep -c 'h-px' /tmp/built.css`
+  → 0.
+
+- **P1 — assembly viewport — an UNVERIFIED pair is painted as a measured
+  clash, and told to screen readers as "interfering".** The panel and the tree
+  are honest (`AssemblyClashPanel.tsx:119-141`, dashed rule + UNVERIFIED
+  stamp + parenthesised bound), but `AssemblyPage.tsx:841` hands the scene
+  `clashIds.flagged` — the *union* — while the tree gets `measured` +
+  `unverifiedOnly` separately (`:850-851`). `AssemblyScene.tsx:184-195` then
+  gives that instance `data-clashing="true"`, the flag-red balloon, and
+  `aria-label="…, interfering"`, and `InstanceMesh.tsx:82-88` gives it the
+  full `clashTint`. *Scenario:* the kernel says "I could not measure this
+  pair"; the hero surface says, in the alarm colour, "these parts interfere",
+  and a screen-reader user is told it flatly. This is the same class as the
+  false `CLASH` badge a prior audit caught — two of three surfaces were
+  repaired, the third was not. Evidence:
+  `docs/screenshots/clash-unverified-after-1280.png` — instance 3 is
+  UNVERIFIED in both panels and red in the viewport. **Fix:** plumb a third
+  state through `AssemblyScene`/`InstanceMesh` (`unverifiedInstanceIds`, as
+  the tree already receives): desaturated/gauge edge-light rather than the
+  flag tint, `data-clash-state="unverified"`, and an accessible suffix that
+  matches the panel's words (", overlap unverified"). One clash language,
+  *three* surfaces — for real this time.
+
+- **P1 — hole editor — the tapped + countersink + blind form runs off the
+  bottom of the frame and takes the tap-drill override with it.** Feature
+  editors are bare `absolute top-3 w-editor` cards
+  (`HoleEditor.tsx:396-405`) with no `max-height` and no scroll, unlike
+  `FloatingPanel.tsx:36-37,96` which already encodes the clamp
+  (`max-h-[calc(100%-4.5rem)]` + `min-h-0 overflow-y-auto`). Measured, C'sink
+  + Tapped + Blind depth:
+  | viewport | card bottom | `document.scrollHeight` | consequence |
+  | --- | --- | --- | --- |
+  | 1280×800 | 858 | 858 (> 800) | Cancel/Create off-frame; **root becomes vertically scrollable** |
+  | 1366×768 | 858 | 858 (> 768) | tap-drill chip (770–797) **and** footer (810–857) unreachable |
+  C'sink + Tapped alone already reaches 801 at 1280×800. *Scenario:* on a
+  1366×768 laptop a machinist authors an M10 countersunk blind tapped hole
+  and cannot reach the derived tap-drill chip — the single control the
+  "derived-but-overridable" design exists for — nor Create; the page scrolls
+  the top bar away instead. (Enter and the band's OK cell still commit, which
+  is why this is P1 and not P0.) **Fix (primitive):** route every feature
+  editor through one `EditorCard` built on `FloatingPanel`'s clamp — capped
+  height, scrolling body, action footer pinned — so no editor can ever grow
+  past the frame as verbs keep landing. Add a Playwright guard asserting
+  `document.scrollHeight == clientHeight` with the tallest editor open at
+  1280×800 **and** 1366×768.
+
+- **P1 — hole editor — the Tapped checkbox promises a drawing callout that
+  does not exist anywhere.** `HoleEditor.tsx:616`: *"Drills the tap drill and
+  carries the callout to drawings — no helix is modelled."* The
+  `IsoMetricThread` field is read in exactly one place in the backend —
+  `services/geometry/src/geometry/features/evaluate.py:1901`, to validate the
+  bore — and `grep -n thread` across `services/documents/src/documents/drawings.py`
+  and `services/geometry/src/geometry/drawings/compose.py` returns only the
+  word "threading/threaded" in prose. No sheet annotation, no BOM column, no
+  PDF/DXF note, no STEP attribute. *Scenario:* a user ticks Tapped
+  specifically because the UI told them the callout reaches the drawing,
+  exports the sheet to a shop, and the shop receives a plain Ø8.5 bore with
+  no thread spec — the exact failure mode the byte-identical-mesh problem was
+  supposed to be solved for. **Fix:** either (a) change the copy today to what
+  is true ("carries the M-designation on the feature; the tree shows it — the
+  drawing note is not implemented yet"), or (b) land the sheet note. (a) is a
+  one-line honesty fix and should not wait for (b). File (b) as the BACKLOG
+  item that closes the tapped-hole story.
+
+### P2 — clearly behind the bar
+
+- **P2 — register — the sheet number presents itself as a filing identity and
+  is a row ordinal.** `DocumentRegister.tsx:208-210` documents `sheetNo` as
+  *"Filing identity: '001'. Stable"* but computes `String(index+1)`
+  (`:265`), and the create line's "next sheet number" is `documents.length+1`
+  (`:197`). Measured: rows `001/002/003` for [Bracket plate, Motor mount…,
+  Spindle housing]; delete Bracket plate → `001/002` now address Motor mount
+  and Spindle housing. *Scenario:* a user notes "sheet 002" in a change note
+  or a message, deletes an older part, and 002 silently means a different
+  part. This is a readout claiming more than it knows — the same lens as the
+  false clash badge, at lower stakes. **Fix:** cheapest honest version — make
+  the column an ordinal and say so (`#` header, `sr-only` "Row", and drop
+  "filing identity" from the doc comment); the durable version is a stored
+  per-owner monotonic sequence on the document row, which is a documents-service
+  change and worth filing separately if the founder wants real sheet numbers.
+- **P2 — primitives — `PanelActionCell` is a `pointer-events-none` disabled
+  trap, and so is `PickButton`.** `packages/design/src/primitives/Panel.tsx:101`
+  sets `disabled:opacity-50 disabled:pointer-events-none` on the cell used
+  for **every editor footer action and every export cell**, and it uses the
+  native `disabled` attribute — so a gated Create/Save/Export can be neither
+  hovered nor focused and has nowhere to hang a reason.
+  `HoleEditor.tsx:159-179` `PickButton` does the same (`disabled={!hasFace}`
+  on "Pick a point", `cursor-not-allowed`, no reason). `ToolButton` solved
+  this correctly two audits ago (`aria-disabled` + `aria-describedby` caption,
+  reachable by mouse *and* keyboard — verified live: `aria-label="Hole —
+  create a body first"`). *Scenario:* Create is grey, the user cannot discover
+  why by hover or by Tab. **Fix:** give `PanelActionCell` the `ToolButton`
+  treatment — `aria-disabled`, inert on activation, a `disabledReason`
+  rendered as a described-by caption — and add the same to `PickButton`
+  (or better, promote `PickButton` into the design package, since three
+  editors now hand-roll it).
+- **P2 — assembly — the grounded instance's balloon number is replaced by its
+  state, so the number the clash schedule and BOM cite cannot be found in the
+  viewport.** `AssemblyScene.tsx:200` renders `instance.grounded ? "⏚" :
+  instance.balloon`. In `clash-unverified-after-1280.png` the schedule reads
+  "①1 ✕ ②2" and there is no "1" anywhere on the canvas. *Scenario:* a user
+  reads a clash row, looks for part 1 to move it, and can't locate it.
+  **Fix:** keep the number always; carry "grounded" as an adjacent anchor tick
+  or a brass ring on the balloon. Identity is not a state slot.
+- **P2 — assembly panels — `①`/`②` are decorative glyphs that look like the
+  numbers next to them.** `AssemblyClashPanel.tsx:132` renders
+  `①{a.balloon} ✕ ②{b.balloon}` and `AssemblyTreePanel.tsx:228` the same, so
+  a clash between balloons 3 and 5 reads **"①3 ✕ ②5"** and a screen reader
+  says "circled digit one three multiplication circled digit two five". *Fix:*
+  drop the decorative glyphs (the balloon numbers already are the identity) or
+  make them real circled balloons rendered as a shared `Balloon` primitive the
+  viewport also uses; either way give the pair an `aria-label` such as
+  "balloons 3 and 5".
+- **P2 — pre-pick affordances are still DOM-square blankets** (07-24 P2, not
+  fixed; evidence refreshed this pass at 1440: ~22 white squares and diamonds
+  scattered over a six-face plate the moment Measure is armed, and 7 squares
+  for a hole's face pick). Reads as debug markers; Fusion/Plasticity highlight
+  the topology under the cursor. **Fix unchanged:** raycast hover highlight on
+  real topology; keep the DOM nodes as invisible test hooks.
+- **P2 — touch/tablet ergonomics are unmet product-wide.** Every interactive
+  element measured in the chrome is 15–23 px tall: command-band tools 32×16,
+  register `part-delete` 53×15 and `part-open` 84×18, `breadcrumb-register`
+  39×15, `document-unit-select` 38×19, `feature-select-N` 232×20,
+  `feature-suppress-N` 18×18, `rollback-slot-N` 294×8, `nav-cue-dismiss`
+  60×19, assembly balloons 24×24. Most survive WCAG 2.2 SC 2.5.8 (AA) only
+  via the **spacing exception**, which is nowhere written down as a design
+  decision — and the new context menu (222×17 at 23 px pitch) fails it
+  outright. The design mandate's own floor ("touch targets on tablet-class
+  viewports") is currently not met on any surface. **Fix:** decide and
+  document the target-size policy in `packages/design` (a `--target-min`
+  vertical padding applied by the primitives, plus an explicit "spacing
+  exception, ≥24 px pitch enforced" note), and make the context menu 24 px+
+  per row. Fixing the P1 spacing defect above recovers a large part of this
+  for free (tools 16→28, segments 15→27, menu rows 17→29).
+
+### P3 — polish / taste
+
+- **P3 — register, day one, says the same thing three times.** With a fresh
+  drawer, LAST WORKED is "NOT STARTED" on every row and FILED is the same date
+  on every row — structurally the *same* redundancy the rebuild was made to
+  remove (two identical ISO dates), just with a nicer vocabulary. It resolves
+  itself as soon as work happens, so it is taste, not a defect; but consider
+  suppressing FILED while it is identical across the visible rows, or
+  demoting "Not started" to a quiet gutter dot so the column is empty until
+  it has something to say.
+- **P3 — register row baselines don't agree.** UNITS and FILED sit ~3 px above
+  the NAME/LAST WORKED baseline (`text-xs` data cells with `align-middle`
+  against a `text-md` name); a precision index should have one baseline.
+  Fix in `DocumentRegister.tsx:390-426` with a shared cell class rather than
+  per-cell type sizes.
+- **P3 — `documentActivity` "unknown" renders a bare "—" with no title**
+  (`DocumentRegister.tsx:420`, `lib/activity.ts:39-40`). Rare (unparseable
+  stamp) but it is an em-dash with no meaning attached — the same nit the
+  07-24 pass filed against the empty SOLVE readout. Say "Unknown".
+- **P3 — relative age never refreshes.** `documentActivity(..., Date.now())`
+  is evaluated at render and the query is `staleTime: 30_000` with no
+  interval, so a register left open reads "2 min ago" indefinitely. A 60 s
+  tick (or `refetchInterval`) makes the column true.
+- **P3 — the `№` gutter header is a glyph, not a name.**
+  `DocumentRegister.tsx:248` — screen readers announce "numero sign". Use a
+  visible `№` with `sr-only` "Sheet number" (or "Row", per the P2 above).
+- **P3 — the tapped/counterbore badge asymmetry is defensible but
+  under-serves the tree.** The stated rule ("badge only what the viewport
+  cannot show") is principled and I would not call it inconsistent. It does,
+  however, optimize for the wrong reader: the tree is scanned precisely when
+  the viewport is showing something else — another orientation, a section, a
+  different zoom — or when the recess is on a hidden face. In a 20-feature
+  tree with six holes, "which one is the counterbored one" costs six clicks.
+  A callout-shaped badge is the consistent generalization of what already
+  shipped: `hole · M10x1.5`, `hole · ⌴Ø14`, `hole · ⌵90°`. Cost is ~10 lines
+  in the same formatter that produces the thread badge, no new data. Worth
+  doing; not urgent.
+- **P3 — the register has no search/filter/sort.** Fine at 3 rows; at 100
+  parts (no server limit — `fetchParts` returns the whole list) the create
+  line is a full scroll below the fold and there is no way to find a part by
+  name. Not a defect today; file it before the first user with a real drawer.
+
+### Verdicts on the four claims
+
+1. **Registers "read as a precision index" — HOLDS**, at 1440 and at
+   1280×800 (measured: fits, no root scroll, height 667/800). The gutter +
+   scribe + ruled remainder genuinely kill the centered-card-in-a-void read,
+   and the information change is the right one: LAST WORKED and UNITS are real
+   per-document facts where CREATED/UPDATED were one fact printed twice. Two
+   caveats above (sheet-number honesty P2, day-one redundancy P3) and one
+   ergonomic miss (DELETE is a 53×15 px target). **On the deliberately-omitted
+   columns:** agreed on "has a body" and "has drawings" — a modeler does not
+   scan for those. **"Is broken" is the one I would add**, because the most
+   expensive surprise a returning engineer gets is opening a part whose
+   rebuild fails, and the register is where they choose. It need *not* cost an
+   evaluate-per-row: the honest cheap version is a persisted
+   `last_eval_status` + `last_eval_at` on the document row, written by the
+   gateway whenever an evaluate returns, surfaced as an exception flag in the
+   same column that already carries "Not started" (and stale-marked if
+   `updated_at > last_eval_at`). That is a documents-service migration plus
+   one gateway write — real work, but bounded, and it makes the register the
+   first surface that tells the truth about the drawer's health.
+2. **Tapped-hole authoring — the model HOLDS, the execution has two
+   failures.** Orthogonal toggle rather than a fourth Type segment is right
+   and matches the wire; the derived-but-overridable tap-drill chip with brass
+   "you're on the standard" state is exactly right; the `hole · M10x1.5` tree
+   badge is right and reads well. But: the drawings promise in the checkbox
+   description is **false** (P1), the callout's leader tick and note rule —
+   its whole visual identity — **do not render** (P1 spacing defect), and at
+   1366×768 the tap-drill chip is **off-screen** (P1). "Still legible at
+   1280×800 now that it grew a row": yes for Simple+Tapped (584 px tall,
+   fits); no for C'sink+Tapped (801) or C'sink+Tapped+Blind (858).
+3. **Interference UNVERIFIED reads as indeterminate — HOLDS in the schedule,
+   FAILS in the viewport.** In the panel the work is done by the UNVERIFIED
+   stamp, the parenthesised figure and the "at most" caption, and the
+   plain-language footnote — that trio reads as "not established", not as an
+   error and not as a warning, and the split eyebrow (`Interference · 1 · 1
+   unverified`) is genuinely honest. The dashed 2 px etch left rule
+   contributes almost nothing at that scale (it reads as *absent* rather than
+   as *phantom*); if you want the stroke to carry weight, make it a wider
+   dashed rule or a hatched gutter. And the third surface — the hero one —
+   still says CLASH in red (P1).
+4. **Cut ghost "reads as a subtraction" — OVERSTATED.** What is true and
+   verified: the warm brass metal is gone, and the e2e pixel assertion for
+   that is honest and worth keeping. What is not true: the ghost's
+   **silhouette is identical to the ADD ghost's** — the same full cylinder,
+   same outline, same footprint standing above the plate's top face
+   (`extrude-cut-ghost-before-desktop.png` vs `-after-desktop.png` differ
+   essentially in hue) — so the *shape* still says "a boss" and only the
+   colour temperature says "a cut". Cold grey translucency over bright
+   machined aluminium reads as smoked glass, not as a void; `BackSide` removes
+   the near walls, which takes away the solid read without adding a cavity
+   read. Neither benchmark previews a cut this way: Fusion/Plasticity show the
+   **resulting body** with the material already gone. **Fix, in order of
+   cost:** (a) cheapest real improvement — render the tool volume's
+   silhouette as a dashed hidden-line outline plus a dark inner shadow at its
+   footprint *on the body's face*, so the read is "a hole is coming here";
+   (b) correct — preview the boolean result (the geometry service already
+   evaluates; a debounced preview mesh is the same seam the extrude ghost
+   already owns) or stencil/clip the body with the tool volume client-side.
+   Until then, the honest claim is "a cut no longer previews as added metal",
+   not "a cut reads as a subtraction".
+
+### Running component checklist (this pass)
+
+`packages/design` spacing scale + utility guard 🔴 **(P1, new — root cause of
+five visible defects)** · `PanelActionCell`/`PickButton` disabled reasons 🔴 ·
+feature-editor height clamp 🔴 · `AssemblyScene`/`InstanceMesh` unverified
+state 🔴 · Tapped-hole drawings copy 🔴 · `DocumentRegister` sheet-number
+honesty 🔴 · pre-pick topology highlight 🔴 (07-24 P2, still open) · touch
+target policy 🔴 · `TopToolbar`/`ToolButton` width tiers ✅ (07-24 P0 fixed —
+measured no root scroll and INSPECT visible at 1280/1440/1600/1920) · tooltip
+stacking ✅ (`z-band`) · viewport context menu ✅ (exists; row density is the
+P2) · feature-localized face selection ✅ · orbit/pan/zoom legend ✅ ·
+`prefers-reduced-motion` ✅ (measured clean under `reduce`) · visible focus +
+register tab order ✅ · WCAG-AA contrast ✅ (gauge 7.2:1 / mist 13.2:1 /
+flag 6.5:1 on anvil; no new hex outside `packages/design`) · zero hex literals
+in `apps/web/src` ✅ · registers (identity + information) ✅ · clash schedule
++ tree badges ✅ · viewport atmosphere/grid/ViewCube ✅.
+
+### The five changes that most move the bar now
+
+1. **Fix `spacing` + add the silent-utility guard** (P1). One scale edit plus
+   one test recovers the rollback bar, the thread callout, the active scribe,
+   28 px tool buttons, the measure HUD's position, and a bounded add-part
+   list. Nothing else on this list is close to that ratio.
+2. **Make the viewport tell the truth about UNVERIFIED** (P1) — the third
+   surface of a three-surface language.
+3. **One clamped `EditorCard`** (P1) so no feature editor can outgrow the
+   frame as verbs keep landing, and its footer is always reachable.
+4. **Fix the Tapped copy today; file the drawing note** (P1) — never let the
+   UI promise an output the pipeline doesn't produce.
+5. **Preview the cut as removed material** (claim 4) — the extrude ghost was
+   the first place Loft responds before commit; making it *correct* is what
+   turns it from a colour change into the Fusion/Plasticity read.
+
+**Process note.** Two of the five biggest findings this pass were invisible to
+every previous audit because they were *measurements*, not looks: a 0×0
+element and a 16 px button both photograph as "dense and quiet". This
+checklist now carries a standing item: **at every full audit, measure — assert
+`getBoundingClientRect` on the elements the design docs call signatures, and
+diff the built CSS against the utilities the source asks for.** A design system
+that fails silently needs a gate, not an eye.
+
+## 2026-07-30 — FLOW AUDIT (founder-directed: "keep auditing as I did")
+
+Founder's own pass on 07-30 landed four hits by walking screens and asking what
+a real user hits (timeline placement, component enablement/opacity, "placement
+face looks like a text box", units/mass in settings). Those are filed as
+UI-W1…W5 + #57/#58 with the design record in
+`docs/design/ui-wave-tool-grade.md`. This pass continues in the same method —
+**walk the flow, ask what the user actually experiences** — rather than
+inspecting components in isolation. Read-only on app code.
+
+The recurring defect class this codebase produces is now well established, at
+four instances: **a surface asserting something it does not know.** The false
+CLASH badge, the Tapped checkbox's drawing-note promise, MASS PROPERTIES with
+no mass, and F2 below. Audit for it directly.
+
+### F1 (P1, data loss + an inverted label) — Exit discards a sketch; the caption says Esc does
+
+`SketchStrip.tsx:978-991`. The Exit button renders
+`caption={bound ? "Esc closes" : "Esc discards"}` with
+`aria-label="Exit sketch (discards unsaved entities)"`, and calls
+`onClick={exit}` → `useSketchStore.exit` = `set({ ...INITIAL })`
+(`sketch/store.ts:856`) — every unsaved entity gone, one click, **no
+confirmation**, and no undo path because the sketch was never persisted so the
+history stack has nothing to restore.
+
+The label is **exactly inverted**. `Esc` at rest does NOT discard: the sketch
+cascade (`PartPage.tsx:967-991`) resolves `escapeAction(...)` → `"exit"` only
+when no editor, no pending placement, `tool === "select"` and no selection
+(`sketch/tools.ts:376-387`), and that branch calls **`finishSketch()`** — the
+same callback wired to `onSave` at `PartPage.tsx:3553`. So Esc **saves**.
+
+Both directions harm:
+
+- A user who wants to throw the sketch away presses Esc, believing the caption,
+  and instead **persists a sketch they meant to discard**.
+- A user who wants to keep the work avoids Esc for the same reason, clicks the
+  button labelled Exit, and **loses everything without being asked**.
+
+Fix: make the caption describe the key's real behaviour ("Esc saves"), and put
+a confirm in front of a discard that destroys unpersisted entities — one that
+states the count ("Discard 14 entities?"). This is the only finding in this
+pass that destroys user work.
+
+### F2 (P1, overstated surface — instance #4) — "Up to date" is derived from fetch state, not staleness
+
+`InspectorPanel.tsx:140`:
+`{error ? "Error" : isFetching ? "Meshing…" : "Up to date"}`.
+
+"Up to date" therefore means *"no request is in flight and the last one did not
+error"* — it does **not** mean the body on screen reflects the current feature
+tree. Any path that mutates the tree without the mesh query being in flight
+shows a stale body under a label claiming it is current. In a CAD tool, "the
+geometry you are looking at is current" is precisely the claim a user must be
+able to trust before exporting or dimensioning.
+
+The honest source **already exists and already shipped**: `c98c454` added
+`derive_part_eval_state` (`py_kit/schemas/parts.py`) — a 4-state fold
+(`never | ok | failed | stale`) whose staleness is derived from the monotonic
+`tree_version`, not from timestamps or fetch state — and it is already consumed
+by the register. The part inspector ignores it. Cheap fix, high trust value.
+
+### F3 (P2) — Deleting a feature others consume fires with no warning
+
+`PartPage.tsx:2647`, `deleteFeatureAction`: no confirmation and no dependency
+check. Delete `Sketch1` while `Extrude1` consumes it and the delete simply
+succeeds; the user discovers the consequence when the extrude turns red on the
+next evaluate. Undo exists, so this is recoverable rather than destructive —
+which is why it is P2 and not P1 — but "let them find out" is not how a tool
+of this class behaves. Fusion names the dependents before proceeding. We
+already have the dependency information: the guard added for undo-vs-drawings
+(P2 #16) established that we can reason about what a change breaks.
+
+### F4 (P2) — Keyboard-first, with nowhere to learn the keyboard
+
+The app deliberately trains shortcuts in button captions — `Esc`, `Enter`, `G`
+for snap, `M` for measure, the constraint letters, the undo/redo chords in
+`lib/undoRedoShortcut.ts` — and the design docs call it keyboard-first. There
+is **no shortcut reference anywhere**: no `?` overlay, no help panel, no
+cheatsheet. Every binding is discoverable only by hovering the one control that
+happens to mention it, and the sketch letter vocabulary (where selection
+presence decides whether a letter draws or constrains — `PartPage.tsx:958-960`)
+is not written down in the product at all.
+
+A `?` overlay listing the active surface's bindings is a small, self-contained
+addition, and it is the cheapest single thing that makes the app feel
+professional to a new user rather than opaque.
+
+### Confirmed healthy (checked, not assumed)
+
+Not everything probed was broken; recording the passes so later passes don't
+re-litigate them.
+
+- **Feature rename works** — inline in the tree, Enter commits, Escape
+  abandons (`FeatureTreePanel.tsx:68-73`).
+- **Drawing-from-part is contextual** — `PartPage.tsx:1846` calls
+  `createDrawing`, so the flow does not force a trip to the Drawings register.
+- **Part/drawing delete does confirm** — `DocumentRegister.tsx:354-420`, and
+  the confirm takes the row over rather than firing a modal.
+- **First-run guidance exists** — `NavCue` with a "Got it" dismiss, plus an
+  empty-scene call to action (`PartPage.tsx:3282`).
+- **Grid snap defaults ON** (`sketch/store.ts:282`, `snapEnabled: true`),
+  which is the correct polarity and consistent with the UI-W5 decision that
+  entity snapping should also default on with a modifier to suppress.
+- **Stale-version conflicts are handled** — `deleteFeatureAction` retries once
+  on `StaleTreeVersionError` with a re-fetched `tree_version`.
+
+### Method note for the next pass
+
+The two most valuable findings here (F1, F2) came from **following a control to
+what it actually calls** rather than reading its label — F1 is a caption that
+contradicts its own key binding, F2 is a status string computed from the wrong
+variable. Neither is visible in a screenshot, and neither would fail a test
+that asserts the label renders. The standing measurement item from the 07-30
+pass gets a sibling: **for every status/affordance string, trace the value it is
+derived from and confirm the string is entitled to make that claim.**
+
+### F1 FIXED · F2 CORRECTED AND RE-SCOPED (same-day follow-up)
+
+**F1 shipped.** `Esc` moved to the SAVE button, where the binding actually goes
+(`escapeAction → "exit" → finishSketch`, the `onSave` handler). Exit now states
+what it would destroy (`discards 4`) and asks first when — and only when —
+discarding would lose unpersisted entities; a bound sketch's edits are already
+saved, so it still exits in one click. The prompt is DERIVED
+(`confirmingDiscard && !bound && entityCount > 0`) so saving or deleting the last
+entity behind an armed confirm retracts it, instead of leaving a warning about
+work that no longer exists.
+
+Gated by 9 component tests, **mutation-verified**: reverting the guard to the old
+`onClick={exit}` fails 5 of them, including "does not discard on the first click".
+
+**F2 was mis-filed — correcting it rather than leaving it to mislead.** The
+quoted line (`InspectorPanel.tsx:140`) is real, but `InspectorPanel` is used only
+by `ModelerPage`, the box-primitive demo route. **The part workspace uses
+`BodyInspector`**, fed a typed 4-state `BodyStatus` from `PartPage.tsx:3264`.
+
+The SUBSTANCE survives the correction — that status is still computed from
+request state, not from staleness:
+
+```
+regenFailed ? "error"
+  : regenerating || (meshGlbId !== null && !bodyPresent && body.isFetching) ? "regenerating"
+  : evaluation.isFetching ? "evaluating"
+  : "up-to-date"
+```
+
+But the SEVERITY does not, so P1 was wrong. Every in-app mutation path calls
+`refreshTreeAndBody()`, so the window where "Up to date" is shown over a stale
+body is a transient race between mutation and refetch, not a persistent false
+claim. The real exposure is a change this session did not make — a concurrent
+edit arriving over the gateway's WS fan-out — where nothing invalidates and the
+label would keep asserting currency indefinitely.
+
+Re-scoped to **P2, and it is a contract change, not a frontend patch.** The
+honest fix compares the `tree_version` the displayed body was BUILT from against
+the part's current `tree_version` — the same monotonic discriminator
+`derive_part_eval_state` already uses server-side. The evaluation/tessellation
+response does not currently carry that provenance, so this needs a schema field,
+`just gen`, and then the readout; guessing at a frontend-only fix would produce a
+second status that also does not know what it claims. Filed with that shape
+rather than half-done.
+
+**Method note.** F2 is a reminder for this checklist: `grep` finding a string
+does not establish that the string is on the screen the user is describing. Two
+inspectors exist, one is a demo route, and the panel in the founder's screenshot
+was the other one. Confirm the render path — which route mounts the component —
+before assigning a severity to what it says.
+
+### 2026-07-30 — RULING: selection colour differs between the tree and the timeline (UI-W1 handback)
+
+The timeline agent flagged a deliberate divergence for a ruling rather than
+picking silently, which is the right instinct — recording the decision so it
+does not get re-litigated or quietly "fixed" by a later pass.
+
+**The situation.** A selected feature-tree row takes a brass left-rule. A
+selected timeline chip does NOT: it takes the strip's brightest border
+(`border-mist`) plus a lifted `bg-hairline` seat. Two adjacent surfaces, two
+selection languages, same underlying selection.
+
+**Ruling: keep the divergence.** The design mandate says spend boldness in one
+place, and the operative scope of "one place" is the SURFACE, not the app. Inside
+the strip, brass belongs to the travel stop, because the stop is the only thing
+whose *position carries meaning* — that is the whole metaphor. A brass chip
+beside a brass stop would put the accent on two different kinds of thing at once
+and the stop would stop reading as the position indicator. The tree has no travel
+stop, so brass is unclaimed there and selection can have it.
+
+Stated as a rule for future surfaces: **brass marks the single position/attention
+indicator a surface owns; where a surface has one, selection must find another
+cue.** That is a per-surface budget, not a global palette mapping.
+
+**Why the inconsistency is tolerable in practice, and this is load-bearing to
+the ruling rather than a consolation:** the two selections are SIMULTANEOUS.
+Clicking a chip selects the feature, so the tree row lights at the same moment.
+The user sees both cues co-occur on their first click, which teaches the mapping
+instead of leaving them to infer it. If a future change ever lets the two
+selections diverge in time — one lit without the other — this ruling should be
+revisited, because the teaching mechanism would be gone.
+
+**Not ruled on, deliberately left to frontend-qa:** whether `border-mist` is
+sufficiently distinguishable from the unselected chip border at 1280 for a
+low-vision user. That is a contrast measurement, not a design principle, and it
+should be measured rather than argued — the standing lesson from the 07-30 pass
+where a 0×0 element and a 16 px button both photographed as "dense and quiet".
+
+### Also recorded from UI-W1, so the reasoning is not lost in an agent report
+
+- The plan's stated 44 px strip height was WRONG and was overridden: its own
+  wireframe stacked eyebrow + chip + ordinal + name, which cannot fit 44 px
+  alongside the 32 px touch floor `tokens.ts` had just committed to. 48 px, with
+  single-row chips. A plan that contradicts a policy the same repo just adopted
+  loses to the policy.
+- The travel stop's focus ring is `mist`, not the house brass: a brass ring
+  around a brass blade is not a visible focus indicator (WCAG 2.4.7). Worth
+  generalising — an accent-coloured focus ring is invisible on an
+  accent-coloured control, so focus indication must contrast with the CONTROL,
+  not merely exist in the palette.
+- No `⇥` glyph on TO TIP (tofu risk in Fragment Mono); the label plus an
+  `INCLUDE ALL` caption carry it. Consistent with preferring ASCII outside
+  markdown.
+- `p1-rollback-bar-*.png` (4 files) were DELETED rather than refreshed, because
+  they documented an element that no longer exists. A screenshot of a deleted
+  control is worse than no screenshot: it reads as current.
+
+## 2026-07-30 — MEASUREMENT PASS: the timeline strip (UI-W1, `1a27804`) + the part workspace's status honesty (`b4e075f`)
+
+Independent QA on the two surfaces shipped in the last few hours, by an eye that
+did not build either. **Method: measurement, not photography.** Every number
+below comes from a real browser driving committed HEAD — `getBoundingClientRect`
+and `getComputedStyle` in-page, plus pixel sampling of actual screenshots for
+the colour claims. The standing lesson (a 0x0 signature element and a 16 px
+button both photograph as "dense and quiet") is why: three of the seven findings
+here are invisible in a screenshot and two of them contradict a comment in the
+source that asserts the opposite.
+
+**Rig.** Native container-free stack on isolated ports (geometry :8042,
+documents :8041, gateway :8040, Vite :5183 — the shared :5173/:8000-:8002 were
+left untouched for the concurrent screenshot agent), fresh SQLite, Playwright
+Chromium at 1366x768 and 1280x800, `deviceScaleFactor: 1`. Parts seeded through
+the real gateway: a sound 3-feature part, the broken r50-fillet part
+`body-status.spec.ts` uses, and 9/14-feature builds. All processes started for
+this pass were killed at the end. **Measured vs inferred is labelled on every
+claim.** No PNGs are committed with this pass (the brief scoped writes to this
+file); the harness was temporary and removed — everything reproduces from the
+numbers stated.
+
+### The deferred question, answered: `border-mist` on `bg-hairline` clears, by 3.1x
+
+The 07-30 ruling deliberately left "is a selected chip distinguishable ENOUGH
+from an unselected one at 1280 for a low-vision user" to measurement. Measured,
+at both widths, pixel-sampled from the rendered strip (no opacity, filter or
+blend anywhere in the chain — the sampled pixels equal the token values byte for
+byte, so the tokens ARE the render):
+
+| pair | measured | floor |
+| --- | --- | --- |
+| selected border `mist` vs unselected border `hairline` | **9.38:1** | 3:1 (SC 1.4.11, state info) |
+| selected border `mist` vs the strip ground `anvil` | 13.21:1 | 3:1 |
+| selected border `mist` vs its own `hairline` seat | 9.38:1 | 3:1 |
+
+Identical at 1280x800 and 1366x768 (chip geometry is width-invariant: 32.00 px
+tall, border 1 px, same tokens). **Verdict: the divergence from the tree's brass
+is safe and the ruling stands.** A 9.38:1 step between states is 3.1x the
+non-text floor and larger than most products' selected-state deltas; nothing
+about it needs to change, and it does not need to take brass.
+
+Two caveats that the same measurement produced, and they are findings in their
+own right (P2-A and P2-B below): the reason the delta is so large is that the
+**unselected** chip has effectively no edge at all, and the "lifted seat" that
+was supposed to be the redundant half of the selected cue lifts by 1.41:1.
+
+### P1 — part workspace / EXPORT strip — the gated export is under the fold at 1366x768 again, and the partial-body notice is 100% invisible
+
+MEASURED, at 1366x768, on the floating Inspector panel's scroll box
+(`FloatingPanel` body, `max-h-cube-card` = `calc(100% - 152px)`):
+
+| state | export strip rect | scroll box bottom | visible | hidden content |
+| --- | --- | --- | --- | --- |
+| feature error (`Fillet1 failed`) | y 536.5 -> 601.5 (65 px) | 580 | 43.5 of 65 px | 23 px |
+| travel stop (`partial`) | y 560.5 -> 659 (98.5 px) | 580 | **19.5 of 98.5 px** | **80 px** |
+| same, at 1280x800 | y 536.5 -> 601.5 | 602.5 | all | 0 px |
+
+In the travel-stop case the notice — *"1 feature excluded by the travel stop.
+The file will be the rolled-back body, and its name will say partial."* — sits
+at y 609 -> 659, i.e. **entirely below the fold**, and the STEP/STL cells are cut
+at their first 19 px. That sentence is the whole point of `exportGate`'s
+"allowed, but the artifact is a prefix" branch: it is the only place the product
+warns that the file you are about to download is not the part. It is currently
+unreachable without discovering an unhinted scroll.
+
+Why it regressed, COMPUTED from the measured tokens (labelled as computed): the
+panel box is `main.height - 152`. Docking a 48 px strip shrank `main` from 668 to
+620 at this height, so the box went 516 -> 468 px while the failed-state content
+is 491 px. **It fit with 25 px of headroom before UI-W1 and is clipped by 23 px
+after.** The `1280x800` row proves it is a height regression, not a width one.
+
+The `partBuild.ts` docstring anticipated exactly this failure ("a panel that
+spends four lines on a paragraph pushes the EXPORT strip below the fold at
+1366x768, and the gated export is the most important thing on this panel") and
+spent the one-line register form to avoid it. The measurement says the saving
+was not enough, because the 48 px the strip took was not subtracted from the
+panel clearance in the same change.
+
+System-level fix (either, not both): (a) subtract `layout.timelineHeight` from
+`hudLaneBottom` / `referenceCubeBand` — both were sized when `main` reached the
+window bottom and the reference cube now sits 48 px higher too; or, better,
+(b) **pin the title block's STATUS + EXPORT footer outside the panel's scroll
+box**. A title block's footer is the one row that must never be the thing that
+scrolls away, and pinning it makes the fold immune to the next 48 px anything.
+
+### P2-A — timeline strip — the chip's resting border is 1.54:1, so "solid vs dashed" carries no information
+
+MEASURED (computed styles, confirmed by pixel sampling at x=216, y=24 of the
+rendered strip: border `rgb(44,55,71)`, seat `rgb(15,20,26)`, ground
+`rgb(22,29,39)`):
+
+| pair | measured | floor |
+| --- | --- | --- |
+| unselected chip border `hairline` vs its `carbide` seat | **1.54:1** | 3:1 |
+| unselected chip border `hairline` vs the `anvil` ground | **1.41:1** | 3:1 |
+| the way line's dash, `etch` vs `anvil` | 3.06:1 | 3:1 — passes |
+| the dim cue, `mist` name vs `gauge` name | 1.84:1 | — |
+
+The source comment says: *"chips past the stop take a dashed outline AND dim, so
+the cue is redundant and never load-bearing alone."* Measured, that is **false**.
+The dashed outline is drawn in `hairline` at 1.54:1 against the chip it outlines
+— below the 3:1 floor this repo applies to itself (`etch`'s own docstring:
+*"Interactive control borders (3.06:1 on anvil — WCAG 1.4.11)"*). So the dash is
+not a second cue; the **dim is load-bearing alone**, and it is a 1.84:1
+luminance step on an 11 px name.
+
+The same 48 px strip gets it right on the rail and wrong on the chip: the way
+line's dashes are `etch` and read cleanly; the chips' are `hairline` and do not.
+Answering the founder's question directly — **the dashed-past-the-stop encoding
+does NOT read on the chips without a legend at either width**; what actually
+reads is the way line's dash plus the dim, and only the way line's dash is above
+the contrast floor.
+
+Fix at the token, not the instance: give the chip's resting/rolled-back border
+`etch` instead of `hairline`. That buys the chip a boundary that says "control"
+(3.35:1 on its seat) and a dash that is actually visible, and it costs the
+selection delta nothing that matters — `mist` vs `etch` is still **4.31:1**,
+well above the 3:1 state floor, with the seat and the dim on top. `etch` is
+already the hover value, so hover would need one step of separation (either
+`mist`-at-rest-on-hover, or a seat change on hover).
+
+### P2-B — timeline strip — the selected chip's "lifted seat" lifts by 1.41:1
+
+MEASURED: `bg-hairline` on `bg-anvil` = **1.41:1**; the same seat against an
+unselected chip's `carbide` = 1.54:1. The selection story is documented as
+"brightest EDGE plus a lifted seat"; the seat half contributes essentially
+nothing perceptually. Not a WCAG failure (the edge carries it at 9.38:1), but
+the redundancy claimed in the design record does not exist, and this is the
+second finding in this pass where a comment asserts a redundancy the pixels do
+not have. Fix: the palette has no surface token brighter than `hairline`, so the
+system-level answer is a new raised-surface token (a `bezel` step around
+`#39465A`, ~1.9:1 on anvil) used by every "seated/selected row" in the product,
+rather than a one-off in the strip.
+
+### P2-C — `BandActionCell` (design primitive) — the gated cell's REASON measures 2.13:1 at 9 px
+
+The primitive gates with `aria-disabled` rather than the native attribute
+**specifically so the reason can be read** — its own docstring says so, and the
+07-30 pass filed the same defect against `PanelActionCell`. MEASURED on the
+rendered pixels of TO TIP in its gated state (brightest pixel of each text run
+against the anvil ground; the whole button carries `opacity-40`):
+
+| run | size | measured contrast |
+| --- | --- | --- |
+| label "To tip" (`mist` @ 0.4) | 10 px | 3.05:1 (analytic blend 3.24:1) |
+| caption "Already at the tip" (`gauge` @ 0.4) | **9 px** | **2.13:1** (analytic 2.25:1) |
+
+So the explanation is reachable by mouse and keyboard (verified: `aria-disabled`,
+NOT native `disabled`, focusable, and it swallows activation) and cannot be
+read. Disabled text is technically exempt from SC 1.4.3 — but a reason nobody
+can read defeats the entire purpose of choosing `aria-disabled`, which is the
+standard this component set out for itself.
+
+Also: `text-[9px]` is the **only arbitrary font size in `packages/design`
+primitives or `apps/web/src`** (grepped) and sits below the committed scale floor
+(`fontSize["2xs"] = 10`). Fix in the primitive, which fixes CreateStrip's OK/
+Cancel in the same stroke: drop `opacity-40` for an explicit disabled-foreground
+token that holds >= 4.5:1 on `anvil`, and put the caption on the scale at 10 px.
+
+### P2-D — timeline strip — during a rollback write, three affordances go inert and none of them says why
+
+MEASURED with the rollback response held for 2.5 s (route delay), reading
+computed styles mid-flight:
+
+- the **stop**: `aria-disabled="true"` (good, not native) but `opacity: 1`,
+  `cursor: ew-resize`, and it still brightens to `brass-hover` under the pointer
+  — it looks and feels draggable for the whole write and is inert;
+- the **slots**: native `disabled` = `true`, no `title`, no reason — they leave
+  the tab order entirely, which is the exact pattern the 07-30 pass removed from
+  `PanelActionCell` ("unreachable while the cell was natively disabled");
+- **TO TIP**: gated, caption still reads "Include all" — the caption is the place
+  the reason lives, and during a write it states the wrong one.
+
+Good half, measured: `data-busy` / `aria-busy` are set on the section, and the
+head cell shows the optimistic pending position ("01/03") the instant you drag,
+so the strip does communicate *that* something is happening. Fix: a held visual
+on the stop (cursor + a dimmed blade), `aria-disabled` in place of native on the
+slots, and a busy caption ("Working…") on TO TIP.
+
+### P3 — timeline strip — the travel stop's focus ring renders as two loose bars, not a ring
+
+MEASURED by pixel-diffing the same 44x53 crop focused vs unfocused: exactly four
+pixel columns change (x=427-428 and x=453-454, `rgb(221,228,235)` = `mist`, 47 px
+tall). **No top or bottom segment exists.** Cause: `outline-offset-0` on a
+full-height element inside the way, whose `overflow-x-auto` computes `overflow-y`
+to `auto` and therefore clips at the padding box; and the strip's bottom edge IS
+the window's bottom edge, so the lower segment has nowhere to draw.
+
+Not a 2.4.7 failure — two full-height mist bars at 13.21:1 against the ground are
+a visible indicator — but it is not the ring that was designed. Fix: inset it
+(`-outline-offset-2`), which the slot and TO TIP cells already do, so all four
+sides land inside the clip.
+
+**The mist-over-brass decision is vindicated by measurement, and worth keeping in
+the record:** `mist` on `brass` is **1.67:1** — a brass ring on the brass blade
+would have been invisible exactly as claimed. Against the surface the ring
+actually sits on (`anvil`) it is 13.21:1. The generalised rule from the 07-30
+notes ("focus must contrast with the CONTROL, not merely exist in the palette")
+holds here, and every other new control's brass ring clears too: 8.65:1 on the
+chip seat, 7.93:1 on the ground, and the chip's ring is pixel-verified as a
+complete four-sided rounded rect.
+
+### P3 — timeline strip — a scrolled way gives no sign there is more of the build
+
+MEASURED at 1366x768 with 14 features: `scrollWidth` 1727 vs `clientWidth` 1138;
+on mount the way scrolls the stop into view (`scrollLeft` 589), so chips 01-05
+are off-screen to the left (chip 0 at x = -492) with no fade, arrow, or count
+saying so. The head cell reads "14/14", which describes the stop, not the
+scroll. Fix: a token-coloured edge mask on both ends of the way when
+`scrollLeft`/right allows, plus `scrollbar-width: none`.
+
+INFERRED (could not be measured here): headless Chromium reserved 0 px for the
+horizontal scrollbar (`offsetHeight - clientHeight = 0`). A desktop Chrome with
+classic scrollbars would take ~15 px out of a 48 px strip and collide with the
+32 px chips. The mask fix above closes this too; worth verifying on a real
+desktop browser before assuming it is fine.
+
+### P3 — timeline strip / feature tree — a truncated feature name has no reveal
+
+MEASURED: chip name clamps at `max-w-[7.5rem]` (120 px); a 37-character name
+measures `scrollWidth` 189 and truncates. The full name IS in the accessible
+name (`"A very long feature name for wrapping — fillet, step 3 of 3"` — good),
+but there is no `title`, so a sighted mouse user cannot recover it. The tree row
+has the same shape (`truncate`, no `title`). Fix once, in the shared row/chip
+label, not twice.
+
+### P3 — timeline strip — Escape does not cancel a stop drag, and the slider ignores half its keys
+
+MEASURED: pointer-down on the stop, drag to slot 0, press `Escape` ->
+`data-dragging` stays `"true"` and the pending position stays "01/03"; pointer-up
+commits the rollback. Rolling back is reversible and fully visible, so this is
+not the "Escape destroys work" class — but every other gesture in this product
+answers Escape, and a drag with no abort is a small trust cost on a control whose
+whole job is "how far does the build run". Also `role="slider"` implements
+Left/Right/Home/End only; APG expects Up/Down and PageUp/PageDown as well.
+
+### P3 — part workspace — rolling back below the first solid says "No body" instead of naming the stop
+
+MEASURED: setting the travel stop to a sketch-only prefix drops `hasBody`, the
+Inspector is replaced by the export-only panel, and `exportGate` reaches its
+`!hasBody` branch **before** the `rolledBack` branch — so EXPORT reads "No body".
+True, but it attributes the absence to nothing, when the user's own travel stop
+caused it and the control holding it is 40 px below on screen. By `b4e075f`'s own
+standard (name the cause, never let a surface assert less than it knows), the
+honest reason is "No body at the travel stop". One branch reorder.
+
+### Verified good — measured, no action
+
+- **Nothing in the strip is decorative** (mandate 3c). Head cell position tracks
+  the stop live including the optimistic value during a write; chips select and
+  open the tree's row menu; slots travel; the stop drags and takes keys; TO TIP
+  travels and states its own gate. Every element is wired.
+- **Target sizes all clear the committed floor**: chips 32.00 px (comfortable),
+  slots 24.00 x 47.00, stop 24.00 x 47.00, TO TIP 138.59 x 47.00. The tokens'
+  claim that "nothing in the product now claims the essential exception" holds —
+  the retired 8 px drop slots are genuinely gone, and nothing took their place.
+- **Tab order and focus**: chip0 -> slot0 -> chip1 -> slot1 -> chip2 -> stop ->
+  TO TIP, DOM order, every stop `:focus-visible` with a 2 px ring. (Note for a
+  future pass, not filed as a defect: this is 2N+1 tab stops, so a 20-feature
+  build costs 41 presses to cross — a roving-tabindex composite would be the
+  standard answer if a keyboard user ever complains.)
+- **Keyboard context-menu parity**: Shift+F10 on a focused chip opens the same
+  row menu at the chip (x=144 for a chip centred at 144; flipped up to y=619 to
+  fit) — not at 0,0, which is the usual failure of this pattern.
+- **`prefers-reduced-motion`**: chip, slot and stop all report
+  `transition-duration: 0s` under `reducedMotion: "reduce"`, and the way's
+  `scrollIntoView` drops to `behavior: "auto"`.
+- **Empty and loading states exist and are honest**: "No features yet — start
+  with a sketch." (`gauge` on `anvil` = 7.18:1), position "—", TO TIP caption
+  "Nothing built yet".
+- **The viewport is still the hero at the tightest width.** Canvas 1366x620 =
+  **80.7%** of the frame at 1366x768 (1280x652 = 81.5% at 1280x800); panels
+  float over it; `documentElement.scrollWidth == clientWidth` at both widths, so
+  nothing overflows the root. The 48 px strip costs 6.25% of height at 768 and
+  buys a control that was previously a 1 px dashed rule. **Worth the pixels.**
+- **The status detail does not overflow or truncate at 1366**: right edge 1298.4
+  inside a panel ending at 1354. It WRAPS to 2 lines in the rolled-back case
+  ("Travel stop at Extrude1 · 1 feature excluded") and stays on 1 line in the
+  failed case ("Fillet1 failed · built to Extrude1") — so the "shares the value's
+  line" design holds for the case it was written for and not for the other one,
+  which is where the extra 20 px in the P1 fold measurement comes from.
+- **Token discipline**: no hex literals in either new file; `TimelineStrip`'s SVG
+  blade is sized from `layout.timelineHeight`, so the wedges cannot drift from
+  the strip if the token changes. `partBuild.ts` derives every claim from wire
+  values with request state quarantined in its own axis, exactly as advertised.
+
+### Also measured, filed here so the next pass does not re-discover it
+
+The **feature-tree panel's SOLVE cell is sliced at 1366x768** with 14 features:
+`eval-status` is 16.5 px tall, **5 px visible, 11.5 px clipped** by the panel's
+scroll box (105 px of content hidden). Same defect family as P1 — a title-block
+footer inside a scroll box on a 768 px-tall screen — and the same pinning fix
+covers both. Partially pre-existing (computed: the box was 598 px before the
+strip and the content is 655 px, so it clipped by 57 px then and by 105 px now),
+which is why it is recorded here rather than filed as a regression of UI-W1.
+
+### Component checklist delta from this pass
+
+| component | state |
+| --- | --- |
+| `TimelineStrip` — selection cue (`border-mist` on `bg-hairline`) | audited ✅ 9.38:1, ruling stands |
+| `TimelineStrip` — chip rest/rolled-back border (`hairline`) | needs-work 🔴 P2-A, 1.54:1 |
+| `TimelineStrip` — selected seat (`bg-hairline` on `anvil`) | needs-work 🔴 P2-B, 1.41:1 |
+| `TimelineStrip` — way line solid/dashed (`etch`) | audited ✅ 3.06:1 |
+| `TimelineStrip` — travel stop, drag + keys + `role="slider"` | audited ✅ (P3: no Escape-abort, no Up/Down) |
+| `TimelineStrip` — travel stop focus ring | needs-work 🔴 P3, clipped to two bars |
+| `TimelineStrip` — busy/held state | needs-work 🔴 P2-D, three silent gates |
+| `TimelineStrip` — target sizes, tab order, reduced motion, empty/loading | audited ✅ |
+| `TimelineStrip` — long build (scroll affordance, truncation) | needs-work 🔴 P3 x2 |
+| `BandActionCell` — gated caption legibility | needs-work 🔴 P2-C, 2.13:1 at 9 px |
+| `partBuild.ts` — one derivation feeding SOLVE/STATUS/EXPORT | audited ✅ |
+| `BodyInspector` STATUS cell — qualifier layout at 1366 | audited ✅ (wraps, does not truncate) |
+| `PartExportControls` / `ExportRow` — fold at 1366x768 | needs-work 🔴 P1 |
+| `exportGate` — rolled-back-with-no-body reason | needs-work 🔴 P3 |
+| `FeatureTreePanel` — SOLVE cell fold at 1366x768 | needs-work 🔴 P2 (pre-existing, worsened) |
+
+### Ordered remediation plan
+
+1. **P1** — pin the STATUS + EXPORT footer outside the Inspector's scroll box (or
+   subtract `timelineHeight` from the panel clearance tokens). Verify by
+   asserting `exportBottom <= scrollerBottom` at 1366x768 in BOTH the
+   feature-error and travel-stop states — the partial-state notice is the one
+   that is currently 100% hidden.
+2. **P2-A** — move the chip's resting/rolled-back border from `hairline` to
+   `etch` so the boundary and the dash clear 3:1; re-separate hover.
+3. **P2-C** — replace `opacity-40` in `BandActionCell` with a disabled-foreground
+   token at >= 4.5:1 and put the caption on the 10 px scale (fixes CreateStrip
+   too).
+4. **P2-D** — held state on the stop, `aria-disabled` on the slots, busy caption
+   on TO TIP.
+5. **P2-B** — add the raised-surface token and use it for every seated/selected
+   row, strip included.
+6. **P2 (tree)** — same pin as (1) for the SOLVE cell.
+7. **P3s** — inset the stop's focus ring; edge masks + `scrollbar-width: none` on
+   the way; `title` on truncated names (shared); Escape-aborts-drag and the
+   missing slider keys; reorder `exportGate` so a travel stop that removes the
+   body says so.
+
+**Process note (the founder-is-the-calibrator rule).** Two of this pass's
+findings — P2-A and P2-B — are cases where a source comment asserts a redundancy
+that the pixels do not have ("the cue is redundant and never load-bearing
+alone"; "brightest EDGE plus a lifted seat"). Both were written in good faith and
+both are wrong by measurement. Adding to this checklist for every future pass:
+**when a component's own comment claims two cues, measure both — a stated
+redundancy is a claim, and a claim about contrast is checkable.** Same class as
+the 0x0 signature element: the defect is invisible precisely because the
+documentation says it is not there.

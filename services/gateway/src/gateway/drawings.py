@@ -21,7 +21,6 @@ drawing is a signed-in user's document, never anonymously reachable.
 import uuid
 from typing import Annotated, Any, NamedTuple
 
-import httpx2 as httpx
 from fastapi import APIRouter, Query, Request, Response, status
 from py_kit.errors import NotFoundError, ValidationApiError
 from py_kit.schemas.assemblies import EvaluateAssemblyRequest
@@ -56,10 +55,11 @@ from py_kit.schemas.drawings import (
 )
 from py_kit.schemas.features import EvaluatedFeatureInput, EvaluateTreeRequest
 
+from gateway.affinity import forward_geometry
 from gateway.auth import CurrentUser
 from gateway.parts import forward_documents
 from gateway.ratelimit import COMPUTE_RATE_LIMIT
-from gateway.upstream import forward, raise_upstream_error
+from gateway.upstream import raise_upstream_error
 
 #: Human-readable upstream name for shared error surfaces.
 _SERVICE = "Documents"
@@ -163,6 +163,25 @@ async def update_drawing(
         request.model_dump_json(),
     )
     if upstream.status_code != status.HTTP_200_OK:
+        raise_upstream_error(upstream, service=_SERVICE)
+    return DrawingResponse.model_validate_json(upstream.content)
+
+
+@router.post("/{drawing_id}/duplicate", status_code=status.HTTP_201_CREATED)
+async def duplicate_drawing(
+    drawing_id: uuid.UUID, user: CurrentUser, http_request: Request
+) -> DrawingResponse:
+    """Copy a drawing's sheets, views, dimensions and annotations (201).
+
+    The copied views keep pointing at the same part/assembly — a view is a
+    reference, like an assembly instance — so this duplicates the LAYOUT, never
+    the modelled document (:mod:`documents.duplicate`). The copy's name is the
+    server's to assign and the created drawing is returned.
+    """
+    upstream = await forward_documents(
+        http_request, user, "POST", f"/api/v1/drawings/{drawing_id}/duplicate"
+    )
+    if upstream.status_code != status.HTTP_201_CREATED:
         raise_upstream_error(upstream, service=_SERVICE)
     return DrawingResponse.model_validate_json(upstream.content)
 
@@ -807,10 +826,9 @@ async def export_drawing(
         drawing_id, user, http_request, format, sheet_id=sheet
     )
 
-    geometry_client: httpx.AsyncClient = http_request.app.state.geometry_client
-    composed = await forward(
-        geometry_client,
+    composed = await forward_geometry(
         http_request,
+        str(user.id),
         "POST",
         "/api/v1/drawing/compose",
         service=_GEOMETRY,
@@ -862,10 +880,9 @@ async def compose_drawing_sheet(
         drawing_id, user, http_request, "svg", sheet_id=sheet
     )
 
-    geometry_client: httpx.AsyncClient = http_request.app.state.geometry_client
-    composed = await forward(
-        geometry_client,
+    composed = await forward_geometry(
         http_request,
+        str(user.id),
         "POST",
         "/api/v1/drawing/compose/sheet",
         service=_GEOMETRY,

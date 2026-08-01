@@ -54,9 +54,11 @@ functions of their inputs — the same request yields an identical result,
 including ``mesh_glb_id`` (a content hash of a deterministic GLB).
 """
 
+import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
+from typing import Literal
 
 from build123d import Compound, Face, Plane, Solid, Vertex, Wire
 from py_kit.errors import ValidationApiError
@@ -93,6 +95,7 @@ from py_kit.schemas.features import (
     LinearPatternParamsV1,
     LoftFeature,
     MirrorFeature,
+    MirrorFeaturesScope,
     PatternFeature,
     PatternGeometry,
     RevolveFeature,
@@ -108,6 +111,11 @@ from py_kit.schemas.features import (
     iter_feature_refs,
 )
 from py_kit.schemas.geometry import MeshStats, ShapeProperties
+from py_kit.schemas.materials import (
+    MaterialKey,
+    density_kg_m3,
+    resolve_body_material,
+)
 from py_kit.schemas.sketch import classify_overconstraint
 
 from geometry.kernel import (
@@ -129,6 +137,7 @@ from geometry.kernel import (
     ImportParseTimeoutError,
     LoftError,
     MirrorError,
+    MirrorUnreachableError,
     NoAxisError,
     NoEdgesSelectedError,
     PathClosedError,
@@ -165,23 +174,29 @@ from geometry.kernel import (
     check_tap_drill_bore,
     circular_pattern,
     circular_pattern_cut,
+    circular_pattern_placements,
     combine_body,
     combine_properties,
     counterbore_tool,
     countersink_tool,
     cut_counterbore,
     cut_countersink,
+    cut_reflected_tools,
     draft_body,
     extrude_face,
     fillet_body,
+    fuse_reflected_tools,
     linear_pattern,
     linear_pattern_cut,
+    linear_pattern_placements,
     loft_sections,
     measure_shape,
     midplane_between,
     mirror_cut,
     mirror_union,
     offset_plane,
+    reflect_tools,
+    removal_reaches_body,
     resolve_axis_line,
     resolve_edge,
     resolve_face_plane,
@@ -193,9 +208,20 @@ from geometry.kernel import (
     sweep_profile,
     tessellate_glb,
 )
+from geometry.kernel.healing import body_is_valid, new_geometry_is_valid
 from geometry.kernel.lumps import lump_count
 from geometry.kernel.types import BodyShape
 from geometry.mesh_store import store_mesh_glb
+from geometry.rebuild_cache import (
+    REBUILD_CACHE_CAPACITY,
+    WARM_YIELD_SLICE_S,
+    CacheStats,
+    PrefixCache,
+    WorkGate,
+    drop_triangulation,
+    live_work,
+    prefix_keys,
+)
 from geometry.sheet_metal import (
     BendProvenance,
     CornerRelief,
@@ -256,6 +282,61 @@ def _step_import_bounds() -> tuple[float, float]:
         settings.step_import_timeout_seconds,
         settings.step_import_wall_timeout_seconds,
     )
+
+
+class InvalidBodyError(RuntimeError):
+    """A feature produced a shape ``BRepCheck`` rejects as a solid (CM-6).
+
+    Raised by :meth:`EvaluationState._admit` — the ONE funnel every body passes
+    through on its way into ``state.bodies`` — and turned into the typed
+    per-feature ``invalid_body`` error by :func:`_dispatch`. It is deliberately an
+    EXCEPTION rather than a returned :class:`FeatureError`: the gate sits inside a
+    state mutator that every one of the twenty-odd body-affecting handlers calls,
+    and threading a return value back out of each of them is exactly the
+    per-op-site plumbing that lets a guard be forgotten (the CM-5 lesson).
+    """
+
+
+#: A recorded tool group's boolean: the operation the owning feature applied to the
+#: active body, and therefore the operation a ``features``-scope mirror re-applies
+#: to the reflected tools (docs/design/mirror-semantics.md §4.1/§4.2).
+ToolOp = Literal["fuse", "cut"]
+
+
+@dataclass(frozen=True)
+class RecordedToolGroup:
+    """One (operation, tool solids) pair a feature applied to the active body.
+
+    A plain verb records exactly ONE group — an additive extrude its prism
+    (``fuse``), a hole its bore + recess (``cut``). A ``features``-scope MIRROR
+    records the concatenation of the groups it itself applied, in application
+    order, so a nested (4-fold quadrant) mirror reflects them per group —
+    mirror-semantics §4.6, the "op = per tool" row of §4.7.
+    """
+
+    op: ToolOp
+    tools: list[BodyShape]
+
+
+@dataclass(frozen=True)
+class RecordedFeatureTools:
+    """The reflectable contribution of ONE ok feature (mirror-semantics §2b).
+
+    Captured at the feature's OWN evaluation, from the body it was applied to —
+    never re-derived later against a mutated body (the FINDINGS #1/#3 lesson that
+    :meth:`EvaluationState.record_cut_tools` already encodes, generalised to every
+    mirrorable verb). ``body_id`` is the body the groups were applied to, so a
+    mirror can refuse to reflect body A's material into body B
+    (``mirror_feature_other_body``, §MB-0 / §4.4).
+    """
+
+    body_id: uuid.UUID | None
+    groups: list[RecordedToolGroup]
+
+    @property
+    def tool_count(self) -> int:
+        """Total tool solids across every group (0 == "contributed nothing")."""
+        return sum(len(group.tools) for group in self.groups)
 
 
 @dataclass
@@ -366,6 +447,29 @@ class EvaluationState:
     #: be active, so a cut on body A can never be replicated into body B (§MB-0).
     last_cut_feature_id: uuid.UUID | None = None
     last_cut_body_id: uuid.UUID | None = None
+    #: The ids named by any ``features``-scope mirror in this request — the OPT-IN
+    #: capture set (:func:`_mirror_scope_ids`, mirror-semantics §9). Only these
+    #: features retain their tools in :attr:`feature_tools`, so a tree with no such
+    #: mirror pays nothing. Set once by :func:`evaluate_tree`; never mutated after.
+    mirror_scope_ids: frozenset[uuid.UUID] = frozenset()
+    #: The reflectable contribution of each CAPTURED ok feature, keyed by feature id
+    #: and INSERTION-ORDERED BY EVALUATION ORDER — which is what makes a
+    #: ``features``-scope mirror apply its reflected tools in TREE order rather than
+    #: the UI-incidental array order (mirror-semantics §8.1, a determinism rule a
+    #: caller can observe). Service-internal, like ``bodies``.
+    feature_tools: dict[uuid.UUID, RecordedFeatureTools] = field(
+        default_factory=dict[uuid.UUID, RecordedFeatureTools]
+    )
+    #: The feature TYPE of each CAPTURED feature that evaluated ok, in evaluation
+    #: order. A mirror needs it to tell the three refusals apart: an id absent here
+    #: is not in this prefix (``reference_unresolved``); present with no
+    #: :attr:`feature_tools` entry is a kind with no reflectable contribution
+    #: (``mirror_feature_unsupported`` — every modifier, a ``body``-scope mirror, a
+    #: ``sketch``/``datum``); present WITH tools is reflectable. Only captured ids
+    #: are tracked, so this costs one dict entry per selected feature.
+    scoped_feature_types: dict[uuid.UUID, str] = field(
+        default_factory=dict[uuid.UUID, str]
+    )
 
     def record_cut_tools(self, feature_id: uuid.UUID, tools: list[Solid]) -> None:
         """Record the removal tool(s) an ok CUT feature just subtracted.
@@ -375,10 +479,50 @@ class EvaluationState:
         the exact tools that were cut, from the body they were cut from — rather
         than re-deriving them later. Called only after the cut succeeded, so the
         slot always describes material actually removed from the active body.
+
+        DELIBERATELY UNCHANGED by the v2 mirror (mirror-semantics §6.2 — the single
+        highest-risk hunk of that work). The v1 readers
+        (:func:`_mirror_cut_tools` / :func:`_pattern_cut_tools`) share this ONE slot
+        with two different documented rules, so widening it — e.g. letting the
+        revolve/sweep/loft cuts that record nothing today write here — would
+        silently change what a ``body``-scope mirror or a pattern reflects on trees
+        that have shipped goldens and locks. v2's per-feature store
+        (:meth:`record_feature_tools`) is therefore SEPARATE and additive: this slot
+        keeps exactly today's write sites and exactly today's meaning, which makes
+        the "v1 readers return an identical tool list" guarantee structural rather
+        than measured. (Extending the cut slot to the other subtractive verbs is a
+        real, separate improvement — filed in BACKLOG, not smuggled in here.)
         """
         self.last_cut_tools = tools
         self.last_cut_feature_id = feature_id
         self.last_cut_body_id = self.active_body_id
+
+    def record_feature_tools(
+        self, feature_id: uuid.UUID, op: ToolOp, tools: list[BodyShape]
+    ) -> None:
+        """Record ONE feature's reflectable contribution (mirror-semantics §2b).
+
+        A no-op unless *feature_id* is in the opt-in capture set
+        (:attr:`mirror_scope_ids`), so an ordinary rebuild retains nothing extra.
+        Called by every mirrorable verb AFTER its body op succeeded, so the record
+        always describes material actually applied to :attr:`active_body_id`.
+        """
+        self.record_feature_tool_groups(feature_id, [RecordedToolGroup(op, tools)])
+
+    def record_feature_tool_groups(
+        self, feature_id: uuid.UUID, groups: list[RecordedToolGroup]
+    ) -> None:
+        """:meth:`record_feature_tools` for a feature with SEVERAL ops.
+
+        Only a ``features``-scope mirror needs this: its contribution is the ordered
+        sequence of (op, reflected tools) it applied, which a nested mirror replays
+        per group (§4.6).
+        """
+        if feature_id not in self.mirror_scope_ids:
+            return
+        self.feature_tools[feature_id] = RecordedFeatureTools(
+            body_id=self.active_body_id, groups=groups
+        )
 
     @property
     def active_body(self) -> BodyShape | None:
@@ -393,25 +537,65 @@ class EvaluationState:
             return None
         return self.bodies[self.active_body_id]
 
+    def _admit(self, shape: BodyShape, *consumed: BodyShape) -> BodyShape:
+        """The INVALID-BODY GATE (CM-6) — every body enters ``bodies`` through here.
+
+        A body OCCT itself calls invalid used to be tessellated into the viewport,
+        measured for mass properties and written to STEP with every feature
+        reporting ``ok`` (docs/QA-REVIEW.md QA-1: 31865.9587 mm^3 against an
+        analytic 30793.6284, ``Shape.is_valid`` false). Nothing asked. This asks,
+        once, at the ONE place a shape becomes part of the part — see
+        :func:`geometry.kernel.healing.body_is_valid` for why the gate lives at this
+        funnel and not in each of the twenty-odd kernel ops or at the export
+        boundary.
+
+        *consumed* names the operand body(-ies) this op transformed, and is what
+        makes the gate PROPORTIONAL rather than O(features x faces): the check runs
+        over the faces the op actually produced plus their neighbours
+        (:func:`~geometry.kernel.healing.new_geometry_is_valid`, docs/PERF.md fix
+        #2 — 22 % of an N=200 rebuild). Passing nothing keeps the whole-body check,
+        which is what a body being STARTED (first extrude / ``merge=False`` /
+        import) gets. The publish-time whole-body re-check in
+        :func:`evaluate_tree` is unchanged and is what still makes "no invalid body
+        reaches the viewport, mass properties or STEP" absolute.
+
+        Raises:
+            InvalidBodyError: ``BRepCheck`` rejects *shape*. :func:`_dispatch`
+                turns it into a typed per-feature ``invalid_body`` error, so the
+                tree stops at the offending feature and the last-good body — which
+                this method has NOT overwritten — is what the viewport shows.
+        """
+        if not new_geometry_is_valid(shape, consumed):
+            raise InvalidBodyError(
+                "This feature produced a body OCCT rejects as an invalid solid "
+                "(BRepCheck), so its volume, mesh and STEP export cannot be "
+                "trusted. The part is left at the last valid feature."
+            )
+        return shape
+
     def set_active_body(self, shape: BodyShape) -> None:
         """Replace the ACTIVE body's current shape (a modifying feature result).
 
         Keeps the body's identity slot (its base feature id) so downstream refs
         keep resolving; asserts an active body exists (callers gate on it). The
         shape may be a single solid or a lump-count-preserving multi-lump
-        Compound (§MB-4).
+        Compound (§MB-4). Gated by :meth:`_admit` (CM-6).
         """
         assert self.active_body_id is not None, "no active body to modify"
-        self.bodies[self.active_body_id] = shape
+        self.bodies[self.active_body_id] = self._admit(
+            shape, self.bodies[self.active_body_id]
+        )
 
     def start_body(self, base_id: uuid.UUID, shape: BodyShape) -> None:
         """Insert a NEW body keyed by its base feature id and make it active.
 
         The second-body path (``merge=False`` / ``import`` / the first body): a
         body's identity IS its base feature id (§MB-0 Decision 1), so the key is
-        the creating feature's id and it becomes the resolution target.
+        the creating feature's id and it becomes the resolution target. Gated by
+        :meth:`_admit` (CM-6) — including an IMPORTED body, which is the one shape
+        the kernel did not build itself and so the one it should trust least.
         """
-        self.bodies[base_id] = shape
+        self.bodies[base_id] = self._admit(shape)
         self.active_body_id = base_id
 
     def combine_bodies(
@@ -425,9 +609,12 @@ class EvaluationState:
         every downstream ref to the surviving body keeps resolving — and the TOOL
         body is REMOVED from the set (consumed). The combined body becomes active.
         Callers verify both ids name distinct current bodies first. *shape* may be
-        a single solid or a multi-lump Compound (a disjoint boolean, §MB-4).
+        a single solid or a multi-lump Compound (a disjoint boolean, §MB-4). Gated
+        by :meth:`_admit` (CM-6).
         """
-        self.bodies[target_id] = shape
+        self.bodies[target_id] = self._admit(
+            shape, self.bodies[target_id], self.bodies[tool_id]
+        )
         del self.bodies[tool_id]
         self.active_body_id = target_id
 
@@ -437,6 +624,33 @@ class EvaluationState:
 #: outcomes are values, never exceptions. Handlers mutate ``state`` only on
 #: the success path.
 FeatureHandler = Callable[[EvaluatedFeatureInput, EvaluationState], FeatureError | None]
+
+
+def _mirror_scope_ids(request: EvaluateTreeRequest) -> frozenset[uuid.UUID]:
+    """Every feature id named by a ``features``-scope mirror in *request*.
+
+    The OPT-IN pre-pass of docs/design/mirror-semantics.md §9, the same posture
+    ``body_history`` took for per-face provenance (audit H4: only the caller that
+    needs the retained intermediates funds them). v1 retained exactly ONE tool list
+    (the most recent cut); v2 must retain a tool list for every feature some mirror
+    might name, which without a gate would grow with tree length x tool complexity
+    for the whole evaluation. The selection is known BEFORE evaluation starts, so
+    only these ids retain their tools — a tree with no ``features``-scope mirror
+    pays ZERO additional memory, which is also why the widening cannot regress an
+    existing document's rebuild cost.
+
+    Suppressed mirrors are included deliberately: unsuppressing one must not need a
+    different capture set (a rebuild is a pure function of the tree, and this keeps
+    the captured set independent of evaluation outcomes).
+    """
+    ids: set[uuid.UUID] = set()
+    for item in request.features:
+        feature = item.feature
+        if isinstance(feature, MirrorFeature) and isinstance(
+            feature.params.scope, MirrorFeaturesScope
+        ):
+            ids.update(ref.feature_id for ref in feature.params.scope.features)
+    return frozenset(ids)
 
 
 def _add_body(
@@ -453,6 +667,12 @@ def _add_body(
     keyed by this feature's id (``item.id`` — the base-feature-keyed identity of
     §MB-0 Decision 1). ``state.bodies`` is mutated only on success (last-good
     semantics, §4.3). Shared by extrude/revolve/sweep/loft ADD (CLAUDE.md DRY).
+
+    On success the tool is RECORDED as this feature's reflectable contribution
+    (:meth:`EvaluationState.record_feature_tools`, opt-in) so a ``features``-scope
+    mirror can reflect it and re-fuse — mirror-semantics §4.1. Recorded AFTER the
+    body op so the record names the body the tool actually landed in (a base feature
+    keys its own new body).
     """
     if merge and state.active_body_id is not None:
         active = state.active_body
@@ -462,12 +682,16 @@ def _add_body(
         except BooleanError as exc:
             return FeatureError(code="boolean_failed", message=str(exc))
         state.set_active_body(fused)
+        state.record_feature_tools(item.id, "fuse", [tool])
         return None
     state.start_body(item.id, tool)
+    state.record_feature_tools(item.id, "fuse", [tool])
     return None
 
 
-def _cut_active(state: EvaluationState, tool: Solid) -> FeatureError | None:
+def _cut_active(
+    state: EvaluationState, tool: Solid, *, feature_id: uuid.UUID
+) -> FeatureError | None:
     """Subtract *tool* from the ACTIVE body (a modifying op — §MB-0).
 
     The caller has already verified an active body exists (``no_prior_body``
@@ -475,6 +699,25 @@ def _cut_active(state: EvaluationState, tool: Solid) -> FeatureError | None:
     cannot reach the body is the typed ``cut_removed_nothing`` (CM-3) — the same
     honesty the Hole feature has always had (``hole_off_body``), so a revolve /
     sweep / loft cut into free space is never a successful no-op.
+
+    On success the removal tool is recorded TWICE, into the two stores that answer
+    two different questions (and this is the ONE funnel where all three
+    non-extrude cuts do it, so no verb can be forgotten):
+
+    * :meth:`EvaluationState.record_cut_tools` — the v1 cut slot a ``body``-scope
+      mirror and a ``pattern`` read. **Widened to these three verbs 2026-07-30**
+      (CM-5): while they recorded nothing, a ``body``-scope mirror after a
+      revolve/sweep/loft cut had no cut on record, took ``mirror_union``, and the
+      reflection FILLED the void — measured on the matrix plate as the literal
+      featureless brick (63999.999999999985 mm^3, **6 faces / 12 edges**, i.e. the
+      bare 80x80x10 plate) where 62994.6904 / 62720.0 / 61973.3333 are correct.
+      That is the FINDINGS #2 silent-wrong-geometry class, so rarity of the chain
+      does not soften it. The widening is safe for existing trees because it only
+      ADDS records for verbs that had none: neither reader's RULE changes, and
+      both were measured to return an identical tool list on every chain the suite
+      exercises (docs/GEOMETRY-QA.md 2026-07-30).
+    * :meth:`EvaluationState.record_feature_tools` — the opt-in per-feature v2
+      store a ``features``-scope mirror reflects (mirror-semantics §4.2).
     """
     active = state.active_body
     assert active is not None, "cut without an active body is handled by the caller"
@@ -484,6 +727,8 @@ def _cut_active(state: EvaluationState, tool: Solid) -> FeatureError | None:
         return FeatureError(code="cut_removed_nothing", message=str(exc))
     except BooleanError as exc:
         return FeatureError(code="boolean_failed", message=str(exc))
+    state.record_cut_tools(feature_id, [tool])
+    state.record_feature_tools(feature_id, "cut", [tool])
     return None
 
 
@@ -889,6 +1134,7 @@ def _evaluate_extrude_cut(
         return FeatureError(code="boolean_failed", message=str(exc))
     state.set_active_body(body)
     state.record_cut_tools(feature_id, tools)
+    state.record_feature_tools(feature_id, "cut", list(tools))
     return None
 
 
@@ -1345,7 +1591,7 @@ def _evaluate_revolve(
         return FeatureError(code="revolve_failed", message=str(exc))
 
     if params.operation == "cut":
-        return _cut_active(state, tool)
+        return _cut_active(state, tool, feature_id=item.id)
     return _add_body(item, state, tool, merge=params.merge)
 
 
@@ -1434,7 +1680,7 @@ def _evaluate_sweep(
         return FeatureError(code="sweep_failed", message=str(exc))
 
     if params.operation == "cut":
-        return _cut_active(state, tool)
+        return _cut_active(state, tool, feature_id=item.id)
     return _add_body(item, state, tool, merge=params.merge)
 
 
@@ -1520,7 +1766,7 @@ def _evaluate_loft(
         return FeatureError(code="loft_failed", message=str(exc))
 
     if params.operation == "cut":
-        return _cut_active(state, tool)
+        return _cut_active(state, tool, feature_id=item.id)
     return _add_body(item, state, tool, merge=params.merge)
 
 
@@ -1903,6 +2149,7 @@ def _evaluate_hole(
             )
         )
     state.record_cut_tools(item.id, tools)
+    state.record_feature_tools(item.id, "cut", list(tools))
     return None
 
 
@@ -1998,6 +2245,56 @@ def _apply_pattern(
     )
 
 
+def _pattern_placements(
+    sources: list[BodyShape], geometry: PatternGeometry
+) -> list[BodyShape]:
+    """The ``k = 1..count-1`` placements of *sources* — the SAME kernel helpers
+    :func:`_apply_pattern`'s ops use internally (CLAUDE.md DRY), so a recorded
+    contribution can never drift from what the pattern applied."""
+    if isinstance(geometry, LinearPatternParamsV1):
+        direction = (geometry.direction.x, geometry.direction.y, geometry.direction.z)
+        return linear_pattern_placements(
+            sources, direction, geometry.spacing_mm, geometry.count
+        )
+    assert isinstance(geometry, CircularPatternParamsV1)  # closed union
+    axis_point = (geometry.axis_point.x, geometry.axis_point.y, geometry.axis_point.z)
+    axis_direction = (
+        geometry.axis_direction.x,
+        geometry.axis_direction.y,
+        geometry.axis_direction.z,
+    )
+    return circular_pattern_placements(
+        sources, axis_point, axis_direction, geometry.angle_deg, geometry.count
+    )
+
+
+def _pattern_contribution(
+    body: BodyShape, geometry: PatternGeometry, tools: list[Solid] | None
+) -> RecordedToolGroup:
+    """What a SUCCEEDED pattern contributed, as one reflectable group (§4.5).
+
+    A pattern's contribution is its ``count - 1`` PLACED rigid instances — placed
+    tool copies (cut) or placed whole-body copies (add). Recording and reflecting
+    those PLACEMENTS, rather than the pattern's parameters, is what makes a
+    reflected CIRCULAR pattern correct: a reflection reverses handedness, so a
+    re-derived ring with the same positive ``angle_deg`` about the reflected axis
+    would wind backwards (mirror-semantics §4.5). ``count == 1`` yields an empty
+    group — a no-op pattern contributed nothing to reflect.
+
+    Mirrors :func:`_apply_pattern`'s branch structure including its vacuous-cut
+    FALLBACK: when no placed tool copy can reach the body the kernel replicated the
+    WHOLE body instead, so the contribution is those body copies under ``fuse``.
+    Called only after the pattern succeeded, so the shared validation inside the
+    placement helpers cannot raise here. Locked against drift by
+    ``test_recorded_pattern_contribution_reproduces_the_pattern``.
+    """
+    if tools is not None:
+        cut_copies = _pattern_placements(list(tools), geometry)
+        if cut_copies and removal_reaches_body(body, cut_copies):
+            return RecordedToolGroup("cut", cut_copies)
+    return RecordedToolGroup("fuse", _pattern_placements([body], geometry))
+
+
 def _evaluate_pattern(
     item: EvaluatedFeatureInput, state: EvaluationState
 ) -> FeatureError | None:
@@ -2041,7 +2338,7 @@ def _evaluate_pattern(
 
     tools = _pattern_cut_tools(state)
     try:
-        state.set_active_body(_apply_pattern(active, feature.params.pattern, tools))
+        patterned = _apply_pattern(active, feature.params.pattern, tools)
     except PatternCountError as exc:
         return FeatureError(code="pattern_bad_count", message=str(exc))
     except PatternSpacingError as exc:
@@ -2056,7 +2353,180 @@ def _evaluate_pattern(
         return FeatureError(code="pattern_disjoint", message=str(exc))
     except PatternError as exc:
         return FeatureError(code="pattern_failed", message=str(exc))
+    # Record BEFORE the body is replaced: the contribution is derived from the
+    # PRE-pattern body (the source the placements were made from), exactly as a cut
+    # records its tools from the pre-cut body (FINDINGS #1/#3). Opt-in, so an
+    # unreferenced pattern pays neither the placement rebuild nor the retention.
+    if item.id in state.mirror_scope_ids:
+        contribution = _pattern_contribution(active, feature.params.pattern, tools)
+        state.set_active_body(patterned)
+        state.record_feature_tool_groups(item.id, [contribution])
+        return None
+    state.set_active_body(patterned)
     return None
+
+
+#: Feature kinds a ``features``-scope mirror can reflect
+#: (docs/design/mirror-semantics.md §4.7): those whose contribution is a RIGID TOOL
+#: plus one boolean. Everything else is refused with a typed
+#: ``mirror_feature_unsupported`` — every MODIFIER (fillet/chamfer/shell/draft and
+#: the sheet-metal fold/flange/relief family) has a RESULT and no tool, and §4.3
+#: refuses those in writing rather than approximating them with a
+#: ``before.cut(after)`` delta sliver: that sliver is only the right removal where
+#: the reflected side is CONGRUENT to the original, and elsewhere it cuts a groove
+#: that is a fillet of nothing — a valid, closed, plausible, WRONG body (the
+#: silent-retarget failure class, and strictly worse than an error because a user's
+#: own part has no golden). A ``boolean`` is refused because its contribution is a
+#: two-body operation, not a tool. Membership here is necessary, not sufficient: a
+#: reflectable kind must ALSO have recorded tools (a ``body``-scope mirror is a
+#: ``mirror`` that records nothing, §4.6).
+_MIRROR_REFLECTABLE_TYPES: frozenset[str] = frozenset(
+    {"extrude", "revolve", "sweep", "loft", "hole", "pattern", "mirror", "import"}
+)
+
+
+def _mirror_selection_in_tree_order(
+    scope: MirrorFeaturesScope, state: EvaluationState
+) -> list[uuid.UUID]:
+    """The selected ids in EVALUATION order, ignoring the array order (§8.1).
+
+    Array order is UI-incidental (it depends on the order the user ctrl-clicked), so
+    honouring it would make identical models tessellate to different bytes; tree
+    order replays the selected sub-chain in the same relative order the original side
+    was built in, which is what makes composition sound (chain A's hole-then-boss
+    reflects as cut-then-fuse, matching the original). ``scoped_feature_types`` is
+    insertion-ordered by evaluation, so filtering it IS tree order — a total order
+    derived from the tree, hence a pure function of it (RESEARCH §9).
+    """
+    selected = {ref.feature_id for ref in scope.features}
+    return [fid for fid in state.scoped_feature_types if fid in selected]
+
+
+def _evaluate_mirror_features(
+    scope: MirrorFeaturesScope,
+    state: EvaluationState,
+    active: BodyShape,
+    plane: Plane,
+) -> FeatureError | list[RecordedToolGroup]:
+    """Reflect the RECORDED TOOLS of an explicit feature selection (v2, §4).
+
+    The v2 mechanism, uniform across kinds: for each selected feature in TREE order
+    (§8.1), reflect the rigid tool solid(s) it recorded at its OWN evaluation and
+    re-apply THAT feature's own boolean — ``fuse`` for an additive contributor,
+    ``cut`` for a subtractive one. Parameters are never re-derived, which is what
+    keeps a reflected circular pattern correct (§4.5) and what makes this shippable
+    without any topological-naming machinery: no reference is resolved on the
+    reflected side (§7.1), so there is no new ``subshape_unresolved`` /
+    ``subshape_ambiguous`` surface and stage-1's residual silent-retarget hole is not
+    widened.
+
+    Typed per-feature refusals (§8.2), each pinned to the offending SELECTED feature
+    via ``upstream_feature_id`` so the UI can name the true cause:
+
+    * ``reference_unresolved`` — the id is not a feature of this evaluated prefix
+      (documents 422s a forward/self/missing ref at write time; this is the backstop);
+    * ``mirror_feature_unsupported`` — the named kind has no reflectable
+      contribution: a MODIFIER (§4.3), a non-body-affecting ``sketch``/``datum``
+      (§4.4), a ``boolean``, or a ``body``-scope MIRROR (§4.6 — its contribution is a
+      whole-body reflection whose delta is not a tool; converting the inner mirror to
+      a ``features`` scope makes the 4-fold quadrant nesting work);
+    * ``mirror_feature_other_body`` — the tools were recorded against a different
+      body than the active one (§MB-0: material from body A never crosses into B);
+    * ``mirror_feature_unreachable`` — a reflected cut removes nothing. v1 had to
+      fall back to ``mirror_union`` there because it was guessing between two
+      workflows; an explicit selection has nothing to guess, so this is an honest
+      error (§4.2);
+    * ``mirror_feature_not_evaluated`` — nothing was recorded for any selected
+      feature, so the mirror would be a silent no-op (the no-silent-no-op rule that
+      also motivates ``min_length=1``).
+
+    Returns the REFLECTED groups it applied (in application order) so the caller can
+    record them for an OUTER mirror to reflect in turn — a composition of two
+    reflections is an exact isometry, so ``features: [base, hole, mirror1]`` populates
+    all four quadrants exactly (§4.6). The active body is replaced only after EVERY
+    selected feature applied, so a mid-sequence failure leaves the last-good body
+    untouched (§4.3).
+    """
+    for ref in scope.features:
+        if ref.feature_id not in state.scoped_feature_types:
+            return FeatureError(
+                code="reference_unresolved",
+                message=(
+                    "Mirror scope must reference features of this evaluated tree "
+                    "prefix; the named feature is missing, defined later, "
+                    "rolled back, or did not evaluate."
+                ),
+                upstream_feature_id=ref.feature_id,
+            )
+
+    applied: list[RecordedToolGroup] = []
+    body = active
+    for feature_id in _mirror_selection_in_tree_order(scope, state):
+        record = state.feature_tools.get(feature_id)
+        if record is None:
+            kind = state.scoped_feature_types[feature_id]
+            return FeatureError(
+                code="mirror_feature_unsupported",
+                message=(
+                    f"A '{kind}' feature cannot be mirrored: it has no rigid tool "
+                    "to reflect, only a result. Modifiers (fillet, chamfer, shell, "
+                    "draft, sheet-metal folds), booleans and whole-body mirrors are "
+                    "not selectable — reflecting an approximation of one would "
+                    "produce a plausible but wrong body."
+                ),
+                upstream_feature_id=feature_id,
+            )
+        if record.body_id != state.active_body_id:
+            return FeatureError(
+                code="mirror_feature_other_body",
+                message=(
+                    "The selected feature contributed to a different body than the "
+                    "one this mirror acts on, so reflecting it would move material "
+                    "between bodies. Mirror it while its own body is active."
+                ),
+                upstream_feature_id=feature_id,
+            )
+        for group in record.groups:
+            if not group.tools:
+                continue
+            try:
+                reflected = reflect_tools(group.tools, plane)
+                if group.op == "cut":
+                    body = cut_reflected_tools(body, reflected)
+                else:
+                    body = fuse_reflected_tools(body, reflected)
+            except MirrorUnreachableError as exc:
+                return FeatureError(
+                    code="mirror_feature_unreachable",
+                    message=(
+                        f"{exc} The selected feature's removal reflects clear of the "
+                        "body — check the mirror plane and the selection."
+                    ),
+                    upstream_feature_id=feature_id,
+                )
+            except MirrorError as exc:
+                return FeatureError(
+                    code="mirror_failed",
+                    message=str(exc),
+                    upstream_feature_id=feature_id,
+                )
+            # The REFLECTED solids, not the sources: a nested mirror reflects what
+            # this one placed (§4.6). Retained only when some outer mirror named this
+            # feature — the caller checks the opt-in set before using them.
+            applied.append(RecordedToolGroup(group.op, reflected))
+
+    if not applied:
+        return FeatureError(
+            code="mirror_feature_not_evaluated",
+            message=(
+                "None of the selected features recorded any geometry to reflect, so "
+                "this mirror would do nothing. Check the selection (a count-1 "
+                "pattern contributes no instances)."
+            ),
+        )
+
+    state.set_active_body(body)
+    return applied
 
 
 def _evaluate_mirror(
@@ -2072,6 +2542,17 @@ def _evaluate_mirror(
     a plane that names a missing / later / non-datum feature is a
     ``reference_unresolved`` pinned to the referenced feature (documents rejects it
     at write time; geometry re-checks because it must not trust its callers).
+
+    v2 (docs/design/mirror-semantics.md): ``params.scope`` states WHAT is reflected.
+    ``scope.kind == "features"`` dispatches to :func:`_evaluate_mirror_features`;
+    ``scope.kind == "body"`` — which is also what a persisted pre-v2 mirror with no
+    ``scope`` key normalises to — runs the v1 body below VERBATIM. That is why the
+    shipped mirror goldens' byte identity is STRUCTURAL rather than measured (§3.2 /
+    §6.1): the elegant unification ("mirror the body" == "mirror every preceding
+    body-affecting feature") is available and REFUSED, because the goldens assert
+    byte-identical GLB, which is sensitive to B-rep face ORDER, and the two paths
+    hand OCCT different boolean sequences. Keeping both branches costs one ``if``
+    and buys the guarantee.
 
     Two combine modes, chosen from the MOST RECENT cut of this body
     (:func:`_mirror_cut_tools`) — the same cut-awareness the pattern has, but
@@ -2113,6 +2594,16 @@ def _evaluate_mirror(
     plane = resolve_sketch_plane(feature.params.plane, state)
     if isinstance(plane, FeatureError):
         return plane
+
+    scope = feature.params.scope
+    if isinstance(scope, MirrorFeaturesScope):
+        applied = _evaluate_mirror_features(scope, state, active, plane)
+        if isinstance(applied, FeatureError):
+            return applied
+        # Record what this mirror applied so an OUTER `features`-scope mirror can
+        # reflect it (the 4-fold quadrant workflow, §4.6). Opt-in.
+        state.record_feature_tool_groups(item.id, applied)
+        return None
 
     tools = _mirror_cut_tools(state)
     try:
@@ -2183,6 +2674,9 @@ def _evaluate_import(
     # imported body is a bare Solid (one solid) OR a lump-sorted Compound (a
     # multi-solid file → ONE multi-lump body, §MB-4), never N bodies.
     state.start_body(item.id, body)
+    # The imported body IS this feature's rigid contribution, so it reflects and
+    # re-fuses like any additive tool (mirror-semantics §4.1). Opt-in.
+    state.record_feature_tools(item.id, "fuse", [body])
     return None
 
 
@@ -2283,7 +2777,7 @@ def _evaluate_boolean(
 #: so a pattern can infer its combine mode from the immediately-preceding
 #: body-affecting feature (BACKLOG #3, :func:`_pattern_cut_tools`). Sketch/datum
 #: are absent — they produce input geometry / a plane, never a body.
-_BODY_AFFECTING_TYPES: frozenset[str] = frozenset(
+BODY_AFFECTING_TYPES: frozenset[str] = frozenset(
     {
         "extrude",
         "revolve",
@@ -2347,6 +2841,13 @@ def _dispatch(
         )
     try:
         return handler(item, state)
+    except InvalidBodyError as exc:
+        # The CM-6 gate: the handler built a body OCCT calls invalid, and
+        # EvaluationState refused to install it. A typed code, not the generic
+        # `evaluation_failed`, because the user can act on it (the previous
+        # feature's body is intact and the geometry that broke is this one's) and
+        # because a silent wrong solid is precisely what this replaces.
+        return FeatureError(code="invalid_body", message=str(exc))
     except Exception as exc:
         # Belt and braces (§4.3): a handler bug must surface as a per-feature
         # error pinned to the failing feature, not a 500 for the whole tree.
@@ -2390,6 +2891,19 @@ class TreeEvaluation:
     a single :class:`~build123d.Solid`, or a :class:`~build123d.Compound` of a
     multi-body part's disjoint solids (§MB-0); never serialized), and the
     tessellation artifact ``glb``/``mesh`` that ``mesh_glb_id`` addresses.
+
+    **OWNERSHIP — this object is the handle on its kernel shapes, so a caller
+    that keeps a shape must keep the evaluation** (docs/PERF.md fix #1). The
+    rebuild cache offers this evaluation's prefix as a resume point only once
+    THIS object is unreachable, because a resuming rebuild mutates those shapes
+    in place (OCCT booleans rewrite their arguments' subshapes — CM-6b). So
+    ``body = evaluate_tree(request).body`` is a bug: it drops the handle while
+    keeping the thing it protects, and a concurrent rebuild of the same tree may
+    then modify that body underneath you. Keep the evaluation for as long as you
+    use anything it gave you (``assembly/evaluate.py`` retains it for exactly
+    this reason). The claim cannot be moved onto the shapes themselves — the
+    checkpoint holds them, so a token pinned there is never collectable; see
+    :meth:`geometry.rebuild_cache.PrefixCache.store_on_release`.
     """
 
     result: EvaluateTreeResult
@@ -2499,42 +3013,176 @@ def _suppressed_reference_error(
     return None
 
 
-def evaluate_tree(
-    request: EvaluateTreeRequest, *, record_history: bool = False
-) -> TreeEvaluation:
-    """Evaluate an ordered feature prefix under the strict-prefix rule (§4.3).
+def _blame_invalidated_body(
+    results: list[FeatureResult], last_good_feature_id: uuid.UUID | None
+) -> list[FeatureResult]:
+    """Turn the last-good feature's ``ok`` into the typed ``invalid_body`` error.
 
-    Suppressed features (§4.3a) are SKIPPED: the body is built from the
-    non-suppressed prefix and each subsequent non-suppressed feature evaluates
-    off the last non-suppressed body. A non-suppressed feature that references a
-    suppressed one is a typed ``references_suppressed`` error
-    (:func:`_suppressed_reference_error`), never a raise.
-
-    *record_history* (OPT-IN, audit H4) turns on the per-feature body snapshots
-    that feed per-face provenance (:attr:`TreeEvaluation.body_history`). It is off
-    by default because ONLY the overlay service consumes them, while
-    ``evaluate_tree`` has nine call sites — tessellate, export, measure, drawing
-    compose, per-instance assembly evaluation, the golden harness. Recording
-    unconditionally made every one of those retain an intermediate B-rep per
-    body-affecting feature (up to ``MAX_TREE_FEATURES``, and per unique part in an
-    assembly) plus, for a multi-body part, CONSTRUCT a fresh ``Compound`` per
-    feature — real OCCT work on the tessellate hot path, funded by callers that
-    never read the result. With it off, each intermediate body dies as the next
-    feature supersedes it, exactly as before provenance existed.
-
-    Deterministic: same request → identical statuses, identical solved
-    positions, byte-identical GLB and therefore identical ``mesh_glb_id``
-    (RESEARCH §9) — and *record_history* changes NOTHING about the evaluated
-    geometry, only whether the intermediates are kept. Never raises for geometry
-    outcomes.
+    Only used by the CM-6b publish-time re-check, and only when NO feature failed
+    on its own: the body every feature reported ``ok`` for is invalid by the time
+    it would be measured, so exactly one result is a lie and it is the one whose
+    artifact the part is showing. Re-stating it as an error is what makes the tree
+    honest end to end — the alternative (all-``ok`` statuses beside a part with no
+    body) reads as a bug in the viewport rather than a defect in the model.
     """
-    state = EvaluationState(linear_deflection=request.linear_deflection)
-    results: list[FeatureResult] = []
-    last_good_feature_id: uuid.UUID | None = None
-    suppressed_ids: set[uuid.UUID] = set()
-    failed = False
+    return [
+        FeatureResult(
+            feature_id=result.feature_id,
+            status="error",
+            error=FeatureError(
+                code="invalid_body",
+                message=(
+                    "The body this feature produced was valid when it was built "
+                    "and is not valid now: a later operation modified it in place "
+                    "and OCCT rejects the result. Its volume, mesh and STEP export "
+                    "would be wrong, so none are published."
+                ),
+            ),
+        )
+        if result.feature_id == last_good_feature_id and result.status == "ok"
+        else result
+        for result in results
+    ]
 
-    for item in request.features:
+
+@dataclass
+class _PublishedArtifacts:
+    """Everything :func:`evaluate_tree` derives AFTER the dispatch loop.
+
+    Memoised on a checkpoint so a repeat of the SAME tree — the ``/measure``,
+    ``/tessellate``, ``/export`` and drawings-compose calls that follow an
+    ``/evaluate``, each of which used to pay its own full rebuild (docs/PERF.md)
+    — skips the re-measure and the re-tessellation too, not just the rebuild.
+    Reused ONLY when the resume consumed zero further features AND the resolved
+    per-body material is unchanged, because that is exactly the input the
+    measurement (and therefore ``mass_g``) depends on; everything else these
+    values derive from is already pinned by the prefix key.
+    """
+
+    body_materials: dict[uuid.UUID, MaterialKey | None]
+    body_measures: dict[uuid.UUID, ShapeProperties]
+    properties: ShapeProperties
+    shape: BodyShape
+    glb: bytes
+    mesh: MeshStats
+
+
+@dataclass
+class _Checkpoint:
+    """One cached prefix: the evaluator state, plus what it had produced.
+
+    The cache owns this EXCLUSIVELY (see :mod:`geometry.rebuild_cache`) — nothing
+    is copied on the way in or out, which is what makes a resumed rebuild
+    byte-identical to a cold one.
+    """
+
+    state: EvaluationState
+    results: list[FeatureResult]
+    last_good_feature_id: uuid.UUID | None
+    suppressed_ids: frozenset[uuid.UUID]
+    artifacts: _PublishedArtifacts | None
+
+    def detach(self) -> None:
+        """Drop the triangulation the producing request left on these shapes.
+
+        Required for byte-exactness, not hygiene: a body that still carries a
+        ``Poly_Triangulation`` from a previous tessellate/STL/STEP call meshes
+        DIFFERENTLY once a further boolean has been applied to it (measured on
+        the docs/PERF.md tray: appending one feature to an already-tessellated
+        body moved the final GLB; ``BRepTools::Clean`` on the stored bodies made
+        it byte-exact again at every prefix length tried). Everything the state
+        can hand to a mesher is cleaned — a new shape-bearing field on
+        :class:`EvaluationState` belongs in this list.
+        """
+        for shape in (
+            *self.state.bodies.values(),
+            self.state.sheet_metal_unfold_body,
+            *(self.state.last_cut_tools or ()),
+            *(
+                tool
+                for recorded in self.state.feature_tools.values()
+                for group in recorded.groups
+                for tool in group.tools
+            ),
+        ):
+            if shape is not None:
+                drop_triangulation(shape)
+
+
+#: The per-worker rebuild cache (docs/PERF.md fix #1). Process-global like the
+#: mesh and STEP-parse caches, and like them a pure performance optimisation:
+#: every miss is answered by evaluating the tree.
+_REBUILD_CACHE: PrefixCache[_Checkpoint] = PrefixCache(REBUILD_CACHE_CAPACITY)
+
+
+def reset_rebuild_cache() -> None:
+    """Empty the rebuild cache (test isolation seam; production never calls it).
+
+    A test that asserts a COLD rebuild — a timing, a determinism gate, or a miss
+    path — must not be served a checkpoint warmed by an earlier test in the same
+    process.
+    """
+    _REBUILD_CACHE.clear()
+
+
+def rebuild_cache_stats() -> CacheStats:
+    """Hit/miss counters of the per-worker rebuild cache (tests + diagnostics)."""
+    return _REBUILD_CACHE.stats
+
+
+def _published_artifacts(
+    body_materials: dict[uuid.UUID, MaterialKey | None],
+    body_measures: dict[uuid.UUID, ShapeProperties],
+    properties: ShapeProperties | None,
+    shape: BodyShape | None,
+    glb: bytes | None,
+    mesh: MeshStats | None,
+) -> _PublishedArtifacts | None:
+    """The memoisable artifact set, or ``None`` for a tree that published none.
+
+    A body-less prefix (sketches only, or a first extrude that failed) has
+    nothing to memoise and nothing to save — the publish step for it is already
+    free.
+    """
+    if shape is None or properties is None or glb is None or mesh is None:
+        return None
+    return _PublishedArtifacts(
+        body_materials=body_materials,
+        body_measures=body_measures,
+        properties=properties,
+        shape=shape,
+        glb=glb,
+        mesh=mesh,
+    )
+
+
+def _dispatch_prefix(
+    features: Sequence[EvaluatedFeatureInput],
+    state: EvaluationState,
+    results: list[FeatureResult],
+    suppressed_ids: set[uuid.UUID],
+    last_good_feature_id: uuid.UUID | None,
+    *,
+    record_history: bool,
+    stop: Callable[[], bool] | None = None,
+) -> tuple[uuid.UUID | None, bool, int]:
+    """The ordered dispatch pass (§4.2/§4.3), shared by evaluate and warm.
+
+    Mutates *state*, *results* and *suppressed_ids* in place and returns
+    ``(last_good_feature_id, failed, consumed)``. *stop* is polled BEFORE each
+    feature: a warm that is cancelled or out of budget stops cleanly on a feature
+    boundary, having produced a genuine (shorter) prefix — there is no way to
+    interrupt one OCCT call, and pretending otherwise would be a lie about the
+    bound. ONE implementation on purpose: a speculative warm that dispatched
+    features differently from a real evaluation would eventually cache a state a
+    real evaluation would not have produced.
+    """
+    failed = False
+    consumed = 0
+    for item in features:
+        if not failed and stop is not None and stop():
+            break
+        consumed += 1
         if failed:
             results.append(FeatureResult(feature_id=item.id, status="skipped"))
             continue
@@ -2562,12 +3210,19 @@ def evaluate_tree(
                 )
             )
             last_good_feature_id = item.id
+            # Remember the TYPE of every captured feature, in evaluation order: a
+            # `features`-scope mirror reads it to tell "not in this prefix"
+            # (reference_unresolved) from "in the prefix but not reflectable"
+            # (mirror_feature_unsupported), and the insertion order IS the tree order
+            # its reflected tools are applied in (mirror-semantics §8.1).
+            if item.id in state.mirror_scope_ids:
+                state.scoped_feature_types[item.id] = item.feature.type
             # Advance the last ok body-affecting feature id so the NEXT feature (a
             # pattern) can tell whether the recorded cut tools came from its
             # IMMEDIATE predecessor (BACKLOG #3, `_pattern_cut_tools`). Set AFTER
             # dispatch, so a pattern reads the feature BEFORE it, then this
             # advances to the pattern itself.
-            if item.feature.type in _BODY_AFFECTING_TYPES:
+            if item.feature.type in BODY_AFFECTING_TYPES:
                 state.prev_body_feature_id = item.id
                 # Snapshot the body set for per-face feature provenance
                 # (FINDINGS #9): each final face is attributed to the earliest
@@ -2582,6 +3237,339 @@ def evaluate_tree(
                 FeatureResult(feature_id=item.id, status="error", error=error)
             )
             failed = True
+    return last_good_feature_id, failed, consumed
+
+
+def warm_rebuild_cache(
+    request: EvaluateTreeRequest,
+    *,
+    prefix_length: int | None = None,
+    record_history: bool = False,
+    budget_s: float | None = None,
+    cancelled: Callable[[], bool] | None = None,
+    yield_to: WorkGate | None = None,
+) -> int:
+    """Evaluate *request*'s prefix into the cache WITHOUT publishing anything.
+
+    The prefetch seam (docs/PERF.md / :mod:`geometry.rebuild_cache`): it returns
+    the number of features now cached and **cannot** return a body, a mesh id or
+    mass properties, so a speculative rebuild can never be served as an answer —
+    a later request gets it only by hashing to the identical prefix, through the
+    ordinary key.
+
+    *prefix_length* is how much of *request* to evaluate; ``None`` means all of
+    it. The distinction is the whole point of the seam, because the two triggers
+    ask different questions:
+
+    * **an open feature editor** declares features ``0..k-1`` settled while
+      feature ``k`` is being retyped — so *request* is the tree as it stands and
+      ``prefix_length=k``. The key is taken from the FULL request's chain
+      (:func:`~geometry.rebuild_cache.prefix_keys`), which is exactly the chain
+      the edited tree will probe, because an edit at ``k`` cannot change the hash
+      of anything before it;
+    * **a travel stop** is a shorter tree in its own right — the caller sends
+      that tree and leaves *prefix_length* alone.
+
+    A truncated *request* would answer neither question the same way: the
+    mirror capture scope in the key header is computed over the whole feature
+    list (a ``features``-scope mirror at index 150 changes what the state after
+    feature 10 must retain), so warming "the first k features" and warming "a
+    k-feature tree" are genuinely different keys. Both are correct; the caller
+    says which it means.
+
+    Bounded and cancellable: *budget_s* (wall clock from entry) and *cancelled*
+    are polled BETWEEN features, so a warm stops within one feature's work of
+    being asked to — up to ~200 ms on a 442-face body, which is the honest
+    granularity of an uninterruptible OCCT call. A stopped warm still caches what
+    it evaluated; a warm whose tree FAILS caches nothing (see
+    :func:`evaluate_tree` for why a failed prefix is not a resume point).
+
+    ONE COST WORTH KNOWING ABOUT, since it is the reverse of the intended one: a
+    warm that RESUMES from a cached checkpoint holds it for the duration (``take``
+    removes the entry — ownership transfer is what makes a resume byte-exact), so
+    a real request arriving for that same checkpoint mid-warm MISSES and rebuilds
+    from scratch. The exposure is bounded by the budget and by cancellation, and
+    it is why speculation is single-slot and retired the moment its reason goes
+    away. It cannot happen for the open-editor trigger — a prefix warm can only
+    take checkpoints at or before ``prefix_length``, and the tree's frontier is
+    past it — only for a travel stop the user had already visited.
+
+    *yield_to* is the live-work gate (:class:`~geometry.rebuild_cache.WorkGate`),
+    and it is what stops a prefetch being a pessimisation. One geometry worker has
+    ONE effective core (OCP holds the GIL), so a warm that keeps working through a
+    real rebuild does not use spare capacity — it takes half of the only capacity
+    there is, and CONC-6 measured that at **2 589 -> 4 742 ms** on a commit issued
+    right after the editor opened. So between features this function checks the
+    gate, and when real work is in flight it:
+
+    1. **banks the prefix it has built** as a speculative checkpoint and gives up
+       ownership of it — because work still held by the warm is invisible, and a
+       request that arrives mid-warm can only resume from something that is in the
+       CACHE. (Measured the same day: a face pick landing while the warm sat
+       mid-provenance paid the full 9.2 s with nothing to show for the warm's 15
+       seconds of work.) A real request may then take it, which is the win;
+    2. **waits** for the worker to go idle, in short slices so a cancel is still
+       observed promptly;
+    3. **takes its own checkpoint back** and carries on. If it is gone — somebody
+       used it, or a store was refused for want of a slot — the warm stops: its
+       reason for existing has either been served or cannot be served here.
+
+    The whole loop is still bounded by *budget_s* and *cancelled*, so a warm on a
+    worker that never goes idle spends its budget waiting and achieves nothing,
+    which is the correct outcome on a machine with no spare cycles. Pass
+    ``yield_to=None`` (the default) for a warm that should simply run — the direct
+    callers in the tests, not the prefetch route.
+
+    Returns 0 when nothing was cached (a failed tree, cancelled before the first
+    feature, or a cache with no room for speculation).
+    """
+    target = len(request.features) if prefix_length is None else prefix_length
+    target = max(0, min(target, len(request.features)))
+    if target == 0:
+        return 0
+    deadline = None if budget_s is None else time.monotonic() + budget_s
+
+    def stop() -> bool:
+        if deadline is not None and time.monotonic() >= deadline:
+            return True
+        return cancelled is not None and cancelled()
+
+    keys = prefix_keys(
+        request,
+        capture_scope=_mirror_scope_ids(request),
+        record_history=record_history,
+    )
+    resume = _REBUILD_CACHE.take(keys[: target + 1])
+    start = 0 if resume is None else resume.prefix_length
+    checkpoint = None if resume is None else resume.checkpoint
+    if checkpoint is None:
+        state = EvaluationState(
+            linear_deflection=request.linear_deflection,
+            mirror_scope_ids=_mirror_scope_ids(request),
+        )
+        results: list[FeatureResult] = []
+        last_good: uuid.UUID | None = None
+        suppressed: set[uuid.UUID] = set()
+    else:
+        state = checkpoint.state
+        results = list(checkpoint.results)
+        last_good = checkpoint.last_good_feature_id
+        suppressed = set(checkpoint.suppressed_ids)
+
+    if start == target:
+        # Already cached at exactly the requested prefix — put it straight back
+        # (`take` REMOVED it) and do no kernel work. A re-declared editor open
+        # must not cost a rebuild, and must not leave the cache colder than it
+        # found it. The entry goes back with the claim it ARRIVED with: a real
+        # checkpoint a warm happened to land on stays real (downgrading it would
+        # let the next guess evict work somebody is using), and a speculative one
+        # stays speculative (promoting it would launder a guess into live work).
+        _REBUILD_CACHE.store(
+            keys[target],
+            _Checkpoint(
+                state=state,
+                results=results,
+                last_good_feature_id=last_good,
+                suppressed_ids=frozenset(suppressed),
+                artifacts=checkpoint.artifacts if checkpoint is not None else None,
+            ),
+            speculative=resume is not None and resume.speculative,
+        )
+        return target
+
+    def dispatching() -> bool:
+        """The dispatch loop's stop signal: give up, OR give the core back."""
+        return stop() or (yield_to is not None and yield_to.busy())
+
+    built = start
+    while True:
+        last_good, failed, consumed = _dispatch_prefix(
+            request.features[built:target],
+            state,
+            results,
+            suppressed,
+            last_good,
+            record_history=record_history,
+            stop=dispatching,
+        )
+        built += consumed
+        if failed:
+            return 0
+        if built > 0:
+            # The warm owns this state exclusively — nothing was published — so
+            # it can be stored directly rather than on the release of a caller's
+            # evaluation. It is marked SPECULATIVE, which is what stops it
+            # evicting a live modeler's checkpoint on a full cache (CONC-4); when
+            # every slot is live work the store is refused and this warm simply
+            # achieved nothing, which is the honest return value.
+            stored = _REBUILD_CACHE.store(
+                keys[built],
+                _Checkpoint(
+                    state=state,
+                    results=results,
+                    last_good_feature_id=last_good,
+                    suppressed_ids=frozenset(suppressed),
+                    artifacts=None,
+                ),
+                speculative=True,
+            )
+            if not stored:
+                return 0
+        if built >= target or stop() or yield_to is None:
+            return built
+        # PAUSED, not stopped: real work wants the core. The prefix above is
+        # banked (and may be taken by that very request, which is the point), so
+        # wait for the worker to go idle and then reclaim it.
+        #
+        # WAIT IN A LOOP HERE, and do not fall through to the store/take above
+        # each slice. Measured 2026-08-01 on the N=200 tray: re-banking every
+        # 50 ms ran ``BRepTools::Clean`` over a 442-face body twenty times a
+        # second for the whole pause, and the commit it had stepped aside for
+        # came out 12 % SLOWER than with no prefetch at all — the exact defect
+        # the yield exists to prevent, reintroduced by the yield's own bookkeeping.
+        while yield_to.busy() and not stop():
+            yield_to.wait_until_idle(WARM_YIELD_SLICE_S)
+        if stop():
+            return built
+        if built == 0:
+            continue  # nothing was stored, so there is nothing to reclaim
+        reclaimed = _REBUILD_CACHE.take(keys[: built + 1])
+        if reclaimed is None or reclaimed.prefix_length != built:
+            # Somebody used it (the speculation paid off) or it lost its slot.
+            # Either way this ticket's reason to keep spending is gone; starting
+            # the prefix again from zero would be pure waste.
+            if reclaimed is not None:
+                _REBUILD_CACHE.store(
+                    keys[reclaimed.prefix_length],
+                    reclaimed.checkpoint,
+                    speculative=reclaimed.speculative,
+                )
+            return built
+        state = reclaimed.checkpoint.state
+        results = list(reclaimed.checkpoint.results)
+        last_good = reclaimed.checkpoint.last_good_feature_id
+        suppressed = set(reclaimed.checkpoint.suppressed_ids)
+
+
+def evaluate_tree(
+    request: EvaluateTreeRequest, *, record_history: bool = False
+) -> TreeEvaluation:
+    """Evaluate a feature tree — the ONE funnel every rebuild in the product
+    passes through, and therefore where real work announces itself.
+
+    The body is :func:`_evaluate_tree`; this wrapper exists only to mark the
+    evaluation live for its duration (:class:`~geometry.rebuild_cache.
+    LiveWorkGate`), which is what makes a speculative warm step aside instead of
+    halving the core this request is using (CONC-6: a prefetch racing the commit
+    it was meant to help measured 1.8x SLOWER than not prefetching at all). It is
+    a counter, never a lock: concurrent real rebuilds do not serialise on it.
+    """
+    with live_work().tracked():
+        return _evaluate_tree(request, record_history=record_history)
+
+
+def _evaluate_tree(
+    request: EvaluateTreeRequest, *, record_history: bool = False
+) -> TreeEvaluation:
+    """Evaluate an ordered feature prefix under the strict-prefix rule (§4.3).
+
+    Suppressed features (§4.3a) are SKIPPED: the body is built from the
+    non-suppressed prefix and each subsequent non-suppressed feature evaluates
+    off the last non-suppressed body. A non-suppressed feature that references a
+    suppressed one is a typed ``references_suppressed`` error
+    (:func:`_suppressed_reference_error`), never a raise.
+
+    *record_history* (OPT-IN, audit H4) turns on the per-feature body snapshots
+    that feed per-face provenance (:attr:`TreeEvaluation.body_history`). It is off
+    by default because ONLY the overlay service consumes them, while
+    ``evaluate_tree`` has nine call sites — tessellate, export, measure, drawing
+    compose, per-instance assembly evaluation, the golden harness. Recording
+    unconditionally made every one of those retain an intermediate B-rep per
+    body-affecting feature (up to ``MAX_TREE_FEATURES``, and per unique part in an
+    assembly) plus, for a multi-body part, CONSTRUCT a fresh ``Compound`` per
+    feature — real OCCT work on the tessellate hot path, funded by callers that
+    never read the result. With it off, each intermediate body dies as the next
+    feature supersedes it, exactly as before provenance existed.
+
+    Deterministic: same request → identical statuses, identical solved
+    positions, byte-identical GLB and therefore identical ``mesh_glb_id``
+    (RESEARCH §9) — and *record_history* changes NOTHING about the evaluated
+    geometry, only whether the intermediates are kept. Never raises for geometry
+    outcomes.
+
+    REBUILD CACHE (docs/PERF.md fix #1). A request whose leading features hash
+    identically to a cached prefix RESUMES there and evaluates only what is new,
+    so appending to a 200-feature tree costs one feature instead of 27 s, and the
+    ``/measure`` / ``/tessellate`` / ``/export`` / drawings calls that follow an
+    ``/evaluate`` of the same tree reuse both the state and the artifacts. The
+    cache is transparent by construction — a hit hands over the very shapes a
+    cold rebuild would have built, never a copy (see
+    :mod:`geometry.rebuild_cache` for the measurement that forced that) — and a
+    miss is only slower. NOT cached: a tree that failed (its last-good state is
+    not a resume point, and a failed op may have rewritten its argument in place
+    — CM-6b), and a tree whose publish-time re-check found the body invalidated.
+    """
+    keys = prefix_keys(
+        request,
+        capture_scope=_mirror_scope_ids(request),
+        record_history=record_history,
+    )
+    resume = _REBUILD_CACHE.take(keys)
+    start = 0 if resume is None else resume.prefix_length
+    checkpoint = None if resume is None else resume.checkpoint
+    if checkpoint is None:
+        state = EvaluationState(
+            linear_deflection=request.linear_deflection,
+            # OPT-IN tool capture (mirror-semantics §9): only features some
+            # `features`-scope mirror names retain their reflectable tools, so a
+            # tree without one pays zero extra memory and zero extra work.
+            mirror_scope_ids=_mirror_scope_ids(request),
+        )
+        results: list[FeatureResult] = []
+        last_good_feature_id: uuid.UUID | None = None
+        suppressed_ids: set[uuid.UUID] = set()
+    else:
+        state = checkpoint.state
+        results = list(checkpoint.results)
+        last_good_feature_id = checkpoint.last_good_feature_id
+        suppressed_ids = set(checkpoint.suppressed_ids)
+
+    last_good_feature_id, failed, _consumed = _dispatch_prefix(
+        request.features[start:],
+        state,
+        results,
+        suppressed_ids,
+        last_good_feature_id,
+        record_history=record_history,
+    )
+    # A resume that consumed NOTHING is the same tree again, so the artifacts the
+    # earlier call derived are still the right answer — provided nothing outside
+    # the prefix key feeds them (materials; checked below).
+    unchanged = (
+        checkpoint.artifacts
+        if checkpoint is not None and start == len(request.features)
+        else None
+    )
+
+    # PUBLISH-TIME RE-CHECK (CM-6b, docs/GEOMETRY-QA.md 2026-07-30). Every body
+    # was valid when :meth:`EvaluationState._admit` let it in, so an invalid one
+    # HERE can only have been invalidated in place afterwards — which OCCT really
+    # does: on a degenerate (tangent-pinch) body, ``BRepAlgoAPI`` rewrites its
+    # ARGUMENT's subshapes, so the failed feature's boolean welded the void shut in
+    # the last-good body it was handed (measured: the mirrored plate went from
+    # 30793.6284 to 31865.9587 mm^3 without anyone assigning to it). Publishing
+    # that body would put the exact wrong solid QA-1 reported back on the wire
+    # under an error message, so the artifacts are WITHHELD instead — the same
+    # honestly-null flavour a sketch-only tree produces (§6).
+    body_invalidated = bool(state.bodies) and not all(
+        body_is_valid(body) for body in state.bodies.values()
+    )
+    if body_invalidated:
+        if not failed:
+            # Nothing else failed, so the blame has nowhere else to go: the last
+            # body-affecting feature's own artifact is what turned out unusable.
+            results = _blame_invalidated_body(results, last_good_feature_id)
+        last_good_feature_id = None
 
     # §4.3/§4.4 artifact fields: the LAST-GOOD body — handlers mutate
     # state.bodies only on success, so even after a mid-tree failure this is
@@ -2593,31 +3581,59 @@ def evaluate_tree(
     glb: bytes | None = None
     mesh: MeshStats | None = None
     shape: BodyShape | None = None
-    if state.bodies:
+    # Material per body (docs/design/materials.md §2): the per-body override if
+    # the request carries one, else the document default, else None = "nobody has
+    # said what this is made of", which is reported as no mass at all.
+    body_materials: dict[uuid.UUID, MaterialKey | None] = {
+        base_id: resolve_body_material(request.materials, base_id)
+        for base_id in state.bodies
+    }
+    body_measures: dict[uuid.UUID, ShapeProperties] = {}
+    if (
+        state.bodies
+        and not body_invalidated
+        and unchanged is not None
+        and unchanged.body_materials == body_materials
+    ):
+        # The same tree, again, made of the same stuff: this IS the previous
+        # call's answer, reused byte-for-byte rather than re-derived (a re-measure
+        # + re-tessellation is ~1 s of the 27 s an N=200 `/measure` used to cost).
+        # The mesh id is re-PUT because the mesh store is a bounded cache that may
+        # have evicted the payload; the put is content-addressed and idempotent,
+        # so the id is the same one.
+        shape, glb, mesh = unchanged.shape, unchanged.glb, unchanged.mesh
+        properties, body_measures = unchanged.properties, unchanged.body_measures
+        mesh_glb_id = store_mesh_glb(glb)
+    elif state.bodies and not body_invalidated:
         # Tree/insertion-ordered body set (§MB-0): a part with ONE body measures
         # and tessellates that bare solid — byte-identical to the pre-multi-body
         # path. A part with >1 body rolls up its mass properties ANALYTICALLY
         # (Σ over the body set, no re-mesh/boolean — the assembly pattern) and
         # tessellates a COMPOUND of all bodies in the fixed base-order, which
         # ``glb_stats`` sums over. Both are deterministic (RESEARCH §9).
-        body_list = list(state.bodies.values())
         # The tessellated shape — a bare solid (one body) or a FLATTENED Compound
         # of every body's lumps (§MB-4). Same construction the provenance
         # snapshots use (:func:`_snapshot_shape`), so the final faces match the
         # last snapshot exactly (CLAUDE.md DRY).
         shape = _snapshot_shape(state.bodies)
-        if len(body_list) == 1:
-            # ONE body — which may itself be a multi-lump Compound (a disjoint
-            # boolean / multi-solid import, §MB-4): measure it directly (GProp +
-            # .shells() count across its lumps), byte-identical to the single-solid
-            # path when it is a bare Solid.
-            properties = measure_shape(body_list[0])
-        else:
-            # >1 body: roll up mass properties ANALYTICALLY per body (no re-mesh/
-            # boolean — the assembly pattern). Flattening the Compound avoids a
-            # nested Compound (a body that is itself a Compound), which would give
-            # ``glb_stats`` a nondeterministic traversal.
-            properties = combine_properties([measure_shape(b) for b in body_list])
+        # Each body is measured with ITS OWN material's density (override, else
+        # the document default, else none — docs/design/materials.md §2), so a
+        # part that mixes materials rolls up a genuinely mass-weighted centre of
+        # mass. A body with no material measures to mass_g=None and the whole
+        # part's mass is then None: absent, never zero.
+        for base_id, body in state.bodies.items():
+            body_measures[base_id] = measure_shape(
+                body, density_kg_m3=density_kg_m3(body_materials[base_id])
+            )
+        measured = list(body_measures.values())
+        # ONE body — which may itself be a multi-lump Compound (a disjoint
+        # boolean / multi-solid import, §MB-4) — reports its own measurement
+        # verbatim (GProp + .shells() across its lumps). >1 body rolls up mass
+        # properties ANALYTICALLY per body (no re-mesh, no boolean — the
+        # assembly pattern); the flattened Compound tessellated above avoids a
+        # nested Compound, which would give ``glb_stats`` a nondeterministic
+        # traversal.
+        properties = measured[0] if len(measured) == 1 else combine_properties(measured)
         glb, mesh = tessellate_glb(shape, request.linear_deflection)
         mesh_glb_id = store_mesh_glb(glb)
 
@@ -2626,12 +3642,22 @@ def evaluate_tree(
     # The whole-part ``properties.topology.shells`` aggregate cannot distinguish a
     # disjoint-union / multi-solid-import body (one body, several lumps) from a
     # single-lump one, so this carries the honest per-body count for the consumer.
+    # ``material`` / ``mass_g`` ride along per body (docs/design/materials.md §4):
+    # the whole-part ``properties.mass_g`` goes null as soon as ONE body lacks a
+    # material, and without this a consumer could not say WHICH body is missing
+    # one. ``mass_g`` here is the very value measured above, never recomputed.
     bodies = [
-        BodyLumpInfo(base_feature_id=base_id, lumps=lump_count(body))
+        BodyLumpInfo(
+            base_feature_id=base_id,
+            lumps=lump_count(body),
+            material=body_materials[base_id],
+            mass_g=body_measures[base_id].mass_g,
+        )
         for base_id, body in state.bodies.items()
+        if not body_invalidated
     ]
 
-    return TreeEvaluation(
+    evaluation = TreeEvaluation(
         result=EvaluateTreeResult(
             part_id=request.part_id,
             tree_version=request.tree_version,
@@ -2641,7 +3667,7 @@ def evaluate_tree(
             properties=properties,
             last_good_feature_id=last_good_feature_id,
         ),
-        solved_sketches=state.solved_sketches,
+        solved_sketches=dict(state.solved_sketches),
         body=shape,
         glb=glb,
         mesh=mesh,
@@ -2652,3 +3678,27 @@ def evaluate_tree(
         datum_planes=dict(state.datum_planes),
         body_history=list(state.body_history),
     )
+
+    # Offer this prefix as a resume point — but only once *evaluation* is dead,
+    # because it is the object that hands these very shapes to the caller
+    # (`body`, `unfold_body`, the sketch dict) and a resuming rebuild MUTATES
+    # them. See :mod:`geometry.rebuild_cache`: ownership transfer is what makes a
+    # hit byte-identical, and the `weakref` hand-back is what makes it safe under
+    # the FastAPI threadpool. NOT offered when anything failed (a failed op may
+    # have rewritten its argument in place — CM-6b) or when the publish-time
+    # re-check found the body invalidated: neither is a state to build on.
+    if not failed and not body_invalidated:
+        _REBUILD_CACHE.store_on_release(
+            evaluation,
+            keys[len(request.features)],
+            _Checkpoint(
+                state=state,
+                results=results,
+                last_good_feature_id=last_good_feature_id,
+                suppressed_ids=frozenset(suppressed_ids),
+                artifacts=_published_artifacts(
+                    body_materials, body_measures, properties, shape, glb, mesh
+                ),
+            ),
+        )
+    return evaluation

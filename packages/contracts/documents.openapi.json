@@ -180,6 +180,19 @@
       "AssemblyCreate": {
         "description": "Create an assembly owned by the calling user (design \u00a71.2).",
         "properties": {
+          "folder_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "File it into this folder on creation, or null (the default) to leave it unfiled at the root of its drawer. Present so filing inside a folder is ONE call: a create-then-move pair could fail between the two and leave the document somewhere the user did not put it. Must be the caller's own folder OF THIS DOCUMENT'S KIND.",
+            "title": "Folder Id"
+          },
           "length_unit": {
             "default": "mm",
             "description": "Document display unit (docs/design/units.md \u00a71); DISPLAY metadata only \u2014 storage stays canonical mm. Defaults to 'mm'.",
@@ -194,7 +207,7 @@
             "type": "string"
           },
           "name": {
-            "description": "Assembly name; unique per owner, whitespace-trimmed, 1-200 characters",
+            "description": "Assembly name; unique per FOLDER (#WS2), whitespace-trimmed, 1-200 characters",
             "maxLength": 200,
             "minLength": 1,
             "title": "Name",
@@ -313,6 +326,19 @@
             "description": "Monotonic optimistic-concurrency counter (design \u00a71.2)",
             "title": "Doc Version",
             "type": "integer"
+          },
+          "folder_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The folder this document is filed in, or null when it is UNFILED (at the root of its drawer). Null is a real state, not a missing value \u2014 see py_kit.schemas.folders. Changed only by the document's `/move` route, which is not a document edit: it moves neither the concurrency counter nor `updated_at`.",
+            "title": "Folder Id"
           },
           "id": {
             "format": "uuid",
@@ -447,6 +473,37 @@
           "axis"
         ],
         "title": "AxisParallelEdgesSelector",
+        "type": "object"
+      },
+      "BodyMaterialAssignment": {
+        "description": "A per-BODY material override, keyed by the body's \u00a7MB-0 identity.\n\n``base_feature_id`` is the id of the feature that CREATED the body \u2014 the\nsame key ``EvaluationState.bodies`` and\n:class:`~py_kit.schemas.features.BodyLumpInfo` use \u2014 so an override survives\nedits to other features the way any body reference does. An override naming\na body the tree no longer produces is inert (it matches nothing); it is not\nan error, because a rolled-back tree legitimately hides the body for a while.",
+        "properties": {
+          "base_feature_id": {
+            "description": "Id of the feature that created the body (its MB-0 identity)",
+            "format": "uuid",
+            "title": "Base Feature Id",
+            "type": "string"
+          },
+          "material": {
+            "description": "Material for THIS body only",
+            "enum": [
+              "steel_1018",
+              "stainless_304",
+              "aluminium_6061",
+              "brass_c360",
+              "abs",
+              "pla",
+              "nylon_6"
+            ],
+            "title": "Material",
+            "type": "string"
+          }
+        },
+        "required": [
+          "base_feature_id",
+          "material"
+        ],
+        "title": "BodyMaterialAssignment",
         "type": "object"
       },
       "BomLine": {
@@ -1336,6 +1393,29 @@
         "title": "DistanceMate",
         "type": "object"
       },
+      "DocumentMove": {
+        "description": "File a document into a folder. ``folder_id: null`` un-files it.\n\nApplies to a part, an assembly or a drawing (one DTO \u2014 the verb is identical\nand only the route differs). Filing is NOT a document edit: it does not bump\nthe document's concurrency counter and does not move ``updated_at``, so the\nregister's LAST WORKED column keeps meaning \"someone worked on it\" rather\nthan \"someone tidied up\". Same reasoning as the last-evaluate record write.",
+        "properties": {
+          "folder_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The destination folder \u2014 must be the caller's own and OF THIS DOCUMENT'S KIND \u2014 or null to leave the document unfiled at the root of its drawer. Required; null is an explicit destination.",
+            "title": "Folder Id"
+          }
+        },
+        "required": [
+          "folder_id"
+        ],
+        "title": "DocumentMove",
+        "type": "object"
+      },
       "DraftFeature": {
         "description": "``{\"type\": \"draft\", \"version\": 1, \"params\": {...}}`` envelope.",
         "properties": {
@@ -1544,8 +1624,21 @@
       "DrawingCreate": {
         "description": "Create a drawing owned by the calling user (design \u00a72.1).",
         "properties": {
+          "folder_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "File it into this folder on creation, or null (the default) to leave it unfiled at the root of its drawer. Present so filing inside a folder is ONE call: a create-then-move pair could fail between the two and leave the document somewhere the user did not put it. Must be the caller's own folder OF THIS DOCUMENT'S KIND.",
+            "title": "Folder Id"
+          },
           "name": {
-            "description": "Drawing name; unique per owner, whitespace-trimmed, 1-200 characters",
+            "description": "Drawing name; unique per FOLDER (#WS2), whitespace-trimmed, 1-200 characters",
             "maxLength": 200,
             "minLength": 1,
             "title": "Name",
@@ -1587,6 +1680,19 @@
             "description": "Monotonic optimistic-concurrency counter (design \u00a72.1)",
             "title": "Doc Version",
             "type": "integer"
+          },
+          "folder_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The folder this document is filed in, or null when it is UNFILED (at the root of its drawer). Null is a real state, not a missing value \u2014 see py_kit.schemas.folders. Changed only by the document's `/move` route, which is not a document edit: it moves neither the concurrency counter nor `updated_at`.",
+            "title": "Folder Id"
           },
           "id": {
             "format": "uuid",
@@ -1922,13 +2028,25 @@
             "title": "Linear Deflection",
             "type": "number"
           },
+          "materials": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MaterialAssignment"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What the part's bodies are made of (docs/design/materials.md): a document default plus per-body overrides. Omitted / null = no material, so the result reports NO mass (absent, not zero). Unlike length units \u2014 presentation metadata the kernel never sees \u2014 material is an INPUT to evaluation, because mass is derived from it."
+          },
           "part_id": {
             "format": "uuid",
             "title": "Part Id",
             "type": "string"
           },
           "tree_version": {
-            "description": "Echoed back; cache/correlation key",
+            "description": "The part tree_version documents composed this request from. Echoed back verbatim on the result, where it is the PROVENANCE stamp of the returned body (EvaluateTreeResult.tree_version) as well as a cache/correlation key.",
+            "minimum": 0.0,
             "title": "Tree Version",
             "type": "integer"
           }
@@ -2067,6 +2185,17 @@
             "format": "uuid",
             "title": "Instance Id",
             "type": "string"
+          },
+          "materials": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MaterialAssignment"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The instanced PART's material assignment (docs/design/materials.md), forwarded verbatim into that part's evaluation so the assembly rolls up a real mass. Null = the part has no material, so it contributes no mass and the assembly total is null (never zero). Two instances share a part_key and therefore a part, so they share this."
           },
           "name": {
             "anyOf": [
@@ -2376,6 +2505,56 @@
           "expected_tree_version"
         ],
         "title": "FeatureCreate",
+        "type": "object"
+      },
+      "FeatureDependent": {
+        "description": "One thing that breaks if a feature is deleted.\n\n``name`` rides beside the id for the same reason it does on\n:class:`~py_kit.schemas.workspace.DocumentDependent`: the reader is a person\nwho named these things, and \"referenced by 2 other document(s)\" \u2014 which is\nwhat this refusal used to say \u2014 ends the conversation instead of starting\nthe next action.",
+        "properties": {
+          "id": {
+            "description": "The REFERENCING feature's or drawing's id",
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "description": "'feature' (a later feature of this part) or 'drawing' (a section view cutting on this feature)",
+            "enum": [
+              "feature",
+              "drawing"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "description": "Its name, as the user sees it in the tree/register",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "kind"
+        ],
+        "title": "FeatureDependent",
+        "type": "object"
+      },
+      "FeatureDependents": {
+        "description": "What depends on one feature \u2014 the answer to \"what breaks if I delete it?\"\n\nServes TWO surfaces from one shape, which is the point (CLAUDE.md DRY):\n\n- the ``details`` payload of the delete's ``feature_has_dependents`` 409, and\n- the body of ``GET \u2026/features/{id}/dependents``, which the tree asks BEFORE\n  offering the delete, so the confirmation can name what breaks instead of\n  letting the user find out from a refusal.\n\nBoth are produced by one server-side query, so the warning a user reads and\nthe refusal the server would issue cannot disagree. Empty means the feature\nis free to delete \u2014 an honest, common answer, unlike the 409 payload\n(:class:`FeatureDependentsEnvelope`) which by construction is never empty.\nFeatures first (tree order \u2014 the order the user reads them in), then\ndrawings alphabetically.",
+        "properties": {
+          "dependents": {
+            "description": "Everything referencing this feature; EMPTY when nothing does",
+            "items": {
+              "$ref": "#/components/schemas/FeatureDependent"
+            },
+            "title": "Dependents",
+            "type": "array"
+          }
+        },
+        "required": [
+          "dependents"
+        ],
+        "title": "FeatureDependents",
         "type": "object"
       },
       "FeatureMutationResponse": {
@@ -2863,6 +3042,182 @@
           "point"
         ],
         "title": "FixedConstraint",
+        "type": "object"
+      },
+      "FolderCreate": {
+        "description": "Create a folder in one drawer, at the root or inside another folder.",
+        "properties": {
+          "kind": {
+            "description": "Which drawer this folder belongs to. It may only ever hold documents of this kind (see module docstring).",
+            "enum": [
+              "part",
+              "assembly",
+              "drawing"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "description": "Folder name; unique among its siblings (per parent, per kind, per owner), whitespace-trimmed, 1-120 chars",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Containing folder, or null for a top-level folder. Must be the caller's own folder OF THE SAME KIND.",
+            "title": "Parent Id"
+          }
+        },
+        "required": [
+          "name",
+          "kind"
+        ],
+        "title": "FolderCreate",
+        "type": "object"
+      },
+      "FolderListResponse": {
+        "description": "Every folder of ONE kind for the caller \u2014 the whole tree, one query.\n\nThe whole tree rather than one level: the register needs ancestors for the\nbreadcrumb and the full set for the move picker, and a per-level fetch would\nmake \"which folder is this document in?\" an N+1. A wrapper leaves room for\npagination the day a tree is big enough to need it \u2014 which, for a structure\na human types by hand, it will not be.",
+        "properties": {
+          "folders": {
+            "items": {
+              "$ref": "#/components/schemas/FolderResponse"
+            },
+            "title": "Folders",
+            "type": "array"
+          }
+        },
+        "required": [
+          "folders"
+        ],
+        "title": "FolderListResponse",
+        "type": "object"
+      },
+      "FolderMove": {
+        "description": "Re-parent a folder. ``parent_id: null`` moves it to the root.\n\nRefused (422) when the target is the folder itself or one of its own\ndescendants \u2014 that would detach the subtree from the register entirely, so\nit is a cycle in effect as well as in the graph.",
+        "properties": {
+          "parent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The new containing folder, or null to move to the root of its drawer. Required \u2014 null is an explicit destination, not an omission.",
+            "title": "Parent Id"
+          }
+        },
+        "required": [
+          "parent_id"
+        ],
+        "title": "FolderMove",
+        "type": "object"
+      },
+      "FolderRename": {
+        "description": "Rename a folder. Renaming cannot move it \u2014 that is :class:`FolderMove`.\n\nSeparate verbs on purpose: a PATCH carrying an optional ``parent_id`` cannot\ntell \"leave it where it is\" (field omitted) from \"move it to the root\"\n(field null), and a move that silently did nothing because a client sent the\nwrong one of those is precisely the \"reported success while the document is\nstill in the old place\" defect this slice is being held to.",
+        "properties": {
+          "name": {
+            "description": "New folder name",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "FolderRename",
+        "type": "object"
+      },
+      "FolderResponse": {
+        "description": "A folder as stored, plus the two counts a register row may state.\n\nBoth counts are DIRECT (this folder's own children), computed server-side in\nthe list query. A register renders them; it never derives one from the rows\nit happens to be holding, because at the root it is holding only the unfiled\ndocuments and would count them as the folder's.",
+        "properties": {
+          "child_folder_count": {
+            "description": "Folders directly inside this one (not recursive)",
+            "minimum": 0.0,
+            "title": "Child Folder Count",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "document_count": {
+            "description": "Documents filed DIRECTLY in this folder \u2014 not counting sub-folders' contents. A register may print this; it may not add it up.",
+            "minimum": 0.0,
+            "title": "Document Count",
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "description": "The drawer this folder belongs to",
+            "enum": [
+              "part",
+              "assembly",
+              "drawing"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "owner_id": {
+            "description": "Owning user id (gateway-verified)",
+            "format": "uuid",
+            "title": "Owner Id",
+            "type": "string"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Containing folder, or null for a top-level folder",
+            "title": "Parent Id"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "owner_id",
+          "kind",
+          "name",
+          "parent_id",
+          "document_count",
+          "child_folder_count",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "FolderResponse",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -3872,6 +4227,108 @@
         "title": "MateResponse",
         "type": "object"
       },
+      "Material": {
+        "description": "One library material: its key, display name, and density.\n\nDensity is the ONLY physical property v1 models, because mass is the only\nthing we claim to report. Thermal/elastic properties would be an unbacked\npromise until something computes with them (design \u00a71).",
+        "properties": {
+          "density_kg_m3": {
+            "description": "Density (kg/m^3). Handbook NOMINAL value \u2014 a production part uses its supplier's certificate, not this table.",
+            "exclusiveMinimum": 0.0,
+            "title": "Density Kg M3",
+            "type": "number"
+          },
+          "key": {
+            "enum": [
+              "steel_1018",
+              "stainless_304",
+              "aluminium_6061",
+              "brass_c360",
+              "abs",
+              "pla",
+              "nylon_6"
+            ],
+            "title": "Key",
+            "type": "string"
+          },
+          "name": {
+            "description": "Display name, e.g. 'Aluminium 6061'",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "name",
+          "density_kg_m3"
+        ],
+        "title": "Material",
+        "type": "object"
+      },
+      "MaterialAssignment": {
+        "description": "What a document is made of: one default + per-body overrides (design \u00a72).\n\nA multi-body part legitimately mixes materials (a steel pin in an aluminium\nhousing), so a single document-level material would be wrong for exactly the\nparts mass matters most on. The resolution rule is one line \u2014 an override\nwins over the default (:func:`resolve_body_material`) \u2014 and lives here so\nevery consumer resolves identically.\n\n``default_material: None`` with no overrides is the HONEST empty state a new\ndocument starts in: no material anywhere, therefore no mass anywhere.",
+        "properties": {
+          "bodies": {
+            "description": "Per-body overrides; at most one entry per base_feature_id.",
+            "items": {
+              "$ref": "#/components/schemas/BodyMaterialAssignment"
+            },
+            "title": "Bodies",
+            "type": "array"
+          },
+          "default_material": {
+            "anyOf": [
+              {
+                "enum": [
+                  "steel_1018",
+                  "stainless_304",
+                  "aluminium_6061",
+                  "brass_c360",
+                  "abs",
+                  "pla",
+                  "nylon_6"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Material for every body without an override; null means the document has no material, so its mass is UNKNOWN (not zero).",
+            "title": "Default Material"
+          }
+        },
+        "title": "MaterialAssignment",
+        "type": "object"
+      },
+      "MaterialLibraryResponse": {
+        "description": "The built-in material library, served so no client hardcodes a density.\n\nThe picker needs names + densities, and a second copy of the table in TS\nwould be a DRY violation that silently drifts (CLAUDE.md). One table, in\npy-kit, served over the API.",
+        "properties": {
+          "materials": {
+            "items": {
+              "$ref": "#/components/schemas/Material"
+            },
+            "title": "Materials",
+            "type": "array"
+          }
+        },
+        "required": [
+          "materials"
+        ],
+        "title": "MaterialLibraryResponse",
+        "type": "object"
+      },
+      "MirrorBodyScope": {
+        "description": "``scope: {\"kind\": \"body\"}`` \u2014 reflect the CURRENT BODY (the v1 reading).\n\nThe v1 semantic, NAMED rather than implied (design \u00a73.1): the mirror reflects\nthe body that exists at its point in the tree, cut-aware \u2014 when the active body\ncarries a recorded cut whose reflected tool still reaches it the mirror reflects\nthat REMOVAL, otherwise it reflects and unions the whole body. Kept verbatim\n(\u00a76.1): the shipped goldens' byte identity is STRUCTURAL, not measured, because\nthis scope dispatches to code the v2 work did not touch.",
+        "properties": {
+          "kind": {
+            "const": "body",
+            "default": "body",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "title": "MirrorBodyScope",
+        "type": "object"
+      },
       "MirrorFeature": {
         "description": "``{\"type\": \"mirror\", \"version\": 1, \"params\": {...}}`` envelope.\n\nA body-affecting feature (design \u00a77.6): it reflects the current body about a\nplane and boolean-unions the reflection into the single body chain \u2014 the\nreflective sibling of :class:`PatternFeature`. ``params`` is\n:class:`MirrorParamsV1`.",
         "properties": {
@@ -3902,8 +4359,34 @@
         "title": "MirrorFeature",
         "type": "object"
       },
+      "MirrorFeaturesScope": {
+        "description": "``scope: {\"kind\": \"features\", \"features\": [...]}`` \u2014 reflect these features.\n\nThe v2 reading (design \u00a72b/\u00a74): each selected feature's RECORDED RIGID TOOL\nSOLID(S) are reflected about the plane and that feature's OWN operation\n(``fuse``/``cut``) is re-applied to the active body, in TREE order \u2014 never array\norder (\u00a78.1: array order is UI-incidental, so honouring it would make identical\nmodels tessellate to different bytes). Parameters are never re-derived: a\nreflected circular pattern is correct precisely because its PLACEMENTS are\nreflected, where re-deriving the axis would wind the ring backwards (\u00a74.5).\n\n``features`` names :class:`FeatureRef`s rather than bare UUIDs so each selection\nmaterialises into ``feature_dependencies`` for free (feature-tree \u00a72.3): deleting\na mirrored feature is a 409-with-dependents, a reorder re-checks the\nstrict-backward rule, and a forward/self reference is a write-time 422. A\nnon-body-affecting or non-reflectable kind (``sketch``/``datum``, and every\nMODIFIER \u2014 fillet/chamfer/shell/draft and the sheet-metal family, which have a\nRESULT and no tool, \u00a74.3) is refused with the typed per-feature\n``mirror_feature_unsupported`` at rebuild.\n\n``min_length=1`` because an empty selection is authoring nonsense, not a no-op\nmirror (\u00a73.1), and duplicate ids are a 422 rather than silently deduplicated \u2014\nnaming a feature twice leaves the intent (twice? once?) unstated, which is the\nmistake v1 made.",
+        "properties": {
+          "features": {
+            "description": "The features to reflect, each a `FeatureRef` to an earlier body-affecting feature of this tree. Applied in TREE order (the array order is ignored \u2014 design \u00a78.1); at least one, at most MAX_MIRROR_SCOPE_FEATURES (work bound); duplicates are a 422.",
+            "items": {
+              "$ref": "#/components/schemas/FeatureRef"
+            },
+            "maxItems": 500,
+            "minItems": 1,
+            "title": "Features",
+            "type": "array"
+          },
+          "kind": {
+            "const": "features",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "features"
+        ],
+        "title": "MirrorFeaturesScope",
+        "type": "object"
+      },
       "MirrorParamsV1": {
-        "description": "Reflect the current body about a plane and union the reflection in.\n\nThe mirror feature (BACKLOG P2): a whole-body reflection about ``plane``,\nboolean-unioned into the single body chain (design \u00a77.6) \u2014 the reflective\nsibling of the ADD pattern (see the module note for the shared \"replicate the\ncurrent body + union\" semantics). Like a fillet/chamfer/pattern it carries NO\nsource ``FeatureRef``: it mirrors the implicit body chain that exists at its\npoint in the tree, so its dependency on the prior body-affecting feature is\ntree order.\n\n``plane`` is a :data:`GeomRef` \u2014 the SAME plane reference a sketch uses (no\nnew plane taxonomy, DRY): a :class:`DatumPlaneRef` (an origin datum XY/XZ/YZ)\nor a :class:`FeatureRef` to an earlier ``datum`` feature (an offset / on-face\n/ midplane plane). A ``FeatureRef`` that does not resolve to a ``datum`` of\nthis prefix is a write-time 422 (the eval-time backstop is\n``reference_unresolved``, pinned to the referenced feature).\n\nThe reflection is a true handedness-reversing isometry, NOT a translation\n(proven by the ``mirror-triangle-prism-2x`` golden). It handles every case\nsanely: a body that CLEARS the plane mirrors to a disjoint TWO-lump body\n(volume ``2V``); an OVERLAPPING reflection merges to one solid; a SYMMETRIC\nbody is unchanged. A degenerate/failed reflection is a per-feature\n``mirror_failed`` rebuild error; a mirror with no prior body is\n``no_target_body`` \u2014 never a silently wrong body.",
+        "description": "Reflect the current body about a plane and union the reflection in.\n\nThe mirror feature (BACKLOG P2): a whole-body reflection about ``plane``,\nboolean-unioned into the single body chain (design \u00a77.6) \u2014 the reflective\nsibling of the ADD pattern (see the module note for the shared \"replicate the\ncurrent body + union\" semantics). Like a fillet/chamfer/pattern it carries NO\nsource ``FeatureRef``: it mirrors the implicit body chain that exists at its\npoint in the tree, so its dependency on the prior body-affecting feature is\ntree order.\n\n``plane`` is a :data:`GeomRef` \u2014 the SAME plane reference a sketch uses (no\nnew plane taxonomy, DRY): a :class:`DatumPlaneRef` (an origin datum XY/XZ/YZ)\nor a :class:`FeatureRef` to an earlier ``datum`` feature (an offset / on-face\n/ midplane plane). A ``FeatureRef`` that does not resolve to a ``datum`` of\nthis prefix is a write-time 422 (the eval-time backstop is\n``reference_unresolved``, pinned to the referenced feature).\n\nThe reflection is a true handedness-reversing isometry, NOT a translation\n(proven by the ``mirror-triangle-prism-2x`` golden). It handles every case\nsanely: a body that CLEARS the plane mirrors to a disjoint TWO-lump body\n(volume ``2V``); an OVERLAPPING reflection merges to one solid; a SYMMETRIC\nbody is unchanged. A degenerate/failed reflection is a per-feature\n``mirror_failed`` rebuild error; a mirror with no prior body is\n``no_target_body`` \u2014 never a silently wrong body.\n\n``scope`` (v2, design \u00a73) states WHAT is reflected \u2014 the whole ``body`` (the\nreading above, kept verbatim) or an explicit selection of ``features``. It\ndefaults to ``body`` and a persisted params blob with no ``scope`` key reads as\n``body`` (:meth:`_legacy_body_scope`), so every mirror authored before v2\nevaluates on unchanged code.",
         "properties": {
           "plane": {
             "description": "Mirror plane \u2014 an origin datum (XY/XZ/YZ `DatumPlaneRef`) or an earlier `datum` feature (`FeatureRef`); the SAME plane vocabulary a sketch uses (discriminated on `kind`)",
@@ -3923,6 +4406,25 @@
               }
             ],
             "title": "Plane"
+          },
+          "scope": {
+            "description": "WHAT to reflect (discriminated on `kind`): `body` reflects the current body (the v1 reading \u2014 cut-aware, with the reflect-and-union fallback), `features` reflects the recorded tool solids of an explicit tree-ordered selection and re-applies each feature's own boolean. Absent reads `body`, so pre-v2 mirrors are unchanged (design \u00a73.2).",
+            "discriminator": {
+              "mapping": {
+                "body": "#/components/schemas/MirrorBodyScope",
+                "features": "#/components/schemas/MirrorFeaturesScope"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/MirrorBodyScope"
+              },
+              {
+                "$ref": "#/components/schemas/MirrorFeaturesScope"
+              }
+            ],
+            "title": "Scope"
           }
         },
         "required": [
@@ -3991,6 +4493,19 @@
       "PartCreate": {
         "description": "Create a part owned by the calling user.",
         "properties": {
+          "folder_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "File it into this folder on creation, or null (the default) to leave it unfiled at the root of its drawer. Present so filing inside a folder is ONE call: a create-then-move pair could fail between the two and leave the document somewhere the user did not put it. Must be the caller's own folder OF THIS DOCUMENT'S KIND.",
+            "title": "Folder Id"
+          },
           "length_unit": {
             "default": "mm",
             "description": "Document display unit (docs/design/units.md \u00a71); DISPLAY metadata only \u2014 storage stays canonical mm. Defaults to 'mm'.",
@@ -4005,7 +4520,7 @@
             "type": "string"
           },
           "name": {
-            "description": "Part name; unique per owner, whitespace-trimmed, 1-200 characters",
+            "description": "Part name; unique per FOLDER (#WS2), whitespace-trimmed, 1-200 characters",
             "maxLength": 200,
             "minLength": 1,
             "title": "Name",
@@ -4016,6 +4531,32 @@
           "name"
         ],
         "title": "PartCreate",
+        "type": "object"
+      },
+      "PartEvaluationRecord": {
+        "description": "Record the outcome of an evaluate onto the part row (\u00a74.4a bookkeeping).\n\nWritten by the GATEWAY \u2014 the only place that holds both the verified\nprincipal and geometry's actual answer \u2014 after a real evaluate returned, so\nthe value on a register can never be a browser's claim about its own health.\nThe client never supplies a timestamp: documents stamps ``last_eval_at``\nfrom its own clock, so one clock orders every record.\n\n``tree_version`` is the version of the tree the result BELONGS to (echoed\nthrough :class:`~py_kit.schemas.features.EvaluateTreeResult`), which is what\nmakes staleness derivable instead of assumed. Recording is monotonic in it:\na late-arriving write for an older version is a no-op, never a resurrection\nof a superseded claim.\n\nThe recorded SCOPE (:data:`PartEvalScope`) is deliberately NOT a field here.\nThe gateway cannot know it \u2014 documents applies the rollback bar before the\nevaluate request ever leaves (feature-tree.md \u00a73), and geometry is never\ntold rollback exists \u2014 so documents derives it from its own tree at record\ntime. One less thing a caller could get wrong, and one less claim a browser\ncould make about how much of its part was looked at.",
+        "properties": {
+          "status": {
+            "description": "'failed' when any evaluated feature returned an error, else 'ok' (feature-tree.md \u00a74.3 strict-prefix rule)",
+            "enum": [
+              "ok",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "tree_version": {
+            "description": "The part tree_version this result was computed from (EvaluateTreeResult.tree_version); older-than-stored is ignored",
+            "minimum": 0.0,
+            "title": "Tree Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "tree_version",
+          "status"
+        ],
+        "title": "PartEvaluationRecord",
         "type": "object"
       },
       "PartListResponse": {
@@ -4036,17 +4577,98 @@
         "type": "object"
       },
       "PartResponse": {
-        "description": "A part as stored \u2014 identity, ownership, unit, and timestamps.\n\nThe feature tree is NOT here yet: it lands as its own tables per\ndocs/design/feature-tree.md once the implementation item ships.",
+        "description": "A part as stored \u2014 identity, ownership, unit, timestamps, rebuild health.\n\nThe feature tree itself is not inlined here (it is its own\n``GET /parts/{id}/features`` response, docs/design/feature-tree.md); what\nIS here is the fixed-size last-evaluate record (\u00a74.4a) so a register can\ntell the truth about a whole drawer of parts in one query \u2014 five scalars per\nrow, never per-feature or per-sheet growth.",
         "properties": {
           "created_at": {
             "format": "date-time",
             "title": "Created At",
             "type": "string"
           },
+          "eval_scope": {
+            "anyOf": [
+              {
+                "enum": [
+                  "whole",
+                  "rolled_back"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How much of the tree the live verdict covers: 'whole' (the entire tree ran) or 'rolled_back' (the travel stop held features out, so `eval_state` describes a PREFIX \u2014 an 'ok' here is NOT a claim that the part builds). Null when there is no live verdict to qualify ('never'/'stale') or when the record predates scope tracking; null must not be read as 'whole'. Orthogonal to `eval_state` because the two combine: a rolled-back tree can also fail (see PartEvalScope).",
+            "title": "Eval Scope"
+          },
+          "eval_state": {
+            "description": "Rebuild health a consumer may act on NOW: 'never' (not evaluated), 'ok'/'failed' (evaluated, and that verdict still applies to the current tree), or 'stale' (evaluated, but the tree changed since \u2014 status unknown). Derived server-side from the last_eval_* fields against the part's current tree_version (feature-tree.md \u00a74.4a), so a stale claim is never dressed up as a current one. It says NOTHING about how much of the tree was evaluated \u2014 read `eval_scope` before presenting 'ok' as a verdict on the part.",
+            "enum": [
+              "never",
+              "ok",
+              "failed",
+              "stale"
+            ],
+            "title": "Eval State",
+            "type": "string"
+          },
+          "folder_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The folder this document is filed in, or null when it is UNFILED (at the root of its drawer). Null is a real state, not a missing value \u2014 see py_kit.schemas.folders. Changed only by the document's `/move` route, which is not a document edit: it moves neither the concurrency counter nor `updated_at`.",
+            "title": "Folder Id"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "last_eval_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When that evaluate was recorded (documents' clock); null if never evaluated. For display ('failed 20 min ago'), NOT for deciding staleness.",
+            "title": "Last Eval At"
+          },
+          "last_eval_status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "ok",
+                  "failed"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Raw recorded outcome of the last evaluate, or null if the part was never evaluated. Read `eval_state` for the verdict \u2014 this field alone cannot say whether it still applies.",
+            "title": "Last Eval Status"
+          },
+          "last_eval_tree_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The tree_version the recorded status describes; null if never evaluated. Differs from the part's current tree_version exactly when `eval_state` is 'stale'.",
+            "title": "Last Eval Tree Version"
           },
           "length_unit": {
             "description": "Document display unit (docs/design/units.md \u00a71); DISPLAY metadata only \u2014 storage stays canonical mm.",
@@ -4060,6 +4682,10 @@
             "title": "Length Unit",
             "type": "string"
           },
+          "materials": {
+            "$ref": "#/components/schemas/MaterialAssignment",
+            "description": "What the part is made of (docs/design/materials.md \u00a72). Always present; an assignment with `default_material: null` and no overrides is the honest empty state \u2014 no material, therefore no mass. A stored NULL reads back as that empty assignment so a consumer has ONE shape to render, never null-vs-empty."
+          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -4069,6 +4695,12 @@
             "format": "uuid",
             "title": "Owner Id",
             "type": "string"
+          },
+          "tree_version": {
+            "description": "The part's CURRENT monotonic optimistic-concurrency counter (feature-tree.md \u00a71.2) \u2014 bumped in the same transaction as any tree write. Two uses: the `expected_tree_version` a write echoes, and the DENOMINATOR of the staleness comparison (`is_stale_for_tree`) \u2014 a consumer holding a result stamped with the version it was built from (EvaluateTreeResult.tree_version) knows whether what it displays is still current. Mirrors AssemblyResponse.doc_version on the assembly header row.",
+            "minimum": 0.0,
+            "title": "Tree Version",
+            "type": "integer"
           },
           "updated_at": {
             "format": "date-time",
@@ -4081,6 +4713,12 @@
           "name",
           "owner_id",
           "length_unit",
+          "materials",
+          "tree_version",
+          "eval_state",
+          "last_eval_status",
+          "last_eval_at",
+          "last_eval_tree_version",
           "created_at",
           "updated_at"
         ],
@@ -4088,7 +4726,7 @@
         "type": "object"
       },
       "PartUpdate": {
-        "description": "Rename and/or re-unit a part. Bumps ``tree_version`` (any document edit\nbumps \u2014 the feature-tree.md \u00a71.2 pattern applied to the part header).\n\nBoth mutable fields are optional; at least one must be provided. Changing\nthe display unit is a document edit (docs/design/units.md \u00a7U1) \u2014 it does\nNOT convert any stored ``*_mm`` value, only relabels how they render.",
+        "description": "Rename, re-unit and/or re-material a part. Bumps ``tree_version`` (any\ndocument edit bumps \u2014 the feature-tree.md \u00a71.2 pattern applied to the part\nheader).\n\nEvery mutable field is optional; at least one must be provided. Changing\nthe display unit is a document edit (docs/design/units.md \u00a7U1) \u2014 it does\nNOT convert any stored ``*_mm`` value, only relabels how they render.\nChanging the material does more: mass is derived from it, so the recorded\nevaluate stops applying (see ``materials`` below).",
         "properties": {
           "expected_tree_version": {
             "description": "Optimistic-concurrency guard: the tree_version the client last saw; a stale value is rejected 422 (feature-tree.md \u00a71.2)",
@@ -4114,6 +4752,17 @@
             ],
             "description": "New document display unit (metadata only)",
             "title": "Length Unit"
+          },
+          "materials": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MaterialAssignment"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Replace the part's WHOLE material assignment (default + per-body overrides, docs/design/materials.md \u00a72). Omitted/null leaves it untouched; send an EMPTY assignment ({}) to clear it back to 'no material', which makes mass unknown again. Wholesale replacement, not a merge, so the request states the full intended state and two concurrent edits cannot interleave into an assignment neither sent. Unlike a rename or a unit change this DOES invalidate the recorded evaluate: mass is derived from it."
           },
           "name": {
             "anyOf": [
@@ -4668,14 +5317,37 @@
         "type": "object"
       },
       "ShapeProperties": {
-        "description": "Mass properties + topology of the evaluated B-rep shape.",
+        "description": "Mass properties + topology of the evaluated B-rep shape.\n\nTwo fields are honestly nullable (docs/design/materials.md): ``mass_g`` and\n``center_of_mass`` are ``null`` whenever ANY contributing body has no\nmaterial assigned. ``null`` means *unknown*, never zero \u2014 a body nobody has\nsaid the material of has no mass to report, and inventing one (0 g, or a\ndefault steel) is the overstated-surface defect this field exists to avoid.\nA consumer must render absence as absence and must not title a panel \"mass\"\non the strength of a null.",
         "properties": {
           "bounding_box": {
             "$ref": "#/components/schemas/BoundingBox"
           },
+          "center_of_mass": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Vec3"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Genuinely mass-weighted centre of mass (mm), or null when any contributing body has no material. For a single-material shape it equals `centroid`; for mixed materials it does not."
+          },
           "centroid": {
             "$ref": "#/components/schemas/Vec3",
-            "description": "Centre of mass (mm)"
+            "description": "Centroid of VOLUME (mm) \u2014 the geometric centre. Equal to the centre of mass only when the whole shape is one material; for a multi-material roll-up read `center_of_mass` instead."
+          },
+          "mass_g": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Mass (g) = volume x density, or null when a contributing body has NO material assigned. Null is 'unknown', NOT zero.",
+            "title": "Mass G"
           },
           "surface_area": {
             "description": "Total surface area (mm^2)",
@@ -6526,7 +7198,7 @@
         ]
       },
       "post": {
-        "description": "Create an assembly (201; envelope 409 on a duplicate name for this owner).",
+        "description": "Create an assembly (201; 409 on a duplicate name IN ITS FOLDER).\n\n``folder_id`` files it on creation (#WS2) \u2014 see :func:`documents.parts.\ncreate_part` for why filing is part of the create rather than a second call.",
         "operationId": "create_assembly_api_v1_assemblies_post",
         "parameters": [
           {
@@ -6828,6 +7500,68 @@
           }
         },
         "summary": "Get Assembly Bom",
+        "tags": [
+          "assemblies"
+        ]
+      }
+    },
+    "/api/v1/assemblies/{assembly_id}/duplicate": {
+      "post": {
+        "description": "Copy an assembly's instances and mates \u2014 NOT the parts they name (201).\n\nBoth assemblies reference the same parts afterwards; editing one of those\nparts still shows up in both, which is what an instance IS. See the module\ndocstring.",
+        "operationId": "duplicate_assembly_api_v1_assemblies__assembly_id__duplicate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "assembly_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Assembly Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssemblyResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Duplicate Assembly",
         "tags": [
           "assemblies"
         ]
@@ -7287,6 +8021,78 @@
         ]
       }
     },
+    "/api/v1/assemblies/{assembly_id}/move": {
+      "post": {
+        "description": "File an assembly into a folder, or un-file it (200) \u2014 see :func:`move_part`.",
+        "operationId": "move_assembly_api_v1_assemblies__assembly_id__move_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "assembly_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Assembly Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DocumentMove"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssemblyResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Move Assembly",
+        "tags": [
+          "assemblies"
+        ]
+      }
+    },
     "/api/v1/assemblies/{assembly_id}/redo": {
       "post": {
         "description": "Restore the next history snapshot VERBATIM (ids preserved).\n\nClean no-op at the top of the ring; stale ``expected_version`` \u2192 422.",
@@ -7483,7 +8289,7 @@
         ]
       },
       "post": {
-        "description": "Create a drawing (201; envelope 409 on a duplicate name for this owner).",
+        "description": "Create a drawing (201; 409 on a duplicate name IN ITS FOLDER).\n\n``folder_id`` files it on creation (#WS2) \u2014 see :func:`documents.parts.\ncreate_part` for why filing is part of the create rather than a second call.",
         "operationId": "create_drawing_api_v1_drawings_post",
         "parameters": [
           {
@@ -7972,6 +8778,140 @@
           }
         },
         "summary": "Delete Dimension",
+        "tags": [
+          "drawings"
+        ]
+      }
+    },
+    "/api/v1/drawings/{drawing_id}/duplicate": {
+      "post": {
+        "description": "Copy a drawing's sheets, views, dimensions and annotations (201).\n\nThe views keep pointing at the same part/assembly \u2014 a view is a reference,\nlike an instance. See the module docstring.",
+        "operationId": "duplicate_drawing_api_v1_drawings__drawing_id__duplicate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "drawing_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Drawing Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DrawingResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Duplicate Drawing",
+        "tags": [
+          "drawings"
+        ]
+      }
+    },
+    "/api/v1/drawings/{drawing_id}/move": {
+      "post": {
+        "description": "File a drawing into a folder, or un-file it (200) \u2014 see :func:`move_part`.",
+        "operationId": "move_drawing_api_v1_drawings__drawing_id__move_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "drawing_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Drawing Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DocumentMove"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DrawingResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Move Drawing",
         "tags": [
           "drawings"
         ]
@@ -8623,6 +9563,353 @@
         ]
       }
     },
+    "/api/v1/folders": {
+      "get": {
+        "description": "The caller's WHOLE folder tree for one drawer, name-ordered.\n\nThe whole tree rather than one level: the register needs ancestors for its\nbreadcrumb and the full set for the move picker, and one flat response makes\n\"which folder is this in?\" a lookup rather than a request.",
+        "operationId": "list_folders_api_v1_folders_get",
+        "parameters": [
+          {
+            "description": "Which drawer's tree: 'part' / 'assembly' / 'drawing'",
+            "in": "query",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "description": "Which drawer's tree: 'part' / 'assembly' / 'drawing'",
+              "enum": [
+                "part",
+                "assembly",
+                "drawing"
+              ],
+              "title": "Kind",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FolderListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Folders",
+        "tags": [
+          "folders"
+        ]
+      },
+      "post": {
+        "description": "Create a folder in one drawer (201; 409 on a duplicate sibling name).",
+        "operationId": "create_folder_api_v1_folders_post",
+        "parameters": [
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FolderCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FolderResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Folder",
+        "tags": [
+          "folders"
+        ]
+      }
+    },
+    "/api/v1/folders/{folder_id}": {
+      "delete": {
+        "description": "Delete an EMPTY folder (204); 409 naming its contents when it is not.\n\nNot a cascade and not an orphan-to-root: see\n:mod:`py_kit.schemas.folders` for why refusal is the only one of the three\nthat neither destroys work the user never named nor moves it somewhere they\nwere not told about. The refusal lists what is inside, because the caller's\nnext action is to move those things out and a count would not tell them\nwhich.",
+        "operationId": "delete_folder_api_v1_folders__folder_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "folder_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Folder Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Folder",
+        "tags": [
+          "folders"
+        ]
+      },
+      "patch": {
+        "description": "Rename a folder (200; 404 unknown/foreign; 409 duplicate sibling name).\n\nRenaming cannot move \u2014 see :class:`~py_kit.schemas.folders.FolderRename`.",
+        "operationId": "rename_folder_api_v1_folders__folder_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "folder_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Folder Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FolderRename"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FolderResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rename Folder",
+        "tags": [
+          "folders"
+        ]
+      }
+    },
+    "/api/v1/folders/{folder_id}/move": {
+      "post": {
+        "description": "Re-parent a folder (200); ``parent_id: null`` moves it to the root.\n\n422 ``folder_cycle`` when the destination is the folder itself or one of its\ndescendants, ``folder_too_deep`` past the nesting bound, and\n``folder_kind_mismatch`` across drawers; 409 when a sibling of that name\nalready exists at the destination.",
+        "operationId": "move_folder_api_v1_folders__folder_id__move_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "folder_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Folder Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FolderMove"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FolderResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Move Folder",
+        "tags": [
+          "folders"
+        ]
+      }
+    },
+    "/api/v1/materials": {
+      "get": {
+        "description": "The built-in materials, in display order (metals, then polymers).\n\nv1 is a closed library (docs/design/materials.md \u00a71/\u00a75): a fixed\n``MaterialKey`` literal means an unknown material is a parse error at the\nboundary instead of a silent \"no mass\" three services later. User-defined\nmaterials extend this response additively when they land.",
+        "operationId": "list_materials_api_v1_materials_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MaterialLibraryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Materials",
+        "tags": [
+          "materials"
+        ]
+      }
+    },
     "/api/v1/parts": {
       "get": {
         "description": "The caller's parts, oldest first (deterministic id tiebreak).",
@@ -8675,7 +9962,7 @@
         ]
       },
       "post": {
-        "description": "Create a part (201; envelope 409 on a duplicate name for this owner).",
+        "description": "Create a part (201; 409 on a duplicate name IN ITS FOLDER).\n\n``folder_id`` files it on creation (#WS2) \u2014 one call, so a create-then-move\npair can never fail between the two and leave the part somewhere the user\ndid not put it. The destination is validated by the SAME rule the move route\napplies (:func:`documents.filing.resolve_destination`).",
         "operationId": "create_part_api_v1_parts_post",
         "parameters": [
           {
@@ -8850,7 +10137,7 @@
         ]
       },
       "patch": {
-        "description": "Rename and/or re-unit a part (bumps ``tree_version``; uniform 404).\n\nChanging the display unit is a document edit (docs/design/units.md \u00a7U1) \u2014\nit bumps ``tree_version`` like any header mutation but touches no stored\n``*_mm`` value (storage stays canonical mm). Stale ``expected_tree_version``\nis a 422 (mirroring the feature-tree write guard); 409 stays reserved for a\nduplicate-name conflict.",
+        "description": "Rename, re-unit and/or re-material a part (bumps ``tree_version``; 404).\n\nChanging the display unit is a document edit (docs/design/units.md \u00a7U1) \u2014\nit bumps ``tree_version`` like any header mutation but touches no stored\n``*_mm`` value (storage stays canonical mm). Changing the MATERIAL is a\ndifferent animal (docs/design/materials.md \u00a72): mass is derived from it, so\nthe previous evaluate's answer is genuinely out of date and the\nlast-evaluate record is deliberately NOT carried forward. Stale\n``expected_tree_version`` is a 422 (mirroring the feature-tree write guard);\n409 stays reserved for a duplicate-name conflict.",
         "operationId": "update_part_api_v1_parts__part_id__patch",
         "parameters": [
           {
@@ -8920,9 +10207,71 @@
         ]
       }
     },
+    "/api/v1/parts/{part_id}/duplicate": {
+      "post": {
+        "description": "Copy a part and its whole feature tree at its current version (201).\n\nSee the module docstring for exactly what is and is not copied. The copy is\na NEW document at ``tree_version`` 0 with no evaluate record \u2014 it is not a\nversion, a branch or a link, and nothing about it stays tied to the source.",
+        "operationId": "duplicate_part_api_v1_parts__part_id__duplicate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Part Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Duplicate Part",
+        "tags": [
+          "parts"
+        ]
+      }
+    },
     "/api/v1/parts/{part_id}/evaluation-request": {
       "get": {
-        "description": "The evaluation-ready feature list (design \u00a74.2), for the gateway to\nforward to the geometry service verbatim.\n\nDocuments owns everything geometry must never know about: the rollback\nbar is applied HERE (only the prefix up to and including the bar is\nreturned, \u00a73), params are upcast to current versions on read (\u00a71.4), and\nthe order is the total ``order_index`` order. ``tree_version`` rides\nalong as the cache/correlation key.",
+        "description": "The evaluation-ready feature list (design \u00a74.2), for the gateway to\nforward to the geometry service verbatim.\n\nDocuments owns everything geometry must never know about: the rollback\nbar is applied HERE (only the prefix up to and including the bar is\nreturned, \u00a73), params are upcast to current versions on read (\u00a71.4), and\nthe order is the total ``order_index`` order. ``tree_version`` rides\nalong as the cache/correlation key, and the part's material assignment\nrides along because mass is derived from it (materials.md \u00a72) \u2014 the one\nthing on this request that is not pure geometry intent.",
         "operationId": "get_evaluation_request_api_v1_parts__part_id__evaluation_request_get",
         "parameters": [
           {
@@ -9420,6 +10769,78 @@
         ]
       }
     },
+    "/api/v1/parts/{part_id}/features/{feature_id}/dependents": {
+      "get": {
+        "description": "What would break if this feature were deleted (200; possibly empty).\n\nA read, so it is safe to ask on hover or on opening a confirmation. An EMPTY\nlist is the honest common answer and means the delete will go through; it is\nnever dressed up as a guarantee about anything else (another client could\nadd a reference a millisecond later, which is why the delete still re-checks\nunder the row lock and can still refuse).",
+        "operationId": "dependents_of_feature_api_v1_parts__part_id__features__feature_id__dependents_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Part Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "feature_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Feature Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeatureDependents"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Dependents Of Feature",
+        "tags": [
+          "features"
+        ]
+      }
+    },
     "/api/v1/parts/{part_id}/features/{feature_id}/suppress": {
       "patch": {
         "description": "Flip ONLY a feature's suppress flag (feature-tree.md \u00a74.3a).\n\nA dedicated, minimal mutation: unlike :func:`update_feature` it never\ntouches ``params`` (no re-validation, no dependency-edge rewrite) \u2014 it sets\nthe envelope-level ``suppressed`` column and, like every tree write, bumps\n``tree_version`` under the optimistic-concurrency guard (stale \u2192 422) and\nrecords a history snapshot so the toggle is undoable. A suppressed feature\nis SKIPPED at rebuild (the evaluation-request marks it, geometry skips it),\nso this changes what an evaluation of the part means.",
@@ -9499,6 +10920,150 @@
         "summary": "Suppress Feature",
         "tags": [
           "features"
+        ]
+      }
+    },
+    "/api/v1/parts/{part_id}/last-evaluation": {
+      "put": {
+        "description": "Record the outcome of an evaluate on the part row (\u00a74.4a bookkeeping).\n\nINTERNAL, like every documents route, and deliberately without a public\ngateway twin (the same posture as ``GET /{part_id}/evaluation-request``):\nthe gateway calls this itself after geometry has answered, so the stored\nverdict is derived from what geometry actually said and is never a claim a\nbrowser could POST about its own health.\n\nThree guards make the record honest rather than merely present:\n\n- **Monotonic in ``tree_version``.** A late write for an older version is a\n  clean no-op (200, record unchanged), so two concurrent evaluates cannot\n  resurrect a superseded verdict.\n- **``last_eval_at`` is documents' clock**, never the caller's \u2014 one clock\n  orders every record.\n- **``updated_at`` does NOT move**, and neither does ``tree_version``: this\n  is bookkeeping, not a document edit. Opening a part triggers an evaluate,\n  and a register that showed \"last worked: just now\" because someone LOOKED\n  at a part would be lying about the thing it exists to report. The column's\n  ``onupdate`` default is suppressed by naming ``updated_at`` explicitly in\n  the UPDATE.\n\nThe SCOPE is stored beside the status, derived HERE (audit J3): the caller\ncould not supply it if it wanted to \u2014 documents applies the rollback bar\nbefore the evaluate request leaves, so an ``ok`` may be a verdict on a\ntwo-feature prefix of a nine-feature part, and only documents can say so.",
+        "operationId": "record_last_evaluation_api_v1_parts__part_id__last_evaluation_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Part Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PartEvaluationRecord"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Record Last Evaluation",
+        "tags": [
+          "parts"
+        ]
+      }
+    },
+    "/api/v1/parts/{part_id}/move": {
+      "post": {
+        "description": "File a part into a folder, or un-file it with ``folder_id: null`` (200).\n\nReturns the part AS STORED, so the register renders where the server put it\nrather than where the click assumed it went. 409 when the destination\nalready holds a part of that name (names are unique per folder).",
+        "operationId": "move_part_api_v1_parts__part_id__move_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Part Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+            "in": "header",
+            "name": "X-Loft-User",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Authenticated user id, forwarded by the gateway (documents is internal and trusts this header).",
+              "title": "X-Loft-User"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DocumentMove"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Move Part",
+        "tags": [
+          "parts"
         ]
       }
     },

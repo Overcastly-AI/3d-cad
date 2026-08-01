@@ -66,5 +66,6 @@
       }
     }
   ],
-  "linear_deflection": 0.1
+  "linear_deflection": 0.1,
+  "materials": { "default_material": "aluminium_6061" }
 }

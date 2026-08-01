@@ -16,6 +16,8 @@ from py_kit.schemas.assemblies import (
     CoincidentMate,
     ConcentricMate,
     DistanceMate,
+    EvaluateAssemblyRequest,
+    ExportAssemblyRequest,
     InstanceCreate,
     LockMate,
     Mate,
@@ -24,6 +26,8 @@ from py_kit.schemas.assemblies import (
     MateGeometryRef,
     Placement,
     Quat,
+    assembly_export_filename,
+    assembly_export_root_name,
     mate_instance_ids,
 )
 from pydantic import TypeAdapter, ValidationError
@@ -214,3 +218,50 @@ def test_instance_create_rejects_unknown_ref_kind() -> None:
                 "name": "x",
             }
         )
+
+
+# --- audit N4: the assembly deliverable says what it is ---------------------------
+
+
+def _export_assembly_request(**over: object) -> ExportAssemblyRequest:
+    return ExportAssemblyRequest.model_validate(
+        {
+            "assembly_id": "22222222-2222-2222-2222-222222222222",
+            "version": 1,
+            "instances": [],
+            "format": "step",
+            **over,
+        }
+    )
+
+
+def test_assembly_export_filename_prefers_the_document_name() -> None:
+    """`motor-mount-assembly.step` — the same slug rule the part/drawing use."""
+    named = _export_assembly_request(name="Motor Mount Assembly")
+    assert assembly_export_filename(named) == "motor-mount-assembly.step"
+
+
+def test_unnamed_assembly_exports_do_not_overwrite_each_other() -> None:
+    """The fallback is keyed to the assembly ID, not the constant `assembly.step`.
+
+    The audit's concrete complaint: EVERY assembly downloaded as `assembly.step`,
+    so exporting two silently overwrote the first in the browser's Downloads.
+    """
+    a = _export_assembly_request()
+    b = _export_assembly_request(assembly_id="33333333-3333-3333-3333-333333333333")
+    assert assembly_export_filename(a) == f"assembly-{a.assembly_id}.step"
+    assert assembly_export_filename(a) != assembly_export_filename(b)
+
+
+def test_assembly_export_root_name_falls_back_to_the_id() -> None:
+    """The root PRODUCT is the assembly's name, or its id — never nothing."""
+    named = _export_assembly_request(name="Motor Mount Assembly")
+    assert assembly_export_root_name(named) == "Motor Mount Assembly"
+    unnamed = _export_assembly_request()
+    assert assembly_export_root_name(unnamed) == str(unnamed.assembly_id)
+
+
+def test_evaluate_assembly_request_has_no_name_field() -> None:
+    """Export-only, for the same reason the part export's name is: a name must
+    never be an input to the SOLVE."""
+    assert "name" not in EvaluateAssemblyRequest.model_fields

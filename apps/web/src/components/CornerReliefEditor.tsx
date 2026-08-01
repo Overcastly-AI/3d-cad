@@ -41,6 +41,7 @@ import {
   unresolvedBendRef,
 } from "../features/sheetMetal";
 import { useDocumentLengthUnit } from "../units/documentUnit";
+import { EditorCard } from "./EditorCard";
 
 export interface CornerReliefEditorProps {
   mode: "create" | "edit";
@@ -131,10 +132,7 @@ export function CornerReliefEditor({
       : null;
 
   return (
-    <div
-      className="absolute left-editor top-3 w-editor max-w-full"
-      onKeyDown={onKeyDown}
-    >
+    <EditorCard onKeyDown={onKeyDown}>
       <Panel aria-label="Corner relief" data-testid="corner-relief-editor">
         <div className="border-b border-hairline">
           <h2 className="px-3 pb-1 pt-3 font-display text-2xs uppercase tracking-[0.18em] text-gauge">
@@ -248,6 +246,6 @@ export function CornerReliefEditor({
           {error}
         </p>
       ) : null}
-    </div>
+    </EditorCard>
   );
 }

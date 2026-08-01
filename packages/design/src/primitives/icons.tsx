@@ -625,6 +625,52 @@ export const GridSnapIcon = (p: IconProps) => (
   </Icon>
 );
 
+// --- Sketch snap marks ------------------------------------------------------
+//
+// The mark that names WHICH snap the cursor is about to take, drawn AT the
+// candidate point in the sketch viewport. Deliberately the AutoCAD/Fusion
+// object-snap vocabulary (square = endpoint, triangle = midpoint, circled
+// cross = centre, X = intersection) rather than an invented dialect: a snap
+// mark is a LEARNED symbol, so convention wins and the design contribution is
+// drawing it in our hand — 1.6 scribe stroke, square caps, `currentColor`.
+// Tangent and perpendicular reuse `TangentIcon` / `PerpendicularIcon`, which
+// already ARE those conventions (one glyph, one source).
+//
+// Every form is OPEN (no fill) so the geometry under the mark stays visible,
+// and the four differ by WHOLE STROKES — 4 axis-aligned sides / 3 sides with an
+// apex / a curve with an internal cross / two bare diagonals. That constraint
+// is not stylistic: a fill-only difference measured ILLEGIBLE at 16px when the
+// eye set was cut (`ui-wave-tool-grade.md` Surface 2, as-built correction 2).
+
+/** Endpoint — the square, engineering's end-of-line mark. */
+export const SnapEndpointIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x={6} y={6} width={12} height={12} />
+  </Icon>
+);
+
+/** Midpoint — the triangle, apex up. */
+export const SnapMidpointIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M12 5.5 L19 18 H5 Z" />
+  </Icon>
+);
+
+/** Centre — the drafting centre mark: a circle crossed through its middle. */
+export const SnapCenterIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <circle cx={12} cy={12} r={7} />
+    <path d="M12 7 V17 M7 12 H17" />
+  </Icon>
+);
+
+/** Intersection — two bare crossing scribes, no enclosure. */
+export const SnapIntersectionIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M5 5 L19 19 M19 5 L5 19" />
+  </Icon>
+);
+
 // --- Export -----------------------------------------------------------------
 
 /** STEP = an exact B-rep solid (an isometric cube — every edge is real). */
@@ -691,6 +737,19 @@ export const SuppressIcon = (p: IconProps) => (
   <Icon {...p}>
     <rect x={5} y={7} width={14} height={10} />
     <path d="M4 20 L20 4" />
+  </Icon>
+);
+
+/**
+ * A piece of blank stock — the GENERIC feature mark, used when a feature type
+ * has no verb glyph of its own yet (a kernel verb that landed before its
+ * frontend icon). Drawn as a chamfered blank so it never reads as a specific
+ * operation: it says "a feature", which is exactly what is known about it.
+ */
+export const StockIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M6 5 H15 L18 8 V19 H6 Z" />
+    <path d="M15 5 V8 H18" />
   </Icon>
 );
 
@@ -804,5 +863,116 @@ export const ViewIsoIcon = (p: IconProps) => (
   <Icon {...p}>
     <IsoBlock />
     <path d="M12 12 V20" strokeDasharray="2 2" />
+  </Icon>
+);
+
+// --- Visibility -------------------------------------------------------------
+//
+// The eye, deliberately. A novel glyph (aperture square, filled/hollow swatch)
+// would be more "designed" and would fail the novice bar: visibility is a
+// LEARNED symbol, so convention wins and the design contribution is drawing it
+// in our hand — the scribed lens is two circular arcs meeting at sharp corners
+// (square caps, miter joins, 1.6 stroke), not the round-cap Feather/Lucide eye.
+//
+// Three forms, one grammar, because the assembly row has three states and the
+// difference between them must survive at 16px as a SHAPE, not as a tint:
+//   · shown  — closed lens, pupil punched (the filled `Node` mark)
+//   · ghost  — the lens BREAKS into a phantom (dashed) outline and the pupil is
+//              gone: you are looking through the thing, nothing looks back.
+//              Dashed = "not fully present" is already this product's language
+//              (hidden edges on a drawing sheet, the indeterminate `Stamp`).
+//   · hidden — closed lens struck through, the learned "off" mark (the same
+//              redline angle as `SuppressIcon`, which strikes a feature from the
+//              build).
+//
+// The three differ by whole strokes — a dot present/absent, an outline whole or
+// broken, a slash present — deliberately, because a subtler encoding (a hollow
+// vs a filled pupil) measured ILLEGIBLE at the 16px the tree renders them at.
+
+/** The scribed lens both eye forms share — two arcs, sharp corners. */
+const EYE_LENS_PATH = "M3 12 A10.5 10.5 0 0 1 21 12 A10.5 10.5 0 0 1 3 12 Z";
+
+/** Shown — the instance draws at full opacity. */
+export const EyeIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d={EYE_LENS_PATH} />
+    <Node cx={12} cy={12} />
+  </Icon>
+);
+
+/** Ghosted — the instance draws translucent (you see through it). */
+export const EyeGhostIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d={EYE_LENS_PATH} strokeDasharray="3.4 2.6" />
+  </Icon>
+);
+
+/** Hidden — the instance is not drawn at all. */
+export const EyeOffIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d={EYE_LENS_PATH} />
+    <path d="M4 20 L20 4" />
+  </Icon>
+);
+
+/**
+ * Isolate — one component kept, its neighbours struck to phantom. The verb, in
+ * the same dashed-is-absent language the eye's ghost form uses, so the menu row
+ * and the row glyph read as one idea.
+ */
+export const IsolateIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x={9} y={8} width={6} height={9} />
+    <rect x={2} y={8} width={5} height={9} strokeDasharray="2 2" />
+    <rect x={17} y={8} width={5} height={9} strokeDasharray="2 2" />
+  </Icon>
+);
+
+// --- Register sort -----------------------------------------------------------
+//
+// The sort marker sits in a table HEADER, which in this product's language is a
+// title-block field label — so the glyph is the scribed chevron the caret
+// already uses, not a stack of unequal bars (the ubiquitous "sort" icon, which
+// reads as a filter and says nothing about direction). One stroke, mitered,
+// pointing the way the values run: up = ascending.
+
+/** Sorted ascending — A→Z, oldest first, smallest first. */
+export const SortAscIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M6 15 L12 9 L18 15" />
+  </Icon>
+);
+
+/** Sorted descending — Z→A, newest first, largest first. */
+export const SortDescIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M6 9 L12 15 L18 9" />
+  </Icon>
+);
+
+// --- filing (#WS2) ---------------------------------------------------------
+//
+// Deliberately NOT the ubiquitous manila-folder glyph. The registers are a
+// LOG BOOK — scribed gutter, ruled lines, ordinals in the margin — and the
+// thing that divides a log book is a card DIVIDER with a raised tab. Drawn as
+// exactly that: a card edge with a tab at its top-left, in the same square-cap
+// mitered stroke as every other glyph, so it reads as part of the drawer
+// rather than as an operating-system icon that wandered in.
+
+/** A drawer divider — the folder mark in the register's scribed gutter. */
+export const DividerTabIcon = (p: IconProps) => (
+  <Icon {...p}>
+    {/* the raised tab */}
+    <path d="M4 7 L4 4 L10 4 L10 7" />
+    {/* the card edge it sits on */}
+    <path d="M2 7 L22 7 L22 20 L2 20 Z" />
+  </Icon>
+);
+
+/** One step up the filing tree — the breadcrumb's separator/parent verb. */
+export const FolderUpIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M12 19 L12 6" />
+    <path d="M6 12 L12 6 L18 12" />
   </Icon>
 );

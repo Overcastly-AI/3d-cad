@@ -203,13 +203,38 @@ a later phase (see ROADMAP). OpenTelemetry hooks reserved in `py-kit`.
 - Allowed deps: MIT/BSD/Apache, LGPL (dynamic), OCCT's LGPL-with-exception.
 - **Forbidden:** GPL/AGPL dependencies. Reviewers enforce this.
 
+**Amended 2026-07-31 — the allow-list stands; two things it did not say.**
+Full analysis in `docs/LICENSING.md`; the short version, because both bit us:
+
+1. **"LGPL (dynamic) ok" is right, but dynamic linking is not the reason it
+   is ok.** LGPL-2.1 §6(b) — the "shared library mechanism" route people mean
+   when they say this — requires the library be **"already present on the
+   user's computer system."** That clause **fails for a container image**,
+   where we ship the library ourselves. Dynamic linking only gets us §6(b)(2)
+   (a user can substitute a modified build). Publishing images therefore
+   carries real §6 duties: convey the licence text, give prominent notice
+   (the OCCT exception *requires* it), and offer corresponding source — we
+   rely on §6(d). Consuming a dep via `uv sync` carries none of this;
+   `docker push` is what makes us a distributor.
+2. **"Forbidden: GPL/AGPL" cannot be enforced by reading dependency
+   metadata.** `cadquery-ocp-novtk` declares `License: Apache-2.0` and vendors
+   68 LGPL OCCT libraries plus **jbigkit (GPL-2.0)**, hard-linked via
+   `libTKService → libfreeimage → libtiff → libjbig` and mapped into every
+   process that imports the kernel. A metadata scan reports that tree as fully
+   permissive. **Licence review must read the bundled binaries** (`readelf -d`,
+   the wheel's `RECORD`), not just wheel metadata. jbigkit is stripped from
+   Loft images (BACKLOG LIC-1); Loft does no TIFF/JBIG I/O.
+
 ## 9. Geometry QA strategy (unique to CAD)
 
 Correctness gates no web app needs, run in CI and by the `geometry-qa` agent:
 
 - **Golden-model suite:** reference parts rebuilt from their feature trees;
-  assert mass properties (volume, area, centroid) within tolerance and
-  topology counts (faces/edges/shells) exactly.
+  assert mass properties (volume, area, centroid — and mass + the mass-weighted
+  centre of mass when the model assigns a material, §9a) within tolerance and
+  topology counts (faces/edges/shells) exactly. A model that assigns NO material
+  asserts the other half of that contract: mass comes back **absent**, never
+  `0` and never a defaulted density (docs/design/materials.md §6/§8).
 - **Round-trip fidelity:** model → STEP export → re-import → compare mass
   properties and topology. Runs at two levels: kernel (build123d I/O) and
   endpoint (`POST /api/v1/export` over HTTP). **A body must be conformal
@@ -221,6 +246,59 @@ Correctness gates no web app needs, run in CI and by the `geometry-qa` agent:
   it, so valid bodies keep their exact topology and byte-identical exports —
   and refuses any heal that moves the volume (decision + evidence in
   docs/GEOMETRY-QA.md 2026-07-25).
+- **Degeneracy is REFUSED, not healed, when the body is missing material.** The
+  companion rule to the one above, and the line between them: a **zero-width
+  slit** (two coincident faces of one lump with no material between them, e.g. a
+  `shell` whose thickness is exactly half an internal wall) is not a topology
+  error, so no repair pass removes it — `ShapeFix`, `UnifySameDomain` and a
+  self-fuse were all measured leaving it in place. The op therefore DETECTS it
+  with the one shared predicate
+  `geometry.kernel.degenerate.find_zero_width_slits` and degrades to a typed
+  feature error naming the fix, rather than shipping a cracked body or inventing
+  a warning channel the wire does not model (finding SH-1, decision + evidence
+  in docs/GEOMETRY-QA.md 2026-07-30). Same posture as
+  `removal_reaches_body`: one predicate, asked by every verb that can produce
+  the condition, never re-implemented per verb.
+- **A SIMPLIFICATION may not change material, and no body reaches the user
+  unchecked.** The third posture in the same family, and the one that closes it
+  (finding CM-6 / QA-1, decision + evidence in docs/GEOMETRY-QA.md 2026-07-30).
+  Every kernel op ends its boolean with `Shape.clean()`; on a body with a tangent
+  knife edge that simplification WELDED A VOID SHUT — a mirrored plate came back
+  3.48 % heavy and `BRepCheck`-invalid with every feature reporting `ok`. So (a)
+  `geometry.kernel.healing.clean_shape` is the ONE call site of `clean()`: it keeps
+  the pre-simplification shape and discards a simplification that moves the volume
+  (bound `CLEAN_VOLUME_REL_TOL`, relative because `clean()` re-partitions the faces
+  GProp integrates over; measured noise over 3050 suite calls is 1.6e-16 relative).
+  Discarding is always safe — an un-simplified body carries a redundant seam and
+  nothing worse. And (b) `BRepCheck` validity is asked ONCE per body-affecting
+  feature at the three `EvaluationState` methods that are the only way a shape
+  becomes the part's body, surfacing as a typed `invalid_body`, and again at
+  publish time — because OCCT's boolean can invalidate an ARGUMENT in place, so a
+  body that was valid when admitted can be corrupted afterwards by a later
+  feature. A body that fails either check is never measured, meshed or exported;
+  the artifacts are withheld. Same posture as `removal_reaches_body` and
+  `find_zero_width_slits`: one predicate, asked by every path that can produce the
+  condition, never re-implemented per verb.
+- **An assembly STEP INSTANCES its parts; it never duplicates them.** N
+  occurrences of one part write ONE `MANIFOLD_SOLID_BREP` and N placed
+  `NEXT_ASSEMBLY_USAGE_OCCURRENCE`s (AP214 product structure — OCCT's XCAF writer
+  emits that, not `MAPPED_ITEM`; both encode instancing, only the former is what
+  MCAD exchange uses). The gate is **solid count == unique part count**, asserted
+  on the emitted bytes, because a duplicating writer is a file-size multiplier AND
+  a semantic loss: downstream CAD cannot tell the instances are the same part. The
+  enabling constraint is kernel-level and non-obvious — the occurrences must SHARE
+  a `TopoDS_TShape`, and `build123d.Shape.located` is a deep `BRepBuilderAPI_Copy`,
+  so the STEP composer places with `Moved` while `place_body` keeps copying for the
+  interference/STL paths (a boolean can invalidate its argument in place). A file's
+  PRODUCT names the PART and its occurrence names the INSTANCE; the reader takes
+  the occurrence name first (finding N8, evidence in docs/GEOMETRY-QA.md
+  2026-07-31).
+- **A file outlives the screen that explained it.** Anything a user downloads is
+  named after its DOCUMENT — filename and, where the format has one, the product
+  name inside — through one slug rule (`py_kit.schemas.features.document_slug`),
+  falling back to an id so an unnamed export still cannot collide. The name rides
+  the EXPORT request only, never an evaluate request: a name must not be an input
+  to geometry (finding N4).
 - **Export byte-determinism:** identical requests → byte-identical STEP/STL
   files. STEP's `FILE_NAME` creation timestamp — the one nondeterministic
   byte range OCCT writes — is pinned kernel-side
@@ -228,8 +306,44 @@ Correctness gates no web app needs, run in CI and by the `geometry-qa` agent:
   docs/GEOMETRY-QA.md 2026-07-10).
 - **Solver determinism:** same sketch + constraints → identical solution
   across runs.
+- **Feature-set determinism:** where a feature names a SET of other features,
+  it applies them in **tree order, never request-array order** — an array order
+  is UI-incidental (which item the user ctrl-clicked first) and honouring it
+  would make identical models tessellate to different bytes. First instance: the
+  v2 `features`-scope mirror (decision + rationale in
+  `docs/design/mirror-semantics.md` §8.1, which also records why the mirror's
+  v1 implicit "mirror the body so far" semantic is retained verbatim rather than
+  re-expressed through the new mechanism — byte-identity of the shipped mirror
+  goldens is structural on the unchanged path, not a hoped-for equality).
 - **Performance budgets:** wall-clock ceilings for reference rebuilds and
   tessellation; regressions fail the gate.
+
+## 9a. Materials, density, and mass — decision record (2026-07-30)
+
+**Decision:** bodies carry a **material with a density**, mass is **derived**
+from it in the kernel (`mass = volume x density`, computed beside the volume it
+comes from), and a body with **no material reports NO mass — null, never 0 g
+and never a defaulted steel**. Assignment is a per-document default plus
+per-body overrides keyed by the body's §MB-0 base feature id. Full design +
+rationale: `docs/design/materials.md`; the library (7 handbook densities) lives
+in `py_kit.schemas.materials` and is SERVED (`GET /api/v1/materials`) rather
+than duplicated client-side.
+
+**Why it is an architecture decision, not a field:** it is the first input to
+evaluation that is not pure geometry intent. Length units are presentation
+metadata the kernel never sees (§units.md); material must reach the kernel,
+because mass is derived from it — so it rides `EvaluateTreeRequest.materials`,
+a material change bumps `tree_version` AND marks the last-evaluate record
+stale, and canonical mass is **grams** (what `mm^3 x kg/m^3` yields), mirroring
+canonical mm. Display units (g/kg/lb) stay in `packages/design` with the length
+factors — one units seam, not two.
+
+**Consequence for the roll-ups:** the multi-body and assembly composers now
+report a genuinely MASS-weighted `center_of_mass` alongside the (always
+volume-weighted) `centroid`; the pre-materials code called its volume weighting
+"mass-weighted", which is true only when every body shares one density. A
+roll-up is null unless EVERY contributor has a material — a partial sum would
+under-report while looking complete.
 
 ## 10. Assemblies — document model, mates, and the 3D mate solver
 

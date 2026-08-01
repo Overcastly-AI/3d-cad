@@ -96,7 +96,11 @@ async function drillTopFaceHole(page: Page): Promise<void> {
   await expect(page.getByTestId("new-hole")).toBeEnabled({ timeout: 30_000 });
   await page.getByTestId("new-hole").click();
   await expect(page.getByTestId("hole-editor")).toBeVisible();
-  await page.getByTestId("hole-face-pick").click();
+  // UI-W3: the face pick is armed on open — no arming step.
+  await expect(page.getByTestId("hole-face-pick")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
   await clickTopFace(page);
   await expect(page.getByTestId("hole-face")).toContainText("10");
   await page.getByTestId("hole-submit").click();

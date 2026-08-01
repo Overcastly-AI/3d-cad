@@ -872,3 +872,125 @@ describe("bind + revision bookkeeping", () => {
     expect(store().revision).toBe(0);
   });
 });
+
+describe("snapping (UI-W5)", () => {
+  const NONE = { suppressed: false, axisLock: false };
+  /** A rectangle whose far corner is deliberately OFF the 1 mm grid, so an
+   *  entity snap and a grid snap can never be mistaken for each other. */
+  const offGridRect = () => {
+    const store = useSketchStore.getState;
+    store().begin();
+    store().choosePlane("XY");
+    store().setTool("rect");
+    store().placeAt({ x: 0, y: 0 });
+    store().placeAt({ x: 40.4, y: 25.4 });
+    store().setTool("line");
+  };
+
+  beforeEach(() => {
+    // Preferences survive `exit` by design, so reset them here explicitly.
+    useSketchStore.setState({ snapEnabled: true, snapStepMm: 1 });
+  });
+
+  it("takes the entity snap over the grid and names what it took", () => {
+    offGridRect();
+    const store = useSketchStore.getState;
+    const at = store().aim({ x: 40.3, y: 0.2 }, 1, NONE);
+    expect(at).toEqual({ x: 40.4, y: 0 });
+    expect(store().cursor).toEqual({ x: 40.4, y: 0 });
+    expect(store().snapCandidate?.kind).toBe("endpoint");
+  });
+
+  it("suppresses every snap while Ctrl/Cmd is held", () => {
+    offGridRect();
+    const store = useSketchStore.getState;
+    const raw = { x: 40.31, y: 0.22 };
+    expect(store().aim(raw, 1, { suppressed: true, axisLock: false })).toEqual(
+      raw,
+    );
+    expect(store().snapCandidate).toBeNull();
+    expect(store().snapSuppressed).toBe(true);
+  });
+
+  it("re-resolves the live aim when a modifier is pressed WITHOUT moving", () => {
+    offGridRect();
+    const store = useSketchStore.getState;
+    const raw = { x: 40.31, y: 0.22 };
+    store().aim(raw, 1, NONE);
+    expect(store().snapCandidate?.kind).toBe("endpoint");
+    // No second aim() — the keyboard alone must make the mark honest again.
+    store().setSnapModifiers({ suppressed: true, axisLock: false });
+    expect(store().snapCandidate).toBeNull();
+    expect(store().cursor).toEqual(raw);
+    store().setSnapModifiers({ suppressed: false, axisLock: false });
+    expect(store().snapCandidate?.kind).toBe("endpoint");
+    expect(store().cursor).toEqual({ x: 40.4, y: 0 });
+  });
+
+  it("locks to an axis through the open placement's anchor under Shift", () => {
+    offGridRect();
+    const store = useSketchStore.getState;
+    store().placeAt({ x: 5, y: 5 }); // the line's first point = the anchor
+    const at = store().aim({ x: 30.4, y: 7 }, 1, {
+      suppressed: false,
+      axisLock: true,
+    });
+    expect(at).toEqual({ x: 30, y: 5 });
+    expect(store().snapCandidate?.kind).toBe("axis-h");
+  });
+
+  it("honours a configured grid step, and G still toggles only the grid", () => {
+    offGridRect();
+    const store = useSketchStore.getState;
+    store().setSnapStep(5);
+    expect(store().aim({ x: 12.2, y: 18.1 }, 0.1, NONE)).toEqual({
+      x: 10,
+      y: 20,
+    });
+    store().toggleSnap(); // grid off
+    expect(store().aim({ x: 12.2, y: 18.1 }, 0.1, NONE)).toEqual({
+      x: 12.2,
+      y: 18.1,
+    });
+    // …and the entity snap is untouched by G.
+    expect(store().aim({ x: 40.3, y: 0.2 }, 1, NONE)).toEqual({
+      x: 40.4,
+      y: 0,
+    });
+  });
+
+  it("rejects a non-positive grid step", () => {
+    const store = useSketchStore.getState;
+    store().setSnapStep(0);
+    store().setSnapStep(Number.NaN);
+    expect(store().snapStepMm).toBe(1);
+  });
+
+  it("does NOT entity-snap the pick-grain tools", () => {
+    offGridRect();
+    const store = useSketchStore.getState;
+    store().setTool("select");
+    expect(store().aim({ x: 40.3, y: 0.2 }, 1, NONE)).toEqual({ x: 40, y: 0 });
+    expect(store().snapCandidate).toBeNull();
+  });
+
+  it("drops the mark when the pointer leaves the plane", () => {
+    offGridRect();
+    const store = useSketchStore.getState;
+    store().aim({ x: 40.3, y: 0.2 }, 1, NONE);
+    store().setCursor(null);
+    expect(store().snapCandidate).toBeNull();
+    expect(store().cursor).toBeNull();
+  });
+
+  it("keeps the snap PREFERENCES across exit (they are settings, not state)", () => {
+    const store = useSketchStore.getState;
+    store().begin();
+    store().setSnapStep(0.5);
+    store().toggleSnap();
+    store().exit();
+    expect(store().snapStepMm).toBe(0.5);
+    expect(store().snapEnabled).toBe(false);
+    expect(store().entities).toEqual([]); // the session itself still resets
+  });
+});

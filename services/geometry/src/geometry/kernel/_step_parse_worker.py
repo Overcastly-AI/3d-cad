@@ -90,6 +90,68 @@ def _apply_cpu_limit(cpu_seconds: float) -> None:
         pass
 
 
+#: Shape-processing parameters handed to the STEP reader before its transfer —
+#: the ONE source both parse workers apply (:func:`apply_shape_fix_parameters`).
+#:
+#: **Why this exists (docs/PERF.md 2026-07-31b, PERF-3).** OCCT's STEP transfer is
+#: not just a read: after ``StepToTopoDS`` builds the topology,
+#: ``STEPControl_ActorRead`` runs a full ``ShapeFix_Shape`` over the result
+#: (``XSAlgo_ShapeProcessor::ProcessShape``). One operation in that sequence,
+#: ``ShapeFix_Wire::FixSelfIntersection`` → ``ShapeFix_IntersectionTool::
+#: FixSelfIntersectWire``, tests a wire's edges PAIRWISE and reaches each edge
+#: through ``ShapeExtend_WireData::Edge(i)`` — a positional index into an
+#: ``NCollection_Sequence``. Its cost is therefore super-quadratic in EDGES PER
+#: WIRE, and it dominated every large import: 8 of 8 sampled native stacks during
+#: an 18 s import sat inside it.
+#:
+#: Measured on Loft's own export of a 500-fin heat sink (2 006 faces, whose two
+#: comb faces each carry ONE 2 004-edge wire), OCCT 7.9.3 / OCP:
+#:
+#: * ``TransferRoots`` **17.47 s → 0.98 s** (17.9x) — and the whole import curve
+#:   goes from ``faces^2.4`` to LINEAR;
+#: * the transferred shape is **byte-identical** (same BREP sha256, same volume,
+#:   same 2 006 faces / 12 024 edges) at every corpus size.
+#:
+#: Disabling it is a fidelity no-op on well-formed input, which is the case it was
+#: costing us; on MALFORMED input it means a self-intersecting wire is imported as
+#: authored rather than silently repaired. That is the contract this module
+#: already documents ("It does not sew/heal/repair" — :mod:`geometry.kernel.
+#: imports`), and the downstream guard is unchanged and real: every imported body
+#: is admitted through ``body_is_valid`` (``BRepCheck_Analyzer``), so a broken
+#: import surfaces as a clean per-feature error, never a silently wrong body. It
+#: also TIGHTENS the DoS posture: a hostile file needed only one long wire to burn
+#: the entire CPU budget inside OCCT's repair pass.
+#:
+#: Keys are ``<operation>.<parameter>`` in OCCT's shape-processing vocabulary
+#: (``libTKXSBase``); ``0`` is ``ShapeFix``'s "do not perform".
+SHAPE_FIX_PARAMETERS: dict[str, str] = {"FixShape.FixSelfIntersectionMode": "0"}
+
+
+def apply_shape_fix_parameters(reader: object) -> None:
+    """Bind :data:`SHAPE_FIX_PARAMETERS` on a STEP *reader*, AFTER ``ReadFile``.
+
+    Order matters and is not obvious: ``XSControl_Reader::SetShapeFixParameters``
+    forwards the map to the transfer ACTOR, and the actor does not exist until
+    ``ReadFile`` has initialised the work session — calling it before ``ReadFile``
+    is silently a no-op (measured: 2.07 s before vs 0.53 s after, on the same
+    file). Both workers therefore call this immediately after a successful
+    ``ReadFile`` and before the transfer.
+
+    Accepts anything with ``SetShapeFixParameters`` — ``STEPControl_Reader`` for
+    the single-body path and ``STEPCAFControl_Reader`` for the XDE assembly path,
+    so both get the same bound (they are the same OCCT reader underneath). No
+    ``try``/``except``: if a future OCP drops the API this must fail loudly at the
+    first import rather than quietly restore the super-quadratic pass.
+    """
+    from OCP.Resource import Resource_DataMapOfAsciiStringAsciiString
+    from OCP.TCollection import TCollection_AsciiString
+
+    parameters = Resource_DataMapOfAsciiStringAsciiString()
+    for key, value in SHAPE_FIX_PARAMETERS.items():
+        parameters.Bind(TCollection_AsciiString(key), TCollection_AsciiString(value))
+    reader.SetShapeFixParameters(parameters)  # pyright: ignore[reportAttributeAccessIssue]
+
+
 def _parse(in_path: str, out_path: str) -> int:
     """Read the STEP at *in_path*, write the transferred shape to *out_path*."""
     from OCP.BRepTools import BRepTools
@@ -104,6 +166,7 @@ def _parse(in_path: str, out_path: str) -> int:
     status = reader.ReadFile(in_path)
     if status != IFSelect_ReturnStatus.IFSelect_RetDone:
         return EXIT_PARSE_FAILED
+    apply_shape_fix_parameters(reader)
     try:
         reader.TransferRoots()
         shape = reader.OneShape()

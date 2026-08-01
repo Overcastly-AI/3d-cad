@@ -8,8 +8,41 @@
  * grounded row carries the anchor mark. A mate that failed to resolve or
  * conflicts is flagged inline, read from the typed diagnosis — never a parsed
  * message.
+ *
+ * UI-W2 adds the VIEW controls to each component row (design
+ * `ui-wave-tool-grade.md` Surface 2). Two controls, two jobs, and the split is
+ * the point:
+ *
+ *  · the EYE, always present at the row's head — one click, the learned symbol,
+ *    drawn in our hand (see `icons.tsx`). It reports all three stops as a SHAPE
+ *    — pupil punched / lens broken and empty / lens struck through — so an
+ *    unselected ghosted row still declares itself at a glance rather than
+ *    relying on a tint that a screenshot review would call redundant and a
+ *    contrast meter would not;
+ *  · the SOLID · GHOST · HIDE `SegmentedControl`, disclosed under the ADDRESSED
+ *    row. The design sketch put it on hover; the arithmetic refuses. The panel
+ *    is 320px, the row already spends most of it on the balloon, name, stamp,
+ *    Ground and Remove, and a three-cell control needs ~120px. A row that GREW
+ *    on hover would reflow the list under the cursor, and reserving the height
+ *    on every row doubles a deliberately dense list. Disclosing it for the
+ *    selected instance costs nothing at rest, is keyboard-reachable, and matches
+ *    what selection already means here: the addressed component.
+ *
+ * ISOLATE is a verb, not a glyph — it lives in the row's right-click menu with
+ * its accelerator, because it is infrequent and destructive to view state.
+ *
+ * Visibility is VIEW state and is deliberately NOT gated on `busy`: it writes
+ * nothing to the server, so it keeps working while a mate or a ground toggle is
+ * in flight.
  */
-import { Panel, PanelSection } from "@loft/design";
+import {
+  EyeGhostIcon,
+  EyeIcon,
+  EyeOffIcon,
+  Panel,
+  PanelSection,
+  SegmentedControl,
+} from "@loft/design";
 
 import type {
   AssemblyGraphResponse,
@@ -19,6 +52,11 @@ import type {
 } from "../api/assemblies";
 import { mateDetail, mateLabel, mateInstanceIds } from "../assembly/mates";
 import { useDocumentLengthUnit } from "../units/documentUnit";
+import {
+  visibilityModeOf,
+  type VisibilityMode,
+  type VisibilityState,
+} from "../viewport/instanceVisibility";
 
 export interface AssemblyTreePanelProps {
   graph: AssemblyGraphResponse | undefined;
@@ -35,11 +73,47 @@ export interface AssemblyTreePanelProps {
    * mirror image of the false-clear the panel already refuses to print.
    */
   unverifiedInstanceIds: ReadonlySet<string>;
+  /** Per-instance view stops (UI-W2) — which rows are ghosted or hidden. */
+  visibility: VisibilityState;
+  /** The eye: draw / don't draw this instance, keeping its opacity stop. */
+  onToggleVisibility: (instanceId: string) => void;
+  /** The three-stop control: write one instance's opacity stop. */
+  onSetVisibility: (instanceId: string, mode: VisibilityMode) => void;
+  /** Right-click a component row → the view + edit verbs at the pointer. */
+  onInstanceContextMenu?: (
+    instance: InstanceResponse,
+    x: number,
+    y: number,
+  ) => void;
   onSelectInstance: (instanceId: string) => void;
   onToggleGrounded: (instance: InstanceResponse) => void;
   onDeleteInstance: (instance: InstanceResponse) => void;
   onDeleteMate: (mate: MateResponse) => void;
   busy: boolean;
+}
+
+/** The three stops, in the order the eye walks them. */
+const OPACITY_OPTIONS = [
+  { value: "solid", label: "Solid" },
+  { value: "ghost", label: "Ghost" },
+  { value: "hidden", label: "Hide" },
+] as const satisfies readonly { value: VisibilityMode; label: string }[];
+
+/**
+ * The eye's three forms. `gauge` ink measures 7.3:1 on the panel's `anvil` and
+ * 8.0:1 on the `carbide` seat a selected row takes — both clear WCAG-AA text
+ * contrast, so the glyph is never the marginal cue the 2026-07-30 audit found
+ * elsewhere. Hover lifts to `mist` (13.2:1 on anvil).
+ */
+const EYE_GLYPH: Record<VisibilityMode, typeof EyeIcon> = {
+  solid: EyeIcon,
+  ghost: EyeGhostIcon,
+  hidden: EyeOffIcon,
+};
+
+/** What clicking the eye will do, in the interface's plain-verb voice. */
+function eyeAction(mode: VisibilityMode, name: string): string {
+  return mode === "hidden" ? `Show ${name}` : `Hide ${name}`;
 }
 
 export function AssemblyTreePanel({
@@ -49,6 +123,10 @@ export function AssemblyTreePanel({
   selectedInstanceId,
   clashingInstanceIds,
   unverifiedInstanceIds,
+  visibility,
+  onToggleVisibility,
+  onSetVisibility,
+  onInstanceContextMenu,
   onSelectInstance,
   onToggleGrounded,
   onDeleteInstance,
@@ -103,78 +181,148 @@ export function AssemblyTreePanel({
                 const clashing = clashingInstanceIds.has(instance.id);
                 const unverified = unverifiedInstanceIds.has(instance.id);
                 const balloon = balloonById.get(instance.id) ?? 0;
+                const mode = visibilityModeOf(visibility, instance.id);
+                const EyeGlyph = EYE_GLYPH[mode];
                 return (
                   <li
                     key={instance.id}
                     data-testid="instance-row"
                     data-instance-id={instance.id}
-                    className={`flex items-center gap-2 border-l-2 px-2 py-1 ${
+                    data-visibility={mode}
+                    onContextMenu={
+                      onInstanceContextMenu
+                        ? (event) => {
+                            event.preventDefault();
+                            onInstanceContextMenu(
+                              instance,
+                              event.clientX,
+                              event.clientY,
+                            );
+                          }
+                        : undefined
+                    }
+                    className={`border-l-2 ${
                       selected
                         ? "border-brass bg-carbide"
                         : "border-transparent"
                     }`}
                   >
-                    <button
-                      type="button"
-                      onClick={() => onSelectInstance(instance.id)}
-                      data-testid={`instance-select-${instance.id}`}
-                      className="flex min-w-0 grow items-center gap-2 text-left outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass"
-                    >
-                      <span
-                        aria-hidden
-                        className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border font-display text-2xs tabular-nums ${
-                          instance.grounded
-                            ? "border-brass text-brass"
-                            : "border-etch text-gauge"
+                    <div className="flex items-center gap-2 px-2 py-1">
+                      <button
+                        type="button"
+                        onClick={() => onToggleVisibility(instance.id)}
+                        aria-pressed={mode !== "hidden"}
+                        aria-label={eyeAction(mode, instance.name)}
+                        title={eyeAction(mode, instance.name)}
+                        data-testid={`instance-visibility-${instance.id}`}
+                        // Rest is quiet (`gauge`); a row whose view has been
+                        // TOUCHED lifts to `mist` so it is findable when
+                        // scanning 21 rows. Deliberately not brass: the accent
+                        // is spent on selection/grounded/travel-stop, and an
+                        // assembly with a dozen hidden parts would otherwise
+                        // read as a wall of accent. Measured on `anvil`:
+                        // gauge 7.3:1, mist 13.2:1, brass hover 7.9:1 — the
+                        // shape difference (punched / hollow / struck pupil)
+                        // carries the state, the ink is the second cue.
+                        className={`flex min-h-target-dense min-w-target-dense shrink-0 items-center justify-center rounded-sm outline-none transition-colors duration-fast hover:text-brass focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass ${
+                          mode === "solid" ? "text-gauge" : "text-mist"
                         }`}
                       >
-                        {instance.grounded ? "⏚" : balloon}
-                      </span>
-                      <span className="truncate font-body text-sm text-mist">
-                        {instance.name}
-                      </span>
-                    </button>
-                    {clashing ? (
-                      <span
-                        data-testid={`instance-clash-${instance.id}`}
-                        title="Interferes with another part"
-                        className="shrink-0 rounded-sm border border-flag px-1 font-display text-2xs uppercase tracking-[0.14em] text-flag"
+                        <EyeGlyph size={16} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onSelectInstance(instance.id)}
+                        data-testid={`instance-select-${instance.id}`}
+                        className="flex min-w-0 grow items-center gap-2 text-left outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass"
                       >
-                        Clash
-                      </span>
-                    ) : unverified ? (
-                      <span
-                        data-testid={`instance-unverified-${instance.id}`}
-                        title="The exact overlap could not be measured — inspect this pair"
-                        className="shrink-0 rounded-sm border border-dashed border-etch px-1 font-display text-2xs uppercase tracking-[0.14em] text-gauge"
+                        <span
+                          aria-hidden
+                          className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border font-display text-2xs tabular-nums ${
+                            instance.grounded
+                              ? "border-brass text-brass"
+                              : "border-etch text-gauge"
+                          }`}
+                        >
+                          {instance.grounded ? "⏚" : balloon}
+                        </span>
+                        <span
+                          // A hidden component's name recedes to `gauge` (7.3:1
+                          // on anvil — still AA, still readable: it is hidden,
+                          // not disabled). The struck-through eye beside it is
+                          // the load-bearing cue, so this dim is a SECOND cue
+                          // and never the only one.
+                          className={`truncate font-body text-sm ${
+                            mode === "hidden" ? "text-gauge" : "text-mist"
+                          }`}
+                        >
+                          {instance.name}
+                        </span>
+                      </button>
+                      {clashing ? (
+                        <span
+                          data-testid={`instance-clash-${instance.id}`}
+                          title="Interferes with another part"
+                          className="shrink-0 rounded-sm border border-flag px-1 font-display text-2xs uppercase tracking-[0.14em] text-flag"
+                        >
+                          Clash
+                        </span>
+                      ) : unverified ? (
+                        <span
+                          data-testid={`instance-unverified-${instance.id}`}
+                          title="The exact overlap could not be measured — inspect this pair"
+                          className="shrink-0 rounded-sm border border-dashed border-etch px-1 font-display text-2xs uppercase tracking-[0.14em] text-gauge"
+                        >
+                          Unverified
+                        </span>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => onToggleGrounded(instance)}
+                        disabled={busy}
+                        aria-pressed={instance.grounded}
+                        data-testid={`instance-ground-${instance.id}`}
+                        className={`shrink-0 rounded-sm px-1 font-display text-2xs uppercase tracking-[0.14em] outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass disabled:opacity-50 ${
+                          instance.grounded
+                            ? "text-brass"
+                            : "text-gauge hover:text-mist"
+                        }`}
                       >
-                        Unverified
-                      </span>
+                        {instance.grounded ? "Grounded" : "Ground"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onDeleteInstance(instance)}
+                        disabled={busy}
+                        aria-label={`Remove ${instance.name}`}
+                        data-testid={`instance-delete-${instance.id}`}
+                        className="shrink-0 rounded-sm px-1 font-display text-2xs uppercase tracking-[0.14em] text-gauge outline-none hover:text-flag focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass disabled:opacity-50"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                    {selected ? (
+                      // The addressed component's opacity stops. Only one row
+                      // renders this at a time, so the per-stop test ids need no
+                      // instance suffix; the wrapper carries the id for QA.
+                      <div
+                        className="px-2 pb-2 pl-8"
+                        data-testid={`instance-opacity-${instance.id}`}
+                      >
+                        <SegmentedControl<VisibilityMode>
+                          label="Opacity"
+                          value={mode}
+                          options={OPACITY_OPTIONS.map((option) => ({
+                            ...option,
+                            "data-testid": `instance-opacity-${option.value}`,
+                            "aria-label": `${option.label} — ${instance.name}`,
+                          }))}
+                          onChange={(next) =>
+                            onSetVisibility(instance.id, next)
+                          }
+                        />
+                      </div>
                     ) : null}
-                    <button
-                      type="button"
-                      onClick={() => onToggleGrounded(instance)}
-                      disabled={busy}
-                      aria-pressed={instance.grounded}
-                      data-testid={`instance-ground-${instance.id}`}
-                      className={`shrink-0 rounded-sm px-1 font-display text-2xs uppercase tracking-[0.14em] outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass disabled:opacity-50 ${
-                        instance.grounded
-                          ? "text-brass"
-                          : "text-gauge hover:text-mist"
-                      }`}
-                    >
-                      {instance.grounded ? "Grounded" : "Ground"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onDeleteInstance(instance)}
-                      disabled={busy}
-                      aria-label={`Remove ${instance.name}`}
-                      data-testid={`instance-delete-${instance.id}`}
-                      className="shrink-0 rounded-sm px-1 font-display text-2xs uppercase tracking-[0.14em] text-gauge outline-none hover:text-flag focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass disabled:opacity-50"
-                    >
-                      Remove
-                    </button>
                   </li>
                 );
               })}

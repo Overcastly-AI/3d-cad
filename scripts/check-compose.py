@@ -126,6 +126,32 @@ def main() -> int:
     check(not ports(base["geometry"]), "geometry has NO host port")
     check(bool(ports(base["gateway"])), "gateway is host-published")
 
+    # G4 (engineering audit J4, 2026-07-30) — G3's reasoning, applied to the
+    # DATASTORES, which it never covered. G3 named `documents` and `geometry` as
+    # string literals, so db/redis/minio were simply outside the gate: the base
+    # file published 5432/6379/9000/9001 with NO host_ip, i.e. 0.0.0.0, while
+    # carrying repo-public default passwords in the same file — on the path
+    # compose-smoke.sh calls "the DOCUMENTED SELF-HOST PATH". Default password
+    # plus open port is materially worse than either alone.
+    #
+    # The gateway is the ONE intended public surface, so it is exempt by name.
+    # Everything else must bind loopback (or not publish at all). `BIND_IP`
+    # exists as the deliberate opt-out for an operator who really does want a
+    # remote datastore — they set it explicitly, rather than getting it by
+    # default and never knowing.
+    print("base: G4 — datastores are not world-published")
+    for name, service in sorted(base.items()):
+        if name == "gateway":
+            continue
+        for mapping in ports(service):
+            host_ip = mapping.get("host_ip")
+            published = mapping.get("published")
+            check(
+                host_ip in ("127.0.0.1", "::1"),
+                f"{name} publishes {published} on {host_ip or '0.0.0.0'} "
+                f"(expected loopback; set BIND_IP to override deliberately)",
+            )
+
     print("dev overlay: internal-service debug ports are loopback-only")
     for name in ("documents", "geometry"):
         mappings = ports(dev[name])

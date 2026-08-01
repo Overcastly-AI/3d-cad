@@ -36,3 +36,23 @@ deploy
 docker-compose*.yml
 justfile
 scripts
+
+# …except the licence machinery, which MUST enter the image. A container image
+# redistributes every byte in it (docs/LICENSING.md §1): the licence texts are
+# an LGPL-2.1 §6 obligation, strip-gpl-jbig.sh removes the GPL-2.0 library the
+# OCP wheel vendors, and check-licences.py is the build-time gate that proves
+# both. Excluding these silently is exactly how the obligation gets dropped.
+#
+# THIS LIST IS LOAD-BEARING AND IT HAS LOST AN ENTRY BEFORE. A COPY whose source
+# is excluded here resolves to nothing and fails the build — but only at
+# `docker build` time, which the blocked registry puts out of local reach, so it
+# lands in CI's `deploy-path` and nowhere earlier. That is exactly how LIC-2's
+# `scripts/corresponding_source.py` (imported by check-licences.py) broke all
+# three images for two commits on 2026-08-01. `scripts/check-build-context.py`
+# now re-implements Docker's matching and asserts every COPY source survives
+# these rules; it runs in `just lint` and CI's `python` job, so the next omission
+# fails in seconds instead of twenty minutes.
+!deploy/docker/licence
+!deploy/licenses
+!scripts/check-licences.py
+!scripts/corresponding_source.py

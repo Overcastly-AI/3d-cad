@@ -504,6 +504,24 @@ class TestStartupFailFast:
         settings = GatewaySettings(loft_env="production", jwt_secret=TEST_JWT_SECRET)
         assert build_app(settings).state.auth_config.jwt_secret == TEST_JWT_SECRET
 
+    def test_one_loft_env_governs_secret_and_datastore_posture(self) -> None:
+        """``LOFT_ENV`` is ONE field (py-kit's), gating both checks.
+
+        The gateway used to declare its own ``loft_env``; it now inherits the
+        base field, so the JWT posture above and py-kit's datastore-credential
+        guard cannot drift apart. Production + the repo-public Postgres
+        password refuses even with a perfectly good JWT secret.
+        """
+        dsn = "postgresql://loft:loft-dev-only@db:5432/loft_gateway"
+        with pytest.raises(RuntimeError, match="POSTGRES_URL"):
+            GatewaySettings(
+                loft_env="production", jwt_secret=TEST_JWT_SECRET, postgres_url=dsn
+            )
+        # …and the same explicit dev opt-in that permits the forgeable JWT
+        # fallback permits the dev datastore credential.
+        settings = GatewaySettings(loft_env="dev", jwt_secret=None, postgres_url=dsn)
+        assert build_app(settings).state.auth_config.jwt_secret
+
 
 # --- hashing unit checks -------------------------------------------------------
 

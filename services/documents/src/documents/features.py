@@ -32,6 +32,8 @@ from py_kit.schemas.features import (
     EvaluatedFeatureInput,
     EvaluateTreeRequest,
     FeatureCreate,
+    FeatureDependent,
+    FeatureDependents,
     FeatureEnvelope,
     FeatureMutationResponse,
     FeatureReorderRequest,
@@ -43,6 +45,7 @@ from py_kit.schemas.features import (
     UndoRedoRequest,
     feature_references,
 )
+from py_kit.schemas.materials import MaterialAssignment
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -315,6 +318,20 @@ async def evaluation_prefix(
     ]
 
 
+def part_materials(part: db.Part) -> MaterialAssignment | None:
+    """The part's stored material assignment, or ``None`` when it has none.
+
+    The ONE read of the ``parts.materials`` column (CLAUDE.md DRY): the part
+    evaluation-request and the assembly evaluation-request both go through here,
+    so an instanced part is evaluated with exactly the materials the part itself
+    is evaluated with. ``None`` out means no material anywhere in the document,
+    which geometry reports as NO mass — not zero (docs/design/materials.md §2).
+    """
+    if not part.materials:
+        return None
+    return MaterialAssignment.model_validate(part.materials)
+
+
 @router.get("/{part_id}/evaluation-request")
 async def get_evaluation_request(
     part_id: uuid.UUID, owner_id: Principal, session: SessionDep
@@ -326,13 +343,16 @@ async def get_evaluation_request(
     bar is applied HERE (only the prefix up to and including the bar is
     returned, §3), params are upcast to current versions on read (§1.4), and
     the order is the total ``order_index`` order. ``tree_version`` rides
-    along as the cache/correlation key.
+    along as the cache/correlation key, and the part's material assignment
+    rides along because mass is derived from it (materials.md §2) — the one
+    thing on this request that is not pure geometry intent.
     """
     part = await get_owned_part(session, owner_id, part_id)
     return EvaluateTreeRequest(
         part_id=part.id,
         tree_version=part.tree_version,
         features=await evaluation_prefix(session, part),
+        materials=part_materials(part),
     )
 
 
@@ -510,6 +530,84 @@ async def suppress_feature(
     )
 
 
+async def feature_dependents(
+    session: AsyncSession,
+    owner_id: uuid.UUID,
+    part: db.Part,
+    feature_id: uuid.UUID,
+) -> FeatureDependents:
+    """Everything that breaks if *feature_id* is deleted — features + drawings.
+
+    THE single answer to that question (CLAUDE.md DRY), used twice and
+    deliberately not implemented twice:
+
+    - :func:`dependents_of_feature` serves it as a GET, so the tree can name what
+      breaks BEFORE the user commits to a delete (UI-REVIEW 2026-07-30 F3 — the
+      delete used to fire with no warning and, when refused, said only "2 other
+      document(s)");
+    - :func:`delete_feature` builds its 409 ``details`` from the same call.
+
+    One query means the warning a user reads and the refusal the server would
+    issue cannot disagree — a pre-check with its own copy of the rule is a gate
+    that can quietly stop matching what it gates.
+
+    Intra-part references come from the materialized ``feature_dependencies``
+    edges (design §2.3), in tree order because that is the order the user reads
+    the tree in. Cross-document references come from the SHARED section-view
+    detection (:func:`documents.parts.section_view_feature_refs`), the same one
+    the undo/redo restore guard uses (audit P2 #16).
+    """
+    features = (
+        (
+            await session.execute(
+                select(db.Feature)
+                .join(
+                    db.FeatureDependency,
+                    db.FeatureDependency.feature_id == db.Feature.id,
+                )
+                .where(db.FeatureDependency.references_feature_id == feature_id)
+                .order_by(db.Feature.order_index)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    drawings = [
+        FeatureDependent(id=drawing_id, name=drawing_name, kind="drawing")
+        for drawing_id, drawing_name, ref_feature_id in await section_view_feature_refs(
+            session, owner_id, part.id
+        )
+        if ref_feature_id == feature_id
+    ]
+    return FeatureDependents(
+        dependents=[
+            FeatureDependent(id=row.id, name=row.name, kind="feature")
+            for row in features
+        ]
+        + drawings
+    )
+
+
+@router.get("/{part_id}/features/{feature_id}/dependents")
+async def dependents_of_feature(
+    part_id: uuid.UUID,
+    feature_id: uuid.UUID,
+    owner_id: Principal,
+    session: SessionDep,
+) -> FeatureDependents:
+    """What would break if this feature were deleted (200; possibly empty).
+
+    A read, so it is safe to ask on hover or on opening a confirmation. An EMPTY
+    list is the honest common answer and means the delete will go through; it is
+    never dressed up as a guarantee about anything else (another client could
+    add a reference a millisecond later, which is why the delete still re-checks
+    under the row lock and can still refuse).
+    """
+    part = await get_owned_part(session, owner_id, part_id)
+    feature = await _get_feature(session, part, feature_id)
+    return await feature_dependents(session, owner_id, part, feature.id)
+
+
 @router.delete("/{part_id}/features/{feature_id}")
 async def delete_feature(
     part_id: uuid.UUID,
@@ -532,46 +630,20 @@ async def delete_feature(
     pre_op = await history.PART_HISTORY.baseline_state(session, part)
     feature = await _get_feature(session, part, feature_id)
 
-    dependents = (
-        (
-            await session.execute(
-                select(db.Feature)
-                .join(
-                    db.FeatureDependency,
-                    db.FeatureDependency.feature_id == db.Feature.id,
-                )
-                .where(db.FeatureDependency.references_feature_id == feature_id)
-                .order_by(db.Feature.order_index)
-            )
-        )
-        .scalars()
-        .all()
-    )
-    # Cross-document protection (audit P2 #16): a drawing section view whose
-    # cutting plane is a FeatureRef into this feature would be silently broken by
-    # the delete, exactly like an intra-part reference — route through the SAME
-    # shared detection the undo/redo restore guard uses (DRY) and surface it in
-    # the same 409-with-dependents (``kind: "drawing"``, mirroring the part-delete
-    # cross-doc listing in ``reject_if_instanced``).
-    drawing_dependents = [
-        {"id": str(drawing_id), "name": drawing_name, "kind": "drawing"}
-        for drawing_id, drawing_name, ref_feature_id in await section_view_feature_refs(
-            session, owner_id, part.id
-        )
-        if ref_feature_id == feature_id
-    ]
-    if dependents or drawing_dependents:
+    # The SAME query the pre-check GET answers with, so a confirmation that said
+    # "nothing depends on this" and a refusal cannot come from two rules. The
+    # payload is the shared DTO (py-kit) rather than a hand-shaped dict: the
+    # delete DOCUMENTS it as its 409 response, so the tree reads
+    # ``details.dependents`` as a generated type and can name the features
+    # instead of printing "2 other document(s)" (UI-REVIEW F3).
+    dependents = await feature_dependents(session, owner_id, part, feature_id)
+    if dependents.dependents:
         raise ConflictError(
             f"Feature {feature.name!r} is referenced by "
-            f"{len(dependents) + len(drawing_dependents)} other document(s) "
+            f"{len(dependents.dependents)} other document(s) "
             "(features and/or drawing views); delete or re-point them first.",
             code="feature_has_dependents",
-            details={
-                "dependents": [
-                    {"id": str(row.id), "name": row.name} for row in dependents
-                ]
-                + drawing_dependents
-            },
+            details=dependents.model_dump(mode="json"),
         )
 
     if part.rollback_feature_id == feature.id:

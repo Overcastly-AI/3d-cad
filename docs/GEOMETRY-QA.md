@@ -7,6 +7,636 @@ not "do the tests pass" but **"is the geometry RIGHT?"** (RESEARCH §9,
 decisions recorded here AND in the golden's `expected.json` — never a way to
 go green.
 
+## 2026-07-31 — N8/N4/#50: an assembly STEP now INSTANCES its parts, and what leaves the tool says what it is (kernel-architect)
+
+The interop half of the product audit's N4–N13 cluster. The model was fine; what
+LEFT the tool was not — the auditor's answer to the north-star question was "yes
+for a part that stays in Loft, no for one that leaves as a drawing or a STEP".
+
+### N8 — 21 instances wrote 21 B-reps. Root cause: `located()` is a DEEP COPY.
+
+`build123d.Shape.located` runs `BRepBuilderAPI_Copy` inside its `__deepcopy__`, so
+every placed occurrence carried its OWN `TopoDS_TShape` and there was no instancing
+for any writer to find. The STEP composer now places with `TopoDS_Shape.Moved`
+(a new shape over the SAME TShape), and drives `STEPCAFControl_Writer` directly so
+the SHARED part label can be named for the PART rather than for whichever instance
+happened to be written last. `place_body` keeps the copying semantics for the
+interference + STL paths, where a boolean can invalidate its argument in place.
+
+Measured on the audit's own shape of assembly (1 bracket + N dowel pins of ONE
+part, `_many_instance_request` in `tests/test_assembly_export.py`):
+
+| | 6 instances / 2 parts | 21 instances / 2 parts |
+|---|---|---|
+| `MANIFOLD_SOLID_BREP` before | 6 | **21** |
+| `MANIFOLD_SOLID_BREP` after | **2** | **2** |
+| `PRODUCT` before / after | 7 / **3** | 22 / **3** |
+| `NEXT_ASSEMBLY_USAGE_OCCURRENCE` | 6 / 6 | 21 / 21 |
+| `ITEM_DEFINED_TRANSFORMATION` after | 6 | 21 |
+| bytes before | 142,974 | **504,376** |
+| bytes after | **49,624** | **58,546** |
+
+So the file stopped scaling with the fastener count: 15 more pins cost **595
+bytes each** (58,546 − 49,624 over 15), not another B-rep. `PRODUCT` names are now
+`['Motor Mount ASM', 'Bracket', 'Dowel Pin 8x24']` — the occurrence suffix `<n>` is
+stripped for the part and kept on the NAUO, so instance traceability (FINDINGS #7)
+survives while the file finally states that twenty pins ARE one part.
+
+**`MAPPED_ITEM` is still 0, and that is correct.** AP214 has two encodings for
+"this geometry, placed there": `MAPPED_ITEM`/`REPRESENTATION_MAP`, and assembly
+product structure (NAUO + `CONTEXT_DEPENDENT_SHAPE_REPRESENTATION` +
+`ITEM_DEFINED_TRANSFORMATION`). OCCT's XCAF writer emits the latter — the encoding
+MCAD assembly exchange actually uses. The audit's `MAPPED_ITEM` count was a proxy
+for "is anything instanced at all"; the measurable that answers it is
+**solid count == unique part count**, which is what the gate asserts.
+
+**Round-trip re-verified, and the reader had to change with it.** The XCAF walk
+took each occurrence's name from the referred PRODUCT label, falling back to the
+NAUO. Under instancing the product name is necessarily SHARED, so twenty distinct
+instances came back as twenty copies of one name. The priority is now
+occurrence-first, product-fallback (`_step_assembly_parse_worker._walk_components`),
+and an EMPTY name reads as absent. Golden round-trips (mass properties + world
+placements within `ROUNDTRIP_TOL`) unchanged.
+
+### N4 — a UUID filename containing `PRODUCT('SOLID')`
+
+`export_step_bytes(shape, name=...)` names the PRODUCT and the `FILE_NAME` field;
+`export_tree_filename` / `assembly_export_filename` slug the document name through
+ONE rule (`document_slug`, shared with the drawings' `artifact_filename`).
+Fallbacks are id-keyed, so an unnamed export still cannot collide — and the
+assembly's old constant `assembly.step`, which made a second export silently
+overwrite the first, is gone. The name rides the EXPORT request only, never the
+evaluate contract: a name must not be an input to geometry (asserted).
+
+Wire status: geometry honours `name` and every gate is on the exported bytes; the
+gateway/web callers that must SET it are a follow-up (filed) — until they do, the
+fallback keeps today's behaviour minus the assembly collision.
+
+### #50 — the thread callout reaches the print
+
+A tapped hole's solid is byte-identical to its bore, so the drawing is the only
+place a thread can exist. `thread_schedule_rows` derives one row per distinct
+designation (quantity + the ISO tap drill the machinist sets up) from the feature
+params at compose time — never stored, so a re-tapped hole cannot leave a stale
+callout — and all three serializers stamp the block. Asserted on the SERIALIZED
+ARTIFACT in every format, including a route-level test that POSTs to
+`/api/v1/drawing/compose` and greps the returned bytes for `M10x1.5` (a right
+composer whose caller drops the result is the exact defect class this feature was
+filed beside). NOT done, with reasons recorded on `ComposedThreadSchedule`: a BOM
+column (a BOM line is a DOCUMENT; a part with four M6 and two M8 has no single
+thread value) and a STEP thread annotation (AP242 PMI, which OCCT does not write
+and AP214 cannot express).
+
+### N5 (part) — the print stopped being grey
+
+The export page fill was `#ECEFF2`, the on-screen `drawing.paper` token, so every
+PDF a shop received was a grey A3. The exported page — and every knockout that must
+match it — is now `#FFFFFF`; the strokes still share the screen palette. One
+deliberate divergence, documented at the constant: a screen sheet must read as a
+sheet against dark chrome, a print is paper. 11 committed SVG/PDF byte goldens
+regenerated; the diff is the fill hex and nothing else (verified line by line).
+
+## 2026-07-30 — CM-6 / QA-1: a SIMPLIFICATION welded a void shut, and nothing in the pipeline ever asked `is_valid` (kernel-architect)
+
+**The defect** (docs/QA-REVIEW.md QA-1, P0). 40x40x10 block → revolve CUT (annular
+groove r4..r8 whose axis lies ON the XZ plane, so the void STRADDLES it) → mirror,
+`scope: {kind: body}`. Every feature `ok`; the body meshed, measured and exported.
+
+| | value |
+|---|---|
+| observed | **31,865.9587 mm³**, 12 faces, `Shape.is_valid` **false** |
+| analytic | **30,793.62842102152 mm³** (= 32,000 − 384π = 2 × 15,396.8142) |
+| error | **+1,072.330 mm³ — 3.48 % of the part**, silently |
+
+**Root cause is NOT the mirror, and the sweep is what proves it.** `mirror_cut`
+does fall back to `mirror_union` (the reflected tool no longer shares volume with
+the already-cut body, so `removal_reaches_body` is False) — but that reading is
+CORRECT here: the body lies wholly on one side of the plane, so "complete the
+symmetric half" is the only available meaning, and `fuse` returns the exact
+30,793.6284 as a `BRepCheck`-**valid** solid. The corruption is entirely in the
+`clean()` that follows. Held everything else fixed and swept the groove axis:
+
+| axis x | ring spans | mirrored volume | faces/edges | valid |
+|---|---|---|---|---|
+| 8.0 (outer wall TANGENT to the block's x=0 wall) | x 0…16 | **31,865.9587** | 12 / 24 | **false** |
+| 8.5 | x 0.5…16.5 | 30,793.6284 | 10 / 18 | true |
+| 9 / 10 / 12 / 20 | clear | 30,793.6284 | 10 / 18 | true |
+
+So the trigger is the exact TANGENCY (axis 8 + r 8 = the block's x=0 wall), which
+makes the mirrored body pinch to a knife edge along x=0, y=0 — not "a void that
+straddles the plane", which is the title QA gave it and which is sound at every
+other station. Provenance is the second ingredient, exactly as QA's parenthetical
+predicted: build the same ring from two PRIMITIVE cylinders instead of a revolve
+and `clean()` is a no-op on the same fused body (30,793.6284, valid). It is the
+revolve's periodic/seamed faces plus the tangency together.
+
+**Fix 1 — a simplification may not change material** (`kernel/healing.py:clean_shape`,
+now the ONE call site of `Shape.clean()`; all 21 kernel/sheet-metal sites go through
+it). It keeps the pre-clean shape and returns it when the volume moves. Discarding a
+simplification is always safe — the un-simplified body carries a redundant seam face
+(12 where a well-behaved clean gives 11) and nothing worse. Two measured facts made
+this shape rather than a smaller one:
+
+- `clean()` MUTATES its input: stashing `shape.wrapped` before the call and
+  restoring it afterwards yields the corrupted 31,865.9587, so the rollback has to
+  be a real `BRepBuilderAPI_Copy` (`Shape.__deepcopy__`, 0.63 ms on this body);
+- the accepted path returns the simplifier's own object (identity), so every shipped
+  golden's topology and export bytes are untouched by the guard existing.
+
+**Tolerance, measured then set.** Instrumented **3,050 `clean()` calls** across the
+geometry suite: worst |ΔV| **4.5e-13 mm³** on a 2,880 mm³ body — **1.6e-16
+relative**, i.e. machine epsilon; `clean()` never moved material anywhere else, and
+never turned a valid body invalid. `CLEAN_VOLUME_REL_TOL = 1e-9` (floor 1e-9 mm³,
+the planar tier) is therefore ~6e6× the observed noise and 3.5e7× tighter than the
+3.48 % defect. Relative, not absolute, because `clean()` re-partitions the faces
+GProp integrates over, so its noise scales with the body.
+
+**Fix 2 — the durable half: nothing checked `is_valid`.** `conform_solid` (CM-4)
+existed and ran only where it was wired. The check now lives at the THREE
+`EvaluationState` methods that are the only way a shape becomes the part's body
+(`set_active_body` / `start_body` / `combine_bodies`) — not per kernel op (twenty-odd
+sites, each forgettable: CM-5's tool recording went missing for three verbs exactly
+that way) and not at the export boundary (too late to name a feature, and it would
+fail the whole part instead of degrading to the last-good prefix). `_dispatch` maps
+it to a typed per-feature **`invalid_body`**.
+
+**Fix 3 — the publish-time re-check, which the first two exposed.** Every body is
+valid when admitted, so an invalid one at publish time can only have been
+invalidated IN PLACE afterwards — and OCCT does exactly that on this degenerate
+body: a pocket cut 30 mm away, touching none of the groove, rewrote its ARGUMENT's
+subshapes and the mirror's last-good body went 30,793.6284 → 31,865.9587 with
+nobody assigning to it. (A normal boolean does not: measured, a plain cut and even a
+tangent cut leave their input untouched.) The evaluator therefore re-asks
+`body_is_valid` before measuring, and WITHHOLDS the artifacts — null properties,
+null mesh, null `last_good_feature_id` — rather than publishing the exact wrong
+solid QA-1 reported under an error message.
+
+**Gates.** Two new goldens, hand-derived (never recorded — the pre-fix harness
+output for the tangent model was the 31,865.9587 that would have been enshrined):
+
+| golden | volume | area | topology | mesh | worst deviation |
+|---|---|---|---|---|---|
+| `mirror-revolve-groove-tangent-wall-40x40x10` | 32,000 − 384π | 8,800 + 192π | 12 / 24 / 1 | 1045 / 1024 | ΔV 3.6e-12, ΔA **0.0**, centroid 3.6e-15 |
+| `mirror-revolve-groove-clear-of-plane-40x40x10` (the control) | 32,000 − 384π | 8,672 + 192π | 14 / 36 / 1 | 1064 / 1036 | same |
+
+The control is the discriminator: its topology is the CLEANED one, so a "fix" that
+simply stopped simplifying passes the first golden and fails the second. Tolerance
+1e-9 (the reviewed curved tier), ~275× the measured worst case and four orders below
+the defect. Plus `test_healing.py` (the kernel contract, including a fixture test
+that fails loudly if OCCT ever stops welding — the guard must not become dead code)
+and three `test_composition_matrix.py` CM-6 cases. No new matrix ROW: that axis is
+derived from `FEATURE_REGISTRY.models()` and enumerates VERBS, and a tangent groove
+is a geometric configuration of the `revolve_cut` fixture, not a verb.
+
+**Cost, measured** (median of 5, warm, guarded vs. bypassed): 6-hole ring-cut plate
+201.4 → 221.7 ms (+20.3), bolt-circle pattern 109.6 → 122.0 (+12.4), mirror-revolve
+bore 51.7 → 62.9 (+11.2), open-top shell 23.4 → 32.8 (+9.4). One GProp pair per
+simplification plus one `BRepCheck` per body-affecting feature; +10 % to +40 % on
+small trees, ~an order of magnitude under the RESEARCH §9 2 s rebuild ceiling, and
+every benchmark tripwire green.
+
+## 2026-07-30 — QA-3: a diameter dimension survives the thickness edit that moved its face (kernel-architect)
+
+**The defect.** QA-3 (docs/QA-REVIEW.md, P1): a plate + Ø10 hole + a drawing carrying
+a diameter dimension. Thickness 10 → 16, re-project: `diameter · unresolved`, the
+annotation gone from the sheet — on a hole the revision never touched. The LINEAR
+dimension on the edited thickness edge followed the edit correctly (`7fde5d2`'s line
+tier), so this was the circle half: tier 2 keys on the 3-D CENTRE, and the edit slides
+the bore's rim 6 mm along its own axis.
+
+**Measured, before and after** (`tests/test_drawings_revision_thickness.py`, the same
+authored drawing composed against the part before and after the edit):
+
+| dimension | authored (10 mm) | after 10 → 16, BEFORE the fix | AFTER |
+|---|---|---|---|
+| Ø on the hole the edit did not touch | `Ø10.000`, tier `exact` | `subshape_unresolved`, annotation dropped | **`Ø10.000`**, tier `durable`, re-anchored onto the rim at z=**16.0** (x,y = 25.0, 12.5 — the same axis) |
+| linear on the edited thickness edge | `10.000`, tier `exact` | `16.000` (already correct) | `16.000` — unchanged, asserted as the control |
+
+Both are stamped in the exported SVG/PDF/DXF bytes, and the revised sheet composes
+byte-identically twice (RESEARCH §9 on the re-anchored path).
+
+**The tie the invariant CANNOT break, measured.** Enumerating the revised body: the
+bore has TWO rim circles — (25, 12.5, 0) and (25, 12.5, 16) — congruent, coaxial, same
+angular station, radius 5, differing only in the offset the tier frees. Any
+offset-free rule matches both, so the invariant alone can only report an ambiguity.
+What separates them is the projector's own output: the TOP view emits exactly ONE
+circle, whose `source_edge` is the rim at z=10 before the edit and z=16 after — the
+rim the viewer sees, and the only one a user could have picked. Tier 3 therefore
+scopes its candidates to the edges the dimension's view DRAWS. Refusals gated by name:
+no view evidence → unresolved (the pre-fix behaviour, unchanged); both rims drawn →
+`subshape_ambiguous`; a coaxial circle of a DIFFERENT radius (a counterbore) →
+refused; a hole MOVED across its face (x 20 → 28, drawn in the same view) → still
+`subshape_unresolved` with "REFERENCE LOST" on the print.
+
+**One accessor, not two.** The circle AXIS cannot come from a stage-1 signature (a
+full circle stores a seam and its antipode — a diameter, which pins the centre and
+radius but not the plane), so it is read from the exact B-rep. `circle_axis` moved to
+`geometry.kernel.edges` and is now shared by the foreshortening flag and the
+re-anchor; `edge_signatures_match` became public for the same reason (the anchor asks
+whether a body edge is one the view draws) rather than re-declaring a point tolerance.
+
+## 2026-07-30 — QA-2: a picked FACE survives its plane moving, and the numbers say where it landed (kernel-architect)
+
+**The defect.** QA-2 (docs/QA-REVIEW.md, P1): retyping a bracket's thickness 10 → 16
+— the commonest revision in CAD — took `Hole1` to `subshape_unresolved`, stranded
+the three features after it and left a featureless **38,400 mm³** brick with the
+export blocked. Cause (design `docs/design/topological-naming.md` §12): both face
+matching tiers PIN THE PLANE, and a depth edit changes nothing about the face except
+translating that plane.
+
+**Measured, on QA's own bracket** (60x40 plate → Ø6 hole at (15,20) on the top face →
+linear pattern x3 @ 60 → mirror about XZ → R1 on all edges):
+
+| thickness | features | volume | analytic |
+|---|---|---|---|
+| 10 (before the edit) | 6 ok | **142,020.953199 mm³** | — (QA measured 142,020.953 in the browser: same part) |
+| 16, BEFORE the fix | hole `subshape_unresolved`, 3 skipped | 38,400 | — |
+| 16, AFTER | **6 ok** | **227,397.926735 mm³** | — |
+| 16, AFTER, at the MIRROR stage (no fillet, so closed-form) | 5 ok | 227,685.6639472984 | 180·80·16 − 6·π·9·16 = 227,685.66394729842 → **dev 2.9e-11 mm³** |
+
+The fillet stage is the only one without a closed form, which is why the analytic
+check is taken one feature earlier; QA's "expected ≈227,000" is met.
+
+**Golden `revise-thickness-hole-on-moved-face-60x40x16`** — the first REVISION
+golden: its `model.json` is a tree in the state a document is actually left in after
+the edit (extrude 16, hole's stored face signature and position still at z=10), so
+it fails on the pre-fix kernel and nowhere else. Hand-derived, tolerance 1e-9:
+
+| quantity | analytic | measured deviation |
+|---|---|---|
+| volume | 38400 − 144π = **37,947.61065788307 mm³** | 7.3e-12 |
+| surface area | 8000 + 78π = **8,245.044226980004 mm²** | 1.8e-12 |
+| centroid x (bore OFF-CENTRE at x=15) | (38400·30 − 144π·15)/(38400 − 144π) = **30.178821275282164 mm** | 7.1e-15 |
+| topology | 7 faces / 15 edges / 1 shell | exact |
+
+The off-centre bore is the load-bearing part: it makes the CENTROID the assertion
+that the re-anchored plane put the drill back on the picked station — a hole
+re-anchored to the face centre would move it 5.7e-2 mm, seven orders of magnitude
+outside the tolerance.
+
+**Mesh counts cross-checked, not recorded.** The same tree with the face signature
+authored at the CURRENT plane (z=16 — a tier-1 strict match that never touches the
+new tier) produces **byte-identical GLB** (sha256 `568b5c19…`), identical topology
+and identical mass properties. So the translated re-anchor lands on exactly the body
+an exact pick would have made.
+
+**What the fix must NOT do, gated by name** (`tests/test_faces.py`): a thickened
+plate's hole never re-anchors onto the BOTTOM face (identical area, identical
+in-plane centroid — the same-sense normal is the only thing separating them, and it
+is a full flip); a parallel face of a different area or at a different in-plane
+station is refused; two stacked congruent faces are `subshape_ambiguous`, never a
+"nearest plane" guess; and a face that both moved AND changed shape stays an honest
+`subshape_unresolved`.
+
+**A finding worth recording about the SUITE, not the code.** Four shipped tests
+across `test_hole` / `test_shell` / `test_evaluate_tree` encoded "this face is gone"
+as *the same face at a different z* (the +Z plane moved to z=99, same area, same
+station). That is precisely the reference QA-2 says must resolve, so all four went
+green-to-red and had to be re-fixtured to differ in the FACE (a 900 mm² face the
+body does not have) rather than in its offset. The codebase's canonical example of
+an unresolvable reference was the case the user's commonest edit produces — which is
+a fair explanation of how the defect survived this long.
+
+## 2026-07-30 — QA-4: the print never loses a dimension in silence (kernel-architect)
+
+**The defect and its correction, both measured.** QA-4 (docs/QA-REVIEW.md, P1)
+reported that a lost dimension leaves no trace on the print. Driving the REAL
+gateway path (native stack, isolated ports 8010/8011/8012: register → part →
+40x25x10 plate with a Ø10 through hole → drawing → four standard views → Ø
+dimension picked off the top view's rim → thickness 10 → 16 → `POST
+/api/v1/drawings/{id}/export?format=svg`) measured the opposite for the
+*unmeasurable* half: the exported SVG **does** contain
+`DIAMETER DIM: REFERENCE LOST - RE-PICK THE EDGE` and
+`data-testid="drawing-dimension-error"`, and so does `/sheet`. The exported-bytes
+half of QA-4 is therefore NOT reproducible against geometry — the two surfaces that
+genuinely say nothing are the ON-SCREEN sheet (`apps/web` draws the pre-N1 bare
+`!`; `DrawingSheet.tsx::DimensionGlyph` ignores `ComposedDimensionError.message`
+and `.text` — reported to the frontend owner, not this territory) and the case
+below.
+
+**The real silent hole, in this territory.** A dimension that MEASURES fine but
+cannot be PLACED on its view was returned as `None` and skipped by `_compose_view`
+— no marker, no caption, no error, in the sheet model AND in all three exported
+formats. Reachable from the shipped UI: a Ø dimension on a view that draws the bore
+edge-on (the front view of that same plate) measures 10.000 and drew nothing.
+Now stamped: `code: dimension_not_placeable`,
+`DIAMETER DIM: CANNOT BE PLACED IN THIS VIEW - RE-PICK IT`.
+
+**Gates (`tests/test_drawings_lost_dimension.py`, 8 tests).** All go through the
+shipped route `POST /api/v1/drawing/compose` and assert on the returned ARTIFACT
+BYTES — SVG/PDF byte-substring, DXF by reading the entities back with `ezdxf`
+(audit-clean) — for both the unmeasurable and the unplaceable case, plus a control
+(a resolvable reference stamps `10.000` and no caption) and the structural
+invariant `placed == authored` over 8 view/model combinations. The byte level is
+the point: the caption function was already correct, and the gates that covered it
+called it directly.
+
+**No shipped bytes moved.** The four compose byte-goldens, the assembly compose
+goldens and the sheet-metal flat-pattern byte goldens are unchanged — no shipped
+golden contained a dimension the composer had been dropping.
+
+## 2026-07-30 — MASS: a material with a density, and the numbers that prove absence is not zero (kernel-architect self-report)
+
+**What shipped.** MASS PROPERTIES could not report mass — there was no density and
+no material anywhere in the codebase. Bodies now carry a material (7-entry handbook
+library, `py_kit.schemas.materials`), mass is derived in
+`kernel/properties.measure_shape` beside the volume it comes from, and both analytic
+roll-ups (multi-body part, assembly) compose it. Design + rationale:
+`docs/design/materials.md`; decision record RESEARCH §9a.
+
+**Measured — single material** (`sketch-extrude-40x25x10` + aluminium 6061,
+2700 kg/m^3 over an analytic 10000 mm^3):
+
+| quantity | analytic | measured deviation |
+|---|---|---|
+| `mass_g` | 27.0 g exactly (10 cm^3 x 2.70 g/cm^3) | **3.6e-15 g** |
+| `center_of_mass` | (20, 12.5, 5) mm = the volume centroid | **<= 3.6e-15 mm** |
+
+**Measured — MIXED materials, the case the volume centroid cannot answer**
+(`multibody-two-disjoint-boxes`: two 8000 mm^3 cubes, document default aluminium
+6061 on body A, a per-body steel 1018 override on body B):
+
+| quantity | analytic | measured deviation |
+|---|---|---|
+| `mass_g` | 21.6 + 62.96 = **84.56 g** exactly | **2.8e-14 g** |
+| `center_of_mass.x` | **34180/1057 = 32.3368022705771 mm** (= (270*10 + 787*40)/1057 in exact rationals) | **0.0** |
+| `center_of_mass.y/z` | 10 mm by symmetry | y 1.8e-15 mm, z **0.0** |
+| `centroid.x` (volume) | 25.0 mm — **7.34 mm away from the centre of mass** | unchanged from before |
+
+That 7.34 mm gap is the point of the slice: the assembly roll-up already **called**
+its centroid "mass-weighted" while computing a volume weighting, which is true only
+when every body shares one density. It is now genuinely mass-weighted, and the
+volume-weighted number keeps the honest name.
+
+**Tolerance: no new bound, and the reason is derivable rather than fitted.** Mass and
+centre of mass ride each model's existing documented `tolerance` (1e-9 for both
+goldens above). Justification: `mass = volume x density` and every library density is
+< 1 expressed in g/mm^3 (steel 1018, the densest, is 7.87e-3), so the propagated mass
+error is strictly SMALLER than the volume error the same bound already covers.
+Worst observed is 2.8e-14 g, ~3.6e4x inside the ceiling. The premise is itself
+asserted (`test_every_library_density_is_under_one_gram_per_cubic_mm`), so adding a
+denser material fails loudly instead of silently widening the claim.
+
+**Absence is asserted, not assumed — 45 goldens' worth.** The runner now requires
+`mass_g is None` AND `center_of_mass is None` for every golden whose model assigns no
+material. "0 g" would be a claim about a real massless body and a defaulted steel
+would be a worse one; a future helpful default fails 45 goldens at once, which is the
+gate the previous overstated surfaces (false CLASH badge, phantom drawing note) never
+had.
+
+**Geometry is untouched, MEASURED not assumed.** Both modified goldens rebuilt with
+and without their material assignment produce a **byte-identical GLB**
+(sha256 equal), and the ONLY metadata fields that differ are `mass_g` and
+`center_of_mass`. Assigning a material changes what we can say about a body, never
+the body. Full golden suite: 186 passed, including the in-process and
+fresh-interpreter determinism legs.
+
+## 2026-07-30 — SH-1: shelling a rib at EXACTLY 2x the wall left a zero-width slit and reported `ok` (kernel-architect)
+
+**The defect (BACKLOG #42, filed P3 "UX"; it is silent-wrong-geometry adjacent and
+the evidence below is why it was treated as such).** A uniform inward `shell` walks
+every retained face in by `t`. Where an internal wall is **exactly 2 x t** wide the
+two offsets land on the SAME plane: the wall stays solid, the cavity pinches to zero
+width, and the body ships with **two coincident faces and no material between them**
+— a crack of exactly zero width. The feature reported `ok` with nothing to warn the
+user. This is the body finding **CM-4** healed on 2026-07-25: the heal fixed the
+T-junction (which broke the STEP round-trip) and left the slit underneath it.
+
+**Reference case** (`40x40x10 plate -> [4,12]x[10,30] through-pocket -> r3 on every
+Z-parallel edge -> shell t=2 open-top`; the rib between the outer wall and the pocket
+wall is 4.0 mm): the pinch produces a **112.0 mm²** coincident face on a 272 mm² one
+at x=2 (= 14 mm of the dilated pocket's flat face x 8 mm of cavity height —
+hand-derived, not recorded), centred at (2, 20, 6). After the CM-4 heal there are
+**two** pairs (112.0 and 266.5398163397449 mm²) because `ShapeFix` splits the larger
+face along the T-junction.
+
+**No heal removes it — measured, all three:**
+
+| attempt | result on the CM-4 body | cost |
+|---|---|---|
+| `ShapeFix_Shape` (`conform_solid`) | valid, 37/96/64, **slit survives** (1 pair -> 2) | 7.9 ms |
+| `ShapeUpgrade_UnifySameDomain` | no-op: 37/96/64, same volume, slit survives | 3.1 ms |
+| self-fuse `BRepAlgoAPI_Fuse(s, s)` | reproduces the body, slit and all | 25.9 ms |
+| `BOPAlgo_Builder` on the single argument | **0 solids** | — |
+
+A zero-width void is missing MATERIAL, not a topology error, so topology repair
+cannot address it. The choice was refuse or ship a cracked body.
+
+**Decided: ERROR, not success-with-warning** — `shell_thickness_too_large`, whose
+documented remedy ("reduce below the smallest half-wall") is exactly this boundary.
+The deciding evidence is that **at exactly 2 x t OCCT is unreliable in KIND, not
+just in topology**. The same chain WITHOUT the r3 fillet returns **14172.183138827913
+mm³ where 6308.5309 (= 6208 + 32pi) is correct** — 2.25x the material, only 227.8 of
+8091.5 mm³ of cavity cut. That body is caught today only because `ShapeFix` happens
+to fail on it (`shell_failed`); the material-removed invariant PASSES it, because
+material was removed. A success we cannot distinguish from a 2.25x-too-heavy body is
+not a success. Sweeping the sharp-cornered layouts (pocket at x=3/4/5/6/8 with
+t=x/2, and a stepped ledge) every one of them fails LOUDLY in OCCT
+(`StdFail_NotDone` or an unhealable body) — the silent slit is specific to the
+filleted layout, where the coincidence region is a proper sub-rectangle bounded away
+from the corner tangency. Nothing about the knife edge is predictable.
+
+A `warning` channel would be the better UX (`ok` + advice), but `FeatureResult` has
+no such field and half-inventing one is worse than an honest refusal — filed
+(BACKLOG P3: typed `warnings` on `FeatureResult` + a distinct `shell_pinched_wall`
+code, both py-kit schema changes outside the kernel's territory).
+
+**The user loses nothing: the refusal is a knife edge, proved by the neighbours.**
+
+| t (mm) | outcome | volume (mm³) | topology |
+|---|---|---|---|
+| 1.900 | ok, sound (0.2 mm cavity slot at the rib) | **5901.709331264967** (analytic 5901.709331264961, Δ 5.5e-12) | 36/96/64 |
+| 1.999 | ok, sound | 6168.511389119073 | 36/96/64 |
+| **2.000** | **refused** `shell_thickness_too_large` | — (last-good 14400.0 untouched) | — |
+| 2.001 | ok, walls merged into solid material | 6173.632789728718 | 35/96/64 |
+| 2.100 | ok, walls merged | 6411.437105622895 | 35/96/64 |
+
+The merge side is pinned by hand-derivable INVARIANTS, not a recorded scalar:
+`V(1.9) < V(2.1) < 14400`, slit-free, and a 0.2 mm probe box at
+`[1.9,2.1]x[19.9,20.1]x[5.9,6.1]` that is **entirely void at t=1.9 and entirely
+solid (0.008 mm³) at t=2.1**. No closed form is honest above the pinch: where two
+offsets CROSS, OCCT does not follow the Minkowski erosion (measured **0.95 mm³** off
+it on the sharp-cornered t=2.1 variant), and recording a number we cannot derive is
+what the geometry-gates rule forbids.
+
+**Implementation — ONE shared predicate** (`removal_reaches_body` precedent):
+`geometry.kernel.degenerate.find_zero_width_slits(body)` — planar faces of the same
+LUMP that are antiparallel (`faces.NORMAL_MAX_ANGLE_TOL`, mirrored for opposite
+sense), share a supporting plane within the kernel linear tolerance, and overlap by
+more than `SLIT_AREA_FLOOR_MM2` (one tolerance SQUARE = 1e-8 mm², the area twin of
+`interference.CLASH_VOLUME_FLOOR_MM3`'s tolerance cube). Two deliberate design
+points: (a) a probe that RAISES answers "no slit" — this predicate REFUSES bodies,
+so the safe direction is the opposite of the interference probe's, and there is no
+AABB fallback; (b) a cross-LUMP face touch is not a slit (interference already calls
+a coincident-face touch "no clash"). The kernel's 1e-4 mm linear tolerance is now
+single-sourced in `kernel/tolerances.py` (`interference` had the only copy; a third
+was about to be written).
+
+**Cost** (measured, and it runs on every shelled lump): 0.33 ms on a 6-face box,
+0.56 ms on the 11-face golden tray, 2.0 ms on the 36-face CM-4 layout, worst 3.6 ms
+across all 60 tree goldens (the 54-face hemmed tray) — against 58-82 ms for
+shell+heal. Reading each face's support plane ONCE and doing the O(N²) arithmetic on
+float tuples took it from 30-90 ms (the first cut, which called `normal_at()` /
+`center(MASS)` inside the loop) to that.
+
+**Sibling audit (the brief's "check the other thickness-driven verbs").** All **60**
+feature-tree goldens (44 under `goldens/`, 16 under `goldens-sheet-metal/`) — every
+verb, including every sheet-metal flange / hem / corner-relief / flat-pattern body —
+are slit-free, so the predicate has a
+zero-false-positive baseline and a standing cross-verb gate
+(`test_every_shipped_golden_body_is_slit_free`). ONE live limit found and pinned
+rather than fixed: a **closed hem's air gap is `2 x bend_radius_mm`** and the schema
+only requires `> 0`, so `bend_radius_mm = 1e-6` ships a body whose two layers are
+2e-6 mm apart — 50x BELOW the 1e-4 mm at which this kernel calls two faces the same
+place — and the predicate reports 300 mm² of coincident face while the hem reports
+`ok`. Not reachable by a sane author in mm units, and the honest fix is a schema
+FLOOR on `bend_radius_mm` (py-kit, outside kernel territory), so it is recorded as
+`test_observed_limit_a_sub_tolerance_closed_hem_ships_a_slit` and filed. NB this also
+sharpened the predicate: the overlap boolean only sees EXACTLY coincident faces, so a
+sub-tolerance gap is slid onto the plane first — without that, the stated 1e-4 mm
+bound would have been fiction.
+
+**Gates.** New golden `shell-pinch-boundary-plate-40x40x10-pocket-t1.9` (the sound
+side, fully hand-derived: volume `5321.52 + 184.68pi`, area `5920.8 + 217.2pi`,
+centroid, 36/96/64, tolerance **1e-8** = the documented CURVED tier, measured worst
+residual 5.46e-12 — the closed form itself moves ~2e-12 with summation order, which
+is why the planar 1e-9 tier is not used). Threshold sweep in `test_shell.py`;
+predicate + sibling gate in the new `test_degenerate.py`; the CM-4 matrix test is
+re-targeted (t=2 must now degrade to the typed code with the last-good body proven
+untouched, and gate 2 rides the t=1.9 body of the SAME layout, which is what CM-4 was
+really about); `test_healing.py` keeps the heal's evidence at raw-`hollow` level and
+gains `test_healing_does_not_remove_the_zero_width_slit`, the assertion that stops
+the heal and the refusal from ever fighting — if a future `ShapeFix` DOES remove the
+slit, that test fails and the refusal becomes reviewable.
+
+## 2026-07-30 — Mirror v2 shipped: the four numbers, and byte identity MEASURED not assumed (kernel-architect)
+
+Implements `docs/design/mirror-semantics.md`. The headline is not a kernel
+improvement — it is that **CM-1's residual was a contract defect**, and the fix is
+`MirrorParamsV1.scope`, a `kind`-union of `body` (v1 verbatim) and
+`features: [FeatureRef]` (reflect each selected feature's recorded rigid tool,
+re-apply that feature's own boolean, in TREE order).
+
+**The four numbers, as measured on this commit** (all on the SAME 40x40x20 plate
+chains §1 of the design tabulated — so a reviewer can diff them against that table
+directly):
+
+| chain | spelling | measured | tier |
+|---|---|---|---|
+| A: plate -> hole Ø8@(10,20) -> boss 8x8x5@x∈[30,38] -> datum YZ@20 | `features: [hole, boss]` | **30629.380701702525** (analytic 30629.380701702532, Δ 7.3e-12) | `CURVED_TOL` |
+| A, same tree | bare `mirror {plane}` (= `scope: body`) | **30309.380701702525** — hole mirrored, boss single | `CURVED_TOL` |
+| B: plate -> pocket A x∈[4,8] -> pocket B x∈[14,18] -> datum YZ@20 | `scope: body` | **29600.000000000007** | `PLANAR_TOL` |
+| B, same tree | `features: [pocket B]` | **29600.000000000007** (bit-identical to the `body` reading's value) | `PLANAR_TOL` |
+| B' , same tree | `features: [pocket A, pocket B]` | **28799.999999999996** | `PLANAR_TOL` |
+
+Both chain-B spellings landing on the same value is the strongest evidence
+available that the v2 mechanism means what v1 meant where they overlap; 28800.0
+stops being "the wrong answer" and becomes the answer to a *different* request.
+The implicit 30309.3807 is now **asserted**, not tolerated: an implicit mirror
+cannot guess "hole and boss" over "hole", so a bare mirror has exactly one answer
+and the 29600.0 lock pins what it has to be.
+
+**Byte identity was verified, not argued.** §3.2 claims the shipped goldens are
+byte-identical *structurally* (the `body` scope dispatches to untouched code).
+Structural arguments have been wrong here before, so it was measured: all **39**
+goldens were rebuilt against a `git worktree` at the pre-v2 commit (`3b68016`) and
+against this one, comparing **GLB sha256 + the full metadata JSON**. Result: 39/39
+identical, including `mirror-hole-feature-plate-40x40x20` (`18ffdc7a…`),
+`mirror-cut-clearing-plane-block-40x40x20` (`f381f155…`) and
+`mirror-triangle-prism-2x` (`5ec5e45f…`). The permanent form of that guarantee is
+`test_absent_and_explicit_body_scope_are_byte_identical` — a GLB digest is NOT
+pinned as a constant, because a glTF-writer upgrade would break it for no geometric
+reason (the same reason the goldens never pin `glb_bytes`).
+
+**The highest-risk hunk (§6.2), and how it was de-risked.** The v1 cut slot
+(`record_cut_tools`) has TWO readers with two different documented rules, so
+letting the widening write into it would silently move what a `body`-scope mirror
+and a `pattern` reflect. The v2 store is therefore **separate and opt-in**:
+`record_cut_tools` keeps exactly its v1 write sites (extrude-cut + hole) and
+exactly its v1 meaning, while `record_feature_tools` records every mirrorable verb
+— but only for ids some `features`-scope mirror names, so a tree without one pays
+zero extra memory (the `body_history`/H4 posture). That makes "the v1 readers
+return an identical tool list" structural, and it is asserted directly at the state
+level by `test_widening_the_tool_store_leaves_the_v1_readers_untouched`. **Cost of
+that choice, filed honestly (BACKLOG P3):** a `body`-scope mirror after a
+revolve/sweep/loft CUT still takes the union path and can fill that void — the
+FINDINGS #2 class for the three non-extrude cuts. Widening the v1 slot would fix it
+AND change answers, so it gets its own item and its own goldens rather than riding
+in here.
+
+**Three new goldens** (§6.3), each on an existing documented tier, no new epsilon:
+`mirror-features-hole-boss-plate-40x40x20` (30629.3807, 18/42/1, `CURVED_TOL`
+1e-8), `mirror-features-pocket-b-only-40x40x20` (29600.0, 21/48/1, `PLANAR_TOL`
+1e-9), `mirror-features-both-pockets-40x40x20` (28800.0, 26/60/1, `PLANAR_TOL`).
+Mesh counts were hand-derived per face BEFORE measuring and matched exactly
+(1084/1060, 96/60, 120/76).
+
+**What the tests catch that a volume assertion would not.**
+
+- **Chirality (§4.5).** A reflection reverses handedness, so a mirror that
+  re-derived a circular pattern from its axis + positive `angle_deg` would wind the
+  ring backwards. On a full 360° ring that mistake is INVISIBLE (the reflected and
+  re-derived placement sets coincide), so the test uses a **partial** 90°/3 arc on a
+  60x60 plate: reflected placements give `centroid.y = 30.832691948315738`,
+  re-derived ones give exactly `30.0` — a 0.83 mm discriminator, ~8e7x the
+  tolerance, with the wrong value computed in the test itself so the check is
+  provably not vacuous.
+- **Nesting (§4.6).** The 4-fold quadrant chain (mirror about x=20, then mirror
+  *that* about y=20) gives 4 bores / **27978.761403405057** with the centroid exactly
+  at the plate centre. It only works because a `features`-scope mirror records the
+  tools it applied **as reflected**: recording its sources instead would re-cut the
+  second quadrant and leave the fourth empty (3 bores, 28984.07). That is why
+  `reflect_tools` is split out of the cut/fuse application.
+- **Drift (§4.5).** `_pattern_contribution` mirrors `_apply_pattern`'s branch
+  structure including its vacuous-cut fallback, so the two could diverge silently
+  and a mirror would then reflect something the pattern never applied.
+  `test_recorded_pattern_contribution_reproduces_the_pattern` asserts the invariant
+  (apply the recorded group to the pre-pattern body == the pattern's own result) for
+  add, cut, cut-fallback and circular-cut.
+- **Refusals as VALUES.** `mirror_feature_unsupported` (modifier / non-body-affecting
+  / `body`-scope inner mirror / boolean), `mirror_feature_unreachable` (a reflected
+  cut that removes nothing — with an explicit selection there is nothing to guess,
+  so v1's union fallback becomes an honest error), `mirror_feature_other_body`,
+  `mirror_feature_not_evaluated` (e.g. a count-1 pattern contributes no instances).
+  Each is pinned to the offending SELECTED feature via `upstream_feature_id`, so the
+  UI blames the right tree row. The fillet refusal carries the reason in its
+  message: a modifier has a *result*, not a tool, and the tempting
+  `before.cut(after)` delta-sliver is only correct where the reflected side is
+  congruent — elsewhere it produces a valid, closed, plausible, **wrong** body.
+
+**Divergence from the design, stated rather than smuggled.** §8.2 wants a
+SUPPRESSED selected feature "skipped silently". Shipped behaviour is the generic
+rule instead — `_suppressed_reference_error` walks every ref kind and answers
+`references_suppressed` pinned to the suppressed feature — because (a) the
+suppress==delete analogy does not hold (deleting a feature a mirror names is a
+write-time 409-with-dependents), (b) silently reflecting a SMALLER set is the
+plausible-but-wrong-body class this design exists to close, and (c) carving a
+per-field exception out of the generic walk would break the DRY property that a new
+ref-bearing field is covered for free. Locked with that reasoning in
+`test_a_suppressed_selection_is_references_suppressed`.
+
+**The limitation that did NOT go away.** v2 does **not** retire "a crossing mirror
+erases an asymmetric modifier" — a modifier cannot be named in a selection.
+`test_observed_limit_a_crossing_mirror_erases_an_asymmetric_modifier` is green and
+UNEDITED, and the BACKLOG overclaim the design corrected stays corrected.
+
+**Performance (§9's budget, measured not claimed).** Warm median full-tree rebuild
+(evaluate + measure + tessellate, median of 5 after a warmup):
+`mirror-features-hole-boss-plate-40x40x20` **72.0 ms**,
+`mirror-features-pocket-b-only-40x40x20` **65.1 ms**,
+`mirror-features-both-pockets-40x40x20` **86.7 ms**, against
+`mirror-hole-feature-plate-40x40x20` (the `body`-scope sibling) at **43.7 ms** — so
+the extra k reflections + k booleans cost ~20-40 ms on these chains, an order of
+magnitude inside the 2000 ms CI ceiling. The hole-boss golden is now a `tree` bench
+case, so the budget is a gate and not a note.
+
+**Gates:** composition matrix 221 (was 213; +8 `mirror_features` cells, and the
+`xfail(strict)` marker is GONE because its case now has an explicit selection —
+not because an assertion moved), goldens 39x4, STEP round-trip green,
+`test_mirror_features.py` 33, mirror/pattern/hole/evaluate-tree suites unchanged and
+green, `just gen-check` clean, TS typecheck clean (`scope` is optional in the
+generated client, so no web caller changed).
+
 ## 2026-07-25 — TAPPED holes: the v1 thread representation is COSMETIC, and the golden that locks it (kernel-architect)
 
 **The decision (recorded in `services/geometry/src/geometry/kernel/threads.py`,
@@ -115,31 +745,36 @@ crosses ~2 min.
 
 ### The matrix
 
-8 predecessors (FIRST) x 14 composers (SECOND) = 112 cells; the 8 diagonal
+8 predecessors (FIRST) x 15 composers (SECOND) = 120 cells; the 8 diagonal
 cells are explicitly skipped with a reason (two features cannot share an id) and
-covered instead by `test_self_composition_*`, which re-issues ids — **104 cells
-asserted**. (13 composers / 96 cells as first filed; the `tapped` column joined
-with the tapped-hole slice later the same day — see the entry above.) Base body: an 80x80x10 plate; placements are mutually disjoint in
+covered instead by `test_self_composition_*`, which re-issues ids — **112 cells
+asserted**. (13 composers / 96 cells as first filed; `tapped` joined with the
+tapped-hole slice, and `mir-feat` — the v2 `features`-scope mirror — with mirror v2
+on 2026-07-30. A new mirror SCOPE is a new composer behaviour, so the coverage
+audit would have failed had it shipped without a column.) Base body: an 80x80x10 plate; placements are mutually disjoint in
 plan and each verb's *patterned and mirrored copies* stay strictly interior (the
 reason for the 80 mm plate and the `+Y` linear step — a `+X` step would smuggle
 finding CM-2's shape into routine cells).
 
-| FIRST \\ SECOND | ext-add | ext-cut | hole | cbore | csink | tapped | pat-lin | pat-circ | mir-clear | mir-mid | fillet | chamfer | shell | draft |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| extrude-add | · | + | + | + | + | ✓ | ✓ | ✓ | **2V** | id | ✓ | ✓ | 🛑`shell_failed` | ✓ |
-| extrude-cut | + | · | +✓ | + | + | ✓ | **Nx** | **Nx** | **2V** | ✓ | ✓ | ✓ | ✓ | + |
-| hole (simple) | + | +✓ | · | +✓ | +✓ | +✓ | **Nx** | **Nx** | **2V** | ✓ | +✓ | +✓ | ✓ | +✓ |
-| pattern-linear | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | **2V** | id | ✓ | ✓ | ✓ | ✓ |
-| mirror-midplane | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | **2V** | · | ✓ | ✓ | ✓ | ✓ |
-| fillet | ✓ | ✓ | +✓ | +✓ | ✓ | ✓ | ✓ | ✓ | **2V** | id | · | 🛑`chamfer_failed` | ✓ | ✓ |
-| shell | 🛑`boolean_failed` | ✓ | ✓ | 🛑`hole_too_deep` | 🛑`hole_too_deep` | ✓ | ✓ | ✓ | **2V** | id | ✓ | ✓ | · | ✓ |
-| draft | ✓ | + | +✓ | + | + | ✓ | ✓ | ✓ | **2V** | ✓ | ✓ | ✓ | ✓ | 🛑`subshape_unresolved` |
+| FIRST \\ SECOND | ext-add | ext-cut | hole | cbore | csink | tapped | pat-lin | pat-circ | mir-clear | mir-mid | mir-feat | fillet | chamfer | shell | draft |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| extrude-add | · | + | + | + | + | ✓ | ✓ | ✓ | **2V** | id | **+V** | ✓ | ✓ | 🛑`shell_failed` | ✓ |
+| extrude-cut | + | · | +✓ | + | + | ✓ | **Nx** | **Nx** | **2V** | ✓ | **+V** | ✓ | ✓ | ✓ | + |
+| hole (simple) | + | +✓ | · | +✓ | +✓ | +✓ | **Nx** | **Nx** | **2V** | ✓ | **+V** | +✓ | +✓ | ✓ | +✓ |
+| pattern-linear | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | **2V** | id | **+V** | ✓ | ✓ | ✓ | ✓ |
+| mirror-midplane | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | **2V** | · | **+V** | ✓ | ✓ | ✓ | ✓ |
+| fillet | ✓ | ✓ | +✓ | +✓ | ✓ | ✓ | ✓ | ✓ | **2V** | id | **+V** | · | 🛑`chamfer_failed` | ✓ | ✓ |
+| shell | 🛑`boolean_failed` | ✓ | ✓ | 🛑`hole_too_deep` | 🛑`hole_too_deep` | ✓ | ✓ | ✓ | **2V** | id | **+V** | ✓ | ✓ | · | ✓ |
+| draft | ✓ | + | +✓ | + | + | ✓ | ✓ | ✓ | **2V** | ✓ | **+V** | ✓ | ✓ | ✓ | 🛑`subshape_unresolved` |
 
 `+` = analytic additivity · `✓` = kind invariant + no-silent-no-op · `Nx` =
-N-times-the-seed cut array · `2V` = exact doubling · `id` = asserted IDENTITY
-(x-symmetric body mirrored about its own midplane) · `🛑` = must degrade to that
-exact typed code, with the last-good body proven untouched · `·` = diagonal
-(see above).
+N-times-the-seed cut array · `2V` = exact doubling · `+V` = adds exactly one plate
+volume (a `features`-scope mirror of the BASE extrude reflects that feature's
+recorded prism about x=0 and re-fuses it — an ADD of one rigid tool, deliberately
+NOT a whole-body replicate, so `mir-clear`'s exact-2V and `mir-mid`'s <=2V keep
+meaning exactly what they meant) · `id` = asserted IDENTITY (x-symmetric body
+mirrored about its own midplane) · `🛑` = must degrade to that exact typed code,
+with the last-good body proven untouched · `·` = diagonal (see above).
 
 Also covered: revolve (a non-prismatic base composed with a hole and a 6-up
 rotated cut array, `V = 3690pi`), two triples (hole->pattern->clearing-mirror
@@ -366,6 +1001,15 @@ body (82.6 ms shell+heal); benchmarks green. Guards:
 assertion now) + 5 kernel tests in `services/geometry/tests/test_healing.py`,
 including one that FAILS if OCCT ever stops emitting the non-conformal body, so
 the heal cannot quietly become dead code.
+
+**AMENDED 2026-07-30 by finding SH-1 (top of this file): healing this body was
+treating the symptom.** Under the T-junction the pinched cavity is a zero-width
+slit (112 mm² of coincident faces with no material between them) that no repair
+pass removes, so `shell` now REFUSES t=2 mm on this layout instead of shipping the
+healed body. Gate 2 rides the same layout at t=1.9 mm (sound, round-trip exact) and
+the t=2 chain is asserted to degrade to `shell_thickness_too_large` with the
+last-good body untouched. `conform_solid` stays as defence-in-depth with its
+evidence at raw-`hollow` level in `test_healing.py`.
 
 ### 🟡 Two observations (locked, NOT filed as defects)
 
@@ -5078,3 +5722,121 @@ a crash or a phantom/wrong body; topology-changing suppress re-evaluates downstr
 byte-identically to the never-built variant; results are byte-deterministic including
 `mesh_glb_id`. One 🟡 design observation on source-less pattern combine-mode inference under
 intermediate suppress — behaviour is correct and deterministic, flagged for slice-2 docs/UX.
+
+## 2026-07-30 — CM-5: the v1 cut slot was extrude-only, so a `body`-scope mirror after a revolve/sweep/loft cut FILLED the void (kernel-architect)
+
+**The defect.** `EvaluationState.record_cut_tools` — the v1 store a `body`-scope
+mirror and both pattern verbs read to decide "was there a removal here?" — was
+written only by the extrude-cut path and by Hole. Revolve-cut, sweep-cut and
+loft-cut recorded nothing. So on the chain
+`sketch → extrude(add) → <verb>(cut) → datum → mirror(scope=body)` the mirror
+found no cut on record, took `mirror_union`, and **the reflection filled the
+void it was supposed to reflect** — every feature reporting `ok`.
+
+Measured on the 80×80×10 matrix plate: **63999.999999999985 mm³, 6 faces / 12
+edges** — i.e. the bare plate, the literal featureless brick — where
+62994.6904 (revolve) / 62720.0 (sweep) / 61973.3333 (loft) are correct. That is
+the FINDINGS #2 silent-wrong-geometry class, so the rarity of the chain does not
+soften it: the user gets a wrong solid, exported to STEP, with no error anywhere.
+
+**The fix** is one line in `_cut_active`, the single funnel all three non-extrude
+cuts already pass through, so no verb can be forgotten:
+`state.record_cut_tools(feature_id, [tool])` alongside the existing v2
+`record_feature_tools`. Safe for existing trees because it only ADDS records for
+verbs that had none — neither reader's *rule* changes, and both were measured to
+return an identical tool list on every chain the suite exercises.
+
+**Why the matrix was blind to it.** The composition matrix's predecessor axis was
+a HAND-LISTED set of verbs, and revolve/sweep/loft cuts were simply not on it.
+A hand-listed axis cannot fail when the vocabulary grows — it just silently stops
+covering. Durable fix: `FeatureTypeRegistry.models()` now exposes a read-only view
+of the registered vocabulary, and `test_pair_matrix_covers_every_shipped_verb`
+derives its required rows from the registry, so a new body-affecting verb — a new
+CUT verb in particular — cannot ship without a matrix row or an explicitly
+reasoned exemption.
+
+**Gates.** 3 new goldens (`mirror-{revolve,sweep,loft}-cut-*`), hand-derived
+analytic expectations, curved tier tolerance 1e-9 measured first (worst observed
+2.0e-12 mm³ volume, ~500× headroom). Each golden's counts are cross-checked
+against the SAME solid built without the mirror — two explicit cuts — which gives
+identical mass properties, topology and mesh counts; the GLB sha256 differs
+because a mirror hands OCCT a different face ORDER, which is why these goldens
+pin counts and properties rather than a digest. Circle segmentation `N = 126`
+was taken from a trusted shipped golden (`hole-through-r5-40x25x10`, 530/520)
+rather than assumed. Verified at this commit: mirror + pattern 80 passed,
+composition matrix 309 passed, golden + round-trip 385 passed, and the 39
+pre-existing goldens unchanged.
+
+## 2026-07-31 — PERF-1: first benchmark against a genuinely big part — the wall is at ~50 features (geometry-qa)
+
+Founder item: *"performance on a genuinely big part, since we've never measured
+against one."* Full evidence, tables and ranked fix list in **`docs/PERF.md`**;
+this is the summary.
+
+**What was measured.** Two new parts (`tests/_big_part_builders.py`) on two
+independent axes, swept by `tests/test_scaling_benchmarks.py` (opt-in: the
+`benchmark` marker AND `LOFT_SCALING_BENCH=1`, so it is NOT a CI timing gate and
+must not become one). Axis A: a 360x240x20 shelled tray lid in a realistic mixed
+vocabulary (pockets, through/blind holes, picked-edge fillets, shell, revolves,
+a pattern-cut vent, a `features`-scope mirror), N = 10/25/50/100/200, every
+point a strict PREFIX of every larger one. Axis B: a finned heat sink at a FIXED
+six features, 8..500 fins (500 = `MAX_PATTERN_COUNT`), so topology scales while
+tree length does not. 3 samples/point, median, nproc=4 / 15.7 GiB.
+
+**Rebuild is quadratic in feature count.** 263 / 628 / 2 098 / 7 456 / 27 269 ms
+at N = 10/25/50/100/200 — exponent 1.74 → 1.83 → 1.87 across successive
+doublings, i.e. `N^1.85`. Face count grows linearly in N (28 → 442) and every
+op is a whole-body pass, so per-feature cost grows linearly too. Marginal cost
+of the 200th feature: **198 ms**, 8x the 25th. Face count is NOT the wall:
+2 006 faces rebuild in 9.8 s from six features, and the matcher/tessellation are
+near-linear. **Verdict: fine at 25, a modeller waits at 50 (2.1 s — at the
+RESEARCH §9 ceiling), painful at 100 (7.5 s), unusable at 200 (27 s).**
+
+**Correctness under size is CLEAN — no tolerance was widened.** At the largest
+point of each axis: 0 features not `ok`, `BRepCheck`-valid, GLB and mass
+properties byte-identical across rebuilds, and STEP round-trip Δvolume
+**3.03e-09 mm³** (tray, 4.9e-15 relative) and **exactly 0.0** (sink), topology
+identical both ways — inside the shared `ROUNDTRIP_TOL` 1e-7. Loft gives correct
+answers slowly, which is the right failure mode: every fix below is pure
+performance with no correctness trade-off. Four unmarked correctness-at-size
+gates (valid solid / round-trip / determinism / provenance-budget arithmetic)
+now run in the DEFAULT suite at the small end (29 features, 32 fins, ~6 s).
+
+**Four defects filed (BACKLOG PERF-1..PERF-5), evidence first:**
+
+* 🔴 **No rebuild cache at all.** `evaluate_tree` re-runs the whole tree from
+  feature 0 for every route. Editing feature #199 of a 200-feature part costs
+  the same 27 s as editing #1; one face pick costs 29 s (`/overlay` = full
+  rebuild + history). The single biggest multiplier in the product.
+* 🔴 **The CM-6 validity gate is O(N x faces).** A/B counterfactual, same
+  protocol: N=200 25 331 ms as shipped vs 19 680 ms with `body_is_valid`
+  stubbed — **5.65 s, 22 %** of the rebuild, 125 whole-body
+  `BRepCheck_Analyzer` passes at ~53 ms each (`evaluate.py:529` `_admit`).
+  DO NOT delete it (it is the QA-1/CM-6 guard); make it incremental over the
+  boolean's `Modified`/`Generated` faces, keeping the publish-time whole-body
+  check. `clean_shape`'s two GProp integrations per boolean add another 5.3 %,
+  and that function's docstring quotes a toy-measured "~1.3 ms" that is 5.8 ms
+  per integration at 442 faces.
+* 🔴 **STEP import of Loft's OWN export is at 92 % of its DoS ceiling.** Through
+  the real bounded worker: 1 030 faces → 3.66 s, 2 006 faces → **18.44 s**
+  against `DEFAULT_STEP_IMPORT_CPU_TIMEOUT_S = 20.0`. Import scales `faces^2.4`,
+  so a part ~4 % larger is refused as `import_parse_timeout` — a *wrong
+  refusal*, not a slow import. The ceiling's docstring claims "~20x headroom",
+  derived from the 10-23 ms toy goldens; real headroom is **1.08x**.
+* 🟡 **`MAX_PROVENANCE_FACES` goes dark at ~110 features, and its docstring says
+  it never will.** The budget sums faces over EVERY snapshot, so it is
+  `O(features x faces)`: 91 % of 8 000 at N=100, 200 % at N=150. Past the
+  crossing, selecting a feature silently stops highlighting its faces.
+  `overlay.py:55-57` says "an authored part is nowhere near the bound (tens of
+  features x tens-to-low-hundreds of faces)" — that product is 7 500 of 8 000.
+* 🟡 **Payload.** Fitting the two largest points: **~30 B/triangle + ~425 B of
+  glTF JSON per B-rep FACE** (one primitive per face → 2 006 primitives and
+  ~850 KiB of JSON on the heat sink). And there is **no `GZipMiddleware`
+  anywhere** in geometry/gateway/py-kit: measured gzip-6 would cut the mesh
+  route 5.2x (tray) to 11.8x (sink) for one line of code.
+
+**Not bottlenecks, measured, leave them alone:** tessellation (3.4 % of an N=200
+rebuild), the audit-H4 hash-indexed face matcher (0.93 ms/face, linear — it did
+its job and still is), the sketch solver (57 sketches, 64 ms, 0.2 %), memory
+(619 MiB at N=200 over an ~500 MiB OCCT baseline), STL export (exactly
+50 B/triangle).

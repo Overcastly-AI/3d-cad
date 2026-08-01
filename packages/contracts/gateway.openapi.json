@@ -180,6 +180,19 @@
       "AssemblyCreate": {
         "description": "Create an assembly owned by the calling user (design \u00a71.2).",
         "properties": {
+          "folder_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "File it into this folder on creation, or null (the default) to leave it unfiled at the root of its drawer. Present so filing inside a folder is ONE call: a create-then-move pair could fail between the two and leave the document somewhere the user did not put it. Must be the caller's own folder OF THIS DOCUMENT'S KIND.",
+            "title": "Folder Id"
+          },
           "length_unit": {
             "default": "mm",
             "description": "Document display unit (docs/design/units.md \u00a71); DISPLAY metadata only \u2014 storage stays canonical mm. Defaults to 'mm'.",
@@ -194,7 +207,7 @@
             "type": "string"
           },
           "name": {
-            "description": "Assembly name; unique per owner, whitespace-trimmed, 1-200 characters",
+            "description": "Assembly name; unique per FOLDER (#WS2), whitespace-trimmed, 1-200 characters",
             "maxLength": 200,
             "minLength": 1,
             "title": "Name",
@@ -313,6 +326,19 @@
             "description": "Monotonic optimistic-concurrency counter (design \u00a71.2)",
             "title": "Doc Version",
             "type": "integer"
+          },
+          "folder_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The folder this document is filed in, or null when it is UNFILED (at the root of its drawer). Null is a real state, not a missing value \u2014 see py_kit.schemas.folders. Changed only by the document's `/move` route, which is not a document edit: it moves neither the concurrency counter nor `updated_at`.",
+            "title": "Folder Id"
           },
           "id": {
             "format": "uuid",
@@ -611,6 +637,39 @@
             "minimum": 1.0,
             "title": "Lumps",
             "type": "integer"
+          },
+          "mass_g": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "This body's mass (g) = its volume x its material's density, or null when it has no material. The whole-part `properties.mass_g` is null as soon as ONE body is null; this says which (materials.md \u00a74).",
+            "title": "Mass G"
+          },
+          "material": {
+            "anyOf": [
+              {
+                "enum": [
+                  "steel_1018",
+                  "stainless_304",
+                  "aluminium_6061",
+                  "brass_c360",
+                  "abs",
+                  "pla",
+                  "nylon_6"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The material RESOLVED for this body (its own override, else the document default); null = none assigned, so no mass.",
+            "title": "Material"
           }
         },
         "required": [
@@ -618,6 +677,37 @@
           "lumps"
         ],
         "title": "BodyLumpInfo",
+        "type": "object"
+      },
+      "BodyMaterialAssignment": {
+        "description": "A per-BODY material override, keyed by the body's \u00a7MB-0 identity.\n\n``base_feature_id`` is the id of the feature that CREATED the body \u2014 the\nsame key ``EvaluationState.bodies`` and\n:class:`~py_kit.schemas.features.BodyLumpInfo` use \u2014 so an override survives\nedits to other features the way any body reference does. An override naming\na body the tree no longer produces is inert (it matches nothing); it is not\nan error, because a rolled-back tree legitimately hides the body for a while.",
+        "properties": {
+          "base_feature_id": {
+            "description": "Id of the feature that created the body (its MB-0 identity)",
+            "format": "uuid",
+            "title": "Base Feature Id",
+            "type": "string"
+          },
+          "material": {
+            "description": "Material for THIS body only",
+            "enum": [
+              "steel_1018",
+              "stainless_304",
+              "aluminium_6061",
+              "brass_c360",
+              "abs",
+              "pla",
+              "nylon_6"
+            ],
+            "title": "Material",
+            "type": "string"
+          }
+        },
+        "required": [
+          "base_feature_id",
+          "material"
+        ],
+        "title": "BodyMaterialAssignment",
         "type": "object"
       },
       "BomLine": {
@@ -1160,7 +1250,7 @@
         "type": "object"
       },
       "ComposedDimensionError": {
-        "description": "A placed dimension the model could not measure \u2014 an honest marker (\u00a73.3).",
+        "description": "A placed dimension the model could not measure \u2014 an honest marker (\u00a73.3).\n\nThe marker glyph alone was a defect (audit N1): a 2.6 mm dashed circle holding a\nbare ``!`` tells a machinist nothing, and the exported PDF/DXF carried the same\nmark. So the placed error also carries ``message`` \u2014 a SHORT, upper-case sheet\ncaption in plain words (\"LINEAR DIM: REFERENCE LOST - RE-PICK THE EDGE\") \u2014 and\n``text``, where the serializers stamp it beside the marker. This is the\ndimension-level twin of the typed per-view reason :class:`ComposedView` stamps\nunder a failed view (FINDINGS #15): the machine-readable ``code`` plus the human\nsentence, on the print itself.",
         "properties": {
           "at": {
             "$ref": "#/components/schemas/ComposedPoint",
@@ -1200,6 +1290,23 @@
             "default": "error",
             "title": "Kind",
             "type": "string"
+          },
+          "message": {
+            "default": "",
+            "description": "Short plain-language sheet caption for the failure ('LINEAR DIM: REFERENCE LOST - RE-PICK THE EDGE'), stamped beside the marker so the print says WHY in words (audit N1). Empty = no caption (marker only).",
+            "title": "Message",
+            "type": "string"
+          },
+          "text": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ComposedPoint"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where the `message` caption is stamped (SVG space, baseline-left); null when there is no caption"
           }
         },
         "required": [
@@ -1255,6 +1362,83 @@
           "y2"
         ],
         "title": "ComposedHatchLine",
+        "type": "object"
+      },
+      "ComposedLayoutIssue": {
+        "description": "Two placed views that collide, or nearly do (audit N2).\n\nAuto-layout used to pack the standard quartet to near-tangency and then export\nthe collision that the next design change produced \u2014 an overlapping print,\nsilently, in SVG/PDF/DXF alike. Composition now MEASURES every pair of placed\nviews and reports what it found here, in millimetres, and the serializers stamp\nthe issues as a banner on the sheet so a colliding print is never silent.\n\n``views`` names the two projections; ``overlap_x_mm``/``overlap_y_mm`` are the\nsigned gaps between their ink boxes on each axis \u2014 POSITIVE where the boxes\noverlap on that axis, NEGATIVE (a clearance) where they do not. Boxes overlap\nonly when BOTH are positive; ``clearance_mm`` is then 0.0 and otherwise the true\n(smallest-axis) white gap between them.",
+        "properties": {
+          "at": {
+            "$ref": "#/components/schemas/ComposedPoint",
+            "description": "Where the serializers stamp this line of the sheet banner (SVG space, baseline-left) \u2014 placement stays the composer's job (design \u00a74.2)"
+          },
+          "clearance_mm": {
+            "description": "White gap between the two boxes (mm); 0.0 when they overlap",
+            "title": "Clearance Mm",
+            "type": "number"
+          },
+          "code": {
+            "description": "views_overlap | views_crowded",
+            "enum": [
+              "views_overlap",
+              "views_crowded"
+            ],
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "description": "Plain-language sheet caption ('TOP / ISOMETRIC VIEWS OVERLAP BY 6.33 x 60.00 MM - REPOSITION BEFORE RELEASE')",
+            "title": "Message",
+            "type": "string"
+          },
+          "overlap_x_mm": {
+            "description": "Signed X-axis overlap (mm): positive = the boxes overlap in X, negative = that much X clearance",
+            "title": "Overlap X Mm",
+            "type": "number"
+          },
+          "overlap_y_mm": {
+            "description": "Signed Y-axis overlap (mm): positive = overlap, negative = clearance",
+            "title": "Overlap Y Mm",
+            "type": "number"
+          },
+          "severity": {
+            "description": "error | warning",
+            "enum": [
+              "error",
+              "warning"
+            ],
+            "title": "Severity",
+            "type": "string"
+          },
+          "views": {
+            "description": "The two colliding/crowded projections, in canonical order",
+            "items": {
+              "enum": [
+                "front",
+                "top",
+                "right",
+                "iso",
+                "flat_pattern",
+                "section"
+              ],
+              "type": "string"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "title": "Views",
+            "type": "array"
+          }
+        },
+        "required": [
+          "code",
+          "severity",
+          "views",
+          "overlap_x_mm",
+          "overlap_y_mm",
+          "clearance_mm",
+          "message",
+          "at"
+        ],
+        "title": "ComposedLayoutIssue",
         "type": "object"
       },
       "ComposedLineEdge": {
@@ -1484,6 +1668,14 @@
             "title": "Height Mm",
             "type": "number"
           },
+          "layout_issues": {
+            "description": "Measured view-collision diagnostics (audit N2): overlapping or sub-clearance view pairs, each with millimetre numbers and a plain-language message. EMPTY for a clean sheet \u2014 additive, so a clean sheet composes byte-identically. Non-empty \u21d2 the serializers stamp a banner on the print.",
+            "items": {
+              "$ref": "#/components/schemas/ComposedLayoutIssue"
+            },
+            "title": "Layout Issues",
+            "type": "array"
+          },
           "margin_mm": {
             "description": "Border inset from the sheet edge (mm)",
             "title": "Margin Mm",
@@ -1501,6 +1693,17 @@
             "description": "The sheet scale label ('1:1')",
             "title": "Scale Label",
             "type": "string"
+          },
+          "thread_schedule": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ComposedThreadSchedule"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The placed THREAD SCHEDULE block (BACKLOG #50) \u2014 one row per distinct tapped-hole designation in the part, with its quantity and tap drill. Null for a part with no tapped hole \u2014 additive, so an untapped sheet composes byte-identically to its pre-thread golden."
           },
           "title": {
             "description": "Drawing name (metadata / accessible label)",
@@ -1534,6 +1737,48 @@
           "title_block"
         ],
         "title": "ComposedSheet",
+        "type": "object"
+      },
+      "ComposedThreadSchedule": {
+        "description": "The placed thread-schedule block \u2014 anchor rect + rows (BACKLOG #50).\n\nThe bottom-left twin of the flat-pattern bend table (top-left) and the title\nblock (bottom-right): a bordered box of derived rows, in sheet-mm SVG space,\nrendered identically by all three serializers.",
+        "properties": {
+          "height": {
+            "description": "Block height (mm)",
+            "title": "Height",
+            "type": "number"
+          },
+          "rows": {
+            "description": "One row per distinct designation, in the part's TREE order of first appearance (never request-array order \u2014 RESEARCH \u00a79)",
+            "items": {
+              "$ref": "#/components/schemas/ThreadCalloutRow"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "width": {
+            "description": "Block width (mm)",
+            "title": "Width",
+            "type": "number"
+          },
+          "x": {
+            "description": "Block left edge (mm, SVG space)",
+            "title": "X",
+            "type": "number"
+          },
+          "y": {
+            "description": "Block top edge (mm, SVG space, y-down)",
+            "title": "Y",
+            "type": "number"
+          }
+        },
+        "required": [
+          "x",
+          "y",
+          "width",
+          "height",
+          "rows"
+        ],
+        "title": "ComposedThreadSchedule",
         "type": "object"
       },
       "ComposedTitleBlock": {
@@ -2066,6 +2311,56 @@
         "title": "DatumPlaneRef",
         "type": "object"
       },
+      "DependencyConflictEnvelope": {
+        "description": "A dependency 409 as it appears on the wire (the standard envelope).\n\nDeclared as the documented 409 model of the delete routes so it reaches\n``packages/contracts`` and therefore the generated TS client \u2014 the register\nthen reads ``details.dependents`` as a TYPE rather than narrowing an\n``unknown``.",
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/DependencyConflictError"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "title": "DependencyConflictEnvelope",
+        "type": "object"
+      },
+      "DependencyConflictError": {
+        "description": "The ``error`` member of a dependency 409, with typed ``details``.\n\nMirrors the py-kit envelope (:mod:`py_kit.errors`) rather than redefining\nit: same ``code``/``message``/``details``/``request_id`` members, with\n``details`` narrowed from \"anything\" to :class:`DocumentDependents` for this\none documented status.",
+        "properties": {
+          "code": {
+            "description": "'part_has_dependents' / 'assembly_has_dependents' \u2014 the machine code a client branches on",
+            "title": "Code",
+            "type": "string"
+          },
+          "details": {
+            "$ref": "#/components/schemas/DocumentDependents"
+          },
+          "message": {
+            "description": "Human summary; the register shows the list, not this",
+            "title": "Message",
+            "type": "string"
+          },
+          "request_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Correlation id of the refused request",
+            "title": "Request Id"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "details"
+        ],
+        "title": "DependencyConflictError",
+        "type": "object"
+      },
       "DiameterDimensionParams": {
         "description": "A diameter dimension on a circular model edge (design \u00a73.1).\n\n``edge`` must resolve to a CIRCULAR edge (``curve == \"circle\"``) \u2014 the\nidentical reuse a ``concentric`` mate makes for its axis (design \u00a73.3), so one\nsignature names a hole for both mating and dimensioning. The measured value\n(2\u00b7radius) is computed geometry-side.",
         "properties": {
@@ -2088,6 +2383,47 @@
           "edge"
         ],
         "title": "DiameterDimensionParams",
+        "type": "object"
+      },
+      "DimensionAnchor": {
+        "description": "Where a measured dimension's reference(s) landed on the CURRENT body (\u00a711).\n\nThe re-anchoring result: ``tier`` says whether the stored stage-1 signature\nmatched verbatim (``exact``) or had to be re-anchored on its curve-kind\ninvariant (``durable``), and ``primary``/``secondary`` carry the CURRENT\nsignatures of the edges the dimension now names \u2014 the primary being the\ndimension's main edge (the measured edge / the circle / ``edge_a`` / the first\npoint-to-point endpoint's edge) and the secondary the second one where the\ndimension type has one (``edge_b``, the second endpoint's edge).\n\nThey are what the composer matches against the PROJECTED edges, so an annotation\nlands on the geometry that is actually there after a rebuild rather than on the\nstale authored signature (which is exactly why a re-measured dimension used to\nstill vanish from the sheet). A client may also persist them to heal the stored\nref, and ``tier == \"durable\"`` is the honest signal that the reference moved.",
+        "properties": {
+          "primary": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EdgeSignature"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Current signature of the dimension's primary edge, or null when the dimension names no edge"
+          },
+          "secondary": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EdgeSignature"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Current signature of the dimension's second edge (angular `edge_b` / the second point-to-point endpoint's edge); null otherwise"
+          },
+          "tier": {
+            "description": "'exact' (stored signature matched verbatim) or 'durable' (re-anchored on the curve-kind rebuild invariant, \u00a711)",
+            "enum": [
+              "exact",
+              "durable"
+            ],
+            "title": "Tier",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tier"
+        ],
+        "title": "DimensionAnchor",
         "type": "object"
       },
       "DimensionCreate": {
@@ -2359,6 +2695,79 @@
         "title": "DistanceMate",
         "type": "object"
       },
+      "DocumentDependent": {
+        "description": "One document that references the document a caller tried to delete.\n\n``name`` is carried beside the id on purpose: the caller is a person who\nfiled these documents by name, and a 409 that answered \"referenced by\na4f1\u2026-b2\" would be technically complete and practically useless.",
+        "properties": {
+          "id": {
+            "description": "The REFERENCING document's id",
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "description": "How it references: 'assembly' (an instance) or 'drawing' (a view)",
+            "enum": [
+              "assembly",
+              "drawing"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "description": "Its name, as filed \u2014 for the refusal message",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "kind"
+        ],
+        "title": "DocumentDependent",
+        "type": "object"
+      },
+      "DocumentDependents": {
+        "description": "The ``details`` payload of a dependency 409 \u2014 the full referent list.\n\nA LIST, never a count: the point of refusing is that the caller can go and\nre-point or remove those references, which needs their names. Ordered\nassemblies-then-drawings, each alphabetical, so the message is stable\nbetween two identical refusals.",
+        "properties": {
+          "dependents": {
+            "description": "Every document still referencing the delete target; never empty (no dependents means no conflict was raised)",
+            "items": {
+              "$ref": "#/components/schemas/DocumentDependent"
+            },
+            "title": "Dependents",
+            "type": "array"
+          }
+        },
+        "required": [
+          "dependents"
+        ],
+        "title": "DocumentDependents",
+        "type": "object"
+      },
+      "DocumentMove": {
+        "description": "File a document into a folder. ``folder_id: null`` un-files it.\n\nApplies to a part, an assembly or a drawing (one DTO \u2014 the verb is identical\nand only the route differs). Filing is NOT a document edit: it does not bump\nthe document's concurrency counter and does not move ``updated_at``, so the\nregister's LAST WORKED column keeps meaning \"someone worked on it\" rather\nthan \"someone tidied up\". Same reasoning as the last-evaluate record write.",
+        "properties": {
+          "folder_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The destination folder \u2014 must be the caller's own and OF THIS DOCUMENT'S KIND \u2014 or null to leave the document unfiled at the root of its drawer. Required; null is an explicit destination.",
+            "title": "Folder Id"
+          }
+        },
+        "required": [
+          "folder_id"
+        ],
+        "title": "DocumentMove",
+        "type": "object"
+      },
       "DraftFeature": {
         "description": "``{\"type\": \"draft\", \"version\": 1, \"params\": {...}}`` envelope.",
         "properties": {
@@ -2567,8 +2976,21 @@
       "DrawingCreate": {
         "description": "Create a drawing owned by the calling user (design \u00a72.1).",
         "properties": {
+          "folder_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "File it into this folder on creation, or null (the default) to leave it unfiled at the root of its drawer. Present so filing inside a folder is ONE call: a create-then-move pair could fail between the two and leave the document somewhere the user did not put it. Must be the caller's own folder OF THIS DOCUMENT'S KIND.",
+            "title": "Folder Id"
+          },
           "name": {
-            "description": "Drawing name; unique per owner, whitespace-trimmed, 1-200 characters",
+            "description": "Drawing name; unique per FOLDER (#WS2), whitespace-trimmed, 1-200 characters",
             "maxLength": 200,
             "minLength": 1,
             "title": "Name",
@@ -2674,6 +3096,19 @@
             "description": "Monotonic optimistic-concurrency counter (design \u00a72.1)",
             "title": "Doc Version",
             "type": "integer"
+          },
+          "folder_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The folder this document is filed in, or null when it is UNFILED (at the root of its drawer). Null is a real state, not a missing value \u2014 see py_kit.schemas.folders. Changed only by the document's `/move` route, which is not a document edit: it moves neither the concurrency counter nor `updated_at`.",
+            "title": "Folder Id"
           },
           "id": {
             "format": "uuid",
@@ -3299,13 +3734,25 @@
             "title": "Linear Deflection",
             "type": "number"
           },
+          "materials": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MaterialAssignment"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What the part's bodies are made of (docs/design/materials.md): a document default plus per-body overrides. Omitted / null = no material, so the result reports NO mass (absent, not zero). Unlike length units \u2014 presentation metadata the kernel never sees \u2014 material is an INPUT to evaluation, because mass is derived from it."
+          },
           "part_id": {
             "format": "uuid",
             "title": "Part Id",
             "type": "string"
           },
           "tree_version": {
-            "description": "Echoed back; cache/correlation key",
+            "description": "The part tree_version documents composed this request from. Echoed back verbatim on the result, where it is the PROVENANCE stamp of the returned body (EvaluateTreeResult.tree_version) as well as a cache/correlation key.",
+            "minimum": 0.0,
             "title": "Tree Version",
             "type": "integer"
           }
@@ -3379,6 +3826,8 @@
             "description": "Mass properties of the last-good body"
           },
           "tree_version": {
+            "description": "PROVENANCE: the part tree_version this result \u2014 every `features` status, `mesh_glb_id`, and `properties` \u2014 was BUILT FROM (echoed from the request documents composed off that exact tree). A consumer compares it against the part's current `PartResponse.tree_version` (the shared `is_stale_for_tree` rule) to know whether the body it is displaying still reflects the tree, instead of inferring currency from whether a request is in flight.",
+            "minimum": 0.0,
             "title": "Tree Version",
             "type": "integer"
           }
@@ -3520,6 +3969,17 @@
             "format": "uuid",
             "title": "Instance Id",
             "type": "string"
+          },
+          "materials": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MaterialAssignment"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The instanced PART's material assignment (docs/design/materials.md), forwarded verbatim into that part's evaluation so the assembly rolls up a real mass. Null = the part has no material, so it contributes no mass and the assembly total is null (never zero). Two instances share a part_key and therefore a part, so they share this."
           },
           "name": {
             "anyOf": [
@@ -3669,6 +4129,20 @@
             "maxItems": 2000,
             "title": "Mates",
             "type": "array"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The assembly's human-readable document name. Names the exported STEP's ROOT PRODUCT and the download filename; omitted / null falls back to the assembly id. Export-only (see DocumentName): a name must never be an input to the solve.",
+            "title": "Name"
           },
           "version": {
             "description": "Echoed back; cache/correlation key",
@@ -3949,6 +4423,106 @@
           "expected_tree_version"
         ],
         "title": "FeatureCreate",
+        "type": "object"
+      },
+      "FeatureDependencyConflictError": {
+        "description": "The ``error`` member of a feature-delete 409, with typed ``details``.",
+        "properties": {
+          "code": {
+            "description": "'feature_has_dependents' \u2014 the code a client branches on",
+            "title": "Code",
+            "type": "string"
+          },
+          "details": {
+            "$ref": "#/components/schemas/FeatureDependents"
+          },
+          "message": {
+            "description": "Human summary; the tree shows the list",
+            "title": "Message",
+            "type": "string"
+          },
+          "request_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Correlation id of the refused request",
+            "title": "Request Id"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "details"
+        ],
+        "title": "FeatureDependencyConflictError",
+        "type": "object"
+      },
+      "FeatureDependent": {
+        "description": "One thing that breaks if a feature is deleted.\n\n``name`` rides beside the id for the same reason it does on\n:class:`~py_kit.schemas.workspace.DocumentDependent`: the reader is a person\nwho named these things, and \"referenced by 2 other document(s)\" \u2014 which is\nwhat this refusal used to say \u2014 ends the conversation instead of starting\nthe next action.",
+        "properties": {
+          "id": {
+            "description": "The REFERENCING feature's or drawing's id",
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "description": "'feature' (a later feature of this part) or 'drawing' (a section view cutting on this feature)",
+            "enum": [
+              "feature",
+              "drawing"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "description": "Its name, as the user sees it in the tree/register",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "kind"
+        ],
+        "title": "FeatureDependent",
+        "type": "object"
+      },
+      "FeatureDependents": {
+        "description": "What depends on one feature \u2014 the answer to \"what breaks if I delete it?\"\n\nServes TWO surfaces from one shape, which is the point (CLAUDE.md DRY):\n\n- the ``details`` payload of the delete's ``feature_has_dependents`` 409, and\n- the body of ``GET \u2026/features/{id}/dependents``, which the tree asks BEFORE\n  offering the delete, so the confirmation can name what breaks instead of\n  letting the user find out from a refusal.\n\nBoth are produced by one server-side query, so the warning a user reads and\nthe refusal the server would issue cannot disagree. Empty means the feature\nis free to delete \u2014 an honest, common answer, unlike the 409 payload\n(:class:`FeatureDependentsEnvelope`) which by construction is never empty.\nFeatures first (tree order \u2014 the order the user reads them in), then\ndrawings alphabetically.",
+        "properties": {
+          "dependents": {
+            "description": "Everything referencing this feature; EMPTY when nothing does",
+            "items": {
+              "$ref": "#/components/schemas/FeatureDependent"
+            },
+            "title": "Dependents",
+            "type": "array"
+          }
+        },
+        "required": [
+          "dependents"
+        ],
+        "title": "FeatureDependents",
+        "type": "object"
+      },
+      "FeatureDependentsEnvelope": {
+        "description": "A feature-delete 409 as it appears on the wire (standard envelope).\n\nDeclared as the documented 409 model of the feature delete so it reaches\n``packages/contracts`` and therefore the generated TS client \u2014 the tree\nlists the features by name from a TYPE rather than from a hopeful parse of\nan untyped ``details`` blob (UI-REVIEW 2026-07-30 F3).",
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/FeatureDependencyConflictError"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "title": "FeatureDependentsEnvelope",
         "type": "object"
       },
       "FeatureError": {
@@ -4528,6 +5102,283 @@
           "point"
         ],
         "title": "FixedConstraint",
+        "type": "object"
+      },
+      "FolderContents": {
+        "description": "The ``details`` payload of a non-empty-folder 409 \u2014 everything inside.\n\nA LIST, never a count: the caller's next action is to move those things out,\nwhich needs their names. Sub-folders first, then documents, each\nalphabetical, so two identical refusals read identically.",
+        "properties": {
+          "contents": {
+            "description": "Direct children of the folder; never empty (an empty folder deletes cleanly)",
+            "items": {
+              "$ref": "#/components/schemas/FolderMember"
+            },
+            "title": "Contents",
+            "type": "array"
+          }
+        },
+        "required": [
+          "contents"
+        ],
+        "title": "FolderContents",
+        "type": "object"
+      },
+      "FolderCreate": {
+        "description": "Create a folder in one drawer, at the root or inside another folder.",
+        "properties": {
+          "kind": {
+            "description": "Which drawer this folder belongs to. It may only ever hold documents of this kind (see module docstring).",
+            "enum": [
+              "part",
+              "assembly",
+              "drawing"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "description": "Folder name; unique among its siblings (per parent, per kind, per owner), whitespace-trimmed, 1-120 chars",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Containing folder, or null for a top-level folder. Must be the caller's own folder OF THE SAME KIND.",
+            "title": "Parent Id"
+          }
+        },
+        "required": [
+          "name",
+          "kind"
+        ],
+        "title": "FolderCreate",
+        "type": "object"
+      },
+      "FolderListResponse": {
+        "description": "Every folder of ONE kind for the caller \u2014 the whole tree, one query.\n\nThe whole tree rather than one level: the register needs ancestors for the\nbreadcrumb and the full set for the move picker, and a per-level fetch would\nmake \"which folder is this document in?\" an N+1. A wrapper leaves room for\npagination the day a tree is big enough to need it \u2014 which, for a structure\na human types by hand, it will not be.",
+        "properties": {
+          "folders": {
+            "items": {
+              "$ref": "#/components/schemas/FolderResponse"
+            },
+            "title": "Folders",
+            "type": "array"
+          }
+        },
+        "required": [
+          "folders"
+        ],
+        "title": "FolderListResponse",
+        "type": "object"
+      },
+      "FolderMember": {
+        "description": "One thing inside a folder whose delete was refused.\n\nDeliberately NOT reusing :class:`~py_kit.schemas.workspace.DocumentDependent`:\nthat model means \"something REFERENCES you\" and its ``kind`` documents why a\npart can never appear in it. Membership is the opposite relation, and a part\nis its commonest member. Two relations, two models; one shared refusal\nGRAMMAR (409, ``details`` naming what blocks it), which is the part that\nmatters to a user.",
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "description": "'folder' for a sub-folder, else the document kind",
+            "enum": [
+              "folder",
+              "part",
+              "assembly",
+              "drawing"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "description": "Its name, as filed \u2014 for the refusal message",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "kind"
+        ],
+        "title": "FolderMember",
+        "type": "object"
+      },
+      "FolderMove": {
+        "description": "Re-parent a folder. ``parent_id: null`` moves it to the root.\n\nRefused (422) when the target is the folder itself or one of its own\ndescendants \u2014 that would detach the subtree from the register entirely, so\nit is a cycle in effect as well as in the graph.",
+        "properties": {
+          "parent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The new containing folder, or null to move to the root of its drawer. Required \u2014 null is an explicit destination, not an omission.",
+            "title": "Parent Id"
+          }
+        },
+        "required": [
+          "parent_id"
+        ],
+        "title": "FolderMove",
+        "type": "object"
+      },
+      "FolderNotEmptyEnvelope": {
+        "description": "A non-empty-folder 409 as it appears on the wire (standard envelope).\n\nDeclared as the documented 409 model of the folder delete route so it reaches\n``packages/contracts`` and therefore the generated TS client \u2014 the register\nreads ``details.contents`` as a TYPE rather than narrowing an ``unknown``.",
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/FolderNotEmptyError"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "title": "FolderNotEmptyEnvelope",
+        "type": "object"
+      },
+      "FolderNotEmptyError": {
+        "description": "The ``error`` member of a non-empty-folder 409, with typed ``details``.",
+        "properties": {
+          "code": {
+            "description": "'folder_not_empty' \u2014 the code a client branches on",
+            "title": "Code",
+            "type": "string"
+          },
+          "details": {
+            "$ref": "#/components/schemas/FolderContents"
+          },
+          "message": {
+            "description": "Human summary; the register shows the list",
+            "title": "Message",
+            "type": "string"
+          },
+          "request_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Correlation id of the refused request",
+            "title": "Request Id"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "details"
+        ],
+        "title": "FolderNotEmptyError",
+        "type": "object"
+      },
+      "FolderRename": {
+        "description": "Rename a folder. Renaming cannot move it \u2014 that is :class:`FolderMove`.\n\nSeparate verbs on purpose: a PATCH carrying an optional ``parent_id`` cannot\ntell \"leave it where it is\" (field omitted) from \"move it to the root\"\n(field null), and a move that silently did nothing because a client sent the\nwrong one of those is precisely the \"reported success while the document is\nstill in the old place\" defect this slice is being held to.",
+        "properties": {
+          "name": {
+            "description": "New folder name",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "FolderRename",
+        "type": "object"
+      },
+      "FolderResponse": {
+        "description": "A folder as stored, plus the two counts a register row may state.\n\nBoth counts are DIRECT (this folder's own children), computed server-side in\nthe list query. A register renders them; it never derives one from the rows\nit happens to be holding, because at the root it is holding only the unfiled\ndocuments and would count them as the folder's.",
+        "properties": {
+          "child_folder_count": {
+            "description": "Folders directly inside this one (not recursive)",
+            "minimum": 0.0,
+            "title": "Child Folder Count",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "document_count": {
+            "description": "Documents filed DIRECTLY in this folder \u2014 not counting sub-folders' contents. A register may print this; it may not add it up.",
+            "minimum": 0.0,
+            "title": "Document Count",
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "description": "The drawer this folder belongs to",
+            "enum": [
+              "part",
+              "assembly",
+              "drawing"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "owner_id": {
+            "description": "Owning user id (gateway-verified)",
+            "format": "uuid",
+            "title": "Owner Id",
+            "type": "string"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Containing folder, or null for a top-level folder",
+            "title": "Parent Id"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "owner_id",
+          "kind",
+          "name",
+          "parent_id",
+          "document_count",
+          "child_folder_count",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "FolderResponse",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -5600,6 +6451,95 @@
         "title": "MateResponse",
         "type": "object"
       },
+      "Material": {
+        "description": "One library material: its key, display name, and density.\n\nDensity is the ONLY physical property v1 models, because mass is the only\nthing we claim to report. Thermal/elastic properties would be an unbacked\npromise until something computes with them (design \u00a71).",
+        "properties": {
+          "density_kg_m3": {
+            "description": "Density (kg/m^3). Handbook NOMINAL value \u2014 a production part uses its supplier's certificate, not this table.",
+            "exclusiveMinimum": 0.0,
+            "title": "Density Kg M3",
+            "type": "number"
+          },
+          "key": {
+            "enum": [
+              "steel_1018",
+              "stainless_304",
+              "aluminium_6061",
+              "brass_c360",
+              "abs",
+              "pla",
+              "nylon_6"
+            ],
+            "title": "Key",
+            "type": "string"
+          },
+          "name": {
+            "description": "Display name, e.g. 'Aluminium 6061'",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "name",
+          "density_kg_m3"
+        ],
+        "title": "Material",
+        "type": "object"
+      },
+      "MaterialAssignment": {
+        "description": "What a document is made of: one default + per-body overrides (design \u00a72).\n\nA multi-body part legitimately mixes materials (a steel pin in an aluminium\nhousing), so a single document-level material would be wrong for exactly the\nparts mass matters most on. The resolution rule is one line \u2014 an override\nwins over the default (:func:`resolve_body_material`) \u2014 and lives here so\nevery consumer resolves identically.\n\n``default_material: None`` with no overrides is the HONEST empty state a new\ndocument starts in: no material anywhere, therefore no mass anywhere.",
+        "properties": {
+          "bodies": {
+            "description": "Per-body overrides; at most one entry per base_feature_id.",
+            "items": {
+              "$ref": "#/components/schemas/BodyMaterialAssignment"
+            },
+            "title": "Bodies",
+            "type": "array"
+          },
+          "default_material": {
+            "anyOf": [
+              {
+                "enum": [
+                  "steel_1018",
+                  "stainless_304",
+                  "aluminium_6061",
+                  "brass_c360",
+                  "abs",
+                  "pla",
+                  "nylon_6"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Material for every body without an override; null means the document has no material, so its mass is UNKNOWN (not zero).",
+            "title": "Default Material"
+          }
+        },
+        "title": "MaterialAssignment",
+        "type": "object"
+      },
+      "MaterialLibraryResponse": {
+        "description": "The built-in material library, served so no client hardcodes a density.\n\nThe picker needs names + densities, and a second copy of the table in TS\nwould be a DRY violation that silently drifts (CLAUDE.md). One table, in\npy-kit, served over the API.",
+        "properties": {
+          "materials": {
+            "items": {
+              "$ref": "#/components/schemas/Material"
+            },
+            "title": "Materials",
+            "type": "array"
+          }
+        },
+        "required": [
+          "materials"
+        ],
+        "title": "MaterialLibraryResponse",
+        "type": "object"
+      },
       "MeasureRequest": {
         "description": "Measure the nearest distance between two targets (stateless, one-shot).\n\n``tree`` is required iff either target is an edge \u2014 geometry recomputes\nthat feature tree (reusing the ``POST /api/v1/evaluate`` machinery, so the\nsame ordered dispatch + strict-prefix rule applies) and measures the exact\nB-rep edge. For point-point, ``tree`` is omitted and no body is built.",
         "properties": {
@@ -5716,6 +6656,17 @@
       "MeasuredDimension": {
         "description": "A dimension's value measured from the MODEL, or a typed resolution error.\n\nOn success ``value`` + ``unit`` carry the model-true measurement and ``error``\nis null; ``foreshortened`` flags a feature not parallel to the view plane\n(design \u00a73.2 \u2014 the value is still model-true). On failure ``value``/``unit``\nare null and ``error`` is a typed ``subshape_unresolved`` / ``subshape_ambiguous``\n/ ``dimension_wrong_type`` (never a 500 \u2014 design \u00a73.3). Mirrors the per-view\n:class:`DrawingViewResult` success/error envelope for a single dimension.",
         "properties": {
+          "anchor": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DimensionAnchor"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where the dimension's reference(s) landed on the CURRENT body (topological-naming \u00a711) \u2014 the re-anchored signatures + whether the match was `exact` or `durable`. Null when the dimension could not be resolved at all (`error` set) or for a caller-synthesised value. Additive: a consumer that ignores it reads the same value it always did."
+          },
           "error": {
             "anyOf": [
               {
@@ -5878,6 +6829,19 @@
         "title": "MirrorAxisPoints",
         "type": "object"
       },
+      "MirrorBodyScope": {
+        "description": "``scope: {\"kind\": \"body\"}`` \u2014 reflect the CURRENT BODY (the v1 reading).\n\nThe v1 semantic, NAMED rather than implied (design \u00a73.1): the mirror reflects\nthe body that exists at its point in the tree, cut-aware \u2014 when the active body\ncarries a recorded cut whose reflected tool still reaches it the mirror reflects\nthat REMOVAL, otherwise it reflects and unions the whole body. Kept verbatim\n(\u00a76.1): the shipped goldens' byte identity is STRUCTURAL, not measured, because\nthis scope dispatches to code the v2 work did not touch.",
+        "properties": {
+          "kind": {
+            "const": "body",
+            "default": "body",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "title": "MirrorBodyScope",
+        "type": "object"
+      },
       "MirrorFeature": {
         "description": "``{\"type\": \"mirror\", \"version\": 1, \"params\": {...}}`` envelope.\n\nA body-affecting feature (design \u00a77.6): it reflects the current body about a\nplane and boolean-unions the reflection into the single body chain \u2014 the\nreflective sibling of :class:`PatternFeature`. ``params`` is\n:class:`MirrorParamsV1`.",
         "properties": {
@@ -5908,8 +6872,34 @@
         "title": "MirrorFeature",
         "type": "object"
       },
+      "MirrorFeaturesScope": {
+        "description": "``scope: {\"kind\": \"features\", \"features\": [...]}`` \u2014 reflect these features.\n\nThe v2 reading (design \u00a72b/\u00a74): each selected feature's RECORDED RIGID TOOL\nSOLID(S) are reflected about the plane and that feature's OWN operation\n(``fuse``/``cut``) is re-applied to the active body, in TREE order \u2014 never array\norder (\u00a78.1: array order is UI-incidental, so honouring it would make identical\nmodels tessellate to different bytes). Parameters are never re-derived: a\nreflected circular pattern is correct precisely because its PLACEMENTS are\nreflected, where re-deriving the axis would wind the ring backwards (\u00a74.5).\n\n``features`` names :class:`FeatureRef`s rather than bare UUIDs so each selection\nmaterialises into ``feature_dependencies`` for free (feature-tree \u00a72.3): deleting\na mirrored feature is a 409-with-dependents, a reorder re-checks the\nstrict-backward rule, and a forward/self reference is a write-time 422. A\nnon-body-affecting or non-reflectable kind (``sketch``/``datum``, and every\nMODIFIER \u2014 fillet/chamfer/shell/draft and the sheet-metal family, which have a\nRESULT and no tool, \u00a74.3) is refused with the typed per-feature\n``mirror_feature_unsupported`` at rebuild.\n\n``min_length=1`` because an empty selection is authoring nonsense, not a no-op\nmirror (\u00a73.1), and duplicate ids are a 422 rather than silently deduplicated \u2014\nnaming a feature twice leaves the intent (twice? once?) unstated, which is the\nmistake v1 made.",
+        "properties": {
+          "features": {
+            "description": "The features to reflect, each a `FeatureRef` to an earlier body-affecting feature of this tree. Applied in TREE order (the array order is ignored \u2014 design \u00a78.1); at least one, at most MAX_MIRROR_SCOPE_FEATURES (work bound); duplicates are a 422.",
+            "items": {
+              "$ref": "#/components/schemas/FeatureRef"
+            },
+            "maxItems": 500,
+            "minItems": 1,
+            "title": "Features",
+            "type": "array"
+          },
+          "kind": {
+            "const": "features",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "features"
+        ],
+        "title": "MirrorFeaturesScope",
+        "type": "object"
+      },
       "MirrorParamsV1": {
-        "description": "Reflect the current body about a plane and union the reflection in.\n\nThe mirror feature (BACKLOG P2): a whole-body reflection about ``plane``,\nboolean-unioned into the single body chain (design \u00a77.6) \u2014 the reflective\nsibling of the ADD pattern (see the module note for the shared \"replicate the\ncurrent body + union\" semantics). Like a fillet/chamfer/pattern it carries NO\nsource ``FeatureRef``: it mirrors the implicit body chain that exists at its\npoint in the tree, so its dependency on the prior body-affecting feature is\ntree order.\n\n``plane`` is a :data:`GeomRef` \u2014 the SAME plane reference a sketch uses (no\nnew plane taxonomy, DRY): a :class:`DatumPlaneRef` (an origin datum XY/XZ/YZ)\nor a :class:`FeatureRef` to an earlier ``datum`` feature (an offset / on-face\n/ midplane plane). A ``FeatureRef`` that does not resolve to a ``datum`` of\nthis prefix is a write-time 422 (the eval-time backstop is\n``reference_unresolved``, pinned to the referenced feature).\n\nThe reflection is a true handedness-reversing isometry, NOT a translation\n(proven by the ``mirror-triangle-prism-2x`` golden). It handles every case\nsanely: a body that CLEARS the plane mirrors to a disjoint TWO-lump body\n(volume ``2V``); an OVERLAPPING reflection merges to one solid; a SYMMETRIC\nbody is unchanged. A degenerate/failed reflection is a per-feature\n``mirror_failed`` rebuild error; a mirror with no prior body is\n``no_target_body`` \u2014 never a silently wrong body.",
+        "description": "Reflect the current body about a plane and union the reflection in.\n\nThe mirror feature (BACKLOG P2): a whole-body reflection about ``plane``,\nboolean-unioned into the single body chain (design \u00a77.6) \u2014 the reflective\nsibling of the ADD pattern (see the module note for the shared \"replicate the\ncurrent body + union\" semantics). Like a fillet/chamfer/pattern it carries NO\nsource ``FeatureRef``: it mirrors the implicit body chain that exists at its\npoint in the tree, so its dependency on the prior body-affecting feature is\ntree order.\n\n``plane`` is a :data:`GeomRef` \u2014 the SAME plane reference a sketch uses (no\nnew plane taxonomy, DRY): a :class:`DatumPlaneRef` (an origin datum XY/XZ/YZ)\nor a :class:`FeatureRef` to an earlier ``datum`` feature (an offset / on-face\n/ midplane plane). A ``FeatureRef`` that does not resolve to a ``datum`` of\nthis prefix is a write-time 422 (the eval-time backstop is\n``reference_unresolved``, pinned to the referenced feature).\n\nThe reflection is a true handedness-reversing isometry, NOT a translation\n(proven by the ``mirror-triangle-prism-2x`` golden). It handles every case\nsanely: a body that CLEARS the plane mirrors to a disjoint TWO-lump body\n(volume ``2V``); an OVERLAPPING reflection merges to one solid; a SYMMETRIC\nbody is unchanged. A degenerate/failed reflection is a per-feature\n``mirror_failed`` rebuild error; a mirror with no prior body is\n``no_target_body`` \u2014 never a silently wrong body.\n\n``scope`` (v2, design \u00a73) states WHAT is reflected \u2014 the whole ``body`` (the\nreading above, kept verbatim) or an explicit selection of ``features``. It\ndefaults to ``body`` and a persisted params blob with no ``scope`` key reads as\n``body`` (:meth:`_legacy_body_scope`), so every mirror authored before v2\nevaluates on unchanged code.",
         "properties": {
           "plane": {
             "description": "Mirror plane \u2014 an origin datum (XY/XZ/YZ `DatumPlaneRef`) or an earlier `datum` feature (`FeatureRef`); the SAME plane vocabulary a sketch uses (discriminated on `kind`)",
@@ -5929,6 +6919,25 @@
               }
             ],
             "title": "Plane"
+          },
+          "scope": {
+            "description": "WHAT to reflect (discriminated on `kind`): `body` reflects the current body (the v1 reading \u2014 cut-aware, with the reflect-and-union fallback), `features` reflects the recorded tool solids of an explicit tree-ordered selection and re-applies each feature's own boolean. Absent reads `body`, so pre-v2 mirrors are unchanged (design \u00a73.2).",
+            "discriminator": {
+              "mapping": {
+                "body": "#/components/schemas/MirrorBodyScope",
+                "features": "#/components/schemas/MirrorFeaturesScope"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/MirrorBodyScope"
+              },
+              {
+                "$ref": "#/components/schemas/MirrorFeaturesScope"
+              }
+            ],
+            "title": "Scope"
           }
         },
         "required": [
@@ -6136,6 +7145,19 @@
       "PartCreate": {
         "description": "Create a part owned by the calling user.",
         "properties": {
+          "folder_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "File it into this folder on creation, or null (the default) to leave it unfiled at the root of its drawer. Present so filing inside a folder is ONE call: a create-then-move pair could fail between the two and leave the document somewhere the user did not put it. Must be the caller's own folder OF THIS DOCUMENT'S KIND.",
+            "title": "Folder Id"
+          },
           "length_unit": {
             "default": "mm",
             "description": "Document display unit (docs/design/units.md \u00a71); DISPLAY metadata only \u2014 storage stays canonical mm. Defaults to 'mm'.",
@@ -6150,7 +7172,7 @@
             "type": "string"
           },
           "name": {
-            "description": "Part name; unique per owner, whitespace-trimmed, 1-200 characters",
+            "description": "Part name; unique per FOLDER (#WS2), whitespace-trimmed, 1-200 characters",
             "maxLength": 200,
             "minLength": 1,
             "title": "Name",
@@ -6181,17 +7203,98 @@
         "type": "object"
       },
       "PartResponse": {
-        "description": "A part as stored \u2014 identity, ownership, unit, and timestamps.\n\nThe feature tree is NOT here yet: it lands as its own tables per\ndocs/design/feature-tree.md once the implementation item ships.",
+        "description": "A part as stored \u2014 identity, ownership, unit, timestamps, rebuild health.\n\nThe feature tree itself is not inlined here (it is its own\n``GET /parts/{id}/features`` response, docs/design/feature-tree.md); what\nIS here is the fixed-size last-evaluate record (\u00a74.4a) so a register can\ntell the truth about a whole drawer of parts in one query \u2014 five scalars per\nrow, never per-feature or per-sheet growth.",
         "properties": {
           "created_at": {
             "format": "date-time",
             "title": "Created At",
             "type": "string"
           },
+          "eval_scope": {
+            "anyOf": [
+              {
+                "enum": [
+                  "whole",
+                  "rolled_back"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How much of the tree the live verdict covers: 'whole' (the entire tree ran) or 'rolled_back' (the travel stop held features out, so `eval_state` describes a PREFIX \u2014 an 'ok' here is NOT a claim that the part builds). Null when there is no live verdict to qualify ('never'/'stale') or when the record predates scope tracking; null must not be read as 'whole'. Orthogonal to `eval_state` because the two combine: a rolled-back tree can also fail (see PartEvalScope).",
+            "title": "Eval Scope"
+          },
+          "eval_state": {
+            "description": "Rebuild health a consumer may act on NOW: 'never' (not evaluated), 'ok'/'failed' (evaluated, and that verdict still applies to the current tree), or 'stale' (evaluated, but the tree changed since \u2014 status unknown). Derived server-side from the last_eval_* fields against the part's current tree_version (feature-tree.md \u00a74.4a), so a stale claim is never dressed up as a current one. It says NOTHING about how much of the tree was evaluated \u2014 read `eval_scope` before presenting 'ok' as a verdict on the part.",
+            "enum": [
+              "never",
+              "ok",
+              "failed",
+              "stale"
+            ],
+            "title": "Eval State",
+            "type": "string"
+          },
+          "folder_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The folder this document is filed in, or null when it is UNFILED (at the root of its drawer). Null is a real state, not a missing value \u2014 see py_kit.schemas.folders. Changed only by the document's `/move` route, which is not a document edit: it moves neither the concurrency counter nor `updated_at`.",
+            "title": "Folder Id"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "last_eval_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When that evaluate was recorded (documents' clock); null if never evaluated. For display ('failed 20 min ago'), NOT for deciding staleness.",
+            "title": "Last Eval At"
+          },
+          "last_eval_status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "ok",
+                  "failed"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Raw recorded outcome of the last evaluate, or null if the part was never evaluated. Read `eval_state` for the verdict \u2014 this field alone cannot say whether it still applies.",
+            "title": "Last Eval Status"
+          },
+          "last_eval_tree_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The tree_version the recorded status describes; null if never evaluated. Differs from the part's current tree_version exactly when `eval_state` is 'stale'.",
+            "title": "Last Eval Tree Version"
           },
           "length_unit": {
             "description": "Document display unit (docs/design/units.md \u00a71); DISPLAY metadata only \u2014 storage stays canonical mm.",
@@ -6205,6 +7308,10 @@
             "title": "Length Unit",
             "type": "string"
           },
+          "materials": {
+            "$ref": "#/components/schemas/MaterialAssignment",
+            "description": "What the part is made of (docs/design/materials.md \u00a72). Always present; an assignment with `default_material: null` and no overrides is the honest empty state \u2014 no material, therefore no mass. A stored NULL reads back as that empty assignment so a consumer has ONE shape to render, never null-vs-empty."
+          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -6214,6 +7321,12 @@
             "format": "uuid",
             "title": "Owner Id",
             "type": "string"
+          },
+          "tree_version": {
+            "description": "The part's CURRENT monotonic optimistic-concurrency counter (feature-tree.md \u00a71.2) \u2014 bumped in the same transaction as any tree write. Two uses: the `expected_tree_version` a write echoes, and the DENOMINATOR of the staleness comparison (`is_stale_for_tree`) \u2014 a consumer holding a result stamped with the version it was built from (EvaluateTreeResult.tree_version) knows whether what it displays is still current. Mirrors AssemblyResponse.doc_version on the assembly header row.",
+            "minimum": 0.0,
+            "title": "Tree Version",
+            "type": "integer"
           },
           "updated_at": {
             "format": "date-time",
@@ -6226,6 +7339,12 @@
           "name",
           "owner_id",
           "length_unit",
+          "materials",
+          "tree_version",
+          "eval_state",
+          "last_eval_status",
+          "last_eval_at",
+          "last_eval_tree_version",
           "created_at",
           "updated_at"
         ],
@@ -6233,7 +7352,7 @@
         "type": "object"
       },
       "PartUpdate": {
-        "description": "Rename and/or re-unit a part. Bumps ``tree_version`` (any document edit\nbumps \u2014 the feature-tree.md \u00a71.2 pattern applied to the part header).\n\nBoth mutable fields are optional; at least one must be provided. Changing\nthe display unit is a document edit (docs/design/units.md \u00a7U1) \u2014 it does\nNOT convert any stored ``*_mm`` value, only relabels how they render.",
+        "description": "Rename, re-unit and/or re-material a part. Bumps ``tree_version`` (any\ndocument edit bumps \u2014 the feature-tree.md \u00a71.2 pattern applied to the part\nheader).\n\nEvery mutable field is optional; at least one must be provided. Changing\nthe display unit is a document edit (docs/design/units.md \u00a7U1) \u2014 it does\nNOT convert any stored ``*_mm`` value, only relabels how they render.\nChanging the material does more: mass is derived from it, so the recorded\nevaluate stops applying (see ``materials`` below).",
         "properties": {
           "expected_tree_version": {
             "description": "Optimistic-concurrency guard: the tree_version the client last saw; a stale value is rejected 422 (feature-tree.md \u00a71.2)",
@@ -6259,6 +7378,17 @@
             ],
             "description": "New document display unit (metadata only)",
             "title": "Length Unit"
+          },
+          "materials": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MaterialAssignment"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Replace the part's WHOLE material assignment (default + per-body overrides, docs/design/materials.md \u00a72). Omitted/null leaves it untouched; send an EMPTY assignment ({}) to clear it back to 'no material', which makes mass unknown again. Wholesale replacement, not a merge, so the request states the full intended state and two concurrent edits cannot interleave into an assignment neither sent. Unlike a rename or a unit change this DOES invalidate the recorded evaluate: mass is derived from it."
           },
           "name": {
             "anyOf": [
@@ -6519,6 +7649,46 @@
           "b"
         ],
         "title": "PointToPointMeasurement",
+        "type": "object"
+      },
+      "PrefetchRequest": {
+        "description": "Warm the rebuild cache for a part, addressed the way the CLIENT sees it.\n\nThe browser knows the intent and the feature id; it does not know (and must\nnot assemble) the evaluation-ready feature list \u2014 documents owns that,\nrollback bar and param upcasts included. So this carries the intent, and the\ngateway turns it into the geometry service's :class:`WarmTreeRequest` using\nthe SAME ``/evaluation-request`` hop a real evaluate uses, which is what\nmakes the warm land on the key the real evaluate will probe.\n\nBest-effort by construction: a target that is not in the current evaluation\nprefix (rolled back past, or already deleted) is a 200 with\n``accepted: false``, never an error \u2014 a prefetch that cannot be honoured just\nmeans the next rebuild is as slow as it always was.",
+        "properties": {
+          "feature_id": {
+            "description": "The feature the intent points at: the one whose editor is open, or the one the travel stop is being dropped after.",
+            "format": "uuid",
+            "title": "Feature Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "feature_edit",
+              "travel_stop"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "part_id": {
+            "description": "The part being edited or scrubbed.",
+            "format": "uuid",
+            "title": "Part Id",
+            "type": "string"
+          },
+          "ticket": {
+            "description": "Client-chosen identity of this intent (e.g. one per open editor). Namespaced per user by the gateway, so one client can never cancel another's speculation.",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Ticket",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticket",
+          "part_id",
+          "kind",
+          "feature_id"
+        ],
+        "title": "PrefetchRequest",
         "type": "object"
       },
       "ProjectedPoint": {
@@ -7019,14 +8189,37 @@
         "type": "object"
       },
       "ShapeProperties": {
-        "description": "Mass properties + topology of the evaluated B-rep shape.",
+        "description": "Mass properties + topology of the evaluated B-rep shape.\n\nTwo fields are honestly nullable (docs/design/materials.md): ``mass_g`` and\n``center_of_mass`` are ``null`` whenever ANY contributing body has no\nmaterial assigned. ``null`` means *unknown*, never zero \u2014 a body nobody has\nsaid the material of has no mass to report, and inventing one (0 g, or a\ndefault steel) is the overstated-surface defect this field exists to avoid.\nA consumer must render absence as absence and must not title a panel \"mass\"\non the strength of a null.",
         "properties": {
           "bounding_box": {
             "$ref": "#/components/schemas/BoundingBox"
           },
+          "center_of_mass": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Vec3"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Genuinely mass-weighted centre of mass (mm), or null when any contributing body has no material. For a single-material shape it equals `centroid`; for mixed materials it does not."
+          },
           "centroid": {
             "$ref": "#/components/schemas/Vec3",
-            "description": "Centre of mass (mm)"
+            "description": "Centroid of VOLUME (mm) \u2014 the geometric centre. Equal to the centre of mass only when the whole shape is one material; for a multi-material roll-up read `center_of_mass` instead."
+          },
+          "mass_g": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Mass (g) = volume x density, or null when a contributing body has NO material assigned. Null is 'unknown', NOT zero.",
+            "title": "Mass G"
           },
           "surface_area": {
             "description": "Total surface area (mm^2)",
@@ -9088,6 +10281,35 @@
         "title": "TessellationMetadata",
         "type": "object"
       },
+      "ThreadCalloutRow": {
+        "description": "One line of the thread schedule \u2014 a designation, its count, its tap drill.",
+        "properties": {
+          "designation": {
+            "description": "Drawing designation, ASCII (\"M6x1\") \u2014 the kernel's `format_designation`, never re-derived here",
+            "title": "Designation",
+            "type": "string"
+          },
+          "quantity": {
+            "description": "How many holes in the part carry this designation",
+            "minimum": 1.0,
+            "title": "Quantity",
+            "type": "integer"
+          },
+          "tap_drill_mm": {
+            "description": "ISO recommended tap drill (nominal - pitch, mm) \u2014 the diameter the kernel actually bored, and what the shop sets up",
+            "exclusiveMinimum": 0.0,
+            "title": "Tap Drill Mm",
+            "type": "number"
+          }
+        },
+        "required": [
+          "designation",
+          "quantity",
+          "tap_drill_mm"
+        ],
+        "title": "ThreadCalloutRow",
+        "type": "object"
+      },
       "TitleBlock": {
         "description": "Free-text title-block fields (design \u00a79 open-q 6 \u2014 v1 holds free text).\n\nEvery field is optional; a structured/field-mapped title block auto-filled\nfrom the referenced part is a fast-follow. The composed artifact stamps these\ngeometry-side (design \u00a74.2).",
         "properties": {
@@ -9588,6 +10810,44 @@
         ],
         "title": "ViewUpdate",
         "type": "object"
+      },
+      "WarmCancelRequest": {
+        "description": "Retire a warm ticket. Idempotent, and never an error.",
+        "properties": {
+          "ticket": {
+            "description": "The ticket submitted to `POST /warm`. Unknown or already finished \u2192 `accepted: false`, which is a normal outcome, not a fault.",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Ticket",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticket"
+        ],
+        "title": "WarmCancelRequest",
+        "type": "object"
+      },
+      "WarmTreeResult": {
+        "description": "The reply to a warm \u2014 deliberately EMPTY of geometry.\n\nThere is no mesh id, no mass property, no feature status and no body here,\nand that is a structural guarantee rather than an omission: a speculative\nrebuild that could be published would eventually be published for a tree it\ndoes not exactly correspond to, which is the silent-wrong-geometry class this\nrepo has closed five times. A warm can only ever be *used* by a request whose\nfeature prefix hashes identically, through the ordinary cache key.\n\nSo the two fields say what happened to the SCHEDULING, and nothing else.",
+        "properties": {
+          "accepted": {
+            "description": "Whether this call changed the worker's speculation: true = queued (or, for /warm/cancel, a running ticket was retired); false = nothing to do \u2014 the same ticket was already in flight, the tree had no prefix worth warming, or the cancelled ticket had already finished. Never an error either way: prefetch is best-effort by construction.",
+            "title": "Accepted",
+            "type": "boolean"
+          },
+          "ticket": {
+            "description": "Echo of the submitted ticket.",
+            "title": "Ticket",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticket",
+          "accepted"
+        ],
+        "title": "WarmTreeResult",
+        "type": "object"
       }
     },
     "securitySchemes": {
@@ -9759,7 +11019,7 @@
     },
     "/api/v1/assemblies/{assembly_id}": {
       "delete": {
-        "description": "Delete an owned assembly (204; 409 when instanced as a sub-assembly).",
+        "description": "Delete an owned assembly (204; 409 when instanced as a sub-assembly).\n\nThe refusal NAMES the referencing documents in ``details.dependents``\n(:data:`~gateway.parts.DEPENDENCY_CONFLICT_RESPONSE`).",
         "operationId": "delete_assembly_api_v1_assemblies__assembly_id__delete",
         "parameters": [
           {
@@ -9776,6 +11036,16 @@
         "responses": {
           "204": {
             "description": "Successful Response"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DependencyConflictEnvelope"
+                }
+              }
+            },
+            "description": "Still referenced by other documents; `details.dependents` names them."
           },
           "422": {
             "content": {
@@ -9947,6 +11217,55 @@
           }
         ],
         "summary": "Get Assembly Bom",
+        "tags": [
+          "assemblies"
+        ]
+      }
+    },
+    "/api/v1/assemblies/{assembly_id}/duplicate": {
+      "post": {
+        "description": "Copy an assembly's instances and mates \u2014 NOT the parts they name (201).\n\nBoth assemblies reference the same parts afterwards, because an instance IS\na reference: edit one of those parts and the change shows up in both. See\n:mod:`documents.duplicate` for the full statement of what a copy carries.\nThe copy's name is the server's to assign and the created assembly is\nreturned.",
+        "operationId": "duplicate_assembly_api_v1_assemblies__assembly_id__duplicate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "assembly_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Assembly Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssemblyResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Duplicate Assembly",
         "tags": [
           "assemblies"
         ]
@@ -10274,6 +11593,65 @@
           }
         ],
         "summary": "Delete Mate",
+        "tags": [
+          "assemblies"
+        ]
+      }
+    },
+    "/api/v1/assemblies/{assembly_id}/move": {
+      "post": {
+        "description": "File an assembly into a folder, or un-file it \u2014 see :func:`move_part`.",
+        "operationId": "move_assembly_api_v1_assemblies__assembly_id__move_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "assembly_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Assembly Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DocumentMove"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssemblyResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Move Assembly",
         "tags": [
           "assemblies"
         ]
@@ -10936,6 +12314,55 @@
         ]
       }
     },
+    "/api/v1/drawings/{drawing_id}/duplicate": {
+      "post": {
+        "description": "Copy a drawing's sheets, views, dimensions and annotations (201).\n\nThe copied views keep pointing at the same part/assembly \u2014 a view is a\nreference, like an assembly instance \u2014 so this duplicates the LAYOUT, never\nthe modelled document (:mod:`documents.duplicate`). The copy's name is the\nserver's to assign and the created drawing is returned.",
+        "operationId": "duplicate_drawing_api_v1_drawings__drawing_id__duplicate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "drawing_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Drawing Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DrawingResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Duplicate Drawing",
+        "tags": [
+          "drawings"
+        ]
+      }
+    },
     "/api/v1/drawings/{drawing_id}/export": {
       "post": {
         "description": "Compose the drawing into a downloadable SVG/PDF/DXF artifact (design \u00a74.2).\n\nAuth-gated and rate-limited (an OCCT-CPU compose route, same posture as the\nparts export and the drawing-evaluate proxy \u2014 engineering audit F7). The\ntwo-hop aggregation: documents serves the drawing tree AND the referenced\npart's evaluation-ready feature prefix (principal attached, uniform 404 for an\nunknown/foreign drawing re-surfaced verbatim), the gateway assembles the\n:class:`ComposeDrawingRequest` from that persisted state, and the stateless\ngeometry service (identity-free upstream) evaluates + places + serializes it.\nThe artifact bytes stream back with geometry's ``Content-Type``; its\nper-format envelopes (e.g. ``not_implemented`` for ``dxf``) re-surface\nverbatim. The download filename is set HERE (``Content-Disposition``), not\nrelayed: only the gateway knows which sheet was composed, so a multi-sheet\ndrawing downloads as ``<drawing>-<sheet>.<ext>`` instead of every sheet\nsharing the drawing's name; a single-sheet drawing keeps ``<drawing>.<ext>``.",
@@ -11029,6 +12456,65 @@
           }
         ],
         "summary": "Export Drawing",
+        "tags": [
+          "drawings"
+        ]
+      }
+    },
+    "/api/v1/drawings/{drawing_id}/move": {
+      "post": {
+        "description": "File a drawing into a folder, or un-file it \u2014 see :func:`move_part`.",
+        "operationId": "move_drawing_api_v1_drawings__drawing_id__move_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "drawing_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Drawing Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DocumentMove"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DrawingResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Move Drawing",
         "tags": [
           "drawings"
         ]
@@ -11644,6 +13130,274 @@
         ]
       }
     },
+    "/api/v1/folders": {
+      "get": {
+        "description": "The caller's whole folder tree for one drawer, name-ordered.",
+        "operationId": "list_folders_api_v1_folders_get",
+        "parameters": [
+          {
+            "description": "Which drawer's tree to return",
+            "in": "query",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "description": "Which drawer's tree to return",
+              "enum": [
+                "part",
+                "assembly",
+                "drawing"
+              ],
+              "title": "Kind",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FolderListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Folders",
+        "tags": [
+          "folders"
+        ]
+      },
+      "post": {
+        "description": "Create a folder in one drawer (201; 409 on a duplicate sibling name).",
+        "operationId": "create_folder_api_v1_folders_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FolderCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FolderResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Folder",
+        "tags": [
+          "folders"
+        ]
+      }
+    },
+    "/api/v1/folders/{folder_id}": {
+      "delete": {
+        "description": "Delete an EMPTY folder (204); 409 naming its contents when it is not.\n\nNever a cascade: a folder delete cannot take documents with it, so the\nrefusal names what to move out first (see :data:`FOLDER_NOT_EMPTY_RESPONSE`).",
+        "operationId": "delete_folder_api_v1_folders__folder_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "folder_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Folder Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FolderNotEmptyEnvelope"
+                }
+              }
+            },
+            "description": "Folder still holds items; `details.contents` names them."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Folder",
+        "tags": [
+          "folders"
+        ]
+      },
+      "patch": {
+        "description": "Rename a folder (404 unknown/foreign; 409 duplicate sibling name).",
+        "operationId": "rename_folder_api_v1_folders__folder_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "folder_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Folder Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FolderRename"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FolderResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Rename Folder",
+        "tags": [
+          "folders"
+        ]
+      }
+    },
+    "/api/v1/folders/{folder_id}/move": {
+      "post": {
+        "description": "Re-parent a folder; ``parent_id: null`` moves it to the root.\n\n422 ``folder_cycle`` when the destination is the folder itself or one of its\nown descendants \u2014 a move that would put the subtree somewhere no register\nview can reach.",
+        "operationId": "move_folder_api_v1_folders__folder_id__move_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "folder_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Folder Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FolderMove"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FolderResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Move Folder",
+        "tags": [
+          "folders"
+        ]
+      }
+    },
     "/api/v1/geometry/assembly/evaluate": {
       "post": {
         "description": "Proxy an assembly evaluation to the geometry service (assemblies \u00a74).\n\nAuth-protected (an assembly graph belongs to a signed-in user); the\ngeometry hop stays identity-free, so the principal never travels upstream\n(same posture as measure/overlay, RESEARCH \u00a73). The shared\n:class:`EvaluateAssemblyRequest` DTO validates at the gateway before\nanything goes upstream. Geometry evaluates each unique part once (shared\ncontent-addressed mesh), solves the mate graph, and returns per-instance\n``{shared mesh id, solved placement}`` plus an analytic combined roll-up. A\nbad part / mate / solve is a 200 with a typed per-entry error or a\nnon-``well_constrained`` status (design \u00a74); the envelope stays reserved\nfor transport/validation failures of this call itself.",
@@ -12055,6 +13809,100 @@
         ]
       }
     },
+    "/api/v1/geometry/prefetch": {
+      "post": {
+        "description": "Speculatively warm the rebuild cache for one part (docs/PERF.md PERF-1b).\n\nThe client knows the INTENT \u2014 this editor is open, this travel stop is being\ndragged \u2014 and documents knows the evaluation-ready feature list. This route\nis where the two meet: it makes the same principal-scoped\n``/evaluation-request`` hop ``POST /parts/{id}/evaluate`` makes, so the warm\nlands on exactly the content-addressed key the later real evaluate probes,\nthen hands geometry a :class:`WarmTreeRequest` and returns immediately.\n\nThe two intents ask for different things, and the difference is not cosmetic:\n\n* ``feature_edit`` warms the features BEFORE the one being edited (the edit\n  cannot change their hashes), leaving the tree itself intact \u2014 so the commit\n  costs one feature's work instead of the whole tree, and the FIRST FACE PICK\n  after it resumes from the same point (the ``provenance`` lineage, which is\n  the 29 s the user actually sees on a 200-feature part);\n* ``travel_stop`` warms the SHORTER TREE the stop defines, because that is a\n  tree in its own right and hashes as one. Only backwards travel needs it:\n  rolling forward is an append, which the cache already serves.\n\nNothing here can produce geometry \u2014 the reply is a\n:class:`WarmTreeResult`, which carries a ticket and a boolean and cannot\ncarry a body. A target that is not in the current evaluation prefix is\n``accepted: false``, not an error.",
+        "operationId": "prefetch_api_v1_geometry_prefetch_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PrefetchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WarmTreeResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Prefetch",
+        "tags": [
+          "geometry"
+        ]
+      }
+    },
+    "/api/v1/geometry/prefetch/cancel": {
+      "post": {
+        "description": "Retire a warm ticket \u2014 the editor closed, or the drag ended.\n\nRequired, not optional (docs/PERF.md PERF-1b): prefetch hides latency, it\ndoes not reduce work, so speculation whose reason has gone away must stop.\nThe geometry worker acts on it within one feature's work. ``accepted:\nfalse`` means it had already finished \u2014 a normal outcome.",
+        "operationId": "prefetch_cancel_api_v1_geometry_prefetch_cancel_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WarmCancelRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WarmTreeResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Prefetch Cancel",
+        "tags": [
+          "geometry"
+        ]
+      }
+    },
     "/api/v1/geometry/sketch/chamfer": {
       "post": {
         "description": "Proxy a stateless sketch corner chamfer to the geometry service.\n\nAuth-protected and identity-free upstream (same posture as ``sketch/trim``).\nThe shared ``SketchChamferRequest`` DTO validates at the gateway (a duplicate\nentity id, or a non-positive/non-finite distance, is a 422 here and never\nreaches geometry); upstream envelopes (``sketch_target_not_found``,\n``sketch_unsupported_entity``, ``sketch_corner_not_found``,\n``sketch_corner_too_large``, ``sketch_degenerate_result``) are re-surfaced\nverbatim.",
@@ -12440,6 +14288,33 @@
         ]
       }
     },
+    "/api/v1/materials": {
+      "get": {
+        "description": "The built-in materials with their densities, in display order.\n\nThe same table the kernel multiplies by (docs/design/materials.md \u00a71), so a\npicker and a mass readout can never disagree about what \"6061-T6\" weighs.",
+        "operationId": "list_materials_api_v1_materials_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MaterialLibraryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Materials",
+        "tags": [
+          "materials"
+        ]
+      }
+    },
     "/api/v1/parts": {
       "get": {
         "description": "The caller's parts, oldest first.",
@@ -12514,7 +14389,7 @@
     },
     "/api/v1/parts/{part_id}": {
       "delete": {
-        "description": "Delete one of the caller's parts (204; 404 for unknown/foreign ids).",
+        "description": "Delete one of the caller's parts (204; 404 for unknown/foreign ids).\n\n409 while an assembly still instances it or a drawing still projects it,\nwith the referencing documents NAMED in ``details.dependents`` \u2014 see\n:data:`DEPENDENCY_CONFLICT_RESPONSE`.",
         "operationId": "delete_part_api_v1_parts__part_id__delete",
         "parameters": [
           {
@@ -12531,6 +14406,16 @@
         "responses": {
           "204": {
             "description": "Successful Response"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DependencyConflictEnvelope"
+                }
+              }
+            },
+            "description": "Still referenced by other documents; `details.dependents` names them."
           },
           "422": {
             "content": {
@@ -12601,7 +14486,7 @@
         ]
       },
       "patch": {
-        "description": "Rename and/or re-unit one of the caller's parts (bumps ``tree_version``).\n\nThe document-unit selector (docs/design/units.md \u00a7U1) changes ``length_unit``\nthrough this route; 404 envelope for unknown/foreign ids, 422 on a stale\n``expected_tree_version``, 409 on a duplicate name.",
+        "description": "Rename, re-unit and/or re-material one of the caller's parts.\n\nBumps ``tree_version``. The document-unit selector (docs/design/units.md\n\u00a7U1) changes ``length_unit`` through this route and the material picker\n(docs/design/materials.md \u00a72) changes ``materials`` \u2014 the latter is the one\nheader edit that invalidates the recorded evaluate, because mass is derived\nfrom it. 404 envelope for unknown/foreign ids, 422 on a stale\n``expected_tree_version`` or an update naming no field, 409 on a duplicate\nname.",
         "operationId": "update_part_api_v1_parts__part_id__patch",
         "parameters": [
           {
@@ -12658,9 +14543,58 @@
         ]
       }
     },
+    "/api/v1/parts/{part_id}/duplicate": {
+      "post": {
+        "description": "Copy a part and its WHOLE feature tree at its current version (201).\n\nExactly what a duplicate does and does not copy is documented once, upstream\n(:mod:`documents.duplicate`); the short version is: every feature, its\nparams, its dependency edges and the travel stop, plus the display unit and\nmaterials \u2014 but not the undo history and not the last-evaluate record (the\ncopy has never been built, and its register row says so).\n\nNo request body: the copy's name is the server's to assign (``\"<name>\ncopy\"``, then ``\" copy 2\"``\u2026) and the created part is returned, so the\nregister renders the name that was actually taken rather than one it\npredicted. 409 if that name is somehow taken anyway; rename and retry.",
+        "operationId": "duplicate_part_api_v1_parts__part_id__duplicate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Part Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Duplicate Part",
+        "tags": [
+          "parts"
+        ]
+      }
+    },
     "/api/v1/parts/{part_id}/evaluate": {
       "post": {
-        "description": "Evaluate the part's current feature tree (feature-tree design \u00a74).\n\nThe full loop behind one authenticated call: documents serves the\nevaluation-ready list (rollback bar applied, params upcast \u2014 \u00a74.2), the\ngateway forwards it verbatim to the stateless geometry service, and the\ntyped result comes back with per-feature statuses and solved-sketch\n``data`` payloads (\u00a77.10). Feature failures are a 200 with per-feature\nerrors (\u00a74.3); the error envelope here means the aggregation itself\nfailed (404 unknown part, 502 unreachable upstream, ...).",
+        "description": "Evaluate the part's current feature tree (feature-tree design \u00a74).\n\nThe full loop behind one authenticated call: documents serves the\nevaluation-ready list (rollback bar applied, params upcast \u2014 \u00a74.2), the\ngateway forwards it verbatim to the stateless geometry service, and the\ntyped result comes back with per-feature statuses and solved-sketch\n``data`` payloads (\u00a77.10). Feature failures are a 200 with per-feature\nerrors (\u00a74.3); the error envelope here means the aggregation itself\nfailed (404 unknown part, 502 unreachable upstream, ...).\n\nA 200 also records the verdict on the part row for the registers' rebuild-\nhealth column (\u00a74.4a) \u2014 in a background task, after the response, so the\nbookkeeping can neither slow this call down nor fail it\n(:func:`record_last_evaluation`).",
         "operationId": "evaluate_part_api_v1_parts__part_id__evaluate_post",
         "parameters": [
           {
@@ -13040,7 +14974,7 @@
     },
     "/api/v1/parts/{part_id}/features/{feature_id}": {
       "delete": {
-        "description": "Delete a feature (409 envelope listing dependents when referenced).",
+        "description": "Delete a feature; 409 NAMING the dependents when it is still referenced.\n\nSee :data:`FEATURE_DEPENDENTS_RESPONSE` \u2014 the refusal's ``details`` is a\ntyped list of what breaks, not a count.",
         "operationId": "delete_feature_api_v1_parts__part_id__features__feature_id__delete",
         "parameters": [
           {
@@ -13086,6 +15020,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeatureDependentsEnvelope"
+                }
+              }
+            },
+            "description": "Still referenced by later features or drawing views; `details.dependents` names them."
           },
           "422": {
             "content": {
@@ -13233,6 +15177,65 @@
         ]
       }
     },
+    "/api/v1/parts/{part_id}/features/{feature_id}/dependents": {
+      "get": {
+        "description": "What breaks if this feature is deleted (200; empty list when nothing).\n\nAsked by the feature tree BEFORE it offers the delete, so the confirmation\nnames the features and drawings that would break rather than letting the\nuser discover them from a refusal. Answered by the same documents-side query\nthat builds the delete's 409, so the warning and the refusal cannot disagree.",
+        "operationId": "feature_dependents_api_v1_parts__part_id__features__feature_id__dependents_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Part Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "feature_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Feature Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeatureDependents"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Feature Dependents",
+        "tags": [
+          "features"
+        ]
+      }
+    },
     "/api/v1/parts/{part_id}/features/{feature_id}/suppress": {
       "patch": {
         "description": "Toggle a feature's suppress flag (feature-tree.md \u00a74.3a).\n\nFlips ONLY ``suppressed`` (a suppressed feature is skipped at rebuild),\nbumping ``tree_version`` under the same optimistic-concurrency guard as\nevery other feature write \u2014 a stale version is documents' 422 envelope,\nre-surfaced verbatim.",
@@ -13299,6 +15302,65 @@
         "summary": "Suppress Feature",
         "tags": [
           "features"
+        ]
+      }
+    },
+    "/api/v1/parts/{part_id}/move": {
+      "post": {
+        "description": "File a part into a folder, or un-file it with ``folder_id: null``.\n\nReturns the part as STORED, so the register renders where the server put it.\nFiling is not a document edit: it moves neither ``tree_version`` nor\n``updated_at``, so LAST WORKED keeps meaning \"someone worked on it\".",
+        "operationId": "move_part_api_v1_parts__part_id__move_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Part Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DocumentMove"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Move Part",
+        "tags": [
+          "parts"
         ]
       }
     },

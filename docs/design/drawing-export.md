@@ -89,3 +89,57 @@ centering are the fiddly parts — port the exact constants/tolerances. Text is 
 (Courier: dimensionally correct, not glyph-identical; real-font subset embedding is a later
 fidelity pass). `ComposeDrawingRequest` stays general (per-view part intent) though v1 ships
 single-part / 4-standard-view / single-scale.
+
+## Sheet layout: re-flow, clearance, and never exporting a sheet a shop cannot read
+
+(Added 2026-07-30 for product-audit **N2 — P0**: auto-layout put the isometric ON TOP
+of the top view after an ordinary widening — measured off the exported SVG,
+`iso x[206.51,327.16] y[98.40,173.51]` over `top x[92.84,212.84] y[105.96,165.96]`, an
+overlap of 6.33 x 60.00 mm with 82.8 mm of sheet empty to the right — and shipped that
+collision to PDF and DXF silently. Before the widening the same views cleared by
+**0.70 mm**, which was the diagnosis: the layout packed to near-tangency, so any growth
+collided.)
+
+Three rules, all in `geometry.drawings.compose`:
+
+1. **Every auto anchor is derived from the extents it must clear, on every compose.**
+   Placement was never cached — it is recomputed from the current projected bounds each
+   time — so the defect was the FORMULA, not staleness: the iso anchor was
+   `(f.x + g + r.x, f.y + g + t.y)`, built only from the front/top/right halves, so the
+   gap to the top view was `f.x + g + r.x - i.x - t.x` and went negative as soon as the
+   isometric was wider than the right-side view (the normal case for a wide plate).
+   `bounds_aware_layout` now places the iso in the free corner OUTSIDE the front/top
+   column and ABOVE the front/right row, plus a gutter, plus its own half extent — so
+   the four standard views clear by the full `VIEW_GUTTER_MM` (24 mm) at any part size,
+   in both projection conventions, and equal-extent views land on exactly the old
+   anchors (a sheet that was already clear composes byte-identically).
+2. **A hand-placed view is INTENT and is never re-flowed.** `auto_place=False` is
+   honored verbatim, exactly as before (it is the drag-to-place seam, FINDINGS #6):
+   composition moves views it CHOSE, never views the user positioned. When user
+   placements collide, the answer is to say so (rule 3), not to overrule the user.
+3. **Composition MEASURES the placed sheet and no export is silent.**
+   `measure_layout_issues` walks every pair of placed views' INK boxes (drawn extent
+   PLUS the stamped caption band — a caption printed through a neighbour is the same
+   defect as crossing edges) and reports, in millimetres: `views_overlap` (**error** —
+   the boxes intersect) or `views_crowded` (**warning** — they clear by less than
+   `MIN_VIEW_CLEARANCE_MM`, one quarter of the gutter, so the 0.70 mm near-tangency is
+   now a stated warning rather than a pass). The issues ride on
+   `ComposedSheet.layout_issues` for the UI *and* are stamped as a banner inside the
+   sheet's top-left border corner by all three serializers ("LAYOUT ERROR: TOP /
+   ISOMETRIC VIEWS OVERLAP BY ... - REPOSITION OR USE A LARGER SHEET BEFORE RELEASE").
+   A clean sheet has no issues and therefore no banner ink — the mechanism is additive.
+
+   **Why a stamped banner rather than a refused export.** A 4xx would leave the engineer
+   with nothing and the shop with the last good PDF — an *older* print, silently. A
+   release-blocking banner in the bytes themselves cannot be missed by whoever opens the
+   file, survives being emailed on, and is machine-readable on the wire for the UI to
+   block on. The rule is "never silent", and the print itself carries the words.
+
+Not measured (deliberate, stated): a FAILED view's 52 x 28 mm placeholder stub (it
+already prints its own typed reason, FINDINGS #15, and absent geometry has no honest
+extent), and views hanging OUTSIDE the border — a sheet-too-small diagnostic that wants
+an auto-scale answer, filed on the backlog rather than half-done here.
+
+Regression gates live in `services/geometry/tests/test_drawings_resize.py`: both defects
+only appear after a MODEL CHANGE, so every test there composes the same drawing against
+two trees (before/after the 100 → 120 widening) and asserts on the second sheet.

@@ -5,6 +5,8 @@ imports in the monorepo) lives in :mod:`geometry.kernel`. This module stays
 kernel-free — it only assembles the service.
 """
 
+from typing import ClassVar
+
 import uvicorn
 from fastapi import FastAPI
 from py_kit import BaseServiceSettings, create_app
@@ -43,9 +45,16 @@ class GeometrySettings(BaseServiceSettings):
     #: default credential chain applies (``AWS_ACCESS_KEY_ID`` /
     #: ``AWS_SECRET_ACCESS_KEY`` env, instance profile, etc.). Env:
     #: ``S3_ACCESS_KEY_ID`` / ``S3_SECRET_ACCESS_KEY`` / ``S3_REGION``.
+    #: The secret is the MinIO ROOT password (compose anchors both to
+    #: ``MINIO_ROOT_PASSWORD``) and is the one datastore credential in the
+    #: stack that travels outside a URL, so it is declared to py-kit's
+    #: dev-credential guard below — geometry refuses to boot on the published
+    #: default ``loft-minio-dev-only`` unless ``LOFT_ENV=dev``.
     s3_access_key_id: str | None = None
     s3_secret_access_key: str | None = None
     s3_region: str = "us-east-1"
+
+    datastore_credential_fields: ClassVar[tuple[str, ...]] = ("s3_secret_access_key",)
 
     #: Hard **CPU-time** ceiling (seconds) on the untrusted OCCT STEP parse — the
     #: PRIMARY DoS bound, enforced by ``RLIMIT_CPU`` inside the killable worker

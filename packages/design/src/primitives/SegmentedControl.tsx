@@ -83,6 +83,9 @@ export function SegmentedControl<T extends string>({
               {selected ? (
                 <span
                   aria-hidden
+                  // Same QA hook as `ToolButton`: the accent is a line, so its
+                  // measured size is the assertion (UI-REVIEW 2026-07-30).
+                  data-scribe
                   className="pointer-events-none absolute inset-x-1.5 bottom-0.5 h-px bg-brass"
                 />
               ) : null}

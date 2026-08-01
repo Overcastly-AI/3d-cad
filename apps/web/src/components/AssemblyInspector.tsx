@@ -5,17 +5,43 @@
  * read from the TYPED `AssemblySolveDiagnosis`, never a parsed message, so an
  * under/over/conflicting assembly reads legibly. Reuses the design primitives +
  * the same readout formatters as the body inspector — one number language.
+ *
+ * THE TITLE IS A CLAIM (materials.md §6.1). This panel's second section was
+ * headed **COMBINED MASS** while reporting Volume / Area / Centroid and no mass
+ * — the exact defect #57b closed on the part inspector, at a second address.
+ * The words are now earned: while the roll-up's `mass_g` is null the section is
+ * COMBINED PROPERTIES, there is no mass row at all (never `0 g`), and the panel
+ * NAMES the instance that has no material, because the roll-up goes null unless
+ * every contributor has one — a partial sum would under-report while looking
+ * complete.
  */
-import { Panel, PanelRow, PanelSection } from "@loft/design";
+import {
+  formatMass,
+  massUnitFor,
+  Panel,
+  PanelRow,
+  PanelSection,
+} from "@loft/design";
 
-import type { AssemblyStatus, EvaluateAssemblyResult } from "../api/assemblies";
+import type {
+  AssemblyStatus,
+  EvaluateAssemblyResult,
+  InstanceResponse,
+} from "../api/assemblies";
+import { assemblyMassState, combinedEyebrow } from "../assembly/mass";
 import { assemblyReadout } from "../assembly/readout";
-import { formatCount } from "../lib/format";
+import { missingMaterialNotice } from "../features/materials";
+import { formatCount, formatVec3 } from "../lib/format";
 import { useDocumentLengthUnit } from "../units/documentUnit";
 
 export interface AssemblyInspectorProps {
   evaluation: EvaluateAssemblyResult | undefined;
   evaluating: boolean;
+  /**
+   * The graph's instances — the NAMES behind the roll-up's instance ids. An
+   * absent list only costs the notice its names, never its honesty.
+   */
+  instances?: readonly InstanceResponse[];
 }
 
 const STATUS_LABEL: Record<AssemblyStatus, string> = {
@@ -36,6 +62,7 @@ function statusTone(status: AssemblyStatus): string {
 export function AssemblyInspector({
   evaluation,
   evaluating,
+  instances = [],
 }: AssemblyInspectorProps) {
   const em = "—";
   const diagnosis = evaluation?.diagnosis ?? null;
@@ -45,6 +72,16 @@ export function AssemblyInspector({
   // does, so an inch assembly and its inch parts speak one convention.
   const unit = useDocumentLengthUnit();
   const readout = assemblyReadout(evaluation, unit);
+  // Mass rides the SAME units seam as the part panel: the wire is canonical
+  // grams and the mass unit derives from the document length unit (§5).
+  const mass = assemblyMassState(evaluation, instances);
+  const centreOfMass = evaluation?.properties?.center_of_mass ?? null;
+  const massNotice =
+    mass.kind === "partial"
+      ? missingMaterialNotice(mass.missing, "assembly")
+      : mass.kind === "unassigned"
+        ? "No component has a material, so this assembly has no total mass. Assign one in each part to weigh it."
+        : null;
 
   return (
     <aside
@@ -86,7 +123,16 @@ export function AssemblyInspector({
           ) : null}
         </PanelSection>
 
-        <PanelSection eyebrow="Combined mass">
+        <PanelSection eyebrow={combinedEyebrow(mass)}>
+          {mass.kind === "known" ? (
+            <PanelRow
+              label="Mass"
+              unit={massUnitFor(unit, mass.massG)}
+              data-testid="assembly-mass"
+            >
+              {formatMass(mass.massG, unit, { unitSuffix: false })}
+            </PanelRow>
+          ) : null}
           <PanelRow
             label="Volume"
             unit={readout.volumeUnit}
@@ -97,6 +143,19 @@ export function AssemblyInspector({
           <PanelRow label="Area" unit={readout.areaUnit}>
             {readout.area}
           </PanelRow>
+          {/* Two DIFFERENT points, named apart because they differ (§3): the
+              centre of MASS is mass-weighted and null until every component has
+              a material; the centroid is the volume centre. This roll-up used
+              to CALL its volume weighting mass-weighted. */}
+          {centreOfMass !== null ? (
+            <PanelRow
+              label="Centre of mass"
+              unit={readout.lengthUnit}
+              data-testid="assembly-center-of-mass"
+            >
+              {formatVec3(centreOfMass, unit)}
+            </PanelRow>
+          ) : null}
           <PanelRow
             label="Centroid"
             unit={readout.lengthUnit}
@@ -104,6 +163,16 @@ export function AssemblyInspector({
           >
             {readout.centroid}
           </PanelRow>
+          {/* Absence, said out loud and pointed at its cause — never `0 g`, and
+              never a silent dash while the wire is holding the name. */}
+          {massNotice !== null ? (
+            <p
+              data-testid="assembly-mass-notice"
+              className="px-3 pt-1 pb-2 font-body text-xs text-gauge"
+            >
+              {massNotice}
+            </p>
+          ) : null}
         </PanelSection>
 
         <PanelSection eyebrow="Bounding box">

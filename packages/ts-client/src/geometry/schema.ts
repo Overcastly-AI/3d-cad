@@ -724,6 +724,73 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/warm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Warm
+         * @description Speculatively cache a feature-tree prefix. **Publishes nothing.**
+         *
+         *     The prefetch route (docs/PERF.md PERF-1b). It returns as soon as the work is
+         *     QUEUED — the warm itself runs on the worker's single speculation thread — and
+         *     its reply carries no geometry at all (:class:`WarmTreeResult`), because the
+         *     one thing a speculative rebuild must never become is an answer. All it can do
+         *     is leave an evaluator checkpoint under the ordinary content-addressed key, so
+         *     a later *real* request that hashes to the identical prefix resumes there.
+         *
+         *     Why it is safe to spend CPU on a guess:
+         *
+         *     * **one warm per worker, ever** — :class:`~geometry.rebuild_cache.WarmScheduler`
+         *       holds a single slot, so speculation costs at most one core no matter how
+         *       many clients ask (the reason this is not "an evaluate nobody awaits", which
+         *       would scale the DoS with the client count);
+         *     * **a newer ticket supersedes an older one**, and ``POST /warm/cancel``
+         *       retires one outright — both observed between features, so a warm stops
+         *       within one OCCT call of the editor closing or the travel stop moving;
+         *     * **a spent budget just means a shorter prefix**, which is still a legitimate
+         *       resume point.
+         *
+         *     Always a 200 with ``accepted``; a warm has no failure mode a caller could act
+         *     on, since a miss is only ever slower.
+         */
+        post: operations["warm_api_v1_warm_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/warm/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Warm Cancel
+         * @description Retire a warm ticket (the editor closed, the drag ended, the tab left).
+         *
+         *     Prefetch hides latency; it does not reduce work — so the intent going away
+         *     must stop the speculation it funded rather than let it finish out of
+         *     politeness. ``accepted=false`` simply means it had already finished or was
+         *     never running.
+         */
+        post: operations["warm_cancel_api_v1_warm_cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -920,6 +987,41 @@ export interface components {
              * @description Number of disjoint connected solids (lumps) of this body; 1 for a single-lump body, >1 for a disjoint union / multi-solid import.
              */
             lumps: number;
+            /**
+             * Mass G
+             * @description This body's mass (g) = its volume x its material's density, or null when it has no material. The whole-part `properties.mass_g` is null as soon as ONE body is null; this says which (materials.md §4).
+             */
+            mass_g?: number | null;
+            /**
+             * Material
+             * @description The material RESOLVED for this body (its own override, else the document default); null = none assigned, so no mass.
+             */
+            material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6") | null;
+        };
+        /**
+         * BodyMaterialAssignment
+         * @description A per-BODY material override, keyed by the body's §MB-0 identity.
+         *
+         *     ``base_feature_id`` is the id of the feature that CREATED the body — the
+         *     same key ``EvaluationState.bodies`` and
+         *     :class:`~py_kit.schemas.features.BodyLumpInfo` use — so an override survives
+         *     edits to other features the way any body reference does. An override naming
+         *     a body the tree no longer produces is inert (it matches nothing); it is not
+         *     an error, because a rolled-back tree legitimately hides the body for a while.
+         */
+        BodyMaterialAssignment: {
+            /**
+             * Base Feature Id
+             * Format: uuid
+             * @description Id of the feature that created the body (its MB-0 identity)
+             */
+            base_feature_id: string;
+            /**
+             * Material
+             * @description Material for THIS body only
+             * @enum {string}
+             */
+            material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6";
         };
         /**
          * BooleanFeature
@@ -1425,6 +1527,15 @@ export interface components {
         /**
          * ComposedDimensionError
          * @description A placed dimension the model could not measure — an honest marker (§3.3).
+         *
+         *     The marker glyph alone was a defect (audit N1): a 2.6 mm dashed circle holding a
+         *     bare ``!`` tells a machinist nothing, and the exported PDF/DXF carried the same
+         *     mark. So the placed error also carries ``message`` — a SHORT, upper-case sheet
+         *     caption in plain words ("LINEAR DIM: REFERENCE LOST - RE-PICK THE EDGE") — and
+         *     ``text``, where the serializers stamp it beside the marker. This is the
+         *     dimension-level twin of the typed per-view reason :class:`ComposedView` stamps
+         *     under a failed view (FINDINGS #15): the machine-readable ``code`` plus the human
+         *     sentence, on the print itself.
          */
         ComposedDimensionError: {
             /** @description Marker position (SVG space) */
@@ -1450,6 +1561,14 @@ export interface components {
              * @enum {string}
              */
             kind: "error";
+            /**
+             * Message
+             * @description Short plain-language sheet caption for the failure ('LINEAR DIM: REFERENCE LOST - RE-PICK THE EDGE'), stamped beside the marker so the print says WHY in words (audit N1). Empty = no caption (marker only).
+             * @default
+             */
+            message: string;
+            /** @description Where the `message` caption is stamped (SVG space, baseline-left); null when there is no caption */
+            text?: components["schemas"]["ComposedPoint"] | null;
         };
         /**
          * ComposedHatch
@@ -1486,6 +1605,63 @@ export interface components {
             y1: number;
             /** Y2 */
             y2: number;
+        };
+        /**
+         * ComposedLayoutIssue
+         * @description Two placed views that collide, or nearly do (audit N2).
+         *
+         *     Auto-layout used to pack the standard quartet to near-tangency and then export
+         *     the collision that the next design change produced — an overlapping print,
+         *     silently, in SVG/PDF/DXF alike. Composition now MEASURES every pair of placed
+         *     views and reports what it found here, in millimetres, and the serializers stamp
+         *     the issues as a banner on the sheet so a colliding print is never silent.
+         *
+         *     ``views`` names the two projections; ``overlap_x_mm``/``overlap_y_mm`` are the
+         *     signed gaps between their ink boxes on each axis — POSITIVE where the boxes
+         *     overlap on that axis, NEGATIVE (a clearance) where they do not. Boxes overlap
+         *     only when BOTH are positive; ``clearance_mm`` is then 0.0 and otherwise the true
+         *     (smallest-axis) white gap between them.
+         */
+        ComposedLayoutIssue: {
+            /** @description Where the serializers stamp this line of the sheet banner (SVG space, baseline-left) — placement stays the composer's job (design §4.2) */
+            at: components["schemas"]["ComposedPoint"];
+            /**
+             * Clearance Mm
+             * @description White gap between the two boxes (mm); 0.0 when they overlap
+             */
+            clearance_mm: number;
+            /**
+             * Code
+             * @description views_overlap | views_crowded
+             * @enum {string}
+             */
+            code: "views_overlap" | "views_crowded";
+            /**
+             * Message
+             * @description Plain-language sheet caption ('TOP / ISOMETRIC VIEWS OVERLAP BY 6.33 x 60.00 MM - REPOSITION BEFORE RELEASE')
+             */
+            message: string;
+            /**
+             * Overlap X Mm
+             * @description Signed X-axis overlap (mm): positive = the boxes overlap in X, negative = that much X clearance
+             */
+            overlap_x_mm: number;
+            /**
+             * Overlap Y Mm
+             * @description Signed Y-axis overlap (mm): positive = overlap, negative = clearance
+             */
+            overlap_y_mm: number;
+            /**
+             * Severity
+             * @description error | warning
+             * @enum {string}
+             */
+            severity: "error" | "warning";
+            /**
+             * Views
+             * @description The two colliding/crowded projections, in canonical order
+             */
+            views: ("front" | "top" | "right" | "iso" | "flat_pattern" | "section")[];
         };
         /**
          * ComposedLineEdge
@@ -1652,6 +1828,11 @@ export interface components {
              */
             height_mm: number;
             /**
+             * Layout Issues
+             * @description Measured view-collision diagnostics (audit N2): overlapping or sub-clearance view pairs, each with millimetre numbers and a plain-language message. EMPTY for a clean sheet — additive, so a clean sheet composes byte-identically. Non-empty ⇒ the serializers stamp a banner on the print.
+             */
+            layout_issues?: components["schemas"]["ComposedLayoutIssue"][];
+            /**
              * Margin Mm
              * @description Border inset from the sheet edge (mm)
              */
@@ -1666,6 +1847,8 @@ export interface components {
              * @description The sheet scale label ('1:1')
              */
             scale_label: string;
+            /** @description The placed THREAD SCHEDULE block (BACKLOG #50) — one row per distinct tapped-hole designation in the part, with its quantity and tap drill. Null for a part with no tapped hole — additive, so an untapped sheet composes byte-identically to its pre-thread golden. */
+            thread_schedule?: components["schemas"]["ComposedThreadSchedule"] | null;
             /**
              * Title
              * @description Drawing name (metadata / accessible label)
@@ -1683,6 +1866,41 @@ export interface components {
              * @description Sheet width (mm) — the SVG viewBox width
              */
             width_mm: number;
+        };
+        /**
+         * ComposedThreadSchedule
+         * @description The placed thread-schedule block — anchor rect + rows (BACKLOG #50).
+         *
+         *     The bottom-left twin of the flat-pattern bend table (top-left) and the title
+         *     block (bottom-right): a bordered box of derived rows, in sheet-mm SVG space,
+         *     rendered identically by all three serializers.
+         */
+        ComposedThreadSchedule: {
+            /**
+             * Height
+             * @description Block height (mm)
+             */
+            height: number;
+            /**
+             * Rows
+             * @description One row per distinct designation, in the part's TREE order of first appearance (never request-array order — RESEARCH §9)
+             */
+            rows: components["schemas"]["ThreadCalloutRow"][];
+            /**
+             * Width
+             * @description Block width (mm)
+             */
+            width: number;
+            /**
+             * X
+             * @description Block left edge (mm, SVG space)
+             */
+            x: number;
+            /**
+             * Y
+             * @description Block top edge (mm, SVG space, y-down)
+             */
+            y: number;
         };
         /**
          * ComposedTitleBlock
@@ -2114,6 +2332,36 @@ export interface components {
              * @enum {string}
              */
             type: "diameter";
+        };
+        /**
+         * DimensionAnchor
+         * @description Where a measured dimension's reference(s) landed on the CURRENT body (§11).
+         *
+         *     The re-anchoring result: ``tier`` says whether the stored stage-1 signature
+         *     matched verbatim (``exact``) or had to be re-anchored on its curve-kind
+         *     invariant (``durable``), and ``primary``/``secondary`` carry the CURRENT
+         *     signatures of the edges the dimension now names — the primary being the
+         *     dimension's main edge (the measured edge / the circle / ``edge_a`` / the first
+         *     point-to-point endpoint's edge) and the secondary the second one where the
+         *     dimension type has one (``edge_b``, the second endpoint's edge).
+         *
+         *     They are what the composer matches against the PROJECTED edges, so an annotation
+         *     lands on the geometry that is actually there after a rebuild rather than on the
+         *     stale authored signature (which is exactly why a re-measured dimension used to
+         *     still vanish from the sheet). A client may also persist them to heal the stored
+         *     ref, and ``tier == "durable"`` is the honest signal that the reference moved.
+         */
+        DimensionAnchor: {
+            /** @description Current signature of the dimension's primary edge, or null when the dimension names no edge */
+            primary?: components["schemas"]["EdgeSignature"] | null;
+            /** @description Current signature of the dimension's second edge (angular `edge_b` / the second point-to-point endpoint's edge); null otherwise */
+            secondary?: components["schemas"]["EdgeSignature"] | null;
+            /**
+             * Tier
+             * @description 'exact' (stored signature matched verbatim) or 'durable' (re-anchored on the curve-kind rebuild invariant, §11)
+             * @enum {string}
+             */
+            tier: "exact" | "durable";
         };
         /**
          * DimensionEndpointRef
@@ -2867,6 +3115,8 @@ export interface components {
              * @default 0.1
              */
             linear_deflection: number;
+            /** @description What the part's bodies are made of (docs/design/materials.md): a document default plus per-body overrides. Omitted / null = no material, so the result reports NO mass (absent, not zero). Unlike length units — presentation metadata the kernel never sees — material is an INPUT to evaluation, because mass is derived from it. */
+            materials?: components["schemas"]["MaterialAssignment"] | null;
             /**
              * Part Id
              * Format: uuid
@@ -2874,7 +3124,7 @@ export interface components {
             part_id: string;
             /**
              * Tree Version
-             * @description Echoed back; cache/correlation key
+             * @description The part tree_version documents composed this request from. Echoed back verbatim on the result, where it is the PROVENANCE stamp of the returned body (EvaluateTreeResult.tree_version) as well as a cache/correlation key.
              */
             tree_version: number;
         };
@@ -2912,7 +3162,10 @@ export interface components {
             part_id: string;
             /** @description Mass properties of the last-good body */
             properties: components["schemas"]["ShapeProperties"] | null;
-            /** Tree Version */
+            /**
+             * Tree Version
+             * @description PROVENANCE: the part tree_version this result — every `features` status, `mesh_glb_id`, and `properties` — was BUILT FROM (echoed from the request documents composed off that exact tree). A consumer compares it against the part's current `PartResponse.tree_version` (the shared `is_stale_for_tree` rule) to know whether the body it is displaying still reflects the tree, instead of inferring currency from whether a request is in flight.
+             */
             tree_version: number;
         };
         /**
@@ -2959,6 +3212,8 @@ export interface components {
              * @description Instance identity (result keying)
              */
             instance_id: string;
+            /** @description The instanced PART's material assignment (docs/design/materials.md), forwarded verbatim into that part's evaluation so the assembly rolls up a real mass. Null = the part has no material, so it contributes no mass and the assembly total is null (never zero). Two instances share a part_key and therefore a part, so they share this. */
+            materials?: components["schemas"]["MaterialAssignment"] | null;
             /**
              * Name
              * @description Human-readable instance name ('Bracket <1>'), threaded into the STEP export as the PRODUCT name so a Loft->STEP->Loft round trip preserves part identity instead of writing the instance UUID (FINDINGS #7). Optional: evaluate/interference ignore it; the export path falls back to the instance id when absent (a nameless request stays valid).
@@ -3066,6 +3321,11 @@ export interface components {
              */
             mates?: components["schemas"]["EvaluatedMate"][];
             /**
+             * Name
+             * @description The assembly's human-readable document name. Names the exported STEP's ROOT PRODUCT and the download filename; omitted / null falls back to the assembly id. Export-only (see DocumentName): a name must never be an input to the solve.
+             */
+            name?: string | null;
+            /**
              * Version
              * @description Echoed back; cache/correlation key
              */
@@ -3155,6 +3415,13 @@ export interface components {
              * @default 0.1
              */
             linear_deflection: number;
+            /** @description What the part's bodies are made of (docs/design/materials.md): a document default plus per-body overrides. Omitted / null = no material, so the result reports NO mass (absent, not zero). Unlike length units — presentation metadata the kernel never sees — material is an INPUT to evaluation, because mass is derived from it. */
+            materials?: components["schemas"]["MaterialAssignment"] | null;
+            /**
+             * Name
+             * @description The part's human-readable document name. Names the exported STEP PRODUCT and the download filename; omitted / null falls back to the part id. EXPORT-only on purpose (see DocumentName) — it is not on EvaluateTreeRequest, because a name must never be an input to geometry.
+             */
+            name?: string | null;
             /**
              * Part Id
              * Format: uuid
@@ -3162,7 +3429,7 @@ export interface components {
             part_id: string;
             /**
              * Tree Version
-             * @description Echoed back; cache/correlation key
+             * @description The part tree_version documents composed this request from. Echoed back verbatim on the result, where it is the PROVENANCE stamp of the returned body (EvaluateTreeResult.tree_version) as well as a cache/correlation key.
              */
             tree_version: number;
         };
@@ -4088,6 +4355,31 @@ export interface components {
             signature: components["schemas"]["PlanarFaceSignature"];
         };
         /**
+         * MaterialAssignment
+         * @description What a document is made of: one default + per-body overrides (design §2).
+         *
+         *     A multi-body part legitimately mixes materials (a steel pin in an aluminium
+         *     housing), so a single document-level material would be wrong for exactly the
+         *     parts mass matters most on. The resolution rule is one line — an override
+         *     wins over the default (:func:`resolve_body_material`) — and lives here so
+         *     every consumer resolves identically.
+         *
+         *     ``default_material: None`` with no overrides is the HONEST empty state a new
+         *     document starts in: no material anywhere, therefore no mass anywhere.
+         */
+        MaterialAssignment: {
+            /**
+             * Bodies
+             * @description Per-body overrides; at most one entry per base_feature_id.
+             */
+            bodies?: components["schemas"]["BodyMaterialAssignment"][];
+            /**
+             * Default Material
+             * @description Material for every body without an override; null means the document has no material, so its mass is UNKNOWN (not zero).
+             */
+            default_material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6") | null;
+        };
+        /**
          * MeasureRequest
          * @description Measure the nearest distance between two targets (stateless, one-shot).
          *
@@ -4157,6 +4449,8 @@ export interface components {
          *     :class:`DrawingViewResult` success/error envelope for a single dimension.
          */
         MeasuredDimension: {
+            /** @description Where the dimension's reference(s) landed on the CURRENT body (topological-naming §11) — the re-anchored signatures + whether the match was `exact` or `durable`. Null when the dimension could not be resolved at all (`error` set) or for a caller-synthesised value. Additive: a consumer that ignores it reads the same value it always did. */
+            anchor?: components["schemas"]["DimensionAnchor"] | null;
             /** @description Typed resolution failure (`subshape_unresolved` / `subshape_ambiguous` / `dimension_wrong_type`), or null on success */
             error?: components["schemas"]["FeatureError"] | null;
             /**
@@ -4259,6 +4553,24 @@ export interface components {
             kind: "points";
         };
         /**
+         * MirrorBodyScope
+         * @description ``scope: {"kind": "body"}`` — reflect the CURRENT BODY (the v1 reading).
+         *
+         *     The v1 semantic, NAMED rather than implied (design §3.1): the mirror reflects
+         *     the body that exists at its point in the tree, cut-aware — when the active body
+         *     carries a recorded cut whose reflected tool still reaches it the mirror reflects
+         *     that REMOVAL, otherwise it reflects and unions the whole body. Kept verbatim
+         *     (§6.1): the shipped goldens' byte identity is STRUCTURAL, not measured, because
+         *     this scope dispatches to code the v2 work did not touch.
+         */
+        MirrorBodyScope: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "body";
+        };
+        /**
          * MirrorFeature
          * @description ``{"type": "mirror", "version": 1, "params": {...}}`` envelope.
          *
@@ -4286,6 +4598,44 @@ export interface components {
             version: 1;
         };
         /**
+         * MirrorFeaturesScope
+         * @description ``scope: {"kind": "features", "features": [...]}`` — reflect these features.
+         *
+         *     The v2 reading (design §2b/§4): each selected feature's RECORDED RIGID TOOL
+         *     SOLID(S) are reflected about the plane and that feature's OWN operation
+         *     (``fuse``/``cut``) is re-applied to the active body, in TREE order — never array
+         *     order (§8.1: array order is UI-incidental, so honouring it would make identical
+         *     models tessellate to different bytes). Parameters are never re-derived: a
+         *     reflected circular pattern is correct precisely because its PLACEMENTS are
+         *     reflected, where re-deriving the axis would wind the ring backwards (§4.5).
+         *
+         *     ``features`` names :class:`FeatureRef`s rather than bare UUIDs so each selection
+         *     materialises into ``feature_dependencies`` for free (feature-tree §2.3): deleting
+         *     a mirrored feature is a 409-with-dependents, a reorder re-checks the
+         *     strict-backward rule, and a forward/self reference is a write-time 422. A
+         *     non-body-affecting or non-reflectable kind (``sketch``/``datum``, and every
+         *     MODIFIER — fillet/chamfer/shell/draft and the sheet-metal family, which have a
+         *     RESULT and no tool, §4.3) is refused with the typed per-feature
+         *     ``mirror_feature_unsupported`` at rebuild.
+         *
+         *     ``min_length=1`` because an empty selection is authoring nonsense, not a no-op
+         *     mirror (§3.1), and duplicate ids are a 422 rather than silently deduplicated —
+         *     naming a feature twice leaves the intent (twice? once?) unstated, which is the
+         *     mistake v1 made.
+         */
+        MirrorFeaturesScope: {
+            /**
+             * Features
+             * @description The features to reflect, each a `FeatureRef` to an earlier body-affecting feature of this tree. Applied in TREE order (the array order is ignored — design §8.1); at least one, at most MAX_MIRROR_SCOPE_FEATURES (work bound); duplicates are a 422.
+             */
+            features: components["schemas"]["FeatureRef"][];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "features";
+        };
+        /**
          * MirrorParamsV1
          * @description Reflect the current body about a plane and union the reflection in.
          *
@@ -4311,6 +4661,12 @@ export interface components {
          *     body is unchanged. A degenerate/failed reflection is a per-feature
          *     ``mirror_failed`` rebuild error; a mirror with no prior body is
          *     ``no_target_body`` — never a silently wrong body.
+         *
+         *     ``scope`` (v2, design §3) states WHAT is reflected — the whole ``body`` (the
+         *     reading above, kept verbatim) or an explicit selection of ``features``. It
+         *     defaults to ``body`` and a persisted params blob with no ``scope`` key reads as
+         *     ``body`` (:meth:`_legacy_body_scope`), so every mirror authored before v2
+         *     evaluates on unchanged code.
          */
         MirrorParamsV1: {
             /**
@@ -4318,6 +4674,11 @@ export interface components {
              * @description Mirror plane — an origin datum (XY/XZ/YZ `DatumPlaneRef`) or an earlier `datum` feature (`FeatureRef`); the SAME plane vocabulary a sketch uses (discriminated on `kind`)
              */
             plane: components["schemas"]["DatumPlaneRef"] | components["schemas"]["FeatureRef"];
+            /**
+             * Scope
+             * @description WHAT to reflect (discriminated on `kind`): `body` reflects the current body (the v1 reading — cut-aware, with the reflect-and-union fallback), `features` reflects the recorded tool solids of an explicit tree-ordered selection and re-applies each feature's own boolean. Absent reads `body`, so pre-v2 mirrors are unchanged (design §3.2).
+             */
+            scope?: components["schemas"]["MirrorBodyScope"] | components["schemas"]["MirrorFeaturesScope"];
         };
         /**
          * NoteAnnotationParams
@@ -5010,11 +5371,26 @@ export interface components {
         /**
          * ShapeProperties
          * @description Mass properties + topology of the evaluated B-rep shape.
+         *
+         *     Two fields are honestly nullable (docs/design/materials.md): ``mass_g`` and
+         *     ``center_of_mass`` are ``null`` whenever ANY contributing body has no
+         *     material assigned. ``null`` means *unknown*, never zero — a body nobody has
+         *     said the material of has no mass to report, and inventing one (0 g, or a
+         *     default steel) is the overstated-surface defect this field exists to avoid.
+         *     A consumer must render absence as absence and must not title a panel "mass"
+         *     on the strength of a null.
          */
         ShapeProperties: {
             bounding_box: components["schemas"]["BoundingBox"];
-            /** @description Centre of mass (mm) */
+            /** @description Genuinely mass-weighted centre of mass (mm), or null when any contributing body has no material. For a single-material shape it equals `centroid`; for mixed materials it does not. */
+            center_of_mass?: components["schemas"]["Vec3"] | null;
+            /** @description Centroid of VOLUME (mm) — the geometric centre. Equal to the centre of mass only when the whole shape is one material; for a multi-material roll-up read `center_of_mass` instead. */
             centroid: components["schemas"]["Vec3"];
+            /**
+             * Mass G
+             * @description Mass (g) = volume x density, or null when a contributing body has NO material assigned. Null is 'unknown', NOT zero.
+             */
+            mass_g?: number | null;
             /**
              * Surface Area
              * @description Total surface area (mm^2)
@@ -6416,6 +6792,27 @@ export interface components {
             properties: components["schemas"]["ShapeProperties"];
         };
         /**
+         * ThreadCalloutRow
+         * @description One line of the thread schedule — a designation, its count, its tap drill.
+         */
+        ThreadCalloutRow: {
+            /**
+             * Designation
+             * @description Drawing designation, ASCII ("M6x1") — the kernel's `format_designation`, never re-derived here
+             */
+            designation: string;
+            /**
+             * Quantity
+             * @description How many holes in the part carry this designation
+             */
+            quantity: number;
+            /**
+             * Tap Drill Mm
+             * @description ISO recommended tap drill (nominal - pitch, mm) — the diameter the kernel actually bored, and what the shop sets up
+             */
+            tap_drill_mm: number;
+        };
+        /**
          * TitleBlock
          * @description Free-text title-block fields (design §9 open-q 6 — v1 holds free text).
          *
@@ -6517,6 +6914,79 @@ export interface components {
              * @description Scale numerator (1 for 1:N)
              */
             numerator: number;
+        };
+        /**
+         * WarmCancelRequest
+         * @description Retire a warm ticket. Idempotent, and never an error.
+         */
+        WarmCancelRequest: {
+            /**
+             * Ticket
+             * @description The ticket submitted to `POST /warm`. Unknown or already finished → `accepted: false`, which is a normal outcome, not a fault.
+             */
+            ticket: string;
+        };
+        /**
+         * WarmTreeRequest
+         * @description Ask the geometry worker to speculatively cache a feature-tree prefix.
+         *
+         *     **This request cannot produce an artifact** (docs/PERF.md PERF-1b): the only
+         *     thing it can do is make a LATER, ordinary evaluate cheaper by leaving an
+         *     evaluator checkpoint in the per-worker rebuild cache, addressed by the same
+         *     content hash that evaluate probes. There is deliberately no "prefetched
+         *     result" to fetch — see :class:`WarmTreeResult`.
+         *
+         *     It is issued on a genuine declaration of intent, and only those two:
+         *
+         *     * an **open feature editor** — editing feature ``k`` declares ``0..k-1``
+         *       settled for as long as the dialog is open, so ``tree`` is the current tree
+         *       and ``prefix_length`` is ``k``;
+         *     * a **travel stop** on the timeline — that is a shorter tree in its own
+         *       right, so ``tree`` IS the shorter tree and ``prefix_length`` is omitted.
+         */
+        WarmTreeRequest: {
+            /**
+             * Lineages
+             * @description Which cache lineages to warm, in priority order, under ONE shared budget — so a truncated warm always got the first one done. An open editor asks for both: the commit reads `evaluate`, the face pick that follows it reads `provenance`.
+             */
+            lineages?: ("evaluate" | "provenance")[];
+            /**
+             * Prefix Length
+             * @description How many leading features of `tree` to evaluate; null = all of them. Clamped to the tree's length. An open editor for feature k sends k here (an edit at k cannot change the hash of anything before it); a travel stop sends null and a shorter tree.
+             */
+            prefix_length?: number | null;
+            /**
+             * Ticket
+             * @description Opaque identity of the INTENT, chosen by the caller and namespaced by the gateway per user. Submitting a ticket that is already running is a no-op (a re-render must not restart its own warm), a new ticket supersedes the running one, and `POST /warm/cancel` with this ticket retires it — which is what closing the editor or ending the drag does.
+             */
+            ticket: string;
+            /** @description The tree whose prefix to warm — the very request a later evaluate will send, so the warm lands on the key that request probes. */
+            tree: components["schemas"]["EvaluateTreeRequest"];
+        };
+        /**
+         * WarmTreeResult
+         * @description The reply to a warm — deliberately EMPTY of geometry.
+         *
+         *     There is no mesh id, no mass property, no feature status and no body here,
+         *     and that is a structural guarantee rather than an omission: a speculative
+         *     rebuild that could be published would eventually be published for a tree it
+         *     does not exactly correspond to, which is the silent-wrong-geometry class this
+         *     repo has closed five times. A warm can only ever be *used* by a request whose
+         *     feature prefix hashes identically, through the ordinary cache key.
+         *
+         *     So the two fields say what happened to the SCHEDULING, and nothing else.
+         */
+        WarmTreeResult: {
+            /**
+             * Accepted
+             * @description Whether this call changed the worker's speculation: true = queued (or, for /warm/cancel, a running ticket was retired); false = nothing to do — the same ticket was already in flight, the tree had no prefix worth warming, or the cancelled ticket had already finished. Never an error either way: prefetch is best-effort by construction.
+             */
+            accepted: boolean;
+            /**
+             * Ticket
+             * @description Echo of the submitted ticket.
+             */
+            ticket: string;
         };
     };
     responses: never;
@@ -7251,6 +7721,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TessellationMetadata"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    warm_api_v1_warm_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WarmTreeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WarmTreeResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    warm_cancel_api_v1_warm_cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WarmCancelRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WarmTreeResult"];
                 };
             };
             /** @description Validation Error */

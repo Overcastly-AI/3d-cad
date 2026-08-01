@@ -28,6 +28,7 @@ import {
   type SheetMetalDefaults,
 } from "../features/sheetMetal";
 import { useDocumentLengthUnit } from "../units/documentUnit";
+import { EditorCard } from "./EditorCard";
 
 export interface HemEditorProps {
   mode: "create" | "edit";
@@ -90,10 +91,7 @@ export function HemEditor({
       : "A tight closed hem uses a small radius.";
 
   return (
-    <div
-      className="absolute left-editor top-3 w-editor max-w-full"
-      onKeyDown={onKeyDown}
-    >
+    <EditorCard onKeyDown={onKeyDown}>
       <Panel aria-label="Hem" data-testid="hem-editor">
         <div className="border-b border-hairline">
           <h2 className="px-3 pb-1 pt-3 font-display text-2xs uppercase tracking-[0.18em] text-gauge">
@@ -251,6 +249,6 @@ export function HemEditor({
           {error}
         </p>
       ) : null}
-    </div>
+    </EditorCard>
   );
 }

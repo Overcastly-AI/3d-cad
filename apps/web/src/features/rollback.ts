@@ -1,8 +1,13 @@
 /**
- * Rollback-bar view math — pure functions the FeatureTreePanel uses to place
- * the bar and translate a clicked slot into the documents API's
- * `rollback_feature_id` (design §3: the id of the LAST INCLUDED feature, or
- * null for the tip). Kept out of the component for unit testing.
+ * Travel-stop view math — pure functions the bottom TimelineStrip uses to place
+ * the stop and translate a slot into the documents API's `rollback_feature_id`
+ * (design §3: the id of the LAST INCLUDED feature, or null for the tip). Kept
+ * out of the component for unit testing.
+ *
+ * The slot math is deliberately ORIENTATION-AGNOSTIC — it was written for a
+ * vertical bar between tree rows and carried over UNCHANGED when rollback became
+ * a horizontal machine way (UI-W1): a slot is an index along the build order,
+ * and which axis the build order is drawn on is presentation.
  */
 import type { FeatureResponse } from "../api/parts";
 
@@ -31,6 +36,31 @@ export function rollbackIdForSlot(
 ): string | null {
   if (slotIndex >= features.length - 1) return null; // tip = all included
   return features[slotIndex]?.id ?? null;
+}
+
+/**
+ * Which slot a dragged travel stop should land in: the slot whose anchor (its
+ * centre x on the way, in client px) is nearest the pointer. A tie takes the
+ * EARLIER slot — dragging left across a midpoint should commit to the smaller
+ * build, never overshoot back toward the tip.
+ *
+ * Anchors arrive already measured (`getBoundingClientRect`) so this stays pure
+ * and testable; an empty way has no slot to land in, hence -1.
+ */
+export function nearestSlotIndex(
+  anchors: readonly number[],
+  clientX: number,
+): number {
+  let best = -1;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  anchors.forEach((anchor, index) => {
+    const distance = Math.abs(anchor - clientX);
+    if (distance < bestDistance) {
+      best = index;
+      bestDistance = distance;
+    }
+  });
+  return best;
 }
 
 /** True when feature `index` sits below the bar (excluded from evaluation). */

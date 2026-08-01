@@ -48,12 +48,13 @@ from dataclasses import dataclass
 from build123d import Compound, ShapeList, Solid
 
 from geometry.kernel.properties import measure_shape
+from geometry.kernel.tolerances import KERNEL_LINEAR_TOL_MM
 from geometry.kernel.types import BodyShape
 
-#: Kernel linear tolerance expressed in mm (``1e-7 m``; RESEARCH §9). The
-#: ``extrude.py`` ``PROFILE_WIRE_TOLERANCE`` twin — the geometry service works in
-#: mm, so the 1e-7 m kernel tolerance is 1e-4 mm.
-_KERNEL_LINEAR_TOL_MM = 1e-4
+#: Kernel linear tolerance expressed in mm (``1e-7 m``), single-sourced in
+#: :mod:`geometry.kernel.tolerances` — this module keeps the local name it was
+#: written with, but no longer its own copy of the number (CLAUDE.md DRY).
+_KERNEL_LINEAR_TOL_MM = KERNEL_LINEAR_TOL_MM
 
 #: Minimum common-solid volume (mm³) that counts as a real interference: one
 #: kernel-tolerance CUBE (module docstring). An overlap below this is within

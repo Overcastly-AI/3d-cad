@@ -233,11 +233,35 @@ class TopologyCounts(BaseModel):
 
 
 class ShapeProperties(BaseModel):
-    """Mass properties + topology of the evaluated B-rep shape."""
+    """Mass properties + topology of the evaluated B-rep shape.
+
+    Two fields are honestly nullable (docs/design/materials.md): ``mass_g`` and
+    ``center_of_mass`` are ``null`` whenever ANY contributing body has no
+    material assigned. ``null`` means *unknown*, never zero — a body nobody has
+    said the material of has no mass to report, and inventing one (0 g, or a
+    default steel) is the overstated-surface defect this field exists to avoid.
+    A consumer must render absence as absence and must not title a panel "mass"
+    on the strength of a null.
+    """
 
     volume: float = Field(description="Volume (mm^3)")
     surface_area: float = Field(description="Total surface area (mm^2)")
-    centroid: Vec3 = Field(description="Centre of mass (mm)")
+    centroid: Vec3 = Field(
+        description="Centroid of VOLUME (mm) — the geometric centre. Equal to "
+        "the centre of mass only when the whole shape is one material; for a "
+        "multi-material roll-up read `center_of_mass` instead."
+    )
+    mass_g: float | None = Field(
+        default=None,
+        description="Mass (g) = volume x density, or null when a contributing "
+        "body has NO material assigned. Null is 'unknown', NOT zero.",
+    )
+    center_of_mass: Vec3 | None = Field(
+        default=None,
+        description="Genuinely mass-weighted centre of mass (mm), or null when "
+        "any contributing body has no material. For a single-material shape it "
+        "equals `centroid`; for mixed materials it does not.",
+    )
     bounding_box: BoundingBox
     topology: TopologyCounts
 

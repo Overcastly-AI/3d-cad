@@ -17,6 +17,10 @@ import {
   type ExportedFile,
   parseContentDispositionFilename,
 } from "./exportPart";
+// The dependency-409 reader lives with the parts API and is shared by all three
+// registers (CLAUDE.md DRY): one narrowing of the documented `details` payload,
+// not three.
+import { DocumentHasDependentsError, parseDependents } from "./parts";
 
 export type AssemblyResponse = components["schemas"]["AssemblyResponse"];
 /** Document display unit — the single source is the generated contract. */
@@ -100,13 +104,21 @@ export async function fetchAssemblies(
 /** Create an assembly owned by the caller (201). A duplicate name → 409. */
 export async function createAssembly(
   name: string,
+  lengthUnit: LengthUnit = "mm",
+  /**
+   * File it into this folder on creation (#WS2), or null for unfiled. ONE call
+   * on purpose: a create-then-move pair could fail between the two and leave a
+   * document somewhere the user did not put it.
+   */
+  folderId: string | null = null,
   client: GatewayClient = gatewayClient,
 ): Promise<AssemblyResponse> {
   const { data, error } = await client.POST("/api/v1/assemblies", {
-    // length_unit is DISPLAY metadata (docs/design/units.md §U1); new
-    // assemblies default to canonical mm. The document-unit selector (U2)
-    // changes it via the update route.
-    body: { name, length_unit: "mm" },
+    // length_unit is DISPLAY metadata (docs/design/units.md §U1) stamped at
+    // creation: the default is canonical mm, the caller passes the user's
+    // "units for new documents" preference (#58), and the document-unit
+    // selector (U2) changes it afterwards via the update route.
+    body: { name, length_unit: lengthUnit, folder_id: folderId },
   });
   if (error !== undefined) {
     if (
@@ -153,7 +165,73 @@ export async function updateAssemblyUnit(
   return data;
 }
 
-/** Delete one of the caller's assemblies (204; 404 for unknown/foreign ids). */
+/**
+ * Rename one of the caller's assemblies under the OCC guard (`expected_version`).
+ * Renaming cannot orphan anything — instances and views reference by ID — and
+ * it IS a history event server-side, so undo restores the old name.
+ */
+export async function renameAssembly(
+  assemblyId: string,
+  name: string,
+  expectedVersion: number,
+  client: GatewayClient = gatewayClient,
+): Promise<AssemblyResponse> {
+  const { data, error } = await client.PATCH(
+    "/api/v1/assemblies/{assembly_id}",
+    {
+      params: { path: { assembly_id: assemblyId } },
+      body: { name, expected_version: expectedVersion },
+    },
+  );
+  if (error !== undefined) {
+    const code = envelopeCode(error);
+    if (code === "assembly_name_taken" || code === "name_taken") {
+      throw new AssemblyNameTakenError(
+        name,
+        envelopeMessage(error, `An assembly named "${name}" already exists.`),
+      );
+    }
+    if (code === "stale_assembly_version") {
+      throw new StaleAssemblyVersionError(
+        envelopeMessage(
+          error,
+          "This assembly changed somewhere else. Reopen the register and try again.",
+        ),
+      );
+    }
+    throw new Error(
+      envelopeMessage(error, "The assembly could not be renamed."),
+    );
+  }
+  return data;
+}
+
+/**
+ * Copy an assembly's instances and mates — NOT the parts they name (201).
+ * Both assemblies reference the same parts afterwards, because an instance IS
+ * a reference. The server names the copy and returns it.
+ */
+export async function duplicateAssembly(
+  assemblyId: string,
+  client: GatewayClient = gatewayClient,
+): Promise<AssemblyResponse> {
+  const { data, error } = await client.POST(
+    "/api/v1/assemblies/{assembly_id}/duplicate",
+    { params: { path: { assembly_id: assemblyId } } },
+  );
+  if (error !== undefined) {
+    throw new Error(
+      envelopeMessage(error, "The assembly could not be duplicated."),
+    );
+  }
+  return data;
+}
+
+/**
+ * Delete one of the caller's assemblies (204; 404 for unknown/foreign ids).
+ * An assembly still instanced as a SUB-assembly elsewhere is refused with the
+ * referring documents named (`DocumentHasDependentsError`).
+ */
 export async function deleteAssembly(
   assemblyId: string,
   client: GatewayClient = gatewayClient,
@@ -162,10 +240,40 @@ export async function deleteAssembly(
     params: { path: { assembly_id: assemblyId } },
   });
   if (error !== undefined) {
+    const dependents = parseDependents(error);
+    if (dependents !== null) {
+      throw new DocumentHasDependentsError(
+        dependents,
+        envelopeMessage(error, "The assembly could not be deleted."),
+      );
+    }
     throw new Error(
       envelopeMessage(error, "The assembly could not be deleted."),
     );
   }
+}
+
+/**
+ * File an assembly into a folder, or un-file it with `folderId: null` (#WS2).
+ * See `movePart` for why the response is rendered rather than assumed and why
+ * this carries no concurrency guard.
+ */
+export async function moveAssembly(
+  assemblyId: string,
+  folderId: string | null,
+  client: GatewayClient = gatewayClient,
+): Promise<AssemblyResponse> {
+  const { data, error } = await client.POST(
+    "/api/v1/assemblies/{assembly_id}/move",
+    {
+      params: { path: { assembly_id: assemblyId } },
+      body: { folder_id: folderId },
+    },
+  );
+  if (error !== undefined) {
+    throw new Error(envelopeMessage(error, "The assembly could not be moved."));
+  }
+  return data;
 }
 
 /** The assembly's full instance + mate graph and its concurrency token. */
@@ -370,10 +478,17 @@ export async function evaluateAssembly(
  * (baked compound). The `request` is the evaluate request plus a `format`; the
  * file bytes stream back with a `Content-Disposition` filename (server is
  * authoritative). `client` is injectable for tests.
+ *
+ * `name` is the assembly's document name and rides the EXPORT request only
+ * (audit N4): it becomes the STEP's root `PRODUCT` and the download filename —
+ * `motor-mount-assembly.step` instead of a uuid — and nothing else. It is
+ * deliberately absent from {@link evaluateAssembly}'s request, because a name
+ * must never be an input to the solve; `null` keeps the id fallback.
  */
 export async function exportAssembly(
   request: EvaluateAssemblyRequest,
   format: AssemblyExportFormat,
+  name: string | null = null,
   client: GatewayClient = gatewayClient,
 ): Promise<ExportedFile> {
   const { data, error, response } = await client.POST(
@@ -382,6 +497,7 @@ export async function exportAssembly(
       body: {
         ...request,
         format,
+        name,
         angular_deflection: MESH_ANGULAR_DEFLECTION_RAD,
         linear_deflection: MESH_LINEAR_DEFLECTION_MM,
       },

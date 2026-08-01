@@ -16,7 +16,10 @@ export interface paths {
         put?: never;
         /**
          * Create Assembly
-         * @description Create an assembly (201; envelope 409 on a duplicate name for this owner).
+         * @description Create an assembly (201; 409 on a duplicate name IN ITS FOLDER).
+         *
+         *     ``folder_id`` files it on creation (#WS2) — see :func:`documents.parts.
+         *     create_part` for why filing is part of the create rather than a second call.
          */
         post: operations["create_assembly_api_v1_assemblies_post"];
         delete?: never;
@@ -86,6 +89,30 @@ export interface paths {
         get: operations["get_assembly_bom_api_v1_assemblies__assembly_id__bom_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/assemblies/{assembly_id}/duplicate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Duplicate Assembly
+         * @description Copy an assembly's instances and mates — NOT the parts they name (201).
+         *
+         *     Both assemblies reference the same parts afterwards; editing one of those
+         *     parts still shows up in both, which is what an instance IS. See the module
+         *     docstring.
+         */
+        post: operations["duplicate_assembly_api_v1_assemblies__assembly_id__duplicate_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -220,6 +247,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/assemblies/{assembly_id}/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move Assembly
+         * @description File an assembly into a folder, or un-file it (200) — see :func:`move_part`.
+         */
+        post: operations["move_assembly_api_v1_assemblies__assembly_id__move_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/assemblies/{assembly_id}/redo": {
         parameters: {
             query?: never;
@@ -279,7 +326,10 @@ export interface paths {
         put?: never;
         /**
          * Create Drawing
-         * @description Create a drawing (201; envelope 409 on a duplicate name for this owner).
+         * @description Create a drawing (201; 409 on a duplicate name IN ITS FOLDER).
+         *
+         *     ``folder_id`` files it on creation (#WS2) — see :func:`documents.parts.
+         *     create_part` for why filing is part of the create rather than a second call.
          */
         post: operations["create_drawing_api_v1_drawings_post"];
         delete?: never;
@@ -390,6 +440,49 @@ export interface paths {
          * @description Delete a dimension; renumbers the sheet's dimensions dense (bumps version).
          */
         delete: operations["delete_dimension_api_v1_drawings__drawing_id__dimensions__dimension_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/drawings/{drawing_id}/duplicate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Duplicate Drawing
+         * @description Copy a drawing's sheets, views, dimensions and annotations (201).
+         *
+         *     The views keep pointing at the same part/assembly — a view is a reference,
+         *     like an instance. See the module docstring.
+         */
+        post: operations["duplicate_drawing_api_v1_drawings__drawing_id__duplicate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/drawings/{drawing_id}/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move Drawing
+         * @description File a drawing into a folder, or un-file it (200) — see :func:`move_part`.
+         */
+        post: operations["move_drawing_api_v1_drawings__drawing_id__move_post"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -556,6 +649,117 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/folders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Folders
+         * @description The caller's WHOLE folder tree for one drawer, name-ordered.
+         *
+         *     The whole tree rather than one level: the register needs ancestors for its
+         *     breadcrumb and the full set for the move picker, and one flat response makes
+         *     "which folder is this in?" a lookup rather than a request.
+         */
+        get: operations["list_folders_api_v1_folders_get"];
+        put?: never;
+        /**
+         * Create Folder
+         * @description Create a folder in one drawer (201; 409 on a duplicate sibling name).
+         */
+        post: operations["create_folder_api_v1_folders_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/folders/{folder_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Folder
+         * @description Delete an EMPTY folder (204); 409 naming its contents when it is not.
+         *
+         *     Not a cascade and not an orphan-to-root: see
+         *     :mod:`py_kit.schemas.folders` for why refusal is the only one of the three
+         *     that neither destroys work the user never named nor moves it somewhere they
+         *     were not told about. The refusal lists what is inside, because the caller's
+         *     next action is to move those things out and a count would not tell them
+         *     which.
+         */
+        delete: operations["delete_folder_api_v1_folders__folder_id__delete"];
+        options?: never;
+        head?: never;
+        /**
+         * Rename Folder
+         * @description Rename a folder (200; 404 unknown/foreign; 409 duplicate sibling name).
+         *
+         *     Renaming cannot move — see :class:`~py_kit.schemas.folders.FolderRename`.
+         */
+        patch: operations["rename_folder_api_v1_folders__folder_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/folders/{folder_id}/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move Folder
+         * @description Re-parent a folder (200); ``parent_id: null`` moves it to the root.
+         *
+         *     422 ``folder_cycle`` when the destination is the folder itself or one of its
+         *     descendants, ``folder_too_deep`` past the nesting bound, and
+         *     ``folder_kind_mismatch`` across drawers; 409 when a sibling of that name
+         *     already exists at the destination.
+         */
+        post: operations["move_folder_api_v1_folders__folder_id__move_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/materials": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Materials
+         * @description The built-in materials, in display order (metals, then polymers).
+         *
+         *     v1 is a closed library (docs/design/materials.md §1/§5): a fixed
+         *     ``MaterialKey`` literal means an unknown material is a parse error at the
+         *     boundary instead of a silent "no mass" three services later. User-defined
+         *     materials extend this response additively when they land.
+         */
+        get: operations["list_materials_api_v1_materials_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/parts": {
         parameters: {
             query?: never;
@@ -571,7 +775,12 @@ export interface paths {
         put?: never;
         /**
          * Create Part
-         * @description Create a part (201; envelope 409 on a duplicate name for this owner).
+         * @description Create a part (201; 409 on a duplicate name IN ITS FOLDER).
+         *
+         *     ``folder_id`` files it on creation (#WS2) — one call, so a create-then-move
+         *     pair can never fail between the two and leave the part somewhere the user
+         *     did not put it. The destination is validated by the SAME rule the move route
+         *     applies (:func:`documents.filing.resolve_destination`).
          */
         post: operations["create_part_api_v1_parts_post"];
         delete?: never;
@@ -614,15 +823,42 @@ export interface paths {
         head?: never;
         /**
          * Update Part
-         * @description Rename and/or re-unit a part (bumps ``tree_version``; uniform 404).
+         * @description Rename, re-unit and/or re-material a part (bumps ``tree_version``; 404).
          *
          *     Changing the display unit is a document edit (docs/design/units.md §U1) —
          *     it bumps ``tree_version`` like any header mutation but touches no stored
-         *     ``*_mm`` value (storage stays canonical mm). Stale ``expected_tree_version``
-         *     is a 422 (mirroring the feature-tree write guard); 409 stays reserved for a
-         *     duplicate-name conflict.
+         *     ``*_mm`` value (storage stays canonical mm). Changing the MATERIAL is a
+         *     different animal (docs/design/materials.md §2): mass is derived from it, so
+         *     the previous evaluate's answer is genuinely out of date and the
+         *     last-evaluate record is deliberately NOT carried forward. Stale
+         *     ``expected_tree_version`` is a 422 (mirroring the feature-tree write guard);
+         *     409 stays reserved for a duplicate-name conflict.
          */
         patch: operations["update_part_api_v1_parts__part_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/parts/{part_id}/duplicate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Duplicate Part
+         * @description Copy a part and its whole feature tree at its current version (201).
+         *
+         *     See the module docstring for exactly what is and is not copied. The copy is
+         *     a NEW document at ``tree_version`` 0 with no evaluate record — it is not a
+         *     version, a branch or a link, and nothing about it stays tied to the source.
+         */
+        post: operations["duplicate_part_api_v1_parts__part_id__duplicate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/parts/{part_id}/evaluation-request": {
@@ -641,7 +877,9 @@ export interface paths {
          *     bar is applied HERE (only the prefix up to and including the bar is
          *     returned, §3), params are upcast to current versions on read (§1.4), and
          *     the order is the total ``order_index`` order. ``tree_version`` rides
-         *     along as the cache/correlation key.
+         *     along as the cache/correlation key, and the part's material assignment
+         *     rides along because mass is derived from it (materials.md §2) — the one
+         *     thing on this request that is not pure geometry intent.
          */
         get: operations["get_evaluation_request_api_v1_parts__part_id__evaluation_request_get"];
         put?: never;
@@ -731,6 +969,32 @@ export interface paths {
         patch: operations["update_feature_api_v1_parts__part_id__features__feature_id__patch"];
         trace?: never;
     };
+    "/api/v1/parts/{part_id}/features/{feature_id}/dependents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Dependents Of Feature
+         * @description What would break if this feature were deleted (200; possibly empty).
+         *
+         *     A read, so it is safe to ask on hover or on opening a confirmation. An EMPTY
+         *     list is the honest common answer and means the delete will go through; it is
+         *     never dressed up as a guarantee about anything else (another client could
+         *     add a reference a millisecond later, which is why the delete still re-checks
+         *     under the row lock and can still refuse).
+         */
+        get: operations["dependents_of_feature_api_v1_parts__part_id__features__feature_id__dependents_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/parts/{part_id}/features/{feature_id}/suppress": {
         parameters: {
             query?: never;
@@ -757,6 +1021,75 @@ export interface paths {
          *     so this changes what an evaluation of the part means.
          */
         patch: operations["suppress_feature_api_v1_parts__part_id__features__feature_id__suppress_patch"];
+        trace?: never;
+    };
+    "/api/v1/parts/{part_id}/last-evaluation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Record Last Evaluation
+         * @description Record the outcome of an evaluate on the part row (§4.4a bookkeeping).
+         *
+         *     INTERNAL, like every documents route, and deliberately without a public
+         *     gateway twin (the same posture as ``GET /{part_id}/evaluation-request``):
+         *     the gateway calls this itself after geometry has answered, so the stored
+         *     verdict is derived from what geometry actually said and is never a claim a
+         *     browser could POST about its own health.
+         *
+         *     Three guards make the record honest rather than merely present:
+         *
+         *     - **Monotonic in ``tree_version``.** A late write for an older version is a
+         *       clean no-op (200, record unchanged), so two concurrent evaluates cannot
+         *       resurrect a superseded verdict.
+         *     - **``last_eval_at`` is documents' clock**, never the caller's — one clock
+         *       orders every record.
+         *     - **``updated_at`` does NOT move**, and neither does ``tree_version``: this
+         *       is bookkeeping, not a document edit. Opening a part triggers an evaluate,
+         *       and a register that showed "last worked: just now" because someone LOOKED
+         *       at a part would be lying about the thing it exists to report. The column's
+         *       ``onupdate`` default is suppressed by naming ``updated_at`` explicitly in
+         *       the UPDATE.
+         *
+         *     The SCOPE is stored beside the status, derived HERE (audit J3): the caller
+         *     could not supply it if it wanted to — documents applies the rollback bar
+         *     before the evaluate request leaves, so an ``ok`` may be a verdict on a
+         *     two-feature prefix of a nine-feature part, and only documents can say so.
+         */
+        put: operations["record_last_evaluation_api_v1_parts__part_id__last_evaluation_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/parts/{part_id}/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move Part
+         * @description File a part into a folder, or un-file it with ``folder_id: null`` (200).
+         *
+         *     Returns the part AS STORED, so the register renders where the server put it
+         *     rather than where the click assumed it went. 409 when the destination
+         *     already holds a part of that name (names are unique per folder).
+         */
+        post: operations["move_part_api_v1_parts__part_id__move_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/parts/{part_id}/redo": {
@@ -987,6 +1320,11 @@ export interface components {
          */
         AssemblyCreate: {
             /**
+             * Folder Id
+             * @description File it into this folder on creation, or null (the default) to leave it unfiled at the root of its drawer. Present so filing inside a folder is ONE call: a create-then-move pair could fail between the two and leave the document somewhere the user did not put it. Must be the caller's own folder OF THIS DOCUMENT'S KIND.
+             */
+            folder_id?: string | null;
+            /**
              * Length Unit
              * @description Document display unit (docs/design/units.md §1); DISPLAY metadata only — storage stays canonical mm. Defaults to 'mm'.
              * @default mm
@@ -995,7 +1333,7 @@ export interface components {
             length_unit: "mm" | "cm" | "m" | "in" | "ft";
             /**
              * Name
-             * @description Assembly name; unique per owner, whitespace-trimmed, 1-200 characters
+             * @description Assembly name; unique per FOLDER (#WS2), whitespace-trimmed, 1-200 characters
              */
             name: string;
         };
@@ -1079,6 +1417,11 @@ export interface components {
              * @description Monotonic optimistic-concurrency counter (design §1.2)
              */
             doc_version: number;
+            /**
+             * Folder Id
+             * @description The folder this document is filed in, or null when it is UNFILED (at the root of its drawer). Null is a real state, not a missing value — see py_kit.schemas.folders. Changed only by the document's `/move` route, which is not a document edit: it moves neither the concurrency counter nor `updated_at`.
+             */
+            folder_id?: string | null;
             /**
              * Id
              * Format: uuid
@@ -1171,6 +1514,31 @@ export interface components {
              * @enum {string}
              */
             kind: "axis_parallel";
+        };
+        /**
+         * BodyMaterialAssignment
+         * @description A per-BODY material override, keyed by the body's §MB-0 identity.
+         *
+         *     ``base_feature_id`` is the id of the feature that CREATED the body — the
+         *     same key ``EvaluationState.bodies`` and
+         *     :class:`~py_kit.schemas.features.BodyLumpInfo` use — so an override survives
+         *     edits to other features the way any body reference does. An override naming
+         *     a body the tree no longer produces is inert (it matches nothing); it is not
+         *     an error, because a rolled-back tree legitimately hides the body for a while.
+         */
+        BodyMaterialAssignment: {
+            /**
+             * Base Feature Id
+             * Format: uuid
+             * @description Id of the feature that created the body (its MB-0 identity)
+             */
+            base_feature_id: string;
+            /**
+             * Material
+             * @description Material for THIS body only
+             * @enum {string}
+             */
+            material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6";
         };
         /**
          * BomLine
@@ -1899,6 +2267,23 @@ export interface components {
             type: "distance";
         };
         /**
+         * DocumentMove
+         * @description File a document into a folder. ``folder_id: null`` un-files it.
+         *
+         *     Applies to a part, an assembly or a drawing (one DTO — the verb is identical
+         *     and only the route differs). Filing is NOT a document edit: it does not bump
+         *     the document's concurrency counter and does not move ``updated_at``, so the
+         *     register's LAST WORKED column keeps meaning "someone worked on it" rather
+         *     than "someone tidied up". Same reasoning as the last-evaluate record write.
+         */
+        DocumentMove: {
+            /**
+             * Folder Id
+             * @description The destination folder — must be the caller's own and OF THIS DOCUMENT'S KIND — or null to leave the document unfiled at the root of its drawer. Required; null is an explicit destination.
+             */
+            folder_id: string | null;
+        };
+        /**
          * DraftFeature
          * @description ``{"type": "draft", "version": 1, "params": {...}}`` envelope.
          */
@@ -2122,8 +2507,13 @@ export interface components {
          */
         DrawingCreate: {
             /**
+             * Folder Id
+             * @description File it into this folder on creation, or null (the default) to leave it unfiled at the root of its drawer. Present so filing inside a folder is ONE call: a create-then-move pair could fail between the two and leave the document somewhere the user did not put it. Must be the caller's own folder OF THIS DOCUMENT'S KIND.
+             */
+            folder_id?: string | null;
+            /**
              * Name
-             * @description Drawing name; unique per owner, whitespace-trimmed, 1-200 characters
+             * @description Drawing name; unique per FOLDER (#WS2), whitespace-trimmed, 1-200 characters
              */
             name: string;
         };
@@ -2150,6 +2540,11 @@ export interface components {
              * @description Monotonic optimistic-concurrency counter (design §2.1)
              */
             doc_version: number;
+            /**
+             * Folder Id
+             * @description The folder this document is filed in, or null when it is UNFILED (at the root of its drawer). Null is a real state, not a missing value — see py_kit.schemas.folders. Changed only by the document's `/move` route, which is not a document edit: it moves neither the concurrency counter nor `updated_at`.
+             */
+            folder_id?: string | null;
             /**
              * Id
              * Format: uuid
@@ -2418,6 +2813,8 @@ export interface components {
              * @default 0.1
              */
             linear_deflection: number;
+            /** @description What the part's bodies are made of (docs/design/materials.md): a document default plus per-body overrides. Omitted / null = no material, so the result reports NO mass (absent, not zero). Unlike length units — presentation metadata the kernel never sees — material is an INPUT to evaluation, because mass is derived from it. */
+            materials?: components["schemas"]["MaterialAssignment"] | null;
             /**
              * Part Id
              * Format: uuid
@@ -2425,7 +2822,7 @@ export interface components {
             part_id: string;
             /**
              * Tree Version
-             * @description Echoed back; cache/correlation key
+             * @description The part tree_version documents composed this request from. Echoed back verbatim on the result, where it is the PROVENANCE stamp of the returned body (EvaluateTreeResult.tree_version) as well as a cache/correlation key.
              */
             tree_version: number;
         };
@@ -2473,6 +2870,8 @@ export interface components {
              * @description Instance identity (result keying)
              */
             instance_id: string;
+            /** @description The instanced PART's material assignment (docs/design/materials.md), forwarded verbatim into that part's evaluation so the assembly rolls up a real mass. Null = the part has no material, so it contributes no mass and the assembly total is null (never zero). Two instances share a part_key and therefore a part, so they share this. */
+            materials?: components["schemas"]["MaterialAssignment"] | null;
             /**
              * Name
              * @description Human-readable instance name ('Bracket <1>'), threaded into the STEP export as the PRODUCT name so a Loft->STEP->Loft round trip preserves part identity instead of writing the instance UUID (FINDINGS #7). Optional: evaluate/interference ignore it; the export path falls back to the instance id when absent (a nameless request stays valid).
@@ -2630,6 +3029,60 @@ export interface components {
              * @description User-facing name ("Sketch1")
              */
             name: string;
+        };
+        /**
+         * FeatureDependent
+         * @description One thing that breaks if a feature is deleted.
+         *
+         *     ``name`` rides beside the id for the same reason it does on
+         *     :class:`~py_kit.schemas.workspace.DocumentDependent`: the reader is a person
+         *     who named these things, and "referenced by 2 other document(s)" — which is
+         *     what this refusal used to say — ends the conversation instead of starting
+         *     the next action.
+         */
+        FeatureDependent: {
+            /**
+             * Id
+             * Format: uuid
+             * @description The REFERENCING feature's or drawing's id
+             */
+            id: string;
+            /**
+             * Kind
+             * @description 'feature' (a later feature of this part) or 'drawing' (a section view cutting on this feature)
+             * @enum {string}
+             */
+            kind: "feature" | "drawing";
+            /**
+             * Name
+             * @description Its name, as the user sees it in the tree/register
+             */
+            name: string;
+        };
+        /**
+         * FeatureDependents
+         * @description What depends on one feature — the answer to "what breaks if I delete it?"
+         *
+         *     Serves TWO surfaces from one shape, which is the point (CLAUDE.md DRY):
+         *
+         *     - the ``details`` payload of the delete's ``feature_has_dependents`` 409, and
+         *     - the body of ``GET …/features/{id}/dependents``, which the tree asks BEFORE
+         *       offering the delete, so the confirmation can name what breaks instead of
+         *       letting the user find out from a refusal.
+         *
+         *     Both are produced by one server-side query, so the warning a user reads and
+         *     the refusal the server would issue cannot disagree. Empty means the feature
+         *     is free to delete — an honest, common answer, unlike the 409 payload
+         *     (:class:`FeatureDependentsEnvelope`) which by construction is never empty.
+         *     Features first (tree order — the order the user reads them in), then
+         *     drawings alphabetically.
+         */
+        FeatureDependents: {
+            /**
+             * Dependents
+             * @description Everything referencing this feature; EMPTY when nothing does
+             */
+            dependents: components["schemas"]["FeatureDependent"][];
         };
         /**
          * FeatureMutationResponse
@@ -2841,6 +3294,129 @@ export interface components {
              */
             kind: "fixed";
             point: components["schemas"]["EntityPointRef"];
+        };
+        /**
+         * FolderCreate
+         * @description Create a folder in one drawer, at the root or inside another folder.
+         */
+        FolderCreate: {
+            /**
+             * Kind
+             * @description Which drawer this folder belongs to. It may only ever hold documents of this kind (see module docstring).
+             * @enum {string}
+             */
+            kind: "part" | "assembly" | "drawing";
+            /**
+             * Name
+             * @description Folder name; unique among its siblings (per parent, per kind, per owner), whitespace-trimmed, 1-120 chars
+             */
+            name: string;
+            /**
+             * Parent Id
+             * @description Containing folder, or null for a top-level folder. Must be the caller's own folder OF THE SAME KIND.
+             */
+            parent_id?: string | null;
+        };
+        /**
+         * FolderListResponse
+         * @description Every folder of ONE kind for the caller — the whole tree, one query.
+         *
+         *     The whole tree rather than one level: the register needs ancestors for the
+         *     breadcrumb and the full set for the move picker, and a per-level fetch would
+         *     make "which folder is this document in?" an N+1. A wrapper leaves room for
+         *     pagination the day a tree is big enough to need it — which, for a structure
+         *     a human types by hand, it will not be.
+         */
+        FolderListResponse: {
+            /** Folders */
+            folders: components["schemas"]["FolderResponse"][];
+        };
+        /**
+         * FolderMove
+         * @description Re-parent a folder. ``parent_id: null`` moves it to the root.
+         *
+         *     Refused (422) when the target is the folder itself or one of its own
+         *     descendants — that would detach the subtree from the register entirely, so
+         *     it is a cycle in effect as well as in the graph.
+         */
+        FolderMove: {
+            /**
+             * Parent Id
+             * @description The new containing folder, or null to move to the root of its drawer. Required — null is an explicit destination, not an omission.
+             */
+            parent_id: string | null;
+        };
+        /**
+         * FolderRename
+         * @description Rename a folder. Renaming cannot move it — that is :class:`FolderMove`.
+         *
+         *     Separate verbs on purpose: a PATCH carrying an optional ``parent_id`` cannot
+         *     tell "leave it where it is" (field omitted) from "move it to the root"
+         *     (field null), and a move that silently did nothing because a client sent the
+         *     wrong one of those is precisely the "reported success while the document is
+         *     still in the old place" defect this slice is being held to.
+         */
+        FolderRename: {
+            /**
+             * Name
+             * @description New folder name
+             */
+            name: string;
+        };
+        /**
+         * FolderResponse
+         * @description A folder as stored, plus the two counts a register row may state.
+         *
+         *     Both counts are DIRECT (this folder's own children), computed server-side in
+         *     the list query. A register renders them; it never derives one from the rows
+         *     it happens to be holding, because at the root it is holding only the unfiled
+         *     documents and would count them as the folder's.
+         */
+        FolderResponse: {
+            /**
+             * Child Folder Count
+             * @description Folders directly inside this one (not recursive)
+             */
+            child_folder_count: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Document Count
+             * @description Documents filed DIRECTLY in this folder — not counting sub-folders' contents. A register may print this; it may not add it up.
+             */
+            document_count: number;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Kind
+             * @description The drawer this folder belongs to
+             * @enum {string}
+             */
+            kind: "part" | "assembly" | "drawing";
+            /** Name */
+            name: string;
+            /**
+             * Owner Id
+             * Format: uuid
+             * @description Owning user id (gateway-verified)
+             */
+            owner_id: string;
+            /**
+             * Parent Id
+             * @description Containing folder, or null for a top-level folder
+             */
+            parent_id: string | null;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -3667,6 +4243,86 @@ export interface components {
             order_index: number;
         };
         /**
+         * Material
+         * @description One library material: its key, display name, and density.
+         *
+         *     Density is the ONLY physical property v1 models, because mass is the only
+         *     thing we claim to report. Thermal/elastic properties would be an unbacked
+         *     promise until something computes with them (design §1).
+         */
+        Material: {
+            /**
+             * Density Kg M3
+             * @description Density (kg/m^3). Handbook NOMINAL value — a production part uses its supplier's certificate, not this table.
+             */
+            density_kg_m3: number;
+            /**
+             * Key
+             * @enum {string}
+             */
+            key: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6";
+            /**
+             * Name
+             * @description Display name, e.g. 'Aluminium 6061'
+             */
+            name: string;
+        };
+        /**
+         * MaterialAssignment
+         * @description What a document is made of: one default + per-body overrides (design §2).
+         *
+         *     A multi-body part legitimately mixes materials (a steel pin in an aluminium
+         *     housing), so a single document-level material would be wrong for exactly the
+         *     parts mass matters most on. The resolution rule is one line — an override
+         *     wins over the default (:func:`resolve_body_material`) — and lives here so
+         *     every consumer resolves identically.
+         *
+         *     ``default_material: None`` with no overrides is the HONEST empty state a new
+         *     document starts in: no material anywhere, therefore no mass anywhere.
+         */
+        MaterialAssignment: {
+            /**
+             * Bodies
+             * @description Per-body overrides; at most one entry per base_feature_id.
+             */
+            bodies?: components["schemas"]["BodyMaterialAssignment"][];
+            /**
+             * Default Material
+             * @description Material for every body without an override; null means the document has no material, so its mass is UNKNOWN (not zero).
+             */
+            default_material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6") | null;
+        };
+        /**
+         * MaterialLibraryResponse
+         * @description The built-in material library, served so no client hardcodes a density.
+         *
+         *     The picker needs names + densities, and a second copy of the table in TS
+         *     would be a DRY violation that silently drifts (CLAUDE.md). One table, in
+         *     py-kit, served over the API.
+         */
+        MaterialLibraryResponse: {
+            /** Materials */
+            materials: components["schemas"]["Material"][];
+        };
+        /**
+         * MirrorBodyScope
+         * @description ``scope: {"kind": "body"}`` — reflect the CURRENT BODY (the v1 reading).
+         *
+         *     The v1 semantic, NAMED rather than implied (design §3.1): the mirror reflects
+         *     the body that exists at its point in the tree, cut-aware — when the active body
+         *     carries a recorded cut whose reflected tool still reaches it the mirror reflects
+         *     that REMOVAL, otherwise it reflects and unions the whole body. Kept verbatim
+         *     (§6.1): the shipped goldens' byte identity is STRUCTURAL, not measured, because
+         *     this scope dispatches to code the v2 work did not touch.
+         */
+        MirrorBodyScope: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "body";
+        };
+        /**
          * MirrorFeature
          * @description ``{"type": "mirror", "version": 1, "params": {...}}`` envelope.
          *
@@ -3694,6 +4350,44 @@ export interface components {
             version: 1;
         };
         /**
+         * MirrorFeaturesScope
+         * @description ``scope: {"kind": "features", "features": [...]}`` — reflect these features.
+         *
+         *     The v2 reading (design §2b/§4): each selected feature's RECORDED RIGID TOOL
+         *     SOLID(S) are reflected about the plane and that feature's OWN operation
+         *     (``fuse``/``cut``) is re-applied to the active body, in TREE order — never array
+         *     order (§8.1: array order is UI-incidental, so honouring it would make identical
+         *     models tessellate to different bytes). Parameters are never re-derived: a
+         *     reflected circular pattern is correct precisely because its PLACEMENTS are
+         *     reflected, where re-deriving the axis would wind the ring backwards (§4.5).
+         *
+         *     ``features`` names :class:`FeatureRef`s rather than bare UUIDs so each selection
+         *     materialises into ``feature_dependencies`` for free (feature-tree §2.3): deleting
+         *     a mirrored feature is a 409-with-dependents, a reorder re-checks the
+         *     strict-backward rule, and a forward/self reference is a write-time 422. A
+         *     non-body-affecting or non-reflectable kind (``sketch``/``datum``, and every
+         *     MODIFIER — fillet/chamfer/shell/draft and the sheet-metal family, which have a
+         *     RESULT and no tool, §4.3) is refused with the typed per-feature
+         *     ``mirror_feature_unsupported`` at rebuild.
+         *
+         *     ``min_length=1`` because an empty selection is authoring nonsense, not a no-op
+         *     mirror (§3.1), and duplicate ids are a 422 rather than silently deduplicated —
+         *     naming a feature twice leaves the intent (twice? once?) unstated, which is the
+         *     mistake v1 made.
+         */
+        MirrorFeaturesScope: {
+            /**
+             * Features
+             * @description The features to reflect, each a `FeatureRef` to an earlier body-affecting feature of this tree. Applied in TREE order (the array order is ignored — design §8.1); at least one, at most MAX_MIRROR_SCOPE_FEATURES (work bound); duplicates are a 422.
+             */
+            features: components["schemas"]["FeatureRef"][];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "features";
+        };
+        /**
          * MirrorParamsV1
          * @description Reflect the current body about a plane and union the reflection in.
          *
@@ -3719,6 +4413,12 @@ export interface components {
          *     body is unchanged. A degenerate/failed reflection is a per-feature
          *     ``mirror_failed`` rebuild error; a mirror with no prior body is
          *     ``no_target_body`` — never a silently wrong body.
+         *
+         *     ``scope`` (v2, design §3) states WHAT is reflected — the whole ``body`` (the
+         *     reading above, kept verbatim) or an explicit selection of ``features``. It
+         *     defaults to ``body`` and a persisted params blob with no ``scope`` key reads as
+         *     ``body`` (:meth:`_legacy_body_scope`), so every mirror authored before v2
+         *     evaluates on unchanged code.
          */
         MirrorParamsV1: {
             /**
@@ -3726,6 +4426,11 @@ export interface components {
              * @description Mirror plane — an origin datum (XY/XZ/YZ `DatumPlaneRef`) or an earlier `datum` feature (`FeatureRef`); the SAME plane vocabulary a sketch uses (discriminated on `kind`)
              */
             plane: components["schemas"]["DatumPlaneRef"] | components["schemas"]["FeatureRef"];
+            /**
+             * Scope
+             * @description WHAT to reflect (discriminated on `kind`): `body` reflects the current body (the v1 reading — cut-aware, with the reflect-and-union fallback), `features` reflects the recorded tool solids of an explicit tree-ordered selection and re-applies each feature's own boolean. Absent reads `body`, so pre-v2 mirrors are unchanged (design §3.2).
+             */
+            scope?: components["schemas"]["MirrorBodyScope"] | components["schemas"]["MirrorFeaturesScope"];
         };
         /**
          * NoteAnnotationParams
@@ -3782,6 +4487,11 @@ export interface components {
          */
         PartCreate: {
             /**
+             * Folder Id
+             * @description File it into this folder on creation, or null (the default) to leave it unfiled at the root of its drawer. Present so filing inside a folder is ONE call: a create-then-move pair could fail between the two and leave the document somewhere the user did not put it. Must be the caller's own folder OF THIS DOCUMENT'S KIND.
+             */
+            folder_id?: string | null;
+            /**
              * Length Unit
              * @description Document display unit (docs/design/units.md §1); DISPLAY metadata only — storage stays canonical mm. Defaults to 'mm'.
              * @default mm
@@ -3790,9 +4500,45 @@ export interface components {
             length_unit: "mm" | "cm" | "m" | "in" | "ft";
             /**
              * Name
-             * @description Part name; unique per owner, whitespace-trimmed, 1-200 characters
+             * @description Part name; unique per FOLDER (#WS2), whitespace-trimmed, 1-200 characters
              */
             name: string;
+        };
+        /**
+         * PartEvaluationRecord
+         * @description Record the outcome of an evaluate onto the part row (§4.4a bookkeeping).
+         *
+         *     Written by the GATEWAY — the only place that holds both the verified
+         *     principal and geometry's actual answer — after a real evaluate returned, so
+         *     the value on a register can never be a browser's claim about its own health.
+         *     The client never supplies a timestamp: documents stamps ``last_eval_at``
+         *     from its own clock, so one clock orders every record.
+         *
+         *     ``tree_version`` is the version of the tree the result BELONGS to (echoed
+         *     through :class:`~py_kit.schemas.features.EvaluateTreeResult`), which is what
+         *     makes staleness derivable instead of assumed. Recording is monotonic in it:
+         *     a late-arriving write for an older version is a no-op, never a resurrection
+         *     of a superseded claim.
+         *
+         *     The recorded SCOPE (:data:`PartEvalScope`) is deliberately NOT a field here.
+         *     The gateway cannot know it — documents applies the rollback bar before the
+         *     evaluate request ever leaves (feature-tree.md §3), and geometry is never
+         *     told rollback exists — so documents derives it from its own tree at record
+         *     time. One less thing a caller could get wrong, and one less claim a browser
+         *     could make about how much of its part was looked at.
+         */
+        PartEvaluationRecord: {
+            /**
+             * Status
+             * @description 'failed' when any evaluated feature returned an error, else 'ok' (feature-tree.md §4.3 strict-prefix rule)
+             * @enum {string}
+             */
+            status: "ok" | "failed";
+            /**
+             * Tree Version
+             * @description The part tree_version this result was computed from (EvaluateTreeResult.tree_version); older-than-stored is ignored
+             */
+            tree_version: number;
         };
         /**
          * PartListResponse
@@ -3804,10 +4550,13 @@ export interface components {
         };
         /**
          * PartResponse
-         * @description A part as stored — identity, ownership, unit, and timestamps.
+         * @description A part as stored — identity, ownership, unit, timestamps, rebuild health.
          *
-         *     The feature tree is NOT here yet: it lands as its own tables per
-         *     docs/design/feature-tree.md once the implementation item ships.
+         *     The feature tree itself is not inlined here (it is its own
+         *     ``GET /parts/{id}/features`` response, docs/design/feature-tree.md); what
+         *     IS here is the fixed-size last-evaluate record (§4.4a) so a register can
+         *     tell the truth about a whole drawer of parts in one query — five scalars per
+         *     row, never per-feature or per-sheet growth.
          */
         PartResponse: {
             /**
@@ -3816,16 +4565,49 @@ export interface components {
              */
             created_at: string;
             /**
+             * Eval Scope
+             * @description How much of the tree the live verdict covers: 'whole' (the entire tree ran) or 'rolled_back' (the travel stop held features out, so `eval_state` describes a PREFIX — an 'ok' here is NOT a claim that the part builds). Null when there is no live verdict to qualify ('never'/'stale') or when the record predates scope tracking; null must not be read as 'whole'. Orthogonal to `eval_state` because the two combine: a rolled-back tree can also fail (see PartEvalScope).
+             */
+            eval_scope?: ("whole" | "rolled_back") | null;
+            /**
+             * Eval State
+             * @description Rebuild health a consumer may act on NOW: 'never' (not evaluated), 'ok'/'failed' (evaluated, and that verdict still applies to the current tree), or 'stale' (evaluated, but the tree changed since — status unknown). Derived server-side from the last_eval_* fields against the part's current tree_version (feature-tree.md §4.4a), so a stale claim is never dressed up as a current one. It says NOTHING about how much of the tree was evaluated — read `eval_scope` before presenting 'ok' as a verdict on the part.
+             * @enum {string}
+             */
+            eval_state: "never" | "ok" | "failed" | "stale";
+            /**
+             * Folder Id
+             * @description The folder this document is filed in, or null when it is UNFILED (at the root of its drawer). Null is a real state, not a missing value — see py_kit.schemas.folders. Changed only by the document's `/move` route, which is not a document edit: it moves neither the concurrency counter nor `updated_at`.
+             */
+            folder_id?: string | null;
+            /**
              * Id
              * Format: uuid
              */
             id: string;
+            /**
+             * Last Eval At
+             * @description When that evaluate was recorded (documents' clock); null if never evaluated. For display ('failed 20 min ago'), NOT for deciding staleness.
+             */
+            last_eval_at: string | null;
+            /**
+             * Last Eval Status
+             * @description Raw recorded outcome of the last evaluate, or null if the part was never evaluated. Read `eval_state` for the verdict — this field alone cannot say whether it still applies.
+             */
+            last_eval_status: ("ok" | "failed") | null;
+            /**
+             * Last Eval Tree Version
+             * @description The tree_version the recorded status describes; null if never evaluated. Differs from the part's current tree_version exactly when `eval_state` is 'stale'.
+             */
+            last_eval_tree_version: number | null;
             /**
              * Length Unit
              * @description Document display unit (docs/design/units.md §1); DISPLAY metadata only — storage stays canonical mm.
              * @enum {string}
              */
             length_unit: "mm" | "cm" | "m" | "in" | "ft";
+            /** @description What the part is made of (docs/design/materials.md §2). Always present; an assignment with `default_material: null` and no overrides is the honest empty state — no material, therefore no mass. A stored NULL reads back as that empty assignment so a consumer has ONE shape to render, never null-vs-empty. */
+            materials: components["schemas"]["MaterialAssignment"];
             /** Name */
             name: string;
             /**
@@ -3835,6 +4617,11 @@ export interface components {
              */
             owner_id: string;
             /**
+             * Tree Version
+             * @description The part's CURRENT monotonic optimistic-concurrency counter (feature-tree.md §1.2) — bumped in the same transaction as any tree write. Two uses: the `expected_tree_version` a write echoes, and the DENOMINATOR of the staleness comparison (`is_stale_for_tree`) — a consumer holding a result stamped with the version it was built from (EvaluateTreeResult.tree_version) knows whether what it displays is still current. Mirrors AssemblyResponse.doc_version on the assembly header row.
+             */
+            tree_version: number;
+            /**
              * Updated At
              * Format: date-time
              */
@@ -3842,12 +4629,15 @@ export interface components {
         };
         /**
          * PartUpdate
-         * @description Rename and/or re-unit a part. Bumps ``tree_version`` (any document edit
-         *     bumps — the feature-tree.md §1.2 pattern applied to the part header).
+         * @description Rename, re-unit and/or re-material a part. Bumps ``tree_version`` (any
+         *     document edit bumps — the feature-tree.md §1.2 pattern applied to the part
+         *     header).
          *
-         *     Both mutable fields are optional; at least one must be provided. Changing
+         *     Every mutable field is optional; at least one must be provided. Changing
          *     the display unit is a document edit (docs/design/units.md §U1) — it does
          *     NOT convert any stored ``*_mm`` value, only relabels how they render.
+         *     Changing the material does more: mass is derived from it, so the recorded
+         *     evaluate stops applying (see ``materials`` below).
          */
         PartUpdate: {
             /**
@@ -3860,6 +4650,8 @@ export interface components {
              * @description New document display unit (metadata only)
              */
             length_unit?: ("mm" | "cm" | "m" | "in" | "ft") | null;
+            /** @description Replace the part's WHOLE material assignment (default + per-body overrides, docs/design/materials.md §2). Omitted/null leaves it untouched; send an EMPTY assignment ({}) to clear it back to 'no material', which makes mass unknown again. Wholesale replacement, not a merge, so the request states the full intended state and two concurrent edits cannot interleave into an assignment neither sent. Unlike a rename or a unit change this DOES invalidate the recorded evaluate: mass is derived from it. */
+            materials?: components["schemas"]["MaterialAssignment"] | null;
             /**
              * Name
              * @description New part name
@@ -4285,11 +5077,26 @@ export interface components {
         /**
          * ShapeProperties
          * @description Mass properties + topology of the evaluated B-rep shape.
+         *
+         *     Two fields are honestly nullable (docs/design/materials.md): ``mass_g`` and
+         *     ``center_of_mass`` are ``null`` whenever ANY contributing body has no
+         *     material assigned. ``null`` means *unknown*, never zero — a body nobody has
+         *     said the material of has no mass to report, and inventing one (0 g, or a
+         *     default steel) is the overstated-surface defect this field exists to avoid.
+         *     A consumer must render absence as absence and must not title a panel "mass"
+         *     on the strength of a null.
          */
         ShapeProperties: {
             bounding_box: components["schemas"]["BoundingBox"];
-            /** @description Centre of mass (mm) */
+            /** @description Genuinely mass-weighted centre of mass (mm), or null when any contributing body has no material. For a single-material shape it equals `centroid`; for mixed materials it does not. */
+            center_of_mass?: components["schemas"]["Vec3"] | null;
+            /** @description Centroid of VOLUME (mm) — the geometric centre. Equal to the centre of mass only when the whole shape is one material; for a multi-material roll-up read `center_of_mass` instead. */
             centroid: components["schemas"]["Vec3"];
+            /**
+             * Mass G
+             * @description Mass (g) = volume x density, or null when a contributing body has NO material assigned. Null is 'unknown', NOT zero.
+             */
+            mass_g?: number | null;
             /**
              * Surface Area
              * @description Total surface area (mm^2)
@@ -5766,6 +6573,40 @@ export interface operations {
             };
         };
     };
+    duplicate_assembly_api_v1_assemblies__assembly_id__duplicate_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
+                "X-Loft-User"?: string | null;
+            };
+            path: {
+                assembly_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssemblyResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_assembly_evaluation_request_api_v1_assemblies__assembly_id__evaluation_request_get: {
         parameters: {
             query?: never;
@@ -5978,6 +6819,44 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AssemblyGraphResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    move_assembly_api_v1_assemblies__assembly_id__move_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
+                "X-Loft-User"?: string | null;
+            };
+            path: {
+                assembly_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DocumentMove"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssemblyResponse"];
                 };
             };
             /** @description Validation Error */
@@ -6352,6 +7231,78 @@ export interface operations {
             };
         };
     };
+    duplicate_drawing_api_v1_drawings__drawing_id__duplicate_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
+                "X-Loft-User"?: string | null;
+            };
+            path: {
+                drawing_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DrawingResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    move_drawing_api_v1_drawings__drawing_id__move_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
+                "X-Loft-User"?: string | null;
+            };
+            path: {
+                drawing_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DocumentMove"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DrawingResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     create_sheet_api_v1_drawings__drawing_id__sheets_post: {
         parameters: {
             query?: never;
@@ -6661,6 +7612,205 @@ export interface operations {
             };
         };
     };
+    list_folders_api_v1_folders_get: {
+        parameters: {
+            query: {
+                /** @description Which drawer's tree: 'part' / 'assembly' / 'drawing' */
+                kind: "part" | "assembly" | "drawing";
+            };
+            header?: {
+                /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
+                "X-Loft-User"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FolderListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_folder_api_v1_folders_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
+                "X-Loft-User"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FolderCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FolderResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_folder_api_v1_folders__folder_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
+                "X-Loft-User"?: string | null;
+            };
+            path: {
+                folder_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rename_folder_api_v1_folders__folder_id__patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
+                "X-Loft-User"?: string | null;
+            };
+            path: {
+                folder_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FolderRename"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FolderResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    move_folder_api_v1_folders__folder_id__move_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
+                "X-Loft-User"?: string | null;
+            };
+            path: {
+                folder_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FolderMove"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FolderResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_materials_api_v1_materials_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaterialLibraryResponse"];
+                };
+            };
+        };
+    };
     list_parts_api_v1_parts_get: {
         parameters: {
             query?: never;
@@ -6815,6 +7965,40 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PartResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    duplicate_part_api_v1_parts__part_id__duplicate_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
+                "X-Loft-User"?: string | null;
+            };
+            path: {
+                part_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -7089,6 +8273,41 @@ export interface operations {
             };
         };
     };
+    dependents_of_feature_api_v1_parts__part_id__features__feature_id__dependents_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
+                "X-Loft-User"?: string | null;
+            };
+            path: {
+                part_id: string;
+                feature_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeatureDependents"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     suppress_feature_api_v1_parts__part_id__features__feature_id__suppress_patch: {
         parameters: {
             query?: never;
@@ -7115,6 +8334,82 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FeatureMutationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    record_last_evaluation_api_v1_parts__part_id__last_evaluation_put: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
+                "X-Loft-User"?: string | null;
+            };
+            path: {
+                part_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PartEvaluationRecord"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PartResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    move_part_api_v1_parts__part_id__move_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Authenticated user id, forwarded by the gateway (documents is internal and trusts this header). */
+                "X-Loft-User"?: string | null;
+            };
+            path: {
+                part_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DocumentMove"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PartResponse"];
                 };
             };
             /** @description Validation Error */

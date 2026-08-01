@@ -2,14 +2,24 @@ import { Chip } from "@loft/design";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 
-import { createPart, deletePart, fetchParts } from "../api/parts";
+import {
+  createPart,
+  deletePart,
+  duplicatePart,
+  fetchParts,
+  movePart,
+  renamePart,
+} from "../api/parts";
 import {
   DocumentRegister,
   type RegisterCopy,
 } from "../components/DocumentRegister";
 import { SheetGrid } from "../components/SheetGrid";
 import { TopBar } from "../components/TopBar";
+import { useRegisterFiling } from "../components/useRegisterFiling";
 import { WorkspaceNav } from "../components/WorkspaceNav";
+import { usePreferencesStore } from "../settings/preferences";
+import type { PartResponse } from "../api/parts";
 
 /**
  * The parts home — the landing surface after sign-in. The drawer itself lives
@@ -27,6 +37,8 @@ const COPY: RegisterCopy = {
   loading: "Loading parts…",
   loadError: "Your parts could not be loaded.",
   deleteError: "The part could not be deleted.",
+  renameError: "The part could not be renamed.",
+  duplicateError: "The part could not be duplicated.",
   createError: "The part could not be created.",
   emptyHeadline: "Nothing filed here yet.",
   emptyBody:
@@ -40,11 +52,17 @@ const COPY: RegisterCopy = {
 export function PartsPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  // The user's "units for new documents" preference (#58) is stamped on the
+  // part at CREATION; after that the document owns its unit.
+  const newDocumentUnit = usePreferencesStore((state) => state.newDocumentUnit);
   const parts = useQuery({
     queryKey: ["parts"],
     queryFn: () => fetchParts(),
     staleTime: 30_000,
   });
+  // Filing (#WS2) — the folder tree for THIS drawer plus its four verbs, wired
+  // once for all three registers.
+  const filing = useRegisterFiling<PartResponse>("part", "parts", movePart);
 
   return (
     <div className="flex h-full flex-col">
@@ -73,13 +91,30 @@ export function PartsPage() {
                 {part.name}
               </Link>
             )}
-            onCreate={async (name) => {
-              const part = await createPart(name);
+            filing={filing}
+            onCreate={async (name, folderId) => {
+              // The folder the register is standing in rides the create, so a
+              // part named inside a folder is filed there in one call.
+              const part = await createPart(name, newDocumentUnit, folderId);
               await queryClient.invalidateQueries({ queryKey: ["parts"] });
               await navigate({
                 to: "/parts/$partId",
                 params: { partId: part.id },
               });
+            }}
+            onRename={async (part, name) => {
+              // The rename rides the part's CURRENT tree_version as its
+              // optimistic-concurrency guard — the same guard every other part
+              // write uses — and the register then refetches, so the row shows
+              // the name the server stored rather than the one that was typed.
+              await renamePart(part.id, name, part.tree_version);
+              await queryClient.invalidateQueries({ queryKey: ["parts"] });
+            }}
+            onDuplicate={async (part) => {
+              // No name is sent and none is predicted: the copy comes back
+              // named, and the refetched list is what the register renders.
+              await duplicatePart(part.id);
+              await queryClient.invalidateQueries({ queryKey: ["parts"] });
             }}
             onDelete={async (part) => {
               await deletePart(part.id);

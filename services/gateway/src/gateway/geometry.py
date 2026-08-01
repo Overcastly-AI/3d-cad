@@ -4,9 +4,12 @@ mesh fetch.
 apps/web talks ONLY to the gateway (CLAUDE.md service boundaries), so the
 geometry API is surfaced here. Routes are typed with the shared py-kit DTOs —
 the exact models the geometry service serves, never hand-duplicated — and
-forward over the lifespan-managed httpx2 ``AsyncClient`` on ``app.state``
-using the shared :mod:`gateway.upstream` plumbing (502 on transport failure,
-upstream envelopes re-surfaced).
+forward over the lifespan-managed :class:`gateway.affinity.GeometryPool` on
+``app.state`` — one httpx2 ``AsyncClient`` per geometry worker, with each
+modeler pinned to one of them (CONC-1). Transport failures become the honest
+envelope (502 unreachable / 504 timed out, :mod:`gateway.upstream`); upstream
+envelopes, including geometry's 503 ``service_overloaded`` and its
+``Retry-After``, are re-surfaced.
 """
 
 from typing import Annotated, Any, NoReturn
@@ -22,6 +25,13 @@ from py_kit.schemas.assemblies import (
 from py_kit.schemas.drawings import (
     EvaluateDrawingViewsRequest,
     EvaluateDrawingViewsResult,
+)
+from py_kit.schemas.features import (
+    EvaluateTreeRequest,
+    PrefetchRequest,
+    WarmCancelRequest,
+    WarmTreeRequest,
+    WarmTreeResult,
 )
 from py_kit.schemas.geometry import (
     EXPORT_MEDIA_TYPES,
@@ -48,37 +58,94 @@ from py_kit.schemas.sketch import (
 )
 from pydantic import BaseModel
 
+from gateway.affinity import GeometryPool, forward_geometry, parse_worker_urls
 from gateway.auth import CurrentUser
+from gateway.db import User
+from gateway.parts import forward_documents
 from gateway.ratelimit import COMPUTE_RATE_LIMIT
-from gateway.upstream import create_upstream_client, forward, raise_upstream_error
+from gateway.upstream import raise_upstream_error
 
-#: Upstream call budget — tessellation is CPU-bound and may take a while.
-GEOMETRY_TIMEOUT_S = 30.0
+#: Default upstream call budget, seconds (env: ``GEOMETRY_TIMEOUT_S``).
+#:
+#: **Was 30.0, and that number was a guess that shipped as a lie** (CONC-3).
+#: Decided against the measured distribution instead, one user, idle machine,
+#: cold trees, through the real gateway:
+#:
+#: | part | ``/overlay`` | outcome at 30 s |
+#: | --- | ---: | --- |
+#: | 100 features | 10.2 s | fine |
+#: | 150 features | 21.3 s | fine, 71 % of the budget |
+#: | **200 features** | **40.3 s** | **502 "unreachable"** on a healthy service |
+#:
+#: 200 features is a size we ship goldens for, so the old ceiling truncated the
+#: product's own working range. The new default is built from the parts rather
+#: than picked: **40.3 s** worst measured cold operation + **20 s** of geometry
+#: admission queue (``ADMISSION_MAX_WAIT_S``, past which a request is refused
+#: outright rather than left waiting) ≈ 60 s, plus ~50 % headroom for a loaded
+#: worker = **90 s**. It is env-tunable because the right value is a function of
+#: the largest part an installation actually opens.
+#:
+#: Raising it is only safe BECAUSE of the queue. A larger budget with processor
+#: sharing (the pre-CONC-2 behaviour) just moves the cliff: everyone still
+#: misses the deadline together, later. With admission control the wait is
+#: bounded by construction — you are either admitted and finish, or refused in
+#: bounded time with a retry interval.
+DEFAULT_GEOMETRY_TIMEOUT_S = 90.0
 
 #: Human-readable upstream name for shared error surfaces.
 _SERVICE = "Geometry"
 
+#: The other upstream this module reaches, on the prefetch path only: warming
+#: needs the evaluation-ready feature list, and documents owns it (rollback bar
+#: applied, params upcast). Same principal-scoped hop ``/parts/{id}/evaluate``
+#: makes, which is what makes ownership checking automatic here.
+_DOCUMENTS = "Documents"
+
+
+def _scoped_ticket(user: User, ticket: str) -> str:
+    """Namespace a client ticket per user.
+
+    The warm scheduler is per WORKER and shared by everyone it serves, so an
+    un-namespaced ticket would let one client's cancel retire another's
+    speculation (harmless to correctness — a warm publishes nothing — but a free
+    way to keep everybody else's prefetch permanently cold).
+    """
+    return f"{user.id}:{ticket}"
+
+
 router = APIRouter(prefix="/api/v1/geometry", tags=["geometry"])
 
 
-def create_geometry_client(
+def create_geometry_pool(
     geometry_url: str,
     transport: httpx.AsyncBaseTransport | None = None,
-) -> httpx.AsyncClient:
-    """The geometry upstream client (see :func:`create_upstream_client`)."""
-    return create_upstream_client(
-        geometry_url, timeout_s=GEOMETRY_TIMEOUT_S, transport=transport
+    *,
+    timeout_s: float = DEFAULT_GEOMETRY_TIMEOUT_S,
+) -> GeometryPool:
+    """The geometry worker pool (one client per URL — see :mod:`gateway.affinity`).
+
+    ``geometry_url`` is comma-separated: one URL is the one-worker case of a
+    fan-out, so a single-worker deployment needs no new configuration.
+    """
+    return GeometryPool(
+        parse_worker_urls(geometry_url), timeout_s=timeout_s, transport=transport
     )
 
 
 async def _forward(
-    http_request: Request, path: str, payload: BaseModel
+    http_request: Request, user: User, path: str, payload: BaseModel
 ) -> httpx.Response:
-    """POST *payload* to the geometry service, mapping transport failures."""
-    client: httpx.AsyncClient = http_request.app.state.geometry_client
-    return await forward(
-        client,
+    """POST *payload* to the geometry worker this modeler is pinned to.
+
+    The affinity key is the verified principal (CONC-1): it keeps a modeler's
+    evaluate and provenance lineages in one process's rebuild cache, which is
+    worth 3.75x against 1.21x for the random dispatch a shared listening socket
+    gives. It is derived here, never taken from the request — a client-supplied
+    routing key would let a caller aim at one worker.
+    """
+    return await forward_geometry(
         http_request,
+        str(user.id),
         "POST",
         path,
         service=_SERVICE,
@@ -117,7 +184,7 @@ async def tessellate(
     request: TessellateRequest, user: CurrentUser, http_request: Request
 ) -> Response:
     """Build + tessellate on the geometry service; pass the GLB through."""
-    upstream = await _forward(http_request, "/api/v1/tessellate", request)
+    upstream = await _forward(http_request, user, "/api/v1/tessellate", request)
     if upstream.status_code != 200:
         _raise_upstream_error(upstream)
     headers: dict[str, str] = {}
@@ -130,13 +197,125 @@ async def tessellate(
     )
 
 
+# Auth-protected like every geometry route, and additionally OWNERSHIP-scoped by
+# the documents hop it makes: the evaluation-request read is principal-scoped, so
+# a user can only ever warm a part they own. Rate-limited on the compute bucket
+# because a warm IS geometry CPU, even if it produces nothing.
+@router.post("/prefetch", dependencies=[COMPUTE_RATE_LIMIT])
+async def prefetch(
+    request: PrefetchRequest, user: CurrentUser, http_request: Request
+) -> WarmTreeResult:
+    """Speculatively warm the rebuild cache for one part (docs/PERF.md PERF-1b).
+
+    The client knows the INTENT — this editor is open, this travel stop is being
+    dragged — and documents knows the evaluation-ready feature list. This route
+    is where the two meet: it makes the same principal-scoped
+    ``/evaluation-request`` hop ``POST /parts/{id}/evaluate`` makes, so the warm
+    lands on exactly the content-addressed key the later real evaluate probes,
+    then hands geometry a :class:`WarmTreeRequest` and returns immediately.
+
+    The two intents ask for different things, and the difference is not cosmetic:
+
+    * ``feature_edit`` warms the features BEFORE the one being edited (the edit
+      cannot change their hashes), leaving the tree itself intact — so the commit
+      costs one feature's work instead of the whole tree, and the FIRST FACE PICK
+      after it resumes from the same point (the ``provenance`` lineage, which is
+      the 29 s the user actually sees on a 200-feature part);
+    * ``travel_stop`` warms the SHORTER TREE the stop defines, because that is a
+      tree in its own right and hashes as one. Only backwards travel needs it:
+      rolling forward is an append, which the cache already serves.
+
+    Nothing here can produce geometry — the reply is a
+    :class:`WarmTreeResult`, which carries a ticket and a boolean and cannot
+    carry a body. A target that is not in the current evaluation prefix is
+    ``accepted: false``, not an error.
+    """
+    upstream = await forward_documents(
+        http_request,
+        user,
+        "GET",
+        f"/api/v1/parts/{request.part_id}/evaluation-request",
+    )
+    if upstream.status_code != 200:
+        raise_upstream_error(upstream, service=_DOCUMENTS)
+    tree = EvaluateTreeRequest.model_validate_json(upstream.content)
+
+    index = next(
+        (
+            position
+            for position, item in enumerate(tree.features)
+            if item.id == request.feature_id
+        ),
+        None,
+    )
+    if index is None:
+        # Rolled back past, deleted, or suppressed out of the prefix: there is no
+        # settled prefix this intent names. Nothing to do, and nothing wrong.
+        return WarmTreeResult(ticket=request.ticket, accepted=False)
+
+    if request.kind == "feature_edit":
+        # Everything BEFORE the edited feature. Editing the first feature settles
+        # nothing, so there is nothing to warm.
+        if index == 0:
+            return WarmTreeResult(ticket=request.ticket, accepted=False)
+        warm = WarmTreeRequest(
+            ticket=_scoped_ticket(user, request.ticket),
+            tree=tree,
+            prefix_length=index,
+            # The commit first, then the face pick that follows it — in that
+            # order, under one budget (see `geometry.warm`).
+            lineages=["evaluate", "provenance"],
+        )
+    else:
+        # The stop includes the named feature, so the shorter tree is `index + 1`
+        # features long. Its mirror capture scope is computed over THAT list,
+        # which is why the tree is truncated here rather than passed whole with a
+        # prefix length — the two hash differently and only this one matches what
+        # a rolled-back evaluate will send.
+        warm = WarmTreeRequest(
+            ticket=_scoped_ticket(user, request.ticket),
+            tree=tree.model_copy(update={"features": tree.features[: index + 1]}),
+            # A travel stop is a body to look at, not a body to edit: warm the
+            # rebuild that draws it and leave provenance to the pick that may
+            # never come.
+            lineages=["evaluate"],
+        )
+
+    warmed = await _forward(http_request, user, "/api/v1/warm", warm)
+    if warmed.status_code != 200:
+        _raise_upstream_error(warmed)
+    accepted = WarmTreeResult.model_validate_json(warmed.content).accepted
+    # Echo the CLIENT's ticket, never the namespaced one — the namespace is the
+    # gateway's business and the client cancels with the ticket it chose.
+    return WarmTreeResult(ticket=request.ticket, accepted=accepted)
+
+
+@router.post("/prefetch/cancel", dependencies=[COMPUTE_RATE_LIMIT])
+async def prefetch_cancel(
+    request: WarmCancelRequest, user: CurrentUser, http_request: Request
+) -> WarmTreeResult:
+    """Retire a warm ticket — the editor closed, or the drag ended.
+
+    Required, not optional (docs/PERF.md PERF-1b): prefetch hides latency, it
+    does not reduce work, so speculation whose reason has gone away must stop.
+    The geometry worker acts on it within one feature's work. ``accepted:
+    false`` means it had already finished — a normal outcome.
+    """
+    cancel = WarmCancelRequest(ticket=_scoped_ticket(user, request.ticket))
+    upstream = await _forward(http_request, user, "/api/v1/warm/cancel", cancel)
+    if upstream.status_code != 200:
+        _raise_upstream_error(upstream)
+    accepted = WarmTreeResult.model_validate_json(upstream.content).accepted
+    return WarmTreeResult(ticket=request.ticket, accepted=accepted)
+
+
 # Auth-protected, identity-free upstream (same posture as ``/tessellate``).
 @router.post("/tessellate/meta", dependencies=[COMPUTE_RATE_LIMIT])
 async def tessellate_meta(
     request: TessellateRequest, user: CurrentUser, http_request: Request
 ) -> TessellationMetadata:
     """JSON twin of ``/tessellate``: mass properties + mesh stats, no mesh."""
-    upstream = await _forward(http_request, "/api/v1/tessellate/meta", request)
+    upstream = await _forward(http_request, user, "/api/v1/tessellate/meta", request)
     if upstream.status_code != 200:
         _raise_upstream_error(upstream)
     return TessellationMetadata.model_validate_json(upstream.content)
@@ -182,10 +361,9 @@ async def fetch_mesh(
     principal never goes upstream. Upstream 404 ``mesh_not_found`` is the
     client's re-evaluate signal and is re-surfaced verbatim (§7.8).
     """
-    client: httpx.AsyncClient = http_request.app.state.geometry_client
-    upstream = await forward(
-        client,
+    upstream = await forward_geometry(
         http_request,
+        str(user.id),
         "GET",
         f"/api/v1/meshes/{mesh_glb_id}",
         service=_SERVICE,
@@ -215,7 +393,7 @@ async def export(
     request: ExportRequest, user: CurrentUser, http_request: Request
 ) -> Response:
     """Build + export on the geometry service; pass the file bytes through."""
-    upstream = await _forward(http_request, "/api/v1/export", request)
+    upstream = await _forward(http_request, user, "/api/v1/export", request)
     if upstream.status_code != 200:
         _raise_upstream_error(upstream)
     headers: dict[str, str] = {}
@@ -258,7 +436,7 @@ async def assembly_export(
     multi-instance STEP (AP214 product structure) or STL; a body-less assembly is
     a 422 ``assembly_export_no_body`` envelope, re-surfaced verbatim.
     """
-    upstream = await _forward(http_request, "/api/v1/assembly/export", request)
+    upstream = await _forward(http_request, user, "/api/v1/assembly/export", request)
     if upstream.status_code != 200:
         _raise_upstream_error(upstream)
     headers: dict[str, str] = {}
@@ -288,7 +466,7 @@ async def assembly_evaluate(
     non-``well_constrained`` status (design §4); the envelope stays reserved
     for transport/validation failures of this call itself.
     """
-    upstream = await _forward(http_request, "/api/v1/assembly/evaluate", request)
+    upstream = await _forward(http_request, user, "/api/v1/assembly/evaluate", request)
     if upstream.status_code != 200:
         _raise_upstream_error(upstream)
     return EvaluateAssemblyResult.model_validate_json(upstream.content)
@@ -313,7 +491,9 @@ async def assembly_interference(
     4xx/5xx from the check itself. The envelope stays reserved for
     transport/validation failures of this call.
     """
-    upstream = await _forward(http_request, "/api/v1/assembly/interference", request)
+    upstream = await _forward(
+        http_request, user, "/api/v1/assembly/interference", request
+    )
     if upstream.status_code != 200:
         _raise_upstream_error(upstream)
     return InterferenceResult.model_validate_json(upstream.content)
@@ -336,7 +516,7 @@ async def drawing_evaluate(
     error (design §1.5/§4); the envelope stays reserved for transport/validation
     failures of this call itself.
     """
-    upstream = await _forward(http_request, "/api/v1/drawing/evaluate", request)
+    upstream = await _forward(http_request, user, "/api/v1/drawing/evaluate", request)
     if upstream.status_code != 200:
         _raise_upstream_error(upstream)
     return EvaluateDrawingViewsResult.model_validate_json(upstream.content)
@@ -356,7 +536,7 @@ async def measure(
     geometry. Upstream envelopes (``tree_measure_failed``,
     ``edge_index_out_of_range``, …) are re-surfaced verbatim.
     """
-    upstream = await _forward(http_request, "/api/v1/measure", request)
+    upstream = await _forward(http_request, user, "/api/v1/measure", request)
     if upstream.status_code != 200:
         _raise_upstream_error(upstream)
     return MeasureResult.model_validate_json(upstream.content)
@@ -376,7 +556,7 @@ async def overlay(
     verbatim. The response carries the body's exact pickable vertices + edges,
     the edge list index-aligned with ``/measure``'s ``EdgeTarget.index``.
     """
-    upstream = await _forward(http_request, "/api/v1/overlay", request)
+    upstream = await _forward(http_request, user, "/api/v1/overlay", request)
     if upstream.status_code != 200:
         _raise_upstream_error(upstream)
     return OverlayResult.model_validate_json(upstream.content)
@@ -396,7 +576,7 @@ async def sketch_trim(
     ``sketch_pick_not_on_target``, ``sketch_unsupported_entity``, …) are
     re-surfaced verbatim.
     """
-    upstream = await _forward(http_request, "/api/v1/sketch/trim", request)
+    upstream = await _forward(http_request, user, "/api/v1/sketch/trim", request)
     if upstream.status_code != 200:
         _raise_upstream_error(upstream)
     return SketchEditResult.model_validate_json(upstream.content)
@@ -413,7 +593,7 @@ async def sketch_extend(
     ``sketch_target_not_found``, ``sketch_degenerate_result``) are re-surfaced
     verbatim.
     """
-    upstream = await _forward(http_request, "/api/v1/sketch/extend", request)
+    upstream = await _forward(http_request, user, "/api/v1/sketch/extend", request)
     if upstream.status_code != 200:
         _raise_upstream_error(upstream)
     return SketchEditResult.model_validate_json(upstream.content)
@@ -432,7 +612,7 @@ async def sketch_offset(
     ``sketch_offset_zero_distance``, ``sketch_degenerate_result``) are
     re-surfaced verbatim.
     """
-    upstream = await _forward(http_request, "/api/v1/sketch/offset", request)
+    upstream = await _forward(http_request, user, "/api/v1/sketch/offset", request)
     if upstream.status_code != 200:
         _raise_upstream_error(upstream)
     return SketchOffsetResult.model_validate_json(upstream.content)
@@ -451,7 +631,7 @@ async def sketch_mirror(
     ``sketch_mirror_axis_not_line``, ``sketch_mirror_degenerate_axis``,
     ``sketch_unsupported_entity``) are re-surfaced verbatim.
     """
-    upstream = await _forward(http_request, "/api/v1/sketch/mirror", request)
+    upstream = await _forward(http_request, user, "/api/v1/sketch/mirror", request)
     if upstream.status_code != 200:
         _raise_upstream_error(upstream)
     return SketchMirrorResult.model_validate_json(upstream.content)
@@ -471,7 +651,7 @@ async def sketch_fillet(
     ``sketch_corner_too_large``, ``sketch_degenerate_result``) are re-surfaced
     verbatim.
     """
-    upstream = await _forward(http_request, "/api/v1/sketch/fillet", request)
+    upstream = await _forward(http_request, user, "/api/v1/sketch/fillet", request)
     if upstream.status_code != 200:
         _raise_upstream_error(upstream)
     return SketchCornerResult.model_validate_json(upstream.content)
@@ -491,7 +671,7 @@ async def sketch_chamfer(
     ``sketch_corner_too_large``, ``sketch_degenerate_result``) are re-surfaced
     verbatim.
     """
-    upstream = await _forward(http_request, "/api/v1/sketch/chamfer", request)
+    upstream = await _forward(http_request, user, "/api/v1/sketch/chamfer", request)
     if upstream.status_code != 200:
         _raise_upstream_error(upstream)
     return SketchCornerResult.model_validate_json(upstream.content)

@@ -13,6 +13,7 @@ part exists.
 """
 
 import uuid
+from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, status
@@ -26,18 +27,23 @@ from py_kit import (
 from py_kit.db import SessionDep
 from py_kit.schemas.drawings import SectionViewParams
 from py_kit.schemas.features import FeatureRef
+from py_kit.schemas.materials import EMPTY_MATERIAL_ASSIGNMENT
 from py_kit.schemas.parts import (
     PRINCIPAL_HEADER,
     PartCreate,
+    PartEvalScope,
+    PartEvaluationRecord,
     PartListResponse,
     PartResponse,
     PartUpdate,
 )
-from sqlalchemy import select
+from py_kit.schemas.workspace import DocumentDependent, DocumentDependents
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from documents.db import Assembly, Drawing, Instance, Part, Sheet, View
+from documents.db import Assembly, Drawing, Feature, Instance, Part, Sheet, View
+from documents.filing import resolve_destination
 
 _logger = get_logger("documents.parts")
 
@@ -205,19 +211,26 @@ async def reject_if_instanced(
             .order_by(Drawing.name)
         )
     ).all()
-    dependents = [
-        {"id": str(dep_id), "name": name, "kind": "assembly"}
-        for dep_id, name in assembly_deps
-    ] + [
-        {"id": str(dep_id), "name": name, "kind": "drawing"}
-        for dep_id, name in drawing_deps
-    ]
-    if dependents:
+    # Built through the shared DTO (py_kit.schemas.workspace) rather than as a
+    # hand-shaped dict: the delete routes DOCUMENT that model as their 409
+    # response, so the browser reads `details.dependents` as a generated type.
+    # An ad-hoc dict here and a typed reader there is exactly how the two drift.
+    dependents = DocumentDependents(
+        dependents=[
+            DocumentDependent(id=dep_id, name=name, kind="assembly")
+            for dep_id, name in assembly_deps
+        ]
+        + [
+            DocumentDependent(id=dep_id, name=name, kind="drawing")
+            for dep_id, name in drawing_deps
+        ]
+    )
+    if dependents.dependents:
         raise ConflictError(
-            f"Document is referenced by {len(dependents)} document(s); remove "
-            "those references first.",
+            f"Document is referenced by {len(dependents.dependents)} document(s); "
+            "remove those references first.",
             code=code,
-            details={"dependents": dependents},
+            details=dependents.model_dump(mode="json"),
         )
 
 
@@ -265,12 +278,59 @@ async def section_view_feature_refs(
     return refs
 
 
+async def evaluated_scope(session: AsyncSession, part: Part) -> PartEvalScope:
+    """Does the travel stop hold any feature out of what an evaluate runs?
+
+    ``"rolled_back"`` when at least one feature sits AFTER the rollback bar —
+    i.e. the evaluation prefix (:func:`documents.features.evaluation_prefix`,
+    which applies the bar per feature-tree.md §3) is shorter than the tree —
+    else ``"whole"``.
+
+    Asked at the DB rather than over a loaded tree because its one caller is the
+    record write, which needs a bounded answer and not the whole tree; the rule
+    it encodes is the same one ``features._bar_index`` + the prefix filter apply
+    on the read path (that module cannot be imported here — it imports THIS
+    one). Note what makes both correct: the bar can only move by a tree write,
+    and every tree write bumps ``tree_version``, so a live record's scope is
+    still the scope its evaluate ran under.
+
+    A bar parked on the LAST feature is ``"whole"``, not ``"rolled_back"``: it
+    excludes nothing, so saying otherwise would hedge a part that did fully
+    build — the mirror-image dishonesty of the one this exists to fix.
+    """
+    if part.rollback_feature_id is None:
+        return "whole"
+    bar_order_index = (
+        select(Feature.order_index)
+        .where(Feature.id == part.rollback_feature_id)
+        .scalar_subquery()
+    )
+    excluded = await session.scalar(
+        select(func.count())
+        .select_from(Feature)
+        .where(Feature.part_id == part.id, Feature.order_index > bar_order_index)
+    )
+    return "rolled_back" if excluded else "whole"
+
+
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_part(
     request: PartCreate, owner_id: Principal, session: SessionDep
 ) -> PartResponse:
-    """Create a part (201; envelope 409 on a duplicate name for this owner)."""
-    part = Part(owner_id=owner_id, name=request.name, length_unit=request.length_unit)
+    """Create a part (201; 409 on a duplicate name IN ITS FOLDER).
+
+    ``folder_id`` files it on creation (#WS2) — one call, so a create-then-move
+    pair can never fail between the two and leave the part somewhere the user
+    did not put it. The destination is validated by the SAME rule the move route
+    applies (:func:`documents.filing.resolve_destination`).
+    """
+    await resolve_destination(session, owner_id, request.folder_id, "part")
+    part = Part(
+        owner_id=owner_id,
+        name=request.name,
+        folder_id=request.folder_id,
+        length_unit=request.length_unit,
+    )
     session.add(part)
     try:
         await session.commit()
@@ -310,17 +370,24 @@ async def update_part(
     owner_id: Principal,
     session: SessionDep,
 ) -> PartResponse:
-    """Rename and/or re-unit a part (bumps ``tree_version``; uniform 404).
+    """Rename, re-unit and/or re-material a part (bumps ``tree_version``; 404).
 
     Changing the display unit is a document edit (docs/design/units.md §U1) —
     it bumps ``tree_version`` like any header mutation but touches no stored
-    ``*_mm`` value (storage stays canonical mm). Stale ``expected_tree_version``
-    is a 422 (mirroring the feature-tree write guard); 409 stays reserved for a
-    duplicate-name conflict.
+    ``*_mm`` value (storage stays canonical mm). Changing the MATERIAL is a
+    different animal (docs/design/materials.md §2): mass is derived from it, so
+    the previous evaluate's answer is genuinely out of date and the
+    last-evaluate record is deliberately NOT carried forward. Stale
+    ``expected_tree_version`` is a 422 (mirroring the feature-tree write guard);
+    409 stays reserved for a duplicate-name conflict.
     """
-    if request.name is None and request.length_unit is None:
+    if (
+        request.name is None
+        and request.length_unit is None
+        and request.materials is None
+    ):
         raise ValidationApiError(
-            "Provide at least one of name or length_unit.",
+            "Provide at least one of name, length_unit or materials.",
             code="empty_part_update",
         )
     part = await get_owned_part(session, owner_id, part_id, for_update=True)
@@ -337,7 +404,29 @@ async def update_part(
         part.name = request.name
     if request.length_unit is not None:
         part.length_unit = request.length_unit
+    if request.materials is not None:
+        # Wholesale replacement (materials.md §2). An assignment that names
+        # nothing is stored as NULL so "cleared" and "never set" are one state
+        # in the database as well as on the wire.
+        part.materials = (
+            None
+            if request.materials == EMPTY_MATERIAL_ASSIGNMENT
+            else request.materials.model_dump(mode="json")
+        )
     part.tree_version += 1
+    if request.materials is None and part.last_eval_tree_version is not None:
+        # Carry the last-evaluate record FORWARD (feature-tree.md §4.4a) for a
+        # rename or a unit change: neither can change what the tree evaluates to
+        # (units are presentation metadata — storage stays canonical mm, units.md
+        # §U1). Letting the version bump mark the record stale would be a false
+        # "unknown" — renaming a part would grey out its health — so the claim
+        # follows the version it is still true of. A MATERIAL change is excluded
+        # from that carry-forward on purpose: the evaluated mass is derived from
+        # the material, so the recorded result really does describe a state that
+        # no longer holds, and 'stale' is the honest verdict. EVERY other write
+        # (features, suppress, rollback, undo/redo) changes the tree and
+        # correctly leaves it behind.
+        part.last_eval_tree_version = part.tree_version
     try:
         await session.commit()
     except IntegrityError:
@@ -347,6 +436,82 @@ async def update_part(
             code="part_name_taken",
         ) from None
     _logger.info("part_updated", part_id=str(part.id), tree_version=part.tree_version)
+    return PartResponse.model_validate(part)
+
+
+@router.put("/{part_id}/last-evaluation")
+async def record_last_evaluation(
+    part_id: uuid.UUID,
+    request: PartEvaluationRecord,
+    owner_id: Principal,
+    session: SessionDep,
+) -> PartResponse:
+    """Record the outcome of an evaluate on the part row (§4.4a bookkeeping).
+
+    INTERNAL, like every documents route, and deliberately without a public
+    gateway twin (the same posture as ``GET /{part_id}/evaluation-request``):
+    the gateway calls this itself after geometry has answered, so the stored
+    verdict is derived from what geometry actually said and is never a claim a
+    browser could POST about its own health.
+
+    Three guards make the record honest rather than merely present:
+
+    - **Monotonic in ``tree_version``.** A late write for an older version is a
+      clean no-op (200, record unchanged), so two concurrent evaluates cannot
+      resurrect a superseded verdict.
+    - **``last_eval_at`` is documents' clock**, never the caller's — one clock
+      orders every record.
+    - **``updated_at`` does NOT move**, and neither does ``tree_version``: this
+      is bookkeeping, not a document edit. Opening a part triggers an evaluate,
+      and a register that showed "last worked: just now" because someone LOOKED
+      at a part would be lying about the thing it exists to report. The column's
+      ``onupdate`` default is suppressed by naming ``updated_at`` explicitly in
+      the UPDATE.
+
+    The SCOPE is stored beside the status, derived HERE (audit J3): the caller
+    could not supply it if it wanted to — documents applies the rollback bar
+    before the evaluate request leaves, so an ``ok`` may be a verdict on a
+    two-feature prefix of a nine-feature part, and only documents can say so.
+    """
+    part = await get_owned_part(session, owner_id, part_id, for_update=True)
+    if (
+        part.last_eval_tree_version is not None
+        and request.tree_version < part.last_eval_tree_version
+    ):
+        _logger.info(
+            "part_eval_record_superseded",
+            part_id=str(part.id),
+            provided=request.tree_version,
+            recorded=part.last_eval_tree_version,
+        )
+        return PartResponse.model_validate(part)
+
+    scope = await evaluated_scope(session, part)
+    await session.execute(
+        update(Part)
+        .where(Part.id == part.id)
+        .values(
+            last_eval_status=request.status,
+            last_eval_at=datetime.now(UTC),
+            last_eval_tree_version=request.tree_version,
+            last_eval_scope=scope,
+            # Pin updated_at to itself: present in the SET clause, so the
+            # column's onupdate default never fires (docstring above).
+            updated_at=Part.updated_at,
+        )
+        .execution_options(synchronize_session=False)
+    )
+    await session.commit()
+    await session.refresh(part)
+    _logger.info(
+        "part_eval_recorded",
+        part_id=str(part.id),
+        status=request.status,
+        eval_tree_version=request.tree_version,
+        tree_version=part.tree_version,
+        eval_state=part.eval_state,
+        eval_scope=scope,
+    )
     return PartResponse.model_validate(part)
 
 

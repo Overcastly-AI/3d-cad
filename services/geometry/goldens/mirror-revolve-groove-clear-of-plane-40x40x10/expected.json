@@ -1,0 +1,49 @@
+{
+  "description": "CM-6 / QA-1's CONTROL, and the half that proves the fix DISCRIMINATES rather than merely fires. The same chain - block, revolved annular groove, body-scope mirror - with the groove moved CLEAR of the mirror plane (axis at x=20, mirrored about YZ). This case was always correct (QA-1 measured a mirrored/cut ratio of 2.0000000000000004) and its topology is the CLEANED one, so a `fix` that simply stopped simplifying would satisfy the tangent golden and fail this one: the 14 faces / 36 edges below are only reachable if clean() still runs and is still accepted when it behaves. Locks: the accepted (identity) path of the simplification guard, a mirror that reflects-and-unions a removal it cannot reach, and the two-groove curved topology.",
+  "derivation": [
+    "Expectations are HAND-DERIVED analytic values, not recorded harness output (geometry-gates skill: a golden recorded from buggy output enshrines the bug). This one matters more than most: the pre-fix harness output for the tangent model was 31865.9587 mm^3, and recording it would have enshrined a 3.48 % wrong solid.",
+    "Base: an unconstrained [0,40]x[0,40] rectangle on the XY datum plane, extruded +Z by 10 -> a 40 x 40 x 10 = 16000 mm^3 block. Unconstrained means planegcs returns the drawn positions bitwise (zero residual), so every deviation below is the kernel's, never the solver's.",
+    "Groove: a 4 x 8 rectangle on the XZ datum plane (u = world +X, v = world +Z) revolved 360 deg about a construction centerline at u = AXIS -> an annular ring, inner r 4, outer r 8, z in [2,10], centred on the world line (x = AXIS, y = 0). The ring straddles y = 0 while the block does not, so the CUT removes exactly the half of the ring in y >= 0: pi * (8^2 - 4^2) * 8 / 2 = 192*pi, leaving 16000 - 192*pi = 15396.8142105108 mm^3.",
+    "Mirror (scope: body, no picked sub-geometry, so it is independent of topological naming): the mirrored block covers the ring's other half, so the finished part is the doubled block less the WHOLE ring. volume = 2*16000 - pi*(8^2-4^2)*8 = 32000 - 384*pi = 30793.62842102152 mm^3. Both the pre-fix welded answer (31865.9587) and a filled void (32000) fail this by >1000 mm^3.",
+    "AXIS = 20 and the mirror plane is YZ (x = 0), so the ring spans x in [12,28] - 12 mm clear of the block's x=0 wall and 12 mm clear of its x=40 wall. No tangency: this is the control.",
+    "The mirror doubles the block in X (x in [-40,40], y in [0,40]) and reflects the removal into a SECOND half-ring at x = -20. Each half-ring removes 192*pi, so the total removed is 384*pi and the volume is the same 32000 - 384*pi = 30793.62842102152 mm^3 the tangent golden carries - the two models measure the same material by two different paths, which is itself a cross-check.",
+    "surface_area: the doubled block is 80 (x) x 40 (y) x 10 (z) -> 2*(80*40) + 2*(80*10) + 2*(40*10) = 6400 + 1600 + 800 = 8800 mm^2. Each of the two half-grooves removes a half annulus from the top face (-24*pi) and two 4 x 8 rectangles from the y=0 wall (-64 mm^2), and adds a half inner wall (32*pi), a half outer wall (64*pi) and a half annular floor (24*pi). area = 8800 - 2*64 + 2*(-24 + 32 + 64 + 24)*pi = 8672 + 192*pi = 9275.18578948924 mm^2.",
+    "centroid: x = 0 exactly, by the mirror symmetry. z = (32000*5 - 384*pi*6) / (32000 - 384*pi) = 4.960823987271505 mm, as in the tangent golden (both voids span z in [2,10]). y = (32000*20 - 384*pi*ybar) / (32000 - 384*pi) = 20.62833663666911 mm, where ybar = (4/(3*pi)) * (8^3 - 4^3)/(8^2 - 4^2) = 3.9611896947316176 mm is the centroid of a half annulus, the shape each void has in plan.",
+    "bounding_box = [-40,0,0]..[40,40,10].",
+    "Topology, 14 faces: 6 block walls (none split - no tangency) + per groove a half inner cylinder, a half outer cylinder, a half annular floor and the plug's top half-disc = 6 + 2*4 = 14. Contrast the tangent golden's 12 on a body with ONE groove: there the outer wall stayed split by the refused simplification, here every same-domain pair was unified.",
+    "Topology, 36 edges = 28 lines + 8 arcs, enumerated: 3 x 80 (the bottom edges at y=0 and y=40 and the TOP edge at y=40); the top edge at y=0 is interrupted by the four groove openings, so it splits into 12 + 8 + 24 + 8 + 12 (2 x 12, 2 x 8, 1 x 24); 4 x 40 (the y-direction edges, top and bottom, at x=-40 and x=+40); 4 x 10 (the corner verticals); then per groove opening on the y=0 wall a 4 mm floor chord and two 8 mm sides - 4 openings gives 4 x 4 and 8 x 8. Arcs: per groove a half r4 circle at z=10 (the plug's disc) and at z=2 (the floor's inner boundary), and a half r8 circle at each of those levels - 4 x 12.5664 + 4 x 25.1327.",
+    "Mesh (linear_deflection 0.1, N = 126 as above; a half circle is N/2 = 63 segments). Per face: bottom 4/2; y=+40 wall 4/2; x=+-40 walls 4/2 each; the y=0 wall 20/18 (a rectangle with four 4 x 8 bites out of its top edge -> 4 + 4*4 = 20 boundary vertices); the top face 132/130 (4 corners + 2 half-circles of 64 nodes); and per groove the plug's top half-disc 64/62, the half inner cylinder 128/126, the half floor 128/126 and the half outer cylinder 128/126. Totals: 1064 vertices, 1036 triangles."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "CURVED-GEOMETRY tolerance, measured first, then set (geometry-gates skill: never copy a bound blindly). Three cylindrical walls go through OCCT's Gauss-quadrature surface/volume integration in GProp. Measured deviations of the rebuild from the hand-derived values above (2026-07-30, build123d 0.11.1 / OCCT 7.9, planegcs 0.8.0): volume 3.6e-12 mm^3 (1.2e-16 relative at 3e4), surface_area EXACTLY 0.0, centroid <= 3.6e-15 mm, AABB exactly 0.0 on all six bounds. The documented ceiling 1e-9 is ~275x the observed worst case - headroom for libm/platform variation in the quadrature's transcendental evaluations across CI hosts - and is the same reviewed 1e-9 curved tier revolve-annulus-r10-20-h15 and mirror-revolve-cut-bore-plate-40x40x20 carry, 100x TIGHTER than the standing 1e-7 kernel linear bound. It is also four orders below the defect it locks (the welded body reads +1072.330 mm^3), so no plausible loosening could hide CM-6. Loosening requires a reviewed kernel-level justification recorded here and in docs/GEOMETRY-QA.md.",
+  "properties": {
+    "volume": 30793.62842102152,
+    "surface_area": 9275.18578948924,
+    "centroid": {
+      "x": 0.0,
+      "y": 20.62833663666911,
+      "z": 4.960823987271505
+    },
+    "bounding_box": {
+      "min": {
+        "x": -40.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "max": {
+        "x": 40.0,
+        "y": 40.0,
+        "z": 10.0
+      }
+    }
+  },
+  "topology": {
+    "faces": 14,
+    "edges": 36,
+    "shells": 1
+  },
+  "mesh": {
+    "vertices": 1064,
+    "triangles": 1036
+  }
+}

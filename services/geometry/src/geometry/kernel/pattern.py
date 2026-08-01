@@ -62,6 +62,7 @@ from collections.abc import Sequence
 from build123d import Axis, Solid, Vector
 from py_kit.schemas.features import MAX_PATTERN_COUNT
 
+from geometry.kernel.healing import clean_shape
 from geometry.kernel.lumps import assemble_lumps
 from geometry.kernel.removal import removal_reaches_body
 from geometry.kernel.types import BodyShape
@@ -144,7 +145,7 @@ def _fuse_and_finalize(
         # fuse carries Shape[Unknown] type params upstream (same gap
         # tessellate.py documents for export_gltf) — scoped ignore only.
         fused = body.fuse(*copies)  # pyright: ignore[reportUnknownMemberType]
-        solids = list(fused.clean().solids())
+        solids = list(clean_shape(fused).solids())
     except Exception as exc:  # OCCT failure modes are not a stable taxonomy
         raise PatternError(
             f"Pattern union failed in the kernel ({type(exc).__name__}); an "
@@ -186,7 +187,7 @@ def _cut_and_finalize(
         # cut carries Shape[Unknown] type params upstream (same gap
         # tessellate.py documents for export_gltf) — scoped ignore only.
         cut = body.cut(*tools)  # pyright: ignore[reportUnknownMemberType]
-        solids = list(cut.clean().solids())
+        solids = list(clean_shape(cut).solids())
     except Exception as exc:  # OCCT failure modes are not a stable taxonomy
         raise PatternError(
             f"Pattern cut failed in the kernel ({type(exc).__name__}); a tool "
@@ -221,7 +222,7 @@ def _linear_unit(direction: tuple[float, float, float]) -> Vector:
     return Vector(dx / magnitude, dy / magnitude, dz / magnitude)
 
 
-def _linear_copies(
+def linear_pattern_placements(
     sources: Sequence[BodyShape],
     direction: tuple[float, float, float],
     spacing_mm: float,
@@ -232,6 +233,12 @@ def _linear_copies(
     Validated once (spacing then direction) and enumerated placement-outer,
     source-inner so a single source (the ADD body) reproduces the original
     ``[body.translate(...) for k in ...]`` order byte-for-byte.
+
+    PUBLIC because a ``features``-scope mirror reflects a pattern's PLACEMENTS
+    rather than re-deriving its parameters (docs/design/mirror-semantics.md §4.5),
+    so the feature layer records exactly the placements this produced. Same
+    function, one definition (CLAUDE.md DRY) — the recorded contribution can
+    therefore never drift from what the pattern actually applied.
 
     Raises:
         PatternSpacingError: ``spacing_mm <= 0`` (with copies to place).
@@ -250,7 +257,7 @@ def _linear_copies(
     ]
 
 
-def _circular_copies(
+def circular_pattern_placements(
     sources: Sequence[BodyShape],
     axis_point: tuple[float, float, float],
     axis_direction: tuple[float, float, float],
@@ -262,6 +269,13 @@ def _circular_copies(
     Validated once (axis then angle) and enumerated placement-outer,
     source-inner so a single source (the ADD body) reproduces the original
     ``[body.rotate(...) for k in ...]`` order byte-for-byte.
+
+    PUBLIC for the same reason as :func:`linear_pattern_placements`, and here the
+    reason is load-bearing rather than tidy: a reflection REVERSES handedness, so a
+    mirror that re-derived a circular pattern from its axis + positive ``angle_deg``
+    would wind the ring the wrong way (right on a symmetric ring, visibly wrong on a
+    partial one). Reflecting these finished placements cannot make that mistake
+    (mirror-semantics §4.5).
 
     Raises:
         PatternAxisError: the axis direction is (near) zero-length.
@@ -311,7 +325,7 @@ def linear_pattern(
     _check_count(count)
     if count == 1:
         return body  # seed only — nothing to replicate
-    copies = _linear_copies([body], direction, spacing_mm, count)
+    copies = linear_pattern_placements([body], direction, spacing_mm, count)
     return _fuse_and_finalize(body, copies, count)
 
 
@@ -339,7 +353,9 @@ def circular_pattern(
     _check_count(count)
     if count == 1:
         return body
-    copies = _circular_copies([body], axis_point, axis_direction, angle_deg, count)
+    copies = circular_pattern_placements(
+        [body], axis_point, axis_direction, angle_deg, count
+    )
     return _fuse_and_finalize(body, copies, count)
 
 
@@ -375,7 +391,7 @@ def linear_pattern_cut(
     _check_count(count)
     if count == 1:
         return body
-    copies = _linear_copies(tools, direction, spacing_mm, count)
+    copies = linear_pattern_placements(tools, direction, spacing_mm, count)
     if not removal_reaches_body(body, copies):
         return linear_pattern(body, direction, spacing_mm, count)
     return _cut_and_finalize(body, copies, count)
@@ -415,7 +431,9 @@ def circular_pattern_cut(
     _check_count(count)
     if count == 1:
         return body
-    copies = _circular_copies(tools, axis_point, axis_direction, angle_deg, count)
+    copies = circular_pattern_placements(
+        tools, axis_point, axis_direction, angle_deg, count
+    )
     if not removal_reaches_body(body, copies):
         return circular_pattern(body, axis_point, axis_direction, angle_deg, count)
     return _cut_and_finalize(body, copies, count)

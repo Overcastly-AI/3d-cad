@@ -7,9 +7,13 @@ Discovers every golden under ``services/geometry/goldens/`` and, for each:
   dispatches to the same evaluation paths the REST routes and the worker
   task share (``evaluate_tessellation`` for shape goldens, ``evaluate_tree``
   for feature-tree goldens);
-* asserts mass properties (volume, surface area, centroid, exact AABB)
+* asserts mass properties (volume, surface area, centroid, exact AABB — plus
+  mass and the mass-weighted centre of mass when the model assigns a material)
   within the golden's **documented per-model tolerance** from
   ``expected.json`` (never an ad-hoc epsilon — CLAUDE.md conventions);
+* asserts that a model with NO material reports **no mass at all** — null, not
+  ``0`` and not a defaulted steel (docs/design/materials.md §6). Every golden
+  that does not name a material is an instance of that honesty gate;
 * asserts topology counts (faces/edges/shells) and mesh counts
   (vertices/triangles) **exactly**;
 * rebuilds twice in-process and once in a fresh interpreter and requires
@@ -36,20 +40,51 @@ from pathlib import Path
 import pytest
 from geometry.harness import ModelRequest, evaluate_model, load_model_request
 from geometry.schemas import BoundingBox, TopologyCounts, Vec3
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 GOLDENS_DIR = Path(__file__).resolve().parent.parent / "goldens"
 
 
 class ExpectedMassProperties(BaseModel):
-    """Mass-property expectations, asserted within the golden's tolerance."""
+    """Mass-property expectations, asserted within the golden's tolerance.
+
+    ``mass_g`` / ``center_of_mass`` are OPTIONAL and their absence is itself an
+    assertion (docs/design/materials.md §6): a golden whose model assigns no
+    material must report **no mass at all**, and the runner checks that the
+    kernel answers ``null`` rather than ``0.0`` or a defaulted density. A golden
+    that does assign one states both, hand-derived as density x the volume this
+    same file already locks.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     volume: float = Field(gt=0, description="Volume (mm^3)")
     surface_area: float = Field(gt=0, description="Total surface area (mm^2)")
     centroid: Vec3
+    mass_g: float | None = Field(
+        default=None,
+        gt=0,
+        description="Expected mass (g); omit when the model assigns no material, "
+        "which asserts the kernel reports mass as ABSENT.",
+    )
+    center_of_mass: Vec3 | None = Field(
+        default=None,
+        description="Expected MASS-weighted centre of mass (mm); omit exactly "
+        "when mass_g is omitted.",
+    )
     bounding_box: BoundingBox
+
+    @model_validator(mode="after")
+    def _mass_fields_agree(self) -> "ExpectedMassProperties":
+        """Mass and centre of mass are known together or not at all.
+
+        The kernel nulls both the moment any body lacks a material, so a golden
+        that stated one without the other would be asserting a state the
+        contract cannot produce.
+        """
+        if (self.mass_g is None) != (self.center_of_mass is None):
+            raise ValueError("state mass_g and center_of_mass together, or neither")
+        return self
 
 
 class ExpectedMesh(BaseModel):
@@ -141,6 +176,23 @@ def test_mass_properties_within_documented_tolerance(case: GoldenCase) -> None:
     expected = case.expected.properties
     tolerance = case.expected.tolerance
 
+    if expected.mass_g is None:
+        # The honesty gate (docs/design/materials.md §6): no material in, no mass
+        # out. "0 g" or a defaulted steel would both be claims about a part
+        # nobody has said the material of.
+        assert actual.mass_g is None, (
+            f"{case.name}: the model assigns no material, so mass must be ABSENT "
+            f"(null) — got {actual.mass_g!r}. Zero is not the same answer."
+        )
+        assert actual.center_of_mass is None, (
+            f"{case.name}: no material, so there is no centre of MASS — got "
+            f"{actual.center_of_mass!r}"
+        )
+    else:
+        assert actual.mass_g is not None and actual.center_of_mass is not None, (
+            f"{case.name}: the model assigns a material, so mass must be reported"
+        )
+
     checks: list[tuple[str, float, float]] = [
         ("volume", actual.volume, expected.volume),
         ("surface_area", actual.surface_area, expected.surface_area),
@@ -154,6 +206,23 @@ def test_mass_properties_within_documented_tolerance(case: GoldenCase) -> None:
         ("bbox.max.y", actual.bounding_box.max.y, expected.bounding_box.max.y),
         ("bbox.max.z", actual.bounding_box.max.z, expected.bounding_box.max.z),
     ]
+    if (
+        expected.mass_g is not None
+        and expected.center_of_mass is not None
+        and actual.mass_g is not None
+        and actual.center_of_mass is not None
+    ):
+        # Mass rides the model's documented tolerance rather than a bound of its
+        # own: mass = volume x density and every library density is < 1 in
+        # g/mm^3 (steel, the densest, is 7.87e-3), so the propagated mass error
+        # is strictly SMALLER than the volume error the same bound already
+        # covers. The centre of mass is a length, in mm, like the centroid.
+        checks += [
+            ("mass_g", actual.mass_g, expected.mass_g),
+            ("center_of_mass.x", actual.center_of_mass.x, expected.center_of_mass.x),
+            ("center_of_mass.y", actual.center_of_mass.y, expected.center_of_mass.y),
+            ("center_of_mass.z", actual.center_of_mass.z, expected.center_of_mass.z),
+        ]
     for label, got, want in checks:
         assert got == pytest.approx(want, abs=tolerance), (
             f"{case.name}: {label} expected {want!r}, got {got!r} "

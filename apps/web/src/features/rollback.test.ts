@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import type { FeatureResponse } from "../api/parts";
-import { barSlotIndex, isRolledBack, rollbackIdForSlot } from "./rollback";
+import {
+  barSlotIndex,
+  isRolledBack,
+  nearestSlotIndex,
+  rollbackIdForSlot,
+} from "./rollback";
 
 function feature(id: string): FeatureResponse {
   return {
@@ -46,6 +51,31 @@ describe("rollbackIdForSlot", () => {
   });
   it("returns null (tip = all included) for the last slot", () => {
     expect(rollbackIdForSlot(tree, 2)).toBeNull();
+  });
+});
+
+describe("nearestSlotIndex", () => {
+  // Three slots on the way, centred at 100 / 200 / 300 client px.
+  const anchors = [100, 200, 300];
+
+  it("lands in the slot whose anchor is nearest the pointer", () => {
+    expect(nearestSlotIndex(anchors, 104)).toBe(0);
+    expect(nearestSlotIndex(anchors, 189)).toBe(1);
+    expect(nearestSlotIndex(anchors, 260)).toBe(2);
+  });
+
+  it("clamps past either end of the way instead of falling off it", () => {
+    expect(nearestSlotIndex(anchors, -400)).toBe(0);
+    expect(nearestSlotIndex(anchors, 9000)).toBe(2);
+  });
+
+  it("takes the EARLIER slot on an exact midpoint (never overshoots)", () => {
+    expect(nearestSlotIndex(anchors, 150)).toBe(0);
+    expect(nearestSlotIndex(anchors, 250)).toBe(1);
+  });
+
+  it("has no slot to land in on an empty way", () => {
+    expect(nearestSlotIndex([], 120)).toBe(-1);
   });
 });
 

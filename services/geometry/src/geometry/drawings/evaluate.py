@@ -38,10 +38,12 @@ from py_kit.schemas.drawings import (
     ProjectedViewEdge,
     SectionFaceLoop,
     SectionViewParams,
+    ViewProjection,
     ViewScale,
 )
 from py_kit.schemas.features import (
     DatumPlaneRef,
+    EdgeSignature,
     EvaluateTreeRequest,
     FeatureError,
     GeomRef,
@@ -128,8 +130,34 @@ def projected_edge_dto(edge: ProjectedEdge) -> ProjectedViewEdge:
     )
 
 
+def _drawn_edges_by_view(
+    views: list[DrawingViewResult],
+) -> dict[ViewProjection, list[EdgeSignature]]:
+    """The MODEL edges each projected view actually draws, keyed by projection.
+
+    Provenance the projector already computed (``ProjectedViewEdge.source_edge``,
+    design §3.3), collected once per request. It is the set a user could have PICKED
+    in that view, which is what makes the tier-3 circle re-anchor honest rather than a
+    coin flip (QA-3, :func:`geometry.drawings.anchor.resolve_anchor_edge`): a
+    thickness edit slides a bore's rim along its own axis, and the two rims of a
+    through hole are congruent — but the projector emits the drawn curve once, from
+    the edge the viewer sees. Silhouette / un-tied edges carry no signature and simply
+    do not appear here.
+    """
+    drawn: dict[ViewProjection, list[EdgeSignature]] = {}
+    for result in views:
+        if result.error is not None:
+            continue
+        drawn[result.view] = [
+            edge.source_edge for edge in result.edges if edge.source_edge is not None
+        ]
+    return drawn
+
+
 def _measure_dimensions(
-    body: BodyShape, request: EvaluateDrawingViewsRequest
+    body: BodyShape,
+    request: EvaluateDrawingViewsRequest,
+    drawn_by_view: dict[ViewProjection, list[EdgeSignature]],
 ) -> list[MeasuredDimensionResult]:
     """Measure every requested dimension off the SAME exact body (design §3/§5).
 
@@ -140,12 +168,18 @@ def _measure_dimensions(
     (``subshape_unresolved`` / ``subshape_ambiguous`` / ``dimension_wrong_type``) —
     never a raise, never failing the other dimensions or the projected views. The
     ``id`` correlation token is echoed straight back for client mapping.
+
+    ``drawn_by_view`` hands each dimension the model edges ITS OWN view draws
+    (:func:`_drawn_edges_by_view`) — used only by the tier-3 circle re-anchor, and
+    never by a measured value.
     """
     return [
         MeasuredDimensionResult(
             id=item.id,
             view=item.view,
-            measured=measure_dimension_dto(body, item.dimension, item.view),
+            measured=measure_dimension_dto(
+                body, item.dimension, item.view, drawn_by_view.get(item.view, ())
+            ),
         )
         for item in request.dimensions
     ]
@@ -355,6 +389,6 @@ def evaluate_drawing_views(
         part_id=request.part_id,
         tree_version=request.tree_version,
         views=views,
-        dimensions=_measure_dimensions(body, request),
+        dimensions=_measure_dimensions(body, request, _drawn_edges_by_view(views)),
         part_error=None,
     )

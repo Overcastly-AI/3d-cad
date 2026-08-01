@@ -38,6 +38,7 @@ import {
   describePlane,
   type DatumPlaneOption,
 } from "../sketch/plane";
+import { EditorCard } from "./EditorCard";
 
 export interface MirrorEditorProps {
   mode: "create" | "edit";
@@ -97,10 +98,7 @@ export function MirrorEditor({
   );
 
   return (
-    <div
-      className="absolute left-editor top-3 w-editor max-w-full"
-      onKeyDown={onKeyDown}
-    >
+    <EditorCard onKeyDown={onKeyDown}>
       <Panel aria-label="Mirror" data-testid="mirror-editor">
         <div className="border-b border-hairline">
           <h2 className="px-3 pb-1 pt-3 font-display text-2xs uppercase tracking-[0.18em] text-gauge">
@@ -194,6 +192,6 @@ export function MirrorEditor({
           {error}
         </p>
       ) : null}
-    </div>
+    </EditorCard>
   );
 }

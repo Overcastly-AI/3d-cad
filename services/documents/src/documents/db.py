@@ -42,7 +42,15 @@ from py_kit.schemas.drawings import (
     SHEET_NAME_MAX_LENGTH,
 )
 from py_kit.schemas.features import FEATURE_NAME_MAX_LENGTH
-from py_kit.schemas.parts import PART_NAME_MAX_LENGTH
+from py_kit.schemas.folders import FOLDER_NAME_MAX_LENGTH
+from py_kit.schemas.parts import (
+    PART_NAME_MAX_LENGTH,
+    PartEvalScope,
+    PartEvalState,
+    PartEvalStatus,
+    derive_part_eval_scope,
+    derive_part_eval_state,
+)
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -51,8 +59,151 @@ def _utcnow() -> datetime:
     return datetime.now(UTC)
 
 
+#: JSONB on Postgres, plain JSON on SQLite (tests) — same Python dict either way.
+_JSON_VARIANT = sa.JSON().with_variant(postgresql.JSONB(), "postgresql")
+
+
 class Base(DeclarativeBase):
     """Declarative base for all documents-owned tables."""
+
+
+class Folder(Base):
+    """A filing folder in ONE drawer (#WS2 — :mod:`py_kit.schemas.folders`).
+
+    Self-referencing (``parent_id``) so folders nest; ``kind`` pins the drawer,
+    because the registers are per-kind surfaces and a folder that appeared in the
+    parts drawer holding only drawings would be a row that measures nothing. A
+    folder may only contain documents of its own ``kind`` and sub-folders of its
+    own ``kind``; both rules are app-enforced in :mod:`documents.folders` (the DB
+    cannot express "same kind as my parent" portably) and both are covered by
+    tests.
+
+    ``owner_id`` is the gateway-verified user id, with no cross-service FK — the
+    same posture as :class:`Part` (RESEARCH §3).
+
+    Cycles are rejected in the app (an ancestor walk on every move), not by the
+    DB: no portable constraint expresses acyclicity. ``ON DELETE RESTRICT`` on
+    the self-FK is the backstop for the other half of the contract — a folder
+    with children cannot be deleted — which the router surfaces as the friendly
+    409-with-contents before the constraint ever fires.
+    """
+
+    __tablename__ = "folders"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid(), primary_key=True, default=uuid.uuid4
+    )
+    owner_id: Mapped[uuid.UUID] = mapped_column(sa.Uuid(), nullable=False)
+    #: 'part' | 'assembly' | 'drawing' — which register shows this folder.
+    kind: Mapped[str] = mapped_column(sa.String(16), nullable=False)
+    name: Mapped[str] = mapped_column(sa.String(FOLDER_NAME_MAX_LENGTH), nullable=False)
+    parent_id: Mapped[uuid.UUID | None] = mapped_column(
+        sa.Uuid(),
+        sa.ForeignKey("folders.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=False,
+        default=_utcnow,
+        server_default=sa.text("now()"),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=False,
+        default=_utcnow,
+        onupdate=_utcnow,
+        server_default=sa.text("now()"),
+    )
+
+    __table_args__ = (
+        # Sibling-unique names, as TWO PARTIAL indexes rather than one composite
+        # UNIQUE. SQL treats NULLs as distinct, so a single
+        # UNIQUE(owner_id, kind, parent_id, name) would silently permit two
+        # top-level "Gearbox" folders — the exact hole the per-folder uniqueness
+        # rule exists to close. Partial indexes are supported identically on
+        # Postgres and SQLite, so the constraint behaves the same in production
+        # and in the unit/native-boot path (unlike NULLS NOT DISTINCT, which is
+        # Postgres-only and would leave the tests testing a different rule).
+        sa.Index(
+            "uq_folders_parent_name",
+            "owner_id",
+            "kind",
+            "parent_id",
+            "name",
+            unique=True,
+            sqlite_where=sa.text("parent_id IS NOT NULL"),
+            postgresql_where=sa.text("parent_id IS NOT NULL"),
+        ),
+        sa.Index(
+            "uq_folders_root_name",
+            "owner_id",
+            "kind",
+            "name",
+            unique=True,
+            sqlite_where=sa.text("parent_id IS NULL"),
+            postgresql_where=sa.text("parent_id IS NULL"),
+        ),
+        # The drawer scan: every folder of one kind for one owner, one index.
+        sa.Index("ix_folders_owner_kind", "owner_id", "kind"),
+    )
+
+    def __repr__(self) -> str:  # pragma: no cover - debug aid
+        return f"Folder(id={self.id!r}, kind={self.kind!r}, name={self.name!r})"
+
+
+#: Docstring for the ``folder_id`` column that parts, assemblies and drawings
+#: each carry. Written once here and referenced from all three (the columns
+#: themselves must be declared per table — a ``ForeignKey`` object cannot be
+#: shared between mapped classes).
+#:
+#: NULLABLE, and that null is load-bearing: it is "unfiled", the state every
+#: pre-folders row backfills to for free and the state the register's root view
+#: renders (:mod:`py_kit.schemas.folders`). ``ON DELETE RESTRICT`` because a
+#: folder delete must never take documents with it — the router refuses first
+#: with a 409 naming the contents, and this is the backstop if anything ever
+#: tries to go around it. Filing a document does NOT bump its concurrency
+#: counter and does not move ``updated_at``: it is not a document edit.
+FOLDER_ID_DOC = "Containing folder, or NULL for unfiled (see FOLDER_ID_DOC)."
+
+
+def _filed_name_indexes(table: str) -> tuple[sa.Index, ...]:
+    """Per-FOLDER name uniqueness for a document table, plus its list scan.
+
+    Replaces the old ``UNIQUE (owner_id, name)`` (#WS2): two folders must each
+    be able to hold a "Bracket", and one folder must not hold two. It is a PAIR
+    of partial unique indexes rather than one composite UNIQUE for the reason
+    :class:`Folder` states — SQL treats NULLs as distinct, so
+    ``UNIQUE (owner_id, folder_id, name)`` alone would permit two *unfiled*
+    "Bracket"s while refusing two filed ones: uniqueness that quietly stops
+    applying in the state most documents are in. Partial indexes render
+    identically on Postgres and SQLite, so the rule the unit suite and the
+    native boot enforce is the rule production enforces.
+
+    The third index restores what the dropped constraint's backing index used to
+    provide for free: the owner-scoped list scan. A partial index cannot serve
+    it (it covers only half the rows), so it is declared explicitly.
+    """
+    return (
+        sa.Index(
+            f"uq_{table}_folder_name",
+            "owner_id",
+            "folder_id",
+            "name",
+            unique=True,
+            sqlite_where=sa.text("folder_id IS NOT NULL"),
+            postgresql_where=sa.text("folder_id IS NOT NULL"),
+        ),
+        sa.Index(
+            f"uq_{table}_unfiled_name",
+            "owner_id",
+            "name",
+            unique=True,
+            sqlite_where=sa.text("folder_id IS NULL"),
+            postgresql_where=sa.text("folder_id IS NULL"),
+        ),
+        sa.Index(f"ix_{table}_owner", "owner_id"),
+    )
 
 
 class Part(Base):
@@ -74,11 +225,25 @@ class Part(Base):
     )
     owner_id: Mapped[uuid.UUID] = mapped_column(sa.Uuid(), nullable=False)
     name: Mapped[str] = mapped_column(sa.String(PART_NAME_MAX_LENGTH), nullable=False)
+    #: Containing folder, or NULL for unfiled — see :data:`FOLDER_ID_DOC`.
+    folder_id: Mapped[uuid.UUID | None] = mapped_column(
+        sa.Uuid(), sa.ForeignKey("folders.id", ondelete="RESTRICT"), nullable=True
+    )
     #: Document DISPLAY unit (docs/design/units.md §U1) — presentation metadata
     #: only; storage/kernel stay canonical mm. NOT NULL, server-default 'mm' so
     #: pre-units rows backfill to mm (the migration adds the same default).
     length_unit: Mapped[str] = mapped_column(
         sa.String(8), nullable=False, default="mm", server_default=sa.text("'mm'")
+    )
+    #: What the part's bodies are made of (docs/design/materials.md §2): a
+    #: serialized :class:`~py_kit.schemas.materials.MaterialAssignment` — one
+    #: document default plus per-body overrides. NULL is the honest "nobody has
+    #: said", which every pre-materials row backfills to and which reports NO
+    #: mass (never 0 g, never a default steel). Unlike ``length_unit`` this is an
+    #: INPUT to evaluation (mass is derived from it), so a write bumps
+    #: ``tree_version`` AND leaves the last-evaluate record behind as stale.
+    materials: Mapped[dict[str, Any] | None] = mapped_column(
+        _JSON_VARIANT, nullable=True
     )
     #: Monotonic optimistic-concurrency counter — bumped in the same
     #: transaction as ANY tree mutation (feature-tree.md §1.2).
@@ -96,6 +261,32 @@ class Part(Base):
     #: mutation yet). Maintained by :mod:`documents.history` in the same
     #: transaction as every tree write.
     history_cursor: Mapped[int | None] = mapped_column(sa.BigInteger(), nullable=True)
+    #: Last-evaluate record (docs/design/feature-tree.md §4.4a) — four NULLABLE
+    #: columns, all-null meaning "never evaluated", written together by the
+    #: gateway's post-evaluate bookkeeping and by nothing else. Evaluation
+    #: RESULTS still are not stored (§4.4: they stay derivable and disposable);
+    #: this is only the verdict a register needs, and it is version-stamped so
+    #: :func:`~py_kit.schemas.parts.derive_part_eval_state` can tell a current
+    #: claim from a stale one instead of assuming.
+    last_eval_status: Mapped[PartEvalStatus | None] = mapped_column(
+        sa.String(16), nullable=True
+    )
+    last_eval_at: Mapped[datetime | None] = mapped_column(
+        sa.DateTime(timezone=True), nullable=True
+    )
+    #: The ``tree_version`` the recorded status describes — NOT the current one.
+    last_eval_tree_version: Mapped[int | None] = mapped_column(
+        sa.BigInteger(), nullable=True
+    )
+    #: How much of the tree that status covers (audit J3): ``'whole'`` or
+    #: ``'rolled_back'``. Derived by DOCUMENTS at record time — it is the only
+    #: service that knows the bar exists — from whether any feature sat past the
+    #: travel stop. NULL on a row written before this column existed; that is
+    #: "unknown", never "whole" (see :func:`~py_kit.schemas.parts.
+    #: derive_part_eval_scope`), and the part's next evaluate rewrites it.
+    last_eval_scope: Mapped[PartEvalScope | None] = mapped_column(
+        sa.String(16), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         sa.DateTime(timezone=True),
         nullable=False,
@@ -110,16 +301,42 @@ class Part(Base):
         server_default=sa.text("now()"),
     )
 
-    __table_args__ = (
-        sa.UniqueConstraint("owner_id", "name", name="uq_parts_owner_name"),
-    )
+    __table_args__ = _filed_name_indexes("parts")
+
+    @property
+    def eval_state(self) -> PartEvalState:
+        """Rebuild health as of THIS row — the response's ``eval_state``.
+
+        A plain Python property over columns the row already carries, so
+        ``PartResponse.model_validate(part)`` picks it up through
+        ``from_attributes`` and the owner-scoped LIST stays exactly ONE query
+        (no per-row lookup, no N+1 — the collapse `cf4e006` made for drawing
+        trees is not reintroduced here).
+        """
+        return derive_part_eval_state(
+            last_eval_status=self.last_eval_status,
+            last_eval_tree_version=self.last_eval_tree_version,
+            tree_version=self.tree_version,
+        )
+
+    @property
+    def eval_scope(self) -> PartEvalScope | None:
+        """How much of the tree :attr:`eval_state` speaks for (J3).
+
+        Same posture as :attr:`eval_state` — a plain property over columns the
+        row already has, so the owner-scoped LIST stays exactly one query. Note
+        it reads the STORED scope rather than the part's current
+        ``rollback_feature_id``: the two agree whenever the verdict is live
+        (moving the bar bumps ``tree_version``, which makes the record stale),
+        and the stored one is a fact about the evaluate that ran, which is what
+        the verdict is a claim about.
+        """
+        return derive_part_eval_scope(
+            eval_state=self.eval_state, last_eval_scope=self.last_eval_scope
+        )
 
     def __repr__(self) -> str:  # pragma: no cover - debug aid
         return f"Part(id={self.id!r}, owner_id={self.owner_id!r}, name={self.name!r})"
-
-
-#: JSONB on Postgres, plain JSON on SQLite (tests) — same Python dict either way.
-_JSON_VARIANT = sa.JSON().with_variant(postgresql.JSONB(), "postgresql")
 
 
 class Feature(Base):
@@ -301,6 +518,10 @@ class Assembly(Base):
     name: Mapped[str] = mapped_column(
         sa.String(ASSEMBLY_NAME_MAX_LENGTH), nullable=False
     )
+    #: Containing folder, or NULL for unfiled — see :data:`FOLDER_ID_DOC`.
+    folder_id: Mapped[uuid.UUID | None] = mapped_column(
+        sa.Uuid(), sa.ForeignKey("folders.id", ondelete="RESTRICT"), nullable=True
+    )
     #: Document DISPLAY unit (docs/design/units.md §U1) — presentation metadata
     #: only; storage/kernel stay canonical mm. NOT NULL, server-default 'mm' so
     #: pre-units rows backfill to mm (the migration adds the same default).
@@ -332,9 +553,7 @@ class Assembly(Base):
         server_default=sa.text("now()"),
     )
 
-    __table_args__ = (
-        sa.UniqueConstraint("owner_id", "name", name="uq_assemblies_owner_name"),
-    )
+    __table_args__ = _filed_name_indexes("assemblies")
 
     def __repr__(self) -> str:  # pragma: no cover - debug aid
         return (
@@ -542,6 +761,10 @@ class Drawing(Base):
     name: Mapped[str] = mapped_column(
         sa.String(DRAWING_NAME_MAX_LENGTH), nullable=False
     )
+    #: Containing folder, or NULL for unfiled — see :data:`FOLDER_ID_DOC`.
+    folder_id: Mapped[uuid.UUID | None] = mapped_column(
+        sa.Uuid(), sa.ForeignKey("folders.id", ondelete="RESTRICT"), nullable=True
+    )
     #: Monotonic optimistic-concurrency counter — bumped in the same
     #: transaction as ANY sheet/view/dimension/annotation mutation (§2.1).
     doc_version: Mapped[int] = mapped_column(
@@ -561,9 +784,7 @@ class Drawing(Base):
         server_default=sa.text("now()"),
     )
 
-    __table_args__ = (
-        sa.UniqueConstraint("owner_id", "name", name="uq_drawings_owner_name"),
-    )
+    __table_args__ = _filed_name_indexes("drawings")
 
     def __repr__(self) -> str:  # pragma: no cover - debug aid
         return (

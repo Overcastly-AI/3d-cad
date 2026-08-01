@@ -58,12 +58,14 @@ from py_kit.schemas.drawings import (
     ComposedEdge,
     ComposedHatch,
     ComposedHatchLine,
+    ComposedLayoutIssue,
     ComposedLineEdge,
     ComposedMeasuredDimension,
     ComposedNote,
     ComposedPoint,
     ComposedPolylineEdge,
     ComposedSheet,
+    ComposedThreadSchedule,
     ComposedTitleBlock,
     ComposedView,
     DiameterDimensionParams,
@@ -81,6 +83,7 @@ from py_kit.schemas.drawings import (
     SheetOrientation,
     SheetProjectionConvention,
     SheetSize,
+    ThreadCalloutRow,
     ViewProjection,
     ViewScale,
 )
@@ -131,8 +134,43 @@ SHEET_MARGIN_MM = 10.0
 #: Title-block box (mm), bottom-right inside the border (layout.ts TITLE_BLOCK_MM).
 _TITLE_BLOCK_W = 96.0
 _TITLE_BLOCK_H = 34.0
-#: Clear space (mm) between adjacent views (layout.ts VIEW_GUTTER_MM).
+#: Clear space (mm) between adjacent views (layout.ts VIEW_GUTTER_MM). The auto-layout
+#: TARGETS this gap between every pair of placed view boxes (:func:`bounds_aware_layout`
+#: derives each anchor from the extents it must clear, audit N2).
 VIEW_GUTTER_MM = 24.0
+
+#: The MINIMUM white gap (mm) between two placed views' ink boxes that still reads as a
+#: shop-legible sheet. Below it, composition reports a ``views_crowded`` warning and the
+#: serializers stamp it on the print (audit N2: the four standard views cleared by
+#: **0.70 mm** before an ordinary widening, then overlapped by 6.33 mm — sub-millimetre
+#: clearance was the diagnosis, not the accident). One quarter of
+#: :data:`VIEW_GUTTER_MM`, which is what the auto-layout actually delivers, so this
+#: floor only fires for a hand-placed (``auto_place=False``) view or a sheet too small
+#: for its part — never for the layout's own arrangement. A LAYOUT legibility threshold,
+#: not a geometric tolerance (no kernel epsilon is involved).
+MIN_VIEW_CLEARANCE_MM = 6.0
+
+#: Baseline offset (mm) of a view's stamped caption below its content box, and the
+#: caption's text height — the caption is INK on the sheet, so the collision check
+#: measures a view's box PLUS this band (a caption printed through the neighbouring
+#: view is the same defect as overlapping geometry). Shared with the serializers so
+#: the measured band is the drawn one.
+_VIEW_LABEL_DY = 8.0
+_VIEW_LABEL_MM = 3.4
+
+#: A placed view's ink band below its geometry: the caption baseline plus half its
+#: cap height (the SVG/PDF/DXF caption is vertically centred on that baseline).
+_VIEW_CAPTION_BAND_MM = _VIEW_LABEL_DY + _VIEW_LABEL_MM / 2
+
+#: Sheet banner (audit N2) — where the layout-issue lines are stamped and how they are
+#: spaced: inside the top-left border corner, reading down, in the same mono face as
+#: every other sheet text run. Bounded at :data:`_BANNER_MAX_LINES` stamped lines (plus
+#: a "+N MORE" tail) so a pathological sheet cannot paper itself over.
+_BANNER_DX = 3.0
+_BANNER_DY = 5.0
+_BANNER_LINE_MM = 4.2
+_BANNER_TEXT_MM = 2.8
+_BANNER_MAX_LINES = 4
 
 #: The flat-pattern view projection kind (sheet-metal.md §7). Placed by the ADDITIVE
 #: flat-pattern branch of :func:`place_sheet` — a single flat blank centred on the
@@ -178,6 +216,20 @@ _BEND_COL_DX: tuple[float, ...] = (3.0, 26.0, 43.0, 62.0, 77.0)
 _BEND_TABLE_CAPTIONS: tuple[str, ...] = ("BEND", "ANGLE", "RADIUS", "DIR", "ALLOW mm")
 _BEND_TABLE_CAPTION_MM = 2.1  # design token bendTableCaptionMm (apps/web tokens.ts)
 _BEND_TABLE_TEXT_MM = 2.8  # design token bendTableTextMm
+
+# --- Thread-schedule block (BACKLOG #50) ------------------------------------------
+# The tapped-hole callout block: bottom-LEFT inside the border, i.e. the corner the
+# title block (bottom-right) and the bend table (top-left) both leave free, which is
+# also where ISO sheets conventionally carry general notes. Reuses the bend table's
+# row geometry and type sizes verbatim so the two annotation blocks read as one
+# family and the three serializers share one set of numbers.
+_THREAD_TABLE_W = 62.0
+_THREAD_TABLE_HEADER_H = _BEND_TABLE_HEADER_H
+_THREAD_TABLE_ROW_H = _BEND_TABLE_ROW_H
+#: Column left-edge offsets (mm from the block's left), in caption order.
+_THREAD_COL_DX: tuple[float, ...] = (3.0, 14.0, 40.0)
+#: Column captions. QTY / THREAD / the TAP DRILL the machinist sets up.
+_THREAD_TABLE_CAPTIONS: tuple[str, ...] = ("QTY", "THREAD", "TAP DRILL")
 
 # --- @loft/design `drawing` dimension tokens (tokens.ts) — ported values ---------
 _O = 11.0  # dimensionOffsetMm
@@ -330,6 +382,25 @@ def bounds_aware_layout(
     the object were projected through itself onto a plane behind it"). The iso
     corner is conventionally unchanged (the free upper-right quadrant in both).
     ``third_angle`` reproduces the pre-convention anchors byte-for-byte.
+
+    **The ISO anchor accounts for its OWN extent (audit N2).** It used to be placed
+    at ``(f.x + g + r.x, f.y + g + t.y)`` — the corner of the orthographic trio,
+    derived ONLY from the front/top/right extents. So the gap between the TOP view's
+    right edge and the ISO view's left edge was ``f.x + g + r.x - i.x - t.x``: it
+    shrank as the isometric grew and went NEGATIVE whenever the iso was wider than
+    the right-side view — which is the normal case for a wide plate (measured: a
+    100 mm plate cleared by 2.57 mm, the same part at 120 mm OVERLAPPED the top view
+    by 9.64 x 60.00 mm, with 80+ mm of sheet still empty to its right). The anchor is
+    now derived from the extents it must CLEAR — the free upper-right corner outside
+    the front/top column and above the front/right row — so ``iso`` is a full
+    :data:`VIEW_GUTTER_MM` clear of all three by construction, at ANY part size, in
+    BOTH conventions. Equal-extent views (the parity fixtures) land on exactly the
+    old anchors, so a sheet that was already clear composes byte-identically.
+
+    The trio's own pairwise clearance is the gutter by construction for a genuine
+    orthographic projection of one body (front and top share the X extent, front and
+    right the Z extent, top and right the Y extent). :func:`measure_layout_issues`
+    verifies the placed result rather than trusting that invariant.
     """
 
     def half(v: ViewProjection) -> Vec2:
@@ -341,6 +412,7 @@ def bounds_aware_layout(
     f = half("front")
     t = half("top")
     r = half("right")
+    i = half("iso")
     g = VIEW_GUTTER_MM
 
     any_geometry = any(half(v).x > 0 or half(v).y > 0 for v in STANDARD_VIEWS)
@@ -353,17 +425,23 @@ def bounds_aware_layout(
     # iso corner keeps the third-angle (+,+) slot in both conventions.
     top_sy = 1.0 if projection == "third_angle" else -1.0
     right_sx = 1.0 if projection == "third_angle" else -1.0
+    # The iso corner: outside the front/top COLUMN in x (both are centred on x = 0, so
+    # that column's right edge is max(f.x, t.x)) and above the front/right ROW in y
+    # (both are centred on y = 0, so that row's top edge is max(f.y, r.y)) — plus a
+    # gutter, plus the iso's OWN half extent. Guarantees a gutter of clearance from all
+    # three regardless of relative size (audit N2); reduces to the historical
+    # `f.x + g + r.x` / `f.y + g + t.y` whenever the extents are equal.
     rel: dict[ViewProjection, Vec2] = {
         "front": Vec2(0.0, 0.0),
         "top": Vec2(0.0, top_sy * (f.y + g + t.y)),
         "right": Vec2(right_sx * (f.x + g + r.x), 0.0),
-        "iso": Vec2(f.x + g + r.x, f.y + g + t.y),
+        "iso": Vec2(max(f.x, t.x) + g + i.x, max(f.y, r.y) + g + i.y),
     }
     half_of: dict[ViewProjection, Vec2] = {
         "front": f,
         "top": t,
         "right": r,
-        "iso": half("iso"),
+        "iso": i,
     }
     min_x = min_y = math.inf
     max_x = max_y = -math.inf
@@ -456,7 +534,7 @@ def _free_slot_anchor(half: Vec2, occupied: Sequence[_YUpRect], dims: Vec2) -> V
     return Vec2(ux1 + g + half.x, ucy)
 
 
-def _resolve_view_anchors(
+def resolve_view_anchors(
     layout: SheetLayout,
     result_by_proj: dict[ViewProjection, DrawingViewResult],
     dims: Vec2,
@@ -469,7 +547,38 @@ def _resolve_view_anchors(
     (2) any ``auto_place=False`` view — honored verbatim at its authored ``position``
     (the drag-to-place seam); (3) the additive ``auto_place`` views (section /
     flat_pattern) — each dropped into a non-overlapping :func:`_free_slot_anchor`.
+
+    KEYED BY PROJECTION, and that is an assumption this service does not own.
+    Every map here — ``result_by_proj``, ``anchors``, the caller's
+    ``svg_rect_by_proj`` — is keyed on :class:`ViewProjection`, so two views
+    sharing a projection would collide and the LAST one would win SILENTLY: a
+    view simply absent from the print, with no error anywhere. Nothing in this
+    module prevents that. What prevents it today is a unique constraint in
+    ANOTHER SERVICE — ``uq_views_sheet_projection`` on ``documents`` (migration
+    0011) — which geometry never sees and cannot enforce.
+
+    That cross-service invariant is exactly what multi-section sheets relax
+    (BACKLOG #31), so the guard below states the dependency and makes it LOUD.
+    Without it, relaxing that constraint would surface as a view missing from a
+    drawing rather than as a failure pointing here. Same reasoning as the
+    dimension-pairing guard in :func:`place_sheet`: a placement must never
+    silently attach to — or detach from — the wrong thing.
     """
+    counts: dict[ViewProjection, int] = {}
+    for vp in layout.views:
+        counts[vp.projection] = counts.get(vp.projection, 0) + 1
+    repeated = sorted(p for p, n in counts.items() if n > 1)
+    if repeated:
+        raise ValueError(
+            "resolve_view_anchors: the sheet layout repeats a projection "
+            f"({', '.join(repeated)}), but every anchor map in this composer is "
+            "keyed by projection, so one of those views would be dropped from the "
+            "sheet without an error. Composing several views of one projection "
+            "requires re-keying this pipeline on each view's own identity "
+            "(BACKLOG #31); until then documents' uq_views_sheet_projection is "
+            "what makes this unreachable."
+        )
+
     bounds_by_proj: dict[ViewProjection, ViewBounds | None] = {}
     for proj in STANDARD_VIEWS:
         r = result_by_proj.get(proj)
@@ -544,6 +653,100 @@ def view_content_svg_rect(
     a = to_svg(Vec2(bounds.min.x, bounds.min.y))
     b = to_svg(Vec2(bounds.max.x, bounds.max.y))
     return SvgRect(min(a.x, b.x), min(a.y, b.y), max(a.x, b.x), max(a.y, b.y))
+
+
+def view_ink_rect(
+    edges: Sequence[ProjectedViewEdge], anchor: Vec2, sheet_height: float
+) -> SvgRect | None:
+    """A view's INK extent on the sheet: its drawn geometry PLUS its caption band.
+
+    :func:`view_content_svg_rect` bounds the geometry; the stamped caption
+    ("FRONT") sits :data:`_VIEW_LABEL_DY` below it and is ink too, so a caption
+    printed through the neighbouring view is the same defect as crossing edges. This
+    is the box :func:`measure_layout_issues` measures between (audit N2)."""
+    rect = view_content_svg_rect(edges, anchor, sheet_height)
+    if rect is None:
+        return None
+    return SvgRect(
+        rect.min_x, rect.min_y, rect.max_x, rect.max_y + _VIEW_CAPTION_BAND_MM
+    )
+
+
+def _issue_message(
+    a: ViewProjection,
+    b: ViewProjection,
+    overlap_x: float,
+    overlap_y: float,
+    clearance: float,
+    overlapping: bool,
+) -> str:
+    """The plain-language sheet caption for one measured view-pair problem."""
+    names = f"{VIEW_LABEL[a].upper()} / {VIEW_LABEL[b].upper()}"
+    if overlapping:
+        return (
+            f"{names} VIEWS OVERLAP BY {overlap_x:.2f} X {overlap_y:.2f} MM "
+            "- REPOSITION OR USE A LARGER SHEET BEFORE RELEASE"
+        )
+    return (
+        f"{names} VIEWS CLEAR BY ONLY {clearance:.2f} MM (MINIMUM "
+        f"{MIN_VIEW_CLEARANCE_MM:.2f} MM) - CROWDED SHEET"
+    )
+
+
+def measure_layout_issues(
+    rects: Sequence[tuple[ViewProjection, SvgRect]], margin_mm: float
+) -> list[ComposedLayoutIssue]:
+    """Measure every pair of placed views for collision / crowding (audit N2).
+
+    The verification half of the layout fix: :func:`bounds_aware_layout` now derives
+    anchors that clear by construction, and this MEASURES the placed result — including
+    the placements composition does not choose (a hand-positioned ``auto_place=False``
+    view, an additive section dropped into a free slot, a part too big for its sheet) —
+    so an unreadable sheet is never exported silently. Pure + deterministic: pairs are
+    walked in the given (canonical composed) order.
+
+    Two axis overlaps per pair, in millimetres and SIGNED (positive = the boxes overlap
+    on that axis, negative = that much clearance). Both positive ⇒ the boxes intersect
+    ⇒ a ``views_overlap`` **error**; otherwise the white gap is the larger axis
+    separation (conservative for a diagonal offset) and a gap below
+    :data:`MIN_VIEW_CLEARANCE_MM` ⇒ a ``views_crowded`` **warning**. Each issue is
+    stamped down the sheet's top-left banner in order, so the print says it in words.
+
+    Views WITHOUT drawn geometry are not measured: a failed view is a 52 x 28 mm
+    placeholder stub that already prints its own typed reason (FINDINGS #15), and the
+    absent geometry has no honest extent to compare.
+    """
+    issues: list[ComposedLayoutIssue] = []
+    for index, (name_a, rect_a) in enumerate(rects):
+        for name_b, rect_b in rects[index + 1 :]:
+            overlap_x = min(rect_a.max_x, rect_b.max_x) - max(
+                rect_a.min_x, rect_b.min_x
+            )
+            overlap_y = min(rect_a.max_y, rect_b.max_y) - max(
+                rect_a.min_y, rect_b.min_y
+            )
+            overlapping = overlap_x > 0.0 and overlap_y > 0.0
+            clearance = 0.0 if overlapping else max(-overlap_x, -overlap_y)
+            if not overlapping and clearance >= MIN_VIEW_CLEARANCE_MM:
+                continue
+            issues.append(
+                ComposedLayoutIssue(
+                    code="views_overlap" if overlapping else "views_crowded",
+                    severity="error" if overlapping else "warning",
+                    views=[name_a, name_b],
+                    overlap_x_mm=overlap_x,
+                    overlap_y_mm=overlap_y,
+                    clearance_mm=clearance,
+                    message=_issue_message(
+                        name_a, name_b, overlap_x, overlap_y, clearance, overlapping
+                    ),
+                    at=ComposedPoint(
+                        x_mm=margin_mm + _BANNER_DX,
+                        y_mm=margin_mm + _BANNER_DY + len(issues) * _BANNER_LINE_MM,
+                    ),
+                )
+            )
+    return issues
 
 
 def _norm(a: float) -> float:
@@ -754,6 +957,31 @@ def find_matching_edge(
     return None
 
 
+def anchored_signature(
+    authored: EdgeSignature | None,
+    measured: MeasuredDimension,
+    *,
+    secondary: bool = False,
+) -> EdgeSignature | None:
+    """The signature to match against the PROJECTED edges — re-anchored (audit N1).
+
+    A dimension names its model edge by the signature the user authored. After a
+    rebuild that CHANGED that edge (the plate widened, the hole grew) the authored
+    signature no longer describes anything on the sheet, so looking the projected edge
+    up by it fails and the dimension vanishes — even once the value itself re-measures
+    (:mod:`geometry.drawings.anchor`). So placement uses the CURRENT signature the
+    measurement resolved to (:class:`~py_kit.schemas.drawings.DimensionAnchor`,
+    ``primary``/``secondary``), falling back to the authored one when the caller
+    supplies no anchor (a hand-built :class:`MeasuredDimension` in a unit test, an
+    older client) — which keeps every previously-composed sheet byte-identical.
+    """
+    if measured.anchor is not None:
+        resolved = measured.anchor.secondary if secondary else measured.anchor.primary
+        if resolved is not None:
+            return resolved
+    return authored
+
+
 def dimension_edge_signature(params: DimensionParams) -> EdgeSignature | None:
     """The primary model edge a dimension references (dimensions.ts)."""
     if params.type in ("diameter", "radius"):
@@ -817,6 +1045,79 @@ def format_dimension_label(dim_type: str, value: float, unit: str | None) -> str
     if dim_type == "angular":
         return f"{n}°"  # °
     return n
+
+
+#: Plain-language sheet phrase per typed dimension-failure code (audit N1). A machinist
+#: reads the print, not our error taxonomy, so the sheet says what happened and what to
+#: do; the machine-readable ``code`` rides alongside on the wire. An unknown code
+#: degrades to its own words rather than to nothing.
+_DIM_ERROR_PHRASE: dict[str, str] = {
+    "subshape_unresolved": "REFERENCE LOST - RE-PICK THE EDGE",
+    "subshape_ambiguous": "REFERENCE AMBIGUOUS - RE-PICK THE EDGE",
+    "dimension_wrong_type": "WRONG EDGE TYPE FOR THIS DIMENSION",
+    "unmeasured": "NOT MEASURED",
+    "dimension_not_placeable": "CANNOT BE PLACED IN THIS VIEW - RE-PICK IT",
+}
+
+#: The typed code for an authored dimension that MEASURED fine but whose annotation
+#: cannot be drawn on this view (QA-4). Reasons, all one honest bucket because the
+#: fix is the same in every case — re-pick the edge in a view that shows it:
+#: the (re-anchored) model edge is not among the view's projected edges at all; it is
+#: drawn as a primitive this dimension type cannot annotate (a bore rim seen edge-on
+#: projects to a LINE, so there is no circle for a Ø to span); a point-to-point
+#: endpoint has no projected correspondence; or the placement itself is degenerate
+#: (two parallel edges for an angular dimension, a zero-length projected span).
+#:
+#: Before QA-4 every one of those returned ``None`` and the composer SKIPPED the
+#: dimension — the authored dimension vanished from the print with no marker, no
+#: caption and no error anywhere in the artifact, which is the one failure mode a
+#: shop cannot catch: a drawing that has silently lost a dimension looks exactly like
+#: a complete one. It is now a stamped :class:`ComposedDimensionError` like any other
+#: (docs/design/drawings.md §3.4).
+DIMENSION_NOT_PLACEABLE = "dimension_not_placeable"
+
+#: Offset (mm) of the error caption from its marker: clear of the 2.6 mm marker circle
+#: to its right, on the marker's centre line.
+_DIM_ERROR_TEXT_DX = 4.2
+_DIM_ERROR_TEXT_DY = 0.9
+
+#: Cap height (mm) of the stamped error caption — one notch under the dimension value
+#: text (`_TXT`), so a broken dimension speaks without shouting over good ones.
+_DIM_ERROR_TEXT_MM = 2.4
+
+
+def dimension_error_caption(dim_type: str, code: str) -> str:
+    """The short, upper-case sheet caption for an unmeasurable dimension (audit N1).
+
+    "LINEAR DIM: REFERENCE LOST - RE-PICK THE EDGE" — the type of dimension that broke
+    and, in words, why plus the fix. Stamped beside the marker by all three serializers;
+    the 2.6 mm dashed circle with a bare ``!`` was the whole diagnostic before."""
+    phrase = _DIM_ERROR_PHRASE.get(code, code.replace("_", " ").upper())
+    return f"{dim_type.upper()} DIM: {phrase}"
+
+
+def _dimension_error(
+    dim_type: str, dim_id: object, marker_at: Vec2, code: str
+) -> ComposedDimensionError:
+    """THE single stamped-error construction (CLAUDE.md DRY): marker + caption.
+
+    Every unmeasurable AND every unplaceable dimension goes through here, so the
+    machine-readable ``code``, the plain-words ``message`` and the caption OFFSET are
+    identical whichever way a dimension failed — one thing for a serializer to draw
+    and one thing for a UI to badge."""
+    return ComposedDimensionError(
+        dimension_id=dim_id,  # type: ignore[arg-type]
+        dimension_type=dim_type,  # type: ignore[arg-type]
+        at=ComposedPoint(x_mm=marker_at.x, y_mm=marker_at.y),
+        code=code,
+        # Words beside the view, not a bare "!" (audit N1) — the dimension-level
+        # twin of the typed per-view reason a failed view stamps (FINDINGS #15).
+        message=dimension_error_caption(dim_type, code),
+        text=ComposedPoint(
+            x_mm=marker_at.x + _DIM_ERROR_TEXT_DX,
+            y_mm=marker_at.y + _DIM_ERROR_TEXT_DY,
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------------
@@ -1093,11 +1394,19 @@ def _build_dimension_annotation_auto(
     obstacles: Sequence[SvgRect],
     sheet: Vec2 | None,
     dim_id: object,
-) -> ComposedDimension | None:
+) -> ComposedDimension:
     """Build the drafting annotation for one measured dimension (dimensions.ts).
 
-    Returns None when the dimension cannot be placed (an unmatched/mismatched edge,
-    parallel angular edges) — the caller lists it, never mis-draws.
+    ALWAYS returns something to draw (QA-4). A dimension that cannot be PLACED — the
+    (re-anchored) edge is not among this view's projected edges, it is drawn as a
+    primitive this dimension type cannot annotate, a point-to-point endpoint has no
+    projected correspondence, or the placement itself is degenerate (parallel angular
+    edges, a zero-length span) — comes back as a stamped
+    :class:`ComposedDimensionError` carrying :data:`DIMENSION_NOT_PLACEABLE`, exactly
+    like a dimension that could not be MEASURED. It used to return ``None`` and the
+    caller SKIPPED it: the authored dimension then vanished from the sheet and from
+    every exported artifact without a mark, which is strictly the worst outcome — a
+    print silently missing a dimension reads as a complete one.
 
     The auto-placement CORE. Honors the authored :class:`DimensionPlacement.offset_mm`
     for a LINEAR dimension (its design-§3.1 meaning — the signed offset of the
@@ -1112,19 +1421,23 @@ def _build_dimension_annotation_auto(
     authored_offset = (
         dimension.placement.offset_mm if dimension.placement.offset_mm != 0.0 else None
     )
-    primary_sig = dimension_edge_signature(dimension)
+    # Match the projected edges against the RE-ANCHORED signature (audit N1): after an
+    # edit to the measured feature the authored signature names geometry that is no
+    # longer there, and the annotation would be dropped even though the value
+    # re-measured fine.
+    primary_sig = anchored_signature(dimension_edge_signature(dimension), measured)
     primary_edge = find_matching_edge(edges, primary_sig) if primary_sig else None
     marker_at = (
         to_svg(_p2(primary_edge.midpoint)) if primary_edge else to_svg(view_center)
     )
 
+    def unplaceable() -> ComposedDimensionError:
+        """This dimension measured, but there is nothing on this view to draw it on."""
+        return _dimension_error(dim_type, dim_id, marker_at, DIMENSION_NOT_PLACEABLE)
+
     if measured.error is not None or measured.value is None:
-        return ComposedDimensionError(
-            dimension_id=dim_id,  # type: ignore[arg-type]
-            dimension_type=dim_type,
-            at=ComposedPoint(x_mm=marker_at.x, y_mm=marker_at.y),
-            code=measured.error.code if measured.error is not None else "unmeasured",
-        )
+        code = measured.error.code if measured.error is not None else "unmeasured"
+        return _dimension_error(dim_type, dim_id, marker_at, code)
 
     value = measured.value
     label = ("~" if measured.foreshortened else "") + format_dimension_label(
@@ -1134,17 +1447,40 @@ def _build_dimension_annotation_auto(
     if isinstance(dimension, LinearDimensionParams):
         measurement = dimension.measurement
         if isinstance(measurement, PointToPointMeasurement):
-            edge_a = find_matching_edge(edges, measurement.a.signature)
-            edge_b = find_matching_edge(edges, measurement.b.signature)
+            sig_b = anchored_signature(
+                measurement.b.signature, measured, secondary=True
+            )
+            edge_a = find_matching_edge(edges, primary_sig) if primary_sig else None
+            edge_b = find_matching_edge(edges, sig_b) if sig_b else None
             if edge_a is None or edge_b is None:
-                return None
+                return unplaceable()
             p = _endpoint_projected(edge_a, measurement.a.endpoint)
             q = _endpoint_projected(edge_b, measurement.b.endpoint)
             if p is None or q is None:
-                return None
-            return _place_linear_between(
-                p,
-                q,
+                return unplaceable()
+            return (
+                _place_linear_between(
+                    p,
+                    q,
+                    label,
+                    measured.foreshortened,
+                    view_center,
+                    to_svg,
+                    obstacles,
+                    sheet,
+                    dim_type,
+                    dim_id,
+                    authored_offset,
+                )
+                or unplaceable()
+            )
+        edge = primary_edge
+        if edge is None or edge.primitive != "line":
+            return unplaceable()
+        return (
+            _place_linear_between(
+                _p2(edge.start),
+                _p2(edge.end),
                 label,
                 measured.foreshortened,
                 view_center,
@@ -1155,38 +1491,28 @@ def _build_dimension_annotation_auto(
                 dim_id,
                 authored_offset,
             )
-        edge = primary_edge
-        if edge is None or edge.primitive != "line":
-            return None
-        return _place_linear_between(
-            _p2(edge.start),
-            _p2(edge.end),
-            label,
-            measured.foreshortened,
-            view_center,
-            to_svg,
-            obstacles,
-            sheet,
-            dim_type,
-            dim_id,
-            authored_offset,
+            or unplaceable()
         )
 
     if isinstance(dimension, AngularDimensionParams):
-        edge_a = find_matching_edge(edges, dimension.edge_a)
-        edge_b = find_matching_edge(edges, dimension.edge_b)
+        sig_b = anchored_signature(dimension.edge_b, measured, secondary=True)
+        edge_a = find_matching_edge(edges, primary_sig) if primary_sig else None
+        edge_b = find_matching_edge(edges, sig_b) if sig_b else None
         if edge_a is None or edge_b is None:
-            return None
+            return unplaceable()
         if edge_a.primitive != "line" or edge_b.primitive != "line":
-            return None
-        return _place_angular(
-            edge_a, edge_b, label, measured.foreshortened, to_svg, dim_id
+            return unplaceable()
+        return (
+            _place_angular(
+                edge_a, edge_b, label, measured.foreshortened, to_svg, dim_id
+            )
+            or unplaceable()
         )
 
     # Diameter | Radius (the only remaining members after the branches above).
     edge = primary_edge
     if edge is None or edge.center is None or edge.radius is None:
-        return None
+        return unplaceable()
     c = _p2(edge.center)
     rad = edge.radius
     if isinstance(dimension, DiameterDimensionParams):
@@ -1235,7 +1561,7 @@ def build_dimension_annotation(
     obstacles: Sequence[SvgRect],
     sheet: Vec2 | None,
     dim_id: object,
-) -> ComposedDimension | None:
+) -> ComposedDimension:
     """Build the drafting annotation for one measured dimension (dimensions.ts).
 
     Wraps the auto-placement core (:func:`_build_dimension_annotation_auto`, which
@@ -1247,9 +1573,9 @@ def build_dimension_annotation(
     as-authored and the viewer clips it). ``None`` (the default every shipped
     dimension carries) leaves the auto text position untouched — byte-identical. The
     override touches only the text POSITION; the dimension/extension lines, arrows,
-    stamped value, and text angle are the auto-placed geometry. An unplaceable
-    dimension (``None``) or a typed :class:`ComposedDimensionError` is returned as-is
-    (no text to move).
+    stamped value, and text angle are the auto-placed geometry. A typed
+    :class:`ComposedDimensionError` — unmeasurable OR unplaceable (QA-4) — is returned
+    as-is (its caption sits beside its own marker; there is no measured text to move).
     """
     anno = _build_dimension_annotation_auto(
         dimension, measured, edges, view_center, to_svg, obstacles, sheet, dim_id
@@ -1286,27 +1612,31 @@ def _compose_view(
     bounds = view_bounds(edges)
     svg_edges = view_to_svg_edges(edges, anchor, sheet_h)
     below_mm = (bounds.center.y - bounds.min.y) if bounds else 0.0
-    label_y = anchor_svg_y + below_mm + 8
+    label_y = anchor_svg_y + below_mm + _VIEW_LABEL_DY
 
     dims: list[ComposedDimension] = []
     if not failed:
         to_svg = view_transform(edges, anchor, sheet_h)
         view_center = bounds.center if bounds else Vec2(0.0, 0.0)
         sheet = Vec2(sheet_w, sheet_h)
+        # EVERY authored dimension of this view lands on the sheet — as its drafting
+        # annotation when it can be placed, otherwise as a stamped error marker with
+        # words (QA-4). There is deliberately no "skip" branch here: a dimension the
+        # composer drops is invisible on the paper AND in the exported bytes, so a
+        # print that has lost one looks complete.
         for inp, measured in view_dims:
-            anno = build_dimension_annotation(
-                inp.dimension,
-                measured,
-                edges,
-                view_center,
-                to_svg,
-                obstacles,
-                sheet,
-                inp.id,
+            dims.append(
+                build_dimension_annotation(
+                    inp.dimension,
+                    measured,
+                    edges,
+                    view_center,
+                    to_svg,
+                    obstacles,
+                    sheet,
+                    inp.id,
+                )
             )
-            if anno is None:
-                continue
-            dims.append(anno)
 
     return ComposedView(
         projection=projection,
@@ -1411,6 +1741,29 @@ def _bend_table_block(
     )
 
 
+def _thread_schedule_block(
+    rows: Sequence[ThreadCalloutRow], dims: Vec2
+) -> ComposedThreadSchedule | None:
+    """The placed thread-schedule block for a part with tapped holes (BACKLOG #50).
+
+    Anchored bottom-LEFT inside the border and grown upward from the bottom margin,
+    so the block sits in the one corner neither the title block (bottom-right) nor a
+    flat-pattern bend table (top-left) uses. Returns None when there is nothing to
+    call out, and an untapped sheet then composes byte-identically to its
+    pre-thread golden (the additive posture the notes / bend table take).
+    """
+    if not rows:
+        return None
+    height = _THREAD_TABLE_HEADER_H + len(rows) * _THREAD_TABLE_ROW_H
+    return ComposedThreadSchedule(
+        x=SHEET_MARGIN_MM,
+        y=dims.y - SHEET_MARGIN_MM - height,
+        width=_THREAD_TABLE_W,
+        height=height,
+        rows=list(rows),
+    )
+
+
 def _place_notes(annotations: Sequence[Annotation]) -> list[ComposedNote]:
     """Place each free-text note annotation onto the sheet (design §2.2 v1).
 
@@ -1435,6 +1788,7 @@ def place_sheet(
     dimensions: Sequence[DrawingDimensionInput],
     layout: SheetLayout,
     annotations: Sequence[Annotation] = (),
+    threads: Sequence[ThreadCalloutRow] = (),
 ) -> ComposedSheet:
     """Place the evaluated drawing on the sheet (drawing-export.md §4.2).
 
@@ -1449,6 +1803,11 @@ def place_sheet(
     placed verbatim at its sheet-mm anchor (:func:`_place_notes`) — no geometry needed,
     so they are independent of the evaluated views. Defaulting to ``()`` keeps a
     note-free compose byte-identical to its pre-notes golden.
+
+    ``threads`` are the part's DERIVED tapped-hole callouts
+    (:func:`~geometry.drawings.thread_schedule.thread_schedule_rows`), placed as the
+    bottom-left schedule block (BACKLOG #50). Like the notes they need no geometry,
+    and ``()`` composes byte-identically to a sheet without them.
 
     NB the two-argument ``place_sheet(evaluation, layout)`` of the design sketch is
     widened: the measured-result envelope carries no dimension PARAMS (so the authored
@@ -1466,7 +1825,7 @@ def place_sheet(
     # bounds-aware as before, additive section/flat_pattern views into a NON-OVERLAPPING
     # free slot (never the old dead-centre collision), and any auto_place=False view
     # honored at its authored position.
-    anchors = _resolve_view_anchors(layout, result_by_proj, dims)
+    anchors = resolve_view_anchors(layout, result_by_proj, dims)
 
     svg_rect_by_proj: dict[ViewProjection, SvgRect] = {}
     for proj in STANDARD_VIEWS:
@@ -1514,7 +1873,7 @@ def place_sheet(
 
     # Flat-pattern branch (sheet-metal.md §7) — ADDITIVE to the standard-4 layout
     # above. A flat-pattern sheet holds a single flat blank (already 2D, no HLR): it is
-    # placed at its RESOLVED anchor (`_resolve_view_anchors`) — the historical sheet
+    # placed at its RESOLVED anchor (`resolve_view_anchors`) — the historical sheet
     # centre for a flat-pattern-only sheet (byte-identical), a NON-OVERLAPPING free slot
     # when it shares a sheet with standard views (FINDINGS #6) — via the SAME extent-
     # driven `_compose_view`/`view_to_svg_edges`/`view_bounds` machinery every standard
@@ -1544,7 +1903,7 @@ def place_sheet(
 
     # Section branch (drawings-section.md §5) — ADDITIVE to the standard-4 layout,
     # exactly like flat_pattern: a section view is a single view placed at its RESOLVED
-    # anchor (`_resolve_view_anchors`) — the historical sheet centre for a section-only
+    # anchor (`resolve_view_anchors`) — the historical sheet centre for a section-only
     # sheet (byte-identical), a NON-OVERLAPPING free slot when it shares a sheet with
     # standard quartet (FINDINGS #6 — previously it collided dead-centre with TOP/ISO) —
     # through the SAME `_compose_view` machinery, and its crosshatch rides along,
@@ -1572,6 +1931,19 @@ def place_sheet(
             )
         composed_views.append(section_view)
 
+    # Verify the PLACED sheet (audit N2). Composition derives clear anchors, but it does
+    # not choose every placement (a hand-positioned view, a part too big for its sheet),
+    # so the result is measured: every placed view with drawn geometry, in composed
+    # order, giving deterministic pairs and a deterministic banner.
+    ink_rects: list[tuple[ViewProjection, SvgRect]] = []
+    for view in composed_views:
+        result = result_by_proj.get(view.projection)
+        if view.failed or result is None or view.projection not in anchors:
+            continue
+        ink = view_ink_rect(result.edges, anchors[view.projection], sheet_h)
+        if ink is not None:
+            ink_rects.append((view.projection, ink))
+
     scale_label = format_scale(layout.views[0].scale) if layout.views else "1:1"
     return ComposedSheet(
         width_mm=sheet_w,
@@ -1583,6 +1955,8 @@ def place_sheet(
         title_block=_title_block(layout, dims, scale_label),
         bend_table=bend_table_block,
         notes=_place_notes(annotations),
+        layout_issues=measure_layout_issues(ink_rects, SHEET_MARGIN_MM),
+        thread_schedule=_thread_schedule_block(threads, dims),
     )
 
 
@@ -1595,7 +1969,16 @@ _SVG_DECIMALS = 4
 
 # @loft/design `drawing` token palette (tokens.ts) — the SAME colours the on-screen
 # sheet renders, as inline attributes (one palette, N renderers).
-_PAPER = "#ECEFF2"
+#
+# ONE DELIBERATE DIVERGENCE: the page fill. The screen token `drawing.paper` is a soft
+# grey (#ECEFF2) because on screen a sheet must read AS A SHEET against dark app
+# chrome. An EXPORTED artifact is not a UI surface — it is a print, and a print's paper
+# is white. Filling it #ECEFF2 meant every PDF a shop received was a grey A3 (audit N5)
+# with a full page of toner behind the drawing. So the exported page — and every
+# knockout that has to match it (the dimension-text halo, the annotation-block backers)
+# — is WHITE, from this one constant. The strokes below are shared with the screen
+# unchanged; only the paper differs, because only the medium does.
+_PAPER = "#FFFFFF"
 _PAPER_EDGE = "#C9CFD7"
 _INK = "#1B222B"
 _EDGE_VISIBLE = "#1B222B"
@@ -1805,6 +2188,15 @@ def _emit_dimension(dim: ComposedDimension, out: list[str]) -> None:
             f'text-anchor="middle" dominant-baseline="central" fill="{_DIM_FLAG}" '
             f'font-family="{_FONT}" font-size="3">!</text>'
         )
+        # The words (audit N1): what broke and what to do, beside the marker.
+        if dim.message and dim.text is not None:
+            out.append(
+                f'        <text data-testid="drawing-dimension-error" '
+                f'x="{_fmt(dim.text.x_mm)}" y="{_fmt(dim.text.y_mm)}" '
+                f'fill="{_DIM_FLAG}" font-family="{_FONT}" '
+                f'font-size="{_fmt(_DIM_ERROR_TEXT_MM)}" letter-spacing="0.2">'
+                f"{_esc(dim.message)}</text>"
+            )
         out.append("      </g>")
         return
 
@@ -2008,6 +2400,125 @@ def _emit_bend_table(bt: ComposedBendTable, out: list[str]) -> None:
     out.append("    </g>")
 
 
+def _thread_row_cells(row: ThreadCalloutRow) -> tuple[str, str, str]:
+    """Canonical per-column cell strings for one thread-schedule row (BACKLOG #50).
+
+    Columns are ``(QTY, THREAD, TAP DRILL)``::
+
+        QTY       = f"{quantity}x"            ("4x" — how a print counts holes)
+        THREAD    = designation               ("M6x1", ASCII, kernel-formatted)
+        TAP DRILL = f"{tap_drill_mm:.2f}"     (bare 2 dp mm; the caption says what)
+
+    ONE format shared by the SVG/PDF/DXF serializers (each is a pure layout pass over
+    these cells) — the same DRY lock the bend table uses, for the same reason. Fixed
+    decimals are byte-stable across an interpreter restart (§8.3).
+    """
+    return (f"{row.quantity}x", row.designation, f"{row.tap_drill_mm:.2f}")
+
+
+def _emit_thread_schedule(ts: ComposedThreadSchedule, out: list[str]) -> None:
+    """Render the thread-schedule block into SVG — box + header + one row per size.
+
+    Mirrors :func:`_emit_bend_table` exactly (same box, same header rule, same type
+    sizes), reading the SAME :func:`_thread_row_cells` at the SAME ``_THREAD_COL_DX``
+    the PDF/DXF serializers read, so all three prints call out the same threads.
+    """
+    x, y, w, h = ts.x, ts.y, ts.width, ts.height
+    out.append('    <g data-testid="drawing-thread-schedule">')
+    out.append(
+        f'      <rect x="{_fmt(x)}" y="{_fmt(y)}" width="{_fmt(w)}" '
+        f'height="{_fmt(h)}" fill="{_PAPER}" stroke="{_INK}" '
+        f'stroke-width="{_fmt(_BORDER_W)}"/>'
+    )
+    out.append(
+        f'      <line x1="{_fmt(x)}" y1="{_fmt(y + _THREAD_TABLE_HEADER_H)}" '
+        f'x2="{_fmt(x + w)}" y2="{_fmt(y + _THREAD_TABLE_HEADER_H)}" '
+        f'stroke="{_INK}" stroke-width="{_fmt(_HIDDEN_W)}"/>'
+    )
+    cap_y = y + _THREAD_TABLE_HEADER_H - 2.4
+    for dx, caption in zip(_THREAD_COL_DX, _THREAD_TABLE_CAPTIONS, strict=True):
+        out.append(
+            f'      <text x="{_fmt(x + dx)}" y="{_fmt(cap_y)}" '
+            f'fill="{_LABEL}" font-family="{_FONT}" '
+            f'font-size="{_BEND_TABLE_CAPTION_MM}" '
+            f'letter-spacing="0.4">{_esc(caption)}</text>'
+        )
+    for i, row in enumerate(ts.rows):
+        ry = y + _THREAD_TABLE_HEADER_H + (i + 1) * _THREAD_TABLE_ROW_H - 2
+        out.append(
+            f'      <g data-testid="drawing-thread-row" data-thread-index="{i}">'
+        )
+        for dx, cell in zip(_THREAD_COL_DX, _thread_row_cells(row), strict=True):
+            out.append(
+                f'        <text x="{_fmt(x + dx)}" y="{_fmt(ry)}" '
+                f'fill="{_DIM_TEXT}" font-family="{_FONT}" '
+                f'font-size="{_BEND_TABLE_TEXT_MM}">{_esc(cell)}</text>'
+            )
+        out.append("      </g>")
+    out.append("    </g>")
+
+
+#: Severity prefix for a stamped banner line (audit N2) — the machinist reads the
+#: severity first. Shared by all three serializers.
+_BANNER_PREFIX: dict[str, str] = {
+    "error": "LAYOUT ERROR: ",
+    "warning": "LAYOUT WARNING: ",
+}
+
+
+class BannerLine(NamedTuple):
+    """One stamped banner line: position, text, and whether it is an error."""
+
+    x: float
+    y: float
+    text: str
+    error: bool
+
+
+def banner_lines(composed: ComposedSheet) -> list[BannerLine]:
+    """The sheet's layout-issue banner, as stamped text lines (audit N2).
+
+    THE single banner layout the SVG / PDF / DXF serializers share (CLAUDE.md DRY): the
+    first :data:`_BANNER_MAX_LINES` issues at their composed anchors, plus a "+N MORE"
+    tail line when there are more, so an unreadable sheet announces itself on the print
+    in every format and a pathological sheet still cannot paper itself over. Empty for a
+    clean sheet — which is why a clean sheet's bytes are unchanged."""
+    issues = composed.layout_issues
+    lines = [
+        BannerLine(
+            x=issue.at.x_mm,
+            y=issue.at.y_mm,
+            text=_BANNER_PREFIX.get(issue.severity, "") + issue.message,
+            error=issue.severity == "error",
+        )
+        for issue in issues[:_BANNER_MAX_LINES]
+    ]
+    remaining = len(issues) - len(lines)
+    if remaining > 0 and lines:
+        last = lines[-1]
+        lines.append(
+            BannerLine(
+                x=last.x,
+                y=last.y + _BANNER_LINE_MM,
+                text=f"+{remaining} MORE LAYOUT ISSUE(S)",
+                error=any(i.severity == "error" for i in issues[_BANNER_MAX_LINES:]),
+            )
+        )
+    return lines
+
+
+def _emit_banner(composed: ComposedSheet, out: list[str]) -> None:
+    """Stamp the layout-issue banner into the SVG (audit N2)."""
+    for line in banner_lines(composed):
+        fill = _DIM_FLAG if line.error else _LABEL
+        out.append(
+            f'  <text data-testid="drawing-layout-issue" x="{_fmt(line.x)}" '
+            f'y="{_fmt(line.y)}" fill="{fill}" font-family="{_FONT}" '
+            f'font-size="{_fmt(_BANNER_TEXT_MM)}" letter-spacing="0.2">'
+            f"{_esc(line.text)}</text>"
+        )
+
+
 def _emit_note(note: ComposedNote, out: list[str]) -> None:
     """Render a placed free-text note (design §2.2) — left-anchored graphite ink.
 
@@ -2057,8 +2568,11 @@ def serialize_svg(composed: ComposedSheet) -> str:
     _emit_title_block(composed.title_block, out)
     if composed.bend_table is not None:
         _emit_bend_table(composed.bend_table, out)
+    if composed.thread_schedule is not None:
+        _emit_thread_schedule(composed.thread_schedule, out)
     for note in composed.notes:
         _emit_note(note, out)
+    _emit_banner(composed, out)
     out.append("</svg>")
     return "\n".join(out) + "\n"
 
@@ -2172,6 +2686,19 @@ def _pdf_dimension(c: Canvas, dim: ComposedDimension) -> None:
             centred=True,
             central=True,
         )
+        # The words (audit N1) — the same caption the SVG/DXF stamp.
+        if dim.message and dim.text is not None:
+            c.setDash([])
+            _pdf_text(
+                c,
+                dim.text.x_mm,
+                dim.text.y_mm,
+                dim.message,
+                _DIM_ERROR_TEXT_MM,
+                _DIM_FLAG,
+                centred=False,
+                central=False,
+            )
         return
 
     c.setDash([])
@@ -2338,6 +2865,49 @@ def _pdf_bend_table(c: Canvas, bt: ComposedBendTable) -> None:
             )
 
 
+def _pdf_thread_schedule(c: Canvas, ts: ComposedThreadSchedule) -> None:
+    """Draw the thread-schedule block onto the PDF canvas (BACKLOG #50).
+
+    The PDF twin of :func:`_emit_thread_schedule`: same box, same header rule, same
+    ``_THREAD_COL_DX`` offsets over the SAME :func:`_thread_row_cells`, so the
+    exported PDF a shop receives calls out exactly what the SVG and DXF do.
+    """
+    x, y, w, h = ts.x, ts.y, ts.width, ts.height
+    c.setDash([])
+    c.setFillColor(_hex(_PAPER))
+    c.setStrokeColor(_hex(_INK))
+    c.setLineWidth(_BORDER_W * _MM)
+    c.rect(x * _MM, y * _MM, w * _MM, h * _MM, stroke=1, fill=1)
+    c.setLineWidth(_HIDDEN_W * _MM)
+    hy = (y + _THREAD_TABLE_HEADER_H) * _MM
+    c.line(x * _MM, hy, (x + w) * _MM, hy)
+    cap_y = y + _THREAD_TABLE_HEADER_H - 2.4
+    for dx, caption in zip(_THREAD_COL_DX, _THREAD_TABLE_CAPTIONS, strict=True):
+        _pdf_text(
+            c,
+            x + dx,
+            cap_y,
+            caption,
+            _BEND_TABLE_CAPTION_MM,
+            _LABEL,
+            centred=False,
+            central=False,
+        )
+    for i, row in enumerate(ts.rows):
+        ry = y + _THREAD_TABLE_HEADER_H + (i + 1) * _THREAD_TABLE_ROW_H - 2
+        for dx, cell in zip(_THREAD_COL_DX, _thread_row_cells(row), strict=True):
+            _pdf_text(
+                c,
+                x + dx,
+                ry,
+                cell,
+                _BEND_TABLE_TEXT_MM,
+                _DIM_TEXT,
+                centred=False,
+                central=False,
+            )
+
+
 def _pdf_note(c: Canvas, note: ComposedNote) -> None:
     """Stamp a placed free-text note onto the PDF canvas (design §2.2) — left-anchored
     graphite ink at the note's sheet anchor (baseline-left, matching the SVG/DXF)."""
@@ -2396,8 +2966,26 @@ def serialize_pdf(composed: ComposedSheet) -> bytes:
     _pdf_title_block(c, composed.title_block)
     if composed.bend_table is not None:
         _pdf_bend_table(c, composed.bend_table)
+    if composed.thread_schedule is not None:
+        _pdf_thread_schedule(c, composed.thread_schedule)
     for note in composed.notes:
         _pdf_note(c, note)
+    # The layout-issue banner (audit N2) — a colliding sheet says so on the PDF too.
+    # Guarded so a CLEAN sheet emits no extra canvas op at all (byte-identity).
+    banner = banner_lines(composed)
+    if banner:
+        c.setDash([])
+    for line in banner:
+        _pdf_text(
+            c,
+            line.x,
+            line.y,
+            line.text,
+            _BANNER_TEXT_MM,
+            _DIM_FLAG if line.error else _LABEL,
+            centred=False,
+            central=False,
+        )
     c.showPage()
     c.save()
     return buf.getvalue()
@@ -2514,6 +3102,18 @@ def _dxf_dimension(
             _LYR_DIMENSION,
             centred=True,
         )
+        # The words (audit N1) — real, editable CAD text, not a bare glyph.
+        if dim.message and dim.text is not None:
+            _dxf_text_entity(
+                msp,
+                dim.message,
+                dim.text.x_mm,
+                fy(dim.text.y_mm),
+                _DIM_ERROR_TEXT_MM,
+                0.0,
+                _LYR_DIMENSION,
+                centred=False,
+            )
         return
     for line in dim.lines:
         _dxf_line(msp, line.x1, fy(line.y1), line.x2, fy(line.y2), _LYR_DIMENSION)
@@ -2673,6 +3273,48 @@ def _dxf_bend_table(
             )
 
 
+def _dxf_thread_schedule(
+    msp: Modelspace, ts: ComposedThreadSchedule, fy: Callable[[float], float]
+) -> None:
+    """Emit the thread-schedule block as DXF entities (BACKLOG #50).
+
+    The DXF twin of :func:`_emit_thread_schedule` / :func:`_pdf_thread_schedule`: a
+    box + header rule + one column-placed TEXT per caption and per cell, from the
+    SAME :func:`_thread_row_cells` at the SAME ``_THREAD_COL_DX``. Real editable CAD
+    text, so a shop can read the callout in its own CAD, not just in a picture.
+    """
+    x, y, w, h = ts.x, ts.y, ts.width, ts.height
+    box = [(x, fy(y)), (x + w, fy(y)), (x + w, fy(y + h)), (x, fy(y + h))]
+    msp.add_lwpolyline(box, close=True, dxfattribs={"layer": _LYR_TITLE})
+    hy = y + _THREAD_TABLE_HEADER_H
+    _dxf_line(msp, x, fy(hy), x + w, fy(hy), _LYR_TITLE)
+    cap_y = y + _THREAD_TABLE_HEADER_H - 2.4
+    for dx, caption in zip(_THREAD_COL_DX, _THREAD_TABLE_CAPTIONS, strict=True):
+        _dxf_text_entity(
+            msp,
+            caption,
+            x + dx,
+            fy(cap_y),
+            _BEND_TABLE_CAPTION_MM,
+            0.0,
+            _LYR_TITLE,
+            centred=False,
+        )
+    for i, row in enumerate(ts.rows):
+        ry = y + _THREAD_TABLE_HEADER_H + (i + 1) * _THREAD_TABLE_ROW_H - 2
+        for dx, cell in zip(_THREAD_COL_DX, _thread_row_cells(row), strict=True):
+            _dxf_text_entity(
+                msp,
+                cell,
+                x + dx,
+                fy(ry),
+                _BEND_TABLE_TEXT_MM,
+                0.0,
+                _LYR_TITLE,
+                centred=False,
+            )
+
+
 def _dxf_note(
     msp: Modelspace, note: ComposedNote, fy: Callable[[float], float]
 ) -> None:
@@ -2752,8 +3394,23 @@ def serialize_dxf(composed: ComposedSheet) -> bytes:
         _dxf_title_block(msp, composed.title_block, fy)
         if composed.bend_table is not None:
             _dxf_bend_table(msp, composed.bend_table, fy)
+        if composed.thread_schedule is not None:
+            _dxf_thread_schedule(msp, composed.thread_schedule, fy)
         for note in composed.notes:
             _dxf_note(msp, note, fy)
+        # The layout-issue banner (audit N2) — on the DIMENSION layer (the sheet's
+        # "read me" ink), so a shop opening the DXF sees the collision called out.
+        for line in banner_lines(composed):
+            _dxf_text_entity(
+                msp,
+                line.text,
+                line.x,
+                fy(line.y),
+                _BANNER_TEXT_MM,
+                0.0,
+                _LYR_DIMENSION,
+                centred=False,
+            )
 
         stream = io.StringIO()
         doc.write(stream)

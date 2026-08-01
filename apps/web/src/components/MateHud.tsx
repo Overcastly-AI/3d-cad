@@ -113,7 +113,7 @@ export function MateHud({ submitError, submitting, onCommit }: MateHudProps) {
           <NumberField
             label={mateToolLabel(tool)}
             unit={unit}
-            className="w-28"
+            className="w-[7rem]"
             data-testid="mate-value"
             autoFocus
             value={draft}

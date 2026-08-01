@@ -49,6 +49,7 @@ from py_kit.schemas.sketch import (
     SketchSpline,
 )
 
+from geometry.kernel.healing import clean_shape
 from geometry.kernel.lumps import assemble_lumps
 from geometry.kernel.removal import removal_reaches_body
 from geometry.kernel.types import BodyShape
@@ -547,5 +548,5 @@ def combine_body(
     # bare cleaned Solid (byte-identical); a multi-lump body reassembles in the
     # explicit lump order (RESEARCH §9).
     if lump_count == 1:
-        return solids[0].clean()
-    return assemble_lumps([solid.clean() for solid in solids])
+        return clean_shape(solids[0])
+    return assemble_lumps([clean_shape(solid) for solid in solids])

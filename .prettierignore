@@ -11,6 +11,9 @@ packages/ts-client/
 pnpm-lock.yaml
 uv.lock
 
+# Local backups (scripts/backup.sh) — data, not source.
+backups/
+
 # Build/venv output
 node_modules/
 dist/

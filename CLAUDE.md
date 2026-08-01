@@ -94,7 +94,7 @@ and intentional** — never templated. Standing rules:
 
 ```
 apps/web            React SPA (viewport + UI)
-services/gateway    FastAPI: auth, REST aggregation, WebSocket fan-out
+services/gateway    FastAPI: auth, REST aggregation, geometry/document proxy
 services/geometry   OCCT workers: feature eval, tessellation, export (stateless)
 services/documents  Parts/assemblies, feature trees, versioning (Postgres)
 packages/py-kit     Shared Python service kit (config, logging, health, queue, errors)
@@ -143,6 +143,8 @@ just lint           # ruff + pyright + eslint/prettier + TS typecheck (tsc)
 just test           # all unit tests (py + ts)
 just gen            # regenerate contracts + ts-client
 just gen-check      # CI gate: regenerate in tempdir, diff vs. committed
+just gen-verify     # same, but generated from the INDEX — run this before
+                    # committing a schema change while agents run in parallel
 just e2e            # geometry gates (goldens + STEP round-trip) + Playwright suite;
                     # boots geometry/gateway itself (PID-tracked, cleaned up)
 docker compose up -d --build   # full stack (use `just dev` for dev with hot reload)
@@ -207,6 +209,93 @@ Stale docs are a defect (this rule saved Next-Lane repeatedly; see
   reads the run and relays `get_job_logs` output back via SendMessage so the
   agent can iterate, or (b) keep CI-verified work in the orchestrator's own
   hands. Do NOT write briefs that assume a subagent can self-verify CI.
+- **CI can ONLY be read through the GitHub MCP tools — never a bash poll, not
+  even in the orchestrator's own session.** `api.github.com` is policy-denied
+  from `Bash` here for the orchestrator too (the bullet above is about
+  subagents, but the block is not subagent-specific), so the natural instinct
+  — arm a `Monitor` that curls the runs endpoint until the conclusion lands —
+  **cannot work**: the monitor fires once with the poll error and exits, which
+  reads like "still running" if you aren't watching for it. Same for
+  `Bash(run_in_background)`. Consequence: **waiting on CI is turn-based.** Push,
+  then read the run with `actions_list` → `list_workflow_runs` (filter by
+  branch) or `actions_get` → `get_workflow_run` on a known run id, and re-read
+  it on a later turn; there is no way to be woken by a CI transition. Two
+  practical notes: (a) `list_workflow_runs` returns ~430 KB and blows the tool
+  limit — it gets spilled to a file, so parse that file with `python3 -c` and
+  print only `head_sha`/`status`/`conclusion` rather than trying to read it.
+  **`per_page` is IGNORED** — asking for 1 still returns 30 runs and the same
+  ~430 KB, so do not bother trying to trim the payload that way; the spill +
+  parse is the only cheap path;
+  (b) `get_workflow_run` on ONE id is small and is the cheap way to re-check a
+  known run.
+- **FIXED 2026-07-30 — `cancel-in-progress` is now PR-only, so a branch run
+  that has STARTED is no longer killed by the next push. MEASURED, with one
+  caveat below.** History, because the reasoning matters: the
+  concurrency group is keyed on the ref, and with blanket cancellation pushing
+  commit B ~3 min after A left A's run `cancelled` — which by the rule above is
+  NOT a pass, so A shipped CI-unverified with nothing wrong with it. It hit
+  three commits in a row (`6c9c432`, `8f387fc`, nearly `fe2e5cb`), including
+  the commit that first *documented* the trap, and the exposure scales with the
+  number of agents pushing in parallel — precisely when per-commit signal
+  matters most. Blanket cancellation and "every commit green on its own" cannot
+  both hold, so cancellation now applies only to `pull_request` (where just the
+  head matters for merge). Two things follow: (a) don't "fix" a red-looking
+  board by re-enabling it; (b) a `cancelled` run on a branch push is now a real
+  anomaly worth investigating, not the routine noise it used to be.
+  NB a descendant's green run does verify the *tree* of its ancestors, so a
+  cancelled ancestor whose child is green is not an unknown build — it is an
+  unverified *commit*. Say which of the two you mean.
+  **SUPERSEDED 2026-07-30 by a per-SHA group — read this caveat as the reason
+  why.** The PR-only `cancel-in-progress` alone did NOT save a run that had not
+  STARTED yet. Evidence: with the fix live, `5de225c`'s run stayed
+  `in_progress` across a later push (the old config would have killed it
+  instantly) — but `60ac962` and `cb0dcd0`, also pushed with the fix in their own
+  trees, still came back `cancelled`. The difference is that those two were
+  superseded before getting a runner slot: a concurrency group admits one running
+  plus one *pending* run, and a newer arrival evicts the pending one regardless of
+  `cancel-in-progress`, which only governs runs already holding a slot. So under
+  runner contention — which is exactly when several agents are pushing — rapid
+  back-to-back pushes can still cost the middle commit its run. Practical rule:
+  the fix removed the routine case but not the mechanism. Under four agents
+  pushing it became the NORM, not an edge: **5 of 8 consecutive runs came back
+  `cancelled`**, including `5794b48` — the fix for the very lint failure an audit
+  had just flagged — so the rule was unenforceable exactly when parallelism made
+  it most valuable. Real fix: the push group is now keyed on `github.sha`
+  (`format('ci-sha-{0}', github.sha)`), giving every commit its own group that
+  nothing can evict; PRs keep a ref-keyed group so a superseded PR push still
+  cancels. It costs runner minutes, which is the price of the rule. Consequence:
+  a `cancelled` run on a branch push is now genuinely anomalous — investigate it
+  rather than shrugging.
+- **A COMMIT PUSHED IN THE MIDDLE OF A MULTI-COMMIT PUSH GETS NO RUN AT ALL —
+  not a cancelled one, NOTHING — so "every commit green on its own" has a hole
+  the per-SHA concurrency fix does not touch.** GitHub fires ONE workflow run per
+  push *event*, keyed to the push's head commit; every commit between the old tip
+  and the new one is simply never built. This is invisible in a way eviction is
+  not: a `cancelled` run is at least a row you can see and question, whereas an
+  unbuilt commit leaves no row, so the board looks complete. Measured 2026-08-01:
+  `3065813` and `3cf6650` were committed 69 s apart and pushed together, and
+  `3065813` has ZERO runs across all three workflows while `3cf6650` has three —
+  and `3065813` touched `apps/web/e2e/**`, so it was not a paths-ignore skip.
+  Two consequences. (a) **Push each commit separately** when you want per-commit
+  evidence — the per-SHA group means back-to-back pushes no longer cost each
+  other their runs, so the reason to batch is gone. (b) When auditing, do not
+  reason from the runs list alone: it enumerates PUSHES, not commits. Cross-check
+  against `git log` and treat a commit with no row as UNVERIFIED, exactly like a
+  cancelled one. (Its descendant's green run still verifies the *tree*, never the
+  intermediate *commit* — the same distinction the bullet above insists on.)
+- **`cancelled` HAS TWO CAUSES AND GITHUB USES THE SAME WORD FOR BOTH** — a
+  concurrency eviction, and a job hitting `timeout-minutes`. Discriminate by
+  DURATION and by the sibling jobs. Seen 2026-07-30: three runs read `cancelled`
+  *after* the per-SHA fix and I nearly concluded the fix had failed; in fact the
+  `python` job's Pytest step ran **14m31s** and the job was killed at **15m16s**
+  against a 15-minute ceiling, while the other four jobs all passed. An eviction
+  kills a run EARLY and takes ALL its jobs with it; a timeout kills ONE job at
+  almost exactly the configured limit and leaves its siblings green. So read
+  `list_workflow_jobs` for the run and look at per-job conclusions and step
+  durations before naming a cause — the run-level `conclusion` alone cannot tell
+  you which happened. (The python job is now 30 minutes. The suite is ~2958 tests
+  dominated by OCCT geometry and grows with every verb and golden, so expect to
+  revisit it; sharding is the next lever if 30 gets tight.)
 - **A suspiciously FAST green deserves the same scrutiny as a red.** The
   usual cause is a job that skipped its work, and `conclusion: success` is
   emitted when every job is skipped. Discriminate by reading the log for
@@ -247,8 +336,131 @@ on completion with a watchdog fallback (`docs/AUTONOMOUS-LOOP.md` §1.4).
   Never edit, revert, or commit another agent's in-flight files. Foreign
   uncommitted work in shared files: build alongside, stage only your hunks.
 - **Commit protocol:** stage your own files explicitly — never `git add -A`.
+  **And for the HIGH-TRAFFIC SHARED DOCS (`docs/ROADMAP.md`, `docs/BACKLOG.md`),
+  `git add <file>` is not "explicit" enough — stage HUNKS.** Every agent is
+  required to tick both in the same commit, so they are nearly always dirty with
+  somebody else's in-flight text; `git add docs/BACKLOG.md` then silently
+  captures it. Seen 2026-07-30: an orchestrator commit about an unrelated test
+  gate (`33b1b5a`) carried three P3 items another agent had just filed, so the
+  commit message described none of its own contents and the authorship in history
+  is wrong. Nothing was lost, which is exactly why it is easy to miss. Use a
+  filtered `git apply --cached` (or `git add -p`) for these two files, and if you
+  find you have already swept foreign text, annotate the record rather than
+  rewriting shared history that other agents have already rebased onto.
+  **Use `python3 scripts/stage-doc-hunks.py <file> "<marker>"`** — it stages only
+  hunks that ADD a line containing your marker and leaves the rest unstaged for
+  their author. It exists because this rule was broken TWICE in one day, the
+  second time by the person who wrote it: the correct path was fiddly and
+  `git add <file>` is four words, and under load the cheap path wins. A rule that
+  loses to convenience is not a control; make the correct path the easy one.
+  **It filters at LINE granularity, and it has to.** The first version matched
+  whole hunks, which silently swept a colleague's entry whenever theirs sat
+  beside yours — git merges changes within its context window into ONE hunk, and
+  a blank line between two appended entries is NOT enough to separate them
+  (measured). It reported "left 1 hunk(s) unstaged for their author" while doing
+  it, which is worse than failing. Note `git add -p` is NOT a fallback here:
+  interactive git is unavailable in this container.
+  **When you are ready to commit and ANOTHER agent already has files staged, do
+  not touch their index — build your commit against an isolated one.** The
+  staging protocol above assumes the index is yours to arrange, and under four
+  parallel agents it frequently is not: a `git reset` to clear someone else's
+  staged work, or a commit that sweeps it in, are both the same defect (a commit
+  whose message describes none of its own contents). `GIT_INDEX_FILE` gives you a
+  private index for the duration:
+  ```bash
+  export GIT_INDEX_FILE=$(mktemp -u /tmp/idx.XXXX)
+  git read-tree HEAD                     # start from HEAD, not from their index
+  git add <your files only>              # stage-doc-hunks.py still applies to ROADMAP/BACKLOG
+  git commit -m "…"                      # commits YOUR tree; their index is untouched
+  unset GIT_INDEX_FILE
+  ```
+  Used first on 2026-07-31 by the perf agent, which found ~40 of a sibling's
+  files staged when its own work was ready; nothing of theirs was swept and their
+  commit landed as its parent. Verify afterwards with `git show --stat HEAD` that
+  the commit contains only your paths — the isolated index protects their work,
+  not you from your own `git add`.
+  **AND `git read-tree HEAD` SNAPSHOTS HEAD AT THAT MOMENT — if a sibling commits
+  before you do, your commit REVERTS THEIRS.** This is the recipe's own trap and
+  it bit within hours of the recipe landing: the ops agent read-tree'd, worked,
+  and committed; a sibling had committed in between, so its tree carried the
+  PRE-sibling content and its commit silently deleted `CLAUDE.md`'s and
+  `docs/ARCHITECTURE.md`'s changes plus three screenshots. It was caught only
+  because the agent ran `git show --stat HEAD` before pushing and saw deletions
+  it never made. Nothing reached the remote, which is the good outcome and also
+  why this is easy to miss — a `git commit` that reverts a colleague reports
+  nothing unusual. Two rules: pin the base explicitly rather than by name
+  (`base=$(git rev-parse HEAD); git read-tree "$base"`), and immediately before
+  committing re-check that `git rev-parse HEAD` still equals `$base` — if it
+  moved, re-read-tree from the new HEAD and re-add your paths. Then `git show
+  --stat HEAD` and read it for paths you did NOT touch; that check is not
+  optional, it is the only thing that catches this.
+- **`stage-doc-hunks.py`: a bare item id is NOT a safe marker, because siblings
+  cross-reference ids.** Seen 2026-07-31: `stage-doc-hunks.py docs/BACKLOG.md
+  "OPS-1"` swept another agent's OBS-1 entry, because THEIR text contained the
+  phrase "the same shape as OPS-1". The tool did exactly what it was told; the
+  marker was the defect. Use a phrase from your own entry's FIRST line — e.g.
+  `"OPS-1 — there was no backup"` rather than `"OPS-1"` — so the match cannot
+  land inside somebody else's prose. The tool now prints the entry-start line of
+  everything it stages; read that output rather than trusting the count.
+- **THE SWEEP IS NOT A DOCS PROBLEM — it happens in SOURCE files too, and there
+  the hunk tooling does not apply.** The staging rule names `docs/ROADMAP.md` and
+  `docs/BACKLOG.md` because those are the two files every agent is REQUIRED to
+  touch. That framing is too narrow: any file two agents happen to edit at once
+  has the same hazard, and `git add <one source file>` is just as wholesale as
+  `git add <one doc>`. Seen 2026-08-01: the folders agent staged
+  `packages/py-kit/src/py_kit/schemas/features.py` while the prefetch agent had
+  four uncommitted DTOs in it, so `17404ab` (a folders commit) shipped
+  `WarmTreeRequest`/`WarmTreeResult`/`WarmCancelRequest`/`PrefetchRequest`, and
+  the prefetch commit that followed contains no py-kit hunk at all. Nothing was
+  lost and BOTH commits are green on their own — the models were unreachable from
+  any route in the folders tree, so its OpenAPI was unchanged, which is precisely
+  why no gate objected. The universal check is cheap and needs no tool:
+  **`git diff --cached` and READ IT before every commit.** Not `--name-only` —
+  the names looked right here; the hunks were the problem. If a hunk is not
+  yours, unstage that path (`git reset -q HEAD -- <path>`), re-add only your own
+  changes, and tell the other agent. Annotate rather than rewrite once siblings
+  have rebased onto it.
+  **AND THEN RESYNC THE DEFAULT INDEX, or your own commit reads as uncommitted.**
+  `.git/index` never learns about a commit made through another index, so it keeps
+  the PRE-commit blob for every path you just committed and `git status` reports
+  them as dirty (`MM <file>`) forever. Caught within minutes of writing this
+  recipe: a stop-hook git check flagged an orchestrator commit as unpushed work
+  when it was already on the remote. The tell is `git diff HEAD -- <path>` coming
+  back EMPTY while `git status` calls the path modified — worktree matches HEAD,
+  so the index is the stale party. Fix per path you committed:
+  ```bash
+  git reset -q HEAD -- <the paths you just committed>   # NOT a bare `git reset`
+  ```
+  Name the paths. A bare `git reset` would unstage a colleague's work, which is
+  the defect this whole technique exists to avoid.
+  **AND THE RESYNC ITSELF CAN UNSTAGE A COLLEAGUE — naming the paths is not
+  enough when the paths are SHARED.** `git reset -q HEAD -- <paths>` mutates the
+  DEFAULT index, and every agent is required to touch `docs/ROADMAP.md` and
+  `docs/BACKLOG.md`, so those two paths are almost always in somebody else's
+  staging area at the same moment. Seen 2026-08-01: an agent staged its doc hunks,
+  a sibling committed through an isolated index and resynced those same two paths,
+  and the first agent's hunks were silently unstaged — its commit would have
+  landed without its ROADMAP/BACKLOG tick, which is the one thing every commit is
+  required to carry. Nothing warns you. That is now THREE distinct ways this
+  recipe bites (a stale `read-tree` base reverting a sibling, a marker matching a
+  sibling's prose, and this), and the SAME cheap check caught all three:
+  **re-read `git diff --cached` immediately before `git commit`, not when you
+  staged.** Treat staging as perishable — stage and commit in one tight window
+  rather than staging early and doing more work.
   Push with `git push -u origin <branch>`; on rejection `git pull --rebase`
   and retry. Commit only when your gates are green.
+- **The stop-hook "there are uncommitted changes, please commit and push" is a
+  FALSE POSITIVE whenever agents are in flight, and obeying it literally is the
+  sweeping defect above at its worst.** The hook cannot tell your work from four
+  colleagues' half-finished work; during a parallel batch the tree is *supposed*
+  to be dirty, and "commit and push these changes" would produce one commit
+  containing four agents' unfinished slices under a message describing none of
+  them. Seen repeatedly on 2026-07-31 with four agents live. The correct response
+  is to VERIFY, not to comply: `git diff --cached --name-only` empty (nothing of
+  yours staged) and `git log --oneline origin/<branch>..HEAD` empty (nothing of
+  yours unpushed) means you are clean and the dirt is theirs. Map the dirty paths
+  to territories and say so; do not commit, do not stash, do not revert. Only if
+  one of those two checks is non-empty do you actually owe a commit.
 - **Liveness (orchestrator duty).** On every wakeup, check in-flight agents'
   output mtimes; >30 min stale without a known long gate = investigate, reap,
   relaunch. A dead agent's uncommitted work is preserved and reconciled by
@@ -296,6 +508,15 @@ recipe here in the same commit as the fix.**
   `main` without explicit permission.
 - OCP/OCCT wheels are large; in CI cache the uv environment keyed on the
   lockfile.
+- **To test swapping an auditwheel-vendored library WITHOUT touching the shared
+  `.venv`, check for `RUNPATH` (not `RPATH`) with `readelf -d`.** `LD_LIBRARY_PATH`
+  takes precedence over `RUNPATH` but is beaten by `RPATH`, so when the consumer
+  uses `RUNPATH` you can drop a replacement in a scratch dir, point
+  `LD_LIBRARY_PATH` at it, and the real library is never mapped — prove which one
+  loaded by grepping `/proc/self/maps` after the import. That is how the P0
+  licence fix (a GPL-free `libjbig` stub) was validated against the full 2385-test
+  geometry suite on 2026-07-31 with zero risk to a concurrent agent's environment.
+  Mutating the shared `.venv` to test a swap would have broken every sibling.
 - In this container, `uv python install 3.12` fails (403: the egress proxy
   blocks github.com release downloads of python-build-standalone — a policy
   denial, don't retry/route around). Not needed: system interpreters exist at
@@ -303,6 +524,68 @@ recipe here in the same commit as the fix.**
   picks up `/usr/bin/python3.12` automatically. PyPI + npm registries are
   direct (proxy no-proxy list), so `uv sync` / `pnpm install` just work.
 - `just` is not preinstalled: `uv tool install rust-just` → `~/.local/bin/just`.
+- **This container has NO IPv6 loopback, so `localhost` here can only ever mean
+  `127.0.0.1` — and every CI runner is dual-stack.** Anything that BINDS or
+  PROBES a loopback address is therefore untestable locally in a way that *looks*
+  tested: it passes here for the wrong reason. Cost a full round trip on
+  2026-08-01, when the new e2e workflow's first three runs were ALL red —
+  including the two that should have been green, which made the negative control
+  worthless because it died in setup like the others. Cause: Vite forces
+  `dns.setDefaultResultOrder("verbatim")`, so its default `localhost` host bound
+  `::1` while `baseURL`/`webServer.url` asked for `127.0.0.1`; the process stayed
+  alive and never answered. **The tell is the wording** — Playwright says
+  "Timed out waiting Nms from config.webServer" for a live-but-silent server and
+  "exited early" for a crash, and they are different bugs. Two rules: bind the
+  LITERAL address (`--host 127.0.0.1`) rather than trusting name resolution, and
+  **when a diagnosis cannot be reproduced locally, ship the PROBE with the fix** —
+  `scripts/e2e.sh`'s CI preflight prints `127.0.0.1 -> 200, [::1] -> 000`, so a
+  wrong diagnosis costs one log line instead of another round trip. Note the
+  first instinct here (raise the 60 s timeout) was ruled out by measurement: with
+  `apps/web/node_modules/.vite` deleted, Vite served in 1.3 s. A timeout is
+  headroom, never a fix.
+- **"github.com is blocked" is TOO COARSE: release-asset downloads are 403, but
+  `git clone` over HTTPS WORKS — and so do `archive.ubuntu.com` and
+  `files.pythonhosted.org`.** Measured 2026-08-01 while mirroring
+  corresponding source (LIC-2): `curl -L
+  https://github.com/Open-Cascade-SAS/OCCT/archive/refs/tags/V7_9_3.tar.gz` →
+  **403**, same policy-denial class as the python-build-standalone block, while
+  `git clone --depth 1 --branch V7_9_3 https://github.com/...` → **succeeds**
+  (36 119 files). The brief for that task reasonably assumed the whole host was
+  denied and pre-authorised a documented-only outcome; taking that at face value
+  would have shipped an unverified recipe when the work could be — and was —
+  fully executed and checksummed here. Rule: when you need bytes from a denied
+  host, check whether a DIFFERENT protocol or a different upstream serves the
+  same artefact before concluding it is unfetchable. Corollary in the same
+  session: the legacy PyPI path
+  `files.pythonhosted.org/packages/source/<l>/<name>/<file>` returned a
+  **zero-byte body with a SUCCESS status**, while the hashed
+  `/packages/<a>/<b>/<sha>/<file>` URL from the JSON index returned the real
+  file. A zero-byte 200 is the worst failure shape there is — every digest check
+  downstream agrees with itself — so assert on size, and prefer the URL the
+  index gives you over a path you constructed.
+- **The blocked registry means NOTHING about the image build is locally
+  testable, so anything the build depends on needs a gate that does not build.**
+  `.dockerignore` excludes `scripts`, `deploy` and `docs` wholesale and then
+  re-includes named files with `!` negations; a `COPY` whose source is not
+  negated resolves to NOTHING and fails the build. That failure is unreachable
+  here by construction — no `just` target can produce it — so its first and only
+  signal is the `deploy-path` workflow, the slowest one we run. It cost two red
+  commits on 2026-08-01: LIC-2 added `scripts/corresponding_source.py` to the
+  runtime COPY (check-licences.py imports it) with no negation, and all three
+  service images failed while `ci` and `e2e` stayed green, because neither
+  builds an image. Second time the list had lost an entry, which is the tell
+  that the *allow-list* is the defect. Fix: `scripts/check-build-context.py`
+  re-implements moby's `MatchesOrParentMatches` and asserts every Dockerfile
+  COPY source exists and survives `.dockerignore` — stdlib, no daemon, ~10 ms,
+  wired into `just lint` and CI's `compose` job. Two things generalise. (a) When
+  a whole class of failure is unreachable locally, re-implement just enough of
+  the absent tool to gate it, and CROSS-CHECK the re-implementation against a
+  real one rather than trusting it (this matcher was diffed against the docker
+  SDK's own context walk over all 445 included entries — zero disagreements; a
+  naive comparison against the SDK's `matches()` shows 190 false differences,
+  because that method is the depth-limited variant and directory pruning happens
+  in `walk()`). (b) Ship the gate with a `--self-test` that reproduces the
+  defect and demands a failure, exactly as `just licence-selftest` does.
 - **The Docker *registry* is blocked here, but the stack does NOT need Docker —
   a native, container-free boot works and CAN drive `just e2e` + founder
   screenshots.** `docker pull` of `postgres:16` / `redis:7` / `minio/minio:*`
@@ -365,6 +648,25 @@ recipe here in the same commit as the fix.**
   `pnpm --filter @loft/web {typecheck,test}` + `just lint` + geometry `pytest`.
   (Only `just dev` / `docker compose` proper — which build the container images —
   still can't run; use the native boot above instead of the compose stack.)
+- **A long-running native uvicorn on a scratchpad SQLite file starts returning
+  `attempt to write a readonly database` after ~10 minutes, and it reads exactly
+  like a code regression.** Symptom: register -> 500, every spec dies at
+  `seedSession`, while a FRESH process writes the same file fine. Nothing in the
+  app changed; the long-lived connection's handle goes bad. Restarting the three
+  services clears it, so bounce them before each e2e leg rather than debugging the
+  500 — an agent lost time to this on 2026-07-30 chasing a phantom regression.
+- **A `conftest.py` env var leaks ACROSS services, because pytest collects every
+  conftest before running any test.** `services/gateway/tests/conftest.py` does
+  `os.environ.setdefault("LOFT_ENV", "dev")` so the gateway suite can build
+  settings; in a whole-repo `uv run pytest` that dev posture is therefore already
+  in `os.environ` when the documents and geometry suites run. The failure mode is
+  the nasty direction: a test asserting a NON-dev behaviour (e.g. that the
+  datastore-credential guard refuses to boot) passes when its file is run alone
+  and fails in the full sweep — or worse, a test asserting the dev-allow path
+  passes in the sweep for the wrong reason. Any test whose subject depends on
+  `LOFT_ENV` (or any other conftest-seeded variable) must `monkeypatch.delenv`
+  / `monkeypatch.setenv` EXPLICITLY rather than inherit, and should assert the
+  non-dev case by name. Found 2026-07-30 while landing the fail-closed guard.
 - **Stale dev uvicorns poison `just e2e`.** Long-lived service uvicorns (from a
   prior `just dev` or an agent that booted the stack) run **without**
   `--reload`, so after any backend commit their served OpenAPI/routes go stale.
@@ -376,6 +678,20 @@ recipe here in the same commit as the fix.**
   then `kill` those pids (parents + children) so the suite reboots from current
   code. Agents that need a stack mid-run should boot **isolated** ports (e.g.
   :8010/:8012) and tear them down, leaving the shared stack untouched.
+- **`pnpm run <script> -- <args>` DROPS the `--` in pnpm 10, so the args never
+  reach the script — and this is the GENERATOR of the stale-Vite trap below.**
+  Measured on pnpm 10.33.0: `pnpm --filter @loft/web dev -- --port 5199` starts
+  Vite on **5173** with no error, while `dev --port 5199` and `exec vite --port
+  5199` both bind correctly. The `--` separator is npm-idiomatic, so the failure
+  is produced by CORRECT muscle memory and reported by nothing. The invocation an
+  agent reaches for to boot an ISOLATED frontend is therefore the one that
+  silently takes the SHARED port; `reuseExistingServer: true` then hands that
+  stray 5173 to the next `just e2e`, whose specs all 500 at `seedSession` against
+  a torn-down gateway and read as a code regression. Never write `--`; always
+  confirm the port Vite actually printed. Half of this is now closed in code:
+  `apps/web/vite.config.ts` sets `server.strictPort`, so a Vite that cannot take
+  the port it was given FAILS instead of falling back to 5173. The swallowed
+  argument is still silent — that part only discipline fixes.
 - **A stale Vite on :5173 poisons `just e2e` worse than a stale uvicorn — every
   spec 500s at register.** `apps/web/playwright.config.ts` sets
   `reuseExistingServer: true` (so e2e composes with a running `just dev`), and
@@ -473,8 +789,55 @@ recipe here in the same commit as the fix.**
   harness parses goldens as JSON (whitespace-insensitive) so a stored content
   hash is a string field unaffected by formatting, i.e. `prettier --write` on a
   golden is behaviour-neutral and safe.** Always run the full `just lint` at the
-  batch boundary regardless. **(3) Lint with `uv run ruff …`, NEVER a bare PATH
-  `ruff`.** Seen 2026-07-23 (interference slice `e46db16`): the agent ran a PATH
+  batch boundary regardless.
+- **`just gen` reads the WORKING TREE, so in a shared tree it silently bakes
+  another agent's uncommitted schema into YOUR commit — and `gen-check` cannot
+  see it, by construction.** `scripts/gen-contracts.py` imports the live source,
+  so the generator's input is whatever is on disk. `gen-check` then regenerates
+  *the same way* and diffs against the committed JSON, i.e. it asks "do the
+  committed contracts match the working tree?" when the standing rule needs "do
+  they match the committed SOURCE?" Those coincide for a single developer and
+  come apart exactly when several agents are editing schemas at once. Seen
+  2026-07-31: an agent's `just gen` captured a sibling's uncommitted gateway
+  duplicate-route work, so its commit carried `gateway.openapi.json` +
+  `gateway/schema.ts` describing routes with no committed source — gen-check-RED
+  in CI on that commit, while passing locally. It was caught by hand and
+  force-pushed over. The tempdir in `gen-check.sh` protects the tree from being
+  DIRTIED; it never made the INPUT clean, which is the property that matters.
+  **Fix, shipped the same day: `just gen-verify` (`scripts/gen-check.sh
+  --from-index`)** materialises the git INDEX — the tree `git commit` would
+  write — into a throwaway worktree and generates there, so it answers "will CI
+  be green on my commit". Verified against the real defect rather than asserted:
+  with a schema change present only in the working tree and only the generated
+  output staged, the default mode exits **0** (blessing a commit CI rejects) and
+  `--from-index` exits **1** naming the leaked field. Run `just gen-verify`, not
+  `just gen-check`, before committing anything that touches a pydantic model
+  while other agents are live. CI itself is unaffected — it checks out a clean
+  tree, so there index == HEAD == worktree and the default mode is already right.
+  The general lesson is the one this repo keeps relearning: **a gate is only as
+  honest as its INPUT, and "it passed" tells you nothing until you know what it
+  measured.** **(2b) `prettier --check .` walks the FILESYSTEM,
+  not the index, so an UNTRACKED scratch file fails lint for every agent at
+  once** — and `.prettierignore` covers `docs/`, `.claude/`, generated dirs and
+  build output, but NOT the repo root. Seen 2026-07-30: an agent left a
+  180-byte `eval1.json` (an evaluate-response dump) at the root; it never would
+  have been committed, and it would still have turned the batch-end `just lint`
+  red for everyone, looking like someone else's regression. Payload dumps,
+  curl output and one-off fixtures go in the session scratchpad, never the repo
+  root. When you find one that is another agent's, tell that agent — do not
+  delete it; it may be in active use. **(2c) Some temp files CANNOT go in the
+  scratchpad — those must be `prettier --write`-clean before you walk away from
+  them.** `apps/web/playwright.config.ts` sets `testDir: "./e2e"`, so a throwaway
+  spec has to live inside `apps/web/e2e/` to be discovered at all; the scratchpad
+  is not an option, and `.prettierignore` does not cover that directory. Seen
+  2026-07-31: the orchestrator wrote a temporary founder-capture spec there,
+  deleted it minutes later, and in the window between, a concurrent agent's
+  `pnpm run lint` went red on formatting alone — a failure in nobody's diff, in a
+  file that no longer exists by the time anyone looks. Rule: anything you must
+  place inside a linted tree gets formatted the moment it is written, not when it
+  is committed (it never will be), and gets deleted in the same turn.
+  **(3) Lint with `uv run ruff …`, NEVER a
+  bare PATH `ruff`.** Seen 2026-07-23 (interference slice `e46db16`): the agent ran a PATH
   `ruff check` that predated the `RUF002` confusable rule and reported "0 errors,"
   but the locked `uv run ruff check` (0.15.20) flagged 8× `RUF002` (a test file
   using U+00D7 `×`/U+2212 `−` glyphs — every other file uses ASCII `x`/`-`) + 1×

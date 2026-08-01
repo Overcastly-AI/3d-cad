@@ -80,6 +80,9 @@ export interface paths {
         /**
          * Delete Assembly
          * @description Delete an owned assembly (204; 409 when instanced as a sub-assembly).
+         *
+         *     The refusal NAMES the referencing documents in ``details.dependents``
+         *     (:data:`~gateway.parts.DEPENDENCY_CONFLICT_RESPONSE`).
          */
         delete: operations["delete_assembly_api_v1_assemblies__assembly_id__delete"];
         options?: never;
@@ -110,6 +113,32 @@ export interface paths {
         get: operations["get_assembly_bom_api_v1_assemblies__assembly_id__bom_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/assemblies/{assembly_id}/duplicate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Duplicate Assembly
+         * @description Copy an assembly's instances and mates — NOT the parts they name (201).
+         *
+         *     Both assemblies reference the same parts afterwards, because an instance IS
+         *     a reference: edit one of those parts and the change shows up in both. See
+         *     :mod:`documents.duplicate` for the full statement of what a copy carries.
+         *     The copy's name is the server's to assign and the created assembly is
+         *     returned.
+         */
+        post: operations["duplicate_assembly_api_v1_assemblies__assembly_id__duplicate_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -200,6 +229,26 @@ export interface paths {
          * @description Remove a mate; returns the updated graph (bumps ``doc_version``).
          */
         delete: operations["delete_mate_api_v1_assemblies__assembly_id__mates__mate_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/assemblies/{assembly_id}/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move Assembly
+         * @description File an assembly into a folder, or un-file it — see :func:`move_part`.
+         */
+        post: operations["move_assembly_api_v1_assemblies__assembly_id__move_post"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -434,6 +483,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/drawings/{drawing_id}/duplicate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Duplicate Drawing
+         * @description Copy a drawing's sheets, views, dimensions and annotations (201).
+         *
+         *     The copied views keep pointing at the same part/assembly — a view is a
+         *     reference, like an assembly instance — so this duplicates the LAYOUT, never
+         *     the modelled document (:mod:`documents.duplicate`). The copy's name is the
+         *     server's to assign and the created drawing is returned.
+         */
+        post: operations["duplicate_drawing_api_v1_drawings__drawing_id__duplicate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/drawings/{drawing_id}/export": {
         parameters: {
             query?: never;
@@ -462,6 +536,26 @@ export interface paths {
          *     sharing the drawing's name; a single-sheet drawing keeps ``<drawing>.<ext>``.
          */
         post: operations["export_drawing_api_v1_drawings__drawing_id__export_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/drawings/{drawing_id}/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move Drawing
+         * @description File a drawing into a folder, or un-file it — see :func:`move_part`.
+         */
+        post: operations["move_drawing_api_v1_drawings__drawing_id__move_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -628,6 +722,81 @@ export interface paths {
          *     422 envelopes are re-surfaced verbatim.
          */
         post: operations["create_dimension_api_v1_drawings__drawing_id__views__view_id__dimensions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/folders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Folders
+         * @description The caller's whole folder tree for one drawer, name-ordered.
+         */
+        get: operations["list_folders_api_v1_folders_get"];
+        put?: never;
+        /**
+         * Create Folder
+         * @description Create a folder in one drawer (201; 409 on a duplicate sibling name).
+         */
+        post: operations["create_folder_api_v1_folders_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/folders/{folder_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Folder
+         * @description Delete an EMPTY folder (204); 409 naming its contents when it is not.
+         *
+         *     Never a cascade: a folder delete cannot take documents with it, so the
+         *     refusal names what to move out first (see :data:`FOLDER_NOT_EMPTY_RESPONSE`).
+         */
+        delete: operations["delete_folder_api_v1_folders__folder_id__delete"];
+        options?: never;
+        head?: never;
+        /**
+         * Rename Folder
+         * @description Rename a folder (404 unknown/foreign; 409 duplicate sibling name).
+         */
+        patch: operations["rename_folder_api_v1_folders__folder_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/folders/{folder_id}/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move Folder
+         * @description Re-parent a folder; ``parent_id: null`` moves it to the root.
+         *
+         *     422 ``folder_cycle`` when the destination is the folder itself or one of its
+         *     own descendants — a move that would put the subtree somewhere no register
+         *     view can reach.
+         */
+        post: operations["move_folder_api_v1_folders__folder_id__move_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -858,6 +1027,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/geometry/prefetch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Prefetch
+         * @description Speculatively warm the rebuild cache for one part (docs/PERF.md PERF-1b).
+         *
+         *     The client knows the INTENT — this editor is open, this travel stop is being
+         *     dragged — and documents knows the evaluation-ready feature list. This route
+         *     is where the two meet: it makes the same principal-scoped
+         *     ``/evaluation-request`` hop ``POST /parts/{id}/evaluate`` makes, so the warm
+         *     lands on exactly the content-addressed key the later real evaluate probes,
+         *     then hands geometry a :class:`WarmTreeRequest` and returns immediately.
+         *
+         *     The two intents ask for different things, and the difference is not cosmetic:
+         *
+         *     * ``feature_edit`` warms the features BEFORE the one being edited (the edit
+         *       cannot change their hashes), leaving the tree itself intact — so the commit
+         *       costs one feature's work instead of the whole tree, and the FIRST FACE PICK
+         *       after it resumes from the same point (the ``provenance`` lineage, which is
+         *       the 29 s the user actually sees on a 200-feature part);
+         *     * ``travel_stop`` warms the SHORTER TREE the stop defines, because that is a
+         *       tree in its own right and hashes as one. Only backwards travel needs it:
+         *       rolling forward is an append, which the cache already serves.
+         *
+         *     Nothing here can produce geometry — the reply is a
+         *     :class:`WarmTreeResult`, which carries a ticket and a boolean and cannot
+         *     carry a body. A target that is not in the current evaluation prefix is
+         *     ``accepted: false``, not an error.
+         */
+        post: operations["prefetch_api_v1_geometry_prefetch_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/geometry/prefetch/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Prefetch Cancel
+         * @description Retire a warm ticket — the editor closed, or the drag ended.
+         *
+         *     Required, not optional (docs/PERF.md PERF-1b): prefetch hides latency, it
+         *     does not reduce work, so speculation whose reason has gone away must stop.
+         *     The geometry worker acts on it within one feature's work. ``accepted:
+         *     false`` means it had already finished — a normal outcome.
+         */
+        post: operations["prefetch_cancel_api_v1_geometry_prefetch_cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/geometry/sketch/chamfer": {
         parameters: {
             query?: never;
@@ -1061,6 +1298,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/materials": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Materials
+         * @description The built-in materials with their densities, in display order.
+         *
+         *     The same table the kernel multiplies by (docs/design/materials.md §1), so a
+         *     picker and a mass readout can never disagree about what "6061-T6" weighs.
+         */
+        get: operations["list_materials_api_v1_materials_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/parts": {
         parameters: {
             query?: never;
@@ -1102,19 +1362,58 @@ export interface paths {
         /**
          * Delete Part
          * @description Delete one of the caller's parts (204; 404 for unknown/foreign ids).
+         *
+         *     409 while an assembly still instances it or a drawing still projects it,
+         *     with the referencing documents NAMED in ``details.dependents`` — see
+         *     :data:`DEPENDENCY_CONFLICT_RESPONSE`.
          */
         delete: operations["delete_part_api_v1_parts__part_id__delete"];
         options?: never;
         head?: never;
         /**
          * Update Part
-         * @description Rename and/or re-unit one of the caller's parts (bumps ``tree_version``).
+         * @description Rename, re-unit and/or re-material one of the caller's parts.
          *
-         *     The document-unit selector (docs/design/units.md §U1) changes ``length_unit``
-         *     through this route; 404 envelope for unknown/foreign ids, 422 on a stale
-         *     ``expected_tree_version``, 409 on a duplicate name.
+         *     Bumps ``tree_version``. The document-unit selector (docs/design/units.md
+         *     §U1) changes ``length_unit`` through this route and the material picker
+         *     (docs/design/materials.md §2) changes ``materials`` — the latter is the one
+         *     header edit that invalidates the recorded evaluate, because mass is derived
+         *     from it. 404 envelope for unknown/foreign ids, 422 on a stale
+         *     ``expected_tree_version`` or an update naming no field, 409 on a duplicate
+         *     name.
          */
         patch: operations["update_part_api_v1_parts__part_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/parts/{part_id}/duplicate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Duplicate Part
+         * @description Copy a part and its WHOLE feature tree at its current version (201).
+         *
+         *     Exactly what a duplicate does and does not copy is documented once, upstream
+         *     (:mod:`documents.duplicate`); the short version is: every feature, its
+         *     params, its dependency edges and the travel stop, plus the display unit and
+         *     materials — but not the undo history and not the last-evaluate record (the
+         *     copy has never been built, and its register row says so).
+         *
+         *     No request body: the copy's name is the server's to assign (``"<name>
+         *     copy"``, then ``" copy 2"``…) and the created part is returned, so the
+         *     register renders the name that was actually taken rather than one it
+         *     predicted. 409 if that name is somehow taken anyway; rename and retry.
+         */
+        post: operations["duplicate_part_api_v1_parts__part_id__duplicate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/parts/{part_id}/evaluate": {
@@ -1137,6 +1436,11 @@ export interface paths {
          *     ``data`` payloads (§7.10). Feature failures are a 200 with per-feature
          *     errors (§4.3); the error envelope here means the aggregation itself
          *     failed (404 unknown part, 502 unreachable upstream, ...).
+         *
+         *     A 200 also records the verdict on the part row for the registers' rebuild-
+         *     health column (§4.4a) — in a background task, after the response, so the
+         *     bookkeeping can neither slow this call down nor fail it
+         *     (:func:`record_last_evaluation`).
          */
         post: operations["evaluate_part_api_v1_parts__part_id__evaluate_post"];
         delete?: never;
@@ -1264,7 +1568,10 @@ export interface paths {
         post?: never;
         /**
          * Delete Feature
-         * @description Delete a feature (409 envelope listing dependents when referenced).
+         * @description Delete a feature; 409 NAMING the dependents when it is still referenced.
+         *
+         *     See :data:`FEATURE_DEPENDENTS_RESPONSE` — the refusal's ``details`` is a
+         *     typed list of what breaks, not a count.
          */
         delete: operations["delete_feature_api_v1_parts__part_id__features__feature_id__delete"];
         options?: never;
@@ -1274,6 +1581,31 @@ export interface paths {
          * @description Rename and/or replace a feature's params.
          */
         patch: operations["update_feature_api_v1_parts__part_id__features__feature_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/parts/{part_id}/features/{feature_id}/dependents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Feature Dependents
+         * @description What breaks if this feature is deleted (200; empty list when nothing).
+         *
+         *     Asked by the feature tree BEFORE it offers the delete, so the confirmation
+         *     names the features and drawings that would break rather than letting the
+         *     user discover them from a refusal. Answered by the same documents-side query
+         *     that builds the delete's 409, so the warning and the refusal cannot disagree.
+         */
+        get: operations["feature_dependents_api_v1_parts__part_id__features__feature_id__dependents_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/parts/{part_id}/features/{feature_id}/suppress": {
@@ -1299,6 +1631,30 @@ export interface paths {
          *     re-surfaced verbatim.
          */
         patch: operations["suppress_feature_api_v1_parts__part_id__features__feature_id__suppress_patch"];
+        trace?: never;
+    };
+    "/api/v1/parts/{part_id}/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move Part
+         * @description File a part into a folder, or un-file it with ``folder_id: null``.
+         *
+         *     Returns the part as STORED, so the register renders where the server put it.
+         *     Filing is not a document edit: it moves neither ``tree_version`` nor
+         *     ``updated_at``, so LAST WORKED keeps meaning "someone worked on it".
+         */
+        post: operations["move_part_api_v1_parts__part_id__move_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/parts/{part_id}/redo": {
@@ -1501,6 +1857,11 @@ export interface components {
          */
         AssemblyCreate: {
             /**
+             * Folder Id
+             * @description File it into this folder on creation, or null (the default) to leave it unfiled at the root of its drawer. Present so filing inside a folder is ONE call: a create-then-move pair could fail between the two and leave the document somewhere the user did not put it. Must be the caller's own folder OF THIS DOCUMENT'S KIND.
+             */
+            folder_id?: string | null;
+            /**
              * Length Unit
              * @description Document display unit (docs/design/units.md §1); DISPLAY metadata only — storage stays canonical mm. Defaults to 'mm'.
              * @default mm
@@ -1509,7 +1870,7 @@ export interface components {
             length_unit: "mm" | "cm" | "m" | "in" | "ft";
             /**
              * Name
-             * @description Assembly name; unique per owner, whitespace-trimmed, 1-200 characters
+             * @description Assembly name; unique per FOLDER (#WS2), whitespace-trimmed, 1-200 characters
              */
             name: string;
         };
@@ -1593,6 +1954,11 @@ export interface components {
              * @description Monotonic optimistic-concurrency counter (design §1.2)
              */
             doc_version: number;
+            /**
+             * Folder Id
+             * @description The folder this document is filed in, or null when it is UNFILED (at the root of its drawer). Null is a real state, not a missing value — see py_kit.schemas.folders. Changed only by the document's `/move` route, which is not a document edit: it moves neither the concurrency counter nor `updated_at`.
+             */
+            folder_id?: string | null;
             /**
              * Id
              * Format: uuid
@@ -1830,6 +2196,41 @@ export interface components {
              * @description Number of disjoint connected solids (lumps) of this body; 1 for a single-lump body, >1 for a disjoint union / multi-solid import.
              */
             lumps: number;
+            /**
+             * Mass G
+             * @description This body's mass (g) = its volume x its material's density, or null when it has no material. The whole-part `properties.mass_g` is null as soon as ONE body is null; this says which (materials.md §4).
+             */
+            mass_g?: number | null;
+            /**
+             * Material
+             * @description The material RESOLVED for this body (its own override, else the document default); null = none assigned, so no mass.
+             */
+            material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6") | null;
+        };
+        /**
+         * BodyMaterialAssignment
+         * @description A per-BODY material override, keyed by the body's §MB-0 identity.
+         *
+         *     ``base_feature_id`` is the id of the feature that CREATED the body — the
+         *     same key ``EvaluationState.bodies`` and
+         *     :class:`~py_kit.schemas.features.BodyLumpInfo` use — so an override survives
+         *     edits to other features the way any body reference does. An override naming
+         *     a body the tree no longer produces is inert (it matches nothing); it is not
+         *     an error, because a rolled-back tree legitimately hides the body for a while.
+         */
+        BodyMaterialAssignment: {
+            /**
+             * Base Feature Id
+             * Format: uuid
+             * @description Id of the feature that created the body (its MB-0 identity)
+             */
+            base_feature_id: string;
+            /**
+             * Material
+             * @description Material for THIS body only
+             * @enum {string}
+             */
+            material: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6";
         };
         /**
          * BomLine
@@ -2298,6 +2699,15 @@ export interface components {
         /**
          * ComposedDimensionError
          * @description A placed dimension the model could not measure — an honest marker (§3.3).
+         *
+         *     The marker glyph alone was a defect (audit N1): a 2.6 mm dashed circle holding a
+         *     bare ``!`` tells a machinist nothing, and the exported PDF/DXF carried the same
+         *     mark. So the placed error also carries ``message`` — a SHORT, upper-case sheet
+         *     caption in plain words ("LINEAR DIM: REFERENCE LOST - RE-PICK THE EDGE") — and
+         *     ``text``, where the serializers stamp it beside the marker. This is the
+         *     dimension-level twin of the typed per-view reason :class:`ComposedView` stamps
+         *     under a failed view (FINDINGS #15): the machine-readable ``code`` plus the human
+         *     sentence, on the print itself.
          */
         ComposedDimensionError: {
             /** @description Marker position (SVG space) */
@@ -2323,6 +2733,14 @@ export interface components {
              * @enum {string}
              */
             kind: "error";
+            /**
+             * Message
+             * @description Short plain-language sheet caption for the failure ('LINEAR DIM: REFERENCE LOST - RE-PICK THE EDGE'), stamped beside the marker so the print says WHY in words (audit N1). Empty = no caption (marker only).
+             * @default
+             */
+            message: string;
+            /** @description Where the `message` caption is stamped (SVG space, baseline-left); null when there is no caption */
+            text?: components["schemas"]["ComposedPoint"] | null;
         };
         /**
          * ComposedHatch
@@ -2359,6 +2777,63 @@ export interface components {
             y1: number;
             /** Y2 */
             y2: number;
+        };
+        /**
+         * ComposedLayoutIssue
+         * @description Two placed views that collide, or nearly do (audit N2).
+         *
+         *     Auto-layout used to pack the standard quartet to near-tangency and then export
+         *     the collision that the next design change produced — an overlapping print,
+         *     silently, in SVG/PDF/DXF alike. Composition now MEASURES every pair of placed
+         *     views and reports what it found here, in millimetres, and the serializers stamp
+         *     the issues as a banner on the sheet so a colliding print is never silent.
+         *
+         *     ``views`` names the two projections; ``overlap_x_mm``/``overlap_y_mm`` are the
+         *     signed gaps between their ink boxes on each axis — POSITIVE where the boxes
+         *     overlap on that axis, NEGATIVE (a clearance) where they do not. Boxes overlap
+         *     only when BOTH are positive; ``clearance_mm`` is then 0.0 and otherwise the true
+         *     (smallest-axis) white gap between them.
+         */
+        ComposedLayoutIssue: {
+            /** @description Where the serializers stamp this line of the sheet banner (SVG space, baseline-left) — placement stays the composer's job (design §4.2) */
+            at: components["schemas"]["ComposedPoint"];
+            /**
+             * Clearance Mm
+             * @description White gap between the two boxes (mm); 0.0 when they overlap
+             */
+            clearance_mm: number;
+            /**
+             * Code
+             * @description views_overlap | views_crowded
+             * @enum {string}
+             */
+            code: "views_overlap" | "views_crowded";
+            /**
+             * Message
+             * @description Plain-language sheet caption ('TOP / ISOMETRIC VIEWS OVERLAP BY 6.33 x 60.00 MM - REPOSITION BEFORE RELEASE')
+             */
+            message: string;
+            /**
+             * Overlap X Mm
+             * @description Signed X-axis overlap (mm): positive = the boxes overlap in X, negative = that much X clearance
+             */
+            overlap_x_mm: number;
+            /**
+             * Overlap Y Mm
+             * @description Signed Y-axis overlap (mm): positive = overlap, negative = clearance
+             */
+            overlap_y_mm: number;
+            /**
+             * Severity
+             * @description error | warning
+             * @enum {string}
+             */
+            severity: "error" | "warning";
+            /**
+             * Views
+             * @description The two colliding/crowded projections, in canonical order
+             */
+            views: ("front" | "top" | "right" | "iso" | "flat_pattern" | "section")[];
         };
         /**
          * ComposedLineEdge
@@ -2525,6 +3000,11 @@ export interface components {
              */
             height_mm: number;
             /**
+             * Layout Issues
+             * @description Measured view-collision diagnostics (audit N2): overlapping or sub-clearance view pairs, each with millimetre numbers and a plain-language message. EMPTY for a clean sheet — additive, so a clean sheet composes byte-identically. Non-empty ⇒ the serializers stamp a banner on the print.
+             */
+            layout_issues?: components["schemas"]["ComposedLayoutIssue"][];
+            /**
              * Margin Mm
              * @description Border inset from the sheet edge (mm)
              */
@@ -2539,6 +3019,8 @@ export interface components {
              * @description The sheet scale label ('1:1')
              */
             scale_label: string;
+            /** @description The placed THREAD SCHEDULE block (BACKLOG #50) — one row per distinct tapped-hole designation in the part, with its quantity and tap drill. Null for a part with no tapped hole — additive, so an untapped sheet composes byte-identically to its pre-thread golden. */
+            thread_schedule?: components["schemas"]["ComposedThreadSchedule"] | null;
             /**
              * Title
              * @description Drawing name (metadata / accessible label)
@@ -2556,6 +3038,41 @@ export interface components {
              * @description Sheet width (mm) — the SVG viewBox width
              */
             width_mm: number;
+        };
+        /**
+         * ComposedThreadSchedule
+         * @description The placed thread-schedule block — anchor rect + rows (BACKLOG #50).
+         *
+         *     The bottom-left twin of the flat-pattern bend table (top-left) and the title
+         *     block (bottom-right): a bordered box of derived rows, in sheet-mm SVG space,
+         *     rendered identically by all three serializers.
+         */
+        ComposedThreadSchedule: {
+            /**
+             * Height
+             * @description Block height (mm)
+             */
+            height: number;
+            /**
+             * Rows
+             * @description One row per distinct designation, in the part's TREE order of first appearance (never request-array order — RESEARCH §9)
+             */
+            rows: components["schemas"]["ThreadCalloutRow"][];
+            /**
+             * Width
+             * @description Block width (mm)
+             */
+            width: number;
+            /**
+             * X
+             * @description Block left edge (mm, SVG space)
+             */
+            x: number;
+            /**
+             * Y
+             * @description Block top edge (mm, SVG space, y-down)
+             */
+            y: number;
         };
         /**
          * ComposedTitleBlock
@@ -2969,6 +3486,45 @@ export interface components {
             plane: "XY" | "XZ" | "YZ";
         };
         /**
+         * DependencyConflictEnvelope
+         * @description A dependency 409 as it appears on the wire (the standard envelope).
+         *
+         *     Declared as the documented 409 model of the delete routes so it reaches
+         *     ``packages/contracts`` and therefore the generated TS client — the register
+         *     then reads ``details.dependents`` as a TYPE rather than narrowing an
+         *     ``unknown``.
+         */
+        DependencyConflictEnvelope: {
+            error: components["schemas"]["DependencyConflictError"];
+        };
+        /**
+         * DependencyConflictError
+         * @description The ``error`` member of a dependency 409, with typed ``details``.
+         *
+         *     Mirrors the py-kit envelope (:mod:`py_kit.errors`) rather than redefining
+         *     it: same ``code``/``message``/``details``/``request_id`` members, with
+         *     ``details`` narrowed from "anything" to :class:`DocumentDependents` for this
+         *     one documented status.
+         */
+        DependencyConflictError: {
+            /**
+             * Code
+             * @description 'part_has_dependents' / 'assembly_has_dependents' — the machine code a client branches on
+             */
+            code: string;
+            details: components["schemas"]["DocumentDependents"];
+            /**
+             * Message
+             * @description Human summary; the register shows the list, not this
+             */
+            message: string;
+            /**
+             * Request Id
+             * @description Correlation id of the refused request
+             */
+            request_id?: string | null;
+        };
+        /**
          * DiameterDimensionParams
          * @description A diameter dimension on a circular model edge (design §3.1).
          *
@@ -2987,6 +3543,36 @@ export interface components {
              * @enum {string}
              */
             type: "diameter";
+        };
+        /**
+         * DimensionAnchor
+         * @description Where a measured dimension's reference(s) landed on the CURRENT body (§11).
+         *
+         *     The re-anchoring result: ``tier`` says whether the stored stage-1 signature
+         *     matched verbatim (``exact``) or had to be re-anchored on its curve-kind
+         *     invariant (``durable``), and ``primary``/``secondary`` carry the CURRENT
+         *     signatures of the edges the dimension now names — the primary being the
+         *     dimension's main edge (the measured edge / the circle / ``edge_a`` / the first
+         *     point-to-point endpoint's edge) and the secondary the second one where the
+         *     dimension type has one (``edge_b``, the second endpoint's edge).
+         *
+         *     They are what the composer matches against the PROJECTED edges, so an annotation
+         *     lands on the geometry that is actually there after a rebuild rather than on the
+         *     stale authored signature (which is exactly why a re-measured dimension used to
+         *     still vanish from the sheet). A client may also persist them to heal the stored
+         *     ref, and ``tier == "durable"`` is the honest signal that the reference moved.
+         */
+        DimensionAnchor: {
+            /** @description Current signature of the dimension's primary edge, or null when the dimension names no edge */
+            primary?: components["schemas"]["EdgeSignature"] | null;
+            /** @description Current signature of the dimension's second edge (angular `edge_b` / the second point-to-point endpoint's edge); null otherwise */
+            secondary?: components["schemas"]["EdgeSignature"] | null;
+            /**
+             * Tier
+             * @description 'exact' (stored signature matched verbatim) or 'durable' (re-anchored on the curve-kind rebuild invariant, §11)
+             * @enum {string}
+             */
+            tier: "exact" | "durable";
         };
         /**
          * DimensionCreate
@@ -3145,6 +3731,66 @@ export interface components {
              * @enum {string}
              */
             type: "distance";
+        };
+        /**
+         * DocumentDependent
+         * @description One document that references the document a caller tried to delete.
+         *
+         *     ``name`` is carried beside the id on purpose: the caller is a person who
+         *     filed these documents by name, and a 409 that answered "referenced by
+         *     a4f1…-b2" would be technically complete and practically useless.
+         */
+        DocumentDependent: {
+            /**
+             * Id
+             * Format: uuid
+             * @description The REFERENCING document's id
+             */
+            id: string;
+            /**
+             * Kind
+             * @description How it references: 'assembly' (an instance) or 'drawing' (a view)
+             * @enum {string}
+             */
+            kind: "assembly" | "drawing";
+            /**
+             * Name
+             * @description Its name, as filed — for the refusal message
+             */
+            name: string;
+        };
+        /**
+         * DocumentDependents
+         * @description The ``details`` payload of a dependency 409 — the full referent list.
+         *
+         *     A LIST, never a count: the point of refusing is that the caller can go and
+         *     re-point or remove those references, which needs their names. Ordered
+         *     assemblies-then-drawings, each alphabetical, so the message is stable
+         *     between two identical refusals.
+         */
+        DocumentDependents: {
+            /**
+             * Dependents
+             * @description Every document still referencing the delete target; never empty (no dependents means no conflict was raised)
+             */
+            dependents: components["schemas"]["DocumentDependent"][];
+        };
+        /**
+         * DocumentMove
+         * @description File a document into a folder. ``folder_id: null`` un-files it.
+         *
+         *     Applies to a part, an assembly or a drawing (one DTO — the verb is identical
+         *     and only the route differs). Filing is NOT a document edit: it does not bump
+         *     the document's concurrency counter and does not move ``updated_at``, so the
+         *     register's LAST WORKED column keeps meaning "someone worked on it" rather
+         *     than "someone tidied up". Same reasoning as the last-evaluate record write.
+         */
+        DocumentMove: {
+            /**
+             * Folder Id
+             * @description The destination folder — must be the caller's own and OF THIS DOCUMENT'S KIND — or null to leave the document unfiled at the root of its drawer. Required; null is an explicit destination.
+             */
+            folder_id: string | null;
         };
         /**
          * DraftFeature
@@ -3370,8 +4016,13 @@ export interface components {
          */
         DrawingCreate: {
             /**
+             * Folder Id
+             * @description File it into this folder on creation, or null (the default) to leave it unfiled at the root of its drawer. Present so filing inside a folder is ONE call: a create-then-move pair could fail between the two and leave the document somewhere the user did not put it. Must be the caller's own folder OF THIS DOCUMENT'S KIND.
+             */
+            folder_id?: string | null;
+            /**
              * Name
-             * @description Drawing name; unique per owner, whitespace-trimmed, 1-200 characters
+             * @description Drawing name; unique per FOLDER (#WS2), whitespace-trimmed, 1-200 characters
              */
             name: string;
         };
@@ -3431,6 +4082,11 @@ export interface components {
              * @description Monotonic optimistic-concurrency counter (design §2.1)
              */
             doc_version: number;
+            /**
+             * Folder Id
+             * @description The folder this document is filed in, or null when it is UNFILED (at the root of its drawer). Null is a real state, not a missing value — see py_kit.schemas.folders. Changed only by the document's `/move` route, which is not a document edit: it moves neither the concurrency counter nor `updated_at`.
+             */
+            folder_id?: string | null;
             /**
              * Id
              * Format: uuid
@@ -3906,6 +4562,8 @@ export interface components {
              * @default 0.1
              */
             linear_deflection: number;
+            /** @description What the part's bodies are made of (docs/design/materials.md): a document default plus per-body overrides. Omitted / null = no material, so the result reports NO mass (absent, not zero). Unlike length units — presentation metadata the kernel never sees — material is an INPUT to evaluation, because mass is derived from it. */
+            materials?: components["schemas"]["MaterialAssignment"] | null;
             /**
              * Part Id
              * Format: uuid
@@ -3913,7 +4571,7 @@ export interface components {
             part_id: string;
             /**
              * Tree Version
-             * @description Echoed back; cache/correlation key
+             * @description The part tree_version documents composed this request from. Echoed back verbatim on the result, where it is the PROVENANCE stamp of the returned body (EvaluateTreeResult.tree_version) as well as a cache/correlation key.
              */
             tree_version: number;
         };
@@ -3951,7 +4609,10 @@ export interface components {
             part_id: string;
             /** @description Mass properties of the last-good body */
             properties: components["schemas"]["ShapeProperties"] | null;
-            /** Tree Version */
+            /**
+             * Tree Version
+             * @description PROVENANCE: the part tree_version this result — every `features` status, `mesh_glb_id`, and `properties` — was BUILT FROM (echoed from the request documents composed off that exact tree). A consumer compares it against the part's current `PartResponse.tree_version` (the shared `is_stale_for_tree` rule) to know whether the body it is displaying still reflects the tree, instead of inferring currency from whether a request is in flight.
+             */
             tree_version: number;
         };
         /**
@@ -3998,6 +4659,8 @@ export interface components {
              * @description Instance identity (result keying)
              */
             instance_id: string;
+            /** @description The instanced PART's material assignment (docs/design/materials.md), forwarded verbatim into that part's evaluation so the assembly rolls up a real mass. Null = the part has no material, so it contributes no mass and the assembly total is null (never zero). Two instances share a part_key and therefore a part, so they share this. */
+            materials?: components["schemas"]["MaterialAssignment"] | null;
             /**
              * Name
              * @description Human-readable instance name ('Bracket <1>'), threaded into the STEP export as the PRODUCT name so a Loft->STEP->Loft round trip preserves part identity instead of writing the instance UUID (FINDINGS #7). Optional: evaluate/interference ignore it; the export path falls back to the instance id when absent (a nameless request stays valid).
@@ -4104,6 +4767,11 @@ export interface components {
              * @description The mate graph; processed in order_index order (determinism), bounded by MAX_ASSEMBLY_MATES (work bound, audit G2)
              */
             mates?: components["schemas"]["EvaluatedMate"][];
+            /**
+             * Name
+             * @description The assembly's human-readable document name. Names the exported STEP's ROOT PRODUCT and the download filename; omitted / null falls back to the assembly id. Export-only (see DocumentName): a name must never be an input to the solve.
+             */
+            name?: string | null;
             /**
              * Version
              * @description Echoed back; cache/correlation key
@@ -4251,6 +4919,94 @@ export interface components {
              * @description User-facing name ("Sketch1")
              */
             name: string;
+        };
+        /**
+         * FeatureDependencyConflictError
+         * @description The ``error`` member of a feature-delete 409, with typed ``details``.
+         */
+        FeatureDependencyConflictError: {
+            /**
+             * Code
+             * @description 'feature_has_dependents' — the code a client branches on
+             */
+            code: string;
+            details: components["schemas"]["FeatureDependents"];
+            /**
+             * Message
+             * @description Human summary; the tree shows the list
+             */
+            message: string;
+            /**
+             * Request Id
+             * @description Correlation id of the refused request
+             */
+            request_id?: string | null;
+        };
+        /**
+         * FeatureDependent
+         * @description One thing that breaks if a feature is deleted.
+         *
+         *     ``name`` rides beside the id for the same reason it does on
+         *     :class:`~py_kit.schemas.workspace.DocumentDependent`: the reader is a person
+         *     who named these things, and "referenced by 2 other document(s)" — which is
+         *     what this refusal used to say — ends the conversation instead of starting
+         *     the next action.
+         */
+        FeatureDependent: {
+            /**
+             * Id
+             * Format: uuid
+             * @description The REFERENCING feature's or drawing's id
+             */
+            id: string;
+            /**
+             * Kind
+             * @description 'feature' (a later feature of this part) or 'drawing' (a section view cutting on this feature)
+             * @enum {string}
+             */
+            kind: "feature" | "drawing";
+            /**
+             * Name
+             * @description Its name, as the user sees it in the tree/register
+             */
+            name: string;
+        };
+        /**
+         * FeatureDependents
+         * @description What depends on one feature — the answer to "what breaks if I delete it?"
+         *
+         *     Serves TWO surfaces from one shape, which is the point (CLAUDE.md DRY):
+         *
+         *     - the ``details`` payload of the delete's ``feature_has_dependents`` 409, and
+         *     - the body of ``GET …/features/{id}/dependents``, which the tree asks BEFORE
+         *       offering the delete, so the confirmation can name what breaks instead of
+         *       letting the user find out from a refusal.
+         *
+         *     Both are produced by one server-side query, so the warning a user reads and
+         *     the refusal the server would issue cannot disagree. Empty means the feature
+         *     is free to delete — an honest, common answer, unlike the 409 payload
+         *     (:class:`FeatureDependentsEnvelope`) which by construction is never empty.
+         *     Features first (tree order — the order the user reads them in), then
+         *     drawings alphabetically.
+         */
+        FeatureDependents: {
+            /**
+             * Dependents
+             * @description Everything referencing this feature; EMPTY when nothing does
+             */
+            dependents: components["schemas"]["FeatureDependent"][];
+        };
+        /**
+         * FeatureDependentsEnvelope
+         * @description A feature-delete 409 as it appears on the wire (standard envelope).
+         *
+         *     Declared as the documented 409 model of the feature delete so it reaches
+         *     ``packages/contracts`` and therefore the generated TS client — the tree
+         *     lists the features by name from a TYPE rather than from a hopeful parse of
+         *     an untyped ``details`` blob (UI-REVIEW 2026-07-30 F3).
+         */
+        FeatureDependentsEnvelope: {
+            error: components["schemas"]["FeatureDependencyConflictError"];
         };
         /**
          * FeatureError
@@ -4508,6 +5264,206 @@ export interface components {
              */
             kind: "fixed";
             point: components["schemas"]["EntityPointRef"];
+        };
+        /**
+         * FolderContents
+         * @description The ``details`` payload of a non-empty-folder 409 — everything inside.
+         *
+         *     A LIST, never a count: the caller's next action is to move those things out,
+         *     which needs their names. Sub-folders first, then documents, each
+         *     alphabetical, so two identical refusals read identically.
+         */
+        FolderContents: {
+            /**
+             * Contents
+             * @description Direct children of the folder; never empty (an empty folder deletes cleanly)
+             */
+            contents: components["schemas"]["FolderMember"][];
+        };
+        /**
+         * FolderCreate
+         * @description Create a folder in one drawer, at the root or inside another folder.
+         */
+        FolderCreate: {
+            /**
+             * Kind
+             * @description Which drawer this folder belongs to. It may only ever hold documents of this kind (see module docstring).
+             * @enum {string}
+             */
+            kind: "part" | "assembly" | "drawing";
+            /**
+             * Name
+             * @description Folder name; unique among its siblings (per parent, per kind, per owner), whitespace-trimmed, 1-120 chars
+             */
+            name: string;
+            /**
+             * Parent Id
+             * @description Containing folder, or null for a top-level folder. Must be the caller's own folder OF THE SAME KIND.
+             */
+            parent_id?: string | null;
+        };
+        /**
+         * FolderListResponse
+         * @description Every folder of ONE kind for the caller — the whole tree, one query.
+         *
+         *     The whole tree rather than one level: the register needs ancestors for the
+         *     breadcrumb and the full set for the move picker, and a per-level fetch would
+         *     make "which folder is this document in?" an N+1. A wrapper leaves room for
+         *     pagination the day a tree is big enough to need it — which, for a structure
+         *     a human types by hand, it will not be.
+         */
+        FolderListResponse: {
+            /** Folders */
+            folders: components["schemas"]["FolderResponse"][];
+        };
+        /**
+         * FolderMember
+         * @description One thing inside a folder whose delete was refused.
+         *
+         *     Deliberately NOT reusing :class:`~py_kit.schemas.workspace.DocumentDependent`:
+         *     that model means "something REFERENCES you" and its ``kind`` documents why a
+         *     part can never appear in it. Membership is the opposite relation, and a part
+         *     is its commonest member. Two relations, two models; one shared refusal
+         *     GRAMMAR (409, ``details`` naming what blocks it), which is the part that
+         *     matters to a user.
+         */
+        FolderMember: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Kind
+             * @description 'folder' for a sub-folder, else the document kind
+             * @enum {string}
+             */
+            kind: "folder" | "part" | "assembly" | "drawing";
+            /**
+             * Name
+             * @description Its name, as filed — for the refusal message
+             */
+            name: string;
+        };
+        /**
+         * FolderMove
+         * @description Re-parent a folder. ``parent_id: null`` moves it to the root.
+         *
+         *     Refused (422) when the target is the folder itself or one of its own
+         *     descendants — that would detach the subtree from the register entirely, so
+         *     it is a cycle in effect as well as in the graph.
+         */
+        FolderMove: {
+            /**
+             * Parent Id
+             * @description The new containing folder, or null to move to the root of its drawer. Required — null is an explicit destination, not an omission.
+             */
+            parent_id: string | null;
+        };
+        /**
+         * FolderNotEmptyEnvelope
+         * @description A non-empty-folder 409 as it appears on the wire (standard envelope).
+         *
+         *     Declared as the documented 409 model of the folder delete route so it reaches
+         *     ``packages/contracts`` and therefore the generated TS client — the register
+         *     reads ``details.contents`` as a TYPE rather than narrowing an ``unknown``.
+         */
+        FolderNotEmptyEnvelope: {
+            error: components["schemas"]["FolderNotEmptyError"];
+        };
+        /**
+         * FolderNotEmptyError
+         * @description The ``error`` member of a non-empty-folder 409, with typed ``details``.
+         */
+        FolderNotEmptyError: {
+            /**
+             * Code
+             * @description 'folder_not_empty' — the code a client branches on
+             */
+            code: string;
+            details: components["schemas"]["FolderContents"];
+            /**
+             * Message
+             * @description Human summary; the register shows the list
+             */
+            message: string;
+            /**
+             * Request Id
+             * @description Correlation id of the refused request
+             */
+            request_id?: string | null;
+        };
+        /**
+         * FolderRename
+         * @description Rename a folder. Renaming cannot move it — that is :class:`FolderMove`.
+         *
+         *     Separate verbs on purpose: a PATCH carrying an optional ``parent_id`` cannot
+         *     tell "leave it where it is" (field omitted) from "move it to the root"
+         *     (field null), and a move that silently did nothing because a client sent the
+         *     wrong one of those is precisely the "reported success while the document is
+         *     still in the old place" defect this slice is being held to.
+         */
+        FolderRename: {
+            /**
+             * Name
+             * @description New folder name
+             */
+            name: string;
+        };
+        /**
+         * FolderResponse
+         * @description A folder as stored, plus the two counts a register row may state.
+         *
+         *     Both counts are DIRECT (this folder's own children), computed server-side in
+         *     the list query. A register renders them; it never derives one from the rows
+         *     it happens to be holding, because at the root it is holding only the unfiled
+         *     documents and would count them as the folder's.
+         */
+        FolderResponse: {
+            /**
+             * Child Folder Count
+             * @description Folders directly inside this one (not recursive)
+             */
+            child_folder_count: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Document Count
+             * @description Documents filed DIRECTLY in this folder — not counting sub-folders' contents. A register may print this; it may not add it up.
+             */
+            document_count: number;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Kind
+             * @description The drawer this folder belongs to
+             * @enum {string}
+             */
+            kind: "part" | "assembly" | "drawing";
+            /** Name */
+            name: string;
+            /**
+             * Owner Id
+             * Format: uuid
+             * @description Owning user id (gateway-verified)
+             */
+            owner_id: string;
+            /**
+             * Parent Id
+             * @description Containing folder, or null for a top-level folder
+             */
+            parent_id: string | null;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -5360,6 +6316,68 @@ export interface components {
             order_index: number;
         };
         /**
+         * Material
+         * @description One library material: its key, display name, and density.
+         *
+         *     Density is the ONLY physical property v1 models, because mass is the only
+         *     thing we claim to report. Thermal/elastic properties would be an unbacked
+         *     promise until something computes with them (design §1).
+         */
+        Material: {
+            /**
+             * Density Kg M3
+             * @description Density (kg/m^3). Handbook NOMINAL value — a production part uses its supplier's certificate, not this table.
+             */
+            density_kg_m3: number;
+            /**
+             * Key
+             * @enum {string}
+             */
+            key: "steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6";
+            /**
+             * Name
+             * @description Display name, e.g. 'Aluminium 6061'
+             */
+            name: string;
+        };
+        /**
+         * MaterialAssignment
+         * @description What a document is made of: one default + per-body overrides (design §2).
+         *
+         *     A multi-body part legitimately mixes materials (a steel pin in an aluminium
+         *     housing), so a single document-level material would be wrong for exactly the
+         *     parts mass matters most on. The resolution rule is one line — an override
+         *     wins over the default (:func:`resolve_body_material`) — and lives here so
+         *     every consumer resolves identically.
+         *
+         *     ``default_material: None`` with no overrides is the HONEST empty state a new
+         *     document starts in: no material anywhere, therefore no mass anywhere.
+         */
+        MaterialAssignment: {
+            /**
+             * Bodies
+             * @description Per-body overrides; at most one entry per base_feature_id.
+             */
+            bodies?: components["schemas"]["BodyMaterialAssignment"][];
+            /**
+             * Default Material
+             * @description Material for every body without an override; null means the document has no material, so its mass is UNKNOWN (not zero).
+             */
+            default_material?: ("steel_1018" | "stainless_304" | "aluminium_6061" | "brass_c360" | "abs" | "pla" | "nylon_6") | null;
+        };
+        /**
+         * MaterialLibraryResponse
+         * @description The built-in material library, served so no client hardcodes a density.
+         *
+         *     The picker needs names + densities, and a second copy of the table in TS
+         *     would be a DRY violation that silently drifts (CLAUDE.md). One table, in
+         *     py-kit, served over the API.
+         */
+        MaterialLibraryResponse: {
+            /** Materials */
+            materials: components["schemas"]["Material"][];
+        };
+        /**
          * MeasureRequest
          * @description Measure the nearest distance between two targets (stateless, one-shot).
          *
@@ -5429,6 +6447,8 @@ export interface components {
          *     :class:`DrawingViewResult` success/error envelope for a single dimension.
          */
         MeasuredDimension: {
+            /** @description Where the dimension's reference(s) landed on the CURRENT body (topological-naming §11) — the re-anchored signatures + whether the match was `exact` or `durable`. Null when the dimension could not be resolved at all (`error` set) or for a caller-synthesised value. Additive: a consumer that ignores it reads the same value it always did. */
+            anchor?: components["schemas"]["DimensionAnchor"] | null;
             /** @description Typed resolution failure (`subshape_unresolved` / `subshape_ambiguous` / `dimension_wrong_type`), or null on success */
             error?: components["schemas"]["FeatureError"] | null;
             /**
@@ -5531,6 +6551,24 @@ export interface components {
             kind: "points";
         };
         /**
+         * MirrorBodyScope
+         * @description ``scope: {"kind": "body"}`` — reflect the CURRENT BODY (the v1 reading).
+         *
+         *     The v1 semantic, NAMED rather than implied (design §3.1): the mirror reflects
+         *     the body that exists at its point in the tree, cut-aware — when the active body
+         *     carries a recorded cut whose reflected tool still reaches it the mirror reflects
+         *     that REMOVAL, otherwise it reflects and unions the whole body. Kept verbatim
+         *     (§6.1): the shipped goldens' byte identity is STRUCTURAL, not measured, because
+         *     this scope dispatches to code the v2 work did not touch.
+         */
+        MirrorBodyScope: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "body";
+        };
+        /**
          * MirrorFeature
          * @description ``{"type": "mirror", "version": 1, "params": {...}}`` envelope.
          *
@@ -5558,6 +6596,44 @@ export interface components {
             version: 1;
         };
         /**
+         * MirrorFeaturesScope
+         * @description ``scope: {"kind": "features", "features": [...]}`` — reflect these features.
+         *
+         *     The v2 reading (design §2b/§4): each selected feature's RECORDED RIGID TOOL
+         *     SOLID(S) are reflected about the plane and that feature's OWN operation
+         *     (``fuse``/``cut``) is re-applied to the active body, in TREE order — never array
+         *     order (§8.1: array order is UI-incidental, so honouring it would make identical
+         *     models tessellate to different bytes). Parameters are never re-derived: a
+         *     reflected circular pattern is correct precisely because its PLACEMENTS are
+         *     reflected, where re-deriving the axis would wind the ring backwards (§4.5).
+         *
+         *     ``features`` names :class:`FeatureRef`s rather than bare UUIDs so each selection
+         *     materialises into ``feature_dependencies`` for free (feature-tree §2.3): deleting
+         *     a mirrored feature is a 409-with-dependents, a reorder re-checks the
+         *     strict-backward rule, and a forward/self reference is a write-time 422. A
+         *     non-body-affecting or non-reflectable kind (``sketch``/``datum``, and every
+         *     MODIFIER — fillet/chamfer/shell/draft and the sheet-metal family, which have a
+         *     RESULT and no tool, §4.3) is refused with the typed per-feature
+         *     ``mirror_feature_unsupported`` at rebuild.
+         *
+         *     ``min_length=1`` because an empty selection is authoring nonsense, not a no-op
+         *     mirror (§3.1), and duplicate ids are a 422 rather than silently deduplicated —
+         *     naming a feature twice leaves the intent (twice? once?) unstated, which is the
+         *     mistake v1 made.
+         */
+        MirrorFeaturesScope: {
+            /**
+             * Features
+             * @description The features to reflect, each a `FeatureRef` to an earlier body-affecting feature of this tree. Applied in TREE order (the array order is ignored — design §8.1); at least one, at most MAX_MIRROR_SCOPE_FEATURES (work bound); duplicates are a 422.
+             */
+            features: components["schemas"]["FeatureRef"][];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "features";
+        };
+        /**
          * MirrorParamsV1
          * @description Reflect the current body about a plane and union the reflection in.
          *
@@ -5583,6 +6659,12 @@ export interface components {
          *     body is unchanged. A degenerate/failed reflection is a per-feature
          *     ``mirror_failed`` rebuild error; a mirror with no prior body is
          *     ``no_target_body`` — never a silently wrong body.
+         *
+         *     ``scope`` (v2, design §3) states WHAT is reflected — the whole ``body`` (the
+         *     reading above, kept verbatim) or an explicit selection of ``features``. It
+         *     defaults to ``body`` and a persisted params blob with no ``scope`` key reads as
+         *     ``body`` (:meth:`_legacy_body_scope`), so every mirror authored before v2
+         *     evaluates on unchanged code.
          */
         MirrorParamsV1: {
             /**
@@ -5590,6 +6672,11 @@ export interface components {
              * @description Mirror plane — an origin datum (XY/XZ/YZ `DatumPlaneRef`) or an earlier `datum` feature (`FeatureRef`); the SAME plane vocabulary a sketch uses (discriminated on `kind`)
              */
             plane: components["schemas"]["DatumPlaneRef"] | components["schemas"]["FeatureRef"];
+            /**
+             * Scope
+             * @description WHAT to reflect (discriminated on `kind`): `body` reflects the current body (the v1 reading — cut-aware, with the reflect-and-union fallback), `features` reflects the recorded tool solids of an explicit tree-ordered selection and re-applies each feature's own boolean. Absent reads `body`, so pre-v2 mirrors are unchanged (design §3.2).
+             */
+            scope?: components["schemas"]["MirrorBodyScope"] | components["schemas"]["MirrorFeaturesScope"];
         };
         /**
          * NoteAnnotationParams
@@ -5754,6 +6841,11 @@ export interface components {
          */
         PartCreate: {
             /**
+             * Folder Id
+             * @description File it into this folder on creation, or null (the default) to leave it unfiled at the root of its drawer. Present so filing inside a folder is ONE call: a create-then-move pair could fail between the two and leave the document somewhere the user did not put it. Must be the caller's own folder OF THIS DOCUMENT'S KIND.
+             */
+            folder_id?: string | null;
+            /**
              * Length Unit
              * @description Document display unit (docs/design/units.md §1); DISPLAY metadata only — storage stays canonical mm. Defaults to 'mm'.
              * @default mm
@@ -5762,7 +6854,7 @@ export interface components {
             length_unit: "mm" | "cm" | "m" | "in" | "ft";
             /**
              * Name
-             * @description Part name; unique per owner, whitespace-trimmed, 1-200 characters
+             * @description Part name; unique per FOLDER (#WS2), whitespace-trimmed, 1-200 characters
              */
             name: string;
         };
@@ -5776,10 +6868,13 @@ export interface components {
         };
         /**
          * PartResponse
-         * @description A part as stored — identity, ownership, unit, and timestamps.
+         * @description A part as stored — identity, ownership, unit, timestamps, rebuild health.
          *
-         *     The feature tree is NOT here yet: it lands as its own tables per
-         *     docs/design/feature-tree.md once the implementation item ships.
+         *     The feature tree itself is not inlined here (it is its own
+         *     ``GET /parts/{id}/features`` response, docs/design/feature-tree.md); what
+         *     IS here is the fixed-size last-evaluate record (§4.4a) so a register can
+         *     tell the truth about a whole drawer of parts in one query — five scalars per
+         *     row, never per-feature or per-sheet growth.
          */
         PartResponse: {
             /**
@@ -5788,16 +6883,49 @@ export interface components {
              */
             created_at: string;
             /**
+             * Eval Scope
+             * @description How much of the tree the live verdict covers: 'whole' (the entire tree ran) or 'rolled_back' (the travel stop held features out, so `eval_state` describes a PREFIX — an 'ok' here is NOT a claim that the part builds). Null when there is no live verdict to qualify ('never'/'stale') or when the record predates scope tracking; null must not be read as 'whole'. Orthogonal to `eval_state` because the two combine: a rolled-back tree can also fail (see PartEvalScope).
+             */
+            eval_scope?: ("whole" | "rolled_back") | null;
+            /**
+             * Eval State
+             * @description Rebuild health a consumer may act on NOW: 'never' (not evaluated), 'ok'/'failed' (evaluated, and that verdict still applies to the current tree), or 'stale' (evaluated, but the tree changed since — status unknown). Derived server-side from the last_eval_* fields against the part's current tree_version (feature-tree.md §4.4a), so a stale claim is never dressed up as a current one. It says NOTHING about how much of the tree was evaluated — read `eval_scope` before presenting 'ok' as a verdict on the part.
+             * @enum {string}
+             */
+            eval_state: "never" | "ok" | "failed" | "stale";
+            /**
+             * Folder Id
+             * @description The folder this document is filed in, or null when it is UNFILED (at the root of its drawer). Null is a real state, not a missing value — see py_kit.schemas.folders. Changed only by the document's `/move` route, which is not a document edit: it moves neither the concurrency counter nor `updated_at`.
+             */
+            folder_id?: string | null;
+            /**
              * Id
              * Format: uuid
              */
             id: string;
+            /**
+             * Last Eval At
+             * @description When that evaluate was recorded (documents' clock); null if never evaluated. For display ('failed 20 min ago'), NOT for deciding staleness.
+             */
+            last_eval_at: string | null;
+            /**
+             * Last Eval Status
+             * @description Raw recorded outcome of the last evaluate, or null if the part was never evaluated. Read `eval_state` for the verdict — this field alone cannot say whether it still applies.
+             */
+            last_eval_status: ("ok" | "failed") | null;
+            /**
+             * Last Eval Tree Version
+             * @description The tree_version the recorded status describes; null if never evaluated. Differs from the part's current tree_version exactly when `eval_state` is 'stale'.
+             */
+            last_eval_tree_version: number | null;
             /**
              * Length Unit
              * @description Document display unit (docs/design/units.md §1); DISPLAY metadata only — storage stays canonical mm.
              * @enum {string}
              */
             length_unit: "mm" | "cm" | "m" | "in" | "ft";
+            /** @description What the part is made of (docs/design/materials.md §2). Always present; an assignment with `default_material: null` and no overrides is the honest empty state — no material, therefore no mass. A stored NULL reads back as that empty assignment so a consumer has ONE shape to render, never null-vs-empty. */
+            materials: components["schemas"]["MaterialAssignment"];
             /** Name */
             name: string;
             /**
@@ -5807,6 +6935,11 @@ export interface components {
              */
             owner_id: string;
             /**
+             * Tree Version
+             * @description The part's CURRENT monotonic optimistic-concurrency counter (feature-tree.md §1.2) — bumped in the same transaction as any tree write. Two uses: the `expected_tree_version` a write echoes, and the DENOMINATOR of the staleness comparison (`is_stale_for_tree`) — a consumer holding a result stamped with the version it was built from (EvaluateTreeResult.tree_version) knows whether what it displays is still current. Mirrors AssemblyResponse.doc_version on the assembly header row.
+             */
+            tree_version: number;
+            /**
              * Updated At
              * Format: date-time
              */
@@ -5814,12 +6947,15 @@ export interface components {
         };
         /**
          * PartUpdate
-         * @description Rename and/or re-unit a part. Bumps ``tree_version`` (any document edit
-         *     bumps — the feature-tree.md §1.2 pattern applied to the part header).
+         * @description Rename, re-unit and/or re-material a part. Bumps ``tree_version`` (any
+         *     document edit bumps — the feature-tree.md §1.2 pattern applied to the part
+         *     header).
          *
-         *     Both mutable fields are optional; at least one must be provided. Changing
+         *     Every mutable field is optional; at least one must be provided. Changing
          *     the display unit is a document edit (docs/design/units.md §U1) — it does
          *     NOT convert any stored ``*_mm`` value, only relabels how they render.
+         *     Changing the material does more: mass is derived from it, so the recorded
+         *     evaluate stops applying (see ``materials`` below).
          */
         PartUpdate: {
             /**
@@ -5832,6 +6968,8 @@ export interface components {
              * @description New document display unit (metadata only)
              */
             length_unit?: ("mm" | "cm" | "m" | "in" | "ft") | null;
+            /** @description Replace the part's WHOLE material assignment (default + per-body overrides, docs/design/materials.md §2). Omitted/null leaves it untouched; send an EMPTY assignment ({}) to clear it back to 'no material', which makes mass unknown again. Wholesale replacement, not a merge, so the request states the full intended state and two concurrent edits cannot interleave into an assignment neither sent. Unlike a rename or a unit change this DOES invalidate the recorded evaluate: mass is derived from it. */
+            materials?: components["schemas"]["MaterialAssignment"] | null;
             /**
              * Name
              * @description New part name
@@ -6027,6 +7165,46 @@ export interface components {
              * @enum {string}
              */
             mode: "point_to_point";
+        };
+        /**
+         * PrefetchRequest
+         * @description Warm the rebuild cache for a part, addressed the way the CLIENT sees it.
+         *
+         *     The browser knows the intent and the feature id; it does not know (and must
+         *     not assemble) the evaluation-ready feature list — documents owns that,
+         *     rollback bar and param upcasts included. So this carries the intent, and the
+         *     gateway turns it into the geometry service's :class:`WarmTreeRequest` using
+         *     the SAME ``/evaluation-request`` hop a real evaluate uses, which is what
+         *     makes the warm land on the key the real evaluate will probe.
+         *
+         *     Best-effort by construction: a target that is not in the current evaluation
+         *     prefix (rolled back past, or already deleted) is a 200 with
+         *     ``accepted: false``, never an error — a prefetch that cannot be honoured just
+         *     means the next rebuild is as slow as it always was.
+         */
+        PrefetchRequest: {
+            /**
+             * Feature Id
+             * Format: uuid
+             * @description The feature the intent points at: the one whose editor is open, or the one the travel stop is being dropped after.
+             */
+            feature_id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "feature_edit" | "travel_stop";
+            /**
+             * Part Id
+             * Format: uuid
+             * @description The part being edited or scrubbed.
+             */
+            part_id: string;
+            /**
+             * Ticket
+             * @description Client-chosen identity of this intent (e.g. one per open editor). Namespaced per user by the gateway, so one client can never cancel another's speculation.
+             */
+            ticket: string;
         };
         /**
          * ProjectedPoint
@@ -6402,11 +7580,26 @@ export interface components {
         /**
          * ShapeProperties
          * @description Mass properties + topology of the evaluated B-rep shape.
+         *
+         *     Two fields are honestly nullable (docs/design/materials.md): ``mass_g`` and
+         *     ``center_of_mass`` are ``null`` whenever ANY contributing body has no
+         *     material assigned. ``null`` means *unknown*, never zero — a body nobody has
+         *     said the material of has no mass to report, and inventing one (0 g, or a
+         *     default steel) is the overstated-surface defect this field exists to avoid.
+         *     A consumer must render absence as absence and must not title a panel "mass"
+         *     on the strength of a null.
          */
         ShapeProperties: {
             bounding_box: components["schemas"]["BoundingBox"];
-            /** @description Centre of mass (mm) */
+            /** @description Genuinely mass-weighted centre of mass (mm), or null when any contributing body has no material. For a single-material shape it equals `centroid`; for mixed materials it does not. */
+            center_of_mass?: components["schemas"]["Vec3"] | null;
+            /** @description Centroid of VOLUME (mm) — the geometric centre. Equal to the centre of mass only when the whole shape is one material; for a multi-material roll-up read `center_of_mass` instead. */
             centroid: components["schemas"]["Vec3"];
+            /**
+             * Mass G
+             * @description Mass (g) = volume x density, or null when a contributing body has NO material assigned. Null is 'unknown', NOT zero.
+             */
+            mass_g?: number | null;
             /**
              * Surface Area
              * @description Total surface area (mm^2)
@@ -7805,6 +8998,27 @@ export interface components {
             properties: components["schemas"]["ShapeProperties"];
         };
         /**
+         * ThreadCalloutRow
+         * @description One line of the thread schedule — a designation, its count, its tap drill.
+         */
+        ThreadCalloutRow: {
+            /**
+             * Designation
+             * @description Drawing designation, ASCII ("M6x1") — the kernel's `format_designation`, never re-derived here
+             */
+            designation: string;
+            /**
+             * Quantity
+             * @description How many holes in the part carry this designation
+             */
+            quantity: number;
+            /**
+             * Tap Drill Mm
+             * @description ISO recommended tap drill (nominal - pitch, mm) — the diameter the kernel actually bored, and what the shop sets up
+             */
+            tap_drill_mm: number;
+        };
+        /**
          * TitleBlock
          * @description Free-text title-block fields (design §9 open-q 6 — v1 holds free text).
          *
@@ -8094,6 +9308,42 @@ export interface components {
             projection?: ("front" | "top" | "right" | "iso" | "flat_pattern" | "section") | null;
             scale?: components["schemas"]["ViewScale"] | null;
         };
+        /**
+         * WarmCancelRequest
+         * @description Retire a warm ticket. Idempotent, and never an error.
+         */
+        WarmCancelRequest: {
+            /**
+             * Ticket
+             * @description The ticket submitted to `POST /warm`. Unknown or already finished → `accepted: false`, which is a normal outcome, not a fault.
+             */
+            ticket: string;
+        };
+        /**
+         * WarmTreeResult
+         * @description The reply to a warm — deliberately EMPTY of geometry.
+         *
+         *     There is no mesh id, no mass property, no feature status and no body here,
+         *     and that is a structural guarantee rather than an omission: a speculative
+         *     rebuild that could be published would eventually be published for a tree it
+         *     does not exactly correspond to, which is the silent-wrong-geometry class this
+         *     repo has closed five times. A warm can only ever be *used* by a request whose
+         *     feature prefix hashes identically, through the ordinary cache key.
+         *
+         *     So the two fields say what happened to the SCHEDULING, and nothing else.
+         */
+        WarmTreeResult: {
+            /**
+             * Accepted
+             * @description Whether this call changed the worker's speculation: true = queued (or, for /warm/cancel, a running ticket was retired); false = nothing to do — the same ticket was already in flight, the tree had no prefix worth warming, or the cancelled ticket had already finished. Never an error either way: prefetch is best-effort by construction.
+             */
+            accepted: boolean;
+            /**
+             * Ticket
+             * @description Echo of the submitted ticket.
+             */
+            ticket: string;
+        };
     };
     responses: never;
     parameters: never;
@@ -8242,6 +9492,15 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description Still referenced by other documents; `details.dependents` names them. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DependencyConflictEnvelope"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -8306,6 +9565,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AssemblyBomResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    duplicate_assembly_api_v1_assemblies__assembly_id__duplicate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                assembly_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssemblyResponse"];
                 };
             };
             /** @description Validation Error */
@@ -8482,6 +9772,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AssemblyGraphResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    move_assembly_api_v1_assemblies__assembly_id__move_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                assembly_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DocumentMove"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssemblyResponse"];
                 };
             };
             /** @description Validation Error */
@@ -8903,6 +10228,37 @@ export interface operations {
             };
         };
     };
+    duplicate_drawing_api_v1_drawings__drawing_id__duplicate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drawing_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DrawingResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     export_drawing_api_v1_drawings__drawing_id__export_post: {
         parameters: {
             query?: {
@@ -8928,6 +10284,41 @@ export interface operations {
                     "application/pdf": string;
                     "image/svg+xml": string;
                     "image/vnd.dxf": string;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    move_drawing_api_v1_drawings__drawing_id__move_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drawing_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DocumentMove"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DrawingResponse"];
                 };
             };
             /** @description Validation Error */
@@ -9260,6 +10651,179 @@ export interface operations {
             };
         };
     };
+    list_folders_api_v1_folders_get: {
+        parameters: {
+            query: {
+                /** @description Which drawer's tree to return */
+                kind: "part" | "assembly" | "drawing";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FolderListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_folder_api_v1_folders_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FolderCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FolderResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_folder_api_v1_folders__folder_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                folder_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Folder still holds items; `details.contents` names them. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FolderNotEmptyEnvelope"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rename_folder_api_v1_folders__folder_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                folder_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FolderRename"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FolderResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    move_folder_api_v1_folders__folder_id__move_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                folder_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FolderMove"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FolderResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     assembly_evaluate_api_v1_geometry_assembly_evaluate_post: {
         parameters: {
             query?: never;
@@ -9516,6 +11080,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OverlayResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    prefetch_api_v1_geometry_prefetch_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PrefetchRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WarmTreeResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    prefetch_cancel_api_v1_geometry_prefetch_cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WarmCancelRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WarmTreeResult"];
                 };
             };
             /** @description Validation Error */
@@ -9795,6 +11425,26 @@ export interface operations {
             };
         };
     };
+    list_materials_api_v1_materials_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaterialLibraryResponse"];
+                };
+            };
+        };
+    };
     list_parts_api_v1_parts_get: {
         parameters: {
             query?: never;
@@ -9897,6 +11547,15 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description Still referenced by other documents; `details.dependents` names them. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DependencyConflictEnvelope"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -9925,6 +11584,37 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PartResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    duplicate_part_api_v1_parts__part_id__duplicate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                part_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -10209,6 +11899,15 @@ export interface operations {
                     "application/json": components["schemas"]["FeatureTreeResponse"];
                 };
             };
+            /** @description Still referenced by later features or drawing views; `details.dependents` names them. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeatureDependentsEnvelope"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -10256,6 +11955,38 @@ export interface operations {
             };
         };
     };
+    feature_dependents_api_v1_parts__part_id__features__feature_id__dependents_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                part_id: string;
+                feature_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeatureDependents"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     suppress_feature_api_v1_parts__part_id__features__feature_id__suppress_patch: {
         parameters: {
             query?: never;
@@ -10279,6 +12010,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FeatureMutationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    move_part_api_v1_parts__part_id__move_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                part_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DocumentMove"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PartResponse"];
                 };
             };
             /** @description Validation Error */

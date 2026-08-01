@@ -18,6 +18,7 @@ afterEach(cleanup);
 function sections(
   onFit: () => void,
   onDelete: () => void,
+  onTop: () => void = () => {},
 ): ContextMenuSection[] {
   return [
     {
@@ -28,8 +29,9 @@ function sections(
         {
           key: "top",
           label: "Top",
-          onSelect: () => {},
+          onSelect: onTop,
           disabled: true,
+          disabledReason: "Model a body first",
           "data-testid": "top",
         },
       ],
@@ -106,8 +108,43 @@ describe("ContextMenu", () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
-  it("leaves a disabled row inert", () => {
+  it("leaves a disabled row inert but reachable, and lets it say why", () => {
     const onClose = vi.fn();
+    const onTop = vi.fn();
+    render(
+      <ContextMenu
+        open
+        x={0}
+        y={0}
+        aria-label="Menu"
+        sections={sections(
+          () => {},
+          () => {},
+          onTop,
+        )}
+        onClose={onClose}
+      />,
+    );
+    const row = screen.getByTestId("top");
+    // `aria-disabled`, NOT the native attribute: a natively disabled row leaves
+    // the a11y tree and refuses hover, so a gated verb has nowhere to explain
+    // itself (UI-REVIEW 2026-07-30 P2).
+    expect(row).toHaveAttribute("aria-disabled", "true");
+    expect(row).not.toBeDisabled();
+    // Inert all the same — clicking it neither fires nor closes.
+    fireEvent.click(row);
+    expect(onTop).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    // And the reason reaches both the pointer and the a11y tree.
+    expect(row).toHaveAttribute("title", "Model a body first");
+    const describedBy = row.getAttribute("aria-describedby");
+    expect(describedBy).not.toBeNull();
+    expect(document.getElementById(describedBy!)).toHaveTextContent(
+      "Model a body first",
+    );
+  });
+
+  it("skips a gated row with the arrow keys", () => {
     render(
       <ContextMenu
         open
@@ -118,10 +155,13 @@ describe("ContextMenu", () => {
           () => {},
           () => {},
         )}
-        onClose={onClose}
+        onClose={() => {}}
       />,
     );
-    expect(screen.getByTestId("top")).toBeDisabled();
+    // "top" is gated, so opening focuses the first SELECTABLE row instead.
+    expect(screen.getByTestId("fit")).toHaveFocus();
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "ArrowDown" });
+    expect(screen.getByTestId("top")).not.toHaveFocus();
   });
 
   it("closes on Escape", () => {

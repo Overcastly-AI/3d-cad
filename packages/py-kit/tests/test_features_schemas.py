@@ -9,8 +9,10 @@ import uuid
 from typing import Any, Literal
 
 import pytest
+from py_kit.schemas.drawings import artifact_filename
 from py_kit.schemas.features import (
     BODY_AFFECTING_FEATURE_TYPES,
+    EXPORT_DOCUMENT_NAME_MAX_LENGTH,
     FEATURE_REGISTRY,
     DatumFeature,
     DatumMidplaneParams,
@@ -18,6 +20,8 @@ from py_kit.schemas.features import (
     DatumOffsetParams,
     DatumPlaneRef,
     DraftFeature,
+    EvaluateTreeRequest,
+    ExportTreeRequest,
     ExtrudeFeature,
     Feature,
     FeatureCreate,
@@ -28,11 +32,14 @@ from py_kit.schemas.features import (
     FeatureUpdate,
     FilletFeature,
     MirrorFeature,
+    MirrorFeaturesScope,
     ShellFeature,
     SketchFeature,
     SketchParamsV1,
     SolvedSketchData,
     UnknownFeatureVersionError,
+    document_slug,
+    export_tree_filename,
     feature_references,
     iter_feature_refs,
 )
@@ -40,6 +47,10 @@ from py_kit.schemas.sketch import SketchDefinition, SketchLine
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
 SKETCH_ID = uuid.UUID("6f3f6b64-0000-4000-8000-0000000000aa")
+#: Two more stable ids for the mirror-scope case (a body-affecting feature and a
+#: datum), so its selection names distinct features.
+EXTRUDE_ID = uuid.UUID("6f3f6b64-0000-4000-8000-0000000000bb")
+DATUM_ID = uuid.UUID("6f3f6b64-0000-4000-8000-0000000000cc")
 
 #: §6 worked example — sketch params, verbatim.
 SKETCH_PARAMS: dict[str, Any] = {
@@ -780,7 +791,18 @@ def test_sketch_plane_feature_ref_accepts_datum() -> None:
 def test_mirror_on_datum_plane_round_trips_and_has_no_feature_refs() -> None:
     """A mirror about an origin datum plane names a WORLD plane — no feature_id,
     so no dependency edge (like a pattern's world vectors). Reuses the SAME
-    GeomRef a sketch uses (DRY)."""
+    GeomRef a sketch uses (DRY).
+
+    The params blob here is the PRE-V2 shape (``{plane}`` only — what every mirror
+    persisted before ``scope`` existed carries), so this also pins the additive
+    migration of docs/design/mirror-semantics.md §3.2: it validates unchanged and
+    normalises to ``scope: {"kind": "body"}``, the v1 semantic now NAMED. The dump
+    therefore CARRIES the normalised scope, exactly as it already carries the
+    defaulted ``suppressed: False`` — a re-serialized row gains the key and means
+    the same thing, with no ``param_version`` bump. A ``body``-scope mirror still
+    materializes no dependency edge; only a ``features`` scope does
+    (``test_mirror_features_scope_materializes_body_affecting_dependencies``).
+    """
     envelope = MirrorFeature.model_validate(
         {
             "type": "mirror",
@@ -789,14 +811,70 @@ def test_mirror_on_datum_plane_round_trips_and_has_no_feature_refs() -> None:
         }
     )
     assert envelope.params.plane.kind == "datum_plane"
+    assert envelope.params.scope.kind == "body"
     assert feature_references(envelope) == ()
     assert list(iter_feature_refs(envelope)) == []
     assert envelope.model_dump(mode="json") == {
         "type": "mirror",
         "version": 1,
         "suppressed": False,
-        "params": {"plane": {"kind": "datum_plane", "plane": "YZ"}},
+        "params": {
+            "plane": {"kind": "datum_plane", "plane": "YZ"},
+            "scope": {"kind": "body"},
+        },
     }
+
+
+def test_mirror_features_scope_materializes_body_affecting_dependencies() -> None:
+    """A ``features``-scope mirror DOES depend on what it reflects (mirror v2,
+    docs/design/mirror-semantics.md §3.1).
+
+    Each selected ``FeatureRef`` becomes a ``scope.features[i]`` slot whose allowed
+    targets are the BODY-AFFECTING types — the same constraint the on-face datum and
+    the picked fillet use — so documents gets the write-time guarantees for free: a
+    409-with-dependents on deleting a mirrored feature, a strict-backward re-check on
+    reorder, and a 422 for a forward/self reference or a ``sketch``/``datum``
+    selection (long before it could be an evaluation-time
+    ``mirror_feature_unsupported``). The plane keeps its own ``datum``-only rule, and
+    the slot map agrees with the generic walk (the ``feature_references`` self-check
+    would raise otherwise).
+    """
+    envelope = MirrorFeature.model_validate(
+        {
+            "type": "mirror",
+            "version": 1,
+            "params": {
+                "plane": {"kind": "feature", "feature_id": str(DATUM_ID)},
+                "scope": {
+                    "kind": "features",
+                    "features": [
+                        {"kind": "feature", "feature_id": str(EXTRUDE_ID)},
+                        {"kind": "feature", "feature_id": str(SKETCH_ID)},
+                    ],
+                },
+            },
+        }
+    )
+    references = {
+        reference.slot: reference for reference in feature_references(envelope)
+    }
+    assert set(references) == {"plane", "scope.features[0]", "scope.features[1]"}
+    assert references["plane"].allowed_types == frozenset({"datum"})
+    for slot, expected_id in (
+        ("scope.features[0]", EXTRUDE_ID),
+        ("scope.features[1]", SKETCH_ID),
+    ):
+        assert references[slot].ref.feature_id == expected_id
+        assert references[slot].allowed_types == BODY_AFFECTING_FEATURE_TYPES
+    # min_length=1 and the duplicate rule are boundary 422s, never a silent no-op
+    # mirror or a silent dedup (§3.1 / §8.1).
+    with pytest.raises(ValidationError):
+        MirrorFeaturesScope.model_validate({"kind": "features", "features": []})
+    duplicate = {"kind": "feature", "feature_id": str(EXTRUDE_ID)}
+    with pytest.raises(ValidationError, match="more than once"):
+        MirrorFeaturesScope.model_validate(
+            {"kind": "features", "features": [duplicate, duplicate]}
+        )
 
 
 def test_mirror_on_datum_feature_materializes_a_datum_dependency() -> None:
@@ -934,3 +1012,64 @@ def test_duplicate_registrations_rejected() -> None:
     registry.register_upcast("widget", 1, lambda params: params)
     with pytest.raises(FeatureSchemaError, match="twice"):
         registry.register_upcast("widget", 1, lambda params: params)
+
+
+# --- audit N4: one slug rule, and a download named after the document -------------
+
+
+def test_document_slug_is_the_one_rule_the_three_downloads_share() -> None:
+    """Lower-case, non-alphanumeric runs to one hyphen, edges trimmed.
+
+    Ported from the web's ``sanitizeDrawingFilename`` and now shared by the part,
+    assembly and drawing downloads — so a part and its drawing slug identically.
+    """
+    assert document_slug("MMB-001 Bracket rev A") == "mmb-001-bracket-rev-a"
+    assert document_slug("  Motor Mount Bracket  ") == "motor-mount-bracket"
+    assert document_slug("Rev.A / 120mm") == "rev-a-120mm"
+    # No alphanumerics at all -> empty, so each CALLER picks its own fallback
+    # (a part falls back to its id; a drawing to "drawing").
+    assert document_slug("///") == ""
+    assert artifact_filename("///", "pdf") == "drawing.pdf"
+
+
+def _export_tree_request(**over: object) -> ExportTreeRequest:
+    return ExportTreeRequest.model_validate(
+        {
+            "part_id": "11111111-1111-1111-1111-111111111111",
+            "tree_version": 1,
+            "features": [],
+            "format": "step",
+            **over,
+        }
+    )
+
+
+def test_export_tree_filename_prefers_the_document_name() -> None:
+    """`motor-mount-bracket.step`, not `part-<uuid>.step` (audit N4)."""
+    named = _export_tree_request(name="Motor Mount Bracket")
+    assert export_tree_filename(named) == "motor-mount-bracket.step"
+
+
+def test_export_tree_filename_falls_back_to_the_part_id() -> None:
+    """No name -> the pre-N4 filename, so an unnamed export can still never collide."""
+    unnamed = _export_tree_request(format="stl")
+    assert unnamed.name is None
+    assert export_tree_filename(unnamed) == f"part-{unnamed.part_id}.stl"
+
+
+def test_export_tree_name_is_trimmed_and_bounded() -> None:
+    """A name is a bounded document name, not an unbounded blob on the wire."""
+    assert _export_tree_request(name="  Bracket  ").name == "Bracket"
+    with pytest.raises(ValidationError):
+        _export_tree_request(name="x" * (EXPORT_DOCUMENT_NAME_MAX_LENGTH + 1))
+    with pytest.raises(ValidationError):
+        _export_tree_request(name="   ")
+
+
+def test_evaluate_request_has_no_name_field() -> None:
+    """The name is EXPORT-only: a name must never be an input to geometry.
+
+    Guards the decision recorded on ``DocumentName`` — if a later change puts it on
+    the evaluate contract, two evaluations of one tree could differ by a rename.
+    """
+    assert "name" not in EvaluateTreeRequest.model_fields

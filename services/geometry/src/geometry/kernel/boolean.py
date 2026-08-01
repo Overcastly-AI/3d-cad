@@ -43,6 +43,7 @@ from typing import Literal
 from build123d import ShapeList, Solid
 
 from geometry.kernel.extrude import BooleanError
+from geometry.kernel.healing import clean_shape
 from geometry.kernel.lumps import assemble_lumps
 from geometry.kernel.types import BodyShape
 
@@ -145,7 +146,7 @@ def boolean_bodies(
             # Opt-in multi-lump body (§MB-4): keep the >1 lumps as ONE body — a
             # lump-sorted Compound of the cleaned lumps (each lump's boolean seams
             # cleaned, then the explicit total order imposed for determinism).
-            return assemble_lumps([solid.clean() for solid in solids])
+            return assemble_lumps([clean_shape(solid) for solid in solids])
         if operation == "subtract":
             detail = (
                 f"severed the target into {len(solids)} disconnected pieces — the "
@@ -165,4 +166,4 @@ def boolean_bodies(
             f"Boolean {operation} {detail}. Set 'allow_disjoint' to keep the "
             "result as one multi-lump body (design §MB-4)."
         )
-    return solids[0].clean()
+    return clean_shape(solids[0])

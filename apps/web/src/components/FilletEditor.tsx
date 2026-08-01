@@ -34,6 +34,7 @@ import {
   radiusError,
   type SelectionMode,
 } from "../features/modify";
+import { EditorCard } from "./EditorCard";
 
 export interface FilletEditorProps {
   mode: "create" | "edit";
@@ -96,10 +97,17 @@ export function FilletEditor({
     canSubmitFillet(form, picked, bodyFeatureId, unit) && !saving;
   useCommandBridge(submit, canSubmit);
 
+  // While EDGE PICKING is armed the card takes the right rail: at the left
+  // editor seat it sits over the model, and its own footer then swallows
+  // clicks aimed at a pick node underneath it — a gated `PanelActionCell`
+  // keeps pointer events on purpose (it has to stay hoverable to explain
+  // itself), so an overlapping card is now an unpickable edge, not just a
+  // covered one. Measured 2026-07-30: the cube's top edge at (10, 0, 20) was
+  // unclickable behind the greyed Apply cell.
   return (
-    <div
-      className="absolute left-editor top-3 w-editor max-w-full"
+    <EditorCard
       onKeyDown={onKeyDown}
+      seat={form.mode === "pick" ? "right" : "left"}
     >
       <Panel aria-label="Fillet" data-testid="fillet-editor">
         <div className="border-b border-hairline">
@@ -225,6 +233,6 @@ export function FilletEditor({
           {error}
         </p>
       ) : null}
-    </div>
+    </EditorCard>
   );
 }

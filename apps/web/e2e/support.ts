@@ -1,8 +1,32 @@
+import { copyFile, mkdir } from "node:fs/promises";
+import { dirname } from "node:path";
+
 import { expect, type Page } from "@playwright/test";
 
 import { SESSION_STORAGE_KEY } from "../src/auth/session";
 
 export const SCREENSHOT_DIR = "../../docs/screenshots";
+
+/**
+ * Copy a produced artifact (a PDF, a DXF — anything that is NOT a
+ * `page.screenshot`) into the committed `docs/screenshots/` set, but ONLY on a
+ * deliberate refresh.
+ *
+ * `fixtures.ts` gates `page.screenshot` so a routine `just e2e` never rewrites
+ * the committed PNGs. That gate wraps ONE method, so these `copyFile` writes
+ * sailed straight past it and every run rewrote `drawing-export.{pdf,dxf}` —
+ * the exact churn the PNG gate exists to prevent, at a second address. Found
+ * 2026-07-31 when a clean-window e2e left two files dirty; the committed pair
+ * turned out to be 13 days stale, so nobody had noticed either half.
+ *
+ * Refresh deliberately with `UPDATE_SCREENSHOTS=1`, the same switch the PNGs use
+ * — one env var for the whole committed set, not two conventions.
+ */
+export async function persistArtifact(from: string, to: string): Promise<void> {
+  if (!process.env.UPDATE_SCREENSHOTS) return;
+  await mkdir(dirname(to), { recursive: true });
+  await copyFile(from, to);
+}
 
 /** Meets the gateway's 8–256 char policy; not a secret (test-only). */
 export const TEST_PASSWORD = "loft-e2e-passw0rd";
@@ -169,6 +193,35 @@ export async function countSketchInkPixels(page: Page): Promise<number> {
     }
     return count;
   });
+}
+
+/**
+ * Wait for the page to actually PAINT `frames` times before sampling the
+ * drawing buffer — the render loop's own clock, not the wall clock.
+ *
+ * The specs that census canvas pixels assert on NUMBERS, and a numeric
+ * `expect` does not auto-retry the way a locator assertion does (GATE-1a), so
+ * whatever they wait on has to be right first time. `waitForTimeout(400)` is
+ * the wrong quantity for that job: under CPU contention — four agents, or a CI
+ * shard — 400 ms of wall clock can pass with no rendering opportunity at all,
+ * which is precisely the load where the sample is taken early. `rAF` callbacks
+ * fire on rendering opportunities, so counting them waits for the work rather
+ * than for time, and returns as soon as it has happened.
+ *
+ * The timeout race is a safety valve, not the mechanism: a page that somehow
+ * stops painting resolves late instead of hanging until the test timeout.
+ */
+export async function waitForFrames(page: Page, frames = 4): Promise<void> {
+  await page.evaluate(async (count: number) => {
+    await Promise.race([
+      (async () => {
+        for (let i = 0; i < count; i += 1) {
+          await new Promise((resolve) => requestAnimationFrame(resolve));
+        }
+      })(),
+      new Promise((resolve) => setTimeout(resolve, 2000)),
+    ]);
+  }, frames);
 }
 
 /** Count distinct colors on the WebGL canvas — proves a real render. */

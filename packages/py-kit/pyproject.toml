@@ -17,6 +17,7 @@ dependencies = [
     # (asyncpg, aiosqlite) stay with the services — py-kit is driver-agnostic.
     "sqlalchemy[asyncio]>=2.0.36",
     "alembic>=1.14",
+    "prometheus-client>=0.21",
 ]
 
 [build-system]

@@ -81,6 +81,22 @@ export async function exportBox(
 }
 
 /**
+ * Mark a download as a PREFIX of the tree: `part-1234.step` → `part-1234-partial.step`.
+ *
+ * The server names the file after the part it exported, which is the right
+ * default and the wrong claim when the tree is rolled back: the bytes are the
+ * body up to the travel stop, and the file outlives the screen that said so
+ * (AUDIT-ENGINEERING J2 — the export cell must not hand over an artifact the
+ * user believes is their whole model). The suffix goes before the extension so
+ * the file still opens as STEP/STL by association.
+ */
+export function markFilenamePartial(filename: string): string {
+  const dot = filename.lastIndexOf(".");
+  if (dot <= 0) return `${filename}-partial`;
+  return `${filename.slice(0, dot)}-partial${filename.slice(dot)}`;
+}
+
+/**
  * Export the CURRENT part's evaluated feature tree via the gateway
  * (`POST /api/v1/parts/{id}/export?format=`). Unlike {@link exportBox}, which
  * exports a bare parametric primitive, this exports the body the engineer

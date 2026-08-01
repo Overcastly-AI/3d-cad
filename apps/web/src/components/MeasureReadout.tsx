@@ -1,6 +1,6 @@
 /**
- * The measurement readout — a title-block instrument pinned to the viewport's
- * bottom edge while the Measure tool is armed. The measured distance is the
+ * The measurement readout — a title-block instrument seated in the viewport's
+ * bottom-centre HUD lane, above the view rail, while the Measure tool is armed. The measured distance is the
  * hero numeral (Fragment Mono, brass — the parametric-handle accent), with the
  * signed component deltas and, for two straight edges, the angle. Before both
  * targets are picked it is a quiet prompt; a failed measurement or overlay
@@ -11,6 +11,15 @@ import { CloseIcon, formatLength, MeasureIcon, Panel } from "@loft/design";
 import { describePick, formatAngleDeg } from "../measure/geometry";
 import { useMeasureStore } from "../measure/store";
 import { useDocumentLengthUnit } from "../units/documentUnit";
+
+/**
+ * The seat: the bottom-centre HUD lane (`layout.hudLaneBottom`), which clears
+ * the view rail. One anchor for all three states of this instrument — before
+ * 2026-07-30 this was `bottom-16`, a step the closed spacing scale does not
+ * have, so the panel fell back to STATIC and rendered at the TOP of the frame,
+ * under the command band and behind its own tooltip.
+ */
+const SEAT = "absolute bottom-hud-lane left-1/2 -translate-x-1/2";
 
 /** One title-block cell: tracked eyebrow over a data-face value. */
 function Cell({
@@ -33,7 +42,7 @@ function Cell({
         ? "text-gauge"
         : "text-mist";
   return (
-    <div className={`px-3 py-2 ${wide ? "min-w-28" : "min-w-20"}`}>
+    <div className={`px-3 py-2 ${wide ? "min-w-[7rem]" : "min-w-[5rem]"}`}>
       <span className="block font-display text-2xs uppercase tracking-[0.18em] text-gauge">
         {eyebrow}
       </span>
@@ -102,7 +111,7 @@ export function MeasureReadout() {
       <Panel
         aria-label="Measurement"
         data-testid="measure-readout"
-        className="absolute bottom-16 left-1/2 -translate-x-1/2"
+        className={SEAT}
       >
         {header}
         <p
@@ -122,7 +131,7 @@ export function MeasureReadout() {
       <Panel
         aria-label="Measurement"
         data-testid="measure-readout"
-        className="absolute bottom-16 left-1/2 -translate-x-1/2"
+        className={SEAT}
       >
         {header}
         <p
@@ -171,7 +180,7 @@ export function MeasureReadout() {
     <Panel
       aria-label="Measurement"
       data-testid="measure-readout"
-      className="absolute bottom-16 left-1/2 -translate-x-1/2"
+      className={SEAT}
     >
       {header}
       <div className="px-3 py-2" data-testid="measure-prompt">

@@ -1,8 +1,8 @@
-import { copyFile, mkdir, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 
 import { expect, test, type Page } from "./fixtures";
 
-import { SCREENSHOT_DIR, seedSession } from "./support";
+import { persistArtifact, SCREENSHOT_DIR, seedSession } from "./support";
 
 /**
  * Drawings v1 #7 — the drawing canvas exit gate. Driven end to end through a
@@ -764,8 +764,7 @@ test("export the laid-out sheet as a server-composed .pdf", async ({
     path,
     contentType: "application/pdf",
   });
-  await mkdir(SCREENSHOT_DIR, { recursive: true });
-  await copyFile(path, `${SCREENSHOT_DIR}/drawing-export.pdf`);
+  await persistArtifact(path, `${SCREENSHOT_DIR}/drawing-export.pdf`);
 });
 
 /**
@@ -836,6 +835,5 @@ test("export the laid-out sheet as a server-composed .dxf", async ({
     path,
     contentType: "image/vnd.dxf",
   });
-  await mkdir(SCREENSHOT_DIR, { recursive: true });
-  await copyFile(path, `${SCREENSHOT_DIR}/drawing-export.dxf`);
+  await persistArtifact(path, `${SCREENSHOT_DIR}/drawing-export.dxf`);
 });

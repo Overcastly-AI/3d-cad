@@ -1,0 +1,309 @@
+# Loft e2e — the BROWSER gate. The one CI was missing.
+#
+# Why this workflow exists (docs/BACKLOG.md GATE-1, 2026-08-01): ci.yml runs
+# lint, unit tests, contract drift, compose config and licences — and nothing
+# that drives a browser. On 2026-07-31 a correct behaviour change (feature
+# delete now ASKS before it acts) left `interaction-depth.spec.ts` asserting
+# the old behaviour; the spec was red at HEAD while five consecutive CI runs
+# reported success, and the only thing that caught it was an orchestrator
+# running `just e2e` by hand. The gate was honest — it simply was not wired to
+# the thing it would have caught.
+#
+# ── What runs, and what deliberately does not ────────────────────────────────
+#
+# Leg 2 of `just e2e` ONLY: the Playwright suite against a real stack.
+# Leg 1 (the 2.4k-test geometry suite) is NOT re-run here — ci.yml's `python`
+# job already runs whole-repo pytest, so paying ~12 min per shard for it would
+# buy nothing. `scripts/e2e.sh --web-only` is the same script `just e2e` runs,
+# so a red shard reproduces locally with one command.
+#
+# The stack is the NATIVE boot (uvicorn + per-service SQLite), not compose.
+# That is a real fidelity gap and it is covered elsewhere rather than ignored:
+# deploy-path.yml builds the images and drives register → part → sketch →
+# extrude → evaluate → mesh → STEP against a REAL Postgres/MinIO on every
+# push. So Postgres-specific behaviour is gated there, browser behaviour here.
+# Naming it beats implying it: what this workflow does NOT cover is the
+# browser against Postgres, and non-Chromium browsers (the suite is
+# Chromium-only by config).
+#
+# ── Cost, argued rather than asserted ───────────────────────────────────────
+#
+# MEASURED, not estimated — a full serial run of the browser leg at 60a9553 on
+# this container: **352 tests / 81 spec files, 3051 s wall (50.6 min)**, under
+# four-agent load; the orchestrator's quiet-window batch-end run puts the same
+# leg nearer 30 min. playwright.config.ts pins `workers: 1` (the specs share one
+# stack and software-GL rendering is CPU-bound), so raising workers is a
+# separate and riskier lever — sharding across runners is the safe one. Either
+# way ~30-50 min per push is not a gate anybody would keep.
+#
+# Options weighed:
+#   * PR-ONLY — free, and worth nothing here: this repo pushes straight to
+#     `claude/**` and opens no PRs, so the job would never have run. It would
+#     not have caught the defect that motivated it.
+#   * NIGHTLY ONLY — one full run a day, complete coverage, but it attributes a
+#     failure to ~20 commits up to 24h later. "Red for a day" IS the defect
+#     being closed, so this fails the acceptance criterion on its own. Nightly
+#     IN ADDITION was also considered and rejected: once every code push is
+#     covered it re-runs a suite against a tree already gated, and buys only
+#     flake detection we would rather get from the pushes themselves.
+#   * FAST SUBSET PER PUSH (the write-path specs) + nightly full — cheapest,
+#     and the wrong shape twice over. First, any subset is a hand-maintained
+#     list, which is precisely the failure class this repo has hit four times:
+#     an enumerated gate cannot fail when the thing it enumerates grows, it
+#     just quietly stops covering, and every new spec is born outside the gate.
+#     Second, it would not have caught THIS bug: the red spec was
+#     interaction-depth.spec.ts, a right-click/ghost-preview spec that no
+#     honest "write paths" list would have included.
+#   * FULL SUITE PER PUSH, SHARDED (chosen) — `--shard=i/N` splits by the
+#     FILESYSTEM, so coverage is derived, not enumerated: a spec added tomorrow
+#     is in a shard automatically and no list can go stale (verified: the four
+#     shards list 90 + 86 + 88 + 88 = 352). MEASURED end to end on this
+#     container by running the real thing — `--shard=2/4` took 12.7 min for its
+#     86 tests, 777 s wall including preflight and stack boot — i.e. at or under
+#     ci.yml's `python` job (30-min ceiling, ~15 min typical), so per-push
+#     FEEDBACK LATENCY does not regress at all, which is what actually blocks
+#     the dev loop. A hosted runner has fewer cores, so treat 12.7 as the floor.
+#     The cost is runner minutes: ~30-50 for the specs + ~4 per shard of setup
+#     + ~2 to reconcile ≈ 50-70 minutes per push that touches code. At the
+#     measured code-commit rate (21 on 2026-07-31, 39 on 2026-07-30) that is
+#     roughly 20-45 runner-hours/day: free on GitHub-hosted standard runners for
+#     a public repo, ≈$8-22/day at the $0.008/min private rate.
+#
+# Shard count is the lever if that is the wrong trade: wall ≈ T/N + 4 min,
+# runner-minutes ≈ T + 4N, so past N≈6 setup dominates and below N≈3 the shard
+# risks the 45-minute job ceiling.
+#
+# `paths-ignore` below removes the 30% of commits (measured over the last 100)
+# that are markdown-only, since a .md file cannot change what a browser does.
+# Consequence to know when reading CI: a SHA with NO e2e run is a docs-only
+# commit, not an evicted one — `git show --name-only <sha>` settles it in one
+# command. That is preferable to a run whose every job is skipped, which is
+# the shape that reports `success` while doing nothing.
+#
+# Raising the shard count also multiplies CONCURRENT jobs, which matters
+# because pushes get per-SHA concurrency groups (see below) and four agents
+# push in parallel — at N=4 a single push already occupies 5 of this
+# workflow's jobs on top of ci.yml's 6 and deploy-path's 2.
+
+name: e2e
+
+on:
+  push:
+    branches:
+      - main
+      - "claude/**"
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+  pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+  workflow_dispatch:
+
+concurrency:
+  # Same reasoning as ci.yml, and it matters MORE here: this workflow is the
+  # only per-commit evidence that the browser suite is green, so a commit whose
+  # run is evicted has no browser evidence at all. PUSH → a group per COMMIT,
+  # which nothing can evict. PR → a group per ref, so a superseded PR cancels.
+  group: >-
+    ${{ github.event_name == 'pull_request'
+        && format('e2e-pr-{0}', github.ref)
+        || format('e2e-sha-{0}', github.sha) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  playwright:
+    name: playwright (shard ${{ matrix.shard }}/4)
+    runs-on: ubuntu-latest
+    # A real `--shard=2/4` measured 12.7 min of specs here (777 s wall with
+    # preflight + stack boot), plus ~4 min of CI setup; 45 is headroom, not a
+    # prediction. A hosted runner has fewer cores than the dev container and
+    # these specs are software-GL bound, so they may well run slower here — and
+    # the failure mode of guessing LOW is much worse than guessing high: a job
+    # killed by timeout-minutes is reported `cancelled`, the same word GitHub
+    # uses for a concurrency eviction, so a too-tight ceiling buys an ambiguous
+    # red AND a wasted run. Tighten this only once a green run has reported the
+    # real per-shard duration on a runner.
+    timeout-minutes: 45
+    strategy:
+      # Never cancel siblings: a cancelled shard produces no JSON report, the
+      # reconcile job below then cannot tell "this shard was cancelled" from
+      # "these specs are covered by nobody", and `cancelled` is not a pass.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      # The geometry service imports OCP, so every shard needs the full Python
+      # environment — this is the ~700MB wheel the uv cache exists for.
+      - name: Sync uv environment (locked)
+        run: uv sync --locked
+      - name: Install (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+      - name: Resolve the pinned Playwright version
+        id: pw
+        run: |
+          version=$(node -p "require('./apps/web/node_modules/@playwright/test/package.json').version")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Playwright $version"
+      - name: Cache the browser binaries
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.pw.outputs.version }}
+      # Chromium only — playwright.config.ts declares no other browser, so
+      # installing the rest would be minutes of download nothing runs.
+      - name: Install Chromium
+        run: pnpm --filter @loft/web exec playwright install --with-deps chromium
+      # scripts/e2e.sh boots geometry/documents/gateway itself (PID-tracked,
+      # cleaned up on exit) and Playwright starts Vite. CI is set by GitHub, and
+      # the script keys off it to REFUSE to reuse any listener: reuse exists so
+      # the gate composes with a local `just dev`, and in CI a live port could
+      # only mean something stale is about to be tested instead of this commit.
+      #
+      # UPDATE_SCREENSHOTS is deliberately NOT set: the fixtures gate the
+      # docs/screenshots writes behind it, so the render still happens and the
+      # committed founder PNGs are left alone. The tree check below proves it.
+      - name: Playwright shard ${{ matrix.shard }}/4
+        env:
+          E2E_JSON_REPORT: ${{ runner.temp }}/playwright-shard-${{ matrix.shard }}.json
+        # --forbid-only: a committed `test.only` narrows the suite to one test
+        # and every job still reports success — the same "gate that quietly
+        # stopped covering" shape, arriving by accident rather than by design.
+        #
+        # NO --retries (GATE-1a, closed 2026-08-01). The gate shipped with
+        # `--retries=1` and one disclosed reason for it: view-fit.spec.ts slept
+        # a fixed 900 ms after collapsing a panel and then asserted on a NUMBER,
+        # and a numeric assertion does not auto-retry the way a locator
+        # assertion does, so under load it read the pre-collapse width. That
+        # spec now waits for the camera rig's own settle stamp, and the two
+        # other specs that sampled canvas pixels after a fixed sleep wait for
+        # real PAINTS (`waitForFrames`) instead of wall-clock time. A retry is
+        # therefore a defect again rather than an allowance — which is the
+        # point: a gate people learn to re-run is worse than no gate, and
+        # `--retries=1` is where that habit starts. `--fail-on-flaky` below
+        # makes the reconcile job FAIL on a test that passed only on retry, so
+        # if a retry is ever reintroduced it cannot pass silently.
+        run: >-
+          scripts/e2e.sh --web-only --
+          --shard=${{ matrix.shard }}/4
+          --forbid-only
+      # A CI job that dirties the working tree is a defect in its own right,
+      # and the specific thing being guarded is the ~90 committed founder
+      # screenshots: if the UPDATE_SCREENSHOTS gate ever regresses, every e2e
+      # run starts rewriting PNGs. That regressed once already (3d22d37 — the
+      # gate wrapped one method and two artifacts escaped it), so assert it.
+      - name: The run must not have dirtied the tree
+        if: always()
+        run: |
+          if [[ -n "$(git status --porcelain)" ]]; then
+            echo "::error::the e2e run modified the working tree:"
+            git status --porcelain
+            git diff --stat
+            exit 1
+          fi
+          echo "tree clean after the run"
+      # Uploaded ALWAYS, not just on failure: the reconcile job needs every
+      # shard's report to prove the shards covered the suite between them.
+      - name: Upload this shard's JSON report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-json-shard-${{ matrix.shard }}
+          path: ${{ runner.temp }}/playwright-shard-${{ matrix.shard }}.json
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Upload traces/screenshots from a failing shard
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-artifacts-shard-${{ matrix.shard }}
+          path: |
+            apps/web/test-results
+            apps/web/playwright-report
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # The control that keeps the sharding honest, and the single job to read.
+  #
+  # Four green shards do not mean the suite ran: a shard whose job never
+  # started, a `--shard=i/N` whose N drifted from the matrix length, or a spec
+  # file that stopped matching testMatch all leave specs nobody executed while
+  # every job that DID run still reports success. This job reconciles the union
+  # of what the shards executed against `playwright test --list`, which walks
+  # the filesystem — derived, not enumerated, so a spec added tomorrow is in
+  # the expected set the moment it lands.
+  reconcile:
+    name: e2e complete
+    needs: playwright
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+      # Tolerant on purpose: if every shard died before writing a report there
+      # is nothing to download, and the audit below must be the thing that says
+      # so ("shard report … is missing") rather than an opaque download error.
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: playwright-json-shard-*
+          merge-multiple: true
+          path: shard-reports
+      # `--list` discovers without launching a browser or a stack (~1s).
+      - name: Discover every test that exists
+        run: |
+          pnpm --filter @loft/web exec playwright test --list --reporter=json \
+            > discovered.json
+      # continue-on-error so a failing shard (whose report may be missing, which
+      # this step reports as a coverage hole) still reaches the verdict step
+      # below with its real reason. The outcome is not discarded — the verdict
+      # fails on it.
+      # --fail-on-flaky: the shards run with NO retries (GATE-1a), so a test
+      # reported as "flaky" — passed only on a retry — can now only mean
+      # someone put retries back. Warning about it would let the gate decay
+      # into "e2e is a bit flaky, re-run it", which is the habit this gate
+      # exists to prevent; failing on it keeps the no-retry posture enforced by
+      # the workflow rather than by memory.
+      - name: Every discovered test must have been executed exactly once
+        id: audit
+        continue-on-error: true
+        run: |
+          python3 scripts/e2e-shard-audit.py \
+            --discovered discovered.json \
+            --fail-on-flaky \
+            shard-reports/playwright-shard-*.json
+      - name: Verdict
+        run: |
+          set -euo pipefail
+          shards='${{ needs.playwright.result }}'
+          audit='${{ steps.audit.outcome }}'
+          echo "playwright shards: $shards"
+          echo "coverage audit:    $audit"
+          failed=0
+          if [[ "$shards" != "success" ]]; then
+            echo "::error::playwright shards concluded '$shards' — see the shard logs"
+            failed=1
+          fi
+          if [[ "$audit" != "success" ]]; then
+            echo "::error::the shards did not cover the suite — see the audit step"
+            failed=1
+          fi
+          exit "$failed"

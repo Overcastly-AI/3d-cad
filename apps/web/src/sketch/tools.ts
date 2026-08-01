@@ -60,6 +60,32 @@ export const TOOL_SHORTCUTS: Readonly<Record<string, SketchTool>> = {
   b: "chamfer",
 };
 
+/**
+ * The tools that PLACE new points, as opposed to addressing geometry that is
+ * already drawn (select / trim / extend / offset / mirror / fillet / chamfer,
+ * which all pick by raw coordinate). ONE definition of the split: the scene's
+ * hover grain and the snap resolver both read it, so "does this tool snap?"
+ * and "does this tool hover a whole curve?" can never drift apart.
+ */
+export function placesPoints(tool: SketchTool): boolean {
+  switch (tool) {
+    case "line":
+    case "rect":
+    case "circle":
+    case "arc":
+    case "spline":
+      return true;
+    case "select":
+    case "trim":
+    case "extend":
+    case "offset":
+    case "mirror":
+    case "fillet":
+    case "chamfer":
+      return false;
+  }
+}
+
 /** Coordinates closer than this (mm) are the same point — degenerate. */
 const DEGENERATE_MM = 1e-9;
 

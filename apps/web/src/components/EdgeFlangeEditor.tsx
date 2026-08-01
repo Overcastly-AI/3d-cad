@@ -43,6 +43,7 @@ import {
   type WidthExtent,
 } from "../features/sheetMetal";
 import { useDocumentLengthUnit } from "../units/documentUnit";
+import { EditorCard } from "./EditorCard";
 
 export interface EdgeFlangeEditorProps {
   mode: "create" | "edit";
@@ -137,10 +138,7 @@ export function EdgeFlangeEditor({
   const inheritedK = defaults !== null ? String(defaults.kFactor) : "—";
 
   return (
-    <div
-      className="absolute left-editor top-3 w-editor max-w-full"
-      onKeyDown={onKeyDown}
-    >
+    <EditorCard onKeyDown={onKeyDown}>
       <Panel aria-label="Edge flange" data-testid="edge-flange-editor">
         <div className="border-b border-hairline">
           <h2 className="px-3 pb-1 pt-3 font-display text-2xs uppercase tracking-[0.18em] text-gauge">
@@ -353,6 +351,6 @@ export function EdgeFlangeEditor({
           {error}
         </p>
       ) : null}
-    </div>
+    </EditorCard>
   );
 }

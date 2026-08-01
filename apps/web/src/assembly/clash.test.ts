@@ -79,7 +79,6 @@ describe("clashInstanceIds", () => {
     const ids = clashInstanceIds([pair("a", "b", 1), pair("c", "d", 2, true)]);
     expect([...ids.measured].sort()).toEqual(["a", "b"]);
     expect([...ids.unverifiedOnly].sort()).toEqual(["c", "d"]);
-    expect([...ids.flagged].sort()).toEqual(["a", "b", "c", "d"]);
   });
 
   it("lets a measured clash outrank an unverified pair on the same instance", () => {
@@ -91,6 +90,7 @@ describe("clashInstanceIds", () => {
 
   it("is empty for a clash-free report", () => {
     const ids = clashInstanceIds([]);
-    expect(ids.flagged.size).toBe(0);
+    expect(ids.measured.size).toBe(0);
+    expect(ids.unverifiedOnly.size).toBe(0);
   });
 });

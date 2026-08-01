@@ -1,0 +1,279 @@
+{
+  "part_id": "00000000-0000-0000-0000-0000000000e6",
+  "tree_version": 6,
+  "features": [
+    {
+      "id": "00000000-0000-0000-0000-0000000e6001",
+      "feature": {
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "plane": {
+            "kind": "datum_plane",
+            "plane": "XY"
+          },
+          "entities": [
+            {
+              "id": "e1",
+              "kind": "line",
+              "start": {
+                "x": 0.0,
+                "y": 0.0
+              },
+              "end": {
+                "x": 40.0,
+                "y": 0.0
+              }
+            },
+            {
+              "id": "e2",
+              "kind": "line",
+              "start": {
+                "x": 40.0,
+                "y": 0.0
+              },
+              "end": {
+                "x": 40.0,
+                "y": 40.0
+              }
+            },
+            {
+              "id": "e3",
+              "kind": "line",
+              "start": {
+                "x": 40.0,
+                "y": 40.0
+              },
+              "end": {
+                "x": 0.0,
+                "y": 40.0
+              }
+            },
+            {
+              "id": "e4",
+              "kind": "line",
+              "start": {
+                "x": 0.0,
+                "y": 40.0
+              },
+              "end": {
+                "x": 0.0,
+                "y": 0.0
+              }
+            }
+          ],
+          "constraints": [
+            {
+              "kind": "coincident",
+              "a": {
+                "entity": "e1",
+                "point": "end"
+              },
+              "b": {
+                "entity": "e2",
+                "point": "start"
+              }
+            },
+            {
+              "kind": "horizontal",
+              "entity": "e1"
+            },
+            {
+              "kind": "vertical",
+              "entity": "e2"
+            },
+            {
+              "kind": "distance",
+              "entity": "e1",
+              "value_mm": 40.0
+            },
+            {
+              "kind": "distance",
+              "entity": "e2",
+              "value_mm": 40.0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-0000000e6002",
+      "feature": {
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "00000000-0000-0000-0000-0000000e6001"
+          },
+          "distance_mm": 10.0,
+          "operation": "add",
+          "direction": "normal"
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-0000000e6003",
+      "feature": {
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "plane": {
+            "kind": "datum_plane",
+            "plane": "XY"
+          },
+          "entities": [
+            {
+              "id": "e1",
+              "kind": "line",
+              "start": {
+                "x": 4.0,
+                "y": 10.0
+              },
+              "end": {
+                "x": 12.0,
+                "y": 10.0
+              }
+            },
+            {
+              "id": "e2",
+              "kind": "line",
+              "start": {
+                "x": 12.0,
+                "y": 10.0
+              },
+              "end": {
+                "x": 12.0,
+                "y": 30.0
+              }
+            },
+            {
+              "id": "e3",
+              "kind": "line",
+              "start": {
+                "x": 12.0,
+                "y": 30.0
+              },
+              "end": {
+                "x": 4.0,
+                "y": 30.0
+              }
+            },
+            {
+              "id": "e4",
+              "kind": "line",
+              "start": {
+                "x": 4.0,
+                "y": 30.0
+              },
+              "end": {
+                "x": 4.0,
+                "y": 10.0
+              }
+            }
+          ],
+          "constraints": [
+            {
+              "kind": "coincident",
+              "a": {
+                "entity": "e1",
+                "point": "end"
+              },
+              "b": {
+                "entity": "e2",
+                "point": "start"
+              }
+            },
+            {
+              "kind": "horizontal",
+              "entity": "e1"
+            },
+            {
+              "kind": "vertical",
+              "entity": "e2"
+            },
+            {
+              "kind": "distance",
+              "entity": "e1",
+              "value_mm": 8.0
+            },
+            {
+              "kind": "distance",
+              "entity": "e2",
+              "value_mm": 20.0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-0000000e6004",
+      "feature": {
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "00000000-0000-0000-0000-0000000e6003"
+          },
+          "distance_mm": 10.0,
+          "operation": "cut",
+          "direction": "normal"
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-0000000e6005",
+      "feature": {
+        "type": "fillet",
+        "version": 1,
+        "params": {
+          "edges": {
+            "kind": "axis_parallel",
+            "axis": "Z"
+          },
+          "radius_mm": 3.0
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-0000000e6006",
+      "feature": {
+        "type": "shell",
+        "version": 1,
+        "params": {
+          "thickness_mm": 1.9,
+          "faces": {
+            "kind": "faces",
+            "refs": [
+              {
+                "kind": "subshape",
+                "feature_id": "00000000-0000-0000-0000-0000000e6002",
+                "subshape_type": "face",
+                "selector": {
+                  "selector_version": 1,
+                  "signature": {
+                    "subshape_type": "face",
+                    "surface": "plane",
+                    "normal": {
+                      "x": 0.0,
+                      "y": 0.0,
+                      "z": 1.0
+                    },
+                    "centroid": {
+                      "x": 20.0,
+                      "y": 20.0,
+                      "z": 10.0
+                    },
+                    "area_mm2": 1600.0
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "linear_deflection": 0.1
+}

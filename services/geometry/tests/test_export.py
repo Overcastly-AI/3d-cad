@@ -37,6 +37,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import struct
 import subprocess
 import sys
@@ -61,6 +62,7 @@ from geometry.kernel.export import (
     STEP_MAGIC,
     STL_HEADER_BYTES,
     STL_TRIANGLE_RECORD_BYTES,
+    export_step_bytes,
 )
 from geometry.main import app
 from geometry.schemas import (
@@ -640,3 +642,79 @@ def test_tree_export_strict_prefix_failure_surfaces_feature_error() -> None:
     error = response.json()["error"]
     assert error["code"] == "tree_export_failed"
     assert error["details"]["feature_error"]["code"] == "reference_unresolved"
+
+
+# --- audit N4: the deliverable file says what it is ------------------------------
+#
+# Measured before the fix: `Content-Disposition: filename="part-ddc5d49d-….step"`
+# containing `#7 = PRODUCT('SOLID','SOLID','',(#8));` — the string "Motor Mount
+# Bracket" appeared nowhere in the file the vendor received, so quoting a job meant
+# five hand-renames before you could attach the files. Asserted on the exported
+# BYTES + the response header, not on the helper's return value.
+
+_STEP_PRODUCT_RE = re.compile(rb"PRODUCT\('([^']*)'")
+
+
+def test_tree_step_export_names_the_product_after_the_document() -> None:
+    """A named export writes PRODUCT('<document name>'), never PRODUCT('SOLID')."""
+    request = _tree_export_request(TREE_MODEL_FILES[0], "step").model_copy(
+        update={"name": "Motor Mount Bracket"}
+    )
+    data = client.post(
+        "/api/v1/export/tree", json=request.model_dump(mode="json")
+    ).content
+
+    products = [n.decode("ascii") for n in _STEP_PRODUCT_RE.findall(data)]
+    assert products, "no PRODUCT entity in the exported STEP"
+    assert all(name == "Motor Mount Bracket" for name in products), (
+        f"the document name did not reach the exported PRODUCT names: {products}"
+    )
+    assert b"PRODUCT('SOLID'" not in data
+
+
+def test_tree_step_export_without_a_name_is_byte_identical_to_before() -> None:
+    """The name is OPTIONAL and inert: no name -> the pre-N4 bytes, exactly.
+
+    Guards the additive posture — a caller that has no document name to send
+    must get the file it got yesterday (and the goldens keep passing).
+    """
+    base = _tree_export_request(TREE_MODEL_FILES[0], "step")
+    assert base.name is None
+    unnamed = client.post("/api/v1/export/tree", json=base.model_dump(mode="json"))
+    assert unnamed.status_code == 200
+    rebuilt = build_model_solid(
+        load_model_request(TREE_MODEL_FILES[0].read_text(encoding="utf-8"))
+    )
+    assert export_step_bytes(rebuilt) == unnamed.content
+
+
+def test_tree_export_filename_is_the_document_name_or_the_part_id() -> None:
+    """Downloads land as `motor-mount-bracket.step`, not `part-<uuid>.step`.
+
+    And the fallback stays keyed to the part id, so an unnamed export can still
+    never collide with another part's download.
+    """
+    named = _tree_export_request(TREE_MODEL_FILES[0], "step").model_copy(
+        update={"name": "Motor Mount Bracket  Rev.A"}
+    )
+    assert export_tree_filename(named) == "motor-mount-bracket-rev-a.step"
+
+    unnamed = _tree_export_request(TREE_MODEL_FILES[0], "stl")
+    assert export_tree_filename(unnamed) == f"part-{unnamed.part_id}.stl"
+
+    # A name with nothing sluggable in it must not produce a bare ".step".
+    unsluggable = named.model_copy(update={"name": "///"})
+    assert export_tree_filename(unsluggable) == f"part-{named.part_id}.step"
+
+
+def test_tree_export_response_header_carries_the_document_name() -> None:
+    """The header the browser saves by — the caller is not trusted to re-derive it."""
+    request = _tree_export_request(TREE_MODEL_FILES[0], "step").model_copy(
+        update={"name": "Motor Mount Bracket"}
+    )
+    response = _post_tree_export(request)
+    assert response.status_code == 200, response.text
+    assert (
+        response.headers["content-disposition"]
+        == 'attachment; filename="motor-mount-bracket.step"'
+    )

@@ -41,6 +41,20 @@ legitimately DISJOINT second lump, and multi-body parts are supported, §MB-0):
   → the union is the body itself (volume ``V``, unchanged), the on-plane case
   handled sanely by ``clean()`` collapsing the coincident geometry.
 
+CM-6 (docs/GEOMETRY-QA.md 2026-07-30), because a reader who arrives here from
+QA-1 will look for the bug in this module and it is NOT here: on a body whose
+revolved groove is TANGENT to one of its own walls, the ``fuse`` below is exact and
+``BRepCheck``-valid and the ``clean()`` after it welded the void shut (+1072.330
+mm^3, 3.48 %, ``is_valid`` false, every feature ``ok``). Both readings above were
+right — the reflected tool genuinely cannot reach the already-cut body, and
+reflect-and-union genuinely is what "complete the symmetric half" means for a body
+that lies wholly on one side of the plane. The guard is therefore in the
+simplification, not in the mirror: every ``clean()`` here goes through
+:func:`geometry.kernel.healing.clean_shape`, which discards a simplification that
+moves material. Measured: hold everything else and move the groove 0.5 mm clear of
+the wall and ``clean()`` behaves, so this is a tangency defect, not a straddling-void
+one.
+
 Determinism (RESEARCH §9): the reflection is a pure OCCT isometry of the plane,
 the fuse/clean are pure algorithms on identical inputs, and the resulting lumps
 are ordered by :func:`geometry.kernel.lumps.assemble_lumps` (centroid, then
@@ -53,6 +67,7 @@ from collections.abc import Sequence
 
 from build123d import Plane, Solid
 
+from geometry.kernel.healing import clean_shape
 from geometry.kernel.lumps import assemble_lumps
 from geometry.kernel.removal import removal_reaches_body
 from geometry.kernel.types import BodyShape
@@ -61,6 +76,24 @@ from geometry.kernel.types import BodyShape
 class MirrorError(RuntimeError):
     """The OCCT reflection or union failed, or produced no solid — a mirror
     never silently returns an empty/invalid body."""
+
+
+class MirrorUnreachableError(MirrorError):
+    """A reflected CUT tool cannot reach the body, so subtracting it would be a
+    no-op.
+
+    Two callers read this outcome differently, and the difference is the whole
+    v1-vs-v2 story (docs/design/mirror-semantics.md §4.2):
+
+    * :func:`mirror_cut` (the ``body`` scope) CATCHES it and falls back to
+      :func:`mirror_union` — v1 had to guess which of two workflows the user meant,
+      and "complete the symmetric half" is the right reading there;
+    * :func:`mirror_tools_cut` (the ``features`` scope) lets it propagate, because
+      an explicit selection has nothing to guess: a reflected cut that removes
+      nothing means the wrong feature or the wrong plane was named, so the feature
+      layer surfaces the typed ``mirror_feature_unreachable``. Explicit intent buys
+      an honest error where implicit intent could only buy a fallback.
+    """
 
 
 def mirror_union(body: BodyShape, plane: Plane) -> BodyShape:
@@ -90,7 +123,7 @@ def mirror_union(body: BodyShape, plane: Plane) -> BodyShape:
 
     try:
         fused = body.fuse(reflected)
-        solids = list(fused.clean().solids())
+        solids = list(clean_shape(fused).solids())
     except Exception as exc:  # OCCT failure modes are not a stable taxonomy
         raise MirrorError(
             f"Mirror union failed in the kernel ({type(exc).__name__}); the "
@@ -155,23 +188,70 @@ def mirror_cut(body: BodyShape, tools: Sequence[Solid], plane: Plane) -> BodySha
         MirrorError: the OCCT reflection/cut failed, removed the entire body, or
             changed the body's lump count.
     """
-    lump_count = len(body.solids())
+    reflected = reflect_tools(tools, plane)
     try:
-        reflected = [tool.mirror(plane) for tool in tools]
-    except Exception as exc:  # OCCT failure modes are not a stable taxonomy
-        raise MirrorError(
-            f"Mirror reflection of the cut tool failed in the kernel "
-            f"({type(exc).__name__}); the mirror plane may be degenerate."
-        ) from exc
-
-    if not removal_reaches_body(body, reflected):
+        return cut_reflected_tools(body, reflected)
+    except MirrorUnreachableError:
         # The mirrored removal cannot touch the body — cutting would be a no-op.
         # The user is completing/duplicating the body, not mirroring the cut.
         return mirror_union(body, plane)
 
+
+def reflect_tools(tools: Sequence[BodyShape], plane: Plane) -> list[BodyShape]:
+    """Reflect every tool about *plane* — the ONE reflection site both scopes use.
+
+    ``Shape.mirror`` is the same exact handedness-reversing isometry
+    :func:`mirror_union` applies to a whole body. Split out from the cut/fuse
+    application so a ``features``-scope mirror can KEEP the reflected solids it
+    applied: a nested (4-fold quadrant) mirror must reflect its inner mirror's tools
+    AS PLACED, not the inner mirror's own sources — reflecting the sources again
+    would re-fill the second quadrant and leave the fourth empty
+    (docs/design/mirror-semantics.md §4.6).
+
+    Raises:
+        MirrorError: the OCCT reflection failed (a degenerate plane).
+    """
+    try:
+        return [tool.mirror(plane) for tool in tools]
+    except Exception as exc:  # OCCT failure modes are not a stable taxonomy
+        raise MirrorError(
+            f"Mirror reflection of the tool failed in the kernel "
+            f"({type(exc).__name__}); the mirror plane may be degenerate."
+        ) from exc
+
+
+def cut_reflected_tools(body: BodyShape, reflected: Sequence[BodyShape]) -> BodyShape:
+    """Subtract already-:func:`reflect_tools`-ed solids from *body*, no fallback.
+
+    The shared cut half of both mirror scopes, and the ONE difference between them
+    is what happens when the reflected removal misses the body: this raises
+    :class:`MirrorUnreachableError`, which :func:`mirror_cut` (``body`` scope)
+    catches into :func:`mirror_union` and the ``features`` scope surfaces as the
+    typed ``mirror_feature_unreachable`` (docs/design/mirror-semantics.md §4.2).
+    Extracting it keeps ONE OCCT call sequence — the same reflection, the same
+    reachability predicate, the same variadic ``body.cut``, the same ``clean()`` and
+    the same guards — so the ``body`` path stays byte-identical to v1 (§6.1) rather
+    than being re-expressed.
+
+    The result must keep *body*'s LUMP COUNT (``k`` — 1 for the common single-body
+    plate): a reflected hole cut interior to the body never severs or empties it.
+
+    Raises:
+        MirrorUnreachableError: no reflected tool can reach the body (the cut would
+            remove nothing).
+        MirrorError: the OCCT cut failed, removed the entire body, or changed the
+            body's lump count.
+    """
+    lump_count = len(body.solids())
+    if not removal_reaches_body(body, reflected):
+        raise MirrorUnreachableError(
+            "The mirrored removal lands entirely outside the body, so cutting it "
+            "would remove nothing."
+        )
+
     try:
         cut = body.cut(*reflected)
-        solids = list(cut.clean().solids())
+        solids = list(clean_shape(cut).solids())
     except Exception as exc:  # OCCT failure modes are not a stable taxonomy
         raise MirrorError(
             f"Mirror cut failed in the kernel ({type(exc).__name__}); a reflected "
@@ -191,4 +271,38 @@ def mirror_cut(body: BodyShape, tools: Sequence[Solid], plane: Plane) -> BodySha
         )
     if lump_count == 1:
         return solids[0]
+    return assemble_lumps(solids)
+
+
+def fuse_reflected_tools(body: BodyShape, reflected: Sequence[BodyShape]) -> BodyShape:
+    """Fuse already-:func:`reflect_tools`-ed ADDITIVE solids into *body*.
+
+    The additive half of the ``features`` scope (docs/design/mirror-semantics.md
+    §4.1): the recorded tool of an additive verb — an extrude's prism, a revolve's
+    solid, a swept/lofted solid, an imported body, a pattern's placements — is
+    reflected and fused. UNLIKE :func:`cut_reflected_tools` there is NO lump-count
+    invariant: a reflected additive tool that lands clear of the body legitimately
+    makes a new disjoint lump (the §MB-0 case the ``2V`` goldens already assert), so
+    the result is whatever lumps remain, in the deterministic
+    :func:`assemble_lumps` order.
+
+    Raises:
+        MirrorError: the OCCT fuse failed, or produced no solid (never expected — a
+            reflection of a solid is a solid).
+    """
+    try:
+        fused = body.fuse(*reflected)
+        solids = list(clean_shape(fused).solids())
+    except Exception as exc:  # OCCT failure modes are not a stable taxonomy
+        raise MirrorError(
+            f"Mirror fuse of the reflected tool failed in the kernel "
+            f"({type(exc).__name__}); the reflected tool may graze or "
+            "self-intersect the body."
+        ) from exc
+
+    if not solids:
+        raise MirrorError(
+            "The mirrored add produced no solid — this is unexpected for a valid "
+            "body and tool; check the mirror plane."
+        )
     return assemble_lumps(solids)

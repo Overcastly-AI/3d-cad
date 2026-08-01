@@ -25,6 +25,7 @@ import {
   type ShellForm,
   thicknessError,
 } from "../features/shell";
+import { EditorCard } from "./EditorCard";
 
 export interface ShellEditorProps {
   mode: "create" | "edit";
@@ -86,10 +87,7 @@ export function ShellEditor({
   useCommandBridge(submit, canSubmit);
 
   return (
-    <div
-      className="absolute left-editor top-3 w-editor max-w-full"
-      onKeyDown={onKeyDown}
-    >
+    <EditorCard onKeyDown={onKeyDown}>
       <Panel aria-label="Shell" data-testid="shell-editor">
         <div className="border-b border-hairline">
           <h2 className="px-3 pb-1 pt-3 font-display text-2xs uppercase tracking-[0.18em] text-gauge">
@@ -176,6 +174,6 @@ export function ShellEditor({
           {error}
         </p>
       ) : null}
-    </div>
+    </EditorCard>
   );
 }

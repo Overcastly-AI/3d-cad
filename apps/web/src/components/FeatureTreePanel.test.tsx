@@ -18,6 +18,7 @@ import type {
   FeatureResponse,
   FeatureTreeResponse,
 } from "../api/parts";
+import { makeBuild } from "../test/partBuildFixture";
 import { FeatureTreePanel } from "./FeatureTreePanel";
 
 function sketch(id: string, name: string): FeatureResponse {
@@ -189,16 +190,18 @@ function renderPanel(
 ) {
   const onRepickFace = vi.fn();
   const onKeepAsOneBody = vi.fn();
+  // The panel is handed the REAL derivation over the same fixture it renders —
+  // a hand-written `PartBuild` literal here would let the panel and the facts
+  // drift, which is the defect this plumbing exists to prevent (J2).
+  const built = tree(features);
   const view = render(
     <FeatureTreePanel
-      tree={tree(features)}
+      tree={built}
       treeError={null}
       evaluation={evaluation}
-      evaluating={false}
+      build={makeBuild({ tree: built, evaluation })}
       selectedFeatureId={null}
       onSelectFeature={vi.fn()}
-      onMoveRollback={vi.fn()}
-      rollbackBusy={false}
       onToggleSuppress={vi.fn()}
       onRepickFace={onRepickFace}
       onKeepAsOneBody={onKeepAsOneBody}
@@ -368,6 +371,105 @@ describe("FeatureTreePanel rebuild errors", () => {
     const rows = screen.getAllByTestId("feature-row");
     expect(within(rows[0]!).getByText("Sketch 1")).toBeInTheDocument();
     expect(within(rows[1]!).getByText("Extrude 1")).toBeInTheDocument();
+  });
+});
+
+/**
+ * AUDIT-PRODUCT N3: the strict-prefix rule drops every feature after the first
+ * failure, so one bad hole pick also strands a datum plane, a far-corner dowel
+ * hole and a corner fillet. Those rows used to render the bare badge "SKIP" whose
+ * only accessible text was "evaluation skipped" — no reason, no link to the
+ * blocker — so an independent fillet vanishing looked like a fillet bug.
+ */
+describe("FeatureTreePanel skipped rows", () => {
+  const bracket = () => [
+    sketch("f1", "Base profile"),
+    extrude("f2", "Base extrude"),
+    hole("f3", "Hole 1"),
+    extrude("f4", "Dowel hole"),
+    extrude("f5", "Corner fillets R8"),
+  ];
+
+  const stranded = (): EvaluateTreeResult => ({
+    part_id: "p1",
+    tree_version: 1,
+    last_good_feature_id: "f2",
+    mesh_glb_id: "sha256:abc",
+    properties: null,
+    features: [
+      { feature_id: "f1", status: "ok" },
+      { feature_id: "f2", status: "ok" },
+      {
+        feature_id: "f3",
+        status: "error",
+        error: {
+          code: "hole_off_body",
+          message: "The hole removed no material",
+        },
+      },
+      { feature_id: "f4", status: "skipped" },
+      { feature_id: "f5", status: "skipped" },
+    ],
+  });
+
+  it("names the blocking feature on EVERY skipped row", () => {
+    renderPanel(bracket(), stranded());
+    const rows = screen.getAllByTestId("feature-row");
+    [3, 4].forEach((index) => {
+      const row = rows[index]!;
+      expect(row).toHaveAttribute("data-blocked-by", "f3");
+      expect(
+        within(row).getByLabelText(
+          "evaluation skipped: not attempted — Hole 1 failed first",
+        ),
+      ).toBeInTheDocument();
+    });
+  });
+
+  it("states once, where the build stopped, that independent features were dropped", () => {
+    renderPanel(bracket(), stranded());
+    const note = screen.getByTestId("feature-excluded-note");
+    expect(note).toHaveTextContent("Not attempted: the 2 features below");
+    expect(note).toHaveTextContent("does not depend on Hole 1");
+  });
+
+  it("does not blame a failure for a row the user suppressed", () => {
+    renderPanel([sketch("f1", "Sketch 1"), extrude("f2", "Extrude 1")], {
+      part_id: "p1",
+      tree_version: 1,
+      last_good_feature_id: "f1",
+      mesh_glb_id: null,
+      properties: null,
+      features: [
+        { feature_id: "f1", status: "ok" },
+        { feature_id: "f2", status: "suppressed" },
+      ],
+    });
+    const row = screen.getAllByTestId("feature-row")[1]!;
+    expect(row).not.toHaveAttribute("data-blocked-by");
+    expect(
+      within(row).getByLabelText("evaluation suppressed"),
+    ).toBeInTheDocument();
+  });
+
+  it("keeps the SOLVE cell's verdict, now from the shared derivation", () => {
+    const { unmount } = renderPanel(bracket(), stranded());
+    expect(screen.getByTestId("eval-status")).toHaveTextContent("Failed");
+    unmount();
+
+    renderPanel([sketch("f1", "Sketch 1"), extrude("f2", "Extrude 1")], {
+      part_id: "p1",
+      tree_version: 1,
+      last_good_feature_id: "f2",
+      mesh_glb_id: "sha256:abc",
+      properties: null,
+      features: [
+        { feature_id: "f1", status: "ok" },
+        { feature_id: "f2", status: "ok" },
+      ],
+    });
+    expect(screen.getByTestId("eval-status")).toHaveTextContent("Solved");
+    expect(screen.queryByTestId("feature-excluded-note")).toBeNull();
   });
 });
 

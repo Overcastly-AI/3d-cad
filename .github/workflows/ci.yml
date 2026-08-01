@@ -7,7 +7,12 @@
 #               tempdir and diff against the committed output (fails on drift)
 #   compose   — `docker compose config -q` for the base stack and base+dev
 #               overlay, plus scripts/check-compose.py (audit G1/G3 invariants:
-#               geometry S3 creds == MinIO's; internal services unpublished)
+#               geometry S3 creds == MinIO's; internal services unpublished) and
+#               scripts/check-build-context.py (every Dockerfile COPY source
+#               survives .dockerignore — the failure `deploy-path` used to find)
+#   licences  — scripts/check-licences.py over the shared objects in the synced
+#               environment (LIC-3), plus a self-test that PROVES the gate
+#               fails on the GPL library the OCP wheel vendors
 #
 # The RUNTIME half of the compose gate lives in its own workflow —
 # .github/workflows/deploy-path.yml — because it builds the images, boots the
@@ -35,13 +40,47 @@ on:
   pull_request:
 
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # PUSH: group PER COMMIT, so a commit's run can never be evicted by a later
+  # one. PR: group per ref, so a superseded PR push still cancels.
+  #
+  # Keying on the ref for pushes looked harmless and was not. A concurrency group
+  # holds at most one RUNNING plus one PENDING run, so a newer arrival evicts the
+  # pending one — and that happens regardless of cancel-in-progress, which only
+  # governs runs already holding a runner. Under one pusher that is rare. With
+  # four agents pushing (2026-07-30) it became the norm: 5 of 8 consecutive runs
+  # came back `cancelled`, including 5794b48, the fix for the very lint failure
+  # an audit had just flagged. Net effect: the "every commit green on its own"
+  # rule was unenforceable exactly when parallelism made it most valuable, and
+  # `cancelled` reads as noise rather than as the missing evidence it is.
+  #
+  # Per-SHA groups cost more runner minutes. That is the price of the rule, and
+  # the alternative was paying for CI that verifies a minority of commits.
+  group: >-
+    ${{ github.event_name == 'pull_request'
+        && format('ci-pr-{0}', github.ref)
+        || format('ci-sha-{0}', github.sha) }}
+  # Cancel superseded runs on PULL REQUESTS only. On branch pushes each commit
+  # keeps its own run to completion, because CLAUDE.md's standing rule is that
+  # EVERY COMMIT must be green on its own and `cancelled` is explicitly not a
+  # pass. Those two cannot both hold under blanket cancellation: on 2026-07-30
+  # three consecutive commits (6c9c432, 8f387fc, and very nearly fe2e5cb) each
+  # had their run killed by the next push minutes later, so all three shipped
+  # CI-unverified with nothing actually wrong with them — and the risk scales
+  # with the number of agents pushing in parallel, which is exactly when the
+  # per-commit signal matters most. A PR's superseded run genuinely is waste
+  # (only the head matters for merge), so cancellation stays there.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   python:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # 30, raised from 15 on 2026-07-30. Pytest alone measured 14m31s at 1a27804
+    # and the job was killed at 15m16s; the run before it squeaked in at 14m55s.
+    # The suite is ~2958 tests dominated by OCCT geometry and it grows every time
+    # a verb or a golden lands, so 15 was going to start failing whatever we did
+    # next. NB a timed-out job is reported `cancelled`, the SAME word GitHub uses
+    # for a concurrency eviction — see CLAUDE.md for telling them apart.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -118,6 +157,64 @@ jobs:
       # `docker compose config` — no daemon, no image pulls, no Python deps.
       - name: Compose invariants (audit G1/G3 guard)
         run: python3 scripts/check-compose.py
+      # Every Dockerfile COPY source survives .dockerignore. Stdlib, no daemon,
+      # ~10ms — and it is the ONLY place this class can be caught before the
+      # image build, which the blocked registry puts out of local reach: LIC-2's
+      # scripts/corresponding_source.py had no negation and failed all three
+      # image builds for two commits, visible only in `deploy-path`.
+      - name: Build-context reachability (+ prove the gate can fail)
+        run: |
+          python3 scripts/check-build-context.py --self-test
+          python3 scripts/check-build-context.py
+
+  licences:
+    # LIC-3 — the no-GPL rule, enforced by reading the BINARIES we ship.
+    #
+    # It was previously enforced by review, i.e. by reading package metadata,
+    # and the OCP wheel is the proof that cannot work: `License: Apache-2.0` in
+    # METADATA, "JBIG-KIT 2.1 ... Licence: GPL" inside the .so it vendors. A
+    # metadata-only scan called that tree fully permissive, which is how a
+    # GPL-2.0 library survived to release week (LIC-1, docs/LICENSING.md §4).
+    #
+    # No docker daemon: the gate reads the uv-synced environment directly, so
+    # it runs here in the fast workflow rather than waiting on deploy-path.
+    # The image-side assertions (the strip actually took; the label matches the
+    # contents; OCCT still returns the analytic volume) run inside the Docker
+    # build itself — see deploy/docker/service.Dockerfile.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Sync uv environment (locked)
+        run: uv sync --locked
+      # The dev environment legitimately still contains jbigkit — the strip
+      # happens during the image build — so this profile tolerates it ONLY
+      # because the inventory marks it strip-in-image and names a strip script
+      # that provably targets it. Everything else must be classified.
+      #
+      # Since LIC-2 this step also checks the corresponding-source manifest
+      # (deploy/licenses/corresponding-source.json) against these binaries. If
+      # a wheel bump moves OCCT off 7.9.3, the pinned URLs, digests and the
+      # §6(c) written offer we publish all start describing source that does
+      # not correspond to what we ship — so it fails here, before a release,
+      # rather than being discovered by a recipient.
+      - name: Licence gate (source environment)
+        run: python3 scripts/check-licences.py --profile source-env
+      # A gate nobody has seen fail is not a gate — this repo has been bitten
+      # by that exact class three times. The self-test runs the IMAGE profile
+      # against the real, unstripped GPL library (must fail, naming libjbig),
+      # then applies the production strip script and runs it again (must pass).
+      # It then does the same for the corresponding-source half: the committed
+      # manifest must pass, every component's version bumped by hand must fail,
+      # and a manifest whose version cannot be READ must fail rather than pass
+      # quietly (a rotted detector is the failure mode that shows up green).
+      # It fails if ANY of those comes out the wrong way.
+      - name: Prove the gate can fail (negative + positive control)
+        run: python3 scripts/check-licences.py --self-test
 
   geometry-minio-smoke:
     # Real-MinIO cross-process smoke for the §7.8 mesh-store swap (audit F6):
@@ -146,6 +243,16 @@ jobs:
       # "Process completed with exit code 1"). This job had therefore been
       # red since it landed. Wait on the long-running server only, then run
       # the one-shot to completion so its OWN exit code is the gate.
+      # An EPHEMERAL, non-default root password, generated per run and exported
+      # to every later step. This job used to boot MinIO on the compose default
+      # (`loft-minio-dev-only`, published in our own repo) and hand pytest the
+      # same literal, so the store's credential plumbing was only ever exercised
+      # with the one password everybody already knows — a code path that ignored
+      # its configured secret and hardcoded that string would have passed. Same
+      # reasoning as scripts/compose-smoke.sh.
+      - name: Generate an ephemeral MinIO credential
+        run: |
+          echo "MINIO_ROOT_PASSWORD=minio-$(od -An -tx1 -N18 /dev/urandom | tr -d ' \n')" >> "$GITHUB_ENV"
       - name: Boot MinIO
         run: docker compose up -d --wait minio
       - name: Provision the mesh bucket
@@ -155,12 +262,14 @@ jobs:
       - name: Cross-process mesh-store smoke (real MinIO)
         env:
           LOFT_MINIO_SMOKE: "1"
-          # Host-mapped MinIO (compose publishes 9000); creds are the compose
-          # MinIO root user/password defaults, bucket is the S3_BUCKET default.
+          # Host-mapped MinIO (compose publishes 9000). The secret is the
+          # generated one above — compose interpolated the SAME value into the
+          # server, so a mismatch here fails as an auth error, which is exactly
+          # the assertion: both sides read their configuration.
           S3_URL: http://localhost:9000
           S3_BUCKET: loft
           S3_ACCESS_KEY_ID: loft-minio
-          S3_SECRET_ACCESS_KEY: loft-minio-dev-only
+          S3_SECRET_ACCESS_KEY: ${{ env.MINIO_ROOT_PASSWORD }}
         run: uv run pytest services/geometry/tests/test_s3_store.py -v
       - name: Tear down MinIO
         if: always()

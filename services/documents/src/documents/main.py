@@ -5,6 +5,10 @@ tree (:mod:`documents.features`, per docs/design/feature-tree.md), assembly
 CRUD (:mod:`documents.assemblies`, per docs/design/assemblies.md — a graph of
 instances + mates), and drawing CRUD (:mod:`documents.drawings`, per
 docs/design/drawings.md — a layout of sheets/views/dimensions/annotations),
+folder filing (:mod:`documents.folders`, per py_kit.schemas.folders — a
+per-drawer tree plus the document MOVE routes), plus the static material
+library (:mod:`documents.materials`, per
+docs/design/materials.md — densities served so nothing hardcodes one),
 backed by Postgres via the shared :mod:`py_kit.db` plumbing with the schema
 owned by ``services/documents/alembic``. This service never imports kernel
 code (CLAUDE.md service boundaries) — geometry artifacts are referenced by
@@ -21,7 +25,15 @@ from py_kit.db import DatabaseState, postgres_readiness
 
 from documents.assemblies import router as assemblies_router
 from documents.drawings import router as drawings_router
+from documents.duplicate import assemblies_router as duplicate_assemblies_router
+from documents.duplicate import drawings_router as duplicate_drawings_router
+from documents.duplicate import parts_router as duplicate_parts_router
 from documents.features import router as features_router
+from documents.folders import assemblies_router as folder_assemblies_router
+from documents.folders import drawings_router as folder_drawings_router
+from documents.folders import parts_router as folder_parts_router
+from documents.folders import router as folders_router
+from documents.materials import router as materials_router
 from documents.parts import router as parts_router
 from documents.step_import import router as step_import_router
 
@@ -33,7 +45,13 @@ READINESS_PROBE_TIMEOUT_S = 2.0
 
 
 class DocumentsSettings(BaseServiceSettings):
-    """Documents configuration (env-driven, see ``BaseServiceSettings``)."""
+    """Documents configuration (env-driven, see ``BaseServiceSettings``).
+
+    ``POSTGRES_URL`` is inherited, and so is py-kit's dev-credential guard:
+    constructing these settings with the repo-public compose password
+    embedded in the DSN raises unless ``LOFT_ENV=dev``, so this service
+    refuses to boot against an unsecured store rather than serving from it.
+    """
 
     service_name: str = "documents"
     port: int = 8001
@@ -72,9 +90,22 @@ def build_app(settings: DocumentsSettings | None = None) -> FastAPI:
     )
     app.include_router(parts_router)
     app.include_router(features_router)
+    app.include_router(materials_router)
     app.include_router(assemblies_router)
     app.include_router(drawings_router)
     app.include_router(step_import_router)
+    # Workspace management (:mod:`documents.duplicate`) — one module, three
+    # routers, so the id-remap and the copy-naming rule are written once.
+    app.include_router(duplicate_parts_router)
+    app.include_router(duplicate_assemblies_router)
+    app.include_router(duplicate_drawings_router)
+    # Filing (:mod:`documents.folders`) — the folder tree plus the three
+    # document MOVE routes, one implementation behind three registrations for
+    # the same reason ``duplicate`` is one module.
+    app.include_router(folders_router)
+    app.include_router(folder_parts_router)
+    app.include_router(folder_assemblies_router)
+    app.include_router(folder_drawings_router)
     return app
 
 

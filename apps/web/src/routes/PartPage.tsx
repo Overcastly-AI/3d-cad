@@ -25,6 +25,12 @@ import {
   useState,
 } from "react";
 
+import {
+  fetchMaterials,
+  type MaterialAssignment,
+  type MaterialKey,
+  updatePartMaterials,
+} from "../api/materials";
 import { fetchBodyMesh, MeshNotFoundError } from "../api/mesh";
 import { fetchOverlay, measureTargets } from "../api/measure";
 import {
@@ -64,7 +70,10 @@ import {
   type FeatureResponse,
   type FeatureTreeResponse,
   type FeatureUpdate,
+  type FeatureDependent,
+  fetchFeatureDependents,
   fetchFeatureTree,
+  FeatureHasDependentsError,
   fetchPart,
   importStep,
   type OverlayFace,
@@ -117,7 +126,7 @@ import {
   updatePartUnit,
   type LengthUnit,
 } from "../api/parts";
-import { BodyInspector, type BodyStatus } from "../components/BodyInspector";
+import { BodyInspector } from "../components/BodyInspector";
 import { Breadcrumb } from "../components/Breadcrumb";
 import { DocumentUnitSelect } from "../components/DocumentUnitSelect";
 import { DocumentUnitProvider } from "../units/documentUnit";
@@ -134,6 +143,7 @@ import { BaseFlangeEditor } from "../components/BaseFlangeEditor";
 import { EdgeFlangeEditor } from "../components/EdgeFlangeEditor";
 import { HemEditor } from "../components/HemEditor";
 import { CornerReliefEditor } from "../components/CornerReliefEditor";
+import { FeatureDeleteConfirm } from "../components/FeatureDeleteConfirm";
 import { FeatureTreePanel } from "../components/FeatureTreePanel";
 import { FilletEditor } from "../components/FilletEditor";
 import { LoftEditor } from "../components/LoftEditor";
@@ -188,6 +198,12 @@ import {
   type LoftForm,
 } from "../features/loft";
 import { computeBodies } from "../features/bodies";
+import {
+  bodyMaterialRows,
+  withBodyMaterial,
+  withDefaultMaterial,
+} from "../features/materials";
+import { derivePartBuild, partialBodySentence } from "../features/partBuild";
 import {
   type BaseFlangeForm,
   canAuthorCornerRelief,
@@ -255,9 +271,16 @@ import {
   type HolePointPick,
   type HolePreview,
 } from "../features/hole";
+import {
+  preselectedEdges,
+  preselectedFace,
+  preselectedFaces,
+  usePreselectStore,
+} from "../features/preselect";
 import { SketchDro } from "../components/SketchDro";
 import { SketchStrip } from "../components/SketchStrip";
 import { SolveDiagnostic } from "../components/SolveDiagnostic";
+import { TimelineStrip } from "../components/TimelineStrip";
 import { TopBar } from "../components/TopBar";
 import { TopToolbar } from "../components/TopToolbar";
 import { resolveSketchKey, type SolveInfo } from "../sketch/constraints";
@@ -271,7 +294,12 @@ import {
   resolveDatumBasis,
   resolveDatumPlaneOptions,
 } from "../sketch/plane";
-import { lastBodyFeatureId, onFaceDatumParams } from "../features/face";
+import {
+  faceSignatureKey,
+  isPickableFace,
+  lastBodyFeatureId,
+  onFaceDatumParams,
+} from "../features/face";
 import { isTypingTarget } from "../lib/isTypingTarget";
 import { executeHistoryStep } from "../lib/historyStep";
 import {
@@ -282,6 +310,11 @@ import { type HistoryStep, undoRedoStep } from "../lib/undoRedoShortcut";
 import { FacePickOverlay } from "../viewport/FacePickOverlay";
 import { useSketchStore } from "../sketch/store";
 import { escapeAction, TOOL_SHORTCUTS } from "../sketch/tools";
+import {
+  KEY_MEASURE,
+  KEY_SNAP,
+  PART_CREATE_SHORTCUTS,
+} from "../shortcuts/registry";
 import { partRoute } from "../router";
 import { useNavigate } from "@tanstack/react-router";
 import {
@@ -464,7 +497,15 @@ export function PartPage() {
   const part = useQuery({
     queryKey: ["part", partId],
     queryFn: () => fetchPart(partId),
-    staleTime: Infinity,
+    // NOT `staleTime: Infinity` (it was, until 2026-07-30). The part row is five
+    // scalars — id/name/unit/`tree_version`/`eval_state` — and one of them is the
+    // DENOMINATOR of the staleness comparison the STATUS cell now reports
+    // (`features/partBuild.ts`). A version the client never refreshes cannot
+    // detect the case that motivated the readout: another session edits the tree,
+    // nothing here invalidates, and the workspace would keep asserting currency
+    // indefinitely (UI-REVIEW 2026-07-30 F2). Re-reading five scalars when the
+    // tab regains focus is cheap; being confidently wrong is not.
+    staleTime: 5_000,
   });
   // The document display unit (docs/design/units.md §U2). Edit-form seeds render
   // their canonical mm in this unit; the DocumentUnitProvider carries it to
@@ -1015,7 +1056,7 @@ export function PartPage() {
         return;
       }
       const key = event.key.toLowerCase();
-      if (key === "g") {
+      if (key === KEY_SNAP) {
         event.preventDefault();
         toggleSnap();
         return;
@@ -1450,6 +1491,53 @@ export function PartPage() {
     return owned.length > 0 ? owned : null;
   }, [selectionActive, selectedFeatureId, selectionOverlayQuery.data]);
 
+  // ---------------------------------------------------------------------
+  // Pre-selection highlight (UI-W3). A selection you cannot see is a trap: the
+  // next command would prefill itself from something invisible. So the faces
+  // the cursor has picked STAY lit after the editor that picked them closes —
+  // the same feature-localized brass a tree selection lights, on the same
+  // cached overlay (the pick already fetched it, so this costs no request).
+  // A tree selection wins while one is active: one highlight, one meaning.
+  // ---------------------------------------------------------------------
+  const preselectedFaceSet = usePreselectStore((s) => s.faces);
+  const livePreselectedFaces = useMemo(
+    () => preselectedFaces({ faces: preselectedFaceSet }, bodyFeatureId),
+    [preselectedFaceSet, bodyFeatureId],
+  );
+  const preselectHighlightActive =
+    mode === "off" &&
+    !measureActive &&
+    selectedFeatureId === null &&
+    livePreselectedFaces.length > 0;
+  const preselectOverlayQuery = useQuery({
+    queryKey: ["overlay", partId, treeVersion, meshGlbId],
+    queryFn: () =>
+      fetchOverlay(buildEvaluateTree(tree.data as FeatureTreeResponse)),
+    enabled:
+      preselectHighlightActive && tree.data !== undefined && meshGlbId !== null,
+    staleTime: Infinity,
+    retry: false,
+  });
+  const preselectedFaceIndices = useMemo<number[] | null>(() => {
+    if (!preselectHighlightActive) return null;
+    const faces = preselectOverlayQuery.data?.faces;
+    if (faces === undefined) return null;
+    const keys = new Set(
+      livePreselectedFaces.map((face) => faceSignatureKey(face.signature)),
+    );
+    const lit = faces
+      .filter(
+        (face) =>
+          isPickableFace(face) && keys.has(faceSignatureKey(face.signature)),
+      )
+      .map((face) => face.index);
+    return lit.length > 0 ? lit : null;
+  }, [
+    preselectHighlightActive,
+    livePreselectedFaces,
+    preselectOverlayQuery.data,
+  ]);
+
   /** Latest tree version, refetched if the query has none yet. */
   const freshTreeVersion = useCallback(async (): Promise<number> => {
     if (tree.data !== undefined) return tree.data.tree_version;
@@ -1490,6 +1578,114 @@ export function PartPage() {
       })();
     },
     [lengthUnit, unitBusy, partId, freshTreeVersion, queryClient],
+  );
+
+  // MATERIAL (docs/design/materials.md). The library is SERVED, never typed
+  // client-side — a density is a physical constant with one home, and a second
+  // copy in TS would silently drift. It is a fixed table, so one fetch per
+  // session; a failure disables the picker and says why rather than guessing.
+  const materialLibrary = useQuery({
+    queryKey: ["materials"],
+    queryFn: () => fetchMaterials(),
+    staleTime: Infinity,
+    retry: false,
+  });
+  // A stored NULL reads back as the EMPTY assignment (§4), so the panel has ONE
+  // shape to render and never has to tell null from empty.
+  const assignment = useMemo<MaterialAssignment>(
+    () => part.data?.materials ?? { default_material: null, bodies: [] },
+    [part.data?.materials],
+  );
+  // One row per body: the tree's names/ordinals joined to the evaluation's
+  // RESOLVED material + mass. Resolution is the server's single function
+  // (`resolve_body_material`); nothing here re-derives it.
+  const materialRows = useMemo(
+    () => bodyMaterialRows(bodies, evaluation.data?.bodies ?? [], assignment),
+    [bodies, evaluation.data?.bodies, assignment],
+  );
+  const [materialBusy, setMaterialBusy] = useState(false);
+  const [materialError, setMaterialError] = useState<string | null>(null);
+  // Assignment is a WHOLESALE replacement under the tree-version OCC guard
+  // (§2): the request states the full intended state, so two concurrent edits
+  // cannot interleave into an assignment neither of them sent. Unlike a rename
+  // or a unit change this really does invalidate the recorded evaluate — mass
+  // was derived from the material — so the tree refetch bumps `tree_version`,
+  // which re-keys the evaluate query and rebuilds with the new density.
+  const assignMaterials = useCallback(
+    (next: MaterialAssignment) => {
+      if (materialBusy) return;
+      setMaterialBusy(true);
+      setMaterialError(null);
+      void (async () => {
+        try {
+          // Retry ONCE on a stale-version race, the way every other discrete
+          // edit here does: a user who re-units the document and immediately
+          // picks a material would otherwise hit a 422 for a conflict that
+          // isn't one (nobody else edited anything — the cached version simply
+          // hadn't caught up yet).
+          try {
+            await updatePartMaterials(partId, next, await freshTreeVersion());
+          } catch {
+            await updatePartMaterials(
+              partId,
+              next,
+              (await fetchFeatureTree(partId)).tree_version,
+            );
+          }
+          await queryClient.invalidateQueries({ queryKey: ["part", partId] });
+          await queryClient.invalidateQueries({
+            queryKey: ["features", partId],
+          });
+          await queryClient.invalidateQueries({
+            queryKey: ["evaluate", partId],
+          });
+        } catch (error) {
+          setMaterialError(
+            error instanceof Error
+              ? error.message
+              : "The material could not be assigned.",
+          );
+        } finally {
+          setMaterialBusy(false);
+        }
+      })();
+    },
+    [materialBusy, partId, freshTreeVersion, queryClient],
+  );
+  const assignDefaultMaterial = useCallback(
+    (material: MaterialKey | null) =>
+      assignMaterials(withDefaultMaterial(assignment, material)),
+    [assignMaterials, assignment],
+  );
+  const assignBodyMaterial = useCallback(
+    (baseFeatureId: string, material: MaterialKey | null) =>
+      assignMaterials(withBodyMaterial(assignment, baseFeatureId, material)),
+    [assignMaterials, assignment],
+  );
+  const materialControls = useMemo(
+    () => ({
+      library: materialLibrary.data ?? [],
+      libraryError:
+        materialLibrary.error instanceof Error
+          ? materialLibrary.error.message
+          : null,
+      assignment,
+      rows: materialRows,
+      busy: materialBusy,
+      error: materialError,
+      onAssignDefault: assignDefaultMaterial,
+      onAssignBody: assignBodyMaterial,
+    }),
+    [
+      materialLibrary.data,
+      materialLibrary.error,
+      assignment,
+      materialRows,
+      materialBusy,
+      materialError,
+      assignDefaultMaterial,
+      assignBodyMaterial,
+    ],
   );
 
   /** Enter sketch mode: reset the sync bookkeeping, drop any open editor. */
@@ -1583,7 +1779,7 @@ export function PartPage() {
         }
         return;
       }
-      if (event.key.toLowerCase() === "m") {
+      if (event.key.toLowerCase() === KEY_MEASURE) {
         event.preventDefault();
         if (store.active) {
           store.deactivate();
@@ -1677,29 +1873,48 @@ export function PartPage() {
   // Fillet/chamfer, like a pattern, act on the current BODY via a geometric
   // edge-selector predicate (no sketch profile) — they only need a solid to
   // exist (canModify), so they mirror openCreatePattern's guard.
+  // Both seed from the edges the cursor already has selected (UI-W3): picking
+  // three edges and then choosing Fillet is how a modeller works, and until
+  // now that selection was thrown away at the door. A seeded editor opens in
+  // "pick" mode — the picks ARE the selector — and an empty one keeps the
+  // all-edges rule default.
   const openCreateFillet = useCallback(() => {
+    const picked = preselectedEdges(
+      usePreselectStore.getState(),
+      bodyFeatureId,
+    );
     useMeasureStore.getState().deactivate();
     setEditorError(null);
     setSelectedFeatureId(null);
     setEditor({
       kind: "fillet",
       mode: "create",
-      initial: defaultFilletForm(),
-      initialPicked: [],
+      initial: {
+        ...defaultFilletForm(),
+        ...(picked.length > 0 ? { mode: "pick" as const } : {}),
+      },
+      initialPicked: [...picked],
     });
-  }, []);
+  }, [bodyFeatureId]);
 
   const openCreateChamfer = useCallback(() => {
+    const picked = preselectedEdges(
+      usePreselectStore.getState(),
+      bodyFeatureId,
+    );
     useMeasureStore.getState().deactivate();
     setEditorError(null);
     setSelectedFeatureId(null);
     setEditor({
       kind: "chamfer",
       mode: "create",
-      initial: defaultChamferForm(),
-      initialPicked: [],
+      initial: {
+        ...defaultChamferForm(),
+        ...(picked.length > 0 ? { mode: "pick" as const } : {}),
+      },
+      initialPicked: [...picked],
     });
-  }, []);
+  }, [bodyFeatureId]);
 
   // A shell, like fillet/chamfer/pattern, hollows the current BODY (no sketch
   // profile) — it only needs a solid to exist (canModify), so it mirrors their
@@ -1712,9 +1927,14 @@ export function PartPage() {
       kind: "shell",
       mode: "create",
       initial: defaultShellForm(),
-      initialPickedFaces: [],
+      // The faces the cursor already has selected are the faces to leave open
+      // (UI-W3) — an empty selection still means a sealed hollow.
+      initialPickedFaces: preselectedFaces(
+        usePreselectStore.getState(),
+        bodyFeatureId,
+      ).map((face) => face.signature),
     });
-  }, []);
+  }, [bodyFeatureId]);
 
   // A draft, like shell, tapers the current BODY's picked faces (no sketch
   // profile) — it only needs a solid to exist (canModify), so it mirrors the
@@ -1728,19 +1948,34 @@ export function PartPage() {
       kind: "draft",
       mode: "create",
       initial: defaultDraftForm(),
-      initialPickedFaces: [],
+      // Seeded from the cursor selection (UI-W3); Apply stays gated until at
+      // least one face is chosen either way.
+      initialPickedFaces: preselectedFaces(
+        usePreselectStore.getState(),
+        bodyFeatureId,
+      ).map((face) => face.signature),
     });
-  }, []);
+  }, [bodyFeatureId]);
 
   // A hole, like fillet/shell/draft, modifies the current BODY (no sketch
   // profile) — it only needs a solid to exist (canModify), so it mirrors their
-  // guard. It opens with no face/point chosen; the pick session authors both.
+  // guard.
+  //
+  // UI-W3, and the reason this item exists: the hole opens PLACED on whatever
+  // face the cursor already had selected (drill point seeded to its centre), so
+  // the anchor block reads as confirmation and the modeller types a diameter
+  // and hits Enter. With nothing selected the face pick is ARMED on open, so
+  // clicking a face just takes it — no arming step, which is the other half of
+  // the "must select the same face twice" complaint.
   const openCreateHole = useCallback(() => {
+    const seed = preselectedFace(usePreselectStore.getState(), bodyFeatureId);
     useMeasureStore.getState().deactivate();
     setEditorError(null);
     setSelectedFeatureId(null);
-    setEditor({ kind: "hole", mode: "create", initial: defaultHoleForm() });
-  }, []);
+    setEditor({ kind: "hole", mode: "create", initial: defaultHoleForm(seed) });
+    setHolePickError(null);
+    setHolePick(seed === null ? "face" : null);
+  }, [bodyFeatureId]);
 
   // A mirror, like pattern/fillet/shell, reflects the current BODY about a
   // plane (no sketch profile) — it only needs a solid to exist (canModify), so
@@ -1755,11 +1990,18 @@ export function PartPage() {
   // A datum plane needs no sketch/body — it's a construction plane parallel to
   // an origin datum. Available as soon as the tree exists (its own feature row).
   const openCreateDatum = useCallback(() => {
+    const seed = preselectedFace(usePreselectStore.getState(), bodyFeatureId);
     useMeasureStore.getState().deactivate();
     setEditorError(null);
     setSelectedFeatureId(null);
-    setEditor({ kind: "datum", mode: "create", initial: defaultDatumForm() });
-  }, []);
+    // A selected face means "a plane on THIS" (UI-W3) — the datum opens as an
+    // on_face datum sitting on it, instead of the generic 30 mm-above-XY form.
+    setEditor({
+      kind: "datum",
+      mode: "create",
+      initial: defaultDatumForm(seed),
+    });
+  }, [bodyFeatureId]);
 
   // A base flange thickens a sketch profile to gauge — the sheet-metal part's
   // first body (sheet-metal.md §4.1). Like extrude it needs a solved sketch to
@@ -1788,9 +2030,13 @@ export function PartPage() {
       kind: "edgeFlange",
       mode: "create",
       initial: defaultEdgeFlangeForm(),
-      initialPicked: [],
+      // ONE edge folds a flange, so a multi-edge selection seeds its most
+      // recent member rather than an arbitrary one (UI-W3).
+      initialPicked: [
+        ...preselectedEdges(usePreselectStore.getState(), bodyFeatureId, 1),
+      ],
     });
-  }, []);
+  }, [bodyFeatureId]);
 
   // A closed hem folds ONE picked straight edge 180° back onto the sheet
   // (parity §2). It picks like an edge flange (single-select), so it only needs
@@ -1803,9 +2049,11 @@ export function PartPage() {
       kind: "hem",
       mode: "create",
       initial: defaultHemForm(),
-      initialPicked: [],
+      initialPicked: [
+        ...preselectedEdges(usePreselectStore.getState(), bodyFeatureId, 1),
+      ],
     });
-  }, []);
+  }, [bodyFeatureId]);
 
   // A corner relief notches the shared corner of two edge flanges (parity §4.4).
   // It references two edge-flange FEATURES (not an edge pick), so it seeds the
@@ -2173,6 +2421,33 @@ export function PartPage() {
   }, [editor]);
   // Leaving the workspace tears the face-pick session down.
   useEffect(() => () => useFacePickStore.getState().close(), []);
+
+  // ---------------------------------------------------------------------
+  // Pre-selection mirror (UI-W3). The in-canvas overlays write their picks to
+  // the edge/face pick stores, which are SESSION state — closing the editor
+  // wipes them. These two effects copy the live picks out to the pre-selection
+  // while a session is open, so the selection survives the command that made
+  // it and the next command opens seeded. Guarded on `active`, so the store's
+  // own teardown (`close()` → picked: []) never erases what it just published.
+  // ---------------------------------------------------------------------
+  const shellPickedFaces = useFacePickStore((s) => s.picked);
+  const shellSessionOpen = useFacePickStore((s) => s.active);
+  useEffect(() => {
+    if (!shellSessionOpen || bodyFeatureId === null) return;
+    usePreselectStore.getState().rememberFaces(
+      shellPickedFaces.map((signature) => ({
+        signature,
+        anchorId: bodyFeatureId,
+      })),
+    );
+  }, [shellSessionOpen, shellPickedFaces, bodyFeatureId]);
+
+  const edgePickedEdges = useEdgePickStore((s) => s.picked);
+  const edgeSessionOpen = useEdgePickStore((s) => s.active);
+  useEffect(() => {
+    if (!edgeSessionOpen) return;
+    usePreselectStore.getState().rememberEdges(edgePickedEdges, bodyFeatureId);
+  }, [edgeSessionOpen, edgePickedEdges, bodyFeatureId]);
 
   // The shared save path for either body-affecting feature: read the freshest
   // tree_version, retry once on a stale-version race, then invalidate the tree
@@ -2642,6 +2917,44 @@ export function PartPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [treeActionError, setTreeActionError] = useState<string | null>(null);
 
+  /**
+   * ASK BEFORE DESTROYING (UI-REVIEW F3). Delete used to fire straight off the
+   * context menu with no confirmation and no dependency check; a user found out
+   * what it broke when the extrude turned red on the next evaluate.
+   *
+   * The ask is a real question to the SERVER — `GET …/dependents`, answered by
+   * the same query the delete's 409 is built from — so the confirmation names
+   * the features and drawings that break, and when there are any the delete is
+   * not offered at all (the server would refuse it, and a button that cannot
+   * work is worse than no button). While the ask is in flight nothing is shown
+   * and nothing is destroyed.
+   */
+  const [deleteIntent, setDeleteIntent] = useState<{
+    feature: FeatureResponse;
+    dependents: FeatureDependent[];
+  } | null>(null);
+
+  const requestDeleteFeature = useCallback(
+    (feature: FeatureResponse) => {
+      if (deletingId !== null) return;
+      useMeasureStore.getState().deactivate();
+      setTreeActionError(null);
+      void (async () => {
+        try {
+          const dependents = await fetchFeatureDependents(partId, feature.id);
+          setDeleteIntent({ feature, dependents });
+        } catch (error) {
+          setTreeActionError(
+            error instanceof Error
+              ? error.message
+              : "What depends on this feature could not be read.",
+          );
+        }
+      })();
+    },
+    [partId, deletingId],
+  );
+
   // Delete a feature (OCC, stale-version retry once) — the same write grammar
   // suppress uses; a hard failure surfaces the server's message, never silent.
   const deleteFeatureAction = useCallback(
@@ -2668,13 +2981,23 @@ export function PartPage() {
             closeEditor();
           }
           if (renamingId === feature.id) setRenamingId(null);
+          setDeleteIntent(null);
           await refreshTreeAndBody();
         } catch (error) {
-          setTreeActionError(
-            error instanceof Error
-              ? error.message
-              : "The feature could not be deleted.",
-          );
+          // A clean pre-check is not a promise: another client could have added
+          // a reference in between, and the delete re-checks under the row lock.
+          // Re-open the confirmation with the names the REFUSAL carried, rather
+          // than reducing them to an error string.
+          if (error instanceof FeatureHasDependentsError) {
+            setDeleteIntent({ feature, dependents: error.dependents });
+          } else {
+            setDeleteIntent(null);
+            setTreeActionError(
+              error instanceof Error
+                ? error.message
+                : "The feature could not be deleted.",
+            );
+          }
         } finally {
           setDeletingId(null);
         }
@@ -2807,7 +3130,10 @@ export function PartPage() {
   // the signature (origin + deterministic x-axis), matching the kernel's
   // `resolve_sketch_plane` exactly, so the ink lands on the rendered face.
   const authorFacePlane = useCallback(
-    (face: OverlayFace & { signature: PlanarFaceSignature }) => {
+    (
+      face: { signature: PlanarFaceSignature; index?: number },
+      options: { remember?: boolean } = {},
+    ) => {
       const featureList = tree.data?.features ?? [];
       const anchorId = lastBodyFeatureId(featureList);
       if (anchorId === null) {
@@ -2817,10 +3143,15 @@ export function PartPage() {
         return;
       }
       const { signature } = face;
+      // A face clicked in the viewport is remembered for the next command
+      // (UI-W3); a face that CAME from the pre-selection is not re-remembered.
+      if (options.remember !== false) {
+        usePreselectStore.getState().rememberFaces([{ signature, anchorId }]);
+      }
       const nextIndex =
         featureList.filter((f) => f.feature.type === "datum").length + 1;
       setFacePlaneBusy(true);
-      setPendingFaceIndex(face.index);
+      setPendingFaceIndex(face.index ?? null);
       setFacePlaneError(null);
       void (async () => {
         try {
@@ -2868,6 +3199,22 @@ export function PartPage() {
     setFacePicking((armed) => !armed);
   }, []);
 
+  /**
+   * New sketch — ON the pre-selected face when there is one (UI-W3).
+   *
+   * Selecting a face and asking for a sketch is an unambiguous instruction, and
+   * making the user re-pick the face they just picked is exactly the friction
+   * the founder reported. With nothing selected this is the plane picker as
+   * before; the picker is the fallback, not the toll booth.
+   */
+  const startSketch = useCallback(() => {
+    const seed = preselectedFace(usePreselectStore.getState(), bodyFeatureId);
+    handleNewSketch();
+    if (seed !== null) {
+      authorFacePlane({ signature: seed.signature }, { remember: false });
+    }
+  }, [bodyFeatureId, handleNewSketch, authorFacePlane]);
+
   // Datum-editor face picking. Arming a slot highlights the body's planar faces
   // in the viewport (the shared FacePickOverlay); a click resolves to a
   // full-precision signature the editor folds into that slot. The anchor is the
@@ -2904,6 +3251,10 @@ export function PartPage() {
         slot,
         face: { signature: face.signature, anchorId },
       });
+      // Remembered for the next command (UI-W3).
+      usePreselectStore
+        .getState()
+        .rememberFaces([{ signature: face.signature, anchorId }]);
       setDatumFacePick(null);
     },
     [datumFacePick, tree.data],
@@ -2970,6 +3321,11 @@ export function PartPage() {
         nonce: holePickNonce.current,
         face: { signature: face.signature, anchorId },
       });
+      // The pick outlives this editor (UI-W3): cancel the hole and invoke
+      // Datum, or Sketch, and the face is already chosen.
+      usePreselectStore
+        .getState()
+        .rememberFaces([{ signature: face.signature, anchorId }]);
       // A face chosen → disarm (the editor seeds the point to the centre); the
       // user arms the POINT pick next to refine the placement.
       setHolePick(null);
@@ -3178,28 +3534,25 @@ export function PartPage() {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       if (isTypingTarget(event.target)) return;
+      // The keys come from `shortcuts/registry` — the SAME table the key card
+      // prints (UI-REVIEW F4), so a re-keyed verb cannot leave the reference
+      // teaching a letter nothing listens for.
       const key = event.key.toLowerCase();
-      if (key === "p" && hasBody) {
+      const openers: Record<string, { open: () => void; enabled: boolean }> = {
+        p: { open: openCreatePattern, enabled: hasBody },
+        s: { open: openCreateSweep, enabled: canSweep },
+        l: { open: openCreateLoft, enabled: canLoft },
+        h: { open: openCreateShell, enabled: hasBody },
+        d: { open: openCreateDraft, enabled: hasBody },
+        o: { open: openCreateHole, enabled: hasBody },
+        i: { open: openCreateMirror, enabled: hasBody },
+      };
+      const opener = PART_CREATE_SHORTCUTS.some((entry) => entry.key === key)
+        ? openers[key]
+        : undefined;
+      if (opener !== undefined && opener.enabled) {
         event.preventDefault();
-        openCreatePattern();
-      } else if (key === "s" && canSweep) {
-        event.preventDefault();
-        openCreateSweep();
-      } else if (key === "l" && canLoft) {
-        event.preventDefault();
-        openCreateLoft();
-      } else if (key === "h" && hasBody) {
-        event.preventDefault();
-        openCreateShell();
-      } else if (key === "d" && hasBody) {
-        event.preventDefault();
-        openCreateDraft();
-      } else if (key === "o" && hasBody) {
-        event.preventDefault();
-        openCreateHole();
-      } else if (key === "i" && hasBody) {
-        event.preventDefault();
-        openCreateMirror();
+        opener.open();
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -3243,12 +3596,18 @@ export function PartPage() {
   // The body is the hero: once a solid renders, the profile sketch that
   // defined it recedes (it sits on the body's base face — coincident scribe
   // ink would only z-fight the solid). It returns, live, on sketch re-entry.
+  //
+  // That rule now lives in the SCENE (`SketchScene`, via `viewport/partView`),
+  // as the DEFAULT of a per-sketch view stop rather than as a law the modeler
+  // cannot answer back to — UI-W2, founder: "what about the ability to enable
+  // planes, sketches and bodies?". The full solved set is handed down and the
+  // scene decides which layers draw, so the browser's Sketches rows and the ink
+  // on screen read one derivation.
   const bodyPresent = body.data !== undefined;
-  const solvedLayers = bodyPresent ? [] : solved;
   // The extrude ghost's profile layer (UI-REVIEW #8): the SOLVED sketch the
-  // open extrude editor points at, resolved from the full `solved` set (not the
-  // body-gated `solvedLayers`) so the ghost shows whether or not a body already
-  // exists. Absent until the editor projects a valid form.
+  // open extrude editor points at, resolved from the full `solved` set so the
+  // ghost shows whether or not a body already exists. Absent until the editor
+  // projects a valid form.
   const extrudeGhostLayer = useMemo<SolvedSketchLayer | null>(() => {
     if (extrudePreview === null) return null;
     return (
@@ -3261,13 +3620,36 @@ export function PartPage() {
     editor?.kind === "extrude" &&
     extrudePreview !== null &&
     extrudeGhostLayer !== null;
-  const bodyStatus: BodyStatus = regenFailed
-    ? "error"
-    : regenerating || (meshGlbId !== null && !bodyPresent && body.isFetching)
-      ? "regenerating"
-      : evaluation.isFetching
-        ? "evaluating"
-        : "up-to-date";
+  // THE ONE SET OF FACTS about the body on screen. The feature tree's SOLVE
+  // cell, the inspector's STATUS cell, the EXPORT gate, the SKIP rows and the
+  // partial-body notice below all read this object — they used to compute three
+  // separate answers, and on a part with a broken feature the same screen said
+  // "Failed", "Up to date" and "Ready" at once (AUDIT-ENGINEERING J2).
+  const build = useMemo(
+    () =>
+      derivePartBuild({
+        tree: tree.data,
+        evaluation: evaluation.data,
+        part: part.data,
+        evaluating: evaluation.isFetching,
+        treeFetching: tree.isFetching,
+        regenerating,
+        regenFailed,
+        meshPending: meshGlbId !== null && !bodyPresent && body.isFetching,
+      }),
+    [
+      tree.data,
+      tree.isFetching,
+      evaluation.data,
+      evaluation.isFetching,
+      part.data,
+      regenerating,
+      regenFailed,
+      meshGlbId,
+      bodyPresent,
+      body.isFetching,
+    ],
+  );
   // The inspector appears when there's a body to inspect and we're not
   // sketching — sketch mode keeps the viewport dominant (chrome recedes).
   const showInspector = mode === "off" && bodyProperties !== null;
@@ -3367,7 +3749,7 @@ export function PartPage() {
             key: "new-sketch",
             label: "New sketch",
             icon: <SketchIcon />,
-            onSelect: handleNewSketch,
+            onSelect: startSketch,
             "data-testid": "ctx-new-sketch",
           },
           {
@@ -3409,7 +3791,7 @@ export function PartPage() {
             icon: <CloseIcon />,
             danger: true,
             disabled: deletingId === selected.id,
-            onSelect: () => deleteFeatureAction(selected),
+            onSelect: () => requestDeleteFeature(selected),
             "data-testid": "ctx-selected-delete",
           },
         ],
@@ -3456,7 +3838,7 @@ export function PartPage() {
             icon: <CloseIcon />,
             danger: true,
             disabled: deletingId === feature.id,
-            onSelect: () => deleteFeatureAction(feature),
+            onSelect: () => requestDeleteFeature(feature),
             "data-testid": "tree-ctx-delete",
           },
         ],
@@ -3505,7 +3887,7 @@ export function PartPage() {
               }
               onUndo={triggerUndo}
               onRedo={triggerRedo}
-              onNewSketch={handleNewSketch}
+              onNewSketch={startSketch}
               canImportStep={bodyFeatureId === null}
               importingStep={importing}
               onImportStep={handleImportStep}
@@ -3582,9 +3964,11 @@ export function PartPage() {
               mode === "off" && editor === null && !measureActive
             }
             bodySelected={
-              mode === "off" && selectedFeatureId !== null && !measureActive
+              mode === "off" &&
+              !measureActive &&
+              (selectedFeatureId !== null || preselectedFaceIndices !== null)
             }
-            bodySelectedFaces={selectedFaceIndices}
+            bodySelectedFaces={selectedFaceIndices ?? preselectedFaceIndices}
             hud={
               <>
                 <SketchDro solving={syncPending || evaluation.isFetching} />
@@ -3937,11 +4321,46 @@ export function PartPage() {
                       Dismiss
                     </button>
                   </div>
+                ) : editor === null && build.failed && build.hasBody ? (
+                  // WHAT YOU ARE LOOKING AT (AUDIT-PRODUCT N3). The strict-prefix
+                  // rule renders the last-good PREFIX, so one bad pick can turn a
+                  // modelled bracket into a bare brick — and until now nothing on
+                  // screen said the solid was not the part. `last_good_feature_id`
+                  // was on the wire and unused; it names the state being shown.
+                  // NOT dismissible: it describes a live condition, and it leaves
+                  // when the condition does.
+                  <div
+                    role="status"
+                    data-testid="partial-body-notice"
+                    className="absolute left-editor top-3 max-w-sm rounded-sm border border-flag bg-anvil px-3 py-2"
+                  >
+                    <span className="block font-display text-2xs uppercase tracking-[0.18em] text-flag">
+                      Partial body
+                    </span>
+                    <span className="mt-1 block font-body text-xs text-mist">
+                      {partialBodySentence(build)}
+                    </span>
+                    {build.failure !== null ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const failed = features.find(
+                            (f) => f.id === build.failure?.id,
+                          );
+                          if (failed !== undefined) selectFeature(failed);
+                        }}
+                        data-testid="partial-body-show-failure"
+                        className="mt-2 font-display text-2xs uppercase tracking-[0.14em] text-brass focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
+                      >
+                        Show {build.failure.name}
+                      </button>
+                    ) : null}
+                  </div>
                 ) : null}
               </>
             }
           >
-            <SketchScene solved={solvedLayers} facePicking={facePicking} />
+            <SketchScene solved={solved} facePicking={facePicking} />
             {showExtrudeGhost &&
             extrudeGhostLayer !== null &&
             extrudePreview ? (
@@ -4014,13 +4433,9 @@ export function PartPage() {
                 tree={tree.data}
                 treeError={tree.error}
                 evaluation={evaluation.data}
-                evaluating={evaluation.isFetching}
+                build={build}
                 selectedFeatureId={selectedFeatureId}
                 onSelectFeature={selectFeature}
-                onMoveRollback={moveRollback}
-                // The bar also holds while a history step is restoring (the
-                // mutual exclusion's visible half — runHistoryStep guards it).
-                rollbackBusy={rollbackBusy || historyStep !== null}
                 onKeepAsOneBody={keepAsOneBody}
                 recoveringDisjoint={disjointRecovering}
                 onRepickFace={repickFace}
@@ -4042,11 +4457,27 @@ export function PartPage() {
             </div>
           </FloatingPanel>
           {showInspector ? (
-            <FloatingPanel side="right" title="Inspector" id="inspector">
+            // The EXPORT strip is PINNED under the panel, not trailing the
+            // scrolling readouts: the panel's height is clamped (it clears the
+            // reference cube), so whatever sits last in the column is whatever
+            // goes under the fold — and on a 1366x768 frame that was the strip
+            // plus the sentence warning that the file will be marked *partial*
+            // (UI-REVIEW 2026-07-30 P1, a regression of the 48px timeline).
+            // Mass properties scroll; the actions never move.
+            <FloatingPanel
+              side="right"
+              title="Inspector"
+              id="inspector"
+              footer={
+                <Panel className="border-t-0">
+                  <PartExportControls partId={partId} build={build} />
+                </Panel>
+              }
+            >
               <BodyInspector
                 properties={bodyProperties}
-                status={bodyStatus}
-                partId={partId}
+                build={build}
+                material={materialControls}
               />
             </FloatingPanel>
           ) : showExportOnly ? (
@@ -4060,10 +4491,20 @@ export function PartPage() {
                 data-testid="part-export-idle"
               >
                 <Panel>
-                  <PartExportControls partId={partId} hasBody={false} />
+                  <PartExportControls partId={partId} build={build} />
                 </Panel>
               </aside>
             </FloatingPanel>
+          ) : null}
+          {/* What breaks if this feature goes — asked before it does (F3). */}
+          {deleteIntent !== null ? (
+            <FeatureDeleteConfirm
+              featureName={deleteIntent.feature.name}
+              dependents={deleteIntent.dependents}
+              pending={deletingId === deleteIntent.feature.id}
+              onCancel={() => setDeleteIntent(null)}
+              onConfirm={() => deleteFeatureAction(deleteIntent.feature)}
+            />
           ) : null}
           {/* Tree-action failure (rename/delete) — honest, dismissible chrome. */}
           {treeActionError !== null ? (
@@ -4089,6 +4530,22 @@ export function PartPage() {
             </div>
           ) : null}
         </main>
+        {/* THE TIMELINE — docked along the bottom of the frame, the way the
+            build travels (UI-W1, founder-directed). In flow, not floating: the
+            bottom of the viewport already carries the HUD lane, the reference
+            cube and the status banners, and a fourth floating occupant would
+            fight all three. */}
+        <TimelineStrip
+          tree={tree.data}
+          evaluation={evaluation.data}
+          selectedFeatureId={selectedFeatureId}
+          onSelectFeature={selectFeature}
+          onMoveRollback={moveRollback}
+          // The stop also holds while a history step is restoring (the mutual
+          // exclusion's visible half — runHistoryStep guards it).
+          busy={rollbackBusy || historyStep !== null}
+          onChipContextMenu={openTreeMenu}
+        />
       </div>
       {/* Right-click menus (UI-REVIEW #10) — one primitive, two surfaces. */}
       {viewportMenu !== null ? (

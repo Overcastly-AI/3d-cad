@@ -1,0 +1,148 @@
+{
+  "schema": 1,
+  "_": [
+    "The pinned corresponding-source manifest (LIC-2). It answers two different",
+    "questions and the distinction matters:",
+    "",
+    "  1. WHAT source corresponds to the binaries we ship? -> `version` plus the",
+    "     immutable upstream identity of each artefact (a PyPI sha256, a Ubuntu",
+    "     pool file, a git commit). These are recorded here and must never be",
+    "     edited without re-deriving them from upstream.",
+    "  2. IS a published bundle the one we claim? -> `sha256` of each artefact",
+    "     as fetched, recorded by `scripts/fetch-corresponding-source.py --record`",
+    "     and committed. Anyone can re-fetch and compare.",
+    "",
+    "`version` is CHECKED AGAINST THE INSTALLED ENVIRONMENT by",
+    "scripts/check-licences.py on every `just lint` and every CI run, using",
+    "`detect` below. A wheel bump that moves OCCT is therefore loud: the gate",
+    "fails naming the old and new versions, and this file has to be re-pinned",
+    "before anything can be published. docs/LICENSING.md §7."
+  ],
+  "bundle": {
+    "name_template": "loft-corresponding-source-{release}.tar.gz",
+    "attach_to": "the same GitHub release that publishes the container images",
+    "why": "LGPL-2.1 §6(d) wants equivalent access to the source from the same place the object code is offered. Pointing at a third party who may retire a URL is the weakest defensible reading; mirroring under our own release is the strong one. docs/LICENSING.md §7."
+  },
+  "components": [
+    {
+      "id": "occt",
+      "name": "Open CASCADE Technology",
+      "version": "7.9.3",
+      "licence": "LGPL-2.1-only WITH OCCT-exception-1.0",
+      "obligation": "LGPL-2.1 §6(d)+(c)",
+      "arrives_via": "cadquery-ocp-novtk wheel; auditwheel-vendored libTK*.so",
+      "images": ["geometry"],
+      "detect": {
+        "kind": "so-version",
+        "glob": "libTK*.so.*",
+        "note": "Every OCCT library carries its release in the SONAME tail (libTKernel-<hash>.so.7.9.3). All 46 must agree."
+      },
+      "artefacts": [
+        {
+          "kind": "git",
+          "repo": "https://github.com/Open-Cascade-SAS/OCCT",
+          "tag": "V7_9_3",
+          "commit": "a016080bf6738d6aeae020badee4e888ad1540a5",
+          "commit_source": "git rev-parse HEAD of https://github.com/Open-Cascade-SAS/OCCT @ V7_9_3, recorded by scripts/fetch-corresponding-source.py",
+          "archive": "occt-7.9.3.tar.gz",
+          "sha256": "71c6a724fb7e3c4ca60c0655efa2cb17f571f7a99641c008eb8ab68375cf2433",
+          "sha256_source": "computed by scripts/fetch-corresponding-source.py --record",
+          "verify_version": {
+            "file": "adm/cmake/version.cmake",
+            "patterns": [
+              "set \\(OCC_VERSION_MAJOR\\s+(\\d+)",
+              "set \\(OCC_VERSION_MINOR\\s+(\\d+)",
+              "set \\(OCC_VERSION_MAINTENANCE\\s+(\\d+)"
+            ],
+            "join": ".",
+            "expect": "7.9.3",
+            "note": "Checked against the cloned tree's OWN build metadata, not against the tag name. A tag is a label a human typed and can be moved; these constants are what the binaries were compiled from."
+          },
+          "note": "Fetched as a git clone verified by COMMIT, not as the /archive/refs/tags/ tarball: GitHub generates those on demand and their bytes have changed under people before (gzip settings), so a sha256 pinned to one is a gate that fails for the wrong reason. A commit id is immutable. The checked-out tree is then packed deterministically by scripts/fetch-corresponding-source.py (sorted names, zeroed ownership, fixed mtimes, gzip mtime 0), so `sha256` here is reproducible from `commit` alone — verified 2026-08-01 by three independent clone-and-pack runs producing byte-identical archives.",
+          "measured": "https://github.com/Open-Cascade-SAS/OCCT/archive/refs/tags/V7_9_3.tar.gz is 403 through the Loft dev container's egress proxy, but `git clone --depth 1 --branch V7_9_3` over HTTPS succeeds. The block is on release-asset downloads, not on git. This leg therefore RAN here."
+        }
+      ]
+    },
+    {
+      "id": "planegcs",
+      "name": "planegcs (FreeCAD PlaneGCS bindings)",
+      "version": "0.8.0",
+      "licence": "LGPL-2.1-or-later",
+      "obligation": "LGPL-2.1 §6(d)+(c)",
+      "arrives_via": "planegcs wheel; _planegcs.cpython-*.so",
+      "images": ["geometry"],
+      "detect": {
+        "kind": "dist-info",
+        "distribution": "planegcs"
+      },
+      "artefacts": [
+        {
+          "kind": "url",
+          "url": "https://files.pythonhosted.org/packages/6c/6d/2ae123c5913387f52ab5b969f25bbc513d41f04546ecc5662ab86464a495/planegcs-0.8.0.tar.gz",
+          "filename": "planegcs-0.8.0.tar.gz",
+          "sha256": "09e77e6e3a27fa77d3b5a69065ea4c82ae6ed35753246a2e518b1a6005fea162",
+          "sha256_source": "PyPI JSON index for planegcs 0.8.0, re-verified by download 2026-08-01 (digest recomputed from the received bytes)",
+          "note": "The PyPI sdist for the exact version whose wheel we install. Verified to contain the PlaneGCS solver itself — src/planegcs/{GCS,Constraints,Geo,SubSystem,qp_eq}.{cpp,h} plus the bindings — and its LGPL-2.1 LICENSE, so it is corresponding source and not merely the Python wrapper. Files under files.pythonhosted.org are immutable. Use this hashed URL, NOT the legacy /packages/source/p/... path: that path returned a ZERO-BYTE body with a success status through this project's egress proxy, which a naive fetch would have bundled as 'the source'."
+        }
+      ]
+    },
+    {
+      "id": "libraw",
+      "name": "LibRaw",
+      "version": "0.19.5-1ubuntu1.4",
+      "licence": "LGPL-2.1-only",
+      "obligation": "LGPL-2.1 §6(d)+(c) — LibRaw is LGPL-2.1 OR CDDL-1.0 and Loft elects LGPL-2.1",
+      "arrives_via": "cadquery-ocp-novtk wheel; auditwheel-vendored libraw-<hash>.so.19.0.2 (Ubuntu 20.04 binary package libraw19)",
+      "images": ["geometry"],
+      "detect": {
+        "kind": "auditwheel-sbom",
+        "distribution": "cadquery_ocp_novtk",
+        "component": "libraw19",
+        "note": "The SONAME (19.0.2) is NOT the release version, so filename parsing would silently pin the wrong thing. auditwheel records the real Ubuntu source package version in its CycloneDX SBOM inside the wheel's dist-info; that is what corresponds to the binary, Ubuntu patches included."
+      },
+      "artefacts": [
+        {
+          "kind": "url",
+          "url": "http://archive.ubuntu.com/ubuntu/pool/main/libr/libraw/libraw_0.19.5.orig.tar.gz",
+          "fallback_url": "http://old-releases.ubuntu.com/ubuntu/pool/main/libr/libraw/libraw_0.19.5.orig.tar.gz",
+          "filename": "libraw_0.19.5.orig.tar.gz",
+          "sha256": "44693f0c92707b0803a1f6c4cf7209452aa18b310f2d75892e0bc1fb2c194c3f",
+          "sha256_source": "computed from the download 2026-08-01 (557094 bytes); byte-identical to the Checksums-Sha256 stanza of libraw_0.19.5-1ubuntu1.4.dsc",
+          "note": "Upstream tarball as Ubuntu shipped it."
+        },
+        {
+          "kind": "url",
+          "url": "http://archive.ubuntu.com/ubuntu/pool/main/libr/libraw/libraw_0.19.5-1ubuntu1.4.debian.tar.xz",
+          "fallback_url": "http://old-releases.ubuntu.com/ubuntu/pool/main/libr/libraw/libraw_0.19.5-1ubuntu1.4.debian.tar.xz",
+          "filename": "libraw_0.19.5-1ubuntu1.4.debian.tar.xz",
+          "sha256": "cea751c4bed1836b6164ab3a17c62bbfe972be1a97d205c4878c0e59143ea971",
+          "sha256_source": "computed from the download 2026-08-01 (26540 bytes); byte-identical to the Checksums-Sha256 stanza of libraw_0.19.5-1ubuntu1.4.dsc",
+          "note": "The Debian/Ubuntu delta. WITHOUT this the .orig tarball is not the corresponding source of the binary we ship — the binary is built from orig + these patches."
+        },
+        {
+          "kind": "url",
+          "url": "http://archive.ubuntu.com/ubuntu/pool/main/libr/libraw/libraw_0.19.5-1ubuntu1.4.dsc",
+          "fallback_url": "http://old-releases.ubuntu.com/ubuntu/pool/main/libr/libraw/libraw_0.19.5-1ubuntu1.4.dsc",
+          "filename": "libraw_0.19.5-1ubuntu1.4.dsc",
+          "sha256": "bf3c8e2bd4a999ec56d45fa2b6e8d39d1b3da7598e44fb49052163c9c0917c95",
+          "sha256_source": "computed from the download 2026-08-01",
+          "note": "Ubuntu's own source-package description; its Checksums-Sha256 stanza independently attests the two files above, so the bundle carries its own provenance proof."
+        }
+      ]
+    }
+  ],
+  "no_source_obligation": [
+    {
+      "component": "certifi (MPL-2.0)",
+      "why": "Pure Python. MPL-2.0 §3.2 wants the Source Code Form available to recipients of the Executable Form; for certifi the image already contains the .py files themselves, so the obligation is discharged by the artifact."
+    },
+    {
+      "component": "FreeImage 3.18.0, FreeType 2.10.1",
+      "why": "Dual-licensed; Loft elects the permissive arm (FIPL-1.0, FTL). Those arms carry no source-provision duty. Versions are on the record in docs/LICENSING.md §7 anyway."
+    },
+    {
+      "component": "libgomp / libgfortran / libquadmath (GPL-3.0 WITH GCC-exception-3.1)",
+      "why": "NOT settled — tracked as LIC-4. The Runtime Library Exception frees the compiled OUTPUT; redistributing the runtime library binaries themselves is arguably still a GPL-3.0 conveyance with its own source duty. They arrive auditwheel-vendored from manylinux images whose exact GCC build is not recorded anywhere we can read, which is why this is a backlog item and not a silent line in a manifest."
+    }
+  ]
+}

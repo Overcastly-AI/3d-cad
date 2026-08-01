@@ -13,31 +13,7 @@
  * accelerator is engraved in the tooltip so it teaches the keyboard the moment
  * it lights up), matching how Extrude greys out until a sketch is solved.
  */
-import {
-  BaseFlangeIcon,
-  ChamferIcon,
-  CombineIcon,
-  CornerReliefIcon,
-  DatumIcon,
-  DraftIcon,
-  EdgeFlangeIcon,
-  ExtrudeIcon,
-  FilletIcon,
-  FlatPatternIcon,
-  HemIcon,
-  HoleIcon,
-  ImportStepIcon,
-  LoftIcon,
-  MeasureIcon,
-  MirrorIcon,
-  PatternIcon,
-  RevolveIcon,
-  ShellIcon,
-  SketchIcon,
-  SweepIcon,
-  ToolButton,
-  ToolGroup,
-} from "@loft/design";
+import { BandActionCell, ToolButton, ToolGroup, VerbGlyph } from "@loft/design";
 import { useRef } from "react";
 
 import { useCommandActionStore } from "../features/commandActions";
@@ -321,13 +297,13 @@ export function CreateStrip({
           </div>
           <span aria-hidden className="my-2 w-px bg-hairline" />
           <div className="ml-auto flex items-stretch divide-x divide-hairline border-l border-hairline">
-            <CommandActionCell
+            <BandActionCell
               label="Cancel"
               caption="Esc"
               data-testid="in-command-cancel"
               onClick={onCommandCancel}
             />
-            <CommandActionCell
+            <BandActionCell
               label="OK"
               caption={okReady ? "Enter" : "Finish the form"}
               accent
@@ -370,7 +346,7 @@ export function CreateStrip({
 
         <ToolGroup eyebrow="Create">
           <ToolButton
-            icon={<ImportStepIcon />}
+            icon={<VerbGlyph verb="import_step" />}
             showLabel
             label="Import"
             data-testid="import-step-button"
@@ -387,7 +363,7 @@ export function CreateStrip({
             onClick={() => importInputRef.current?.click()}
           />
           <ToolButton
-            icon={<SketchIcon />}
+            icon={<VerbGlyph verb="sketch" />}
             showLabel
             label="Sketch"
             data-testid="new-sketch"
@@ -397,7 +373,7 @@ export function CreateStrip({
             onClick={onNewSketch}
           />
           <ToolButton
-            icon={<DatumIcon />}
+            icon={<VerbGlyph verb="datum" />}
             showLabel
             label="Datum"
             data-testid="tool-datum"
@@ -410,7 +386,7 @@ export function CreateStrip({
             onClick={onNewDatum}
           />
           <ToolButton
-            icon={<ExtrudeIcon />}
+            icon={<VerbGlyph verb="extrude" />}
             showLabel
             label="Extrude"
             data-testid="new-extrude"
@@ -427,7 +403,7 @@ export function CreateStrip({
             onClick={onNewExtrude}
           />
           <ToolButton
-            icon={<RevolveIcon />}
+            icon={<VerbGlyph verb="revolve" />}
             showLabel
             label="Revolve"
             data-testid="new-revolve"
@@ -444,7 +420,7 @@ export function CreateStrip({
             onClick={onNewRevolve}
           />
           <ToolButton
-            icon={<SweepIcon />}
+            icon={<VerbGlyph verb="sweep" />}
             showLabel
             label="Sweep"
             shortcut="S"
@@ -462,7 +438,7 @@ export function CreateStrip({
             onClick={onNewSweep}
           />
           <ToolButton
-            icon={<LoftIcon />}
+            icon={<VerbGlyph verb="loft" />}
             showLabel
             label="Loft"
             shortcut="L"
@@ -483,7 +459,7 @@ export function CreateStrip({
 
         <ToolGroup eyebrow="Modify">
           <ToolButton
-            icon={<FilletIcon />}
+            icon={<VerbGlyph verb="fillet" />}
             showLabel
             label="Fillet"
             data-testid="new-fillet"
@@ -497,7 +473,7 @@ export function CreateStrip({
             onClick={onFillet}
           />
           <ToolButton
-            icon={<ChamferIcon />}
+            icon={<VerbGlyph verb="chamfer" />}
             showLabel
             label="Chamfer"
             data-testid="new-chamfer"
@@ -511,7 +487,7 @@ export function CreateStrip({
             onClick={onChamfer}
           />
           <ToolButton
-            icon={<PatternIcon />}
+            icon={<VerbGlyph verb="pattern" />}
             showLabel
             label="Pattern"
             shortcut="P"
@@ -526,7 +502,7 @@ export function CreateStrip({
             onClick={onPattern}
           />
           <ToolButton
-            icon={<ShellIcon />}
+            icon={<VerbGlyph verb="shell" />}
             showLabel
             label="Shell"
             shortcut="H"
@@ -541,7 +517,7 @@ export function CreateStrip({
             onClick={onShell}
           />
           <ToolButton
-            icon={<DraftIcon />}
+            icon={<VerbGlyph verb="draft" />}
             showLabel
             label="Draft"
             shortcut="D"
@@ -556,7 +532,7 @@ export function CreateStrip({
             onClick={onDraft}
           />
           <ToolButton
-            icon={<HoleIcon />}
+            icon={<VerbGlyph verb="hole" />}
             showLabel
             label="Hole"
             shortcut="O"
@@ -571,7 +547,7 @@ export function CreateStrip({
             onClick={onHole}
           />
           <ToolButton
-            icon={<MirrorIcon />}
+            icon={<VerbGlyph verb="mirror" />}
             showLabel
             label="Mirror"
             shortcut="I"
@@ -586,7 +562,7 @@ export function CreateStrip({
             onClick={onMirror}
           />
           <ToolButton
-            icon={<CombineIcon />}
+            icon={<VerbGlyph verb="boolean" />}
             showLabel
             label="Combine"
             data-testid="new-combine"
@@ -603,7 +579,7 @@ export function CreateStrip({
 
         <ToolGroup eyebrow="Sheet metal">
           <ToolButton
-            icon={<BaseFlangeIcon />}
+            icon={<VerbGlyph verb="sheet_metal_base_flange" />}
             showLabel
             label="Base flange"
             data-testid="new-base-flange"
@@ -617,7 +593,7 @@ export function CreateStrip({
             onClick={onNewBaseFlange}
           />
           <ToolButton
-            icon={<EdgeFlangeIcon />}
+            icon={<VerbGlyph verb="sheet_metal_edge_flange" />}
             showLabel
             label="Edge flange"
             data-testid="new-edge-flange"
@@ -631,7 +607,7 @@ export function CreateStrip({
             onClick={onNewEdgeFlange}
           />
           <ToolButton
-            icon={<HemIcon />}
+            icon={<VerbGlyph verb="sheet_metal_hem" />}
             showLabel
             label="Hem"
             data-testid="new-hem"
@@ -645,7 +621,7 @@ export function CreateStrip({
             onClick={onNewHem}
           />
           <ToolButton
-            icon={<CornerReliefIcon />}
+            icon={<VerbGlyph verb="sheet_metal_corner_relief" />}
             showLabel
             label="Corner relief"
             data-testid="new-corner-relief"
@@ -659,7 +635,7 @@ export function CreateStrip({
             onClick={onNewCornerRelief}
           />
           <ToolButton
-            icon={<FlatPatternIcon />}
+            icon={<VerbGlyph verb="flat_pattern" />}
             showLabel
             label="Flat pattern"
             data-testid="new-flat-pattern"
@@ -679,7 +655,7 @@ export function CreateStrip({
 
         <ToolGroup eyebrow="Inspect">
           <ToolButton
-            icon={<MeasureIcon />}
+            icon={<VerbGlyph verb="measure" />}
             showLabel
             label="Measure"
             shortcut="M"
@@ -700,50 +676,5 @@ export function CreateStrip({
         </ToolGroup>
       </div>
     </div>
-  );
-}
-
-/**
- * One in-command action cell — the band's OK / Cancel, styled as the
- * title-block action cells (tracked label + keyboard caption). OK wears the
- * brass accent (the primary commit); Cancel stays quiet. Both are real: OK runs
- * the open editor's validated submit through the action bus, Cancel closes it.
- */
-function CommandActionCell({
-  label,
-  caption,
-  accent = false,
-  disabled = false,
-  onClick,
-  ...rest
-}: {
-  label: string;
-  caption: string;
-  accent?: boolean;
-  disabled?: boolean;
-  onClick?: (() => void) | undefined;
-  "data-testid"?: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className={`flex flex-col items-center justify-center gap-0.5 px-4 transition-colors duration-fast focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass ${
-        disabled
-          ? "cursor-not-allowed opacity-40"
-          : accent
-            ? "text-brass hover:bg-brass/10"
-            : "text-gauge hover:bg-hairline/40 hover:text-mist"
-      }`}
-      {...rest}
-    >
-      <span className="font-display text-2xs uppercase tracking-[0.18em]">
-        {label}
-      </span>
-      <span className="font-body text-[9px] uppercase tracking-[0.14em] text-gauge">
-        {caption}
-      </span>
-    </button>
   );
 }

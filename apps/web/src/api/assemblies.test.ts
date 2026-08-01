@@ -162,7 +162,12 @@ describe("exportAssembly", () => {
       },
     });
 
-    const file = await exportAssembly(evalRequest, "stl", client);
+    const file = await exportAssembly(
+      evalRequest,
+      "stl",
+      "Bolted Plates",
+      client,
+    );
     expect(file.filename).toBe("bolted-plates.stl");
     expect(await file.blob.text()).toBe("SOLID assembly");
     expect(captured?.method).toBe("POST");
@@ -173,6 +178,27 @@ describe("exportAssembly", () => {
     expect(body.format).toBe("stl");
     expect(body.assembly_id).toBe(assemblyId);
     expect(body.instances).toHaveLength(1);
+    // The document name rides the EXPORT request (audit N4): it names the
+    // STEP's root PRODUCT and the download, and nothing else.
+    expect(body.name).toBe("Bolted Plates");
+  });
+
+  it("sends a null name when the caller has none (id fallback, never a guess)", async () => {
+    let captured: Request | undefined;
+    const client = createGatewayClient({
+      baseUrl: "http://gateway.test",
+      fetch: (request: Request) => {
+        captured = request;
+        return Promise.resolve(
+          new Response("step-bytes", {
+            status: 200,
+            headers: { "Content-Type": "model/step" },
+          }),
+        );
+      },
+    });
+    await exportAssembly(evalRequest, "step", null, client);
+    expect(JSON.parse(await captured!.text()).name).toBeNull();
   });
 
   it("falls back to assembly.<format> when no Content-Disposition is sent", async () => {
@@ -186,7 +212,7 @@ describe("exportAssembly", () => {
           }),
         ),
     });
-    const file = await exportAssembly(evalRequest, "step", client);
+    const file = await exportAssembly(evalRequest, "step", null, client);
     expect(file.filename).toBe("assembly.step");
   });
 
@@ -202,7 +228,7 @@ describe("exportAssembly", () => {
         422,
       ),
     );
-    const error = await exportAssembly(evalRequest, "step", client).catch(
+    const error = await exportAssembly(evalRequest, "step", null, client).catch(
       (e: unknown) => e,
     );
     expect((error as Error).message).toMatch(/no body to export/);

@@ -43,6 +43,7 @@ from geometry.kernel.extrude import (
     PROFILE_WIRE_TOLERANCE,
     entity_edges,
 )
+from geometry.kernel.healing import clean_shape
 
 
 class PathEmptyError(ValueError):
@@ -133,4 +134,4 @@ def sweep_profile(face: Face, path: Wire) -> Solid:
             f"Sweep produced {len(solids)} solids; parts are a single body in "
             "v1 (design §7.6)."
         )
-    return solids[0].clean()
+    return clean_shape(solids[0])

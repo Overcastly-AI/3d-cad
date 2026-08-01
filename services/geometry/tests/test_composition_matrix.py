@@ -77,7 +77,7 @@ import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, get_args
 
 import pytest
 
@@ -91,7 +91,7 @@ from geometry.features import evaluate_tree
 from geometry.features.evaluate import TreeEvaluation
 from geometry.kernel import measure_shape
 from geometry.schemas import ShapeProperties
-from py_kit.schemas.features import EvaluateTreeRequest
+from py_kit.schemas.features import FEATURE_REGISTRY, EvaluateTreeRequest
 
 # --- Documented tolerances (see the module docstring) -----------------------------
 
@@ -132,6 +132,38 @@ def _line(
     }
 
 
+def _circle(eid: str, cx: float, cy: float, r: float) -> dict[str, Any]:
+    return {"id": eid, "kind": "circle", "center": {"x": cx, "y": cy}, "radius": r}
+
+
+def sketch_of(
+    feature_id: uuid.UUID,
+    entities: list[dict[str, Any]],
+    plane: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """An UNCONSTRAINED sketch of *entities* on *plane* (default the XY origin).
+
+    The one sketch-envelope builder every sketch in this module goes through
+    (rectangle, revolve half-profile, sweep profile + path), so the emitted JSON
+    shape lives in exactly one place. No constraints means the solver returns the
+    authored positions bitwise (zero residual), the same posture every rectangle
+    golden uses — so a numeric deviation in a composed case is the KERNEL's,
+    never the solver's.
+    """
+    return {
+        "id": str(feature_id),
+        "feature": {
+            "type": "sketch",
+            "version": 1,
+            "params": {
+                "plane": dict(plane or XY_PLANE),
+                "entities": entities,
+                "constraints": [],
+            },
+        },
+    }
+
+
 def rect_sketch(
     feature_id: uuid.UUID,
     x0: float,
@@ -140,28 +172,13 @@ def rect_sketch(
     y1: float,
     plane: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """A closed rectangle ``[x0,x1] x [y0,y1]``, unconstrained.
-
-    No constraints means the solver returns the authored positions bitwise (zero
-    residual), the same posture every rectangle golden uses — so a numeric
-    deviation in a composed case is the KERNEL's, never the solver's.
-    """
+    """A closed rectangle ``[x0,x1] x [y0,y1]``, unconstrained."""
     corners = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
-    return {
-        "id": str(feature_id),
-        "feature": {
-            "type": "sketch",
-            "version": 1,
-            "params": {
-                "plane": dict(plane or XY_PLANE),
-                "entities": [
-                    _line(f"e{i + 1}", corners[i], corners[(i + 1) % 4])
-                    for i in range(4)
-                ],
-                "constraints": [],
-            },
-        },
-    }
+    return sketch_of(
+        feature_id,
+        [_line(f"e{i + 1}", corners[i], corners[(i + 1) % 4]) for i in range(4)],
+        plane,
+    )
 
 
 def revolve_profile_sketch(
@@ -176,18 +193,7 @@ def revolve_profile_sketch(
         for i in range(len(points))
     ]
     entities.append({**_line("ax", axis[0], axis[1]), "construction": True})
-    return {
-        "id": str(feature_id),
-        "feature": {
-            "type": "sketch",
-            "version": 1,
-            "params": {
-                "plane": dict(plane),
-                "entities": entities,
-                "constraints": [],
-            },
-        },
-    }
+    return sketch_of(feature_id, entities, plane)
 
 
 def extrude(
@@ -226,6 +232,47 @@ def revolve(
                 "profile": {"kind": "feature", "feature_id": str(profile_id)},
                 "axis": {"kind": "sketch_line", "entity": "ax"},
                 "angle_deg": angle_deg,
+                "operation": operation,
+            },
+        },
+    }
+
+
+def sweep(
+    feature_id: uuid.UUID,
+    profile_id: uuid.UUID,
+    path_id: uuid.UUID,
+    operation: Literal["add", "cut"] = "add",
+) -> dict[str, Any]:
+    return {
+        "id": str(feature_id),
+        "feature": {
+            "type": "sweep",
+            "version": 1,
+            "params": {
+                "profile": {"kind": "feature", "feature_id": str(profile_id)},
+                "path": {"kind": "feature", "feature_id": str(path_id)},
+                "operation": operation,
+            },
+        },
+    }
+
+
+def loft(
+    feature_id: uuid.UUID,
+    section_ids: list[uuid.UUID],
+    operation: Literal["add", "cut"] = "add",
+) -> dict[str, Any]:
+    return {
+        "id": str(feature_id),
+        "feature": {
+            "type": "loft",
+            "version": 1,
+            "params": {
+                "profiles": [
+                    {"kind": "feature", "feature_id": str(section_id)}
+                    for section_id in section_ids
+                ],
                 "operation": operation,
             },
         },
@@ -368,9 +415,35 @@ def circular_pattern(
 
 
 def mirror(feature_id: uuid.UUID, plane: dict[str, Any]) -> dict[str, Any]:
+    """A mirror with NO ``scope`` key — exactly what a pre-v2 row carries, which
+    normalises to ``scope: {"kind": "body"}`` (docs/design/mirror-semantics.md §3.2).
+    Every matrix cell that says "mirror" therefore still means the v1 semantic."""
     return {
         "id": str(feature_id),
         "feature": {"type": "mirror", "version": 1, "params": {"plane": plane}},
+    }
+
+
+def mirror_features(
+    feature_id: uuid.UUID, plane: dict[str, Any], selection: list[uuid.UUID]
+) -> dict[str, Any]:
+    """A ``features``-scope mirror (mirror v2): reflect the RECORDED TOOLS of the
+    named features and re-apply each one's own boolean, in tree order (§4/§8.1)."""
+    return {
+        "id": str(feature_id),
+        "feature": {
+            "type": "mirror",
+            "version": 1,
+            "params": {
+                "plane": plane,
+                "scope": {
+                    "kind": "features",
+                    "features": [
+                        {"kind": "feature", "feature_id": str(fid)} for fid in selection
+                    ],
+                },
+            },
+        },
     }
 
 
@@ -630,7 +703,11 @@ S_POCKET, F_POCKET = _fid(21), _fid(22)
 F_HOLE, F_CBORE, F_CSINK, F_TAPPED = _fid(31), _fid(32), _fid(33), _fid(34)
 F_PATTERN_L, F_PATTERN_C = _fid(41), _fid(42)
 D_CLEAR, D_MID, F_MIRROR = _fid(51), _fid(52), _fid(53)
+D_FEAT, F_MIRROR_FEAT = _fid(54), _fid(55)
 F_FILLET, F_CHAMFER, F_SHELL, F_DRAFT = _fid(61), _fid(62), _fid(63), _fid(64)
+D_REVCUT, S_REVCUT, F_REVCUT = _fid(71), _fid(72), _fid(73)
+S_SWEEP, S_SWEEP_PATH, F_SWEEP = _fid(74), _fid(75), _fid(76)
+S_LOFT_LOW, D_LOFT_TOP, S_LOFT_HIGH, F_LOFT = _fid(77), _fid(78), _fid(79), _fid(80)
 
 #: The base plate: [0,80] x [0,80] x [0,10] mm. V = 80*80*10 = 64000 mm^3.
 #: 80 mm (not 40) is deliberate: every placement below needs room for its
@@ -666,6 +743,21 @@ SHELL_T = 2.0
 DRAFT_DEG = 5.0
 #: Linear pattern step, along +Y (see ``_verbs()`` for why +Y and not +X).
 PATTERN_STEP = 20.0
+#: The three NON-EXTRUDE cut verbs (CM-5, 2026-07-30). Each placement satisfies
+#: FOUR constraints at once (argued per verb in ``_verbs()``): disjoint from every
+#: other verb; >= 6 mm from the plate walls, so the ``shell`` column's inward skin
+#: does not meet the removal's own skin and pinch the cavity to zero; an x-band
+#: that excludes x=40, so the midplane reflection is a DISJOINT second removal;
+#: and both replicated placements (the x=40 reflection, the +Y20 pattern copy)
+#: strictly interior — which is what makes the analytic ``2 * delta`` assertion
+#: well-posed rather than a one-sided bound.
+REVCUT_R = 4.0  # revolve-cut: a r4 through-bore on the vertical axis (46,26)
+REVCUT_AT = (46.0, 26.0)
+SWEEPCUT_R = 3.0  # sweep-cut: a r3 circular profile swept +Z from (34,12)
+SWEEPCUT_AT = (34.0, 12.0)
+SWEEPCUT_PATH = 15.0  # path length > thickness, so the bore cuts clean through
+LOFTCUT_LOW, LOFTCUT_HIGH = 8.0, 6.0  # loft-cut: an 8x8 -> 6x6 tapered pocket
+LOFTCUT_AT = (70.0, 20.0)
 
 #: Per-verb analytic volume DELTA against the bare plate (all derived by hand;
 #: each is re-checked against the kernel by ``test_single_verb_deltas``).
@@ -689,6 +781,19 @@ SHELL_DV = -((PLATE_SIDE - 2 * SHELL_T) ** 2 * (PLATE_THICKNESS - SHELL_T))
 # Tapering the +X wall inward by `a` about XY@0 removes an 80-wide wedge of
 # height 10 and setback 10*tan(a).
 DRAFT_DV = -(PLATE_SIDE * 0.5 * PLATE_THICKNESS**2 * math.tan(math.radians(DRAFT_DEG)))
+# A revolve-CUT of a 4x10 rectangle whose left edge lies ON the axis: a full
+# r4 through-bore, i.e. the same removal a simple hole makes, reached by the
+# revolve handler instead. -160pi.
+REVCUT_DV = -(math.pi * REVCUT_R**2 * PLATE_THICKNESS)
+# A sweep-CUT of an r3 circle along a straight +Z path: a r3 through-bore.
+SWEEPCUT_DV = -(math.pi * SWEEPCUT_R**2 * PLATE_THICKNESS)
+# A loft-CUT between an 8x8 section at z=0 and a 6x6 section at z=10: the
+# frustum of a pyramid, exact by the prismatoid rule (h/3)(A1 + A2 + sqrt(A1 A2)).
+LOFTCUT_DV = -(
+    PLATE_THICKNESS
+    / 3.0
+    * (LOFTCUT_LOW**2 + LOFTCUT_HIGH**2 + math.sqrt(LOFTCUT_LOW**2 * LOFTCUT_HIGH**2))
+)
 
 #: Verb kinds, used to pick the shape-independent invariant in the pair matrix.
 VerbKind = Literal["add", "cut", "replicate", "modify"]
@@ -713,6 +818,16 @@ class Verb:
     #: True when the verb introduces a curved face or a rotated placement, so
     #: the composition is asserted at CURVED_TOL rather than PLANAR_TOL.
     curved: bool = False
+    #: CUT verbs only: True when this removal's TWO replicated placements —
+    #: the ``mirror_midplane`` reflection about x=40 and the ``pattern_linear``
+    #: copy 20 mm along +Y — both land STRICTLY INSIDE the plate and disjoint
+    #: from the seed removal (argued per placement in :func:`_verbs`). That makes
+    #: the composed volume analytic, ``PLATE_VOLUME + 2 * delta``, and turns the
+    #: two silent-wrong-geometry classes into arithmetic in EVERY cut row:
+    #: a mirror that fills the void reads ``PLATE_VOLUME`` (FINDINGS #2 / CM-1 /
+    #: CM-5), and a pattern that unions whole-body copies reads more (FINDINGS #1).
+    #: A ``<= 2V`` bound cannot see either — the featureless brick is under it.
+    replicated_removal_interior: bool = False
 
 
 def _verbs() -> dict[str, Verb]:
@@ -727,6 +842,10 @@ def _verbs() -> dict[str, Verb]:
       tap drill (D - P = 8.5). NOT on x=40 deliberately: a cut whose tool is
       symmetric about the mirror midplane reflects onto itself and removes
       nothing, which is finding CM-3's shape, not a routine cell.
+    * REVCUT  r4 bore on the vertical axis (46,26) -> x 42..50, y 22..30 (C)
+    * SWEEPCUT r3 bore swept +Z from (34,12) -> x 31..37, y 9..15 (S)
+    * LOFTCUT 8x8 (z=0) -> 6x6 (z=10) tapered pocket centred (70,20)
+      -> x 66..74, y 16..24 (E)
     * FILLET / CHAMFER  the four vertical corners (within 4 mm of a corner)
     * SHELL   the whole body (deliberately global, not disjoint)
     * DRAFT   the +X wall's top 0.875 mm (x > 79.125)
@@ -742,6 +861,22 @@ def _verbs() -> dict[str, Verb]:
     clear of the drafted wall (79.125), and every placement is >= 12 mm from
     any corner, so the corner fillet/chamfer never touches one.
 
+    The three CM-5 cut verbs (clearances, each to its nearest neighbour):
+    REVCUT x 42..50 / y 22..30 clears HOLE's x=56 by 6 mm, POCKET's x=28 by
+    14 mm and BOSS's y=34 by 4 mm; SWEEPCUT x 31..37 / y 9..15 clears POCKET's
+    x=28 by 3 mm (and REVCUT by 7 mm in y); LOFTCUT x 66..74 / y 16..24 clears
+    HOLE's x=64 by 2 mm, TAPPED's y=12.25 by 3.75 mm, CBORE's y=36 by 12 mm and
+    the drafted wall (79.125) by 5 mm. Each is >= 6 mm from every plate wall, so
+    the ``shell`` column's 2 mm inward skin never meets the removal's own skin —
+    a removal 4 mm from a wall pinches the cavity to zero width and OCCT then
+    either refuses or silently returns the un-hollowed body (measured while
+    siting these: a r4 bore 8 mm from the y=0 edge produced
+    ``shell_thickness_too_large``, the shell's load-bearing guard doing its job;
+    that is a degenerate placement, not a routine cell).
+    None of the three x-bands contains x=40 (margins 2 / 3 / 26 mm), which is
+    what makes their midplane reflection a DISJOINT second removal rather than
+    finding CM-3's reflect-onto-itself no-op.
+
     Replicated-copy interiority (what makes the pattern/mirror invariants
     well-posed):
 
@@ -749,10 +884,28 @@ def _verbs() -> dict[str, Verb]:
       y <= 52, so its copy lands in y <= 72 — strictly interior and disjoint
       from the seed. (+X would push CSINK's copy off the plate, which is
       finding CM-2's shape and must not be smuggled into a routine cell.)
+      For the five verbs flagged ``replicated_removal_interior`` the copy is
+      also disjoint from the SEED, so the arrayed removal is exactly 2x: POCKET
+      [16,28]^2 -> y 36..48; HOLE (60,20) -> (60,40); REVCUT (46,26) -> (46,46);
+      SWEEPCUT (34,12) -> (34,32); LOFTCUT (70,20) -> (70,40).
+    * the x=40 reflection of those same five removals is interior and disjoint
+      from the seed too: POCKET -> x 52..64; HOLE -> (20,20); REVCUT -> (34,26)
+      (4 mm clear of the seed); SWEEPCUT -> (46,12) (9 mm clear); LOFTCUT ->
+      x 6..14 (52 mm clear). Those two facts are what let the matrix assert the
+      analytic ``PLATE_VOLUME + 2 * delta`` for both replicate columns instead of
+      a one-sided bound that a filled void slips under.
     * ``pattern_circular`` is 3 instances at 120 deg about the plate centre.
       count=3 rather than 4 is deliberate: a 90-deg rotation maps the SQUARE
       plate onto itself, so a 4-up whole-body ring is legitimately an identity
       and could not carry the "a pattern must change the body" invariant.
+    * ``mirror_features`` is the SAME YZ origin plane x=0 with an explicit
+      ``scope: {kind: features, features: [base extrude]}`` — the v2 reading, and the
+      only cell where a mirror reflects a NAMED feature's recorded tool instead of
+      the body. Reflecting the base prism about x=0 lands it at x in [-80,0], which
+      abuts every first-axis body on the shared x=0 face (no verb touches x < 0), so
+      the cell adds exactly one plate volume and stays ONE solid. Kept distinct from
+      the two whole-body mirror columns on purpose: a new mirror SCOPE is a new
+      composer behaviour, and the coverage audit fails if it ships without a row.
     * ``mirror_clearing`` is the YZ origin plane x=0. No first-axis verb ever
       leaves x >= 0 (the linear pattern now moves in +Y), so x=0 touches every
       body without being crossed by it -> the reflection must EXACTLY double
@@ -780,6 +933,7 @@ def _verbs() -> dict[str, Verb]:
             ],
             "cut",
             POCKET_DV,
+            replicated_removal_interior=True,
         ),
         "hole_simple": Verb(
             "hole_simple",
@@ -787,6 +941,88 @@ def _verbs() -> dict[str, Verb]:
             "cut",
             HOLE_DV,
             curved=True,
+            replicated_removal_interior=True,
+        ),
+        # --- the three NON-EXTRUDE cut verbs (CM-5) ---------------------------
+        # Rows, not just columns: a mirror/pattern that reasons about the body
+        # THESE produce is exactly what had no coverage, and the consequence was
+        # the FINDINGS #2 featureless brick for all three (docs/GEOMETRY-QA.md
+        # 2026-07-30). Each is the SIMPLEST removal its verb can make, so the
+        # delta is closed-form and the row costs one extra sketch.
+        "revolve_cut": Verb(
+            "revolve_cut",
+            [
+                # A datum parallel to YZ at x=46: its u axis is world +Y and its
+                # v axis world +Z, so a VERTICAL sketch line at u=26 is the world
+                # axis through (46,26) — the only way to revolve about an axis
+                # that is INTERIOR in plan (an origin YZ/XZ sketch would put it
+                # on a plate edge).
+                datum_offset(D_REVCUT, "YZ", REVCUT_AT[0]),
+                revolve_profile_sketch(
+                    S_REVCUT,
+                    {"kind": "feature", "feature_id": str(D_REVCUT)},
+                    [
+                        (REVCUT_AT[1], 0.0),
+                        (REVCUT_AT[1] + REVCUT_R, 0.0),
+                        (REVCUT_AT[1] + REVCUT_R, PLATE_THICKNESS),
+                        (REVCUT_AT[1], PLATE_THICKNESS),
+                    ],
+                    ((REVCUT_AT[1], 0.0), (REVCUT_AT[1], PLATE_THICKNESS)),
+                ),
+                revolve(F_REVCUT, S_REVCUT, operation="cut"),
+            ],
+            "cut",
+            REVCUT_DV,
+            curved=True,  # the bore's cylindrical face
+            replicated_removal_interior=True,
+        ),
+        "sweep_cut": Verb(
+            "sweep_cut",
+            [
+                sketch_of(
+                    S_SWEEP,
+                    [_circle("c1", SWEEPCUT_AT[0], SWEEPCUT_AT[1], SWEEPCUT_R)],
+                ),
+                # The path is applied as a RELATIVE trajectory from the profile's
+                # own location (SweepParamsV1 v1 limit), so a vertical line on XZ
+                # sweeps the XY circle straight up +Z from z=0. 15 > 10 mm, so the
+                # bore leaves the top face cleanly instead of grazing it.
+                sketch_of(
+                    S_SWEEP_PATH,
+                    [_line("p1", (0.0, 0.0), (0.0, SWEEPCUT_PATH))],
+                    {"kind": "datum_plane", "plane": "XZ"},
+                ),
+                sweep(F_SWEEP, S_SWEEP, S_SWEEP_PATH, operation="cut"),
+            ],
+            "cut",
+            SWEEPCUT_DV,
+            curved=True,  # the swept bore's cylindrical face
+            replicated_removal_interior=True,
+        ),
+        "loft_cut": Verb(
+            "loft_cut",
+            [
+                rect_sketch(
+                    S_LOFT_LOW,
+                    LOFTCUT_AT[0] - LOFTCUT_LOW / 2,
+                    LOFTCUT_AT[1] - LOFTCUT_LOW / 2,
+                    LOFTCUT_AT[0] + LOFTCUT_LOW / 2,
+                    LOFTCUT_AT[1] + LOFTCUT_LOW / 2,
+                ),
+                datum_offset(D_LOFT_TOP, "XY", PLATE_THICKNESS),
+                rect_sketch(
+                    S_LOFT_HIGH,
+                    LOFTCUT_AT[0] - LOFTCUT_HIGH / 2,
+                    LOFTCUT_AT[1] - LOFTCUT_HIGH / 2,
+                    LOFTCUT_AT[0] + LOFTCUT_HIGH / 2,
+                    LOFTCUT_AT[1] + LOFTCUT_HIGH / 2,
+                    {"kind": "feature", "feature_id": str(D_LOFT_TOP)},
+                ),
+                loft(F_LOFT, [S_LOFT_LOW, S_LOFT_HIGH], operation="cut"),
+            ],
+            "cut",
+            LOFTCUT_DV,
+            replicated_removal_interior=True,
         ),
         "hole_counterbore": Verb(
             "hole_counterbore",
@@ -866,6 +1102,30 @@ def _verbs() -> dict[str, Verb]:
             "replicate",
             x_symmetric=True,
         ),
+        "mirror_features": Verb(
+            "mirror_features",
+            [
+                datum_offset(D_FEAT, "YZ", 0.0),
+                mirror_features(
+                    F_MIRROR_FEAT,
+                    {"kind": "feature", "feature_id": str(D_FEAT)},
+                    [F_BASE],
+                ),
+            ],
+            # An ``add``, not a ``replicate``: a `features`-scope mirror naming the
+            # BASE extrude reflects that feature's recorded PRISM and re-applies its
+            # own boolean (fuse) — mechanically an ADD of one rigid tool, and the
+            # kind invariant that fits is "volume strictly increases, the bbox never
+            # shrinks". The `replicate` invariants belong to the whole-body readings:
+            # `mirror_clearing`'s EXACTLY-2V and `mirror_midplane`'s <= 2V both
+            # describe a reflection of the BODY, which this deliberately is not — so
+            # those two columns keep meaning exactly what they meant.
+            "add",
+            # On the bare plate the base prism IS the body, and the plane x=0 touches
+            # it without being crossed, so the reflected prism lands disjointly at
+            # x in [-80,0] and abuts on the shared x=0 face: + one whole plate.
+            PLATE_VOLUME,
+        ),
         "fillet": Verb(
             "fillet",
             [fillet(F_FILLET, FILLET_R)],
@@ -929,6 +1189,9 @@ FIRST_AXIS = [
     "extrude_add",
     "extrude_cut",
     "hole_simple",
+    "revolve_cut",
+    "sweep_cut",
+    "loft_cut",
     "pattern_linear",
     "mirror_midplane",
     "fillet",
@@ -1728,8 +1991,27 @@ def test_pair_matrix(first: str, second: str) -> None:
     * ``replicate`` — volume is in (0, 2V] for a mirror (a reflect-and-union can
                       never exceed 2V, a reflected cut can only remove), and a
                       CLEARING mirror is EXACTLY 2V (this is the assertion that
-                      catches defects #2 and #3, in all eight contexts). A
+                      catches defects #2 and #3, in all eleven contexts). A
                       pattern must CHANGE the body — never a silent no-op.
+
+    AFTER A CUT a replicate takes two STRONGER assertions (added with the CM-5
+    rows 2026-07-30, because the bounds above are exactly what let CM-5 hide — a
+    mirror that FILLS the void reads ``PLATE_VOLUME``, comfortably under ``2V``,
+    and the filled body is not byte-identical to the base either, so neither
+    universal check fires):
+
+    * the composed volume is ANALYTIC — ``PLATE_VOLUME + 2 * delta`` — whenever
+      the row declares ``replicated_removal_interior``, i.e. the reflected /
+      copied removal lands strictly inside and clear of the seed. That is one
+      arithmetic identity per cut row for both replicate columns, and it fails by
+      a whole removal volume when the void gets filled, when the whole body gets
+      replicated instead of the tool, or when the replication does nothing;
+    * the FACE COUNT may never DROP. Filling a void destroys its faces (the
+      measured CM-5 symptom was 7 faces -> 6, the bare plate), while every honest
+      reading of "replicate" — a disjoint second lump, an overlapping merge, a
+      reflected removal, an arrayed removal — keeps or adds faces. This one needs
+      no placement argument, so it holds for the rotated ``pattern_circular``
+      column too.
 
     An ERROR cell additionally asserts the strict-prefix contract: the reported
     last-good body is EXACTLY the first verb's body, so a failed composition
@@ -1802,6 +2084,16 @@ def test_pair_matrix(first: str, second: str) -> None:
         assert props.bounding_box.max.z <= before.bounding_box.max.z + tol
     else:
         assert b.kind == "replicate"
+        if a.kind == "cut":
+            # Replicating a body that HAS a void may never destroy that void's
+            # faces. The CM-1 / CM-5 symptom is exactly a face-count collapse to
+            # the featureless brick, and unlike the volume bounds below this needs
+            # no placement argument, so it covers the rotated column too.
+            assert props.topology.faces >= before.topology.faces, (
+                f"{label}: replicating a body with a void DESTROYED faces "
+                f"({before.topology.faces} -> {props.topology.faces}) — the "
+                "reflection/copy filled the removal (findings #2 / CM-1 / CM-5)"
+            )
         if second == "mirror_clearing":
             assert props.volume == pytest.approx(2.0 * before.volume, abs=tol), (
                 f"{label}: a mirror about a plane the body does NOT cross must "
@@ -1817,34 +2109,174 @@ def test_pair_matrix(first: str, second: str) -> None:
             assert props.volume <= 2.0 * before.volume + tol, (
                 f"{label}: a mirror produced MORE than twice the body"
             )
+            _assert_replicated_removal_is_analytic(a, props, tol, label)
         else:
             assert props.volume != pytest.approx(before.volume, abs=tol), (
                 f"{label}: the pattern was a SILENT NO-OP — the body is "
                 f"unchanged at {props.volume!r} and every feature reported ok"
             )
+            if second == "pattern_linear":
+                _assert_replicated_removal_is_analytic(a, props, tol, label)
+
+
+def _assert_replicated_removal_is_analytic(
+    first: Verb, props: ShapeProperties, tol: float, label: str
+) -> None:
+    """A cut REPLICATED once must read ``PLATE_VOLUME + 2 * delta``, exactly.
+
+    Applies to the two replicate columns whose second placement is documented
+    interior and seed-disjoint for every flagged cut row (``mirror_midplane``'s
+    reflection about x=40, ``pattern_linear``'s copy 20 mm along +Y — see
+    :func:`_verbs`). Two removals of a hand-derived size is arithmetic, so this
+    discriminates every wrong reading by a whole removal volume:
+
+    * the mirror FILLED the void -> ``PLATE_VOLUME`` (CM-5 measured 63999.99 vs
+      62994.69 for the revolve-cut row, and that filled body is a valid single
+      lump that satisfies every other invariant in this cell);
+    * the whole BODY was replicated instead of the recorded tool -> about
+      ``2 * (PLATE_VOLUME + delta)``;
+    * the replication was a no-op -> ``PLATE_VOLUME + delta``.
+    """
+    if first.kind != "cut" or not first.replicated_removal_interior:
+        return
+    assert first.delta is not None, f"{label}: a cut row must declare its delta"
+    expected = PLATE_VOLUME + 2.0 * first.delta
+    assert props.volume == pytest.approx(expected, abs=tol), (
+        f"{label}: replicating the removal must remove it TWICE — expected "
+        f"{expected!r} (plate {PLATE_VOLUME!r} + 2 x {first.delta!r}), got "
+        f"{props.volume!r}. {PLATE_VOLUME!r} means the void was FILLED (the "
+        f"findings #2 / CM-5 featureless brick); {PLATE_VOLUME + first.delta!r} "
+        f"means the replication did nothing."
+    )
+
+
+def _verb_feature_type(verb: Verb) -> str:
+    """The feature TYPE of the body-affecting feature a verb ends with.
+
+    Every verb's own last entry is its body op (the sketches/datums it needs come
+    first), which is what lets the coverage audit below map catalogue rows onto
+    the shipped registry instead of onto a hand-written list.
+    """
+    return str(verb.features[-1]["feature"]["type"])
+
+
+#: Feature types that ALWAYS remove material, so
+#: :func:`_material_removing_feature_types` has no ``operation`` literal to find.
+#: Hand-listed WITH the reason; each still has to satisfy the audit below.
+INHERENTLY_SUBTRACTIVE = {
+    "hole": "a hole feature is a removal by definition (bore + any recess)",
+    "sheet_metal_corner_relief": "notches the corner where two flanges meet",
+}
+
+#: Material-removing types with NO row on the FIRST axis, each with its reason.
+#: Being on this list is a REVIEWED act; the audit fails on a type that is
+#: neither a row nor listed here, which is what makes "a cut verb missing from the
+#: predecessor axis" impossible to reintroduce silently.
+CUT_ROW_EXEMPT = {
+    "boolean": (
+        "a boolean SUBTRACT needs a second operand BODY, which no single-body "
+        "plate row can express; covered by test_boolean.py + the "
+        "boolean-subtract-two-cubes-overlap golden"
+    ),
+    "sheet_metal_corner_relief": (
+        "cuts only into a folded SHEET body (base flange + flanges), not the "
+        "80x80x10 plate this matrix composes on; covered by "
+        "test_sheet_metal_corner_relief*.py against a sheet fixture"
+    ),
+}
+
+#: Registered types that do not touch the body at all — they contribute
+#: references, not geometry, so they are not matrix material.
+NON_BODY_AFFECTING = {"sketch", "datum"}
+
+#: Body-affecting types with NO catalogue verb, each with its reason. Same
+#: posture as :data:`CUT_ROW_EXEMPT`: an omission has to be argued in writing.
+CATALOGUE_EXEMPT = {
+    "boolean": "needs a second operand body — see CUT_ROW_EXEMPT",
+    "import": (
+        "needs an on-disk STEP fixture rather than params, so it cannot be a "
+        "plate row; covered by test_imports.py + the two import-step goldens"
+    ),
+    "sheet_metal_base_flange": "starts its OWN sheet body; the sheet suites compose it",
+    "sheet_metal_edge_flange": "folds a sheet body — see above",
+    "sheet_metal_hem": "folds a sheet body — see above",
+    "sheet_metal_corner_relief": "notches a sheet body — see above",
+}
+
+
+def _material_removing_feature_types() -> set[str]:
+    """Every SHIPPED feature type that can remove material, from the registry.
+
+    Derived, not hand-listed — a hand-listed axis is precisely how three cut
+    verbs stayed invisible to this matrix (docs/GEOMETRY-QA.md 2026-07-30, CM-5).
+    Two sources, both mechanical:
+
+    * a params model carrying an ``operation`` field whose ``Literal`` admits
+      ``"cut"`` / ``"subtract"`` (extrude, revolve, sweep, loft, boolean);
+    * :data:`INHERENTLY_SUBTRACTIVE`, for types that always remove and so have no
+      discriminator to introspect.
+
+    A new subtractive verb with an ``operation`` param is caught with no edit
+    here at all.
+    """
+    removing: set[str] = set(INHERENTLY_SUBTRACTIVE)
+    for feature_type, model in FEATURE_REGISTRY.models().items():
+        params = model.model_fields["params"].annotation
+        operation = getattr(params, "model_fields", {}).get("operation")
+        if operation is None:
+            continue
+        if {"cut", "subtract"} & set(get_args(operation.annotation)):
+            removing.add(feature_type)
+    return removing
 
 
 def test_pair_matrix_covers_every_shipped_verb() -> None:
-    """Coverage audit (gate 1): every verb in the catalogue must appear on the
-    SECOND axis (proved to compose after eight different predecessors), and
-    every body-affecting family must appear on the FIRST axis.
+    """Coverage audit (gate 1): the axes must cover the SHIPPED feature registry.
+
+    Three checks, in increasing strength:
+
+    1. every catalogue verb appears on the SECOND axis (so each is proved to
+       compose after eleven different predecessors);
+    2. every registered feature type that can REMOVE material has a ``cut`` verb
+       on the FIRST axis, or an explicitly-reasoned :data:`CUT_ROW_EXEMPT` entry.
+       This is the check that did not exist before 2026-07-30: the old audit
+       compared the axes against a hand-written ``families`` set — against
+       itself — so revolve/sweep/loft cuts were not "missing", they were never
+       askable. A cut verb absent from the PREDECESSOR axis is the same
+       structural blindness that let CM-1 and CM-2 hide, because the matrix
+       exists to test "feature N reasons wrongly about the body feature N-1 made";
+    3. every registered BODY-AFFECTING type appears somewhere in the catalogue,
+       or is exempt with a reason (:data:`CATALOGUE_EXEMPT`).
 
     A new feature type that ships without a matrix row/column fails HERE, so the
     gap is a red gate rather than a quiet omission.
     """
     assert set(SECOND_AXIS) == set(VERBS)
-    families = {
-        "extrude_add",
-        "extrude_cut",
-        "hole_simple",
-        "pattern_linear",
-        "mirror_midplane",
-        "fillet",
-        "shell",
-        "draft",
+
+    first_axis_cut_types = {
+        _verb_feature_type(VERBS[name])
+        for name in FIRST_AXIS
+        if VERBS[name].kind == "cut"
     }
-    assert families <= set(FIRST_AXIS)
-    # 8 x 13 cells, minus the explicitly-skipped ones.
+    required = _material_removing_feature_types() - set(CUT_ROW_EXEMPT)
+    assert required == first_axis_cut_types, (
+        "every shipped material-removing feature type needs a cut ROW on the "
+        "FIRST axis (a replicate/modifier reasoning about the body it produced is "
+        "exactly what this matrix exists to test) or a reasoned CUT_ROW_EXEMPT "
+        f"entry: missing {sorted(required - first_axis_cut_types)}, unexpected "
+        f"{sorted(first_axis_cut_types - required)}"
+    )
+
+    catalogued = {_verb_feature_type(verb) for verb in VERBS.values()}
+    body_affecting = set(FEATURE_REGISTRY.models()) - NON_BODY_AFFECTING
+    assert body_affecting - set(CATALOGUE_EXEMPT) == catalogued, (
+        "every shipped body-affecting feature type needs a catalogue verb or a "
+        "reasoned CATALOGUE_EXEMPT entry: missing "
+        f"{sorted(body_affecting - set(CATALOGUE_EXEMPT) - catalogued)}, "
+        f"unexpected {sorted(catalogued - body_affecting)}"
+    )
+
+    # |FIRST| x |SECOND| cells, minus the explicitly-skipped diagonal.
     assert len(list(pair_ids())) == len(FIRST_AXIS) * len(SECOND_AXIS) - len(PAIR_SKIPS)
 
 
@@ -1910,6 +2342,12 @@ SELF_COMPOSITION_ERRORS = {
     # reported `ok` and returned the input body (14400.0 both times). Since the
     # 2026-07-25 fix it degrades exactly as the Hole always has.
     "extrude_cut": "cut_removed_nothing",
+    # The same guard on the other three cut funnels (CM-5 rows): a second
+    # identical revolve/sweep/loft cut finds the material already gone, and
+    # `combine_body`'s reachability predicate refuses BEFORE the boolean.
+    "revolve_cut": "cut_removed_nothing",
+    "sweep_cut": "cut_removed_nothing",
+    "loft_cut": "cut_removed_nothing",
     "hole_simple": "hole_off_body",
     "hole_counterbore": "hole_off_body",
     "hole_countersink": "hole_off_body",
@@ -1929,6 +2367,14 @@ SELF_COMPOSITION_IDENTITIES = {
     ),
     "mirror_midplane": (
         "The plate is already symmetric about x=40, so both mirrors are the identity."
+    ),
+    "mirror_features": (
+        "Both mirrors reflect the SAME recorded tool (the base extrude's prism) about "
+        "the SAME plane x=0, so the second reflection lands exactly where the first "
+        "one already fused it and the fuse is the identity. NB the second instance's "
+        "own ids are re-issued by reid(), but its SELECTION still names the base "
+        "extrude — which is the point: the selection is a reference to a feature, not "
+        "to a position in the tree."
     ),
     "pattern_circular": (
         "A 3-up 120-degree ring about the plate centre leaves a body with exact "
@@ -2065,6 +2511,14 @@ def _chains() -> list[CompositionChain]:
             PLATE + VERBS["hole_simple"].features + VERBS["pattern_circular"].features,
             F_PATTERN_C,
         ),
+        # CM-5: a mirror that reflects a REVOLVE cut's recorded tool — the newly
+        # widened cut slot, held to the same determinism / suppress-round-trip bar
+        # as the extrude-cut chains.
+        (
+            "revolve_cut+mirror_mid",
+            PLATE + VERBS["revolve_cut"].features + VERBS["mirror_midplane"].features,
+            F_MIRROR,
+        ),
     ]
 
 
@@ -2164,6 +2618,12 @@ EDIT_CASES: list[tuple[str, list[dict[str, Any]], list[str | int], float]] = [
         ["params", "pattern", "count"],
         4,
     ),
+    (
+        "revolve angle under a mirror",
+        PLATE + VERBS["revolve_cut"].features + VERBS["mirror_midplane"].features,
+        ["params", "angle_deg"],
+        180.0,
+    ),
 ]
 
 
@@ -2243,6 +2703,12 @@ ROUNDTRIP_CHAINS = [
         "hole+circular_pattern",
         PLATE + VERBS["hole_simple"].features + VERBS["pattern_circular"].features,
     ),
+    # CM-5: the reflected revolve-cut body — two cylindrical bores produced by the
+    # mirror's cut path, the geometry the widened slot newly makes reachable.
+    (
+        "revolve_cut+mirror_mid",
+        PLATE + VERBS["revolve_cut"].features + VERBS["mirror_midplane"].features,
+    ),
 ]
 
 
@@ -2310,26 +2776,59 @@ def test_composed_body_survives_a_step_roundtrip(
 # docs/GEOMETRY-QA.md 2026-07-25 as CM-1 .. CM-4.
 
 
-#: The ONE part of CM-1 still open after the 2026-07-25 fix (see the test's
-#: docstring for the proof that it cannot be closed without breaking a locked
-#: semantic): the hole now survives every intervening feature, but a mirror does
-#: not DUPLICATE material an intervening ADD contributed, so the boss case lands
-#: 30309.380701702525 (hole mirrored, boss single) where this parametrization asks
-#: for 30629.3807 (boss mirrored too). Not silent-wrong-geometry any more — the
-#: void is preserved — but a documented v1 limit, filed P2.
-CM1_BOSS_UNMIRRORED = pytest.mark.xfail(
-    strict=True,
-    reason="CM-1 residual (P2, open): the hole IS preserved and mirrored now "
-    "(30309.380701702525 vs the 32640.0 featureless brick before), but v1's mirror "
-    "reflects the recorded CUT, never material an intervening ADD contributed, so "
-    "the 8x8x5 boss is not duplicated (320 mm^3 short of this expectation). "
-    "Mirroring a SELECTED SET of features — the incumbent semantic — is the real "
-    "fix and a v2 item: `test_mirror_preserves_a_cut_that_precedes_the_mirrored_one` "
-    "LOCKS 29600.0 for pocket A + pocket B + midplane mirror, which is only "
-    "reachable by reflecting the last cut and NOT unioning the body, and 30629.3807 "
-    "here is only reachable by union-then-re-subtract, which welds pocket A shut "
-    "(30400.0). The two expectations are mutually exclusive under one rule.",
-)
+#: CM-1's residual, CLOSED 2026-07-29 by mirror v2 (docs/design/mirror-semantics.md)
+#: — and closed the way the design says it must be: by giving the mirror an EXPLICIT
+#: SELECTION, not by making the implicit mirror smarter. The boss row below is
+#: therefore SPLIT in two, and both halves are locked:
+#:
+#: * ``boss (features scope)`` — ``scope: {features: [hole, boss]}`` reflects the
+#:   bore tool and the boss prism in tree order: **30629.3807**, the number the
+#:   ``xfail(strict=True)`` marker used to record as unreachable. Marker removed.
+#: * ``boss (implicit body scope)`` — the SAME chain with a bare ``mirror {plane}``
+#:   still returns **30309.3807** (hole mirrored, boss single), and that value is now
+#:   asserted as the DELIBERATE v1/`body`-scope semantic rather than tolerated as a
+#:   shortfall. §5 of the design: 30629.3807 from an implicit mirror would require
+#:   guessing that the user meant *hole and boss* rather than *hole*, which §1 proves
+#:   cannot be guessed correctly for every chain — a bare mirror has one answer, and
+#:   `test_mirror_preserves_a_cut_that_precedes_the_mirrored_one` (29600.0) pins what
+#:   it has to be.
+#:
+#: A reviewer expecting the marker to vanish with the assertion untouched should read
+#: that second bullet first: the mutual exclusion was never a kernel deficiency, and
+#: the fix is the contract.
+
+
+#: The intervening BOSS chain of CM-1 (§1's chain A), shared by the two locked
+#: readings below: 40x40x20 plate -> HOLE Ø8 @(10,20) -> datum XY@20 -> 8x8x5 boss
+#: at x in [30,38] -> datum YZ@20. The boss is an ADD, not a modifier at all, which
+#: is what proved the original shadowing was about "the predecessor is not a cut"
+#: rather than about modifiers specifically.
+CM1_BOSS_BETWEEN: list[dict[str, Any]] = [
+    datum_offset(D_BOSS, "XY", 20.0),
+    rect_sketch(
+        S_BOSS, 30.0, 30.0, 38.0, 38.0, {"kind": "feature", "feature_id": str(D_BOSS)}
+    ),
+    extrude(F_BOSS, S_BOSS, 5.0),
+]
+
+
+def _cm1_chain(
+    between: list[dict[str, Any]], mirror_feature: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """The CM-1 fixture: plate -> hole -> <between> -> datum YZ@20 -> <mirror>."""
+    return [
+        rect_sketch(S_BASE, 0.0, 0.0, 40.0, 40.0),
+        extrude(F_BASE, S_BASE, 20.0),
+        hole(
+            F_HOLE,
+            face_ref(F_BASE, (0.0, 0.0, 1.0), (20.0, 20.0, 20.0), 1600.0),
+            (10.0, 20.0, 20.0),
+            8.0,
+        ),
+        *between,
+        datum_offset(D_MID, "YZ", 20.0),
+        mirror_feature,
+    ]
 
 
 @pytest.mark.parametrize(
@@ -2343,27 +2842,10 @@ CM1_BOSS_UNMIRRORED = pytest.mark.xfail(
             [fillet(F_FILLET, 3.0)],
             -(20.0 * 4.0 * (3.0**2 - math.pi * 3.0**2 / 4.0)),
         ),
-        # An ADD (a boss) — not a modifier at all, proving the shadowing was about
-        # "the predecessor is not a cut", not about modifiers specifically. The
-        # boss is 8x8x5 = 320 on a datum at z=20; it sits at x in [30,38], so the
-        # mirror about x=20 also reflects it to x in [2,10] -> +2 * 320.
-        pytest.param(
-            "boss",
-            [
-                datum_offset(D_BOSS, "XY", 20.0),
-                rect_sketch(
-                    S_BOSS,
-                    30.0,
-                    30.0,
-                    38.0,
-                    38.0,
-                    {"kind": "feature", "feature_id": str(D_BOSS)},
-                ),
-                extrude(F_BOSS, S_BOSS, 5.0),
-            ],
-            2.0 * (8.0 * 8.0 * 5.0),
-            marks=CM1_BOSS_UNMIRRORED,
-        ),
+        # The BOSS chain under an IMPLICIT mirror: the boss is NOT duplicated
+        # (+320, one boss), which is the locked `body`-scope answer — see the note
+        # above and `test_cm1_boss_is_mirrored_by_an_explicit_selection`.
+        ("boss (implicit body scope)", CM1_BOSS_BETWEEN, 8.0 * 8.0 * 5.0),
     ],
 )
 def test_cm1_mirror_keeps_the_hole_across_an_intervening_feature(
@@ -2372,9 +2854,10 @@ def test_cm1_mirror_keeps_the_hole_across_an_intervening_feature(
     """CM-1 — the FINDINGS #2 fixture with ONE unrelated feature inserted.
 
     Chain: 40x40 plate extruded 20 -> HOLE Ø8 at (10,20) -> <feature> ->
-    datum YZ@20 -> MIRROR. The inserted feature is 20+ mm from the bore, so the
-    correct answer is the seed-2 answer plus that feature's own (mirror-aware)
-    delta: the bore at x=10 must STILL reflect to x=30.
+    datum YZ@20 -> MIRROR (no `scope` key — the v1 semantic, and what every
+    pre-v2 persisted mirror normalises to). The inserted feature is 20+ mm from the
+    bore, so the correct answer is the seed-2 answer plus that feature's own
+    (mirror-aware) delta: the bore at x=10 must STILL reflect to x=30.
 
     Obtained pre-fix: the bore was COMPLETELY FILLED — the volume equalled the
     modified plate with no hole at all, and the topology carried NO cylindrical
@@ -2390,26 +2873,73 @@ def test_cm1_mirror_keeps_the_hole_across_an_intervening_feature(
     (`_pattern_cut_tools`) — its fallback only reads the request differently, and
     two tests lock it. Measured now: chamfer 29629.38070170254, fillet
     29834.867379348696 (both within CURVED_TOL of the analytic values above), each
-    with the two bores present (12 faces). The boss param stays xfail — see
-    `CM1_BOSS_UNMIRRORED`.
+    with the two bores present (12 faces).
+
+    The BOSS row is the one that used to be `xfail(strict=True)` at 30629.3807. It
+    now asserts **30309.3807** — hole mirrored, boss single — as the DELIBERATE
+    `body`-scope semantic (mirror-semantics §5), and its 30629.3807 sibling lives in
+    the test below with an explicit selection. The marker is gone because the
+    CONTRACT changed, not because the assertion was weakened: see the note above
+    `CM1_BOSS_BETWEEN`.
     """
     del label
-    plate = [rect_sketch(S_BASE, 0.0, 0.0, 40.0, 40.0), extrude(F_BASE, S_BASE, 20.0)]
-    top = face_ref(F_BASE, (0.0, 0.0, 1.0), (20.0, 20.0, 20.0), 1600.0)
     props = properties(
         evaluate(
-            [
-                *plate,
-                hole(F_HOLE, top, (10.0, 20.0, 20.0), 8.0),
-                *between,
-                datum_offset(D_MID, "YZ", 20.0),
-                mirror(F_MIRROR, {"kind": "feature", "feature_id": str(D_MID)}),
-            ]
+            _cm1_chain(
+                between, mirror(F_MIRROR, {"kind": "feature", "feature_id": str(D_MID)})
+            )
         ),
         "cm1",
     )
     expected = 32000.0 + between_delta - 2 * math.pi * 4.0**2 * 20.0
     assert props.volume == pytest.approx(expected, abs=CURVED_TOL)
+
+
+def test_cm1_boss_is_mirrored_by_an_explicit_selection() -> None:
+    """CM-1's residual, CLOSED — **30629.3807** with `features: [hole, boss]`.
+
+    The number the `xfail(strict=True)` marker used to record as unreachable, now
+    reached the only way it can be: the tree STATES that both the hole and the boss
+    are to be mirrored (mirror v2, docs/design/mirror-semantics.md §5). In tree order
+    the hole's recorded bore tool reflects to x=30 and is CUT, then the boss's prism
+    reflects to x in [2,10] and is FUSED:
+    31314.6904 -> 30309.3807 -> **30629.3807**.
+
+    Why this is a contract fix and not a kernel fix, stated where the marker used to
+    be: reaching 30629.3807 by INFERENCE requires "union the reflected body then
+    re-subtract every tool set", and that welds chain B's earlier pocket shut
+    (`test_seed4_mirror_does_not_weld_an_earlier_cut_shut`, 29600.0 correct vs
+    30400.0 for that rule). Under one implicit rule the two expectations are mutually
+    exclusive — §1 measured all three numbers. With the intent in the DTO they are
+    simply two different requests, and BOTH are locked: this test and the
+    `boss (implicit body scope)` parametrization above assert 30629.3807 and
+    30309.3807 on the SAME feature chain, 320 mm^3 and 5 faces apart.
+
+    Golden: `mirror-features-hole-boss-plate-40x40x20`. Full v2 coverage (tree order,
+    typed refusals, nesting, pattern placements): `test_mirror_features.py`.
+    """
+    props = properties(
+        evaluate(
+            _cm1_chain(
+                CM1_BOSS_BETWEEN,
+                mirror_features(
+                    F_MIRROR,
+                    {"kind": "feature", "feature_id": str(D_MID)},
+                    [F_HOLE, F_BOSS],
+                ),
+            )
+        ),
+        "cm1 boss, features scope",
+    )
+    boss = 8.0 * 8.0 * 5.0
+    bore = math.pi * 4.0**2 * 20.0
+    assert props.volume == pytest.approx(32000.0 + 2 * boss - 2 * bore, abs=CURVED_TOL)
+    assert props.volume == pytest.approx(30629.380701702532, abs=CURVED_TOL)
+    # 6 plate + 2 bore cylinders + 2 x (4 boss walls + 1 boss top). The implicit
+    # reading reads 13 faces (one boss), so topology discriminates too.
+    assert props.topology.model_dump() == {"faces": 18, "edges": 42, "shells": 1}
+    # Both bores and both bosses straddle the mirror plane symmetrically in x.
+    assert props.centroid.x == pytest.approx(20.0, abs=CURVED_TOL)
 
 
 @pytest.mark.parametrize(
@@ -2560,26 +3090,135 @@ def test_cm4_pocket_fillet_shell_survives_a_step_roundtrip() -> None:
     stays solid, the cavity pinches to zero width, and OCCT leaves the smaller
     coincident face's corners (y=13, y=27) sitting mid-edge on the larger face's
     34 mm edge instead of splitting it. The STEP reader sews on import and
-    inserts them, hence +2 edges with no new vertices. ``shell_body`` now passes
+    inserts them, hence +2 edges with no new vertices. ``shell_body`` passes
     every hollowed lump through :func:`geometry.kernel.healing.conform_solid`,
-    which no-ops on a valid body and makes this one conformal (36 faces / 97
-    edges / 64 vertices, valid; dV -2.7e-12, dA 0.0) — after which the round-trip
-    is EXACT.
+    which no-ops on a valid body and made this one conformal (36 faces / 97
+    edges / 64 vertices, valid; dV -2.7e-12, dA 0.0).
+
+    RE-TARGETED 2026-07-30 (finding SH-1). Healing that body was treating the
+    symptom: underneath the T-junction the pinched cavity is a **zero-width slit**
+    (112 mm² of coincident faces with no material between them) that no repair
+    pass removes, so ``shell`` now REFUSES t=2 mm on this layout with
+    ``shell_thickness_too_large`` instead of shipping a cracked body — asserted
+    below, with the last-good body proven untouched (the matrix's 🛑 convention).
+    Gate 2 stays on this geometry-specific layout at **t=1.9 mm**, 0.1 mm below
+    the pinch: sound body, and its round-trip must still be topologically exact —
+    which is what CM-4 was really about. The heal keeps its own kernel-level
+    evidence in ``tests/test_healing.py`` (raw ``hollow``, no ``shell_body``).
     """
     plate = [rect_sketch(S_BASE, 0.0, 0.0, 40.0, 40.0), extrude(F_BASE, S_BASE, 10.0)]
     top = face_ref(F_BASE, (0.0, 0.0, 1.0), (20.0, 20.0, 10.0), 1600.0)
+    pocket_and_fillet = [
+        rect_sketch(S_POCKET, 4.0, 10.0, 12.0, 30.0),
+        extrude(F_POCKET, S_POCKET, 10.0, operation="cut"),
+        fillet(F_FILLET, 3.0),
+    ]
+
+    pinched = evaluate([*plate, *pocket_and_fillet, shell(F_SHELL, 2.0, [top])])
+    assert statuses(pinched) == ["ok", "ok", "ok", "ok", "ok", "error"]
+    assert error_codes(pinched) == ["shell_thickness_too_large"]
+    assert pinched.result.last_good_feature_id == F_FILLET
+    last_good = pinched.result.properties
+    assert last_good is not None
+    assert last_good.volume == pytest.approx(14400.0, abs=CURVED_TOL), (
+        "the refused shell must leave the filleted-pocket body untouched "
+        "(1600 - 9(4-pi) outer minus 160 - 9(4-pi) pocket = 1440 mm² x 10)"
+    )
+
     original, reimported = _roundtrip(
-        [
-            *plate,
-            rect_sketch(S_POCKET, 4.0, 10.0, 12.0, 30.0),
-            extrude(F_POCKET, S_POCKET, 10.0, operation="cut"),
-            fillet(F_FILLET, 3.0),
-            shell(F_SHELL, 2.0, [top]),
-        ],
+        [*plate, *pocket_and_fillet, shell(F_SHELL, 1.9, [top])],
         "pocket_fillet_shell",
     )
     assert reimported.volume == pytest.approx(original.volume, abs=ROUNDTRIP_TOL)
     assert reimported.topology == original.topology
+
+
+#: CM-5's three fixtures: (verb, the analytic volume once the removal is reflected,
+#: the face count of the two-void body). Each verb's delta is hand-derived in the
+#: constants block; the mirrored body is the plate less TWO of them.
+CM5_ROWS = [
+    ("revolve_cut", PLATE_VOLUME + 2.0 * REVCUT_DV, 8),
+    ("sweep_cut", PLATE_VOLUME + 2.0 * SWEEPCUT_DV, 8),
+    ("loft_cut", PLATE_VOLUME + 2.0 * LOFTCUT_DV, 14),
+]
+
+
+@pytest.mark.parametrize(
+    ("verb", "expected", "faces"), CM5_ROWS, ids=[row[0] for row in CM5_ROWS]
+)
+def test_cm5_mirror_reflects_a_revolve_sweep_or_loft_cut(
+    verb: str, expected: float, faces: int
+) -> None:
+    """CM-5 — FINDINGS #2, alive for the three NON-EXTRUDE cuts until 2026-07-30.
+
+    Chain: 80x80x10 plate -> <revolve|sweep|loft> CUT -> datum YZ@40 -> MIRROR
+    (no ``scope`` key: the v1 / ``body``-scope semantic every persisted mirror
+    normalises to).
+
+    Obtained pre-fix — the literal featureless brick, for all three verbs:
+    **63999.999999999985 mm^3, 6 faces / 12 edges**, i.e. the BARE PLATE. The cut
+    never reached the v1 cut slot (only extrude-cut and Hole wrote it), so
+    ``_mirror_cut_tools`` had nothing on record, the mirror took ``mirror_union``,
+    and the reflection filled the void. Every feature reported ``ok``. Correct:
+    **62994.6904** (revolve, two r4 bores), **63434.5133** (sweep, two r3 bores),
+    **63013.3333** (loft, two 8x8->6x6 frusta) — each the plate less TWICE its
+    verb's hand-derived delta.
+
+    FIXED by widening ``record_cut_tools`` to the shared ``_cut_active`` funnel
+    (``geometry.features.evaluate``), which is the ONE place all three land, so no
+    verb can be forgotten again. The widening only ADDS records for verbs that had
+    none: both v1 readers' RULES are unchanged, and both were measured to return an
+    identical tool list on all 242 reader calls the suite makes plus all 42
+    goldens and the ten locked chains byte-identically (docs/GEOMETRY-QA.md
+    2026-07-30).
+
+    Why this is here and not only in the pair matrix: the matrix's
+    ``(<verb>, mirror_midplane)`` cells now assert the same numbers analytically,
+    but this states the defect, its symptom and its fix in one place a reader will
+    find from the findings list.
+    """
+    features = PLATE + VERBS[verb].features + VERBS["mirror_midplane"].features
+    props = properties(evaluate(features), f"cm5 {verb}")
+    assert props.volume == pytest.approx(expected, abs=tol_for(VERBS[verb])), (
+        f"cm5 {verb}: the mirror did not reflect the removal — "
+        f"{PLATE_VOLUME!r} would mean the void was FILLED"
+    )
+    assert props.topology.faces == faces, (
+        f"cm5 {verb}: expected the two-void topology ({faces} faces); the "
+        "featureless brick reads 6"
+    )
+    assert props.topology.shells == 1
+
+
+@pytest.mark.parametrize("verb", [row[0] for row in CM5_ROWS], ids=str)
+def test_cm5_pattern_arrays_a_revolve_sweep_or_loft_cut(verb: str) -> None:
+    """The pattern half of CM-5, and the ASYMMETRY that is deliberately preserved.
+
+    The pattern's source rule is unchanged and still LOCKED to the immediate
+    predecessor (``_pattern_cut_tools``, BACKLOG #3 option a): what the widening
+    changes is only that a revolve/sweep/loft cut can now BE that predecessor, so
+    the rule finally applies to it. A 2-up +Y pattern therefore arrays the removal
+    (``PLATE_VOLUME + 2 * delta``) where it used to union whole-body copies
+    (measured pre-fix for the revolve row: 79497.3452 = an 80x100 plate carrying
+    ONE bore).
+
+    The asymmetry with the mirror is intact: a pattern whose predecessor is NOT
+    the cut still reads "array the body-so-far", which is a legitimate reading, and
+    ``test_documented_limit_intervening_feature_shadows_a_pattern_cut_source`` below
+    locks it — for the mirror the same shadowing DESTROYED geometry, which is why
+    only the mirror's rule reaches past intervening features.
+    """
+    features = PLATE + VERBS[verb].features + VERBS["pattern_linear"].features
+    delta = VERBS[verb].delta
+    assert delta is not None
+    props = properties(evaluate(features), f"cm5 pattern {verb}")
+    assert props.volume == pytest.approx(
+        PLATE_VOLUME + 2.0 * delta, abs=tol_for(VERBS[verb])
+    )
+    assert props.bounding_box.max.y == pytest.approx(PLATE_SIDE, abs=PLANAR_TOL), (
+        "the pattern replicated the whole BODY (the plate grew in +Y) instead of "
+        "arraying the recorded removal"
+    )
 
 
 # --- Documented v1 limits, LOCKED with their measured values ---------------------
@@ -2718,3 +3357,157 @@ def test_observed_limit_draft_propagates_along_a_tangent_chain() -> None:
     # Every planar side face now carries the pull-direction component.
     assert props.topology.faces == filleted.topology.faces
     assert props.bounding_box.max.z == pytest.approx(PLATE_THICKNESS, abs=CURVED_TOL)
+
+
+# =================================================================================
+# CM-6 — a SIMPLIFICATION that welded a void shut, and a body nobody validated
+# (docs/QA-REVIEW.md QA-1, docs/GEOMETRY-QA.md 2026-07-30)
+# =================================================================================
+
+#: CM-6's chain, exactly as QA-1 reported it: a 40x40x10 block, x/y in [0,40], with
+#: a REVOLVED annular groove (r4..r8, z 2..10) about an axis at x=8 on the XZ plane,
+#: mirrored about that same XZ plane. Two independent degeneracies meet in it, and
+#: the sweep below (``_cm6_chain``'s ``axis_x``) is what separated them:
+#:
+#: * the groove STRADDLES the mirror plane, so the already-cut body no longer shares
+#:   volume with its own reflected tool -> ``removal_reaches_body`` is False ->
+#:   ``mirror_cut`` falls back to ``mirror_union``. That reading is CORRECT here (the
+#:   body lies wholly on one side of the plane, so "complete the symmetric half" is
+#:   the only meaning available) and is NOT the defect;
+#: * the groove's outer wall is TANGENT to the block's own x=0 wall (axis 8 + r8 =
+#:   40 - 40), so the mirrored body pinches to a knife edge along x=0, y=0. THAT is
+#:   what OCCT's ``ShapeUpgrade_UnifySameDomain`` cannot handle: the fuse is right
+#:   and valid, and ``clean()`` then welds the void shut.
+#:
+#: Measured at axis_x = 8.0 / 8.5 / 9 / 10 / 12 / 20 with everything else held: only
+#: the exact tangency inflates. So "a body-scope mirror welds a straddling void" is
+#: not the rule — the rule is "a simplification is not allowed to change material",
+#: which is what ``geometry.kernel.healing.clean_shape`` now enforces.
+CM6_BLOCK = 40.0
+CM6_THICK = 10.0
+CM6_AXIS_X = 8.0
+CM6_R_INNER, CM6_R_OUTER = 4.0, 8.0
+CM6_Z0, CM6_Z1 = 2.0, 10.0
+
+S_CM6, F_CM6_BASE = _fid(0xC61), _fid(0xC62)
+S_CM6_GROOVE, F_CM6_GROOVE = _fid(0xC63), _fid(0xC64)
+F_CM6_MIRROR = _fid(0xC65)
+S_CM6_LATER, F_CM6_LATER = _fid(0xC66), _fid(0xC67)
+
+#: Half the ring's material sits inside the block (the ring straddles y=0, the block
+#: does not), so the cut removes pi*(8^2-4^2)*8 / 2 = 192*pi.
+CM6_CUT_VOLUME = CM6_BLOCK**2 * CM6_THICK - math.pi * 192.0
+#: The mirror doubles the block and brings the ring's other half into material, so
+#: the WHOLE ring is removed once: 32000 - 384*pi. The welded answer is 31865.9587,
+#: i.e. +1072.330 mm^3 (3.48 %) — this assertion discriminates by four orders.
+CM6_MIRRORED_VOLUME = 2.0 * CM6_BLOCK**2 * CM6_THICK - math.pi * 384.0
+
+
+def _cm6_chain(axis_x: float, mirror_plane: str) -> list[dict[str, Any]]:
+    """Block -> revolved annular groove (CUT) -> body-scope mirror."""
+    return [
+        rect_sketch(S_CM6, 0.0, 0.0, CM6_BLOCK, CM6_BLOCK),
+        extrude(F_CM6_BASE, S_CM6, CM6_THICK),
+        revolve_profile_sketch(
+            S_CM6_GROOVE,
+            {"kind": "datum_plane", "plane": "XZ"},
+            [
+                (axis_x + CM6_R_INNER, CM6_Z0),
+                (axis_x + CM6_R_OUTER, CM6_Z0),
+                (axis_x + CM6_R_OUTER, CM6_Z1),
+                (axis_x + CM6_R_INNER, CM6_Z1),
+            ],
+            ((axis_x, -5.0), (axis_x, 20.0)),
+        ),
+        revolve(F_CM6_GROOVE, S_CM6_GROOVE, operation="cut"),
+        mirror(F_CM6_MIRROR, {"kind": "datum_plane", "plane": mirror_plane}),
+    ]
+
+
+def test_cm6_a_mirror_over_a_tangent_groove_keeps_the_void() -> None:
+    """CM-6 (QA-1) — the headline: 31865.9587 mm^3 of silently welded material.
+
+    Pre-fix, every feature reported ``ok``, ``Shape.is_valid`` was FALSE, and the
+    body was tessellated into the viewport, measured and exported to STEP:
+    **31865.9587 mm^3, 12 faces** against an analytic **30793.6284**. The fix is not
+    in the mirror at all — ``mirror_union`` was the right reading and its ``fuse``
+    was already exact — but in ``clean_shape``, which now refuses a simplification
+    that moves material and hands back the un-simplified body.
+
+    The cut step is asserted too (15396.8142 = 16000 - 192*pi): if the groove ever
+    stops straddling the plane, the mirror assertion would still pass for the wrong
+    reason.
+    """
+    cut_only = properties(evaluate(_cm6_chain(CM6_AXIS_X, "XZ")[:4]), "cm6 cut")
+    assert cut_only.volume == pytest.approx(CM6_CUT_VOLUME, abs=CURVED_TOL)
+
+    evaluation = evaluate(_cm6_chain(CM6_AXIS_X, "XZ"))
+    props = properties(evaluation, "cm6 mirror")
+    assert props.volume == pytest.approx(CM6_MIRRORED_VOLUME, abs=CURVED_TOL), (
+        "the mirrored body is not twice the cut body — 31865.9587 means the "
+        "simplifier welded the two half-voids shut again"
+    )
+    assert props.volume == pytest.approx(2.0 * cut_only.volume, abs=CURVED_TOL)
+    # 9 planar + 3 cylindrical. The extra face over the 11 of the same solid built
+    # directly is the outer wall's seam, un-unified because the simplification was
+    # refused — the documented price of the guard.
+    assert props.topology.faces == 12
+    assert props.topology.edges == 24
+    assert props.topology.shells == 1
+    assert props.bounding_box.min.y == pytest.approx(-CM6_BLOCK, abs=PLANAR_TOL)
+    assert props.bounding_box.max.y == pytest.approx(CM6_BLOCK, abs=PLANAR_TOL)
+    # The body is symmetric about the mirror plane, so its centroid must sit ON it.
+    assert props.centroid.y == pytest.approx(0.0, abs=PLANAR_TOL)
+
+
+def test_cm6_the_clear_of_plane_control_is_unchanged() -> None:
+    """The control QA-1 shipped with, so the gate proves the fix DISCRIMINATES.
+
+    The same chain with the groove moved clear of the mirror plane (axis at x=20,
+    mirrored about YZ) was always correct — a ratio of 2.0000000000000004 — and must
+    STAY correct, at the CLEANED topology (14 faces / 36 edges). A "fix" that simply
+    stopped simplifying would pass the test above and fail this one.
+    """
+    cut_only = properties(evaluate(_cm6_chain(20.0, "YZ")[:4]), "cm6 clear cut")
+    props = properties(evaluate(_cm6_chain(20.0, "YZ")), "cm6 clear mirror")
+    assert cut_only.volume == pytest.approx(CM6_CUT_VOLUME, abs=CURVED_TOL)
+    assert props.volume == pytest.approx(CM6_MIRRORED_VOLUME, abs=CURVED_TOL)
+    assert props.volume == pytest.approx(2.0 * cut_only.volume, abs=CURVED_TOL)
+    assert props.topology.faces == 14
+    assert props.topology.edges == 36
+    assert props.topology.shells == 1
+
+
+def test_cm6_a_body_occt_rejects_is_an_error_not_an_artifact() -> None:
+    """CM-6's DURABLE half: the pipeline now asks ``is_valid``, and refuses to
+    publish an artifact it cannot stand behind.
+
+    The mirrored body above is correct but genuinely degenerate — it pinches to a
+    knife edge along the tangency — and OCCT's boolean rewrites its ARGUMENT's
+    subshapes when it meets that pinch. So a feature AFTER the mirror (here a pocket
+    cut 30 mm away, which touches none of the groove) welds the void shut inside the
+    body it was handed: measured 30793.6284 -> 31865.9587 with nobody assigning to
+    it. That is the same wrong solid QA-1 reported, reached through a different door.
+
+    Both guards fire: the cut's own result fails the body funnel's validity gate
+    (typed ``invalid_body``, pinned to the offending feature), and the publish-time
+    re-check finds the last-good body invalidated in place and WITHHOLDS the
+    artifacts rather than measuring, meshing and exporting it. "No body plus an
+    error" is the honest answer; "3.48 % too much material plus five green ticks"
+    was not.
+    """
+    evaluation = evaluate(
+        [
+            *_cm6_chain(CM6_AXIS_X, "XZ"),
+            rect_sketch(S_CM6_LATER, 30.0, 10.0, 36.0, 20.0),
+            extrude(F_CM6_LATER, S_CM6_LATER, CM6_THICK, operation="cut"),
+        ]
+    )
+    assert statuses(evaluation) == ["ok"] * 6 + ["error"]
+    assert error_codes(evaluation) == ["invalid_body"]
+    assert evaluation.result.properties is None, (
+        "a body OCCT rejects must not be measured — that is the whole finding"
+    )
+    assert evaluation.result.mesh_glb_id is None
+    assert evaluation.result.bodies == []
+    assert evaluation.result.last_good_feature_id is None

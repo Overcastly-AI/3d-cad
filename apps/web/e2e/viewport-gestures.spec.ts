@@ -52,9 +52,18 @@ test.describe("right-button gestures", () => {
     await page.waitForTimeout(250);
     await expect(menu).toHaveCount(0);
 
-    // The gesture actually panned the camera: the scene raster moved.
-    const after = await viewport.locator("canvas").screenshot();
-    expect(Buffer.compare(before, after)).not.toBe(0);
+    // The gesture actually panned the camera: the scene raster moved. POLLED,
+    // not sampled once — a raster comparison is a numeric assertion and those
+    // do not auto-retry the way a locator assertion does (GATE-1a), so a frame
+    // that lands late on a loaded box must not read as "the pan never
+    // happened".
+    await expect
+      .poll(
+        async () =>
+          Buffer.compare(before, await viewport.locator("canvas").screenshot()),
+        { timeout: 10_000 },
+      )
+      .not.toBe(0);
   });
 
   test("a right-click still opens the menu, tremor and all", async ({

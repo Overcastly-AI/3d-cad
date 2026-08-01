@@ -22,6 +22,7 @@ from geometry.kernel.datum import (
     midplane_between,
     offset_plane,
 )
+from geometry.kernel.degenerate import ZeroWidthSlit, find_zero_width_slits
 from geometry.kernel.draft import DraftError, draft_body
 from geometry.kernel.edges import (
     EdgeRecord,
@@ -90,7 +91,15 @@ from geometry.kernel.interference import (
 )
 from geometry.kernel.loft import LoftError, build_loft_section, loft_sections
 from geometry.kernel.measure import EdgeIndexError, MeasureError, measure_targets
-from geometry.kernel.mirror import MirrorError, mirror_cut, mirror_union
+from geometry.kernel.mirror import (
+    MirrorError,
+    MirrorUnreachableError,
+    cut_reflected_tools,
+    fuse_reflected_tools,
+    mirror_cut,
+    mirror_union,
+    reflect_tools,
+)
 from geometry.kernel.overlay import selection_overlay
 from geometry.kernel.pattern import (
     PatternAngleError,
@@ -102,8 +111,10 @@ from geometry.kernel.pattern import (
     PatternSpacingError,
     circular_pattern,
     circular_pattern_cut,
+    circular_pattern_placements,
     linear_pattern,
     linear_pattern_cut,
+    linear_pattern_placements,
 )
 from geometry.kernel.properties import combine_properties, measure_shape
 from geometry.kernel.provenance import attribute_faces
@@ -183,6 +194,7 @@ __all__ = [
     "LoftError",
     "MeasureError",
     "MirrorError",
+    "MirrorUnreachableError",
     "NoAxisError",
     "NoEdgesSelectedError",
     "OverlapProbe",
@@ -211,6 +223,7 @@ __all__ = [
     "ThreadBoreMismatchError",
     "ThreadError",
     "ThreadUnsupportedError",
+    "ZeroWidthSlit",
     "attribute_faces",
     "boolean_bodies",
     "bore_hole",
@@ -229,12 +242,14 @@ __all__ = [
     "check_tap_drill_bore",
     "circular_pattern",
     "circular_pattern_cut",
+    "circular_pattern_placements",
     "combine_body",
     "combine_properties",
     "counterbore_tool",
     "countersink_tool",
     "cut_counterbore",
     "cut_countersink",
+    "cut_reflected_tools",
     "draft_body",
     "edge_signature_dto",
     "enumerate_edges",
@@ -247,12 +262,15 @@ __all__ = [
     "export_stl_bytes",
     "extrude_face",
     "fillet_body",
+    "find_zero_width_slits",
     "format_designation",
+    "fuse_reflected_tools",
     "glb_stats",
     "import_step_solid",
     "intersection_volume",
     "linear_pattern",
     "linear_pattern_cut",
+    "linear_pattern_placements",
     "loft_sections",
     "measure_shape",
     "measure_targets",
@@ -264,6 +282,7 @@ __all__ = [
     "planar_faces",
     "probe_overlap",
     "read_step_assembly",
+    "reflect_tools",
     "removal_reaches_body",
     "resolve_axis_line",
     "resolve_edge",
@@ -317,6 +336,7 @@ def export_solid(
     fmt: ExportFormat,
     linear_deflection: float,
     angular_deflection: float,
+    name: str | None = None,
 ) -> bytes:
     """Export an already-built solid in *fmt* — the shared format dispatch.
 
@@ -327,10 +347,15 @@ def export_solid(
     STEP ignores the deflection arguments (exact B-rep); STL uses both.
     Deterministic (RESEARCH §9; :mod:`geometry.kernel.export` pins the STEP
     timestamp).
+
+    *name* is the document name the STEP PRODUCT carries (audit N4 — a file
+    named after a UUID containing ``PRODUCT('SOLID')`` tells a vendor nothing).
+    ``None`` keeps OCCT's default, so the parametric-shape path and every
+    existing caller are byte-identical to before. STL carries no product names.
     """
     match fmt:
         case "step":
-            return export_step_bytes(shape)
+            return export_step_bytes(shape, name=name)
         case "stl":
             return export_stl_bytes(shape, linear_deflection, angular_deflection)
 

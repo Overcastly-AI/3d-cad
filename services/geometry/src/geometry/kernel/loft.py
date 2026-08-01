@@ -59,6 +59,7 @@ from geometry.kernel.extrude import (
     build_profile_face,
     plane_point_to_world,
 )
+from geometry.kernel.healing import clean_shape
 
 #: One built loft section: a closed profile wire, or an apex vertex.
 LoftSection = Wire | Vertex
@@ -144,4 +145,4 @@ def loft_sections(sections: Sequence[LoftSection]) -> Solid:
             f"Loft produced {len(solids)} solids; parts are a single body in "
             "v1 (design §7.6)."
         )
-    return solids[0].clean()
+    return clean_shape(solids[0])

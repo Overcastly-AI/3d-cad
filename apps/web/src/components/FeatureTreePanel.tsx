@@ -1,21 +1,26 @@
 /**
  * The feature tree as a title block: ruled rows carrying the part's build
  * order (the row number IS the evaluation order — structure encoding truth),
- * per-feature evaluate status/error, a rollback "cut line" the build can be
- * wound back to, and the FEATURES / TREE / SOLVE vitals. The CREATE tools now
- * live in the full-width top band (CreateStrip), not here — the panel is a
- * quiet read-out of the build. Selecting a row hands it up to the workspace
- * (an extrude opens its editor); rolling the bar before a feature marks
- * everything below it inert without deleting it.
+ * per-feature evaluate status/error, and the SOLVE vital. The CREATE tools live
+ * in the full-width top band (CreateStrip) and ROLLBACK now lives in the bottom
+ * TimelineStrip (UI-W1) — the panel is a quiet read-out of the build. Selecting
+ * a row hands it up to the workspace (an extrude opens its editor).
+ *
+ * The panel still SHOWS the travel stop's effect (`data-rolled-back` rows, dashed
+ * "—" status) — it just no longer offers the control: a 1px dashed rule squeezed
+ * between 24px rows was never a scrub control, and the build order is honestly
+ * horizontal (see `TimelineStrip`).
  */
 import {
   Button,
+  EyeIcon,
+  EyeOffIcon,
   Panel,
   PanelSection,
   SuppressIcon,
   TextField,
 } from "@loft/design";
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 
 import type {
   EvaluateTreeResult,
@@ -30,20 +35,41 @@ import {
   offersRepickFace,
   REPICK_FACE_ACTION,
 } from "../features/featureErrors";
+import { featureTypeLabel } from "../features/featureLabels";
 import { holeThreadDesignation } from "../features/hole";
-import { barSlotIndex, rollbackIdForSlot } from "../features/rollback";
+import { usePrefetchIntent } from "../features/prefetch";
+import {
+  excludedNote,
+  type PartBuild,
+  skippedReason,
+  solveSummary,
+} from "../features/partBuild";
+import { barSlotIndex } from "../features/rollback";
+import {
+  entityIsDrawn,
+  ORIGIN_AXES,
+  ORIGIN_PLANES,
+  originAxisKey,
+  originPlaneKey,
+  sketchIsDrawn,
+  sketchKey,
+  usePartViewStore,
+} from "../viewport/partView";
 
 export interface FeatureTreePanelProps {
   tree: FeatureTreeResponse | undefined;
   treeError: Error | null;
   evaluation: EvaluateTreeResult | undefined;
-  evaluating: boolean;
+  /**
+   * What the workspace knows about this build (`features/partBuild.ts`) — the
+   * SOLVE cell and every SKIP row's reason are derived from it, and so are the
+   * inspector's STATUS cell and the EXPORT gate, so the three cannot drift
+   * apart again (AUDIT-ENGINEERING J2).
+   */
+  build: PartBuild;
   /** Selected feature id (brass left-rule); extrude rows open their editor. */
   selectedFeatureId: string | null;
   onSelectFeature: (feature: FeatureResponse) => void;
-  /** Move the rollback bar (null = tip); the workspace re-evaluates. */
-  onMoveRollback: (rollbackFeatureId: string | null) => void;
-  rollbackBusy: boolean;
   /** Guided recovery for a `boolean_disjoint` error (MB-4c): re-run this boolean
    * with `allow_disjoint` on, keeping the disconnected pieces as one multi-lump
    * body. Only offered when the feature is a boolean whose opt-in is still off. */
@@ -81,23 +107,6 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 /**
- * Friendlier type badges for the few feature types whose wire name is
- * snake_case. Everything else (extrude / fillet / …) is already a plain word,
- * so it falls through to the raw type.
- */
-const FEATURE_TYPE_LABEL: Record<string, string> = {
-  sheet_metal_base_flange: "base flange",
-  sheet_metal_edge_flange: "edge flange",
-  sheet_metal_hem: "hem",
-  sheet_metal_corner_relief: "corner relief",
-};
-
-/** The badge text for a feature type — a friendly label, else the raw type. */
-function featureTypeLabel(type: string): string {
-  return FEATURE_TYPE_LABEL[type] ?? type;
-}
-
-/**
  * The row's right-hand badge: what this feature IS. Normally just its type —
  * with one exception the geometry forces. A TAPPED hole's solid is byte-
  * identical to a plain bore (the thread is a cosmetic callout, not modelled
@@ -122,11 +131,9 @@ export function FeatureTreePanel({
   tree,
   treeError,
   evaluation,
-  evaluating,
+  build,
   selectedFeatureId,
   onSelectFeature,
-  onMoveRollback,
-  rollbackBusy,
   onKeepAsOneBody,
   recoveringDisjoint = false,
   onRepickFace,
@@ -147,55 +154,28 @@ export function FeatureTreePanel({
     features.length > 0 ? `Feature tree · ${features.length}` : "Feature tree";
   const rollbackId = tree?.rollback_feature_id ?? null;
   const barSlot = barSlotIndex(features, rollbackId);
-  const evalSummary = evaluating
-    ? "Solving…"
-    : evaluation === undefined
-      ? "—"
-      : evaluation.features.some((f) => f.status === "error")
-        ? "Failed"
-        : "Solved";
-
-  const renderBar = (slotIndex: number) => {
-    const active = slotIndex === barSlot;
-    const target = rollbackIdForSlot(features, slotIndex);
-    const atTip = slotIndex >= features.length - 1;
-    return (
-      <li key={`slot-${slotIndex}`} className="px-3">
-        <button
-          type="button"
-          disabled={rollbackBusy || active}
-          data-testid={`rollback-slot-${slotIndex}`}
-          data-active={active || undefined}
-          aria-label={
-            atTip
-              ? "Roll forward to the tip (include all features)"
-              : `Roll back to after ${features[slotIndex]?.name ?? "feature"}`
-          }
-          onClick={() => onMoveRollback(target)}
-          className="group flex w-full items-center gap-2 py-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass disabled:cursor-default"
-        >
-          {active ? (
-            <>
-              <span
-                aria-hidden
-                className="h-px grow bg-brass"
-                data-testid="rollback-bar"
-              />
-              <span className="shrink-0 font-display text-2xs uppercase tracking-[0.18em] text-brass">
-                Rollback
-              </span>
-              <span aria-hidden className="h-px w-3 bg-brass" />
-            </>
-          ) : (
-            <span
-              aria-hidden
-              className="h-px grow bg-transparent transition-colors duration-fast group-hover:bg-etch"
-            />
-          )}
-        </button>
-      </li>
-    );
-  };
+  // TRIGGER 1 (docs/PERF.md PERF-1b). Selecting a row is what opens that
+  // feature's editor, and it is the moment the user declares every feature
+  // BEFORE it settled — so the worker starts rebuilding that prefix while the
+  // dialog is being read, and the commit resumes from it instead of from
+  // feature 0. It is also the only cure for the first face pick after an edit
+  // (the provenance lineage is warmed alongside). Deselecting, or leaving the
+  // part, cancels it: speculation outlives its reason for nobody.
+  usePrefetchIntent(
+    tree !== undefined && selectedFeatureId !== null
+      ? {
+          partId: tree.part_id,
+          featureId: selectedFeatureId,
+          kind: "feature_edit",
+        }
+      : null,
+  );
+  // One derivation, read here and by the inspector's STATUS cell + EXPORT gate.
+  const evalSummary = solveSummary(build);
+  // WHY the rows below the failure say SKIP. The strict-prefix rule stops the
+  // build at the first error, so an INDEPENDENT corner fillet is dropped too —
+  // and a bare "SKIP" badge made that look like a fillet bug (AUDIT-PRODUCT N3).
+  const skipCause = skippedReason(build);
 
   return (
     <aside
@@ -229,6 +209,12 @@ export function FeatureTreePanel({
                   status === "suppressed";
                 const suppressBusy = feature.id === suppressingId;
                 const renaming = feature.id === renamingId;
+                // This row was never attempted — and the cause is a DIFFERENT
+                // feature, so the row has to name it.
+                const blockedBy =
+                  status === "skipped" && !suppressed && !rolledBack
+                    ? (build.failure?.id ?? null)
+                    : null;
                 return (
                   <FeatureRowGroup key={feature.id}>
                     <li
@@ -238,6 +224,7 @@ export function FeatureTreePanel({
                       data-testid="feature-row"
                       data-rolled-back={rolledBack || undefined}
                       data-suppressed={suppressed || undefined}
+                      data-blocked-by={blockedBy ?? undefined}
                       onContextMenu={
                         onRowContextMenu
                           ? (event) => {
@@ -292,7 +279,7 @@ export function FeatureTreePanel({
                           aria-pressed={selected}
                           aria-label={`Select ${feature.name}`}
                           data-testid={`feature-select-${index}`}
-                          className="flex grow items-baseline gap-2 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass"
+                          className="flex min-h-target-dense grow items-baseline gap-2 py-0.5 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass"
                         >
                           <span className="w-5 shrink-0 font-data text-xs tabular-nums text-gauge">
                             {String(index + 1).padStart(2, "0")}
@@ -336,14 +323,24 @@ export function FeatureTreePanel({
                         className={`w-8 shrink-0 text-right font-data text-xs ${
                           status === "error" ? "text-flag" : "text-gauge"
                         }`}
+                        // The badge is three glyphs; the CAUSE reaches the
+                        // pointer and the screen reader (N3: a SKIP with no
+                        // reason reads as "this feature is broken").
+                        title={
+                          blockedBy !== null && skipCause !== null
+                            ? `${feature.name}: ${skipCause}`
+                            : undefined
+                        }
                         aria-label={
                           rolledBack
                             ? "rolled back"
                             : suppressed
                               ? "evaluation suppressed"
-                              : status
-                                ? `evaluation ${status}`
-                                : undefined
+                              : blockedBy !== null && skipCause !== null
+                                ? `evaluation skipped: ${skipCause}`
+                                : status
+                                  ? `evaluation ${status}`
+                                  : undefined
                         }
                       >
                         {rolledBack
@@ -402,13 +399,31 @@ export function FeatureTreePanel({
                         ) : null}
                       </li>
                     ) : null}
-                    {renderBar(index)}
+                    {/* The casualty list, stated ONCE where the build stopped:
+                        the rows under here were never attempted, and several of
+                        them may have nothing to do with the failure (N3 — the
+                        datum plane and the far-corner dowel hole that vanished
+                        with a bad hole pick). Each of those rows also names this
+                        feature in its own status cell. */}
+                    {feature.id === build.failure?.id &&
+                    build.excluded.length > 0 ? (
+                      <li
+                        className="py-1 pr-3 pl-[26px]"
+                        data-testid="feature-excluded-note"
+                      >
+                        <span className="block font-body text-xs text-gauge">
+                          {excludedNote(build)}
+                        </span>
+                      </li>
+                    ) : null}
                   </FeatureRowGroup>
                 );
               })}
             </ol>
           )}
         </PanelSection>
+
+        <ViewCategories tree={tree} />
 
         {/* Title-block footer: the one vital that MOVES — the solve state.
             FEATURES folded into the eyebrow; TREE (the internal optimistic-
@@ -439,4 +454,164 @@ export function FeatureTreePanel({
 /** A fragment wrapper so each feature contributes several <li> siblings. */
 function FeatureRowGroup({ children }: { children: ReactNode }) {
   return <>{children}</>;
+}
+
+/**
+ * One VIEW row (UI-W2, part half): the learned eye, then the thing's name.
+ *
+ * Two stops, not three, and that is a decision rather than an omission. GHOST
+ * is "see THROUGH the solid to what is behind it" — it only means something for
+ * a body. A datum plane is already translucent and a sketch is a line; a third
+ * stop on those rows would be a control that changes nothing, which is exactly
+ * the decorative chrome the mandate calls a defect. Bodies keep the full
+ * SOLID · GHOST · HIDE control (see `BodiesPanel`).
+ *
+ * The glyph set, ink and hover behaviour are the assembly half's, unchanged:
+ * `gauge` at rest (7.3:1 on anvil), `mist` once the row's view has been TOUCHED
+ * so it is findable when scanning, `brass` on hover. The shape carries the
+ * state; the ink is the second cue.
+ */
+function ViewRow({
+  drawn,
+  label,
+  detail,
+  testId,
+  rowTestId,
+  onToggle,
+  onAddress,
+}: {
+  drawn: boolean;
+  label: string;
+  /** Right-hand kind badge, in the feature row's voice ("plane", "sketch"). */
+  detail: string;
+  /** Test hook on the EYE. Deliberately distinct from `rowTestId`: a shared
+   *  prefix would make `getByTestId(/^sketch-visibility-/)` ambiguous. */
+  testId: string;
+  rowTestId: string;
+  onToggle: () => void;
+  onAddress: () => void;
+}) {
+  const Glyph = drawn ? EyeIcon : EyeOffIcon;
+  const action = `${drawn ? "Hide" : "Show"} ${label}`;
+  return (
+    <li
+      className="flex items-center gap-2 border-l-2 border-transparent py-0.5 pr-2 pl-2"
+      data-testid={rowTestId}
+      data-drawn={drawn || undefined}
+    >
+      <button
+        type="button"
+        onClick={() => {
+          onAddress();
+          onToggle();
+        }}
+        aria-pressed={drawn}
+        aria-label={action}
+        title={action}
+        data-testid={testId}
+        className={`flex min-h-target-dense min-w-target-dense shrink-0 items-center justify-center rounded-sm outline-none transition-colors duration-fast hover:text-brass focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass ${
+          drawn ? "text-mist" : "text-gauge"
+        }`}
+      >
+        <Glyph size={16} />
+      </button>
+      <span
+        className={`grow truncate font-data text-base ${
+          drawn ? "text-mist" : "text-gauge"
+        }`}
+      >
+        {label}
+      </span>
+      <span className="shrink-0 font-body text-xs text-gauge">{detail}</span>
+    </li>
+  );
+}
+
+/**
+ * ORIGIN and SKETCHES — the two categories a Fusion user reaches for that this
+ * browser had no row for (founder: *"what about the ability to enable planes,
+ * sketches and bodies?"*). Bodies is the third, and lives in `BodiesPanel`
+ * beside its solids.
+ *
+ * Origin sits LAST because it is the least-touched and defaults off; the build
+ * order stays at the top of the panel where a modeler's eye already goes.
+ */
+function ViewCategories({ tree }: { tree: FeatureTreeResponse | undefined }) {
+  const view = usePartViewStore((state) => state.view);
+  const bodyPresent = usePartViewStore((state) => state.bodyPresent);
+  const toggle = usePartViewStore((state) => state.toggle);
+  const setAddressed = usePartViewStore((state) => state.setAddressed);
+  const setSubject = usePartViewStore((state) => state.setSubject);
+  const partId = tree?.part_id ?? null;
+  // Registering the subject both scopes the view state to THIS part (opening
+  // another one resets it, so a hidden body can never follow you across
+  // documents) and arms the `V` / `⇧V` accelerators, which stay disarmed in the
+  // assembly workspace because it never mounts this browser.
+  useEffect(() => {
+    if (partId !== null) setSubject(partId);
+  }, [partId, setSubject]);
+
+  const sketches = (tree?.features ?? []).filter(
+    (feature) => feature.feature.type === "sketch" && !feature.rolled_back,
+  );
+
+  return (
+    <>
+      {sketches.length > 0 ? (
+        <PanelSection
+          eyebrow={`Sketches · ${sketches.length}`}
+          data-testid="sketches-section"
+        >
+          <ul className="pb-1" data-testid="sketch-view-list">
+            {sketches.map((feature) => (
+              <ViewRow
+                key={feature.id}
+                drawn={sketchIsDrawn(view, feature.id, bodyPresent)}
+                label={feature.name}
+                detail="sketch"
+                testId={`sketch-visibility-${feature.id}`}
+                rowTestId={`sketch-row-${feature.id}`}
+                onToggle={() => toggle(sketchKey(feature.id))}
+                // Addresses, and does NOT select. Selecting a sketch feature
+                // warms the whole body brass (the tree→geometry link), so an
+                // eye that also selected would make "show me this profile"
+                // light up the solid instead — one element, one job. The tree
+                // rows above are where a feature gets selected.
+                onAddress={() => setAddressed(sketchKey(feature.id))}
+              />
+            ))}
+          </ul>
+        </PanelSection>
+      ) : null}
+
+      <PanelSection eyebrow="Origin" data-testid="origin-section">
+        <ul className="pb-1" data-testid="origin-list">
+          {ORIGIN_PLANES.map((plane) => (
+            <ViewRow
+              key={plane}
+              drawn={entityIsDrawn(view, originPlaneKey(plane))}
+              label={plane}
+              detail="plane"
+              testId={`origin-plane-${plane}`}
+              rowTestId={`origin-row-plane-${plane}`}
+              onToggle={() => toggle(originPlaneKey(plane))}
+              onAddress={() => setAddressed(originPlaneKey(plane))}
+            />
+          ))}
+          {ORIGIN_AXES.map((axis) => (
+            <ViewRow
+              key={axis}
+              drawn={entityIsDrawn(view, originAxisKey(axis))}
+              label={`${axis} axis`}
+              detail="axis"
+              testId={`origin-axis-${axis}`}
+              rowTestId={`origin-row-axis-${axis}`}
+              onToggle={() => toggle(originAxisKey(axis))}
+              onAddress={() => setAddressed(originAxisKey(axis))}
+            />
+          ))}
+        </ul>
+      </PanelSection>
+    </>
+  );
 }

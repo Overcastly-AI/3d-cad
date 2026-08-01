@@ -6,12 +6,17 @@
  * own readout. This is the title-block signature extended into the viewport;
  * it earns its pixels with live precision.
  */
-import { GridSnapIcon, Panel, PanelActionCell } from "@loft/design";
+import {
+  GridSnapIcon,
+  Panel,
+  PanelActionCell,
+  isMacPlatform,
+} from "@loft/design";
 
 import { formatDroMm } from "../lib/format";
 import { formatSolveCell } from "../sketch/constraints";
 import { describePlane } from "../sketch/plane";
-import { SNAP_STEP_MM, useSketchStore } from "../sketch/store";
+import { useSketchStore } from "../sketch/store";
 
 const SOLVE_TONE_CLASS = {
   brass: "text-brass",
@@ -30,12 +35,25 @@ export function SketchDro({ solving }: SketchDroProps) {
   const plane = useSketchStore((state) => state.plane);
   const cursor = useSketchStore((state) => state.cursor);
   const snapEnabled = useSketchStore((state) => state.snapEnabled);
+  const snapStepMm = useSketchStore((state) => state.snapStepMm);
+  const snapSuppressed = useSketchStore((state) => state.snapSuppressed);
   const toggleSnap = useSketchStore((state) => state.toggleSnap);
   const solve = useSketchStore((state) => state.solve);
   const bound = useSketchStore((state) => state.featureId !== null);
 
   if (mode !== "draw") return null;
   const solveCell = formatSolveCell(solve, solving);
+
+  // The SNAP cell reports the MODE (what is armed); the mark at the cursor
+  // reports the live candidate. One job each — nothing does double duty.
+  // Naming "points" is the whole point of the cell: entity snapping is always
+  // on, so a caption that only mentioned the grid would understate it.
+  const primaryModifier = isMacPlatform() ? "⌘" : "Ctrl";
+  const snapCaption = snapSuppressed
+    ? `held off · ${primaryModifier}`
+    : snapEnabled
+      ? `points · ${snapStepMm} mm · G`
+      : "points · no grid · G";
 
   return (
     <Panel
@@ -44,7 +62,7 @@ export function SketchDro({ solving }: SketchDroProps) {
       className="absolute bottom-3 left-3 inline-grid grid-flow-col auto-cols-auto divide-x divide-hairline"
     >
       {(["x", "y"] as const).map((axis) => (
-        <div key={axis} className="min-w-24 px-3 py-2">
+        <div key={axis} className="min-w-[6rem] px-3 py-2">
           <span className="block font-display text-2xs uppercase tracking-[0.18em] text-gauge">
             {axis} · mm
           </span>
@@ -59,10 +77,11 @@ export function SketchDro({ solving }: SketchDroProps) {
       <PanelActionCell
         icon={<GridSnapIcon />}
         label="Snap"
-        caption={snapEnabled ? `${SNAP_STEP_MM} mm · G` : "off · G"}
-        selected={snapEnabled}
-        aria-label={`Grid snap ${SNAP_STEP_MM} mm (G)`}
+        caption={snapCaption}
+        selected={snapEnabled && !snapSuppressed}
+        aria-label={`Snap — endpoints, midpoints, centres and intersections always snap; grid ${snapStepMm} mm is ${snapEnabled ? "on" : "off"} (G to toggle); hold ${primaryModifier} to place freehand`}
         data-testid="dro-snap"
+        data-snap-suppressed={snapSuppressed || undefined}
         onClick={toggleSnap}
       />
       <div className="px-3 py-2">

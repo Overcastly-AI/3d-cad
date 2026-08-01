@@ -408,6 +408,98 @@ stage-2 provenance spike reaches maker history). **Where an edge cannot be tied
 back** (silhouette/outline edges, §1.5) it is **undimensionable** in v1 and
 carries no signature — stated, not hidden.
 
+### 3.4 An authored dimension is NEVER silently absent from the print (QA-4, 2026-07-30)
+
+**Problem.** QA drove the shipped flow — plate, drawing, Ø dimension, revise the
+thickness, export — and found "a lost dimension leaves NO trace on the print": the
+Dimensions side panel said `unresolved`, and the sheet a shop reads said nothing.
+Two different doors lead there, and only one of them had been closed:
+
+1. **Unmeasurable** — measurement returns a typed error, the composer stamps a
+   marker + caption ("DIAMETER DIM: REFERENCE LOST - RE-PICK THE EDGE", §11 of
+   `topological-naming.md`). This half works, and the gates now prove it *on the
+   exported bytes through the shipped route* rather than on a function's return
+   value (`tests/test_drawings_lost_dimension.py`) — a caption builder can be
+   perfectly correct while nothing calls it.
+2. **Unplaceable** — the dimension MEASURES fine but there is nothing on its view
+   to draw it on: the (re-anchored) edge is not among that view's projected edges;
+   it is drawn as a primitive the dimension type cannot annotate (a bore rim seen
+   edge-on projects to a LINE, so a Ø has no circle to span); a point-to-point
+   endpoint has no projected correspondence; or the placement is degenerate (two
+   parallel edges for an angular dimension). `build_dimension_annotation` returned
+   `None` for all of these and `_compose_view` **skipped** the dimension.
+
+**Decision: the composer has no skip branch.** Every authored dimension of a placed
+view lands on the sheet — as its drafting annotation when it can be placed,
+otherwise as a `ComposedDimensionError` carrying the typed code
+`dimension_not_placeable` and the words "…DIM: CANNOT BE PLACED IN THIS VIEW -
+RE-PICK IT", stamped by all three serializers exactly like an unmeasurable one.
+One bucket for all four causes, because the fix is the same in every case (re-pick
+the edge in a view that shows it) and false precision on a print is worse than
+none.
+
+**Why this ranks as a defect and not a nicety:** a missing annotation is
+indistinguishable from a drawing that never had one. Every other failure in this
+system is visible — a failed view stamps its reason, a partial export renames the
+file — but a dropped dimension left a *complete-looking* print with a number
+missing, which is exactly the artifact that gets parts made wrong. The structural
+gate is a count (`placed == authored`), not a string: a composer that *can* drop
+one will eventually drop a different one.
+
+**Not covered, deliberately:** dimensions attached to a view that FAILED to project
+are still not stamped individually — that view already prints its own typed reason
+in place of its geometry, so the print is not silently complete.
+
+### 3.5 A dimension survives the face it sits on MOVING (QA-3, 2026-07-30)
+
+**Problem.** A plate with a Ø10 hole and a drawing carrying a diameter dimension.
+Change the thickness 10 → 16 — a revision that does not touch the hole — and the
+diameter dimension came back `unresolved` and vanished from the sheet. The linear
+dimension on the *edited* thickness edge followed the edit correctly, so this is
+the circle half of the same story `topological-naming.md` §11 told for lines: the
+tier-2 circle re-anchor keys on the 3-D CENTRE, and a thickness change slides a
+bore's rim along its own axis.
+
+**The invariant.** A circle carried by a face that translated keeps its RADIUS, its
+AXIS LINE, its plane's orientation and its angular station; only the offset along
+the axis changes. So tier 3 (`anchor._translated_circle`) frees that offset and
+pins the rest — including the radius, so a coaxial counterbore is not this circle,
+and including the axis line, so a hole relocated *across* its face leaves the line
+and stays an honest refusal.
+
+**Why the invariant alone is not enough, and what supplies the rest.** Freeing the
+offset makes the two rims of a through hole indistinguishable: congruent circles,
+one axis, one station, differing only in the freed quantity. The invariant can
+therefore only report `subshape_ambiguous`, and the dimension stays lost. What
+breaks the tie is not a heuristic but evidence already in the request: **the
+dimension was authored by picking a curve IN A VIEW**, and the projector emits each
+drawn curve once, from the edge the viewer sees. Tier 3's candidates are therefore
+restricted to the model edges *that view draws* (`ProjectedViewEdge.source_edge`,
+already computed for §3.3 provenance) — the set the user could have picked from. A
+rim hidden behind another is not in it. Zero candidates is still `unresolved`, two
+(both rims genuinely drawn in one view) still `ambiguous`.
+
+**Consequences of that choice, stated:**
+
+- tier 3 lives in the DRAWINGS layer, not in `kernel/edges`, because only a drawing
+  dimension has a view. A picked-edge fillet gets the §11 tiers and no more;
+- a caller that supplies no drawn set (a unit test, an older caller) keeps the
+  pre-QA-3 behaviour exactly, so the tier cannot fire where the evidence is absent;
+- the tier reports `durable` on the wire like tier 2. The distinction a client can
+  ACT on is exact vs re-anchored; a third enum value would break every consumer of
+  `DimensionAnchorTier` for no gain;
+- the value is still RE-MEASURED off the current B-rep, never re-stamped, so a
+  re-anchor that landed on the wrong circle would print a wrong number rather than
+  hide — which is why the refusals above are gated by name.
+
+**Why the anchor's "same face, moved" story matches the kernel's.** This is the same
+edit, seen through the other kind of reference: `topological-naming.md` §12 gives a
+picked FACE a translated tier so the hole survives, and this gives the DIMENSION on
+that hole's rim a translated tier so the print survives. A face signature carries an
+oriented normal, so the kernel tier needs no extra evidence to reject the opposite
+face; an edge signature carries no sense, which is exactly why the drawing tier
+needs the view.
+
 ---
 
 ## 4. Export — the deliverable
