@@ -416,6 +416,20 @@ on completion with a watchdog fallback (`docs/AUTONOMOUS-LOOP.md` §1.4).
   ```
   Name the paths. A bare `git reset` would unstage a colleague's work, which is
   the defect this whole technique exists to avoid.
+  **AND THE RESYNC ITSELF CAN UNSTAGE A COLLEAGUE — naming the paths is not
+  enough when the paths are SHARED.** `git reset -q HEAD -- <paths>` mutates the
+  DEFAULT index, and every agent is required to touch `docs/ROADMAP.md` and
+  `docs/BACKLOG.md`, so those two paths are almost always in somebody else's
+  staging area at the same moment. Seen 2026-08-01: an agent staged its doc hunks,
+  a sibling committed through an isolated index and resynced those same two paths,
+  and the first agent's hunks were silently unstaged — its commit would have
+  landed without its ROADMAP/BACKLOG tick, which is the one thing every commit is
+  required to carry. Nothing warns you. That is now THREE distinct ways this
+  recipe bites (a stale `read-tree` base reverting a sibling, a marker matching a
+  sibling's prose, and this), and the SAME cheap check caught all three:
+  **re-read `git diff --cached` immediately before `git commit`, not when you
+  staged.** Treat staging as perishable — stage and commit in one tight window
+  rather than staging early and doing more work.
   Push with `git push -u origin <branch>`; on rejection `git pull --rebase`
   and retry. Commit only when your gates are green.
 - **The stop-hook "there are uncommitted changes, please commit and push" is a
