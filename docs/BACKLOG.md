@@ -84,6 +84,79 @@ duplication.
       dimensionable; and the sketch frame's origin drawn and named against the
       part. [docs/QA-REVIEW.md 2026-08-01 QA3-2]
 
+- [ ] (P1, M) **SEL-1 — default hover lights the whole body; a working
+      engineer needs the FACE** (`apps/web`). `ModelMesh.tsx`'s pointer handler
+      already resolves the exact face ordinal under the cursor
+      (`faceOrdinalOf`) and throws it away; extend to `onPointerMove`, route
+      the hovered ordinal through the SAME localized-highlight machinery
+      "feature selected" already uses (`setFaceMaterials` + `subsetEdges`), and
+      reuse existing `viewport.facePick.hover`/`viewport.hover` tokens — zero
+      new palette. Graceful fallback to today's whole-body glow when the mesh
+      can't be face-partitioned. Also fixes armed face/edge picks (datum,
+      hole, shell, draft, sketch-on-face, fillet, chamfer): the raycast
+      becomes the PRIMARY hit-test (click anywhere on the face/edge), demoting
+      `PickNode`'s fixed 24px centroid/midpoint button to a keyboard/touch
+      fallback. Design + acceptance A1/A2/A7: `docs/design/pre-selection.md`
+      §1, §6. [src: founder]
+
+- [ ] (P1, S) **SEL-2 — a sketch pick never names what it's about to select**
+      (`apps/web`). `sketch/pick.ts` resolves a winning candidate silently;
+      extend the existing UI-W5 `SnapMarker` (glyph + word, already shipped
+      for drawing) to also render for `hoverPick` in select mode, with one new
+      "on-curve" glyph for the entity case (point cases reuse the endpoint/
+      centre glyphs already in `SNAP_MARKS`). No change to `toggleSelection`'s
+      click-cycle. Design + acceptance A3: `docs/design/pre-selection.md` §2,
+      §6. [src: founder]
+
+- [ ] (P2, S) **SEL-3 — stacked-candidate count badge** (`apps/web`). When
+      `pickCandidates(...).length > 1` (sketch) or a raycast hit disagrees
+      with a nearby armed-pick `PickNode` within tolerance, show a small `+N`
+      badge beside the SEL-2 marker (reuses the app's one round-badge
+      convention — no new tokens) so cycling is discoverable, not silent.
+      Design + acceptance A4: `docs/design/pre-selection.md` §3, §6.
+      [src: founder]
+
+- [ ] (P1, M) **SEL-4 — hovered-face normal arrow, doubling as the extrude/cut
+      direction control** (`apps/web`, `packages/design`). A single brass
+      arrow along the addressed face's normal (planar: `signature.normal`,
+      already computed; curved: the raycast-hit triangle normal) on hover;
+      while Extrude/Cut is armed it becomes a forward/reverse PAIR wired to
+      the editor's existing `direction` field, so the viewport — not a text
+      toggle nobody checks while aiming — shows which side removes material.
+      World-space length clamped to the face's own footprint (mirrors
+      `FacePatch`'s disc-radius formula). New token group `viewport.faceNormal`
+      — see `docs/design/pre-selection.md` §4 for the exact fields. Direct fix
+      for "a cut misses everything going a different way." Acceptance
+      A5/A6. [src: founder]
+
+- [ ] (P2, S) **SEL-5 — the PickNode "DOM-square blanket" is a measured,
+      still-open defect** (`packages/design`). `docs/UI-REVIEW.md`'s
+      2026-07-24 P2 is unfixed: every armed-pick target paints a visible
+      reticle AT REST, always (~22 squares/diamonds on a six-face plate the
+      moment Measure arms). Reduce `PickNode`'s rest-state opacity so the
+      topology highlight (not the DOM grid) carries the "what's under the
+      cursor" read; hover/focus/selected states unchanged. Cheap, isolated,
+      independent of SEL-1's larger raycast plumbing — can ship first.
+      Acceptance A7: `docs/design/pre-selection.md` §6. [src: founder]
+
+- [ ] (P2, M) **SEL-5b — touch two-phase preview/confirm for ambiguous picks**
+      (`apps/web`). Unambiguous tap commits immediately; a tap with >1
+      candidate within touch tolerance previews (SEL-2/SEL-3's marker+badge)
+      and needs a second tap (or a badge tap) to commit — Loft's own
+      considered default, not a verified competitor pattern (neither Fusion's
+      nor Plasticity's touch pre-selection behaviour could be confirmed from
+      public docs this pass). Acceptance A8: `docs/design/pre-selection.md`
+      §5, §6. [src: founder]
+
+- [ ] (P3, M) **SEL-6 — the sketch select tool has no keyboard path at all**
+      (`apps/web`). `sketch/pick.ts` resolves purely from pointer coordinates;
+      a keyboard user cannot Tab to an existing sketch entity or point.
+      Real fix mirrors the lift `FacePickOverlay`/`EdgePickOverlay` already
+      paid: give sketch entities/points focusable `PickNode`-style targets.
+      Named honestly as an open a11y gap, not implied-closed by SEL-2/SEL-3
+      (those extend the *visual* marker; this is the missing input path).
+      `docs/design/pre-selection.md` §5, §7. [src: founder]
+
 - [x] (P1, M) **CONC-1 — a modeler's next click lands on a random worker, and
       that throws away most of what scaling out buys** (platform + backend).
       Measured 2026-08-01 (`docs/PERF.md` §CONCURRENCY): 4 users on 4 geometry

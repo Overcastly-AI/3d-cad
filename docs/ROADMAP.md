@@ -13,6 +13,22 @@ library and cleared two of three images to publish (`c7f23dd`). OPEN: LIC-1,
 stripping jbigkit from the geometry image, which is what still blocks
 publishing it.
 
+**NEXT — FOUNDER-DIRECTED PRE-SELECTION / HOVER MODEL (2026-08-01,
+vision-steward, design only).** Same-night founder reports name one root
+cause three ways: a sketch line that "wouldn't even select," face picking
+"very difficult," a cut that "misses everything going a different way" —
+Loft never previews what a click will do before it does it. Design spec
+`docs/design/pre-selection.md`: default hover moves from whole-body to the
+FACE under the cursor (`ModelMesh.tsx`'s `faceOrdinalOf` already resolves the
+ordinal and discards it), the sketcher's UI-W5 snap-glyph vocabulary extends
+from drawing to the SELECT tool so a hovered pick names itself before the
+click, a stacked-candidate count badge answers "how many are here" instead of
+silent click-cycling, and a normal-arrow pair on the addressed face doubles
+as the extrude/cut direction control. Also root-caused: armed face picks hit
+only a 24px button at the face centroid today, not the face itself — measured
+cause of `docs/UI-REVIEW.md`'s still-open "DOM-square blanket" P2. Filed
+SEL-1..SEL-6, Ready queue, `[src: founder]`.
+
 Preceded today by a PERFORMANCE wave off the first big-part benchmark
 (`docs/PERF.md`): the wall was ~50 features and every route rebuilt the world,
 so an edit on a 200-feature part cost 27 s. Now 1.0 s, a repeat measure/export
