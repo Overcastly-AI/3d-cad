@@ -266,6 +266,23 @@ Stale docs are a defect (this rule saved Next-Lane repeatedly; see
   cancels. It costs runner minutes, which is the price of the rule. Consequence:
   a `cancelled` run on a branch push is now genuinely anomalous — investigate it
   rather than shrugging.
+- **A COMMIT PUSHED IN THE MIDDLE OF A MULTI-COMMIT PUSH GETS NO RUN AT ALL —
+  not a cancelled one, NOTHING — so "every commit green on its own" has a hole
+  the per-SHA concurrency fix does not touch.** GitHub fires ONE workflow run per
+  push *event*, keyed to the push's head commit; every commit between the old tip
+  and the new one is simply never built. This is invisible in a way eviction is
+  not: a `cancelled` run is at least a row you can see and question, whereas an
+  unbuilt commit leaves no row, so the board looks complete. Measured 2026-08-01:
+  `3065813` and `3cf6650` were committed 69 s apart and pushed together, and
+  `3065813` has ZERO runs across all three workflows while `3cf6650` has three —
+  and `3065813` touched `apps/web/e2e/**`, so it was not a paths-ignore skip.
+  Two consequences. (a) **Push each commit separately** when you want per-commit
+  evidence — the per-SHA group means back-to-back pushes no longer cost each
+  other their runs, so the reason to batch is gone. (b) When auditing, do not
+  reason from the runs list alone: it enumerates PUSHES, not commits. Cross-check
+  against `git log` and treat a commit with no row as UNVERIFIED, exactly like a
+  cancelled one. (Its descendant's green run still verifies the *tree*, never the
+  intermediate *commit* — the same distinction the bullet above insists on.)
 - **`cancelled` HAS TWO CAUSES AND GITHUB USES THE SAME WORD FOR BOTH** — a
   concurrency eviction, and a job hitting `timeout-minutes`. Discriminate by
   DURATION and by the sibling jobs. Seen 2026-07-30: three runs read `cancelled`
