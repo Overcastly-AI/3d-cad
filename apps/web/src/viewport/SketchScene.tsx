@@ -25,6 +25,7 @@ import {
   Matrix4,
   Quaternion,
   Vector3,
+  type Camera,
   type LineSegments,
 } from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
@@ -46,8 +47,10 @@ import {
   type CameraPose,
   type DatumPlaneName,
   type PlaneBasis,
+  type SketchPlaneSpec,
 } from "../sketch/plane";
 import { axisLinePoints, reflectEntity } from "../sketch/mirror";
+import { isClick, type PointerGesture } from "../sketch/clickIntent";
 import { SNAP_LABELS, SNAP_TOLERANCE_PX, type SnapKind } from "../sketch/snap";
 import { useSketchStore } from "../sketch/store";
 import {
@@ -56,8 +59,67 @@ import {
   type SketchEntity,
 } from "../sketch/tools";
 import { AdaptiveGrid } from "./AdaptiveGrid";
+import { bluingRadiusMm, bluingWash } from "./bluingWash";
 import { ConstraintGlyphs } from "./ConstraintGlyphs";
 import { sketchIsDrawn, usePartViewStore } from "./partView";
+
+/**
+ * DEPTH POLICY OF THE SKETCHER (founder defect, 2026-08-01: *"I had an
+ * extruded face then was trying to add a sketch and … I couldn't see it"*).
+ *
+ * A sketch seated on a face is COPLANAR with that face by construction, so
+ * every mark it makes lands in the same depth slot as the solid under it.
+ * Measured on the real stack before this landed: a rectangle drawn on the top
+ * face of a 20 mm cube produced **0** pixels of `sketch.scribe` ink and a grid
+ * that appeared over roughly half the face in speckled patches. Not "hard to
+ * see" — gone.
+ *
+ * Three classes of mark, three different answers, because they do three
+ * different jobs:
+ *
+ * 1. **The ACTIVE sketch's ink** (entities, preview, points, crosshair) draws
+ *    ON TOP: `depthTest: false` + an explicit `renderOrder`. Justification for
+ *    picking always-on-top over a depth bias: (a) WebGL has no polygon offset
+ *    for lines or points — `POLYGON_OFFSET_FILL` is the only capability GLES2
+ *    exposes, so `material.polygonOffset` moves nothing on a `lineSegments` or
+ *    a `points`; the only alternative is lifting the geometry along the normal,
+ *    which is scale- and angle-dependent (big enough to win the depth fight at
+ *    one zoom reads as ink floating off the face at a grazing one). (b) Even if
+ *    it worked, honest occlusion is the WRONG rule for the layer you are
+ *    authoring: a boss standing in front of the plane would hide the line you
+ *    are currently dragging, which is the founder's complaint with extra steps.
+ *    Every tool worth copying (Fusion, Onshape, Plasticity) draws the active
+ *    sketch over the model. It must also be `transparent`, not merely
+ *    depth-testless: three renders the whole opaque queue before ANY transparent
+ *    object, so an opaque line — whatever its renderOrder — would still be
+ *    painted over by the (transparent) grid and plane cards.
+ * 2. **The sheet meshes** (datum cards, the bluing patch, the grid) keep depth
+ *    TESTING and take {@link COPLANAR_DECAL} instead. They are meshes, so
+ *    polygon offset genuinely applies to them, and it is the right tool: a
+ *    substrate must still be occluded by geometry actually in front of it, or
+ *    an infinite grid washes the whole model.
+ * 3. **Committed/solved sketches** ({@link SolvedLayer}) change NOTHING. A
+ *    sketch you are not editing sits behind the model it made, exactly as
+ *    before — the alternative is a viewport of stacked ghost profiles.
+ *
+ * Constraint glyphs, the snap mark and the spline handles need no entry here:
+ * they are DOM-in-canvas (drei `Html`), so they already float over the scene.
+ */
+const ACTIVE_INK_RENDER_ORDER = 900;
+/** Defining-point dots ride one step above their own lines. */
+const ACTIVE_POINT_RENDER_ORDER = 901;
+
+/**
+ * Coplanar-decal depth bias for the sketcher's sheet meshes. Polygon offset is
+ * expressed in DEPTH-BUFFER units and is slope-scaled, so unlike a world-mm
+ * lift it holds at any zoom and any viewing angle — which is precisely the job
+ * it was invented for.
+ */
+const COPLANAR_DECAL = {
+  polygonOffset: true,
+  polygonOffsetFactor: -2,
+  polygonOffsetUnits: -2,
+} as const;
 
 /** Datum sheet half-extent feels like stock on the table (mm). */
 const PLANE_SIZE_MM = 90;
@@ -65,8 +127,34 @@ const PLANE_SIZE_MM = 90;
 const SKETCH_CAMERA_DISTANCE_MM = 170;
 /** Plane-pick vantage: the studio iso the shell opens with, re-centred. */
 const PICK_CAMERA_DISTANCE_MM = 230;
-/** r3f click filter: pointer travel above this (px) is a drag, not a click. */
-const CLICK_SLOP_PX = 4;
+/**
+ * Press timing for the click/drag discriminator. r3f's `e.delta` reports the
+ * travel but not the duration, and duration is half of what separates a
+ * trackpad wobble from a deliberate flick-pan (see `sketch/clickIntent.ts`), so
+ * the press time is recorded here and read back on the click.
+ *
+ * A module-level ref rather than component state on purpose: a pointer press is
+ * a global, singular thing, both call sites below need it, and re-rendering the
+ * scene on pointerdown would cost a frame in the middle of a gesture.
+ */
+const pressedAt = { current: null as number | null };
+
+/** Remember when this press started (any button, any target in the scene). */
+function notePressStart(event: { nativeEvent: { timeStamp: number } }): void {
+  pressedAt.current = event.nativeEvent.timeStamp;
+}
+
+/** The gesture this click event completes — travel plus press duration. */
+function gestureOf(event: {
+  delta: number;
+  nativeEvent: { timeStamp: number };
+}): PointerGesture {
+  const start = pressedAt.current;
+  return {
+    travelPx: event.delta,
+    durationMs: start === null ? null : event.nativeEvent.timeStamp - start,
+  };
+}
 
 /** One solved sketch feature, ready to render (on its resolved plane basis). */
 export interface SolvedSketchLayer {
@@ -115,6 +203,11 @@ interface InkSegmentsProps {
   /** Dash geometry (world mm); defaults to the rubber-band preview pattern. */
   dashSize?: number;
   gapSize?: number;
+  /**
+   * This is the ACTIVE sketch — draw it over the solid (policy note above).
+   * Off by default so committed/solved ink keeps ordinary occlusion.
+   */
+  onTop?: boolean;
 }
 
 /** One layer of sketch ink — a single LineSegments draw call. */
@@ -124,6 +217,7 @@ function InkSegments({
   dashed = false,
   dashSize = sketch.previewDashMm,
   gapSize = sketch.previewGapMm,
+  onTop = false,
 }: InkSegmentsProps) {
   const ref = useRef<LineSegments>(null);
   const geometry = usePositionsGeometry(positions);
@@ -132,17 +226,29 @@ function InkSegments({
     if (dashed) ref.current?.computeLineDistances();
   }, [geometry, dashed]);
   if (positions.length === 0) return null;
+  // Alpha stays 1: `transparent` is here to put the ink in the queue that
+  // renders LAST, not to fade it, so the token hex still lands exactly (the
+  // e2e pixel probe reads it).
+  const depth = onTop
+    ? { depthTest: false, depthWrite: false, transparent: true }
+    : {};
   return (
-    <lineSegments ref={ref} geometry={geometry} frustumCulled={false}>
+    <lineSegments
+      ref={ref}
+      geometry={geometry}
+      frustumCulled={false}
+      renderOrder={onTop ? ACTIVE_INK_RENDER_ORDER : 0}
+    >
       {dashed ? (
         <lineDashedMaterial
           color={color}
           dashSize={dashSize}
           gapSize={gapSize}
           toneMapped={false}
+          {...depth}
         />
       ) : (
-        <lineBasicMaterial color={color} toneMapped={false} />
+        <lineBasicMaterial color={color} toneMapped={false} {...depth} />
       )}
     </lineSegments>
   );
@@ -166,20 +272,30 @@ function InkPoints({
   positions,
   color,
   sizePx = sketch.pointSizePx,
+  onTop = false,
 }: {
   positions: Float32Array;
   color: string;
   sizePx?: number;
+  /** Active-sketch handles draw over the solid (policy note above). */
+  onTop?: boolean;
 }) {
   const geometry = usePositionsGeometry(positions);
   if (positions.length === 0) return null;
   return (
-    <points geometry={geometry} frustumCulled={false}>
+    <points
+      geometry={geometry}
+      frustumCulled={false}
+      renderOrder={onTop ? ACTIVE_POINT_RENDER_ORDER : 0}
+    >
       <pointsMaterial
         color={color}
         size={sizePx}
         sizeAttenuation={false}
         toneMapped={false}
+        {...(onTop
+          ? { depthTest: false, depthWrite: false, transparent: true }
+          : {})}
       />
     </points>
   );
@@ -233,9 +349,12 @@ function DatumSheet({ plane }: { plane: DatumPlaneName }) {
           setPointerOver(false);
           setHoveredPlane(null);
         }}
+        onPointerDown={notePressStart}
         onClick={(e) => {
           e.stopPropagation();
-          if (e.delta <= CLICK_SLOP_PX) choosePlane(plane);
+          // Same discriminator as the drawing surface below — the two used to
+          // carry the same inline magic number and could drift apart.
+          if (isClick(gestureOf(e))) choosePlane(plane);
         }}
       >
         <planeGeometry args={[PLANE_SIZE_MM, PLANE_SIZE_MM]} />
@@ -247,6 +366,7 @@ function DatumSheet({ plane }: { plane: DatumPlaneName }) {
           }
           depthWrite={false}
           side={2 /* DoubleSide */}
+          {...COPLANAR_DECAL}
         />
       </mesh>
       <lineSegments geometry={edgeGeometry} frustumCulled={false}>
@@ -349,8 +469,9 @@ function PointerCatcher({ basis }: { basis: PlaneBasis }) {
         setHoverPick(null);
         invalidate();
       }}
+      onPointerDown={notePressStart}
       onClick={(e) => {
-        if (e.delta > CLICK_SLOP_PX) return; // a pan, not a placement
+        if (!isClick(gestureOf(e))) return; // the camera moved, not the model
         const store = useSketchStore.getState();
         const clickTool = store.tool;
         if (clickTool === "select") {
@@ -456,7 +577,7 @@ function Crosshair({ basis }: { basis: PlaneBasis }) {
     });
     return out;
   }, [cursor, marked, basis]);
-  return <InkSegments positions={positions} color={sketch.cursor} />;
+  return <InkSegments positions={positions} color={sketch.cursor} onTop />;
 }
 
 /** Keep the snap mark under the HUD strips, like the constraint glyphs. */
@@ -578,7 +699,16 @@ function useSnapModifiers(active: boolean) {
   }, [active, setSnapModifiers, invalidate]);
 }
 
-/** The mm grid on the active sketch plane (cell = the 1 mm snap step). */
+/**
+ * The mm grid on the active sketch plane (cell = the 1 mm snap step).
+ *
+ * `coplanar` is not cosmetic here: this grid is laid ON whatever the sketch is
+ * seated on, so on a model face (or an origin datum a body happens to sit on)
+ * it lands in the same depth slot as the solid and speckles into patches —
+ * measured before the fix, roughly half the face gridded and half not. It keeps
+ * depth TESTING, so a boss standing in front of the plane still occludes it;
+ * only the tie is broken (see the depth-policy note at the top of this file).
+ */
 function SketchGrid({ basis }: { basis: PlaneBasis }) {
   const quaternion = useMemo(() => gridQuaternion(basis), [basis]);
   return (
@@ -589,7 +719,57 @@ function SketchGrid({ basis }: { basis: PlaneBasis }) {
       sectionSize={10}
       cellColor={viewport.gridMinor}
       sectionColor={viewport.gridMajor}
+      coplanar
     />
+  );
+}
+
+/** r3f wants a raycast function, and this sheet must never eat a click. */
+const NO_RAYCAST = () => {};
+
+/**
+ * LAYOUT BLUING — the dark ground the scribe reads against, laid on the face
+ * the active sketch is seated on. See `sketch.faceBluing` in the design tokens
+ * for the measured contrast this exists to fix (1.32:1 → 5.9:1) and
+ * `bluingWash.ts` for why the patch is feathered rather than a card; this
+ * component is only its placement.
+ *
+ * It is drawn ONLY for an `on_face` sketch, which is the whole restraint: a
+ * sketch in space already has the carbide ground and needs no wash, and you
+ * blue STOCK, not air. It keeps depth testing (+ {@link COPLANAR_DECAL}) so
+ * geometry genuinely in front of the plane still covers it — the wash is paint
+ * on a surface, not an overlay on the frame.
+ */
+function FaceBluing({
+  basis,
+  areaMm2,
+}: {
+  basis: PlaneBasis;
+  areaMm2: number;
+}) {
+  const quaternion = useMemo(() => planeQuaternion(basis), [basis]);
+  const size = bluingRadiusMm(areaMm2) * 2;
+  return (
+    <mesh
+      position={[basis.origin[0], basis.origin[1], basis.origin[2]]}
+      quaternion={quaternion}
+      raycast={NO_RAYCAST}
+      // The wash and the plane grid are both transparent AND coplanar, so their
+      // draw order would otherwise be decided by a tie-break. It is the ground:
+      // it goes down first, explicitly.
+      renderOrder={-1}
+    >
+      <planeGeometry args={[size, size]} />
+      <meshBasicMaterial
+        color={sketch.faceBluing}
+        alphaMap={bluingWash()}
+        transparent
+        opacity={sketch.faceBluingOpacity}
+        depthWrite={false}
+        side={2 /* DoubleSide */}
+        {...COPLANAR_DECAL}
+      />
+    </mesh>
   );
 }
 
@@ -708,29 +888,45 @@ function DrawLayer({ basis }: { basis: PlaneBasis }) {
 
   return (
     <group>
-      <InkSegments positions={bufferPositions} color={sketch.scribe} />
+      {/* Every layer here is the sketch you are AUTHORING, so every layer is
+          `onTop` — a rule with no exceptions is one nobody has to remember.
+          The one thing that would break is a mark you want occluded, and this
+          group contains none. */}
+      <InkSegments positions={bufferPositions} color={sketch.scribe} onTop />
       <InkSegments
         positions={constructionPositions}
         color={sketch.constructionInk}
         dashed
         dashSize={sketch.constructionDashMm}
         gapSize={sketch.constructionGapMm}
+        onTop
       />
-      <InkSegments positions={hoveredPositions} color={sketch.hoverInk} />
-      <InkSegments positions={selectedPositions} color={sketch.selectedInk} />
-      <InkPoints positions={pointPositions} color={sketch.point} />
+      <InkSegments positions={hoveredPositions} color={sketch.hoverInk} onTop />
+      <InkSegments
+        positions={selectedPositions}
+        color={sketch.selectedInk}
+        onTop
+      />
+      <InkPoints positions={pointPositions} color={sketch.point} onTop />
       <InkPoints
         positions={hoveredPointPositions}
         color={sketch.hoverInk}
         sizePx={sketch.pickedPointSizePx}
+        onTop
       />
       <InkPoints
         positions={selectedPointPositions}
         color={sketch.selectedInk}
         sizePx={sketch.pickedPointSizePx}
+        onTop
       />
-      <InkSegments positions={preview} color={sketch.preview} dashed />
-      <InkSegments positions={ghostPositions} color={sketch.preview} dashed />
+      <InkSegments positions={preview} color={sketch.preview} dashed onTop />
+      <InkSegments
+        positions={ghostPositions}
+        color={sketch.preview}
+        dashed
+        onTop
+      />
       <Crosshair basis={basis} />
       <SnapMarker basis={basis} />
       <ConstraintGlyphs basis={basis} />
@@ -778,6 +974,7 @@ function DatumHintSheet({ basis }: { basis: PlaneBasis }) {
           opacity={sketch.planeActiveFillOpacity}
           depthWrite={false}
           side={2 /* DoubleSide */}
+          {...COPLANAR_DECAL}
         />
       </mesh>
       <lineSegments geometry={edgeGeometry} frustumCulled={false}>
@@ -813,6 +1010,47 @@ function SolvedLayer({ layer }: { layer: SolvedSketchLayer }) {
 }
 
 /**
+ * How much MORE than the picked face the entry frame shows. 1.7 keeps the whole
+ * face plus a band of its surroundings on screen, so the face's own outline —
+ * and the body and bench beyond it — say where you are.
+ *
+ * The alternative, framing the profile you are about to draw, cannot work: on
+ * entry there is no profile yet. Framing the whole BODY was the other candidate
+ * and loses the point of a face sketch (a 5 mm boss on a 400 mm plate would be
+ * a speck). The face is the subject; its neighbourhood is the context.
+ */
+const FACE_FRAME_MARGIN = 1.7;
+/** Never closer than this (mm) — a tiny face must not put the eye inside the stock. */
+const MIN_FACE_CAMERA_MM = 45;
+
+/**
+ * Distance (mm) the authoring camera parks at.
+ *
+ * A fixed {@link SKETCH_CAMERA_DISTANCE_MM} is right for a datum plane, whose
+ * sheet is a fixed size — but it is meaningless on a MODEL FACE, whose size is
+ * whatever the part is. Founder report, 2026-08-01: entering a sketch on a face
+ * parked so close that the face filled the frame edge to edge as a featureless
+ * slab, with no outline, no body and no horizon to say where you were. The face
+ * carries its own area in its signature, so the frame is derived from it: fit
+ * the equal-area square plus {@link FACE_FRAME_MARGIN} into the vertical field
+ * of view. Big face, stand back; small boss, lean in.
+ */
+function sketchCameraDistanceMm(
+  plane: SketchPlaneSpec,
+  camera: Camera,
+): number {
+  if (plane.kind !== "on_face") return SKETCH_CAMERA_DISTANCE_MM;
+  const span = Math.sqrt(Math.max(plane.signature.area_mm2, 0));
+  if (!(span > 0)) return SKETCH_CAMERA_DISTANCE_MM;
+  // Perspective only; an ortho sketch camera would frame by zoom, not distance.
+  const fov =
+    "fov" in camera && typeof camera.fov === "number" ? camera.fov : 40;
+  const distance =
+    (span * FACE_FRAME_MARGIN) / 2 / Math.tan((fov * Math.PI) / 360);
+  return Math.max(MIN_FACE_CAMERA_MM, distance);
+}
+
+/**
  * Camera rig: eases to the plane-pick iso or the normal-on authoring pose
  * (instant under prefers-reduced-motion), releases the camera otherwise.
  */
@@ -836,7 +1074,7 @@ function SketchCameraRig() {
     if (mode === "draw" && plane !== null) {
       pose = planeCameraPose(
         resolveSpecBasis(plane),
-        SKETCH_CAMERA_DISTANCE_MM,
+        sketchCameraDistanceMm(plane, camera),
       );
     } else if (mode === "plane") {
       const direction = new Vector3(1, 0.68, 1.35)
@@ -944,6 +1182,9 @@ export function SketchScene({ solved, facePicking = false }: SketchSceneProps) {
       {mode === "draw" && plane !== null && basis !== null ? (
         <group>
           {plane.kind === "offset" ? <DatumHintSheet basis={basis} /> : null}
+          {plane.kind === "on_face" ? (
+            <FaceBluing basis={basis} areaMm2={plane.signature.area_mm2} />
+          ) : null}
           <SketchGrid basis={basis} />
           <PointerCatcher basis={basis} />
           <DrawLayer basis={basis} />

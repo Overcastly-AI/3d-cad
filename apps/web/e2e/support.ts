@@ -166,33 +166,150 @@ export async function createPartViaApi(
 }
 
 /**
- * Count bright, cool-tinted canvas pixels — sketch ink. The scribe tokens
- * (`sketch.scribe`/`scribeSolved`) are the only bright blue-leaning colors
- * in the scene (brass previews are warm, grid/ground are dark), and sketch
- * materials render un-tonemapped, so token ink lands near its exact hex.
+ * Count SKETCH INK on the canvas — pixels on the live or solved scribe tokens.
+ *
+ * REWRITTEN 2026-08-01, because the previous version was actively misleading
+ * and would have blessed a broken product. It matched "bright and blue-leaning"
+ * (`r > 120 && b > 140 && b >= r && g >= r`), which is also a perfect
+ * description of MACHINED ALUMINUM under the studio matcap. Measured by the QA
+ * pass on the sketch-on-a-face case: it returned **926 729** where a sketch on
+ * a bare datum plane returned **1 881** — its number went up ~500x at exactly
+ * the moment the sketch stopped being usable, because the body's face is the
+ * thing it was counting. `part-visibility.spec.ts` had already worked around it
+ * with a local exact-hex probe; this makes the shared helper honest instead.
+ *
+ * It now counts the two scribe tokens exactly (`sketch.scribe` for the sketch
+ * being drawn, `sketch.scribeSolved` for a persisted one). Sketch materials
+ * render un-tonemapped, so a token lands on the canvas at its literal hex and
+ * nothing shaded can be mistaken for it.
  */
 export async function countSketchInkPixels(page: Page): Promise<number> {
-  return page.evaluate(() => {
-    const canvas = document.querySelector<HTMLCanvasElement>(
-      '[data-testid="viewport"] canvas',
-    );
-    if (!canvas) return 0;
-    const probe = document.createElement("canvas");
-    probe.width = canvas.width;
-    probe.height = canvas.height;
-    const ctx = probe.getContext("2d");
-    if (!ctx) return 0;
-    ctx.drawImage(canvas, 0, 0);
-    const { data } = ctx.getImageData(0, 0, probe.width, probe.height);
-    let count = 0;
-    for (let i = 0; i < data.length; i += 4) {
-      const r = data[i] ?? 0;
-      const g = data[i + 1] ?? 0;
-      const b = data[i + 2] ?? 0;
-      if (r > 120 && b > 140 && b >= r && g >= r) count += 1;
-    }
-    return count;
-  });
+  const live = await countTokenPixels(page, "#E9F1F8");
+  const solved = await countTokenPixels(page, "#C4D2DE");
+  return live + solved;
+}
+
+/** A CSS-pixel rectangle of the viewport canvas to restrict a census to. */
+export interface CanvasBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Count canvas pixels that land on a design-token hex (± `tolerance` per
+ * channel), optionally inside `box` (canvas coordinates).
+ *
+ * The primitive `countSketchInkPixels` above is built on, and the reason it
+ * works: sketch, datum and measure materials all render un-tonemapped through
+ * line materials, so a token lands on the canvas at its literal hex and a tight
+ * match cannot be confused with a shaded surface. Anything looser — "bright and
+ * blue-leaning", say — describes machined aluminum just as well as ink.
+ *
+ * Extracted on the third copy of the same twelve lines (`part-visibility`'s two
+ * probes and the sketch-on-a-face visibility gate) — CLAUDE.md DRY rule.
+ */
+export async function countTokenPixels(
+  page: Page,
+  hex: string,
+  tolerance = 6,
+  box?: CanvasBox,
+): Promise<number> {
+  return page.evaluate(
+    ({ hex, tolerance, box }) => {
+      const canvas = document.querySelector<HTMLCanvasElement>(
+        '[data-testid="viewport"] canvas',
+      );
+      if (!canvas) return 0;
+      const probe = document.createElement("canvas");
+      probe.width = canvas.width;
+      probe.height = canvas.height;
+      const ctx = probe.getContext("2d");
+      if (!ctx) return 0;
+      ctx.drawImage(canvas, 0, 0);
+      const rect = box ?? {
+        x: 0,
+        y: 0,
+        width: probe.width,
+        height: probe.height,
+      };
+      if (rect.width <= 0 || rect.height <= 0) return 0;
+      const { data } = ctx.getImageData(
+        rect.x,
+        rect.y,
+        rect.width,
+        rect.height,
+      );
+      const value = Number.parseInt(hex.slice(1), 16);
+      const target = [(value >> 16) & 255, (value >> 8) & 255, value & 255];
+      let count = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        if (
+          Math.abs((data[i] ?? 0) - (target[0] as number)) <= tolerance &&
+          Math.abs((data[i + 1] ?? 0) - (target[1] as number)) <= tolerance &&
+          Math.abs((data[i + 2] ?? 0) - (target[2] as number)) <= tolerance
+        ) {
+          count += 1;
+        }
+      }
+      return count;
+    },
+    { hex, tolerance, box },
+  );
+}
+
+/**
+ * Count canvas pixels brighter than `minLuminance` (WCAG relative-luminance
+ * weights on the raw sRGB bytes — the same banding `part-visibility` uses to
+ * tell a lit body from a ghosted one), optionally inside `box`.
+ *
+ * Used to assert the OPPOSITE of ink: that a lit machined-aluminum face has
+ * been covered by the sketcher's layout bluing, so the scribe has a ground to
+ * read against.
+ */
+export async function countLitPixels(
+  page: Page,
+  minLuminance: number,
+  box?: CanvasBox,
+): Promise<number> {
+  return page.evaluate(
+    ({ minLuminance, box }) => {
+      const canvas = document.querySelector<HTMLCanvasElement>(
+        '[data-testid="viewport"] canvas',
+      );
+      if (!canvas) return 0;
+      const probe = document.createElement("canvas");
+      probe.width = canvas.width;
+      probe.height = canvas.height;
+      const ctx = probe.getContext("2d");
+      if (!ctx) return 0;
+      ctx.drawImage(canvas, 0, 0);
+      const rect = box ?? {
+        x: 0,
+        y: 0,
+        width: probe.width,
+        height: probe.height,
+      };
+      if (rect.width <= 0 || rect.height <= 0) return 0;
+      const { data } = ctx.getImageData(
+        rect.x,
+        rect.y,
+        rect.width,
+        rect.height,
+      );
+      let count = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        const lum =
+          0.2126 * (data[i] ?? 0) +
+          0.7152 * (data[i + 1] ?? 0) +
+          0.0722 * (data[i + 2] ?? 0);
+        if (lum > minLuminance) count += 1;
+      }
+      return count;
+    },
+    { minLuminance, box },
+  );
 }
 
 /**
