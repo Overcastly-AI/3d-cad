@@ -2196,6 +2196,21 @@ frame refactor are v2/§11. Spike de-collected.
 Full narrative evidence lives in `docs/ROADMAP.md` (Phase 4/4b sections) and
 `CHANGELOG.md`; one line per item below per token economy.
 
+### Recently shipped (2026-08-01)
+
+- **GATE-2 — the `.dockerignore` allow-list lost an entry and only `deploy-path`
+  noticed.** LIC-2 added `scripts/corresponding_source.py` to the runtime `COPY`
+  (the licence gate imports it) with no matching `!` negation, so the daemon
+  resolved that source to nothing and all three image builds failed on `42c4a0c`
+  and `4c2fdbe`. Unreachable locally by construction — the registry is blocked,
+  so the only signal was the slowest workflow we have. Negation added, and the
+  class closed: `scripts/check-build-context.py` re-implements moby's
+  `MatchesOrParentMatches` and asserts every Dockerfile COPY source survives
+  `.dockerignore` (stdlib, no daemon, ~10 ms) in `just lint` + CI's `compose`
+  job. Verified as a gate, not asserted: it reproduces the real failure by name
+  before the fix, and its matcher agrees with the docker SDK's context walk on
+  all 445 included entries. `--self-test` proves it can fail.
+
 ### Recently shipped (2026-07-31)
 
 - **OBS-1 — there was no observability at all; now there is `/metrics`.** The

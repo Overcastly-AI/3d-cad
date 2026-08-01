@@ -7,7 +7,9 @@
 #               tempdir and diff against the committed output (fails on drift)
 #   compose   — `docker compose config -q` for the base stack and base+dev
 #               overlay, plus scripts/check-compose.py (audit G1/G3 invariants:
-#               geometry S3 creds == MinIO's; internal services unpublished)
+#               geometry S3 creds == MinIO's; internal services unpublished) and
+#               scripts/check-build-context.py (every Dockerfile COPY source
+#               survives .dockerignore — the failure `deploy-path` used to find)
 #   licences  — scripts/check-licences.py over the shared objects in the synced
 #               environment (LIC-3), plus a self-test that PROVES the gate
 #               fails on the GPL library the OCP wheel vendors
@@ -155,6 +157,15 @@ jobs:
       # `docker compose config` — no daemon, no image pulls, no Python deps.
       - name: Compose invariants (audit G1/G3 guard)
         run: python3 scripts/check-compose.py
+      # Every Dockerfile COPY source survives .dockerignore. Stdlib, no daemon,
+      # ~10ms — and it is the ONLY place this class can be caught before the
+      # image build, which the blocked registry puts out of local reach: LIC-2's
+      # scripts/corresponding_source.py had no negation and failed all three
+      # image builds for two commits, visible only in `deploy-path`.
+      - name: Build-context reachability (+ prove the gate can fail)
+        run: |
+          python3 scripts/check-build-context.py --self-test
+          python3 scripts/check-build-context.py
 
   licences:
     # LIC-3 — the no-GPL rule, enforced by reading the BINARIES we ship.

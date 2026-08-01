@@ -64,6 +64,11 @@ lint:
     # GPL code fails at the moment somebody adds it — the OCP wheel proved that
     # "reviewers enforce the no-GPL rule" cannot work when the metadata lies.
     python3 scripts/check-licences.py --profile source-env
+    # ~10ms, same reasoning: a COPY source excluded by .dockerignore resolves to
+    # nothing and fails the image build, and the blocked registry puts that
+    # failure out of local reach entirely — it surfaced only in `deploy-path`,
+    # the slowest signal we have (2026-08-01, scripts/corresponding_source.py).
+    python3 scripts/check-build-context.py
 
 # Unit tests: pytest across the uv workspace + vitest via pnpm (recursive)
 test:

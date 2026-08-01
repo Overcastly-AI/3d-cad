@@ -21,6 +21,16 @@ adds prefetch off an open editor / the travel stop, so a deep mid-tree edit is
 33.7 → 4.8 s and the first face pick after it 34.7 → 4.4 s. Cold open is still
 ~26 s — the N^1.85 curve is untouched and needs incremental topology.
 
+**GATE-2 (2026-08-01) — the image build broke for two commits and only the
+slowest workflow could see it.** LIC-2's `scripts/corresponding_source.py` went
+into the runtime `COPY` without a `.dockerignore` negation, so all three service
+images failed to build on `42c4a0c` and `4c2fdbe`; the blocked registry means no
+local gate could ever have reached that failure. Negation added, and
+`scripts/check-build-context.py` now re-implements Docker's own matching to
+assert every COPY source reaches the build context — stdlib, no daemon, ~10 ms,
+in `just lint` and CI's `compose` job. Same lesson as GATE-1: the fix is a gate
+that fails in seconds, not a more careful allow-list.
+
 **CONCURRENCY MEASURED 2026-08-01 (qa-tester) — every perf number before it was
 single-user, and the release question is a TEAM question.** New harness
 (`scripts/concurrency-load.py` + `scripts/load-stack.sh`), new section in
