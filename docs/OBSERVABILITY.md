@@ -94,7 +94,7 @@ At 15 s that is negligible next to one rebuild.
 `{}` marks a label. Counters carry the usual `_total` suffix; histograms expose
 `_bucket` / `_sum` / `_count`.
 
-### The four that are about *this* product
+### The five that are about *this* product
 
 | Metric | Type | Labels | What it means |
 | --- | --- | --- | --- |
@@ -108,6 +108,11 @@ At 15 s that is negligible next to one rebuild.
 | `loft_feature_errors_total` | counter | `code` | Feature evaluations that failed, by error code. |
 | `loft_step_import_duration_seconds` | histogram | `outcome` | Wall time of the bounded, killable STEP parse worker. |
 | `loft_step_import_refusals_total` | counter | `reason` | Imports refused by a **resource bound**, not by bad input. |
+| `loft_admission_in_flight` | gauge | — | Requests inside the bounded OCCT section (≤ `ADMISSION_CONCURRENCY`). |
+| `loft_admission_queued` | gauge | — | Requests waiting for a slot. |
+| `loft_admission_wait_seconds` | histogram | — | Latency the **queue** adds, separable from rebuild time. |
+| `loft_admission_rejected_total` | counter | `reason` | 503s shed before any CPU was spent. |
+| `loft_admission_abandoned_total` | counter | — | Queued requests dropped because the client had already disconnected. |
 
 Label values, all bounded and all fixed:
 
@@ -118,10 +123,13 @@ Label values, all bounded and all fixed:
   chosen to straddle the wall `docs/PERF.md` measured, not to be round.
 * `outcome` ∈ `ok`, `cpu_timeout`, `wall_timeout`, `too_many_products`,
   `parse_failed`, `error`.
-* `reason` ∈ `cpu_timeout`, `wall_timeout`, `too_many_products`. **A malformed
-  file is not a refusal** — bad input is the user's problem, a resource bound is
-  yours, and sharing a counter would make "are my users hitting the ceiling?"
-  unanswerable.
+* `reason` ∈ `cpu_timeout`, `wall_timeout`, `too_many_products` (STEP import).
+  **A malformed file is not a refusal** — bad input is the user's problem, a
+  resource bound is yours, and sharing a counter would make "are my users
+  hitting the ceiling?" unanswerable.
+* `reason` ∈ `queue_full`, `predicted_wait`, `wait_timeout` (admission). Three
+  different operator actions, so three values rather than one "rejected" total —
+  see §3.
 * `code` — the ~85 feature error codes (`invalid_body`,
   `shell_thickness_too_large`, `import_parse_timeout`, `boolean_failed`, …).
 
@@ -196,12 +204,45 @@ sum(rate(loft_rebuild_cache_hits_total[5m]))
 
 **The per-process trap, in one paragraph.** The prefix cache is an in-process
 LRU — `geometry.rebuild_cache`. Raising `WEB_CONCURRENCY` to N gives you N
-independent caches, and a user's second request lands on whichever worker the
-kernel picks, so the *expected* hit rate falls roughly as 1/N even though every
-individual cache is behaving perfectly. If you raised the worker count and
-latency got *worse*, this metric is the proof. Geometry is CPU-bound on OCCT
-(`docs/PERF.md`), so more workers than cores buys nothing anyway; the honest
-tuning is workers ≈ cores, and watch the hit rate when you change it.
+independent caches, so if a user's second request can land on any worker the
+*expected* hit rate falls roughly as 1/N even though every individual cache is
+behaving perfectly (measured: 0.40 → 0.075 at four workers). **The fix shipped
+2026-08-01:** list all your workers in `GEOMETRY_URL` and the gateway pins each
+modeler to one of them (`docs/OPERATIONS.md` §6). Measured back-to-back on the
+same fleet, four modelers on four workers: **hit rate 0.40 with affinity, 0.10
+without; wall 30.6 s against 64.9 s; `/measure` p50 81 ms against 3 284 ms.** If
+you raised the worker count and latency got *worse*, this metric is the proof
+and that setting is the cure. Geometry is CPU-bound on OCCT (`docs/PERF.md`), so
+more workers than cores still buys nothing.
+
+### Admission control — is this worker busy, or is it broken?
+
+```promql
+loft_admission_queued
+loft_admission_in_flight
+sum by (reason) (rate(loft_admission_rejected_total[5m]))
+histogram_quantile(0.95, sum by (le) (rate(loft_admission_wait_seconds_bucket[5m])))
+```
+
+Every OCCT route sits behind a bounded FIFO queue (`py_kit.admission`,
+`docs/PERF.md` CONC-2). These four exist because "the service is slow" and "the
+service is shedding load" look identical from outside and have opposite
+remedies: the first is a part-size problem, the second is a worker-count one.
+
+| Reading | Verdict |
+| --- | --- |
+| `queued` ≈ 0, `in_flight` ≤ 1 | **Healthy.** Nobody is waiting. |
+| `queued` persistently > 0 | This worker has more modelers than it can serve. Add workers — one per core (§6). Not a fault. |
+| `wait_seconds` p95 climbing while `loft_rebuild_duration_seconds` is flat | The latency users feel is **queueing**, not the kernel. Exactly the split this pair of metrics exists to make visible. |
+| `rejected{reason="queue_full"}` | Bursts deeper than `ADMISSION_QUEUE_DEPTH`. Raising the depth trades 503s for longer waits; more workers is the real answer. |
+| `rejected{reason="predicted_wait"}` | The queue is short but the parts are *big*: at the measured service rate this arrival could not have been served inside `ADMISSION_MAX_WAIT_S`. |
+| `rejected{reason="wait_timeout"}` | It queued and the budget ran out — the estimate was optimistic. A few are normal; a steady stream means the fleet is undersized. |
+| `loft_admission_abandoned_total` rising | Clients are giving up before their turn. CPU this worker did **not** waste — but it means your users are seeing waits they will not sit through. |
+
+A rejection is a **503 `service_overloaded` with `Retry-After`**, refused before
+any CPU is spent. It is a load signal, not an incident, and it is deliberately
+distinguishable from a 502 (a worker really is down) and a 504 (the gateway
+stopped waiting for a worker that is still working).
 
 `loft_rebuild_features_resumed_total / (resumed + evaluated)` is the same story
 in units of work saved — how much of the kernel's job the cache is deleting.

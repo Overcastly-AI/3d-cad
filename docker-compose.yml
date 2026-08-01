@@ -113,9 +113,21 @@ services:
     environment:
       PORT: "8000"
       LOG_FORMAT: ${LOG_FORMAT:-json}
-      # Upstream for the /api/v1/geometry/* proxy (readiness reports it
-      # best-effort; REDIS_URL etc. get wired when WebSocket fan-out lands).
-      GEOMETRY_URL: http://geometry:8002
+      # Upstream(s) for the /api/v1/geometry/* proxy (readiness reports them
+      # best-effort, with a live count when there is more than one).
+      #
+      # COMMA-SEPARATED for a fan-out. One geometry worker serves exactly ONE
+      # modeler (OCP holds the GIL — docs/OPERATIONS.md §6), so a team scales by
+      # running more workers; the gateway pins each modeler to one of them by
+      # rendezvous hash, which is what makes the extra workers worth 3.75x
+      # instead of 1.21x. `docker-compose.scale.yml` defines four named
+      # replicas and overrides this line to list them.
+      GEOMETRY_URL: ${GEOMETRY_URL:-http://geometry:8002}
+      # How long to wait for a geometry call before answering 504
+      # `upstream_timeout` (NOT 502 "unreachable" — the worker is fine, the part
+      # is big). 90 s covers the 40.3 s worst measured cold operation plus the
+      # 20 s admission-queue ceiling; see .env.example.
+      GEOMETRY_TIMEOUT_S: ${GEOMETRY_TIMEOUT_S:-90}
       # Upstream for the /api/v1/parts aggregation — the gateway verifies the
       # JWT and forwards the user id in X-Loft-User (documents is internal
       # and trusts that header; never expose its port to the public edge).
@@ -211,6 +223,13 @@ services:
       S3_BUCKET: ${S3_BUCKET:-loft}
       S3_ACCESS_KEY_ID: *minio-user
       S3_SECRET_ACCESS_KEY: *minio-password
+      # Admission control on the OCCT routes — the bounded FIFO queue that makes
+      # overload degrade (503 + Retry-After) instead of everyone missing the
+      # deadline together. Concurrency 1 is the worker's REAL core count: OCP
+      # does not release the GIL. docs/OPERATIONS.md §6, .env.example.
+      ADMISSION_CONCURRENCY: ${ADMISSION_CONCURRENCY:-1}
+      ADMISSION_QUEUE_DEPTH: ${ADMISSION_QUEUE_DEPTH:-8}
+      ADMISSION_MAX_WAIT_S: ${ADMISSION_MAX_WAIT_S:-20}
       # As for documents: S3_SECRET_ACCESS_KEY is the MinIO ROOT password, and
       # py-kit refuses to boot on its publicly-known default unless LOFT_ENV is
       # exactly "dev". This stack opts in explicitly; a real deploy sets

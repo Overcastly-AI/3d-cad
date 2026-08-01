@@ -92,15 +92,18 @@ PY
     --host 127.0.0.1 --port "$DOCUMENTS_PORT" \
     >"$STATE/documents.log" 2>&1 & echo $! >>"$PIDFILE")
 
-  # The gateway points at the FIRST geometry worker; the harness talks to the
-  # others directly. Fan-out at the gateway would need a load balancer the
-  # shipped stack does not have (that absence is itself a finding).
+  # The gateway points at ALL the workers, comma-separated, and pins each
+  # modeler to one of them by rendezvous hash (CONC-1, shipped 2026-08-01 —
+  # before that it could only address one, and the absence of any fan-out was
+  # itself the finding). The harness still talks to the workers directly for
+  # the routing-policy comparison, which is what isolates the gateway's choice
+  # from the kernel's behaviour.
   # REDIS_URL is inherited from the caller's environment when set (the gateway
   # rate limiter is a no-op without it — fail-open by absence), so exporting is
   # the whole wiring. An inline `${REDIS_URL:+VAR=...}` would be parsed as a
   # COMMAND here, not an assignment, and fails with "No such file or directory".
   (cd "$ROOT" && LOFT_ENV=dev POSTGRES_URL="$gw_dsn" \
-    GEOMETRY_URL="${geometry_urls[0]}" \
+    GEOMETRY_URL="$(IFS=,; echo "${geometry_urls[*]}")" \
     DOCUMENTS_URL="http://127.0.0.1:$DOCUMENTS_PORT" \
     nohup uv run uvicorn gateway.main:app \
     --host 127.0.0.1 --port "$GATEWAY_PORT" \

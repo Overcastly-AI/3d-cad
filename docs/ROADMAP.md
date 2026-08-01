@@ -38,6 +38,27 @@ gateway's 30 s upstream timeout, which calls a healthy geometry service
 "unreachable" on a 200-feature face pick with ONE user on an IDLE machine.
 Filed CONC-1..CONC-8 (three P1: affinity, admission control, the timeout).
 
+**CONC-1 + CONC-2 + CONC-3 SHIPPED 2026-08-01 (backend-builder) — the three P1s
+of that run, in one slice because they interact.** (1) `GEOMETRY_URL` now takes
+a comma-separated worker list and the gateway pins each modeler to one worker by
+rendezvous hash; a dead worker re-routes (cold cache, never stranded), a
+saturated one deliberately does not. Measured back-to-back on the same fleet:
+**wall 30.6 s sticky vs 64.9 s random, cache hit 0.40 vs 0.10, `/measure` p50
+81 ms vs 3 284 ms**; 8 of 8 modelers pinned to exactly one worker through the
+real gateway across three routes. (2) A bounded FIFO admission queue in front of
+every OCCT route (`py_kit.admission`) — 16 simultaneous cold evaluates went from
+**0 of 16 delivered inside a 30 s deadline to 11 of 16**, same worker, same
+machine, minutes apart, with nothing shed at the deeper setting. Past the bound:
+503 `service_overloaded` + a `Retry-After` computed from that worker's own
+measured service time, refused before any CPU is spent. (3) The timeout stopped
+lying: 90 s (derived from the 40.3 s worst measured cold operation + the queue
+ceiling, env-tunable) and a timeout is now **504 `upstream_timeout`**, not 502
+"unreachable" — and the upstream is deliberately NOT cancelled, so the abandoned
+rebuild banks its checkpoint and the retry is cheaper. Crossing gate still
+green; 32 further responses audited clean under load. `docs/OPERATIONS.md` §6
+rewritten again (it had been rewritten that morning to say affinity was "not
+shipped"). OPEN from that run: CONC-4..CONC-8.
+
 **COMPLETE — FOUNDER-DIRECTED UI WAVE (2026-07-30/31)** — "this needs to look
 professional and comparable to Fusion 360 and Plasticity." All four of the
 founder's questions are answered (timeline, component enablement, pre-selection

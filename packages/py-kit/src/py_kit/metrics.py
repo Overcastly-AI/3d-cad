@@ -104,6 +104,11 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from py_kit.config import BaseServiceSettings, is_dev_env
 
 __all__ = [
+    "ADMISSION_ABANDONED",
+    "ADMISSION_IN_FLIGHT",
+    "ADMISSION_QUEUED",
+    "ADMISSION_REJECTED",
+    "ADMISSION_WAIT",
     "MAX_DISTINCT_CODES",
     "METRICS_PATH",
     "REGISTRY",
@@ -320,6 +325,57 @@ STEP_IMPORT_REFUSALS: Final = Counter(
     "cpu_timeout (the RLIMIT_CPU DoS ceiling), wall_timeout (the wedged-child "
     "backstop), too_many_products (the assembly occurrence ceiling).",
     ("reason",),
+    registry=REGISTRY,
+)
+
+
+# --- admission control ------------------------------------------------------
+#
+# The queue in front of the OCCT routes (:mod:`py_kit.admission`, docs/PERF.md
+# CONC-2). These four exist because "the service is slow" and "the service is
+# shedding load" look identical from the outside and demand opposite responses:
+# the first is a part-size problem, the second is a worker-count problem. The
+# queue gauge is the number an operator sizes `--scale geometry=N` from, and
+# the rejection counter — broken out by REASON — says whether the bound that
+# bit was the depth cap, the measured-rate prediction, or the wait budget.
+
+ADMISSION_IN_FLIGHT: Final = Gauge(
+    "loft_admission_in_flight",
+    "Requests currently INSIDE the bounded CPU section (<= the configured "
+    "concurrency). Pinned at the bound means the worker is saturated.",
+    registry=REGISTRY,
+)
+
+ADMISSION_QUEUED: Final = Gauge(
+    "loft_admission_queued",
+    "Requests waiting for admission to the bounded CPU section. Persistently "
+    "above zero means this worker has more modelers than it can serve.",
+    registry=REGISTRY,
+)
+
+ADMISSION_WAIT: Final = Histogram(
+    "loft_admission_wait_seconds",
+    "Time spent queueing before admission — the latency the queue ADDS, "
+    "separable from the rebuild time itself (loft_rebuild_duration_seconds).",
+    buckets=LATENCY_BUCKETS,
+    registry=REGISTRY,
+)
+
+ADMISSION_REJECTED: Final = Counter(
+    "loft_admission_rejected",
+    "Requests refused (503 service_overloaded) before any work started, by "
+    "reason: queue_full (the depth cap), predicted_wait (the measured service "
+    "rate says it cannot be served in the budget), wait_timeout (it waited and "
+    "the budget ran out).",
+    ("reason",),
+    registry=REGISTRY,
+)
+
+ADMISSION_ABANDONED: Final = Counter(
+    "loft_admission_abandoned",
+    "Requests dropped at the front of the queue because the client had already "
+    "disconnected — CPU this worker did NOT spend on an answer nobody would "
+    "read.",
     registry=REGISTRY,
 )
 

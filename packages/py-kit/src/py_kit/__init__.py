@@ -7,15 +7,19 @@ env-driven config, structlog JSON logging, FastAPI app factory with
 builds on this package.
 """
 
+from py_kit.admission import AdmissionGate, AdmissionStats
 from py_kit.app import REQUEST_ID_HEADER, ReadinessCheck, create_app
 from py_kit.config import DEV_ENV, BaseServiceSettings, is_dev_env
 from py_kit.errors import (
     ApiError,
+    ClientGoneError,
     ConflictError,
     InternalError,
     NotFoundError,
     RateLimitExceededError,
+    ServiceOverloadedError,
     UnauthorizedError,
+    UpstreamTimeoutError,
     UpstreamUnavailableError,
     ValidationApiError,
     error_response,
@@ -35,8 +39,11 @@ __all__ = [
     "DEV_ENV",
     "METRICS_PATH",
     "REQUEST_ID_HEADER",
+    "AdmissionGate",
+    "AdmissionStats",
     "ApiError",
     "BaseServiceSettings",
+    "ClientGoneError",
     "ConflictError",
     "InternalError",
     "NotFoundError",
@@ -45,7 +52,9 @@ __all__ = [
     "RateLimitExceededError",
     "RateLimiter",
     "ReadinessCheck",
+    "ServiceOverloadedError",
     "UnauthorizedError",
+    "UpstreamTimeoutError",
     "UpstreamUnavailableError",
     "ValidationApiError",
     "bind_request_context",

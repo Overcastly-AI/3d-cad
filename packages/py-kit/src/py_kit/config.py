@@ -150,6 +150,36 @@ class BaseServiceSettings(BaseSettings):
     rate_limit_requests: int = 120  # env: RATE_LIMIT_REQUESTS
     rate_limit_window_s: int = 60  # env: RATE_LIMIT_WINDOW_S
 
+    # Admission control (py_kit.admission) — the bounded FIFO queue in front of
+    # a process's expensive routes. Fields live here (the py-kit settings
+    # pattern) so every service configures it identically; a service opts IN by
+    # putting ``ADMISSION_CONTROL`` on the routes that should queue, and today
+    # only geometry does. The gate itself is installed by the app factory.
+    #
+    # The defaults are the measured ones (docs/PERF.md 2026-08-01):
+    #
+    # * ``ADMISSION_CONCURRENCY=1`` because a geometry worker has **one**
+    #   effective core — OCP does not release the GIL, so a worker held at
+    #   1.05-1.15 cores with 1, 2, 4 and 8 requests in flight. Admitting the
+    #   second request does not use a second core, it just makes both requests
+    #   late. Operators who run geometry on a machine where that changes (a
+    #   future GIL-releasing OCP) raise this to the core count.
+    # * ``ADMISSION_QUEUE_DEPTH=8`` — deep enough that a small team's bursts
+    #   queue rather than bounce, shallow enough that the tail of the queue is
+    #   still inside a human's patience at the 2 s-per-op scale a comfortable
+    #   part actually runs at.
+    # * ``ADMISSION_MAX_WAIT_S=20`` — the longest anything waits for a slot
+    #   before being told to come back. Chosen against the gateway's 90 s
+    #   upstream budget: 20 s of queue plus the 40.3 s worst measured cold
+    #   operation (a 200-feature ``/overlay``) still leaves ~30 s of headroom,
+    #   so a queued request that IS admitted can still finish inside the
+    #   caller's deadline. Raising this without raising GEOMETRY_TIMEOUT_S
+    #   just moves the failure from an honest 503 to a 504.
+    admission_enabled: bool = True  # env: ADMISSION_ENABLED
+    admission_concurrency: int = 1  # env: ADMISSION_CONCURRENCY
+    admission_queue_depth: int = 8  # env: ADMISSION_QUEUE_DEPTH
+    admission_max_wait_s: float = 20.0  # env: ADMISSION_MAX_WAIT_S
+
     # Prometheus exposition (py_kit.metrics) — wired by the app factory, so
     # every service exports the same metrics under the same names and posture.
     # ``METRICS_ENABLED=false`` removes the middleware AND the route: no

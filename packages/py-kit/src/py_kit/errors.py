@@ -113,6 +113,76 @@ class UpstreamUnavailableError(ApiError):
     code = "upstream_unavailable"
 
 
+class UpstreamTimeoutError(ApiError):
+    """A depended-on Loft service was reached but did not answer in time (504).
+
+    Deliberately DISTINCT from :class:`UpstreamUnavailableError`, and the
+    distinction is the point (docs/PERF.md 2026-08-01, CONC-3): a healthy
+    geometry worker that is 40 s into a legitimate 200-feature rebuild is not
+    an unreachable service, and telling a modeler "Geometry service is
+    unreachable" sends them to look for an outage that does not exist. 504
+    ``upstream_timeout`` says the true thing — *we gave up waiting, it did
+    not stop working* — and carries ``Retry-After`` because the retry is
+    genuinely useful: the abandoned rebuild's checkpoint lands in the geometry
+    rebuild cache as it completes, so the next attempt resumes from it.
+
+    Nothing here cancels the upstream work, on purpose. See
+    ``gateway.upstream`` for the measurement behind that choice.
+    """
+
+    status_code = 504
+    code = "upstream_timeout"
+
+    def __init__(
+        self, message: str, *, retry_after_s: int, details: Any = None
+    ) -> None:
+        super().__init__(
+            message, details=details, headers={"Retry-After": str(retry_after_s)}
+        )
+        self.retry_after_s = retry_after_s
+
+
+class ServiceOverloadedError(ApiError):
+    """More work was offered than this process can finish in time (HTTP 503).
+
+    Raised by :class:`py_kit.admission.AdmissionGate` when the bounded queue in
+    front of the CPU-bound routes is full, or when the wait a new arrival would
+    face already exceeds the caller's budget. **This is the honest answer, and
+    it is honest in a specific way:** the request is refused BEFORE any work
+    starts, so nothing is computed and thrown away, and ``Retry-After`` is
+    derived from the queue's own measured service time rather than guessed.
+
+    A 503 here is load shedding, not a fault: the service is up, it is busy,
+    and it is telling you when to come back (docs/PERF.md CONC-2).
+    """
+
+    status_code = 503
+    code = "service_overloaded"
+
+    def __init__(
+        self, message: str, *, retry_after_s: int, details: Any = None
+    ) -> None:
+        super().__init__(
+            message, details=details, headers={"Retry-After": str(retry_after_s)}
+        )
+        self.retry_after_s = retry_after_s
+
+
+class ClientGoneError(ApiError):
+    """The caller disconnected before its queued work started (HTTP 499).
+
+    499 is nginx's non-standard "client closed request", used here for the same
+    reason: there is no client left to read a status line, so the code exists to
+    make the *log and metric* truthful. Raised by
+    :class:`py_kit.admission.AdmissionGate` when a request reaches the front of
+    the queue and the browser has already given up — the alternative is burning
+    a full core on an answer nobody will read.
+    """
+
+    status_code = 499
+    code = "client_gone"
+
+
 class RateLimitExceededError(ApiError):
     """The caller exceeded its request-rate budget (HTTP 429).
 

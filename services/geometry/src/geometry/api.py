@@ -4,12 +4,36 @@ Kernel code stays in :mod:`geometry.kernel`; this module only translates
 between HTTP and DTOs. Endpoints are sync ``def`` on purpose: kernel work is
 CPU-bound and runs on the threadpool, keeping the event loop free. The arq
 queue path (``geometry.worker``) calls the same core function.
+
+ADMISSION CONTROL (``dependencies=[ADMISSION_CONTROL]``, docs/PERF.md CONC-2).
+"Keeping the event loop free" was never the constraint: OCP does not release
+the GIL, so the threadpool gave concurrency in NAME only — a worker held at
+1.05-1.15 cores with 1, 2, 4 and 8 requests in flight, and sixteen simultaneous
+evaluates all finished within 0.4 s of each other at ~40 s. Every OCCT route
+below therefore queues behind :class:`py_kit.admission.AdmissionGate`: at most
+``ADMISSION_CONCURRENCY`` (default 1, the worker's real core count) inside at a
+time, the rest FIFO, and an honest 503 + ``Retry-After`` past the bound instead
+of admitting work that cannot finish.
+
+THREE ROUTES ARE DELIBERATELY NOT GATED, and the exemptions are the interesting
+part of the design:
+
+* ``/meshes/{id}`` — an object-store read, not kernel work. Queueing a 3 ms
+  artifact fetch behind a 40 s rebuild would make the *cheapest* thing in the
+  product the slowest, and it consumes none of the resource the gate protects.
+* ``/warm`` and ``/warm/cancel`` — they only enqueue onto the warm scheduler
+  and return; the speculation itself runs on that scheduler's own bounded
+  thread. Gating them would queue the *scheduling*, i.e. make a prefetch wait
+  for the very rebuild it exists to get ahead of. (The warm's CPU still
+  competes with admitted work — that is CONC-6, and it is the warm scheduler's
+  bound to fix, not this one's.)
 """
 
 from collections.abc import Callable
 from typing import Any
 
 from fastapi import APIRouter, Response
+from py_kit.admission import ADMISSION_CONTROL
 from py_kit.errors import NotFoundError, ValidationApiError
 
 # Media types, filename rule, and the shared OpenAPI responses blocks live in
@@ -144,7 +168,12 @@ _ASSEMBLY_EXPORT_RESPONSES = export_responses(
 )
 
 
-@router.post("/tessellate", response_class=Response, responses=_TESSELLATE_RESPONSES)
+@router.post(
+    "/tessellate",
+    response_class=Response,
+    responses=_TESSELLATE_RESPONSES,
+    dependencies=[ADMISSION_CONTROL],
+)
 def tessellate(request: TessellateRequest) -> Response:
     """Build a parametric shape, tessellate it, return the GLB mesh."""
     glb, metadata = evaluate_tessellation(request)
@@ -155,14 +184,20 @@ def tessellate(request: TessellateRequest) -> Response:
     )
 
 
-@router.post("/tessellate/meta")
+@router.post(
+    "/tessellate/meta",
+    dependencies=[ADMISSION_CONTROL],
+)
 def tessellate_meta(request: TessellateRequest) -> TessellationMetadata:
     """JSON twin of ``/tessellate``: mass properties + mesh stats, no mesh."""
     _glb, metadata = evaluate_tessellation(request)
     return metadata
 
 
-@router.post("/evaluate")
+@router.post(
+    "/evaluate",
+    dependencies=[ADMISSION_CONTROL],
+)
 def evaluate(request: EvaluateTreeRequest) -> EvaluateTreeResult:
     """Evaluate an ordered feature-tree prefix (feature-tree design §4).
 
@@ -220,7 +255,10 @@ def warm_cancel(request: WarmCancelRequest) -> WarmTreeResult:
     )
 
 
-@router.post("/assembly/evaluate")
+@router.post(
+    "/assembly/evaluate",
+    dependencies=[ADMISSION_CONTROL],
+)
 def evaluate_assembly_route(
     request: EvaluateAssemblyRequest,
 ) -> EvaluateAssemblyResult:
@@ -243,7 +281,10 @@ def evaluate_assembly_route(
     return evaluate_assembly(request)
 
 
-@router.post("/assembly/interference")
+@router.post(
+    "/assembly/interference",
+    dependencies=[ADMISSION_CONTROL],
+)
 def assembly_interference_route(
     request: EvaluateAssemblyRequest,
 ) -> InterferenceResult:
@@ -288,6 +329,7 @@ def assembly_interference_route(
     "/assembly/export",
     response_class=Response,
     responses=_ASSEMBLY_EXPORT_RESPONSES,
+    dependencies=[ADMISSION_CONTROL],
 )
 def export_assembly_route(request: ExportAssemblyRequest) -> Response:
     """Evaluate an assembly and export it as ONE multi-instance STEP/STL download.
@@ -325,7 +367,10 @@ def export_assembly_route(request: ExportAssemblyRequest) -> Response:
     )
 
 
-@router.post("/assembly/import")
+@router.post(
+    "/assembly/import",
+    dependencies=[ADMISSION_CONTROL],
+)
 def import_assembly_route(
     request: StepAssemblyImportRequest,
 ) -> StepAssemblyImportResult:
@@ -370,7 +415,10 @@ def import_assembly_route(
         raise ValidationApiError(str(exc), code="import_parse_failed") from exc
 
 
-@router.post("/drawing/evaluate")
+@router.post(
+    "/drawing/evaluate",
+    dependencies=[ADMISSION_CONTROL],
+)
 def evaluate_drawing_route(
     request: EvaluateDrawingViewsRequest,
 ) -> EvaluateDrawingViewsResult:
@@ -396,7 +444,10 @@ def evaluate_drawing_route(
     return evaluate_drawing_views(request)
 
 
-@router.post("/drawing/assembly/evaluate")
+@router.post(
+    "/drawing/assembly/evaluate",
+    dependencies=[ADMISSION_CONTROL],
+)
 def evaluate_assembly_drawing_route(
     request: EvaluateAssemblyDrawingViewsRequest,
 ) -> EvaluateAssemblyDrawingViewsResult:
@@ -479,7 +530,12 @@ def _compose_sheet(request: ComposeDrawingRequest) -> ComposedSheet:
     )
 
 
-@router.post("/drawing/compose", response_class=Response, responses=_COMPOSE_RESPONSES)
+@router.post(
+    "/drawing/compose",
+    response_class=Response,
+    responses=_COMPOSE_RESPONSES,
+    dependencies=[ADMISSION_CONTROL],
+)
 def compose_drawing_route(request: ComposeDrawingRequest) -> Response:
     """Compose a drawing into a placed sheet + serialized artifact (design §4.2).
 
@@ -528,7 +584,10 @@ def compose_drawing_route(request: ComposeDrawingRequest) -> Response:
     )
 
 
-@router.post("/drawing/compose/sheet")
+@router.post(
+    "/drawing/compose/sheet",
+    dependencies=[ADMISSION_CONTROL],
+)
 def compose_sheet_route(request: ComposeDrawingRequest) -> ComposedSheet:
     """Compose a drawing into the placed ``ComposedSheet`` MODEL (design §4.2, DE-1b).
 
@@ -577,7 +636,12 @@ def fetch_mesh(mesh_glb_id: str) -> Response:
     return Response(content=glb, media_type=GLB_MEDIA_TYPE)
 
 
-@router.post("/export", response_class=Response, responses=_EXPORT_RESPONSES)
+@router.post(
+    "/export",
+    response_class=Response,
+    responses=_EXPORT_RESPONSES,
+    dependencies=[ADMISSION_CONTROL],
+)
 def export(request: ExportRequest) -> Response:
     """Build a parametric shape and export it as a STEP or STL download."""
     data = evaluate_export(request)
@@ -590,7 +654,11 @@ def export(request: ExportRequest) -> Response:
     )
 
 
-@router.post("/measure", tags=["geometry"])
+@router.post(
+    "/measure",
+    tags=["geometry"],
+    dependencies=[ADMISSION_CONTROL],
+)
 def measure(request: MeasureRequest) -> MeasureResult:
     """Exact nearest distance between two transient measurement targets.
 
@@ -611,7 +679,11 @@ def measure(request: MeasureRequest) -> MeasureResult:
     return evaluate_measure(request)
 
 
-@router.post("/overlay", tags=["geometry"])
+@router.post(
+    "/overlay",
+    tags=["geometry"],
+    dependencies=[ADMISSION_CONTROL],
+)
 def overlay(request: OverlayRequest) -> OverlayResult:
     """Pickable selection geometry of an evaluated feature tree's body (#6b).
 
@@ -658,7 +730,10 @@ def _run_sketch_edit(
     return SketchEditResult(entities=entities)
 
 
-@router.post("/sketch/trim")
+@router.post(
+    "/sketch/trim",
+    dependencies=[ADMISSION_CONTROL],
+)
 def sketch_trim(request: SketchEditRequest) -> SketchEditResult:
     """Trim a sketch curve at the pick, returning the rewritten entity list.
 
@@ -678,7 +753,10 @@ def sketch_trim(request: SketchEditRequest) -> SketchEditResult:
     return _run_sketch_edit(trim_sketch, request, action="trim")
 
 
-@router.post("/sketch/extend")
+@router.post(
+    "/sketch/extend",
+    dependencies=[ADMISSION_CONTROL],
+)
 def sketch_extend(request: SketchEditRequest) -> SketchEditResult:
     """Extend a sketch curve's picked end to the nearest neighbor it meets.
 
@@ -693,7 +771,10 @@ def sketch_extend(request: SketchEditRequest) -> SketchEditResult:
     return _run_sketch_edit(extend_sketch, request, action="extend")
 
 
-@router.post("/sketch/offset")
+@router.post(
+    "/sketch/offset",
+    dependencies=[ADMISSION_CONTROL],
+)
 def sketch_offset(request: SketchOffsetRequest) -> SketchOffsetResult:
     """Offset a sketch curve — a parallel copy at a signed distance (rib/web).
 
@@ -724,7 +805,10 @@ def sketch_offset(request: SketchOffsetRequest) -> SketchOffsetResult:
     return SketchOffsetResult(entities=entities)
 
 
-@router.post("/sketch/mirror")
+@router.post(
+    "/sketch/mirror",
+    dependencies=[ADMISSION_CONTROL],
+)
 def sketch_mirror(request: SketchMirrorRequest) -> SketchMirrorResult:
     """Mirror sketch curves — reflected copies about an axis line (symmetry).
 
@@ -759,7 +843,10 @@ def sketch_mirror(request: SketchMirrorRequest) -> SketchMirrorResult:
     return SketchMirrorResult(entities=entities)
 
 
-@router.post("/sketch/fillet")
+@router.post(
+    "/sketch/fillet",
+    dependencies=[ADMISSION_CONTROL],
+)
 def sketch_fillet(request: SketchFilletRequest) -> SketchCornerResult:
     """Round a sketch corner between two lines with a tangent arc (BACKLOG #5).
 
@@ -789,7 +876,10 @@ def sketch_fillet(request: SketchFilletRequest) -> SketchCornerResult:
     return SketchCornerResult(entities=entities)
 
 
-@router.post("/sketch/chamfer")
+@router.post(
+    "/sketch/chamfer",
+    dependencies=[ADMISSION_CONTROL],
+)
 def sketch_chamfer(request: SketchChamferRequest) -> SketchCornerResult:
     """Bevel a sketch corner between two lines with a straight line (BACKLOG #5).
 
@@ -818,7 +908,12 @@ def sketch_chamfer(request: SketchChamferRequest) -> SketchCornerResult:
     return SketchCornerResult(entities=entities)
 
 
-@router.post("/export/tree", response_class=Response, responses=_EXPORT_RESPONSES)
+@router.post(
+    "/export/tree",
+    response_class=Response,
+    responses=_EXPORT_RESPONSES,
+    dependencies=[ADMISSION_CONTROL],
+)
 def export_tree(request: ExportTreeRequest) -> Response:
     """Evaluate a feature tree and export its LAST-GOOD body as STEP/STL.
 

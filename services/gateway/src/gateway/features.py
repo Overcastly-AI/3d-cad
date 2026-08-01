@@ -27,7 +27,6 @@ neither delay nor fail the evaluate.
 import uuid
 from typing import Annotated, Any
 
-import httpx2 as httpx
 from fastapi import APIRouter, BackgroundTasks, Query, Request, Response, status
 from py_kit import get_logger
 from py_kit.schemas.features import (
@@ -49,11 +48,12 @@ from py_kit.schemas.features import (
 from py_kit.schemas.geometry import EXPORT_MEDIA_TYPES, ExportFormat, export_responses
 from py_kit.schemas.parts import PartEvaluationRecord
 
+from gateway.affinity import forward_geometry
 from gateway.auth import CurrentUser
 from gateway.db import User
 from gateway.parts import forward_documents
 from gateway.ratelimit import COMPUTE_RATE_LIMIT
-from gateway.upstream import forward, raise_upstream_error
+from gateway.upstream import raise_upstream_error
 
 _logger = get_logger("gateway.features")
 
@@ -342,10 +342,9 @@ async def evaluate_part(
         raise_upstream_error(upstream, service=_SERVICE)
     evaluation_request = EvaluateTreeRequest.model_validate_json(upstream.content)
 
-    geometry_client: httpx.AsyncClient = http_request.app.state.geometry_client
-    evaluated = await forward(
-        geometry_client,
+    evaluated = await forward_geometry(
         http_request,
+        str(user.id),
         "POST",
         "/api/v1/evaluate",
         service=_GEOMETRY,
@@ -404,10 +403,9 @@ async def export_part(
         {**evaluation_request.model_dump(mode="json"), "format": format}
     )
 
-    geometry_client: httpx.AsyncClient = http_request.app.state.geometry_client
-    exported = await forward(
-        geometry_client,
+    exported = await forward_geometry(
         http_request,
+        str(user.id),
         "POST",
         "/api/v1/export/tree",
         service=_GEOMETRY,

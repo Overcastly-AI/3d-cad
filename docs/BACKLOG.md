@@ -53,7 +53,7 @@ duplication.
 
 ## Ready (top of queue)
 
-- [ ] (P1, M) **CONC-1 — a modeler's next click lands on a random worker, and
+- [x] (P1, M) **CONC-1 — a modeler's next click lands on a random worker, and
       that throws away most of what scaling out buys** (platform + backend).
       Measured 2026-08-01 (`docs/PERF.md` §CONCURRENCY): 4 users on 4 geometry
       workers pay **2 559 ms** per edit with per-user affinity and **4 753 ms**
@@ -66,8 +66,18 @@ duplication.
       `/overlay`/`/measure` the tree carries it), or document a
       consistent-hash proxy in front of the replicas. Costs no CPU and is worth
       1.8x on top of any fan-out. [docs/PERF.md 2026-08-01]
+      **SHIPPED 2026-08-01** (`gateway/affinity.py`): `GEOMETRY_URL` takes a
+      comma-separated list; rendezvous hash on the verified principal (not part
+      id — a modeler holds TWO lineages, and every route carries the principal
+      while only some carry a part id). Re-measured on the same fleet with the
+      queue active: **wall 30.6 s sticky vs 64.9 s random, hit 0.40 vs 0.10,
+      `/measure` p50 81 ms vs 3 284 ms**; 8/8 modelers pinned to one worker
+      through the real gateway. Degradation: dead worker -> 10 s cooldown +
+      retry on the next-preferred (cold, never stranded); set change -> only
+      1/N move; saturated worker -> deliberately NOT re-routed.
+      `docker-compose.scale.yml` ships the four-replica topology.
 
-- [ ] (P1, M) **CONC-2 — overload deletes the service instead of degrading it:
+- [x] (P1, M) **CONC-2 — overload deletes the service instead of degrading it:
       no admission control anywhere** (platform + backend). 16 simultaneous
       50-feature evaluates at one worker all finished within 0.4 s of each other
       at ~40 s (processor sharing, not queueing). Against the gateway's 30 s
@@ -78,8 +88,16 @@ duplication.
       **one** effective core (CONC-5). Fix: a bounded semaphore + queue in front
       of the OCCT routes, returning 503 + `Retry-After` past the bound rather
       than admitting work that cannot finish. [docs/PERF.md 2026-08-01]
+      **SHIPPED 2026-08-01** (`py_kit.admission`, on 21 of 24 geometry routes —
+      `/meshes/{id}` and the two `/warm` routes are exempt, and the exemption
+      list is asserted by a test so a 22nd route cannot silently skip it).
+      Re-measured A/B, 16 simultaneous cold 50-feature evaluates, same worker,
+      minutes apart: **0 of 16 delivered inside 30 s -> 11 of 16** (8 of 16 at
+      the shipped depth-8 default, with the other 8 honestly shed).
+      `Retry-After` comes from the gate's own EWMA of service time; three
+      distinguishable refusal reasons; nothing is refused after work started.
 
-- [ ] (P1, S) **CONC-3 — the gateway calls a healthy geometry service
+- [x] (P1, S) **CONC-3 — the gateway calls a healthy geometry service
       "unreachable" after 30 s, on a part size we ship** (backend). Measured
       with ONE user on an IDLE machine: a 200-feature `/overlay` costs 40.3 s
       direct and returns **502 `upstream_unavailable` — "Geometry service is
@@ -93,6 +111,16 @@ duplication.
       out" from "upstream unreachable" in the envelope, and stop paying for
       abandoned work (cancel upstream on client disconnect).
       [docs/PERF.md 2026-08-01]
+      **SHIPPED 2026-08-01**: 504 `upstream_timeout` (not 502), with a message
+      that says the work is still running and its progress cached; budget 90 s
+      by default (40.3 s worst measured cold op + the 20 s queue ceiling +
+      headroom), env-tunable via `GEOMETRY_TIMEOUT_S`. The third part was
+      resolved the OTHER way on purpose — **do not cancel**: the abandoned
+      rebuild's checkpoint reaches the rebuild cache, which is why the measured
+      retry was 22.7 s against 40.3 s cold, so cancelling would discard CPU
+      already spent. What IS dropped is work that never started — a request
+      whose client left before its turn is discarded at the front of the queue
+      (`loft_admission_abandoned_total`).
 
 - [ ] (P2, S) **CONC-4 — `REBUILD_CACHE_CAPACITY = 8` is exactly four
       modelers, and the fifth costs everyone 79x** (kernel). A working modeler
@@ -2573,6 +2601,13 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
       engineering-audit debt items closed. [src: engineering-auditor]
 
 ## Changelog
+
+- 2026-08-01 — **CONC-1/2/3: more than one person can use it now
+  (backend-builder):** gateway session affinity over a comma-separated
+  `GEOMETRY_URL` (sticky 30.6 s vs random 64.9 s wall, hit 0.40 vs 0.10), a
+  bounded FIFO admission queue on the OCCT routes (0 of 16 -> 11 of 16 delivered
+  inside a 30 s deadline), and a timeout that says 504 "still working" instead
+  of 502 "unreachable". `docs/OPERATIONS.md` §6.
 
 - 2026-07-31 — **OBS-1: the stack can be watched (backend-builder):** Prometheus
   `/metrics` from py-kit for all three services — rebuild histogram by cache ×

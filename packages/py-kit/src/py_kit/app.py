@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.gzip import GZipMiddleware
 from starlette.types import Lifespan
 
+from py_kit.admission import AdmissionGate
 from py_kit.config import BaseServiceSettings
 from py_kit.errors import install_error_handlers
 from py_kit.logging import (
@@ -71,6 +72,21 @@ def create_app(
     configure_logging(settings)
     app = FastAPI(title=title, version=version, lifespan=lifespan)
     install_error_handlers(app)
+
+    # The admission gate lives on app.state for every service, and costs two
+    # integers in the services that never queue anything: only routes carrying
+    # ``py_kit.admission.ADMISSION_CONTROL`` consult it (today, geometry's OCCT
+    # surface — docs/PERF.md CONC-2). Installed here rather than per service so
+    # the knobs, the metric names and the 503 envelope cannot drift apart.
+    app.state.admission_gate = (
+        AdmissionGate(
+            concurrency=settings.admission_concurrency,
+            queue_depth=settings.admission_queue_depth,
+            max_wait_s=settings.admission_max_wait_s,
+        )
+        if settings.admission_enabled
+        else None
+    )
 
     # Response compression, wired ONCE for every service (DRY): the GLB mesh
     # route is the hottest binary path in the product and shipped raw until

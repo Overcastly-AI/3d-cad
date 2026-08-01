@@ -233,11 +233,19 @@ OCCT via OCP as shipped. Full method and raw tables in `docs/PERF.md`.
 
 ### The three facts you cannot discover from the outside
 
-> **Corrected 2026-08-01 against measurement.** Until that date this section
-> reasoned its way to "prefer ONE geometry worker per host." The reasoning about
-> the cache was right; the conclusion was wrong, and it was wrong in the
-> expensive direction — it told operators to run a configuration that uses a
-> quarter of their machine. `docs/PERF.md` §"CONCURRENCY" has the run.
+> **Corrected 2026-08-01 against measurement, TWICE in one day.** Until that
+> morning this section reasoned its way to "prefer ONE geometry worker per
+> host." The reasoning about the cache was right; the conclusion was wrong, and
+> wrong in the expensive direction — it told operators to run a configuration
+> that uses a quarter of their machine (`docs/PERF.md` §"CONCURRENCY").
+>
+> The rewrite that replaced it then said session affinity was "not shipped" and
+> that you needed your own consistent-hash proxy. That was true for about
+> fourteen hours: CONC-1/2/3 landed the same day, so affinity, admission control
+> and an honest timeout are now **in the product**, and the advice below is what
+> to configure rather than what to build. The lesson the section keeps teaching
+> is its own: **do not write guidance that reasons past the measurement, and
+> re-read it the moment the thing it describes changes.**
 
 **(a) Geometry is CPU-bound OCCT work.** Rebuild time is dominated by
 whole-body B-rep operations; it grows as roughly **N^1.8 in feature count** and
@@ -281,47 +289,114 @@ is **in-process memory, not Redis and not S3**. Three consequences:
   with no internal parallelism cannot absorb two simultaneous requests), but the
   floor is still faster than one worker.
 
-**Practical rule: run ONE GEOMETRY WORKER PER CORE.** With `S3_URL` set, so the
-mesh store is shared — the in-process LRU deliberately refuses multi-worker
-without it. Expect roughly:
+**Practical rule: run ONE GEOMETRY WORKER PER CORE, and list them all in
+`GEOMETRY_URL`.** With `S3_URL` set, so the mesh store is shared — the
+in-process LRU deliberately refuses multi-worker without it. Expect roughly:
 
 | what you run on a 4-core box | comfortable simultaneous modelers |
 | --- | ---: |
 | 1 geometry worker | **1** |
-| 4 workers, no affinity (what compose `--scale` gives you today) | **1-2** |
-| 4 workers + sticky routing (**not shipped** — see below) | **4** |
+| 4 workers, no affinity (bare `--scale geometry=4`) | **1-2** |
+| 4 workers + **session affinity** (`docker-compose.scale.yml`) | **4** |
 
 Four users on four workers **with** affinity paid 2 559 ms per edit against
 2 113 ms for a lone user on an idle machine — i.e. no measurable degradation at
-all. Session affinity is the single highest-value thing missing from this
-stack's operations story (filed as CONC-1); until it lands, a consistent-hash
-reverse proxy on part id in front of the geometry replicas buys most of it.
+all.
+
+**Session affinity SHIPPED 2026-08-01 (CONC-1), and it is a gateway feature, not
+a proxy you have to install.** `GEOMETRY_URL` takes a comma-separated list and
+the gateway pins each signed-in modeler to one worker by rendezvous hash
+(`services/gateway/src/gateway/affinity.py`). Use it:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.scale.yml up -d
+```
+
+That overlay defines four named geometry replicas and points the gateway at all
+of them. `--scale geometry=4` is NOT equivalent — every replica answers to one
+DNS name, so Docker round-robins and you get the middle row of the table above.
+
+How it degrades, because that matters more than the happy path:
+
+* **a worker dies** → the gateway marks it unhealthy for 10 s and immediately
+  retries the request on the next-preferred worker. That modeler's checkpoint is
+  not there, so they pay one cold rebuild: **slower, never stranded.**
+* **you add or remove a worker** → rendezvous hashing moves only ~1/N of
+  modelers (not everybody, as `hash % N` would). The rest keep their cache.
+* **a worker is SATURATED** → it answers 503 (below) and the gateway does NOT
+  re-route. Failing over on backpressure sprays one modeler's lineage across the
+  fleet exactly when locality is worth most, and answers "I am busy" with more
+  load.
+* **small fleets draw lumpy.** The hash is uniform in expectation, not per
+  sample: a measured 8-modeler draw across 4 workers came out 4/2/1/1. That is
+  ordinary small-N variance, and it is the reason the sizing rule is one worker
+  per *core* rather than one per expected modeler.
 
 ### What breaks first, and what it looks like
 
-Not memory, and not the rate limiter. **The gateway's 30-second upstream read
-timeout** (`GEOMETRY_TIMEOUT_S`, `services/gateway/src/gateway/geometry.py`).
+Not memory, and not the rate limiter. It used to be **the gateway's 30-second
+upstream read timeout, which lied about why** — and, underneath it, the total
+absence of admission control. Both were fixed on 2026-08-01; this section now
+describes what you will actually see.
 
-A 200-feature part's first face pick takes 40 s on an **idle** machine with
-**one** user, so the browser gets a `502 upstream_unavailable` saying *"Geometry
-service is unreachable"* — which is false, the service is fine and the finished
-answer is thrown away. Measured: the same click had to be made **three times**
-(two 502s, then a 22.7 s success once the abandoned rebuild's checkpoint reached
-the cache). At eight users the same thing happens on a **50-feature** part.
+**The timeout (`GEOMETRY_TIMEOUT_S`, default 90 s).** The old 30 s ceiling was
+shorter than a part size this project ships goldens for: a 200-feature first
+face pick costs 40.3 s on an idle machine with one user, so the browser got a
+`502 upstream_unavailable` saying *"Geometry service is unreachable"* about a
+process that was working fine and finished the job moments later. The same click
+had to be made **three times**. Now:
 
-There is also **no admission control** anywhere in the stack: the gateway's HTTP
-client allows httpx's default 100 connections and the geometry threadpool 40
-workers, all sharing one effective core. Overload therefore degrades by
-*processor sharing*, which under a fixed client timeout is the worst possible
-policy — 16 simultaneous requests all finished within 0.4 s of each other at
-~40 s, so **1 of 16 landed inside a 30 s ceiling where a plain FIFO queue would
-have delivered 11.**
+* the budget is **90 s** by default — the 40.3 s worst measured cold operation,
+  plus the 20 s admission-queue ceiling, plus headroom — and env-tunable,
+  because the right value is a function of the largest part *you* open;
+* exceeding it is **504 `upstream_timeout`**, not 502, and the message says the
+  true thing: the service is still working, this is a large part, and the retry
+  is cheaper than the first attempt;
+* **the upstream is deliberately NOT cancelled.** The abandoned rebuild runs to
+  completion and banks its checkpoint in that worker's rebuild cache, which is
+  why the retry is cheaper (measured: 40.3 s cold → 22.7 s on the retry).
+  Cancelling would throw that away to save CPU that has already been spent.
 
-Operator takeaways until CONC-2/CONC-3 land: keep parts under ~100 features,
-prefer more workers over more users per worker, and read a burst of
-`upstream_unavailable` as *"geometry is saturated"*, not as *"geometry is
-down"* — check `loft_rebuild_cache_*` and the request histogram
-(`docs/OBSERVABILITY.md`) before restarting anything.
+A genuine connect failure is still a 502 `upstream_unavailable`. If you see 502,
+something really is down; if you see 504, something is slow.
+
+**Admission control (`ADMISSION_*`, on the geometry worker).** Every OCCT route
+now sits behind a bounded FIFO queue: at most `ADMISSION_CONCURRENCY` (default
+**1** — the worker's real core count) inside at a time, `ADMISSION_QUEUE_DEPTH`
+(8) waiting, and nothing waits longer than `ADMISSION_MAX_WAIT_S` (20 s) before
+being refused. Measured A/B, 16 simultaneous cold 50-feature evaluates at one
+worker, same machine, same commit, minutes apart:
+
+| | wall | delivered inside a 30 s deadline | shed |
+| --- | ---: | ---: | ---: |
+| `ADMISSION_ENABLED=false` (the old behaviour) | 45.4 s | **0 of 16** | — |
+| shipped defaults (depth 8) | 22.6 s | **8 of 16** | 8 × 503 + `Retry-After` |
+| `ADMISSION_QUEUE_DEPTH=16, MAX_WAIT_S=60` | 41.6 s | **11 of 16** | none |
+
+Without the queue every request finished between 39.5 s and 45.4 s — fourteen of
+them within six seconds of each other, at the end. That is processor sharing,
+and under a client deadline it is the worst possible policy: it converts "some
+requests are late" into "all of them are". The same CPU, ordered, delivers 11.
+
+What overload looks like now: **503 `service_overloaded` with a `Retry-After`**
+computed from that worker's own measured service time. It is refused *before*
+any CPU is spent, so nothing is computed and thrown away, and it is a normal
+load signal — not a fault, and never an "unreachable" claim. If your users see
+it regularly, you need more workers (or `ADMISSION_QUEUE_DEPTH` raised, which
+trades 503s for longer waits — keep `GEOMETRY_TIMEOUT_S` comfortably above
+`ADMISSION_MAX_WAIT_S` plus your worst cold rebuild, or an admitted request can
+still miss the gateway's deadline).
+
+Four metrics make this legible (`docs/OBSERVABILITY.md`):
+`loft_admission_queued` (persistently above zero = too few workers),
+`loft_admission_in_flight` (pinned at the bound = saturated),
+`loft_admission_wait_seconds` (the latency the queue *adds*, separable from
+rebuild time), and `loft_admission_rejected_total{reason}`.
+
+**Connection pools are still unsized** (CONC-7): the gateway's httpx client takes
+httpx's default 100 connections per geometry worker. Nothing has exhausted them,
+and the admission gate now bounds what a worker will actually *do* with them, so
+this is a documented default rather than a live defect.
 
 ### Memory
 
@@ -350,9 +425,9 @@ this table recommended one worker for a whole small team and was wrong by 4x.)
 | --- | ---: | ---: | ---: | --- |
 | **Single engineer, parts to ~50 features** | 2 | 4 GiB | **1** | Everything under ~2 s. One worker genuinely is enough for one person. |
 | **Single engineer, real parts (to ~100 features)** | 4 | 8 GiB | **2** | Cold opens 7 s, edits 0.4 s. The second worker is for the background rebuild an open editor prefetches (PERF-1b) so it stops competing with your click. |
-| **Small team, 4 concurrent modelers** | 8 | 16 GiB | **4** | `--scale geometry=4` with `S3_URL` set. **Without affinity expect ~1.2-2x, not 4x** — put a consistent-hash proxy on part id in front of the replicas if you can. |
-| **Small team, 8 concurrent modelers** | 16 | 32 GiB | **8** | Same rule. Do not try to serve 8 people from 4 workers: the 5th user per worker also breaks the rebuild cache (fact (c) above). |
-| **Team with big parts / heavy STEP import** | 16+ | 32 GiB | **8** | STEP import is a bounded subprocess with `RLIMIT_CPU`; give it real cores. Parts over ~150 features hit the gateway timeout — see "What breaks first". |
+| **Small team, 4 concurrent modelers** | 8 | 16 GiB | **4** | `docker compose -f docker-compose.yml -f docker-compose.scale.yml up -d`, with `S3_URL` set. Affinity is on by default there. Bare `--scale geometry=4` gives ~1.2-2x, not 4x. |
+| **Small team, 8 concurrent modelers** | 16 | 32 GiB | **8** | Same rule; extend the scale overlay to eight replicas and list them all in `GEOMETRY_URL`. Do not try to serve 8 people from 4 workers: the 5th user per worker also breaks the rebuild cache (fact (c) above). |
+| **Team with big parts / heavy STEP import** | 16+ | 32 GiB | **8** | STEP import is a bounded subprocess with `RLIMIT_CPU`; give it real cores. Parts over ~200 features now need `GEOMETRY_TIMEOUT_S` raised above the default 90 s — see "What breaks first". |
 
 **Disk**: the databases are small — feature trees are JSON text — with one
 exception: an **imported STEP body is stored inline in the feature tree**, up to
@@ -398,9 +473,11 @@ Two other bounds worth knowing before you promise anything:
   upload cap costs ~6-7 CPU s — the upload cap binds first.
 * **Per-face selection highlighting** degrades to whole-body selection past
   ~207 features (`MAX_PROVENANCE_FACES`).
-* **The gateway gives up at 30 s** and reports it as *"Geometry service is
-  unreachable"*. A 200-feature face pick costs 40 s idle with one user, so parts
-  that size are not merely slow today — they error. See "What breaks first".
+* **The gateway gives up at `GEOMETRY_TIMEOUT_S` (default 90 s)** and reports it
+  as 504 `upstream_timeout` — honestly, and without cancelling the work, so the
+  retry resumes from the checkpoint. A 200-feature face pick costs 40 s idle with
+  one user, so parts that size are slow but no longer error; past ~350 features
+  raise the budget. See "What breaks first".
 
 ---
 
