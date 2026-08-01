@@ -80,7 +80,10 @@ compromise: `--retries=1`, because the full-suite measurement found a racy spec
 (GATE-1a — a fixed sleep before a non-retrying assertion); retried tests are
 named as warnings every run, never swallowed. Proven by deliberate failure, not
 by assertion — see BACKLOG GATE-1 for the red/green pair, on which `ci.yml`
-stayed green while `e2e` went red.
+stayed green while `e2e` went red. The first attempt at that proof failed
+honestly: every run went red on a Vite that bound `::1` while the suite asked
+for `127.0.0.1` (invisible here — this container has no IPv6 loopback), so the
+negative control was red for the wrong reason and was not accepted as evidence.
 
 **COMPLETE — FOUNDER-DIRECTED UI WAVE (2026-07-30/31)** — "this needs to look
 professional and comparable to Fusion 360 and Plasticity." All four of the

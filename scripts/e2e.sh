@@ -91,8 +91,63 @@ trap cleanup EXIT
 # so swallow the exit code and only default when the output is empty.
 probe() {
   local code
-  code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 2 "$1" 2>/dev/null || true)"
+  code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time "${2:-2}" "$1" 2>/dev/null || true)"
   echo "${code:-000}"
+}
+
+# CI only: prove Vite can serve THIS app on 127.0.0.1 before handing the job to
+# Playwright, and say which address answered.
+#
+# Playwright's webServer failure is a bare "Timed out waiting …ms" that names no
+# cause (its stdout is discarded by default), so the first run of the e2e
+# workflow reported four identical setup deaths and zero test results — a red
+# build with nothing to diagnose from. The suspected cause is that Vite forces
+# dns.setDefaultResultOrder("verbatim"), so on a dual-stack host its default
+# `localhost` can bind ::1 only while everything here asks for 127.0.0.1. That
+# cannot be reproduced in the dev container (no IPv6 loopback), so rather than
+# assert the fix works, this probes BOTH families on an isolated port and prints
+# the answer. If the config fix is right this is a few quiet seconds; if it is
+# wrong, the log says so in one line instead of costing another round trip.
+# Side benefit: it warms node_modules/.vite before the timed webServer start.
+preflight_vite() {
+  local port=5199 log="${RUN_DIR}/vite-preflight.log" pid attempt v4 v6
+  echo "e2e: preflight — proving Vite serves the app on ${HOST}"
+  pnpm --filter @loft/web exec vite --host "$HOST" --port "$port" --strictPort \
+    >"$log" 2>&1 &
+  pid=$!
+  for ((attempt = 1; attempt <= 120; attempt++)); do
+    v4="$(probe "http://${HOST}:${port}/")"
+    [[ "$v4" == "200" ]] && break
+    kill -0 "$pid" 2>/dev/null || break
+    sleep 1
+  done
+  v4="$(probe "http://${HOST}:${port}/")"
+  v6="$(probe "http://[::1]:${port}/")"
+  echo "e2e: preflight — 127.0.0.1 -> ${v4}, [::1] -> ${v6}"
+  if [[ "$v4" != "200" ]]; then
+    echo "e2e: Vite did NOT serve the app on ${HOST}:${port}." >&2
+    if [[ "$v6" == "200" ]]; then
+      echo "e2e: it IS answering on [::1] — Vite bound IPv6-only, so the" >&2
+      echo "e2e: --host flag in apps/web/playwright.config.ts is not taking effect." >&2
+    fi
+    echo "e2e: vite log:" >&2
+    cat "$log" >&2 || true
+    kill "$pid" 2>/dev/null || true
+    return 1
+  fi
+  # The entry module is what actually forces dependency pre-bundling; index.html
+  # can answer well before the app is servable. Needs a REAL timeout: with the
+  # dep cache cold this took 5.5 s locally, and probing it with the default 2 s
+  # cap reported a confident "000" for a server that was working — a diagnostic
+  # line that lies is worse than no line at all.
+  local t0 entry
+  t0=$(date +%s%N)
+  entry="$(probe "http://${HOST}:${port}/src/main.tsx" 120)"
+  echo "e2e: preflight — entry module -> ${entry} in $((($(date +%s%N) - t0) / 1000000)) ms"
+  sed -n '1,6p' "$log" | sed 's/^/e2e: vite: /'
+  kill "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+  return 0
 }
 
 # start_service NAME APP_MODULE PORT — reuse a healthy listener or boot
@@ -167,10 +222,13 @@ echo "== e2e leg 2/2: Playwright suite (@loft/web) =="
 # register — or worse, passes against a stale bundle. On a fresh runner nothing
 # should be listening, so say so loudly rather than discovering it as a spec
 # failure 10 minutes later.
-if [[ -n "${CI:-}" && "$(probe "http://${HOST}:${VITE_PORT}/")" != "000" ]]; then
-  echo "e2e: something is already listening on :${VITE_PORT} in CI." >&2
-  echo "e2e: Playwright would REUSE it (reuseExistingServer) and test the wrong app." >&2
-  exit 1
+if [[ -n "${CI:-}" ]]; then
+  if [[ "$(probe "http://${HOST}:${VITE_PORT}/")" != "000" ]]; then
+    echo "e2e: something is already listening on :${VITE_PORT} in CI." >&2
+    echo "e2e: Playwright would REUSE it (reuseExistingServer) and test the wrong app." >&2
+    exit 1
+  fi
+  preflight_vite
 fi
 
 start_service geometry geometry.main:app "$GEOMETRY_PORT"

@@ -1681,6 +1681,23 @@ frame refactor are v2/§11. Spike de-collected.
       assertion from `60a9553` was re-introduced, pushed, and CI rejected it —
       run ids in the batch report, with `ci.yml` GREEN on the same commit, which
       is the whole point.
+      **The first attempt at that proof FAILED, and the failure is the useful
+      part.** All three pushed runs came back red — including the two that
+      should have been green — because Vite never answered inside the 60 s
+      `webServer.timeout`: Vite forces `dns.setDefaultResultOrder("verbatim")`,
+      so on a DUAL-STACK host its default `localhost` binds `::1` while
+      `baseURL` asks for `127.0.0.1`; the process stays alive and never
+      answers ("Timed out", not "exited early"). Unreproducible here — the dev
+      container has no IPv6 loopback at all, which is exactly why it survived
+      every local run. The red negative-control commit was therefore red for
+      the WRONG reason and proved nothing, which is the same defect this repo
+      keeps closing: a gate asserting something it does not know. Fixed by
+      binding the literal IPv4 loopback (`pnpm dev --host 127.0.0.1`), piping
+      the webServer's output so a failure names its cause instead of timing out
+      silently, and a CI preflight in `scripts/e2e.sh` that serves the app on an
+      isolated port and PRINTS which address answered — so if the diagnosis is
+      ever wrong again, the log says so in one line rather than costing a round
+      trip.
       [src: batch-end e2e 2026-08-01]
 - [ ] (P2, XS) **GATE-1a — one racy spec is the only reason the new browser gate
       runs with `--retries=1`** (frontend or QA). Found while measuring the full

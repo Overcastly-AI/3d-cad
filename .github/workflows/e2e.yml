@@ -57,10 +57,12 @@
 #   * FULL SUITE PER PUSH, SHARDED (chosen) — `--shard=i/N` splits by the
 #     FILESYSTEM, so coverage is derived, not enumerated: a spec added tomorrow
 #     is in a shard automatically and no list can go stale (verified: the four
-#     shards list 90 + 86 + 88 + 88 = 352). 4 shards puts wall clock at
-#     ~8-13 min of specs + ~4 min of setup, i.e. at or under ci.yml's `python`
-#     job (30-min ceiling, ~15 min typical) — so per-push FEEDBACK LATENCY does
-#     not regress at all, which is what actually blocks the dev loop.
+#     shards list 90 + 86 + 88 + 88 = 352). MEASURED end to end on this
+#     container by running the real thing — `--shard=2/4` took 12.7 min for its
+#     86 tests, 777 s wall including preflight and stack boot — i.e. at or under
+#     ci.yml's `python` job (30-min ceiling, ~15 min typical), so per-push
+#     FEEDBACK LATENCY does not regress at all, which is what actually blocks
+#     the dev loop. A hosted runner has fewer cores, so treat 12.7 as the floor.
 #     The cost is runner minutes: ~30-50 for the specs + ~4 per shard of setup
 #     + ~2 to reconcile ≈ 50-70 minutes per push that touches code. At the
 #     measured code-commit rate (21 on 2026-07-31, 39 on 2026-07-30) that is
@@ -69,7 +71,7 @@
 #
 # Shard count is the lever if that is the wrong trade: wall ≈ T/N + 4 min,
 # runner-minutes ≈ T + 4N, so past N≈6 setup dominates and below N≈3 the shard
-# risks the 35-minute job ceiling.
+# risks the 45-minute job ceiling.
 #
 # `paths-ignore` below removes the 30% of commits (measured over the last 100)
 # that are markdown-only, since a .md file cannot change what a browser does.
@@ -114,14 +116,16 @@ jobs:
   playwright:
     name: playwright (shard ${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
-    # ~8-13 min of specs + ~4 min of setup, extrapolated from the measured
-    # serial run; 35 is headroom, not a prediction. A hosted runner has fewer
-    # cores than the dev container and these specs are software-GL bound, so
-    # they may well run slower here.
-    # Do NOT tighten this into a flake source — and note that a job killed by
-    # timeout-minutes is reported `cancelled`, the same word GitHub uses for a
-    # concurrency eviction (CLAUDE.md explains how to tell them apart).
-    timeout-minutes: 35
+    # A real `--shard=2/4` measured 12.7 min of specs here (777 s wall with
+    # preflight + stack boot), plus ~4 min of CI setup; 45 is headroom, not a
+    # prediction. A hosted runner has fewer cores than the dev container and
+    # these specs are software-GL bound, so they may well run slower here — and
+    # the failure mode of guessing LOW is much worse than guessing high: a job
+    # killed by timeout-minutes is reported `cancelled`, the same word GitHub
+    # uses for a concurrency eviction, so a too-tight ceiling buys an ambiguous
+    # red AND a wasted run. Tighten this only once a green run has reported the
+    # real per-shard duration on a runner.
+    timeout-minutes: 45
     strategy:
       # Never cancel siblings: a cancelled shard produces no JSON report, the
       # reconcile job below then cannot tell "this shard was cancelled" from
