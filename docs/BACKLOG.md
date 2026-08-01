@@ -53,6 +53,37 @@ duplication.
 
 ## Ready (top of queue)
 
+- [ ] (P1, M) **QA3-1 — the Hole command can only drill at a face's centroid or
+      a corner, so it cannot place a hole on a real part** (frontend + a small
+      geometry-free addition). `HolePointOverlay` offers exactly two placements —
+      the face's area centroid ("Centre of face") and its corner vertices — and
+      `hole-position` is a read-only readout whose "Change" button re-arms that
+      same two-choice pick. There is no numeric entry and no snap to the body's
+      own circles. Measured on the dogfooding fixture (a NEMA 17 plate whose face
+      centre IS the shaft bore): the seeded point fails `hole_off_body` and the
+      only alternatives are the eight octagon corners, so adding a 5th mounting
+      hole is IMPOSSIBLE through the UI. Acceptance: a numeric X/Y entry in the
+      face's frame with per-keystroke re-validation, plus a snap to existing
+      circular-edge centres on the picked face (concentric / bolt-circle
+      placement); `import-remix.spec.ts`'s "fails HONESTLY" gate goes red and is
+      rewritten to drive the new control. The typed error itself is exemplary and
+      must stay. [docs/QA-REVIEW.md 2026-08-01 QA3-1]
+- [ ] (P1, L) **QA3-2 — a sketch on an imported face has NO reference to the
+      import, and its origin is the face's area centroid** (frontend + geometry).
+      Two things compound: `faces._face_plane` puts the datum origin at the face's
+      AREA centroid (not the part origin, not any feature of the part), and
+      `sketch/snap.ts` snaps only to the sketch's own entities and the grid —
+      never a body edge, a hole centre, or projected geometry — with no way to
+      dimension to imported geometry. Measured consequence: a register ring drawn
+      at sketch (0,0) on a vendor plate's back face came out **0.065111070 mm**
+      eccentric to the shaft bore, exactly the centroid shift a previously-added
+      Ø3 hole caused (`15.5·π·1.5²/(1739.29−15.76π−π·1.5²)`, agreeing to 9
+      decimals) — a scrap part with every number on screen correct. Acceptance:
+      projected/reference geometry from the body into the sketch (at minimum
+      circular-edge centres + straight edges of the sketched face), snappable and
+      dimensionable; and the sketch frame's origin drawn and named against the
+      part. [docs/QA-REVIEW.md 2026-08-01 QA3-2]
+
 - [x] (P1, M) **CONC-1 — a modeler's next click lands on a random worker, and
       that throws away most of what scaling out buys** (platform + backend).
       Measured 2026-08-01 (`docs/PERF.md` §CONCURRENCY): 4 users on 4 geometry
@@ -1725,6 +1756,22 @@ frame refactor are v2/§11. Spike de-collected.
 
 ## Next (P2)
 
+- [ ] (P2, M) **QA3-3 — selecting a Ø3 hole lights the whole plate, because the
+      provenance rule cannot tell a face a feature CREATED from one it merely
+      re-bounded** (geometry). `provenance.attribute_faces` attributes a face to
+      the earliest feature after which it exists in its FINAL form, so any cut
+      that re-cuts a large face takes ownership of it. Measured on the dogfooding
+      remix: the 5th hole owns 3 of 18 faces — its 75.4 mm² wall plus the plate's
+      1 323.8 mm² top and 1 682.7 mm² back — and on screen the "feature-localized"
+      highlight reads as *this hole owns the vendor's entire top surface*, which
+      is what FINDINGS #9 exists to prevent. Fusion/SolidWorks light the bore wall
+      and its edges. Acceptance: a face whose SURFACE is unchanged and only whose
+      boundary moved stays with its creating feature (or is reported as a distinct
+      weaker class the client can render differently); the exact-count assertions
+      in `import-remix.spec.ts` are updated in the same commit. Note
+      `feature-selection.spec.ts` cannot detect this class at all — it asserts
+      only `0 < lit < total`. [docs/QA-REVIEW.md 2026-08-01 QA3-3]
+
 - [x] (P2, S) **GATE-1 — CI ran nothing that drove a browser, so a stale spec
       could sit red at HEAD for a day while every commit read green. CLOSED
       2026-08-01** (platform-builder). `.github/workflows/e2e.yml` runs the FULL
@@ -1930,9 +1977,12 @@ frame refactor are v2/§11. Spike de-collected.
       ships the full package, files every friction point. WB-64 (pass #1,
       2026-07-20) and TB-1 (site toolbox, pass #2, 2026-07-20) both ran; the
       2026-07-23 product-audit pass doubles as a bolted-assembly check (found
-      the STEP-export/interference/import gaps now leading Ready). Next
-      scenario due: imported-STEP remix (interop) or spline/loft ergonomic
-      handle (surfacing). [src: WB-64 retro]
+      the STEP-export/interference/import gaps now leading Ready). **Pass #3 ran
+      2026-08-01 — imported-STEP remix (NEMA 17 vendor plate), docs/QA-REVIEW.md:
+      seven closed-form comparisons all exact (vendor rev-B/rev-C re-anchoring to
+      12 s.f.), six defects filed QA3-1..6, two of them P1 ergonomics that make
+      the scenario uncompletable in the UI.** Next scenario due: spline/loft
+      ergonomic handle (surfacing). [src: WB-64 retro]
 - [ ] (P2, S) SM-fmt-1 — bend-table ONE format, ONE layout pass (frontend +
       geometry). Pre-format display-ready cell strings into `ComposedBendTable`
       server-side (`cells: list[list[str]]` alongside numeric `rows`) so
@@ -1997,6 +2047,38 @@ frame refactor are v2/§11. Spike de-collected.
       engineering-auditor F2]
 
 ## Later (P3)
+
+- [ ] (P3, XS) **QA3-4 — the PUBLISHED overlay contract still promises the
+      pre-PERF-4b glTF layout.** `OverlayFace.feature_id`'s description (py-kit →
+      `packages/contracts/gateway.openapi.json`) tells clients "each face's `index`
+      is its `body.faces()` ordinal (== the GLB primitive ordinal, one glTF
+      primitive per B-rep face)". Since `d8a4126` that holds only on the UNFUSED
+      encoding; below 12 triangles/face the ordinal must be recovered from
+      `extras.LOFT_face_triangles`. Measured: 11 B-rep faces arriving in 6
+      primitives. `apps/web` does it right — the CONTRACT is what is wrong, and a
+      third-party client written to it mis-highlights every sparse part. Fix the
+      description + regenerate. [docs/QA-REVIEW.md 2026-08-01 QA3-4]
+- [ ] (P3, M) **QA3-5 — small features are tessellated ~200x finer than the
+      requested deflection, because the angular criterion is radius-independent**
+      (geometry). Every cylindrical face gets 126 circumferential segments
+      whatever its radius. Measured max chord error against the 0.1 mm
+      `DEFAULT_LINEAR_DEFLECTION`: Ø3 hole 0.000467 mm (214x finer), Ø5.2 bore
+      0.000808 (124x), Ø10 bore 0.001554 (64x), Ø22 boss 0.003419 (29x). A 24-face
+      plate meshes to 4 846 triangles, ~1 500 of them in six cylinders under 6 cm²
+      total, and the density pushes such parts to 202 tris/face — well past
+      PERF-4b's threshold of 12, so they decline the fusion that would have removed
+      their per-face JSON. A vendor STEP with a hundred tapped holes pays it on
+      every hole. Acceptance: honour the linear deflection as the binding criterion
+      on small radii (or scale the angular one by radius); goldens re-baselined in
+      the same commit since `mesh_glb_id` is a content hash. [docs/QA-REVIEW.md
+      2026-08-01 QA3-5]
+- [ ] (P3, XS) **QA3-6 — `data-camera-pos` reads like a live camera hook and is
+      not.** It is stamped only on a programmatic view SETTLE (fit / view command),
+      never on a user orbit or pan, so a touch-orbit probe that WORKS looks broken
+      — it produced a false positive during dogfooding pass #3 before being
+      root-caused. Either stamp it on control change or rename it to say what it
+      means. (`import-remix.spec.ts` asserts on a canvas raster fingerprint
+      instead.) [docs/QA-REVIEW.md 2026-08-01 QA3-6]
 
 - [x] (P3, XS) **`MAX_PROVENANCE_FACES`' docstring still files a fix that shipped.**
       DONE 2026-08-01 (orchestrator, same day it was filed): the four lines now
@@ -2782,6 +2864,13 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
       engineering-audit debt items closed. [src: engineering-auditor]
 
 ## Changelog
+
+- 2026-08-01 — **Dogfooding pass #3, the imported-STEP remix (qa-tester):** a
+  NEMA 17 vendor plate imported, remixed and re-revved through the real stack.
+  Seven closed-form comparisons exact (rev-B/rev-C swaps re-anchored five
+  downstream features to 12 s.f.); six defects filed QA3-1..6, two P1 —
+  you cannot drill where you want, and a sketch on an imported face has no
+  reference to the import (measured: a 0.065111070 mm eccentric register).
 
 - 2026-08-01 — **The drawing says on screen what it said on the print
   (frontend-builder):** N1/N2's frontend half — a sheet check strip for

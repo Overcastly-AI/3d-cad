@@ -26,6 +26,22 @@ the request → 3.0-6.2 %) and a repeat pick 2 667 → 435 ms, with attribution
 proved identical on 54 parts / 1 573 faces. Cold open is still
 ~26 s — the N^1.85 curve is untouched and needs incremental topology.
 
+**DOGFOODING PASS #3 — the imported-STEP remix (2026-08-01, qa-tester;
+`docs/QA-REVIEW.md`).** The recurring model-a-real-part gate, aimed at the day's
+two perf commits: a NEMA 17 vendor plate imported, drilled, sketched on,
+chamfered, re-revved twice and shipped as STEP + a four-view A3 drawing.
+**Every number exact** — seven closed-form comparisons (worst Δ 2.0e-10 mm³,
+including a Pappus check on a chamfered circular edge), 18/18 glTF face ordinals
+resolving to the right B-rep face on the UNFUSED encoding and 11/11 on the
+FUSED one, and a rev-B/rev-C STEP swap that re-anchored all five downstream
+remix features to twelve significant figures. **The flow is nonetheless not
+completable in the UI:** the Hole command can only drill at a face's centroid or
+a corner (QA3-1), and a sketch on an imported face has no reference to the
+import at all (QA3-2) — measured, a register ring 0.065111070 mm off the vendor's
+bore axis with every number on screen correct. Six defects filed QA3-1..6;
+probes in `apps/web/e2e/import-remix.spec.ts` (desktop + touch), regression
+slice 46/46.
+
 **GATE-2 (2026-08-01) — the image build broke for two commits and only the
 slowest workflow could see it.** LIC-2's `scripts/corresponding_source.py` went
 into the runtime `COPY` without a `.dockerignore` negation, so all three service

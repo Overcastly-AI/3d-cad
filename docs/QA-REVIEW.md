@@ -12,6 +12,227 @@ blocked or lies · **P2** a real flow is worse than it should be · **P3** polis
 
 ---
 
+## 2026-08-01 — dogfooding pass #3: the imported-STEP remix (interop)
+
+The recurring **Model-a-REAL-part gate**, third pass (WB-64 and TB-1 were
+#1/#2). Scenario: *a vendor ships you a STEP, you remix it into your own
+bracket, then the vendor ships rev B.* Chosen because the day's two perf
+commits both live on that path — `d8a4126` (PERF-4b, glTF per-face primitives
+FUSED below 12 tris/face with the partition in a side table) and `dd8b2ba`
+(PERF-5b, face provenance fingerprinted at production time instead of retaining
+snapshot B-reps). An imported body is dense, so it exercises the UNFUSED side;
+a milled plate is sparse and exercises the FUSED side. Both were driven.
+
+**The part.** A NEMA 17 stepper front end-plate — the thing you actually
+download from a motor supplier and build a mount around. 42.3 mm square with
+4× 5 mm corner chamfers, 8 mm thick, Ø22×2 pilot boss, Ø5.2 shaft bore, 4× Ø3
+on a 31 mm square. Authored OUTSIDE the app with build123d and committed as
+`apps/web/e2e/fixtures/nema17-front-plate.step`, so the app sees an opaque
+B-rep with no feature tree behind it. Closed form: 13 914.32 + 102.4π =
+**14 236.019087727595 mm³**, 17 faces, 42 edges.
+
+**Method.** Native container-free stack on isolated ports (gateway :8010,
+documents :8011, geometry :8012, Vite :5199; fresh SQLite via
+`metadata.create_all`). Playwright in a real browser plus direct API drives.
+New probes: `apps/web/e2e/import-remix.spec.ts` (5 tests, desktop + a `hasTouch`
+project). Regression slice re-run on the same stack: 46/46 green
+(`feature-selection`, `import-step`, `drawing-reanchor`, `repick-face`,
+`fillet-edge-pick`, `hole`, `sketch-on-face`, `export`, `preselection`).
+
+**Verdict: PASS on numbers, FAIL on ergonomics.** Every geometric result was
+exact — nothing silently wrong, nothing off by a digit, in seven independent
+closed-form comparisons and an export round trip. But the flow the scenario
+names is not actually completable in the UI: you cannot put a hole where you
+want it on an imported face, and you cannot locate a sketch against imported
+geometry at all. One measured consequence was a part 0.065 mm out of
+concentricity with every number on screen correct.
+
+### The numbers (app vs closed form, to the digit)
+
+| step | app returned | closed form | Δ (mm³) |
+|---|---|---|---|
+| import as authored | 14 236.019087727622 | 13 914.32 + 102.4π | +2.7e-11 |
+| + 5th Ø3 through hole | 14 179.470419963 | prev − 18π | +3.1e-11 |
+| + Ø30/Ø10 × 4 register ring | 16 692.744542835 | prev + 800π | +1.5e-11 |
+| + 1 mm chamfer, ring OD | 16 646.667850582 | prev − (44/3)π *(Pappus)* | −1.6e-10 |
+| vendor **rev B** (8 → 10 thick) | 20 012.087683200 | 17 392.9 + 833.71333π | +2.9e-11 |
+| vendor **rev C** (chamfer 5 → 6) | 16 470.667850582 | 13 738.32 + 869.73333π | 0 (12 s.f.) |
+| STEP export → re-import | 16 646.667850582 | identical | −2.0e-10 |
+
+The chamfer row is the interesting one: a 1 mm × 45° chamfer on a circular edge
+of radius 15 removes, by Pappus, `0.5 · 2π · (15 − 1/3)` = **46.076692253 mm³**;
+the app removed **46.076692253 mm³**. Topology held throughout: 17/42 on
+import, 24 faces / 57 edges after the remix, and 24/57 again after the
+export → re-import round trip.
+
+**Rev B and rev C are the headline strength.** Patching the import feature's
+STEP payload in place re-anchored ALL FIVE downstream remix features — a hole
+on a signature-matched face, a datum on that face, a sketch on the datum, an
+extrude, and a chamfer on a circular edge — with the volume exact to twelve
+significant figures and identical topology. That is the hardest thing in this
+scenario and it works.
+
+**glTF face ordinals, both encodings.** For the remixed body, every one of the
+18 glTF face ordinals resolves to the same B-rep face as `body.faces()[N]`:
+per-face mesh area matches the exact B-rep area to ≤4.1e-4 relative, and the
+area-weighted mesh centroid matches the GProp mass centroid to **0.0000 mm** on
+all 18. On the fused side, an 11-face milled plate arrives in 6 primitives and
+the viewport recovers all 11 (`data-total-faces` = 11). No ordinal slip in
+either codec.
+
+### QA3-1 — P1 · the Hole command cannot place a hole where you need one
+
+`HolePointOverlay` offers exactly two placements: the face's **area centroid**
+("Centre of face") and the face's **corner vertices**. `hole-position` is a
+read-only readout; its "Change" button re-arms the same two-choice pick. There
+is no numeric entry and no snap to the body's own circles or edges.
+
+On this plate the seeded centroid is inside the Ø5.2 shaft bore, so the default
+action fails, and the only alternatives are the eight octagon corners. **Adding
+a 5th mounting hole to this vendor plate is therefore impossible through the
+UI.** (The 5th hole in every number above was authored through the API.)
+
+Repro — `import-remix.spec.ts` "the Hole command's seeded point on a bored
+plate fails HONESTLY": import the fixture → Hole → pick the z = 0 face → drill.
+Result `hole_off_body`, last-good body preserved. The ERROR is exemplary: typed,
+per-feature, names the cause, keeps the good body. The message even says "Move
+the point onto solid material on the face" — but there is no control that moves
+the point. That failure is now pinned as a passing gate, so the day a numeric
+position lands the spec goes red and the assertion gets rewritten.
+
+Note the workaround exists and is what a user will end up doing: datum-on-face →
+sketch a circle → extrude cut. Which makes the Hole command's own placement gap
+the thing to close, not the capability.
+
+### QA3-2 — P1 · a sketch on an imported face has NO reference to the import
+
+Two facts compound:
+
+1. A datum-on-face's plane ORIGIN is the face's **area centroid**
+   (`geometry.kernel.faces._face_plane`), which for an asymmetric face is not
+   the part origin and not any feature of the part.
+2. `apps/web/src/sketch/snap.ts` snaps only to the sketch's OWN entities and the
+   grid — never to a body edge, a hole centre, or projected geometry — and there
+   is no way to dimension a sketch entity to imported geometry.
+
+So on an imported face you draw in an unnamed frame whose origin is an
+accident of the face's outline, with nothing to measure against.
+
+**Measured consequence.** A Ø30/Ø10 register ring drawn at sketch (0, 0) on the
+plate's back face — intended concentric with the vendor's shaft bore — came out
+**0.065111070 mm** eccentric, because the 5th hole had already shifted that
+face's area centroid by exactly
+
+    15.5 · π·1.5² / (1739.29 − 15.76π − π·1.5²) = 0.065111070 mm
+
+Prediction and measurement agree to nine decimals, so the mechanism is certain.
+A motor register is a ±0.02 mm feature: that is a scrap part. Every number the
+app reported about it was correct — the volume, the area, the extents, the
+centroid — and nothing on screen said the ring was off the bore axis.
+
+Not P0 only because the app faithfully built what was specified; the defect is
+that there is no way to specify what was meant, and no way to see the error.
+
+### QA3-3 — P2 · selecting a hole lights the whole plate
+
+Selecting the 5th hole lights 3 faces of 18 — its Ø3 wall (75.4 mm²) plus the
+plate's entire top (1 323.8 mm²) and back (1 682.7 mm²) faces, because the bore
+re-cut both. On screen the "feature-localized" highlight reads as *this Ø3 hole
+owns the vendor's entire top surface*. Fusion and SolidWorks light the bore wall
+and its edges, not the host face.
+
+This is the documented rule working as written (`provenance.py`: the earliest
+feature after which the face exists in its FINAL form), but it defeats the
+purpose FINDINGS #9 states — "highlight ONLY a selected feature's faces … instead
+of clay-swapping the whole part" — on any part where a small cut meets a large
+face, i.e. every real part. Worth a rule that distinguishes a face a feature
+CREATED from one it merely re-bounded.
+
+`feature-selection.spec.ts` cannot see this or any regression near it: it asserts
+only `0 < lit < total` and `litA !== litB`, which 3-of-18 satisfies whatever the
+3 are. `import-remix.spec.ts` asserts the exact counts (3 / 15 / 18 imported,
+6 / 5 / 11 fused) against closed-form topology instead.
+
+### QA3-4 — P3 · the published overlay contract is stale after PERF-4b
+
+`OverlayFace.feature_id`'s description (py-kit → `packages/contracts/
+gateway.openapi.json`, so it is the PUBLISHED interface) still tells clients
+"each face's `index` is its `body.faces()` ordinal (== the GLB primitive ordinal,
+one glTF primitive per B-rep face)". Since `d8a4126` that equality holds only on
+the unfused encoding; below 12 triangles/face the ordinal must be recovered from
+`extras.LOFT_face_triangles`. The web app does this correctly; a third-party
+client written to the contract would mis-highlight on every sparse part.
+Measured: 11 B-rep faces arriving in 6 primitives.
+
+### QA3-5 — P3 · small features are tessellated ~200× finer than asked
+
+Every cylindrical face gets **126 circumferential segments regardless of
+radius** — the angular criterion is radius-independent and swamps
+`DEFAULT_LINEAR_DEFLECTION = 0.1 mm` on anything smaller than ~20 mm. Measured
+max chord error on the remixed plate:
+
+| feature | r (mm) | tris | max chord error | vs the 0.1 mm budget |
+|---|---|---|---|---|
+| Ø3 mount hole | 1.5 | 252 | 0.000467 mm | 214× finer |
+| Ø5.2 shaft bore | 2.6 | 252 | 0.000808 mm | 124× finer |
+| Ø10 ring bore | 5.0 | 252 | 0.001554 mm | 64× finer |
+| Ø22 pilot boss | 11.0 | 252 | 0.003419 mm | 29× finer |
+
+The 24-face remixed plate meshes to **4 846 triangles**, ~1 500 of them in six
+cylinders totalling under 6 cm². It also pushes such a part to 202 triangles per
+face, well past PERF-4b's threshold of 12, so it declines the fusion that would
+otherwise have removed its 24 primitives of JSON. A real vendor STEP with a
+hundred tapped holes pays this on every hole.
+
+### QA3-6 — P3 · `data-camera-pos` reads like a live camera hook and is not
+
+It is stamped only on a programmatic view SETTLE (fit / view command), never on
+a user orbit or pan. A touch-orbit probe that WORKS therefore looks broken —
+that cost a false positive here before it was root-caused. `import-remix.spec.ts`
+asserts on a canvas raster fingerprint instead. Either stamp it on control
+change or rename it to say what it means.
+
+### Friction log — what a working engineer would swear at
+
+1. **You cannot drill where you want.** (QA3-1.) Two placements, both
+   accidents of the face's outline.
+2. **The sketch has no idea the imported part exists.** (QA3-2.) No projected
+   geometry, no snap to a hole centre, no dimension to a model edge. On a part
+   you authored you can at least reach back to the sketch that made it; on an
+   imported one there is nothing to reach for.
+3. **The sketch plane's origin is a moving target.** Add a feature that changes
+   a face's outline and every future sketch on that face starts from a different
+   point. Nothing names the frame or draws its origin against the part.
+4. **One part = one imported body.** A second `import` is a typed 422
+   (`import_with_prior_body`) and the toolbar disables with "only the first body
+   can be imported". Documented v1 scope, but it means the commonest interop job
+   — combine two purchased components into one machined part — has no home in a
+   part document.
+5. **Selecting a feature EDITS it.** A tree click opens the feature's editor and
+   puts the app in command mode, so "show me what this feature owns" and "change
+   this feature" are the same gesture; you must Escape before the next command.
+6. **The drawing arrives blank of dimensions and mostly blank of sheet.** Four
+   views of a 42 mm part on A3 at 1:1 occupy about an eighth of the page, and
+   every dimension is a manual edge click. No hole table, no centre marks, no
+   bolt-circle callout — the three things a mounting-plate drawing is FOR.
+7. **`?format=` is a query parameter** on both export routes while every other
+   write takes a JSON body; the mistake costs a 422 whose `loc` is the only clue.
+8. **Part names are unique per owner**, so a second "Bracket" is a 409
+   (`part_name_taken`) even in a different folder.
+
+### What is genuinely good
+
+* Vendor-revision swap re-anchoring (rev B and rev C, five downstream features,
+  exact to 12 s.f.). Nothing in the scenario is harder.
+* Every error on the unhappy path was typed, per-feature, named its cause, and
+  preserved the last-good body. Not one 500, not one silent wrong solid.
+* STEP + STL + a four-view A3 drawing + PDF/DXF/SVG all come out the other end
+  for a part whose base body was imported, with the document's name on the file.
+* Touch: one-finger orbit works on the imported body and the face census is
+  identical to desktop.
+
+---
+
 ## 2026-07-30 — wave review of the day's ~20 commits
 
 **Method.** Native container-free stack on isolated ports (gateway :8070,
