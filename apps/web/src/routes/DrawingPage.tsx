@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { Button, TextField, drawing } from "@loft/design";
+import { Button, Stamp, TextField, drawing } from "@loft/design";
 
 import {
   type AnnotationResponse,
@@ -39,6 +39,7 @@ import {
 } from "../components/DrawingSheet";
 import { FloatingPanel } from "../components/FloatingPanel";
 import { SectionAuthorPanel } from "../components/SectionAuthorPanel";
+import { SheetIssueStrip } from "../components/SheetIssueStrip";
 import { TopBar } from "../components/TopBar";
 import { TopToolbar } from "../components/TopToolbar";
 import {
@@ -57,6 +58,7 @@ import {
 } from "../drawing/authoring";
 import { type DrawingExportFormat, exportDrawing } from "../api/exportDrawing";
 import { downloadBlob } from "../api/exportPart";
+import { healDimensionParams, reanchoredAnchor } from "../drawing/anchorHeal";
 import { formatDimensionLabel } from "../drawing/dimensions";
 import { exportSheetSvg } from "../drawing/exportSvg";
 import {
@@ -674,6 +676,47 @@ export function DrawingPage() {
     [placingView, drawingId, docVersion, queryClient],
   );
 
+  // The sheet-check strip's fix action (audit N2): return the named views to
+  // bounds-aware auto-layout in ONE gesture. A collision only ever involves
+  // hand-placed views the composer was told to honour verbatim, so undoing that
+  // intent IS the fix — and it is the same `auto_place: true` write the per-view
+  // AUTO grip sends, threaded through the bumped version so a pair resets in a
+  // single click without a stale-OCC race.
+  const handleAutoPlaceViews = useCallback(
+    (projections: readonly ViewProjection[]) => {
+      if (placingView || projections.length === 0) return;
+      setPlacingView(true);
+      setActionError(null);
+      void (async () => {
+        try {
+          let version = docVersion;
+          for (const projection of projections) {
+            const view = views.find((v) => v.projection === projection);
+            if (view === undefined) continue;
+            const updated = await updateView(drawingId, view.id, {
+              expected_version: version,
+              auto_place: true,
+            });
+            version = updated.doc_version;
+          }
+          await queryClient.invalidateQueries({
+            queryKey: ["drawing", drawingId],
+          });
+          void queryClient.invalidateQueries({ queryKey: ["drawing-sheet"] });
+        } catch (error) {
+          setActionError(
+            error instanceof Error
+              ? error.message
+              : "The views could not be returned to auto-layout.",
+          );
+        } finally {
+          setPlacingView(false);
+        }
+      })();
+    },
+    [placingView, views, drawingId, docVersion, queryClient],
+  );
+
   // ---------------------------------------------------------------------
   // Export SVG (#5): serialize the already-rendered sheet <svg> to a
   // standalone, self-contained .svg and hand it to the browser as a download.
@@ -854,6 +897,50 @@ export function DrawingPage() {
     [dimBusy, drawingId, docVersion, queryClient],
   );
 
+  // Confirm a re-anchored reference (topological-naming §11 / audit N1): the
+  // part changed, the stored stage-1 signature no longer matched verbatim, and
+  // geometry re-anchored the dimension on its rebuild invariant — reporting
+  // `tier: "durable"` plus the signature of the edge it landed on. One click
+  // stores that signature, so the reference stops being a re-derived guess.
+  //
+  // There is no PATCH route for a dimension, so the write is an APPEND of the
+  // healed dimension followed by a DELETE of the stale one. That order matters:
+  // a failure between the two leaves a visible duplicate the user can remove,
+  // never a lost dimension.
+  const handleHealDimension = useCallback(
+    (dimensionId: string) => {
+      if (dimBusy) return;
+      const dim = dimensions.find((d) => d.id === dimensionId);
+      const anchor = reanchoredAnchor(measuredById.get(dimensionId));
+      if (dim === undefined || anchor === null) return;
+      const healed = healDimensionParams(dim.dimension, anchor);
+      if (healed === null) return;
+      setDimBusy(true);
+      setActionError(null);
+      void (async () => {
+        try {
+          const created = await createDimension(drawingId, dim.view_id, {
+            dimension: healed,
+            expected_version: docVersion,
+          });
+          await deleteDimension(drawingId, dim.id, created.doc_version);
+          await queryClient.invalidateQueries({
+            queryKey: ["drawing", drawingId],
+          });
+        } catch (error) {
+          setActionError(
+            error instanceof Error
+              ? error.message
+              : "The reference could not be confirmed.",
+          );
+        } finally {
+          setDimBusy(false);
+        }
+      })();
+    },
+    [dimBusy, dimensions, measuredById, drawingId, docVersion, queryClient],
+  );
+
   // ---------------------------------------------------------------------
   // Note annotations: author a free-text note → persist it (CRUD) → the
   // re-compose places it at its sheet point and the sheet draws it from
@@ -999,6 +1086,21 @@ export function DrawingPage() {
   const draftedPartName =
     parts.find((part) => part.id === draftedPartId)?.name ?? null;
 
+  // The composer's own layout measurements (audit N2) — a colliding or crowded
+  // pair of views, in millimetres, with the sentence every export stamps. The
+  // strip below is the on-screen half of that banner.
+  const layoutIssues = composed?.layout_issues ?? [];
+  // Which views carry a hand-dragged placement: those are the only ones a
+  // "return to auto-layout" fix can act on (the composer honours an
+  // `auto_place: false` position verbatim, which is how a collision gets made).
+  const handPlacedViews = useMemo(() => {
+    const set = new Set<ViewProjection>();
+    for (const view of views) {
+      if (view.auto_place === false) set.add(view.projection);
+    }
+    return set;
+  }, [views]);
+
   const projecting =
     evalQuery.isFetching || partTreeQuery.isFetching || sheetQuery.isFetching;
 
@@ -1097,22 +1199,40 @@ export function DrawingPage() {
         ) : hasLayout && sheet && composed ? (
           // Reserve the right gutter for the Views panel so the paper never
           // slides under it (the panel would clip the sheet's framed corner).
-          <div className="absolute inset-0 flex items-center justify-center p-6 sm:p-10 lg:pr-[22rem]">
-            <DrawingSheet
-              svgRef={sheetSvgRef}
-              composed={composed}
-              views={views}
-              resultByProjection={resultByProjection}
-              selectedEdgeKey={selectedEdgeKey}
-              armedEdgeKeys={armedEdgeKeys}
-              selectedVertexKeys={selectedVertexKeys}
-              endpointPickActive={endpointPickActive}
-              placementBusy={placingView}
-              onPickEdge={handlePickEdge}
-              onPickEndpoint={handlePickEndpoint}
-              onPlaceView={handlePlaceView}
-              onResetView={handleResetView}
+          // The check strip stacks ABOVE the paper rather than floating over it:
+          // a diagnostic that covers the geometry it is about is not a
+          // diagnostic. It only occupies rows when there is something to say.
+          <div
+            className={`absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 sm:p-10 lg:pr-[22rem] ${
+              // The check strip needs clearance from the sheet switcher, which
+              // floats in this same top-left margin; without it the two touch at
+              // narrow widths. Only paid for when the strip is there.
+              layoutIssues.length > 0 ? "pt-12 sm:pt-12" : ""
+            }`}
+          >
+            <SheetIssueStrip
+              issues={layoutIssues}
+              handPlaced={handPlacedViews}
+              onAutoPlace={handleAutoPlaceViews}
+              busy={placingView}
             />
+            <div className="min-h-0 w-full grow">
+              <DrawingSheet
+                svgRef={sheetSvgRef}
+                composed={composed}
+                views={views}
+                resultByProjection={resultByProjection}
+                selectedEdgeKey={selectedEdgeKey}
+                armedEdgeKeys={armedEdgeKeys}
+                selectedVertexKeys={selectedVertexKeys}
+                endpointPickActive={endpointPickActive}
+                placementBusy={placingView}
+                onPickEdge={handlePickEdge}
+                onPickEndpoint={handlePickEndpoint}
+                onPlaceView={handlePlaceView}
+                onResetView={handleResetView}
+              />
+            </div>
           </div>
         ) : hasLayout && sheet && sheetQuery.isError ? (
           <CenterNote
@@ -1197,6 +1317,7 @@ export function DrawingPage() {
                 measuredById={measuredById}
                 busy={dimBusy}
                 onDelete={handleDeleteDimension}
+                onHeal={handleHealDimension}
               />
               <NotesPanel
                 annotations={annotations}
@@ -1721,17 +1842,32 @@ function NotesPanel({
  * The Dimensions panel — the authored dimensions with their model-true value and
  * a delete affordance (design §3 "Manage"). It is the keyboard/touch path to
  * removing a dimension and the honest place a measurement error surfaces.
+ *
+ * Two things the server has always shipped and this panel used to drop (audit
+ * N1 frontend half):
+ *
+ *  - a dimension that could not be measured said only "unresolved", while
+ *    `measured.error.message` carried the typed sentence the SHEET already
+ *    stamps beside the marker. The words belong on both.
+ *  - `measured.anchor.tier === "durable"` means the stored reference did not
+ *    match after an edit and geometry re-anchored it on the rebuild invariant.
+ *    The value is model-true either way, so this is not an alarm — it is the
+ *    dashed "not established" {@link Stamp}, plus the one click that stores the
+ *    signature geometry landed on and makes the reference exact again.
  */
 function DimensionsPanel({
   dimensions,
   measuredById,
   busy,
   onDelete,
+  onHeal,
 }: {
   dimensions: readonly DimensionResponse[];
   measuredById: Map<string, MeasuredDimension>;
   busy: boolean;
   onDelete: (dimensionId: string) => void;
+  /** Store the re-anchored signature for this dimension (the "confirm" write). */
+  onHeal: (dimensionId: string) => void;
 }) {
   return (
     <div
@@ -1770,37 +1906,79 @@ function DimensionsPanel({
                   : errored
                     ? "unresolved"
                     : "…";
+              // The typed sentence the server already stamps on the sheet
+              // ("REFERENCE LOST - RE-PICK THE EDGE"); the panel said only
+              // "unresolved" beside it. The phrase is the SERVER's.
+              const reason = measured?.error?.message ?? null;
+              const anchor = reanchoredAnchor(measured);
+              const healable =
+                anchor !== null &&
+                healDimensionParams(dim.dimension, anchor) !== null;
               return (
                 <li
                   key={dim.id}
-                  className="flex items-center gap-2 px-3 py-1.5"
+                  className="px-3 py-1.5"
                   data-testid="dimension-row"
                   data-dimension-type={dim.dimension.type}
                   data-foreshortened={foreshortened ? "true" : "false"}
+                  data-anchor-tier={measured?.anchor?.tier ?? "none"}
                 >
-                  <span className="font-display text-2xs uppercase tracking-[0.14em] text-gauge">
-                    {dim.dimension.type}
-                  </span>
-                  <span
-                    data-testid="dimension-row-value"
-                    // Foreshortened matches the sheet: the ~value reads in the
-                    // same flag ink on BOTH renderers (was un-flagged here).
-                    className={`grow text-right font-data text-2xs tabular-nums ${
-                      errored || foreshortened ? "text-flag" : "text-mist"
-                    }`}
-                  >
-                    {value}
-                  </span>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    data-testid="dimension-delete"
-                    aria-label={`Delete ${dim.dimension.type} dimension`}
-                    onClick={() => onDelete(dim.id)}
-                    className="shrink-0 rounded-sm px-1.5 py-0.5 font-display text-2xs uppercase tracking-[0.14em] text-gauge transition-colors duration-fast hover:text-flag focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass disabled:pointer-events-none disabled:opacity-40"
-                  >
-                    Delete
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <span className="font-display text-2xs uppercase tracking-[0.14em] text-gauge">
+                      {dim.dimension.type}
+                    </span>
+                    <span
+                      data-testid="dimension-row-value"
+                      // Foreshortened matches the sheet: the ~value reads in the
+                      // same flag ink on BOTH renderers (was un-flagged here).
+                      className={`grow text-right font-data text-2xs tabular-nums ${
+                        errored || foreshortened ? "text-flag" : "text-mist"
+                      }`}
+                    >
+                      {value}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      data-testid="dimension-delete"
+                      aria-label={`Delete ${dim.dimension.type} dimension`}
+                      onClick={() => onDelete(dim.id)}
+                      className="shrink-0 rounded-sm px-1.5 py-0.5 font-display text-2xs uppercase tracking-[0.14em] text-gauge transition-colors duration-fast hover:text-flag focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass disabled:pointer-events-none disabled:opacity-40"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                  {/* WHY it is unresolved, in the server's words — the print has
+                      said this beside the marker since audit N1; the screen
+                      said "unresolved" and stopped. */}
+                  {errored && reason ? (
+                    <p
+                      data-testid="dimension-row-reason"
+                      className="mt-1 font-body text-2xs text-flag"
+                    >
+                      {reason}
+                    </p>
+                  ) : null}
+                  {anchor !== null ? (
+                    <div className="mt-1 flex items-center gap-2">
+                      <Stamp indeterminate data-testid="dimension-reanchored">
+                        Re-anchored
+                      </Stamp>
+                      <span className="grow" />
+                      {healable ? (
+                        <button
+                          type="button"
+                          disabled={busy}
+                          data-testid="dimension-heal"
+                          aria-label={`Confirm the re-anchored reference for the ${dim.dimension.type} dimension`}
+                          onClick={() => onHeal(dim.id)}
+                          className="shrink-0 rounded-sm px-1.5 py-0.5 font-display text-2xs uppercase tracking-[0.14em] text-brass transition-colors duration-fast hover:text-mist focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass disabled:pointer-events-none disabled:opacity-40"
+                        >
+                          Confirm
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </li>
               );
             })}
@@ -1814,6 +1992,19 @@ function DimensionsPanel({
             >
               <span className="font-data">~</span> shown from a true-size view
               for the drawn length (foreshortened).
+            </p>
+          ) : null}
+          {/* The dashed stamp on its own is jargon; this is the sentence that
+              makes it actionable, always visible (the `~` legend's twin). */}
+          {dimensions.some(
+            (dim) => reanchoredAnchor(measuredById.get(dim.id)) !== null,
+          ) ? (
+            <p
+              data-testid="dimension-reanchored-note"
+              className="border-t border-hairline px-3 py-2 font-body text-2xs text-gauge"
+            >
+              Re-anchored: the part changed, so this was re-measured from the
+              edge that is there now. Confirm to store the new reference.
             </p>
           ) : null}
         </>

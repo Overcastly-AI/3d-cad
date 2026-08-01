@@ -643,6 +643,22 @@ units (`tests/test_drawings_anchor.py`, 11); the five compose byte-goldens were
 regenerated for the new (clear) layout — a clean sheet still composes with no
 banner ink.
 
+**N1/N2 FRONTEND HALF — the screen now says what the print said (2026-08-01,
+frontend-builder).** Everything above shipped on the WIRE and the app dropped
+it, so the product told the truth on the PDF and not on screen. Three surfaces
+close that: a re-anchored dimension (`anchor.tier == "durable"`) is stamped
+RE-ANCHORED in the Dimensions panel with a one-click **Confirm** that stores
+the signature geometry landed on (append-then-delete, so a failure can only
+leave a visible duplicate, never a lost dimension); `ComposedSheet.layout_issues`
+raises a **sheet check strip** above the paper in the composer's own sentences,
+each row carrying the Auto-place that actually fixes it, and stamps the SAME
+`drawing-layout-issue` banner on the DOM sheet the three serializers stamp — so
+"export the SVG you see" carries the warning too; and an unresolved dimension's
+typed reason now reads beside "unresolved" instead of nothing. Gate: `apps/web/
+e2e/drawing-reanchor.spec.ts` resizes a dimensioned part 100 -> 120 and reads
+`120.000` IN-APP, then confirms the reference and watches the badge retire.
+Before/after: `docs/screenshots/drawing-{reanchor,layout-check}-{old,after}-*.png`.
+
 **Sheet metal → full incumbent parity (PAUSED 2026-07-23, resumed on founder
 call).** The bar remains **full parity with SolidWorks/Fusion 360, not "good
 enough"**; `docs/design/sheet-metal-parity.md` (vision-steward, 2026-07-19) is

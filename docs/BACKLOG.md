@@ -1888,16 +1888,19 @@ frame refactor are v2/§11. Spike de-collected.
       same everyday edits a dimension now does (today they still hard-fail on a
       resized/moved edge). Acceptance: one resolver, one set of tests, a
       fillet-on-a-widened-plate regression. [src: topological-naming §11]
-- [ ] (P2, S) **Frontend half of N1/N2 — say it on screen, not only on the print**
-      (frontend). `DrawingSheet.tsx` still renders its own bare-`!` glyph for a
-      broken dimension (the server now ships
-      `ComposedDimensionError.message`/`text`), `ComposedSheet.layout_issues` is not
-      surfaced at all (an overlapping sheet looks fine in-app and only warns once
-      exported), and `MeasuredDimension.anchor.tier == "durable"` is the signal for
-      a "this dimension re-anchored after your edit — confirm it" badge + a
-      one-click "heal the stored ref" using the returned signature. Acceptance:
-      words beside the marker on screen, a sheet-level layout warning strip, and an
-      e2e that resizes a dimensioned part and reads the new value in-app.
+- [x] (P2, S) **Frontend half of N1/N2 — say it on screen, not only on the print**
+      (frontend). DONE 2026-08-01: the sheet already stamped the composer's words
+      beside a broken marker (`6cc89b1`); this adds the two surfaces that were
+      still missing and the panel tier that dropped both. `ComposedSheet.layout_issues`
+      now raises a **sheet check strip** above the paper (composer's own sentences,
+      per-row Auto-place that resets exactly the hand-placed views of the pair, an
+      advice line where no reset would help) AND stamps the same
+      `drawing-layout-issue` banner on the DOM sheet the three serializers use, so
+      the client SVG export carries it too. `anchor.tier == "durable"` stamps a
+      dashed RE-ANCHORED badge with one-click **Confirm** (append-then-delete;
+      `drawing/anchorHeal.ts`), and an unresolved dimension's typed reason reads in
+      the panel. Gate: `e2e/drawing-reanchor.spec.ts` resizes a dimensioned part
+      100 -> 120 and reads `120.000` in-app, then confirms the reference.
       [src: AUDIT-PRODUCT 2026-07-30 N1/N2]
 - [ ] (P3, S) **A sheet too small for its part is still silent.** The N2 collision
       check measures view-vs-view, not view-vs-BORDER, so a part that outgrows its
@@ -2760,6 +2763,12 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
       engineering-audit debt items closed. [src: engineering-auditor]
 
 ## Changelog
+
+- 2026-08-01 — **The drawing says on screen what it said on the print
+  (frontend-builder):** N1/N2's frontend half — a sheet check strip for
+  `layout_issues` (with the Auto-place that fixes each pair), a RE-ANCHORED badge
+  + one-click Confirm for a `durable` anchor, and the typed reason beside an
+  unresolved dimension. e2e resizes a dimensioned part and reads 120.000 in-app.
 
 - 2026-08-01 — **CONC-1/2/3: more than one person can use it now
   (backend-builder):** gateway session affinity over a comma-separated
