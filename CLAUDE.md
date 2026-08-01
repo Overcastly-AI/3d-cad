@@ -380,6 +380,27 @@ on completion with a watchdog fallback (`docs/AUTONOMOUS-LOOP.md` §1.4).
   `git show :FILE` BYTE-FOR-BYTE, because asserting the exit code would have
   passed all along; and **check the staged tree, not the staging report** —
   `git show :<file>` after staging a shared doc, not just `git diff --cached`.
+  **AND THE SELF-TEST I ADDED THAT MORNING PASSED WHILE THE TOOL SWEPT A
+  COLLEAGUE'S ROADMAP ENTRY THAT AFTERNOON — a fixture in the wrong FORMAT is a
+  gate that cannot fail for the reason you care about.** `ENTRY_START` knew list
+  items and headings, so it found boundaries in `docs/BACKLOG.md` (`- [ ] …`) and
+  none at all in `docs/ROADMAP.md`, whose entries are bold-lead PARAGRAPHS
+  (`**QA3-1 CLOSED (…) — …**`). Two adjacent ROADMAP entries therefore read as ONE
+  run of added lines, the marker made the whole run "mine", and it staged 31 lines
+  where 16 were mine — printing "left 0 hunk(s) unstaged for their author" as it
+  did. My self-test used the BACKLOG shape only, so it sailed through. Caught by
+  the kernel agent reading `git diff --cached` in full; nothing was lost. Three
+  changes, and the second is the one that generalises: (a) `ENTRY_START` learned
+  bold-lead paragraphs; (b) a SECOND, independently-derived entry count (added
+  lines separated by an added blank line) now cross-checks it, and the tool
+  REFUSES when the two disagree rather than guessing — so the next format nobody
+  taught it fails loudly instead of eating a neighbour; (c) `--self-test` carries
+  BOTH doc shapes, and the negative control is that reverting the regex makes the
+  ROADMAP case refuse. Note a post-condition that compares the staged tree
+  against what attribution CLAIMED does NOT catch this: a wrong claim verifies
+  happily against itself. That is the `gen-check`-measuring-the-wrong-input trap
+  wearing different clothes, and the fix is the same — get a second opinion from
+  a different derivation, not a louder assertion of the first.
   **When you are ready to commit and ANOTHER agent already has files staged, do
   not touch their index — build your commit against an isolated one.** The
   staging protocol above assumes the index is yours to arrange, and under four

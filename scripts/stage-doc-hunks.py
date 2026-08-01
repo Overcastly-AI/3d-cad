@@ -62,10 +62,20 @@ def split_hunks(diff: str) -> tuple[list[str], list[str]]:
     return header, hunks
 
 
-#: A line that STARTS a new top-level entry in these docs — a list item or a
-#: heading. Used to detect a hunk carrying more than one entry, which is the
-#: case marker-matching alone cannot resolve.
-ENTRY_START = re.compile(r"^\+(?:\s*[-*]\s|#{1,6}\s|>\s*ATTRIBUTION)")
+#: A line that STARTS a new top-level entry in these docs. Used to detect a hunk
+#: carrying more than one entry, which is the case marker-matching alone cannot
+#: resolve.
+#:
+#: THE BOLD-LEAD ALTERNATIVE IS NOT DECORATION — it is docs/ROADMAP.md's entire
+#: format, and leaving it out cost a colleague's entry on 2026-08-01. BACKLOG
+#: entries are list items (`- [ ]`), so `[-*]\s` found their boundaries; ROADMAP
+#: entries are bold-lead PARAGRAPHS (`**QA3-1 CLOSED (…) — …**`), which matched
+#: nothing. Two adjacent ROADMAP entries therefore read as ONE contiguous run of
+#: added lines with no detectable boundary, the marker made the whole run "mine",
+#: and the tool staged 31 lines where 16 were mine — reporting "left 0 hunk(s)
+#: unstaged for their author" while it did. Note `[-*]\s` cannot match `**bold`
+#: anyway: `[-*]` takes the first star and `\s` then fails on the second.
+ENTRY_START = re.compile(r"^\+(?:\s*[-*]\s|#{1,6}\s|>\s*ATTRIBUTION|\*\*)")
 
 
 def added_lines(hunk: str) -> list[str]:
@@ -202,6 +212,82 @@ def hunk_adds_marker(hunk: str, marker: str) -> bool:
     )
 
 
+def entry_count_by_blank_line(hunk: str) -> int:
+    """A SECOND, independently-derived count of the entries a hunk adds.
+
+    `ENTRY_START` recognises entries by how they begin, so it is blind to any
+    format nobody has taught it — and being blind means silently merging two
+    entries into one, which is how a colleague's ROADMAP paragraph got swept on
+    2026-08-01 (the regex knew list items and headings, ROADMAP uses bold-lead
+    paragraphs). Adding the missing alternative fixes that instance; it does
+    nothing for the next format.
+
+    This counts a different way — added lines separated by an added BLANK line —
+    so the two disagree exactly when one of them has missed a boundary. It is not
+    better than `ENTRY_START` and is not used for attribution; it is used to
+    refuse when the two do not agree, because a disagreement means the tool
+    cannot tell whose lines these are, and guessing is what does the damage.
+
+    NB this is why `verify_staged` alone is not enough: that check compares the
+    result against what attribution CLAIMED, so a wrong claim verifies happily.
+    """
+    count, in_entry = 0, False
+    for ln in added_lines(hunk):
+        if ln.strip() == "+":
+            in_entry = False
+        elif not in_entry:
+            count, in_entry = count + 1, True
+    return count
+
+
+def verify_staged(
+    path: str,
+    filtered: list[str],
+    matched: list[str],
+    marker: str,
+    cwd: Path | None,
+) -> list[str]:
+    """Post-condition on the INDEX: exactly my lines went in, none of theirs.
+
+    Reads the blob `git commit` would use and compares it against HEAD's, line by
+    line. Two failures are possible and both are silent without this:
+
+      * a colleague's added line reached the index — the sweep, in any of the
+        three shapes it has taken so far;
+      * a line I claimed did NOT reach the index — the drop, which is what an
+        over-eager entry boundary would cause.
+
+    Counting occurrences rather than testing membership matters: these docs
+    legitimately repeat short lines (a bare `\\n`, a `---`), so "is it present"
+    would pass while a duplicate went missing.
+    """
+    from collections import Counter
+
+    staged = run(["git", "show", f":{path}"], cwd=cwd).stdout
+    head = run(["git", "show", f"HEAD:{path}"], cwd=cwd).stdout
+    gained = Counter(staged.splitlines()) - Counter(head.splitlines())
+
+    claimed = Counter(
+        ln[1:] for hunk in filtered for ln in added_lines(hunk)
+    )  # what the emitted patch says it adds
+    theirs = Counter(
+        ln[1:]
+        for hunk in matched
+        for ln in added_lines(hunk)
+        if ENTRY_START.match(ln) and marker not in ln
+    )  # entry-start lines that are definitely NOT mine
+
+    problems: list[str] = []
+    for line, n in (gained - claimed).items():
+        problems.append(f"staged {n} line(s) I never claimed: {line.strip()[:90]!r}")
+    for line, n in (claimed - gained).items():
+        problems.append(f"failed to stage {n} of my line(s): {line.strip()[:90]!r}")
+    for line in theirs:
+        if gained[line]:
+            problems.append(f"a colleague's entry reached the index: {line[:90]!r}")
+    return problems
+
+
 def stage(path: str, marker: str, cwd: Path | None = None) -> int:
     diff = run(["git", "diff", "--", path], cwd=cwd).stdout
     if not diff.strip():
@@ -231,8 +317,17 @@ def stage(path: str, marker: str, cwd: Path | None = None) -> int:
     # DELETES lines is not an append, so there is no safe automatic answer and it
     # is refused by name rather than guessed at.
     refuse: list[str] = []
+    disagree: list[str] = []
     filtered: list[str] = []
     for hunk in mine:
+        seen = len([ln for ln in added_lines(hunk) if ENTRY_START.match(ln)])
+        blanks = entry_count_by_blank_line(hunk)
+        if blanks > max(seen, 1):
+            disagree.append(
+                f"{blanks} entries by blank-line separation, but only {seen} "
+                "recognised entry-start line(s)"
+            )
+            continue
         foreign = foreign_entries(hunk, marker)
         if not foreign:
             filtered.append(hunk)
@@ -243,6 +338,21 @@ def stage(path: str, marker: str, cwd: Path | None = None) -> int:
             refuse.extend(foreign)
             continue
         filtered.extend(mine_only_subhunks(hunk, marker))
+
+    if disagree:
+        print(
+            f"stage-doc-hunks: REFUSING — I cannot tell where the entries in "
+            f"{path} begin, so I cannot tell which lines are yours:\n"
+        )
+        for line in disagree:
+            print(f"  {line}")
+        print(
+            "\n  That gap is how a colleague's entry gets swept. Either the doc "
+            "uses a\n  format ENTRY_START does not know (teach it, and add the "
+            "shape to\n  --self-test), or your entry spans a blank line. Stage "
+            "this one by hand."
+        )
+        return 6
 
     if refuse:
         print(
@@ -255,6 +365,15 @@ def stage(path: str, marker: str, cwd: Path | None = None) -> int:
         print("\n  Stage this one by hand.")
         return 4
 
+    # Everything above is ATTRIBUTION, and attribution is a heuristic about
+    # somebody else's prose — it will keep having edge cases (it has had three in
+    # two days: hunk-granularity sweeping, a marker matching inside a colleague's
+    # sentence, and ROADMAP's bold-lead paragraphs going unrecognised). So the
+    # guard below is deliberately NOT another heuristic: whatever attribution
+    # decided, verify the RESULT against it and undo on disagreement. That check
+    # is format-independent and would have caught all three.
+    before = run(["git", "ls-files", "-s", "--", path], cwd=cwd).stdout.strip()
+
     patch = "".join(header) + "".join(filtered)
     applied = run(
         ["git", "apply", "--cached", "--unidiff-zero", "-"], stdin=patch, cwd=cwd
@@ -262,6 +381,30 @@ def stage(path: str, marker: str, cwd: Path | None = None) -> int:
     if applied.returncode != 0:
         print(f"stage-doc-hunks: patch did not apply.\n{applied.stderr}")
         return 3
+
+    problems = verify_staged(path, filtered, mine, marker, cwd)
+    if problems:
+        # Restore this path's index entry EXACTLY as we found it. Named path
+        # only, and via the recorded blob rather than `git reset`, so a
+        # colleague's staged work in other files is untouched.
+        if before:
+            meta, _, name = before.partition("\t")
+            mode, sha, _stage = meta.split()
+            run(
+                ["git", "update-index", "--cacheinfo", f"{mode},{sha},{name or path}"],
+                cwd=cwd,
+            )
+        print(
+            f"stage-doc-hunks: REFUSING — the staged tree does not match what I "
+            f"meant to stage, so I put {path}'s index entry back:\n"
+        )
+        for problem in problems:
+            print(f"  {problem}")
+        print(
+            "\n  Attribution got this file wrong. Stage it by hand, and tell "
+            "whoever owns the tool what the two entries looked like."
+        )
+        return 5
 
     # NAME WHAT WAS STAGED, don't just count it. A count cannot show you that the
     # marker landed inside a colleague's prose — which is exactly how "OPS-1"
@@ -322,56 +465,111 @@ _SELF_TEST_EXPECTED = _SELF_TEST_BASE.replace(
 )
 
 
-def self_test() -> int:
-    """Stage a hunk shared with a colleague and demand the INDEX be exactly right.
+#: docs/ROADMAP.md's shape, which the list-item fixture above does NOT exercise:
+#: bold-lead PARAGRAPHS, a colleague's directly above mine, separated by one
+#: blank line. This is the case that shipped a sweep on 2026-08-01 while the
+#: BACKLOG-shaped self-test passed — a fixture in the wrong format is a gate that
+#: cannot fail for the reason you care about.
+_ROADMAP_BASE = """# Roadmap
 
-    This tool had no self-test until 2026-08-01, which is precisely how it
-    shipped a defect that RELOCATED the author's own entry to the end of the file
-    while printing success. Asserting the exit code would not have caught it —
-    only reading the resulting tree does. So this compares `git show :FILE`
-    byte-for-byte, and separately demands the colleague's line never entered the
-    index and never left the working tree.
-    """
+Status legend.
+
+**An older entry that was already here.** Its second line of prose.
+"""
+
+_ROADMAP_DIRTY = _ROADMAP_BASE.replace(
+    "**An older entry",
+    "**THEIR ENTRY (2026-08-01, colleague) — a headline that\n"
+    "wraps onto a second line.** Their body prose, which continues\n"
+    "for a third line as these entries do.\n"
+    "\n"
+    "**MY ROADMAP ENTRY marker-phrase — my headline, also\n"
+    "wrapped.** My body prose here.\n"
+    "\n"
+    "**An older entry",
+)
+
+_ROADMAP_EXPECTED = _ROADMAP_BASE.replace(
+    "**An older entry",
+    "**MY ROADMAP ENTRY marker-phrase — my headline, also\n"
+    "wrapped.** My body prose here.\n"
+    "\n"
+    "**An older entry",
+)
+
+
+def _case(
+    name: str, doc_name: str, base: str, dirty: str, expected: str, marker: str
+) -> list[tuple[bool, str]]:
+    """Run one staging scenario in a throwaway repo; return (ok, label) checks."""
     import tempfile
 
     with tempfile.TemporaryDirectory() as tmp:
         repo = Path(tmp)
-        doc = repo / "BACKLOG.md"
+        doc = repo / doc_name
         for args in (
             ["git", "init", "-q", "."],
             ["git", "config", "user.email", "self-test@loft.invalid"],
             ["git", "config", "user.name", "self-test"],
         ):
             run(args, cwd=repo)
-        doc.write_text(_SELF_TEST_BASE)
-        run(["git", "add", "BACKLOG.md"], cwd=repo)
+        doc.write_text(base)
+        run(["git", "add", doc_name], cwd=repo)
         run(["git", "commit", "-qm", "base"], cwd=repo)
 
-        doc.write_text(_SELF_TEST_DIRTY)
-        code = stage("BACKLOG.md", "MY NEW ENTRY marker-phrase", cwd=repo)
-        staged = run(["git", "show", ":BACKLOG.md"], cwd=repo).stdout
+        doc.write_text(dirty)
+        code = stage(doc_name, marker, cwd=repo)
+        staged = run(["git", "show", f":{doc_name}"], cwd=repo).stdout
+        working = doc.read_text()
 
-        ok_exit = code == 0
-        ok_tree = staged == _SELF_TEST_EXPECTED
-        ok_theirs = "SIBLING IN-FLIGHT" not in staged
-        ok_kept = "SIBLING IN-FLIGHT" in doc.read_text()
-
-    print(f"  {'ok  ' if ok_exit else 'FAIL'} staging a shared hunk exits 0")
-    print(
-        f"  {'ok  ' if ok_tree else 'FAIL'} the staged tree places my entry EXACTLY "
-        "where I wrote it"
-    )
-    print(f"  {'ok  ' if ok_theirs else 'FAIL'} the colleague's entry is NOT staged")
-    print(
-        f"  {'ok  ' if ok_kept else 'FAIL'} the colleague's entry survives in the "
-        "working tree"
-    )
-    if not ok_tree:
+    theirs = "THEIR ENTRY" if "THEIR ENTRY" in dirty else "SIBLING IN-FLIGHT"
+    checks = [
+        (code == 0, f"{name}: exits 0"),
+        (staged == expected, f"{name}: the staged tree is EXACTLY my entry, in place"),
+        (theirs not in staged, f"{name}: the colleague's entry is NOT staged"),
+        (theirs in working, f"{name}: the colleague's entry survives for them"),
+    ]
+    if staged != expected:
         print("\n--- staged ---")
         print(staged)
         print("--- expected ---")
-        print(_SELF_TEST_EXPECTED)
-    if ok_exit and ok_tree and ok_theirs and ok_kept:
+        print(expected)
+    return checks
+
+
+def self_test() -> int:
+    """Stage a hunk shared with a colleague and demand the INDEX be exactly right.
+
+    This tool had no self-test until 2026-08-01, which is precisely how it shipped
+    a defect that RELOCATED the author's own entry to the end of the file while
+    printing success. Asserting the exit code would not have caught it — only
+    reading the resulting tree does, so this compares `git show :FILE`
+    byte-for-byte.
+
+    TWO fixtures, in the two formats these docs actually use, because the first
+    version of this self-test had only the BACKLOG one and therefore passed while
+    the tool swept a colleague's ROADMAP entry hours later. A gate is only as good
+    as the shapes it feeds itself.
+    """
+    checks = _case(
+        "backlog",
+        "BACKLOG.md",
+        _SELF_TEST_BASE,
+        _SELF_TEST_DIRTY,
+        _SELF_TEST_EXPECTED,
+        "MY NEW ENTRY marker-phrase",
+    ) + _case(
+        "roadmap",
+        "ROADMAP.md",
+        _ROADMAP_BASE,
+        _ROADMAP_DIRTY,
+        _ROADMAP_EXPECTED,
+        "MY ROADMAP ENTRY marker-phrase",
+    )
+
+    for ok, label in checks:
+        print(f"  {'ok  ' if ok else 'FAIL'} {label}")
+    if all(ok for ok, _ in checks):
         print("\nstage-doc-hunks: self-test passed.")
         return 0
     print("\nstage-doc-hunks: SELF-TEST FAILED — do not stage shared docs with this.")
