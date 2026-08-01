@@ -53,6 +53,91 @@ duplication.
 
 ## Ready (top of queue)
 
+### FOUNDER SESSION FEEDBACK 2026-08-01 — eleven reports from one evening of real use
+
+The founder modelled in the app and reported the following. These outrank the
+rest of the queue: they are the daily-driver question answered directly. The
+recurring shape is NOT missing capability — it is capability that cannot be
+REACHED (a dimension mode nobody added, sketch-on-face buried in a context menu,
+free-rect framing built but never triggered, picking that never says what it is
+about to hit).
+
+- [x] **FB-1 — the extrude "flipped to xy", and a sketch on a face kept "snapping
+      back" so it could not be seen.** ONE bug, FIXED `5bd4c46`. The auto-fit in
+      `Viewport.tsx` slammed the camera to `ISO_DIR`/up=+Y on every run, and its
+      trigger `fitKey` includes the geometry id, so every extrude re-imposed iso.
+      Now re-frames distance/target only; direction/up preserved after the first
+      fit. Not yet verified against the Playwright screenshot specs.
+- [ ] (P0, M) **FB-2 — a sketch line will not select at all**, so it cannot be
+      dimensioned ("I try to click on a line to [assign] height"). Pick path, not
+      discoverability: `applyConstraintAction("distance")` needs exactly one LINE
+      and `pick.ts` states "Points win within tolerance because they are the finer
+      target" (`PICK_TOLERANCE_PX = 8`) — a click near a line may resolve to an
+      endpoint POINT with nothing on screen saying so. Bisect vs `d8a4126`
+      (PERF-4b fused per-face primitives + changed draw groups) in flight.
+- [ ] (P0, M) **FB-3 — picking a FACE is "very difficult"** — finicky rather than
+      dead. Wants a measured hit region, small-vs-large faces, zoom and grazing
+      angle, not an impression. Likely the same defect as FB-2.
+- [ ] (P0, M) **FB-4 — a cut extrudes AWAY from the material and removes
+      nothing** ("I select a sketch do a cut it somehow misses everything going a
+      different way"). `defaultExtrudeForm` (`features/extrude.ts:66`) hardcodes
+      `direction: "normal"` and never consults the operation; an on_face datum's
+      `z_dir` is the OUTWARD face normal (`kernel/faces.py:13`). Fix: default
+      direction from operation + plane kind (cut on a face -> into the material),
+      re-default when the operation is switched unless overridden, show it in the
+      ghost. The typed `cut_removed_nothing` error made this look like user error
+      for months — an error message guarding a bad default.
+- [ ] (P1, M) **FB-5 — cannot attach a sketch to a face; hovering a face should
+      offer it.** The capability exists but only as `ctx-sketch-on-face` in a
+      right-click Tools menu, which then enters a face-pick mode (so FB-3 may
+      also block it). "New sketch" offers base planes only, so concluding it is
+      impossible is the correct reading of the UI.
+- [ ] (P1, S) **FB-6 — sketch ink is invisible on the face it sits on.**
+      `SketchScene.tsx` sets `depthWrite={false}` but leaves depth TESTING on and
+      has no `renderOrder`/`polygonOffset`; a sketch on a face is coplanar with it
+      by construction, so the ink z-fights away. Also check scribe contrast on a
+      bright aluminium face, not just the dark void. IN FLIGHT.
+- [ ] (P1, L) **FB-7 — editor panels cover the model and cannot be moved**
+      (Feature tree > new Datum plane; photographed). `Viewport.tsx:733` already
+      measures chrome obstructions into a FREE rect and `framePose` already fills
+      it — but `framing()` is only consulted during a fit, and the auto-fit runs
+      only on `fitKey`, so opening a panel triggers nothing. Order: dock editors
+      into a rail (overlap becomes structurally impossible), THEN trigger the
+      free-rect fit for residual floating chrome (safe only since `5bd4c46`),
+      THEN compact as a separate density pass. Compaction alone is not the fix —
+      a smaller panel still covers the part.
+- [ ] (P0, L) **FB-8 — "too many [points] to see what you are clicking"; wants
+      Fusion/Plasticity pre-selection** — a snapping pointer, the FACE (not the
+      body) highlighting under the cursor, and a small axis showing direction.
+      `ModelMesh.tsx:37` types highlight as per-BODY (`"none" | "hover" |
+      "selected" | "feature"`), so hovering glows the whole solid. This is the
+      root of FB-2/FB-3 as EXPERIENCED: a mis-aim is invisible instead of visible
+      and free. The hovered-face normal also pre-empts FB-4 — you would see which
+      way "out" points before authoring. Spec IN FLIGHT (vision-steward).
+- [ ] (P0, S) **FB-9 — "the extruded is not on the same plane"** (photographed,
+      base-plane sketch, ADD, NORMAL, 10 mm). Needs numeric settlement: solid min
+      extent along the normal vs the plane offset, and footprint coincidence with
+      the profile. Note `PartPage.tsx:976` says a sketch on XY+30 renders its ink
+      at z=30 — ink placement and the kernel's plane origin are computed in two
+      places, which is where they drift. Distinguish wrong GEOMETRY from wrong
+      RENDERING; they look identical on screen and have different fixes.
+- [ ] (P1, M) **FB-10 — drawings cannot dimension edge-to-edge, so a shell wall
+      thickness is unmeasurable.** `LinearMeasurement` (`schemas/drawings.py:320`)
+      is edge-length OR point-to-point between two ENDPOINTS. Point-to-point
+      measures those points, not the perpendicular thickness, and is wrong as soon
+      as they are not aligned across the wall. `angular` already takes
+      `edge_a`/`edge_b`, so the two-edge pattern exists and the union is designed
+      to extend additively. Add `EdgeToEdgeMeasurement` with a typed refusal for
+      non-parallel edges rather than a confidently wrong number. Needs a QUIET
+      tree: it regenerates contracts + ts-client.
+- [ ] (P2, S) **FB-11 — nothing in the app says which BUILD it is.** The founder
+      tests from a GitHub Codespace, so a report cannot be tied to a commit and
+      "already fixed or still broken" is unanswerable. Inject the git SHA + build
+      time via Vite `define`, surface it quietly with a `data-testid`. Small, but
+      it removes a whole class of wasted round-trip — two fixes landed mid-session
+      and neither side can say whether the last report included them.
+
+
 - [ ] (P1, M) **QA3-1 — the Hole command can only drill at a face's centroid or
       a corner, so it cannot place a hole on a real part** (frontend + a small
       geometry-free addition). `HolePointOverlay` offers exactly two placements —
