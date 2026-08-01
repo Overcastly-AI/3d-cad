@@ -232,6 +232,28 @@ about to hit).
       §CONCURRENCY). Acceptance: the 50x case named as a benchmark with its
       measured cost and where the time goes, then the fix that measurement
       implies. [src: founder 2026-08-01]
+- [ ] (P1, M) **FB-19 — the chrome is too sparse; compact it.** Founder,
+      2026-08-01, and distinct from FB-7: FB-7 stops panels COVERING the model,
+      this makes them worth the pixels they take. Note UI-W4 already did one pass
+      ("feature editors stop being 12-row web forms") and the founder still says
+      it is not dense enough — so treat the previous pass as insufficient rather
+      than done. Evidence is the founder's own photo: `EDIT EXTRUDE` spends six
+      full-width rows on Profile / Distance / Operation / Direction / Merge /
+      actions, every label stacked ABOVE its control, plus a permanently-visible
+      helper sentence ("Fuse into the touching body."); the left panel spends six
+      rows listing XY/XZ/YZ + X/Y/Z axis. Concrete levers, in order of return:
+      label BESIDE control instead of above (halves row height on a form that is
+      almost all short values); the two 2-state toggles (Operation, Direction)
+      onto one row as segmented controls; helper prose behind an info affordance
+      rather than permanently resident; the origin list as a 3x2 grid, not six
+      rows. THE FLOOR, which is not negotiable and must be stated in the commit:
+      WCAG 2.5.8 24px minimum target size (`PickNode` already cites it), visible
+      focus, AA contrast, and the touch specs still green — a panel compacted
+      into unusability on a laptop trackpad is a worse defect than a tall one.
+      Judge it the way the design mandate says: screenshots side by side against
+      a Fusion/Plasticity reference at 1600 AND 1280, and measure the viewport
+      pixels reclaimed rather than asserting it feels tighter. [src: founder
+      2026-08-01]
 
 **QA verdicts on the founder block (qa-tester, 2026-08-01, HEAD + bisect):**
 `d8a4126` (PERF-4b) is **EXONERATED — do not revert**: face picking uses drei
