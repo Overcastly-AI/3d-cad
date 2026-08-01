@@ -18,7 +18,12 @@ Preceded today by a PERFORMANCE wave off the first big-part benchmark
 so an edit on a 200-feature part cost 27 s. Now 1.0 s, a repeat measure/export
 162 ms, and a 2 006-face STEP import 18.6 s → 3.5 s. **PERF-1b (2026-08-01)**
 adds prefetch off an open editor / the travel stop, so a deep mid-tree edit is
-33.7 → 4.8 s and the first face pick after it 34.7 → 4.4 s. Cold open is still
+33.7 → 4.8 s and the first face pick after it 34.7 → 4.4 s. **PERF-5b
+(2026-08-01)** deletes the last quadratic on the pick path: face provenance is
+fingerprinted as evaluation produces it instead of being re-derived from
+retained B-reps, so the attribution pass is 2 347 → 67 ms at N=150 (11-16 % of
+the request → 3.0-6.2 %) and a repeat pick 2 667 → 435 ms, with attribution
+proved identical on 54 parts / 1 573 faces. Cold open is still
 ~26 s — the N^1.85 curve is untouched and needs incremental topology.
 
 **GATE-2 (2026-08-01) — the image build broke for two commits and only the
@@ -896,8 +901,11 @@ per wire — never a face-count law); disabling it is byte-identical and takes a
 2 006-face import 18.58 → **3.46 CPU s**, so the 20 s ceiling now has ~3x headroom
 at the 16 MiB upload cap instead of 1.08x. **PERF-5a fixed 2026-07-31**:
 provenance crossed its budget at N ~= 103 (measured, not bracketed);
-`MAX_PROVENANCE_FACES` 8 000 → 30 000 crosses at N ~= 207 — PERF-5b (fingerprint
-snapshots instead of retaining B-reps) still open. **PERF-4b fixed 2026-08-01**
+`MAX_PROVENANCE_FACES` 8 000 → 30 000 crosses at N ~= 207. **PERF-5b fixed
+2026-08-01** (kernel-architect): snapshots are fingerprinted as evaluation
+produces them instead of retained as B-reps, so the pass is O(final faces) —
+2 347 → 67 ms at N=150, a repeat face pick 2 667 → 435 ms, and attribution
+identical face-for-face on 54 parts / 1 573 faces. **PERF-4b fixed 2026-08-01**
 (kernel-architect): the per-face glTF primitive is fused behind a compact
 per-face triangle side table, but only where it pays — always fusing re-bases
 the indices and destroys the byte-identical local index runs deflate was

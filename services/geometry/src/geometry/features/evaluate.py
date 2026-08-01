@@ -210,6 +210,7 @@ from geometry.kernel import (
 )
 from geometry.kernel.healing import body_is_valid, new_geometry_is_valid
 from geometry.kernel.lumps import lump_count
+from geometry.kernel.provenance import FaceProvenance, FaceProvenanceRecorder
 from geometry.kernel.types import BodyShape
 from geometry.mesh_store import store_mesh_glb
 from geometry.rebuild_cache import (
@@ -253,7 +254,7 @@ def _snapshot_shape(bodies: dict[uuid.UUID, BodyShape]) -> BodyShape:
     (multi-body §MB-4).
 
     The single construction (CLAUDE.md DRY) shared by the final tessellated shape
-    and the per-feature provenance snapshots (:attr:`EvaluationState.body_history`),
+    and the per-feature provenance snapshots (:attr:`EvaluationState.provenance`),
     so a face has byte-identical geometry between a mid-tree snapshot and the final
     body — the invariant :func:`geometry.kernel.attribute_faces` matches on.
     Callers guard a non-empty ``bodies`` (a body-less tree tessellates nothing).
@@ -378,19 +379,21 @@ class EvaluationState:
     bodies: dict[uuid.UUID, BodyShape] = field(
         default_factory=dict[uuid.UUID, BodyShape]
     )
-    #: Snapshot of the WHOLE body set after each ok BODY-AFFECTING feature, in
-    #: evaluation order (earliest first): ``(feature id, shape)``. Per-face feature
-    #: provenance (FINDINGS #9, :func:`geometry.kernel.attribute_faces`) walks these
-    #: earliest-first to attribute each final face to the feature that created or
-    #: last modified it, so the frontend can highlight one feature's faces instead
-    #: of clay-swapping the whole body. Each snapshot is built exactly like the
-    #: final tessellated shape (:func:`_snapshot_shape` — bare solid or flattened
-    #: Compound), so a face matches across snapshots by geometry. Service-internal
-    #: kernel shapes, never serialized — exactly like ``bodies``. Populated ONLY
-    #: when the caller passes ``record_history=True`` (audit H4).
-    body_history: list[tuple[uuid.UUID, BodyShape]] = field(
-        default_factory=list[tuple[uuid.UUID, BodyShape]]
-    )
+    #: FINGERPRINTS of the WHOLE body set after each ok BODY-AFFECTING feature, in
+    #: evaluation order (earliest first). Per-face feature provenance (FINDINGS #9,
+    #: :func:`geometry.kernel.attribute_faces`) walks these earliest-first to
+    #: attribute each final face to the feature that created or last modified it, so
+    #: the frontend can highlight one feature's faces instead of clay-swapping the
+    #: whole body. Each snapshot is fingerprinted off exactly the shape the final
+    #: tessellation is built from (:func:`_snapshot_shape` — bare solid or flattened
+    #: Compound), so a face matches across snapshots by geometry.
+    #:
+    #: It holds fingerprints and NOT the snapshot B-reps (PERF-5b): retaining bodies
+    #: made the interactive attribution pass ``O(features x faces)`` — 11-16 % of
+    #: every ``/overlay`` request, quadratic in tree length — and kept an
+    #: intermediate body alive per feature. Recorded ONLY when the caller passes
+    #: ``record_history=True`` (audit H4); an untouched recorder costs nothing.
+    provenance: FaceProvenanceRecorder = field(default_factory=FaceProvenanceRecorder)
     #: The part's sheet-metal defaults (gauge/K/bend-radius) keyed by the
     #: base-flange feature id that created the sheet body (docs/design/
     #: sheet-metal.md §4.1/§5). Recorded only on an ok base flange; the
@@ -630,7 +633,7 @@ def _mirror_scope_ids(request: EvaluateTreeRequest) -> frozenset[uuid.UUID]:
     """Every feature id named by a ``features``-scope mirror in *request*.
 
     The OPT-IN pre-pass of docs/design/mirror-semantics.md §9, the same posture
-    ``body_history`` took for per-face provenance (audit H4: only the caller that
+    ``record_history`` took for per-face provenance (audit H4: only the caller that
     needs the retained intermediates funds them). v1 retained exactly ONE tool list
     (the most recent cut); v2 must retain a tool list for every feature some mirror
     might name, which without a gate would grow with tree length x tool complexity
@@ -2934,17 +2937,16 @@ class TreeEvaluation:
     #: resolves it here — the SAME plane the sketch/extrude path resolved during this
     #: evaluation, never a re-resolution. Empty for a part with no datum feature.
     datum_planes: dict[uuid.UUID, Plane] = field(default_factory=dict[uuid.UUID, Plane])
-    #: Snapshot of the body set after each ok body-affecting feature (evaluation
-    #: order): ``(feature id, shape)``. Service-internal like ``body``. Per-face
-    #: feature provenance (FINDINGS #9) — the overlay service threads
-    #: :func:`geometry.kernel.attribute_faces` over ``(body, body_history)`` onto
-    #: ``OverlayFace.feature_id`` for feature-localized selection. EMPTY unless the
-    #: caller asked for it (``evaluate_tree(..., record_history=True)`` — audit H4:
-    #: only the overlay path funds the retained intermediate bodies), and for a
-    #: body-less tree.
-    body_history: list[tuple[uuid.UUID, BodyShape]] = field(
-        default_factory=list[tuple[uuid.UUID, BodyShape]]
-    )
+    #: Face FINGERPRINTS of the body set after each ok body-affecting feature
+    #: (evaluation order). Per-face feature provenance (FINDINGS #9) — the overlay
+    #: service threads :func:`geometry.kernel.attribute_faces` over ``(body,
+    #: face_provenance)`` onto ``OverlayFace.feature_id`` for feature-localized
+    #: selection. EMPTY unless the caller asked for it (``evaluate_tree(...,
+    #: record_history=True)`` — audit H4: only the overlay path funds the
+    #: fingerprinting), and for a body-less tree. Carries no kernel shape, so
+    #: holding a :class:`TreeEvaluation` no longer pins an intermediate B-rep per
+    #: feature (PERF-5b).
+    face_provenance: FaceProvenance = field(default_factory=FaceProvenance)
 
 
 def tree_no_body_error(
@@ -3224,14 +3226,16 @@ def _dispatch_prefix(
             # advances to the pattern itself.
             if item.feature.type in BODY_AFFECTING_TYPES:
                 state.prev_body_feature_id = item.id
-                # Snapshot the body set for per-face feature provenance
+                # FINGERPRINT the body set for per-face feature provenance
                 # (FINDINGS #9): each final face is attributed to the earliest
-                # feature after which it exists in its final form. OPT-IN (audit
-                # H4) — only the overlay path reads these, so no other caller pays
-                # the retained intermediate bodies (or the per-feature Compound
-                # construction on a multi-body part).
+                # feature after which it exists in its final form. Taken HERE, not
+                # from a retained snapshot at attribution time (PERF-5b) — see
+                # :class:`FaceProvenanceRecorder`. OPT-IN (audit H4) — only the
+                # overlay path reads these, so no other caller pays the
+                # fingerprinting (or the per-feature Compound construction on a
+                # multi-body part), and the intermediate body dies as before.
                 if record_history and state.bodies:
-                    state.body_history.append((item.id, _snapshot_shape(state.bodies)))
+                    state.provenance.record(item.id, _snapshot_shape(state.bodies))
         else:
             results.append(
                 FeatureResult(feature_id=item.id, status="error", error=error)
@@ -3479,17 +3483,20 @@ def _evaluate_tree(
     suppressed one is a typed ``references_suppressed`` error
     (:func:`_suppressed_reference_error`), never a raise.
 
-    *record_history* (OPT-IN, audit H4) turns on the per-feature body snapshots
-    that feed per-face provenance (:attr:`TreeEvaluation.body_history`). It is off
-    by default because ONLY the overlay service consumes them, while
-    ``evaluate_tree`` has nine call sites — tessellate, export, measure, drawing
-    compose, per-instance assembly evaluation, the golden harness. Recording
-    unconditionally made every one of those retain an intermediate B-rep per
-    body-affecting feature (up to ``MAX_TREE_FEATURES``, and per unique part in an
-    assembly) plus, for a multi-body part, CONSTRUCT a fresh ``Compound`` per
-    feature — real OCCT work on the tessellate hot path, funded by callers that
-    never read the result. With it off, each intermediate body dies as the next
-    feature supersedes it, exactly as before provenance existed.
+    *record_history* (OPT-IN, audit H4) turns on the per-feature face
+    FINGERPRINTING that feeds per-face provenance
+    (:attr:`TreeEvaluation.face_provenance`). It is off by default because ONLY the
+    overlay service consumes it, while ``evaluate_tree`` has nine call sites —
+    tessellate, export, measure, drawing compose, per-instance assembly evaluation,
+    the golden harness. Recording unconditionally would make every one of those pay
+    a GProp area + centroid per face per body-affecting feature (up to
+    ``MAX_TREE_FEATURES``, and per unique part in an assembly) plus, for a
+    multi-body part, CONSTRUCT a fresh ``Compound`` per feature — real OCCT work on
+    the tessellate hot path, funded by callers that never read the result. With it
+    off, nothing is recorded and each intermediate body dies as the next feature
+    supersedes it, exactly as before provenance existed. Since PERF-5b it is
+    fingerprints that are retained rather than the intermediate B-reps, so even the
+    opted-in caller no longer pins a body per feature.
 
     Deterministic: same request → identical statuses, identical solved
     positions, byte-identical GLB and therefore identical ``mesh_glb_id``
@@ -3676,7 +3683,7 @@ def _evaluate_tree(
         corner_reliefs=list(state.corner_reliefs.values()),
         unfold_body=state.sheet_metal_unfold_body,
         datum_planes=dict(state.datum_planes),
-        body_history=list(state.body_history),
+        face_provenance=state.provenance.freeze(),
     )
 
     # Offer this prefix as a resume point — but only once *evaluation* is dead,

@@ -36,7 +36,7 @@ import uuid
 from typing import cast
 
 from build123d import Compound, Solid
-from geometry.kernel import attribute_faces
+from geometry.kernel import FaceProvenance, attribute_faces
 from geometry.kernel.types import BodyShape
 from py_kit.schemas.overlay import MAX_PROVENANCE_FACES
 
@@ -85,14 +85,15 @@ def test_a_part_past_the_old_provenance_crossing_still_attributes() -> None:
     overlay response that nothing asserts on.
     """
     body, history = _growing_history(steps=15, boxes_per_step=10)
-    budget = len(body.faces()) + sum(len(shape.faces()) for _fid, shape in history)
+    provenance = FaceProvenance.of_bodies(history)
+    budget = len(body.faces()) + provenance.face_count
     assert 8_000 < budget < MAX_PROVENANCE_FACES, (
         f"budget {budget} no longer straddles the old 8 000 crossing and the "
         f"current {MAX_PROVENANCE_FACES} ceiling — this gate stopped testing what "
         "it claims to."
     )
 
-    owners = attribute_faces(body, history)
+    owners = attribute_faces(body, provenance)
     assert len(owners) == len(body.faces())
     assert all(owner is not None for owner in owners), (
         "a part past the OLD provenance crossing attributed nothing — clicking a "
@@ -101,8 +102,9 @@ def test_a_part_past_the_old_provenance_crossing_still_attributes() -> None:
     # Attribution is still CORRECT, not merely non-null: each cube's faces are
     # owned by the EARLIEST snapshot that contains that cube, so every snapshot
     # owns exactly the faces it introduced.
-    assert len(set(owners)) == len(history), (
-        f"expected all {len(history)} snapshots to own the faces they introduced; "
+    assert len(set(owners)) == len(provenance.snapshots), (
+        f"expected all {len(provenance.snapshots)} snapshots to own the faces they "
+        f"introduced; "
         f"got {len(set(owners))} distinct owners"
     )
 

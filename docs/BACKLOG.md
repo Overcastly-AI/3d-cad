@@ -431,15 +431,25 @@ frame refactor are v2/§11. Spike de-collected.
       steady **11-16 % of the request**, so the bound spent the point of the request
       to save a sixth of it. Still degrades the audit-H4 case (20 000-face import =
       budget 40 000). Gated by `test_provenance_budget.py`. [geometry-qa PERF-5]
-- [ ] (P2, M) **PERF-5b — the provenance budget is still the wrong SHAPE: it sums
-      faces over EVERY snapshot, so it is `O(features x faces)`.** Raising the
-      ceiling (5a) bought headroom, not a fix. Attribution needs each snapshot's
-      FINGERPRINTS, not a retained B-rep: fingerprint at production time and keep
-      `list[fingerprint]` instead of `list[BodyShape]`, which makes the pass
-      `O(final faces)` and drops the retained snapshot memory too. Call sites:
-      `features/evaluate.py` `EvaluationState.body_history` (:380, :2907, appended
-      :3099) + `kernel/provenance.py:180`. Blocked on evaluate.py territory only.
-      [geometry-qa PERF-5]
+- [x] (P2, M) **PERF-5b — attribution stops re-deriving what evaluation already
+      knew. SHIPPED 2026-08-01** (kernel-architect). Evaluation now fingerprints each
+      snapshot as it produces it (`FaceProvenanceRecorder` on `EvaluationState.
+      provenance`) and retains `list[FaceFingerprint]`, not `list[BodyShape]`, so the
+      interactive pass is `O(final faces)`: 108.5 → 13 ms at N=25 and **2 347 → 67 ms
+      at N=150** (8.3-35x), and the "steady 11-16 % of the request" is **3.0-6.2 %**.
+      A repeat face pick on the rebuild-cache hit — the one a working user gets — is
+      1 238 → 185 ms at N=100, 2 667 → 435 at N=150. Two mechanisms: fingerprints
+      instead of shapes, and a memo on OCCT shape identity (a boolean shares the
+      `TShape` it did not touch — only **165 distinct faces** exist behind 1 930
+      snapshot faces at N=50), without which the quadratic would merely have moved
+      into the rebuild; the residual face WALK is raw `TopExp_Explorer` because
+      `Shape.faces()` costs 10x it (229 vs 21.6 ms per 61 walks). Attribution proved
+      IDENTICAL on 54 real parts / 1 573 faces (47 tree goldens + tray N=10..100 +
+      heat sink 8/32/128) against the pre-change tree, and permanently gated by a
+      memo-free replay, warm-vs-cold `FaceProvenance` equality, and operation-count
+      gates. Retained memory 4.04 → 2.82 MiB per held evaluation at N=100. NO win on
+      the FACE axis (3-feature heat sink: 1.0-1.1x — its pass was never quadratic),
+      cold only 11-21 % better; both stated in docs/PERF.md. [geometry-qa PERF-5]
 
 - [x] (P1, S) **Audit N4 tail — SET the export `name` at the callers. SHIPPED
       2026-08-01** (frontend-builder). Geometry had honoured an optional `name` on
@@ -1987,6 +1997,20 @@ frame refactor are v2/§11. Spike de-collected.
       engineering-auditor F2]
 
 ## Later (P3)
+
+- [ ] (P3, XS) **`MAX_PROVENANCE_FACES`' docstring still files a fix that shipped**
+      (py-kit territory, filed by kernel-architect while landing PERF-5b).
+      `packages/py-kit/src/py_kit/schemas/overlay.py:79-82` says the budget's shape
+      "is still wrong and the fix is filed (BACKLOG PERF-5b): ... fingerprinting at
+      production time in `EvaluationState.body_history` would make the pass
+      O(final faces)". That landed on 2026-08-01; the field it names no longer
+      exists (`EvaluationState.provenance` / `TreeEvaluation.face_provenance`). The
+      BUDGET arithmetic the constant documents is unchanged and correct, so this is
+      four stale comment lines and no behaviour — but a shared package telling every
+      reader that a shipped fix is pending is exactly the stale-doc defect class.
+      Left untouched deliberately: `packages/**` was outside that slice's territory.
+      Acceptance: those lines describe the shipped design and point at docs/PERF.md
+      2026-08-01 PERF-5b. [kernel-architect PERF-5b tail]
 
 - [ ] (P3, S) **A lost dimension's caption can overrun into a neighbouring view
       — and it does so identically on the exported sheet** (kernel/drawings).

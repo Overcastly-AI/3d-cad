@@ -432,9 +432,7 @@ def test_provenance_bound_is_reachable_by_an_authored_part() -> None:
     evaluation = evaluate_tree(request, record_history=True)
     body = evaluation.body
     assert body is not None
-    budget = len(body.faces()) + sum(
-        len(snapshot.faces()) for _feature_id, snapshot in evaluation.body_history
-    )
+    budget = len(body.faces()) + evaluation.face_provenance.face_count
     # A 29-feature part must still be under the bound; if this ever trips, the
     # overlay is silently returning null attribution for ordinary parts.
     assert budget < MAX_PROVENANCE_FACES, (
@@ -518,9 +516,7 @@ def test_record_provenance_budget_crossing(capsys: pytest.CaptureFixture[str]) -
         evaluation = evaluate_tree(request, record_history=True)
         body = evaluation.body
         assert body is not None
-        budget = len(body.faces()) + sum(
-            len(snapshot.faces()) for _fid, snapshot in evaluation.body_history
-        )
+        budget = len(body.faces()) + evaluation.face_provenance.face_count
         rows.append(
             (
                 n,

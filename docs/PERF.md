@@ -780,7 +780,9 @@ time would make the pass `O(final faces)`, delete the quadratic, and drop the
 retained snapshot memory with it. That change lives in
 `features/evaluate.py` (`EvaluationState.body_history` at :380 / :2907, appended
 at :3099) — another agent's territory this slice, so it is filed with the exact
-call sites rather than half-done here.
+call sites rather than half-done here. **SHIPPED 2026-08-01 — see the PERF-5b
+run at the end of this file** (pass 8.3-35x cheaper, 11-16 % of the request →
+3.0-6.2 %, attribution identical on 54 parts / 1 573 faces).
 
 ---
 
@@ -1841,3 +1843,125 @@ software GL, where the per-draw-call cost is not representative of the hardware
 path the draw-call count matters for. Rather than publish a number that means
 nothing, the draw-call count is reported directly and the frame-time claim is
 left unmade.
+
+---
+
+## 2026-08-01 — PERF-5b landed: attribution stops re-deriving what evaluation already knew
+
+PERF-5 raised `MAX_PROVENANCE_FACES` and said plainly that it had bought
+headroom, not a fix: the budget was `len(final faces) + sum(len(snapshot
+faces))`, spent by `features x faces`, because `attribute_faces` fingerprinted
+every retained snapshot B-rep on the way past. This is that fix. Evaluation now
+FINGERPRINTS each snapshot as it produces it (`FaceProvenanceRecorder`, held by
+`EvaluationState.provenance`) and retains `list[FaceFingerprint]` instead of
+`list[BodyShape]`.
+
+Same machine, same harness parts (`_big_part_builders.py`), same in-process
+method and median-of-3 as the 2026-07-31 baseline. The **before** column is the
+tree at `9061c76` put on `sys.path` from a git worktree, so the only variable
+between the two columns is the geometry source.
+
+### The complexity change, isolated
+
+`record` is measured *inside* `FaceProvenanceRecorder.record` (so
+`_snapshot_shape`, common to both designs, is excluded from both columns);
+before, recording was an append of a reference and cost nothing.
+
+| tray | faces | snapshots | fingerprint budget | record before | attribute before | record after | attribute after | total |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| N=25 | 60 | 15 | 502 | ~0 | 108.5 ms | 21 ms | **13 ms** | 108.5 → 34 ms (3.2x) |
+| N=50 | 117 | 31 | 1 930 | ~0 | 326.4 ms | 56 ms | **21 ms** | 326.4 → 76 ms (4.3x) |
+| N=100 | 219 | 61 | 7 023 | ~0 | 1 126.4 ms | 149 ms | **39 ms** | 1 126.4 → 188 ms (6.0x) |
+| N=150 | 331 | 92 | 15 640 | ~0 | 2 347.4 ms | 309 ms | **67 ms** | 2 347.4 → 377 ms (6.2x) |
+
+The **pass** — what an interactive request pays on top of a rebuild it would
+have done anyway — is 8.3x / 15.5x / 29x / 35x cheaper, and the multiplier grows
+with tree length because that is the axis the quadratic was on. PERF-5's
+"a steady **11-16 %** of the request at every measured size" is now
+**3.0-6.2 %** (14.6 → 6.2 % at N=25, 15.4 → 4.4 % at N=50, 15.7 → 3.3 % at
+N=100, 15.4 → 3.0 % at N=150).
+
+Two mechanisms, and the second is the one that makes this a fix rather than a
+relocation:
+
+* **Fingerprints, not shapes**, so the pass does `len(final faces)` GProps and a
+  pure-Python index build over precomputed tuples. Gated as an operation count:
+  `test_the_attribution_pass_fingerprints_only_the_final_body` demands EQUALITY
+  with the final face count — one snapshot fingerprint is the whole regression.
+* **A memo on OCCT shape identity.** A boolean shares the `TShape` of every face
+  it did not touch: on the N=50 tray only **165 distinct faces** are ever
+  created against **1 930** snapshot faces (91.5 % repeats), so recording costs
+  O(distinct faces) rather than O(features x faces). Without it the same
+  quadratic would simply have moved into the rebuild.
+* The residual per-snapshot cost is then just ENUMERATING faces, and
+  `build123d.Shape.faces()` builds a wrapper object per face — 229 ms for 61
+  walks of the 219-face N=100 body against **21.6 ms** for a raw
+  `TopExp_Explorer`. The recorder walks raw OCCT (a transcription of
+  build123d's own `_topods_entities`, same order, same dedup) and wraps only
+  memo misses. That alone took N=150 recording from 694 ms to 309 ms.
+
+### The whole request (`/overlay` — a face pick)
+
+| part | faces | cold before | cold after | warm before | warm after |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| tray N=10 | 28 | 229.8 | 221.9 | 48.1 | **24.2** |
+| tray N=25 | 60 | 651.7 | 577.5 | 135.6 | **47.5** |
+| tray N=50 | 117 | 2 108.2 | 1 737.1 | 405.9 | **98.2** |
+| tray N=100 | 219 | 6 910.1 | 5 813.6 | 1 238.2 | **185.3** |
+| tray N=150 | 331 | 16 269.8 | 12 868.1 | 2 667.3 | **435.2** |
+| heat sink 32 | 134 | 482.6 | 531.3 | 170.9 | 168.9 |
+| heat sink 128 | 518 | 2 231.4 | 2 086.3 | 949.8 | 850.9 |
+| heat sink 256 | 1 030 | 4 661.0 | 5 009.3 | 1 919.9 | 1 845.6 |
+
+"warm" is the second pick on the same tree — the rebuild-cache hit a user
+actually gets while working — and is where the win lands: **6.1-6.7x at
+N=100-150**, because a repeat pick used to re-derive the entire history every
+time and now re-derives nothing.
+
+### Where the win is NOT, stated plainly
+
+* **On the face axis there is none.** The heat sink is 3 features at up to 1 030
+  faces; its pass was never quadratic, and what it costs is the final body's own
+  faces, which is irreducible. 1.0-1.1x, and two of its cold points came back
+  *slower* than base (531.3 vs 482.6; 5 009 vs 4 661) — inside the run-to-run
+  spread of the plain rebuild underneath them (400.7 vs 361.3; 3 862 vs 3 796),
+  i.e. noise, not a regression, and not a win either.
+* **Cold is only 11-21 % better on the feature axis.** The fingerprinting still
+  has to happen once; what is deleted is paying for it AGAIN on every subsequent
+  interaction, and the growth rate.
+* **The memory drop is real but small.** Marginal RSS of holding one
+  `record_history` evaluation at N=100: **4.04 → 2.82 MiB** (-30 %, -1.2 MiB).
+  The remaining 2.8 MiB is the final body, GLB and mesh, which this does not
+  touch. Method as elsewhere in this file: hold four distinct evaluations, take
+  the marginal cost, never a delta after a clear (glibc keeps the arena).
+
+### Proving the attribution did not move
+
+Attribution is what face picking, feature-localized selection and hole/fillet
+re-anchoring stand on, so a faster pass that owns one face differently is a
+regression, not a win. The owner list was dumped face-by-face for **54 real
+multi-feature parts — every feature-tree golden (47) plus the tray at N=10/25/50/100
+and the heat sink at 8/32/128 fins — 1 573 faces**, on the base tree and on this
+one: **zero differing faces, zero differing parts.** Re-run after the raw-explorer
+walk landed: still zero.
+
+Permanently gated three ways, since a one-off diff cannot be committed:
+
+* `test_the_memo_changes_what_is_computed_never_what_is_answered` replays the
+  evaluation's own snapshots through a memo-FREE recorder and demands identical
+  fingerprints and identical attribution;
+* `test_rebuild_cache.py` / `test_prefetch.py` now compare the whole
+  `FaceProvenance` (not merely how many snapshots) between a cold rebuild and a
+  cache resume, so attribution cannot come to depend on cache state — the
+  recorder, memo included, survives an ownership-transfer resume;
+* the budget's refusal boundary is unchanged arithmetic
+  (`len(final faces) + face_count > MAX_PROVENANCE_FACES`), now charged per
+  snapshot BEFORE the GProps rather than after them, so the audit-H4
+  pathological case (a 20 000-face import) costs a face count instead of 20 000
+  fingerprints — asserted at zero in
+  `test_an_over_budget_tree_spends_no_fingerprints_at_all`.
+
+Reproduce the tables: the "before" column needs a worktree at `9061c76`; the
+"after" column is `LOFT_SCALING_BENCH=1` plus the two instrumented scripts
+described above, and the always-on operation-count gates in
+`tests/test_provenance.py` are what stop the shape regressing without them.
