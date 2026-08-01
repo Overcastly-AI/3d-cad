@@ -136,6 +136,47 @@ about to hit).
       time via Vite `define`, surface it quietly with a `data-testid`. Small, but
       it removes a whole class of wasted round-trip — two fixes landed mid-session
       and neither side can say whether the last report included them.
+- [ ] (P0, S) **FB-12 — a click that drifts 5 px is silently discarded, which is
+      what "the line wouldn't even select" actually is** (qa-tester, measured
+      2026-08-01; `docs/QA-REVIEW.md` "founder session: the picking reports").
+      `SketchScene.tsx:353` returns early on r3f `e.delta > CLICK_SLOP_PX` (=4).
+      Measured exactly: 0–4 px SELECTS, 5 px DEAD, and dead means nothing at all —
+      no hint, no cursor change, no log. Playwright's `mouse.click` moves ZERO
+      pixels, so the whole suite proves a path no hand takes; a trackpad drifts
+      5–10 px routinely. Fix by intent (did the camera actually orbit / did the
+      pointer leave the target) rather than raising one constant, and add a
+      real-pointer-drift case to the e2e so the gate stops flattering us.
+      Encoded today as a `test.fail()` in `e2e/founder-picking.spec.ts`.
+- [ ] (P1, S) **FB-13 — Escape with nothing selected ENDS the sketch**, so the
+      reflex after a click that appeared to do nothing throws you out of the
+      sketcher (qa-tester, 2026-08-01). `escapeAction` (`sketch/tools.ts:402`)
+      falls through to `"exit"` for tool `select` + empty selection and
+      `PartPage.tsx:1029` routes that to `finishSketch()`. The strip's own
+      caption advertises Esc as SAVE, so one key has two advertised meanings in
+      one state. Compounds FB-12/FB-2: the recovery gesture costs you the sketch.
+      Encoded as a `test.fail()` in `e2e/founder-picking.spec.ts`.
+- [ ] (P2, S) **FB-14 — a plain click ACCUMULATES picks instead of replacing
+      them** (`pick.ts:168` `toggleSelection`), so clicking line A then line B
+      selects both and `distance` refuses with "Select one line to dimension."
+      Every other CAD replaces on a plain click and adds on Ctrl/Shift. A user
+      hunting for a click that works builds a selection that cannot be
+      dimensioned. Found while measuring FB-2.
+
+**QA verdicts on the founder block (qa-tester, 2026-08-01, HEAD + bisect):**
+`d8a4126` (PERF-4b) is **EXONERATED — do not revert**: face picking uses drei
+`Html` DOM buttons, `ModelMesh` has no click handler at any of `3cf6650` /
+`d8a4126` / `3f4fbe6`, and every pick probe is identical to the character at all
+three. **FB-2 does not reproduce as stated** (a clean click selects the line and
+`D` dimensions it, everywhere) — FB-12/FB-13 are the real defects behind it.
+**FB-3/FB-5 reproduce**: 32 of 1457 sample points (**2.2 %**) over the body are
+live face targets; the other 97.8 % is dead, and the markers for hidden faces
+draw over the visible ones. **FB-6's z-fighting diagnosis is REFUTED** — the ink
+renders fine; the plane card fills the frame as a featureless grey slab with no
+grid, no body, no scale, and `countSketchInkPixels` goes UP 500× when the sketch
+becomes unusable, so a gate built on it would pass. **FB-9 is not wrong
+geometry**: solid min along the normal equals the plane offset to 0 on XY, XZ,
+YZ and XY+30, volume exactly 10000.000000 mm³, footprint exactly the profile —
+so it is the pre-`5bd4c46` camera snap or a stale Codespace bundle (see FB-11).
 
 
 - [ ] (P1, M) **QA3-1 — the Hole command can only drill at a face's centroid or

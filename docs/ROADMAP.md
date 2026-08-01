@@ -29,6 +29,16 @@ only a 24px button at the face centroid today, not the face itself — measured
 cause of `docs/UI-REVIEW.md`'s still-open "DOM-square blanket" P2. Filed
 SEL-1..SEL-6, Ready queue, `[src: founder]`.
 
+**QA verdict on that wave's premise (qa-tester, 2026-08-01, HEAD + bisect at
+`d8a4126` / `3cf6650`): `d8a4126` is EXONERATED, do not revert — face picking
+never used a raycast, and every pick probe is identical at all three commits.**
+The pick MATH is fine: a clean click selects the line and `D` dimensions it. The
+reproducible defects behind "wouldn't even select" are a 5 px pointer drift that
+silently discards the click (FB-12) and an Escape that ends the sketch (FB-13);
+face picking is quantified at 2.2 % of the body being a live target (FB-3/FB-5);
+FB-9's geometry is exact to 0. Numbers, screenshots and the bisect table:
+`docs/QA-REVIEW.md`; regression spec `apps/web/e2e/founder-picking.spec.ts`.
+
 Preceded today by a PERFORMANCE wave off the first big-part benchmark
 (`docs/PERF.md`): the wall was ~50 features and every route rebuilt the world,
 so an edit on a 200-feature part cost 27 s. Now 1.0 s, a repeat measure/export

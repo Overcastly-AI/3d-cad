@@ -12,6 +12,168 @@ blocked or lies · **P2** a real flow is worse than it should be · **P3** polis
 
 ---
 
+## 2026-08-01 — founder session: the picking reports, measured (FB-2/3/5/6/9)
+
+The founder modelled for an evening and reported, among others, that a sketch
+line "wouldn't even select", that picking a face was "very difficult", that a
+sketch could not be attached to a face at all, that sketch ink could not be
+seen, and — from a photograph of an open `EDIT EXTRUDE` — that "the extruded is
+not on the same plane". This pass reproduced each in a real browser and
+replaced every impression with a number.
+
+**Method.** Detached `git worktree` at HEAD (the tree had four agents' live
+uncommitted work, so the branch tip could not be trusted to be the artifact).
+Native container-free stack on isolated ports — geometry :8022, documents
+:8021, gateway :8020, Vite :5183 with `GATEWAY_ORIGIN` pointed at it — fresh
+SQLite via `metadata.create_all`. Probes drove real mouse events at real screen
+coordinates; the sketch store was read through the live Vite module URL so a
+pick could be observed as `entity` vs `point` vs nothing, rather than inferred
+from ink. Kernel numbers came from the geometry service directly, not the
+screen. Commits driven: `3f4fbe6`, `d8a4126`, `3cf6650`, and `ae3980e`.
+
+### Headline: `d8a4126` (PERF-4b) is EXONERATED — do not revert it
+
+The suspicion was that fusing the per-face glTF primitives and re-grouping the
+draw calls had broken the raycast that face picking resolves against. It had
+not, and it could not have: **face picking does not use a raycast at all.**
+`FacePickOverlay.tsx` places a drei `Html` DOM button (`PickNode`, 24 × 24 px)
+at each planar face's centroid and `ModelMesh.tsx` carries no `onClick` or
+`onPointerDown` — at HEAD, at `d8a4126`, and at `3cf6650` alike. `d8a4126`
+touched neither `FacePickOverlay.tsx` nor anything under `apps/web/src/sketch/`.
+
+Driven empirically at all three commits, the pick behaviour is **identical to
+the character**:
+
+| probe | `3cf6650` | `d8a4126` | `3f4fbe6` |
+|---|---|---|---|
+| hover band across a sketch line (px, dy from y=640) | −4 … +11 | −4 … +11 | −4 … +11 |
+| hover along the edge (x 660…970) | entity everywhere | entity everywhere | entity everywhere |
+| clean click on a line | selects the LINE | selects the LINE | selects the LINE |
+| face pick markers | 6 × 24 px | 6 × 24 px | 6 × 24 px |
+| body area that is a live face target | 2.2 % | 2.2 % | 2.2 % |
+| click on the face SURFACE | nothing | nothing | nothing |
+
+### FB-2 "the line wouldn't even select" — the pick math is FINE; four things around it are not
+
+A clean click on a sketch line selects the line entity and `D` opens the
+dimension editor. That is true at every commit tested and is now guarded by
+`e2e/founder-picking.spec.ts`. What the founder hit is one or more of these:
+
+1. **A click with ≥ 5 px of pointer travel is silently discarded.**
+   `SketchScene.tsx:353` returns early when r3f's `e.delta > CLICK_SLOP_PX`
+   (= 4). Measured threshold, exactly: `0px SELECTS · 1 SELECTS · 2 SELECTS ·
+   3 SELECTS · 4 SELECTS · 5 DEAD · 6 DEAD · 8 DEAD · 10 DEAD`. Playwright's
+   `mouse.click` moves zero pixels, so **no existing spec can see this** — the
+   suite proves the path a human never takes. A hand on a trackpad routinely
+   drifts 5–10 px, and the app's response is nothing at all: no hint, no
+   cursor change, no log. This is the single best explanation of "wouldn't even
+   select" and it is one constant plus a "was it a drag?" rule that should be
+   about intent (did the camera actually orbit) rather than a 4 px ceiling.
+   Filed **FB-12**.
+2. **Escape with nothing selected ENDS the sketch.** `escapeAction`
+   (`sketch/tools.ts:402`) falls through to `"exit"` for tool `select` with an
+   empty selection, and `PartPage.tsx:1029` routes that to `finishSketch()` —
+   which persists and closes. So the reflex after a click that appears to do
+   nothing ("tap Esc, start over") throws you out of the sketcher. The strip's
+   own caption advertises Esc as SAVE, so the same key in the same state has two
+   advertised meanings. Filed **FB-13**.
+3. **The pick tolerance is 8 px and the band is therefore 16 px wide** — fine
+   for a line you can see, thin for one you cannot. Points do NOT shadow the
+   segment: scanning the edge at 5 px intervals, `point` picks win only at the
+   two corners (x = 650 and x = 980); everywhere between, the entity wins. That
+   hypothesis is REFUTED.
+4. **Every click accumulates.** `toggleSelection` (`pick.ts:168`) appends
+   rather than replaces, so clicking line A then line B leaves *both* selected
+   and `distance` answers "Select one line to dimension." Standard CAD replaces
+   on a plain click and adds on Ctrl/Shift. A user hunting for a working click
+   builds a multi-pick selection that then refuses to dimension.
+
+### FB-3 / FB-5 face picking — 2.2 % of the body is clickable
+
+Armed with "Pick a face", the prompt reads *"Click a highlighted planar face to
+sketch on it."* Nothing is highlighted until hover, and the face itself is not
+a target. The only live targets are six 24 × 24 px DOM markers at the face
+centroids. Sampling the body's on-screen region on a 10 px lattice: **32 of
+1457 points (2.2 %) land on a pick target**; the other 97.8 % of the solid is
+dead. Clicking the top face 200 px from any marker leaves `sketch-step` at
+"Pick a plane" indefinitely. On a 10 mm box the six markers crowd into a
+~200 × 55 px cluster, and because drei `Html` does not occlude, the markers for
+the three HIDDEN faces are drawn on top of the visible ones — so the sparse
+targets that do exist are also ambiguous. "Very difficult" is generous. Evidence:
+`docs/screenshots/qa-0801-face-pick-targets.png` — six white squares are the
+only live targets in that frame.
+
+The founder's expectation (hover a face → it offers a sketch) is the fix
+shape; the current affordance is also a differently-named action
+(`ctx-sketch-on-face`) in a right-click Tools menu, which is why the capability
+reads as absent.
+
+### FB-6 sketch ink on a face — the z-fighting diagnosis is REFUTED
+
+The hypothesis was that `depthWrite={false}` with depth testing left on makes a
+coplanar sketch z-fight into the face. It does not: the ink renders cleanly.
+The actual defect is different and worse. Entering a sketch on a face puts the
+camera 170 mm from a 180 mm plane card, so **the card fills the entire frame as
+a single featureless light-grey slab** — no grid, no body silhouette, no edges,
+no scale, no relation to the part you are sketching on. Compare the base-plane
+control, which shows the adaptive grid on a dark field. The ink is then white
+on light grey rather than the scribe blue on dark, which is a contrast problem
+on top of a context problem. Fixing depth state alone would change nothing.
+Evidence: `docs/screenshots/qa-0801-sketch-on-base-plane.png` vs
+`docs/screenshots/qa-0801-sketch-on-face-grey-slab.png`.
+
+`countSketchInkPixels` in `e2e/support.ts` cannot gate this: it counts *bright,
+cool-tinted* pixels, and on a face it returned 926 729 (the lit face itself) vs
+1 881 on a base plane — so the helper's number goes UP by three orders of
+magnitude when the sketch becomes unusable. A gate built on it would have
+passed. No spec exercises sketch-on-a-face ink; that is a real gate-shaped hole.
+
+### FB-9 "the extruded is not on the same plane" — the KERNEL IS EXACT
+
+Driven against the geometry service directly (a 40 × 25 rectangle, extrude
+10 mm, ADD, direction NORMAL). Every number is exact to the digit printed:
+
+| sketch plane | volume (mm³) | bbox min | bbox max | centroid |
+|---|---|---|---|---|
+| XY (z = 0) | 10000.000000 | 0, 0, **0.0** | 40, 25, **10.0** | 20, 12.5, 5 |
+| XZ (y = 0) | 10000.000000 | 0, **−10.0**, 0 | 40, **0.0**, 25 | 20, −5, 12.5 |
+| YZ (x = 0) | 10000.000000 | **0.0**, 0, 0 | **10.0**, 40, 25 | 5, 20, 12.5 |
+| XY + 30 datum | 10000.000000 | 0, 0, **30.0** | 40, 25, **40.0** | 20, 12.5, 35 |
+
+The base face lies exactly ON the sketch plane in all four cases (solid min
+along the normal = the plane's own offset, to 0), the footprint is exactly the
+profile (no lateral offset, centroid at the profile centre), and the offset
+datum tracks its 30 mm with no drift between the ink placement and the kernel's
+plane origin. XZ builds along −Y and YZ along +X, which is the right-hand
+convention (XZ's normal is X × Z = −Y) — consistent, not a sign bug. The same
+numbers reach the UI unchanged: the browser's inspector read `48 × 10 × 32`,
+min `−22, −10, −17`, max `26, 0, 15` for the equivalent XZ case.
+
+**So FB-9 is not wrong geometry.** The remaining candidates are (a) the camera
+snap the founder was still living with when the photo was taken — `5bd4c46`
+landed mid-session and fixes it — and (b) a stale bundle: the founder tests
+from a GitHub Codespace (`app.github.dev`), two fixes landed during the
+session, and nothing in the app says which build is running (**FB-11**). A
+stale client and a live regression are indistinguishable from a photograph.
+Recommend settling FB-9 by asking the founder to reproduce on a named build.
+
+### Verdict
+
+**FB-2 does NOT reproduce as stated** — a clean click selects the line at HEAD
+and at both bisect points. **FB-12 (drag slop) and FB-13 (Escape exits) are
+the reproducible defects behind the report**, and both are invisible to the
+existing suite by construction. **FB-3/FB-5 reproduce exactly** and are
+quantified above. **FB-6 reproduces but with a different cause than diagnosed.**
+**FB-9 does not reproduce at the kernel; the geometry is exact.**
+
+Regression spec: `apps/web/e2e/founder-picking.spec.ts` — one passing baseline
+guard plus three `test.fail()` tests that encode FB-12, FB-13 and FB-3/FB-5 as
+they behave today. They keep the suite green while the bugs are open and turn
+it red the moment a fix lands without the annotation being removed; deleting
+the annotation is part of each fix.
+
+---
+
 ## 2026-08-01 — dogfooding pass #3: the imported-STEP remix (interop)
 
 The recurring **Model-a-REAL-part gate**, third pass (WB-64 and TB-1 were
