@@ -212,6 +212,26 @@ about to hit).
       cases flip to real assertions as each fix lands, and every new gate is
       mutation-verified. [src: founder "How do you catch this stuff with
       playwright?" 2026-08-01]
+- [ ] (P1, L) **FB-18 — a 50x mirror/rotate never finished; it "errored and
+      stopped".** Founder, 2026-08-01. Almost certainly the gateway's typed
+      `upstream_timeout` (`py_kit/errors.py:134`) — which says the honest thing
+      ("we gave up waiting") and is useless to the user, because the work may
+      have been progressing fine. TWO questions, and they have different fixes,
+      so MEASURE before building: (a) is a 50-instance pattern inherently that
+      expensive (rebuild scales ~N^1.85 per docs/PERF.md, so it may legitimately
+      be), or is the pattern RE-EVALUATING its source body per instance? If the
+      latter the fix is caching and no queue is needed. (b) If it is genuinely
+      long, a long compute must stop riding an HTTP request: move evaluation onto
+      the arq/redis queue already on the roadmap so it becomes a JOB — submitted,
+      progress-reported, cancellable, resumable — i.e. "47 of 50, 12 s left,
+      cancel?" instead of a dead request. Note K8s does NOT solve this and adding
+      it would not have helped: an HPA adds replicas for THROUGHPUT and cannot
+      speed up one in-flight request, CPU limits throttle rather than scale, and
+      vertical scaling is capped because OCP does not release the GIL (measured:
+      one geometry worker uses ~1.1 cores whatever the box has, docs/PERF.md
+      §CONCURRENCY). Acceptance: the 50x case named as a benchmark with its
+      measured cost and where the time goes, then the fix that measurement
+      implies. [src: founder 2026-08-01]
 
 **QA verdicts on the founder block (qa-tester, 2026-08-01, HEAD + bisect):**
 `d8a4126` (PERF-4b) is **EXONERATED — do not revert**: face picking uses drei
