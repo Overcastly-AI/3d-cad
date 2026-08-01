@@ -21,6 +21,23 @@ adds prefetch off an open editor / the travel stop, so a deep mid-tree edit is
 33.7 → 4.8 s and the first face pick after it 34.7 → 4.4 s. Cold open is still
 ~26 s — the N^1.85 curve is untouched and needs incremental topology.
 
+**CONCURRENCY MEASURED 2026-08-01 (qa-tester) — every perf number before it was
+single-user, and the release question is a TEAM question.** New harness
+(`scripts/concurrency-load.py` + `scripts/load-stack.sh`), new section in
+`docs/PERF.md`, and `docs/OPERATIONS.md` §6 corrected: its sizing guidance was
+derived by reasoning and is now derived from measurement. Headline: **one
+geometry worker uses 1.1 cores no matter what** (OCP does not release the GIL),
+so one worker serves exactly ONE modeler and the old "prefer one worker per
+host" rule wasted 75 % of a 4-core box; with one worker per core AND affinity,
+four modelers pay single-user latency (2 559 ms vs 2 113 ms per edit), but the
+random dispatch we actually ship gets only 1.21x of that 3.75x. **No correctness
+failure under load** — 96 audited responses across three adversarial
+configurations, zero crossed bodies, now gated by
+`services/geometry/tests/test_concurrent_modelers.py`. What breaks first is the
+gateway's 30 s upstream timeout, which calls a healthy geometry service
+"unreachable" on a 200-feature face pick with ONE user on an IDLE machine.
+Filed CONC-1..CONC-8 (three P1: affinity, admission control, the timeout).
+
 **COMPLETE — FOUNDER-DIRECTED UI WAVE (2026-07-30/31)** — "this needs to look
 professional and comparable to Fusion 360 and Plasticity." All four of the
 founder's questions are answered (timeline, component enablement, pre-selection

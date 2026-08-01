@@ -1071,3 +1071,378 @@ not bend the exponent, and nothing short of incremental topology will.
   frontier is past it), and possible only for a travel stop already visited.
 * **Multi-worker deployments dilute it**, exactly as PERF-1 does: the cache and
   the scheduler are per-process, so `--scale geometry=N` divides the hit rate.
+
+---
+
+## 2026-08-01 — CONCURRENCY: what happens when more than one person uses it
+
+**Why this run exists.** Every number above this line is **one user, one
+process, mostly in-process**. The first question a self-hosting operator asks is
+*"can my team of four use this at once?"*, and until today nothing in the repo
+could answer it — `docs/OPERATIONS.md` §6 answered it by REASONING (one worker
+per host, because the rebuild cache is a per-process LRU with no session
+affinity). That inference is now measured. **Half of it was right and the
+conclusion drawn from it was wrong**; §6 has been corrected to match.
+
+### Machine and method
+
+| | |
+| --- | --- |
+| Machine | Linux container, **nproc = 4**, **MemTotal = 15.7 GiB** |
+| Commit | `99b6975` (includes PERF-1b prefetch) |
+| Topology | Native boot, no containers: gateway `:8510`, documents `:8511`, geometry `:8512`-`:8515`, SQLite, Redis `:6390` for the rate limiter |
+| Harness | `scripts/concurrency-load.py` + `scripts/load-stack.sh` |
+| Part | `housing_tree(50)` — the Axis-A tray, the size §6 calls "comfortable" |
+| Load model | Closed loop, **zero think time**: N users = N requests in flight |
+| Window | Load average 0.27 at start; no sibling agent running heavy work |
+
+Reproduce:
+
+```bash
+scripts/load-stack.sh up 4
+uv run python scripts/concurrency-load.py --users 4 --size 50 --loops 3 \
+  --workers http://127.0.0.1:8512 http://127.0.0.1:8513 \
+            http://127.0.0.1:8514 http://127.0.0.1:8515 \
+  --dispatch sticky --json out.json
+scripts/load-stack.sh down
+```
+
+Each simulated modeler is a thread with its own connection **on its own part**
+(the tray's corner-round radius carries a per-user micrometre salt, so no two
+users share a cache lineage — four modelers are four parts, not one), running
+the real loop: *edit a dimension → re-evaluate → pick a face (`/overlay`) →
+measure two edges (`/measure`)*. Requests go over real HTTP to the geometry
+service. Cache hit rate is **scraped** from each worker's `/metrics`
+(`loft_rebuild_cache_{hits,misses}_total`), never inferred from timings.
+
+**Validity control, because a load generator that is itself the bottleneck
+reports its own limits as the server's:** the harness records summed worker CPU
+(`/proc/<pid>/stat`) and its own `getrusage` every run. The harness never
+exceeded **0.04 cores**; every number below is the server's.
+
+### CORRECTNESS FIRST — nothing crossed, in any configuration
+
+The brief's top question. Every evaluate under load banks its
+`(mesh_glb_id, volume)`; after the load each tree is re-evaluated **alone** and
+compared. `mesh_glb_id` is a content hash of the GLB and `volume` comes off the
+exact B-rep, so two crossed evaluations cannot agree by accident.
+
+| configuration | responses audited | mismatches |
+| --- | ---: | ---: |
+| 8 users, 1 worker, 8 different parts | 32 | **0** |
+| 8 users, 4 workers, random dispatch (max LRU churn) | 32 | **0** |
+| 8 users, 1 worker, **all on the SAME part** (adversarial: one contended checkpoint) | 32 | **0** |
+
+Zero errors and zero 5xx in all of them. **The system degrades honestly: it gets
+slow, it does not get wrong.** That is the right failure mode and it is now
+pinned by an always-on gate — `services/geometry/tests/test_concurrent_modelers.py`
+(four threads, four different parts, two rounds, compared against serial
+baselines; plus the evaluate/overlay lineage pair under contention).
+
+One harness defect worth recording because it is the class this repo keeps
+naming: the first version read `properties.volume_mm3`, a field that does not
+exist, so that half of the check silently compared `None` to `None` for an hour.
+The field is `volume`. **A gate is only as honest as its input.**
+
+### 1. One geometry worker uses ONE core, whatever you throw at it
+
+This is the finding everything else follows from.
+
+| users | wall s | ops/s | **cores used** | cache hit | cold open p50 | edit p50 | edit p95 | face pick p50 | measure p50 |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 15.2 | 0.66 | **1.13** | 0.40 | 2 284 | 2 113 | 2 212 | 2 705 | 56 |
+| 2 | 34.7 | 0.58 | **1.12** | 0.40 | 5 022 | 4 644 | 5 328 | 6 348 | 124 |
+| 4 | 71.2 | 0.56 | **1.13** | 0.40 | 9 702 | 9 747 | 11 183 | 13 052 | 244 |
+| 5 | 104.5 | 0.48 | **1.14** | **0.28** | 12 639 | 11 903 | 13 271 | 16 655 | **618** |
+| 8 | 201.1 | 0.40 | **1.15** | **0.125** | 20 233 | 19 440 | 21 714 | 27 833 | **19 189** |
+
+**Throughput is flat and latency is linear in user count.** Four modelers do not
+go four times faster on a four-core box — they take four times longer each. The
+mechanism is not queueing policy, it is the GIL: OCP/pybind11 does not release it
+around OCCT calls, so the FastAPI threadpool gives concurrency in name only.
+Confirmed directly, watching one worker while N cold evaluates are in flight:
+
+| concurrent requests | wall s | worker CPU s | **cores** | OS threads live |
+| ---: | ---: | ---: | ---: | ---: |
+| 1 | 2.74 | 2.87 | 1.05 | 11 |
+| 2 | 5.33 | 5.89 | 1.10 | 12 |
+| 4 | 11.34 | 12.74 | 1.12 | 14 |
+| 8 | 21.32 | 22.97 | 1.08 | 18 |
+
+Eighteen threads, one core. **A 4-core host running one geometry worker is
+running at 25 % of the machine, by construction, and no amount of load changes
+that.** §6's "(a) more cores let you serve more concurrent modelers" was true
+only in the sense that more cores let you run more *processes*.
+
+### 2. The cache-capacity cliff is at the FIFTH user, and it is sharp
+
+`REBUILD_CACHE_CAPACITY = 8`, and a working modeler occupies **two** lineages
+(the evaluate lineage and the `record_history` overlay lineage). So four users
+fit exactly, and the fifth evicts somebody:
+
+| users on one worker | cache hit rate | measure p50 (a warm repeat) |
+| ---: | ---: | ---: |
+| 1-4 | **0.40** | 56 - 244 ms |
+| 5 | 0.28 | **618 ms** |
+| 6 | 0.15 | **14 890 ms** |
+| 8 | 0.125 | **19 189 ms** |
+
+The column that matters is the last one. `/measure`, `/export` and
+re-tessellation are the operations PERF-1 made nearly free (the "0.06 s" column
+in §6's table) — they are free *only while the checkpoint survives*. Past four
+concurrent users on a worker they become full cold rebuilds, a **79x**
+regression on the cheapest thing in the product.
+
+### 3. Worker fan-out: the ops doc's mechanism was right, its conclusion was not
+
+Same 4 users, same part, three routing policies. `sticky` pins each user to one
+worker (what session affinity would do deliberately, and what a keep-alive
+connection does by accident); `roundrobin` is balanced but affinity-free;
+`random` is what a shared listening socket and compose DNS actually give you.
+
+| workers | dispatch | wall s | ops/s | cores | **cache hit** | edit p50 | face pick p50 | measure p50 |
+| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | — | 71.2 | 0.56 | 1.13 | 0.40 | 9 747 | 13 052 | 244 |
+| 2 | sticky | 35.9 | 1.11 | 2.11 | 0.40 | 4 688 | 6 612 | 129 |
+| 2 | random | 62.0 | 0.65 | 1.56 | **0.225** | 5 306 | 8 795 | 352 |
+| 4 | **sticky** | **19.0** | **2.11** | **3.66** | **0.40** | **2 559** | **3 352** | **62** |
+| 4 | roundrobin | 34.5 | 1.16 | 3.01 | **0.125** | 2 916 | 3 432 | 2 693 |
+| 4 | random | 58.9 | 0.68 | 1.89 | **0.075** | 4 753 | 4 818 | 3 689 |
+
+Read the sticky row against the single-user row of table 1 (edit 2 113 ms, pick
+2 705 ms, measure 56 ms): **four modelers on four workers with affinity pay what
+one modeler pays on an idle machine.** 3.7x the throughput, 3.66 of 4 cores, and
+the cache hit rate does not move at all.
+
+**The dilution the ops doc predicted is real and close to 1/N** — 0.40 → 0.225
+at two workers → 0.075-0.125 at four. That half of the inference stands.
+**What does not stand is the conclusion.** Fan-out multiplies throughput in
+*every* policy measured, including the worst:
+
+| | speedup vs. one worker | cost of losing affinity |
+| --- | ---: | --- |
+| 4 workers, sticky | **3.75x** | — |
+| 4 workers, round-robin | 2.06x | 1.8x lost to cache dilution alone |
+| 4 workers, random | 1.21x | a further 1.7x lost to queueing imbalance |
+
+Two independent penalties, separated by the round-robin row: dilution costs
+1.8x, and *un*balanced dispatch costs another 1.7x on top — because a worker
+with no internal parallelism cannot absorb two simultaneous arrivals, so a
+random pile-up on one process is dead time on the other three.
+
+So the shipped guidance — *"prefer ONE geometry worker per host, sized to the
+cores you have, until the number of concurrent modelers exceeds the number of
+cores"* — is wrong twice over: one worker cannot use the cores you sized it for,
+and the second modeler doubles everyone's latency immediately rather than at the
+core count. Corrected in `docs/OPERATIONS.md` §6.
+
+### 4. The mixed case nobody had tried: one big cold open against three small edits
+
+Three modelers on 25-feature parts, one worker, then a fourth opens a
+200-feature part cold.
+
+| | edit p50 | face pick p50 | measure p50 |
+| --- | ---: | ---: | ---: |
+| the three, alone | 2 554 - 2 717 ms | 3 039 - 3 300 ms | 97 - 173 ms |
+| the three, while the 200-feature part opens | **3 640 - 3 923 ms** | **5 006 - 5 448 ms** | 221 - 323 ms |
+| degradation | **+45 %** | **+64 %** | +100 % |
+| the fourth user | cold open **48.6 s**, first face pick **41.6 s** | | |
+
+**The small edits stall, but they stall fairly.** Nothing blocks for the length
+of the big rebuild: the GIL is released between OCCT calls, so the worst
+single stall is one feature's work (~200 ms on a 442-face body) and the core is
+shared roughly in proportion. The whole episode lasts 91 s, during which
+everyone is ~1.5x slower and the person who opened the big part waits 49 s.
+
+That is a defensible degradation curve — and it is the answer to "do the small
+edits stall?": **yes, by about half again, for as long as the big part is being
+worked.** Two workers would have removed it entirely (put the big part on its
+own process).
+
+### 5. What breaks first: the 30-second gateway ceiling, and it lies about why
+
+`GEOMETRY_TIMEOUT_S = 30.0` (`services/gateway/src/gateway/geometry.py:65`) is a
+hard read timeout on every geometry call the browser makes. Measured on a
+**single user, idle machine**, cold trees, through the real gateway with real
+auth:
+
+| part | `/overlay` through the gateway | result |
+| --- | ---: | --- |
+| 100 features | 10.2 s | 200 |
+| 150 features | 21.3 s | 200 (71 % of the budget) |
+| **200 features** | **30.0 s** | **502 `upstream_unavailable`** |
+
+The 502's message is *"Geometry service is unreachable."* It is not: it is
+working, and it finishes the same request in 40.3 s measured directly. The user
+is told the service is down, the completed answer is discarded, and the CPU is
+spent anyway. Retrying does not immediately help, because the abandoned
+rebuild's checkpoint only enters the cache once its evaluation is released:
+
+| attempt | result | cache |
+| ---: | --- | --- |
+| 1 | 502 after 30.0 s | miss, no store yet |
+| 2 | 502 after 30.0 s | miss, previous attempt's checkpoint stored mid-flight |
+| 3 | **200 after 22.7 s** | hit |
+
+**Three clicks and two "the service is unreachable" errors to pick one face on a
+200-feature part, on an idle machine, with one user.** Under load it never
+succeeds: at 8 users on a *50-feature* part the face-pick p95 is 30.0 s, right
+on the line (2 of 80 operations over it).
+
+Everything else held:
+
+* **Rate limiter** (Redis-backed, 120 requests / 60 s per user): first 429 at
+  request 119 of a 140-request burst, `Retry-After: 56`, correct envelope. Not
+  the binding constraint — a modeler issues 3-4 compute calls per edit and each
+  edit takes seconds — but note it is **per user**, so it is not backpressure
+  against N users.
+* **Memory**: 563-706 MiB resident per geometry worker after the whole sweep
+  (one worker grew 525 → 601 MiB across an 8-user run). Four workers plus
+  gateway and documents = 3.3 GiB of 15.7. §6's "budget ~1 GiB per worker"
+  holds; memory is not the wall.
+* **Connection pools**: nothing exhausted. Neither is *configured*, which is the
+  problem — the gateway's httpx client takes httpx's default 100 max
+  connections, so it will cheerfully pile 100 requests onto a worker that can
+  meaningfully serve one.
+
+### 6. There is no admission control, so overload becomes total loss
+
+The consequence of the previous two points, measured. Sixteen cold 50-feature
+evaluates issued simultaneously at one worker:
+
+```
+wall 40.9 s
+completions (s): 29.3 35.2 36.4 37.4 37.9 39.2 39.4 39.4 39.4 39.5
+                 39.5 39.5 39.5 39.5 39.6 39.6
+```
+
+Thirteen of sixteen finish within 0.4 s of each other, at the end. That is
+**processor sharing, not queueing**: every request progresses slowly together
+rather than one finishing while the others wait. Against the 30 s gateway
+ceiling that turns into:
+
+| policy | requests delivered under a 30 s ceiling |
+| --- | ---: |
+| as shipped (processor sharing) | **1 of 16** |
+| a FIFO queue on identical hardware | **11 of 16** |
+
+**Overload does not degrade the service, it deletes it.** Same CPU, same work,
+94 % more useful output from admission control alone. Nothing in the stack
+bounds concurrent geometry work: httpx defaults to 100 connections, anyio's
+threadpool to 40 workers, and the one effective core is shared among all of
+them.
+
+### 7. The PERF-1b prefetch needs a head start it usually gets, and hurts when it does not
+
+The prefetch landed 45 minutes before this run, so it is measured here rather
+than assumed. One user, idle worker, 50-feature tray, editing the last feature —
+`POST /api/v1/warm` with `prefix_length = N-1`, then the commit after a gap:
+
+| gap between the warm and the commit | evaluate |
+| --- | ---: |
+| no warm at all | 2 589 ms |
+| warm, commit **immediately** | **4 742 ms** (1.8x WORSE) |
+| warm, 1 s | 3 259 ms (still worse) |
+| warm, 2 s | **312 ms** (8.3x better) |
+| warm, 3 s | 359 ms |
+| warm, 5 s | 342 ms |
+
+The threshold is the rebuild time itself (~2.3 s here): below it the speculation
+and the real request race for the single core and both lose; above it the
+resume is nearly free. That is a good trade for its designed trigger — a feature
+dialog is open for seconds — but the required head start **scales with part size
+AND with user count**: on a 200-feature part the rebuild is 26 s idle, and under
+4-user load the effective rebuild is ~4x longer again.
+
+Under concurrency the second-order cost shows up on the cache. Four users, one
+worker, warm issued immediately before each commit:
+
+| | wall s | cache hit | evictions | edit p50 |
+| --- | ---: | ---: | ---: | ---: |
+| no prefetch | 82.3 | 0.40 | 24 | 9 724 |
+| prefetch | 90.3 | **0.31** | **35** | 11 964 |
+
+Eleven extra evictions. `rebuild_cache.py`'s own docstring says *"a warm must
+never evict a checkpoint a live request is about to use"* — with four users the
+LRU is exactly full, so on a shared worker every warm does. The scheduler's
+"one warm per worker" bound is the right shape; it bounds CPU, not cache slots,
+and one core is not one *spare* core.
+
+### 8. Append still works, which is worth saying
+
+Not everything degrades. The case PERF-1 was built for holds up under load
+(`--mode append`, one worker):
+
+| users | append p50 | append p95 | cache hit |
+| ---: | ---: | ---: | ---: |
+| 1 | 249 ms | 312 ms | 0.85 |
+| 4 | 816 ms | 1 331 ms | 0.85 |
+
+Four users share one core, so 3.3x is the arithmetic working correctly, not a
+regression. The hit rate does not move, because an append re-stores its frontier
+and four users' two lineages is exactly the LRU's capacity.
+
+And the single-user per-operation breakdown, over HTTP, for reference — note
+which lines are misses:
+
+| what the modeler does (50-feature part) | | |
+| --- | ---: | --- |
+| open the part | 2 310 ms | miss |
+| re-evaluate the same tree | **41 ms** | hit |
+| measure two edges | **58 ms** | hit |
+| pick a face (first after an edit) | 2 743 ms | miss |
+| pick another face | 570 ms | hit |
+| **edit a dimension → re-evaluate** | **2 443 ms** | **miss** |
+| pick a face after that edit | 2 784 ms | miss |
+
+**An edit is a full cold rebuild** unless the prefetch warmed it (§7). §6's
+"add a feature 0.22 s" column is the *append* number, and appending is not what a
+modeler spends the day doing.
+
+---
+
+## VERDICT — how many simultaneous modelers can one self-hosted Loft support?
+
+**One geometry worker supports exactly one modeler.** Not four, not "up to the
+core count" — one. The second concurrent user doubles everyone's latency, the
+fourth quadruples it, and the fifth also knocks over the rebuild cache and turns
+the cheap operations into 15-second ones. A worker uses 1.1 cores no matter how
+many people are on it, so there is no headroom to share.
+
+**With one worker per core AND sticky routing, one host supports one modeler per
+core at full single-user speed.** Measured: 4 users on 4 workers on 4 cores paid
+2 559 ms per edit against 2 113 ms for a lone user on an idle machine. That is
+the configuration to ship.
+
+**Without affinity you get somewhere between a fifth and half of that** (1.21x
+random, 2.06x round-robin, against 3.75x sticky), because the cache dilutes 1/N
+*and* an unbalanced arrival pattern idles workers that cannot absorb bursts.
+
+So, plainly, for a 4-core self-hosted box:
+
+| configuration | comfortable simultaneous modelers | note |
+| --- | ---: | --- |
+| 1 worker (the current recommendation) | **1** | 75 % of the machine is idle |
+| 4 workers, no affinity (today's compose `--scale`) | **1-2** | most of the fan-out is thrown away |
+| 4 workers + sticky routing (**not shipped**) | **4** | full single-user latency each |
+| any of the above, parts > ~150 features | **0** | the gateway 502s before the answer arrives |
+
+**What the operator should do today:** run one geometry worker per core (with
+`S3_URL` set, so the mesh store is shared — the in-process LRU refuses
+multi-worker for good reason), keep parts under ~100 features, and understand
+that without affinity the extra workers buy about 20-100 % rather than 300 %.
+
+**What we should ship, in order of value per unit of work:**
+
+1. **Session affinity** (CONC-1, P1) — a consistent hash on part id at the
+   gateway. Measured worth: **1.8x** on top of any fan-out, and it costs no CPU.
+2. **Admission control** (CONC-2, P1) — a bounded queue in front of geometry.
+   Measured worth: **1 → 11 of 16** requests delivered under overload.
+3. **A truthful, part-size-aware upstream timeout** (CONC-3, P1) — 30 s is
+   below the shipped cost of a 200-feature face pick on an *idle* machine, and
+   the resulting 502 blames the wrong component.
+4. **A bigger, per-user-aware rebuild cache** (CONC-4, P2) — 8 entries is 4
+   modelers; the fifth costs everyone 79x on `/measure`.
+5. **Release the GIL around OCCT** (CONC-5, P3, likely upstream) — the only
+   fix that makes one worker use one machine. Everything above is working
+   around it.

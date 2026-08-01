@@ -53,6 +53,104 @@ duplication.
 
 ## Ready (top of queue)
 
+- [ ] (P1, M) **CONC-1 — a modeler's next click lands on a random worker, and
+      that throws away most of what scaling out buys** (platform + backend).
+      Measured 2026-08-01 (`docs/PERF.md` §CONCURRENCY): 4 users on 4 geometry
+      workers pay **2 559 ms** per edit with per-user affinity and **4 753 ms**
+      with the random dispatch the stack actually gives (compose DNS
+      round-robin / a shared listening socket). Speedup vs. one worker: 3.75x
+      sticky, 2.06x balanced-but-affinity-free, **1.21x random.** The rebuild
+      cache hit rate is 0.40 with affinity and **0.075** without, at four
+      workers — a clean 1/N dilution. Fix: route geometry by a consistent hash
+      of `part_id` (the gateway already knows it on every compute route; for
+      `/overlay`/`/measure` the tree carries it), or document a
+      consistent-hash proxy in front of the replicas. Costs no CPU and is worth
+      1.8x on top of any fan-out. [docs/PERF.md 2026-08-01]
+
+- [ ] (P1, M) **CONC-2 — overload deletes the service instead of degrading it:
+      no admission control anywhere** (platform + backend). 16 simultaneous
+      50-feature evaluates at one worker all finished within 0.4 s of each other
+      at ~40 s (processor sharing, not queueing). Against the gateway's 30 s
+      read timeout that delivers **1 of 16** requests where a plain FIFO queue
+      on identical hardware delivers **11 of 16** — same CPU, 11x the useful
+      output. Nothing bounds concurrent geometry work: httpx defaults to 100
+      connections, anyio's threadpool to 40 workers, and a geometry worker has
+      **one** effective core (CONC-5). Fix: a bounded semaphore + queue in front
+      of the OCCT routes, returning 503 + `Retry-After` past the bound rather
+      than admitting work that cannot finish. [docs/PERF.md 2026-08-01]
+
+- [ ] (P1, S) **CONC-3 — the gateway calls a healthy geometry service
+      "unreachable" after 30 s, on a part size we ship** (backend). Measured
+      with ONE user on an IDLE machine: a 200-feature `/overlay` costs 40.3 s
+      direct and returns **502 `upstream_unavailable` — "Geometry service is
+      unreachable"** through the gateway at exactly `GEOMETRY_TIMEOUT_S = 30.0`
+      (`services/gateway/src/gateway/geometry.py:65`). The work completes and is
+      discarded; the message blames the wrong component; the same click had to
+      be issued **three times** (two 502s, then 22.7 s once the abandoned
+      rebuild's checkpoint reached the cache). At 8 users the same thing happens
+      on a **50-feature** part (pick p95 30.0 s). Fix has three parts: raise or
+      make the ceiling proportional to tree size, distinguish "upstream timed
+      out" from "upstream unreachable" in the envelope, and stop paying for
+      abandoned work (cancel upstream on client disconnect).
+      [docs/PERF.md 2026-08-01]
+
+- [ ] (P2, S) **CONC-4 — `REBUILD_CACHE_CAPACITY = 8` is exactly four
+      modelers, and the fifth costs everyone 79x** (kernel). A working modeler
+      holds TWO lineages (evaluate + the `record_history` one a face pick uses),
+      so 8 entries is 4 users. Measured hit rate 0.40 (1-4 users) → 0.28 (5) →
+      0.15 (6) → 0.125 (8), and `/measure` — the operation PERF-1 made nearly
+      free — goes from **244 ms to 19 189 ms**. Related: PERF-1b's prefetch
+      takes a slot too, so on a full LRU every warm evicts a live user's
+      checkpoint (measured: evictions 24 → 35, hit 0.40 → 0.31), which is
+      precisely what `rebuild_cache.py`'s own docstring says must never happen.
+      Fix: size the LRU from concurrency (per-worker users x 2 lineages, or make
+      it configurable and default higher), and keep warm entries in a separate
+      reservation so speculation cannot evict live work. [docs/PERF.md 2026-08-01]
+
+- [ ] (P3, L) **CONC-5 — OCP does not release the GIL, so one geometry worker
+      can never use more than one core** (kernel, likely upstream). Measured at
+      **1.05-1.15 cores** with 1/2/4/8 concurrent requests in flight and 11-18
+      OS threads live; throughput is flat and latency linear in user count. Every
+      other item above is a workaround for this. A `py::gil_scoped_release`
+      around the long OCCT calls in OCP would make one worker use one machine;
+      short of that, the per-core-worker rule in `docs/OPERATIONS.md` §6 stands.
+      Filed at P3 because it is upstream work with a shipped workaround, not
+      because it is small. [docs/PERF.md 2026-08-01]
+
+- [ ] (P2, M) **CONC-6 — the prefetch is a pessimisation when it does not get
+      its head start, and the head start scales with load** (kernel + web).
+      Measured on the 50-feature tray, one user, idle: no warm 2 589 ms; warm
+      committed immediately **4 742 ms (1.8x WORSE)**; warm + 1 s 3 259 ms; warm
+      + 2 s **312 ms (8.3x better)**. The threshold is the rebuild time itself,
+      because speculation and the real request race for the single core. So the
+      required dwell is ~2.3 s at N=50 idle, ~26 s at N=200 idle, and ~4x that
+      again under 4-user load — exactly the sizes where the prefetch is pitched.
+      Fix: have the warm yield to a real request for the same lineage (or refuse
+      to start when one is in flight) so the worst case is "no benefit" rather
+      than "1.8x slower". Complements PERF-1c, which asks the dwell question for
+      one user; this one is the multi-user half. [docs/PERF.md 2026-08-01]
+
+- [ ] (P3, S) **CONC-7 — nobody sized the connection pools, and the defaults
+      are wrong in the direction that hurts** (backend). Neither pool is
+      configured: `py_kit.db` takes SQLAlchemy's default 5+10 connections per
+      service process, and `create_upstream_client` takes httpx's default 100
+      max connections to geometry — i.e. the gateway will pile 100 requests onto
+      a worker with one effective core. Nothing exhausted during the 2026-08-01
+      run, so this is not a live defect; it is an undocumented default that
+      makes CONC-2 worse and belongs in `docs/OPERATIONS.md` §6 with a number
+      behind it. [docs/PERF.md 2026-08-01]
+
+- [ ] (P3, S) **CONC-8 — editing a dimension under a picked-edge fillet fails
+      `subshape_unresolved` on a 0.01 mm change** (kernel). Found while building
+      the load harness, not looked for: on the `housing_tree(50)` tray, bumping
+      the last `distance_mm` by 0.01 mm makes the picked-edge fillet that
+      consumes that extrude fail to resolve its edge signature, so a valid part
+      becomes a failed tree from a change no user would consider structural.
+      This is the known stage-1 topological-naming limitation showing its edge,
+      but the trigger is small enough to be worth a regression case and a better
+      error message. [docs/PERF.md 2026-08-01]
+
+
 Restocked 2026-07-23 (HEAD `0ed9f74`) — the overnight batch converged 18
 Ready items (WF-1/PB-1 width extents, drawings dead-capability drain D1-D4,
 MB-4c wire+frontend, e2e hardening) — all archived below (Done, one line

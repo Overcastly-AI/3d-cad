@@ -231,36 +231,97 @@ keys and the old objects become unreferenced.
 Machine for every number below: **Linux container, nproc = 4, 15.7 GiB RAM**,
 OCCT via OCP as shipped. Full method and raw tables in `docs/PERF.md`.
 
-### The two facts you cannot discover from the outside
+### The three facts you cannot discover from the outside
+
+> **Corrected 2026-08-01 against measurement.** Until that date this section
+> reasoned its way to "prefer ONE geometry worker per host." The reasoning about
+> the cache was right; the conclusion was wrong, and it was wrong in the
+> expensive direction — it told operators to run a configuration that uses a
+> quarter of their machine. `docs/PERF.md` §"CONCURRENCY" has the run.
 
 **(a) Geometry is CPU-bound OCCT work.** Rebuild time is dominated by
 whole-body B-rep operations; it grows as roughly **N^1.8 in feature count** and
 much more gently (~faces^1.2-1.4) in face count. Sketch solving, tessellation
-and the face matcher are all noise by comparison. More cores let you serve more
-*concurrent* modelers; they do not make one part rebuild faster.
+and the face matcher are all noise by comparison. **More cores do not make one
+part rebuild faster, and — see (b) — they do not let one worker serve more
+modelers either.**
 
-**(b) The rebuild cache is a PER-PROCESS LRU of 8 entries**
+**(b) ONE GEOMETRY WORKER USES ONE CORE, whatever you throw at it.** Measured:
+a worker held at **1.05-1.15 cores** with 1, 2, 4 and 8 concurrent requests in
+flight and 11-18 OS threads live. OCP/pybind11 does not release the GIL around
+OCCT calls, so the FastAPI threadpool is concurrency in name only. The
+consequences are arithmetic:
+
+* **The second modeler on a worker doubles everyone's latency**, the fourth
+  quadruples it. Measured on the 50-feature tray: an edit costs 2.1 s with one
+  user, 4.6 s with two, 9.7 s with four, 19.4 s with eight.
+* **A 4-core host running one geometry worker is running at 25 % of the
+  machine, permanently.** Nothing about load changes that.
+
+**(c) The rebuild cache is a PER-PROCESS LRU of 8 entries**
 (`REBUILD_CACHE_CAPACITY` in `services/geometry/src/geometry/rebuild_cache.py`).
 It is what turns a 27 s rebuild into a 1 s append and a 0.16 s re-export, and it
-is **in-process memory, not Redis and not S3**. Two consequences that decide how
-you size:
+is **in-process memory, not Redis and not S3**. Three consequences:
 
-* Raising `WEB_CONCURRENCY` / `--scale geometry=N` **divides the cache hit rate
-  rather than multiplying throughput**: nothing routes a modeler back to the
-  process holding their part (uvicorn workers share one listening socket;
-  compose DNS round-robins replicas), so with N processes their next click has
-  roughly a 1/N chance of landing on the checkpoint it wants. The other N-1 times they
-  pay the full cold rebuild. There is **no session affinity** in the stack today
-  — say it plainly, because it is the difference between a 1 s and a 27 s click
-  on a big part.
-* The cache holds **one checkpoint per lineage** (the frontier), so 8 entries
-  covers a modeler working on one part, a couple of parts side by side, or a
-  small assembly (one tree per unique part). It does not cover 8 users.
+* A working modeler occupies **two** lineages (their evaluate lineage and the
+  `record_history` lineage a face pick uses), so 8 entries is **exactly four
+  concurrent modelers per worker**. Measured: hit rate holds at 0.40 up to four
+  users and falls to 0.28 / 0.15 / 0.125 at five / six / eight — and `/measure`,
+  the cheapest thing in the product, goes from **244 ms to 19 s**.
+* Raising `WEB_CONCURRENCY` / `--scale geometry=N` really does **divide the
+  cache hit rate** roughly 1/N (measured 0.40 → 0.225 at two workers → 0.075 at
+  four), because nothing routes a modeler back to the process holding their
+  part: uvicorn workers share one listening socket and compose DNS round-robins
+  replicas. There is **no session affinity in the stack today.**
+* **But fan-out still wins, in every routing policy measured** — this is the
+  part the old text got wrong. Four users on a 4-core host, against one worker
+  as the baseline: **3.75x** with per-user affinity, 2.06x with balanced
+  round-robin, **1.21x** with the random dispatch you get today. Losing affinity
+  costs 1.8x to cache dilution and another 1.7x to arrival imbalance (a worker
+  with no internal parallelism cannot absorb two simultaneous requests), but the
+  floor is still faster than one worker.
 
-**Practical rule: prefer ONE geometry worker per host, sized to the cores you
-have, until the number of concurrent modelers exceeds the number of cores.**
-Scale out only then, and expect the interactive numbers to degrade toward the
-cold column until affinity exists.
+**Practical rule: run ONE GEOMETRY WORKER PER CORE.** With `S3_URL` set, so the
+mesh store is shared — the in-process LRU deliberately refuses multi-worker
+without it. Expect roughly:
+
+| what you run on a 4-core box | comfortable simultaneous modelers |
+| --- | ---: |
+| 1 geometry worker | **1** |
+| 4 workers, no affinity (what compose `--scale` gives you today) | **1-2** |
+| 4 workers + sticky routing (**not shipped** — see below) | **4** |
+
+Four users on four workers **with** affinity paid 2 559 ms per edit against
+2 113 ms for a lone user on an idle machine — i.e. no measurable degradation at
+all. Session affinity is the single highest-value thing missing from this
+stack's operations story (filed as CONC-1); until it lands, a consistent-hash
+reverse proxy on part id in front of the geometry replicas buys most of it.
+
+### What breaks first, and what it looks like
+
+Not memory, and not the rate limiter. **The gateway's 30-second upstream read
+timeout** (`GEOMETRY_TIMEOUT_S`, `services/gateway/src/gateway/geometry.py`).
+
+A 200-feature part's first face pick takes 40 s on an **idle** machine with
+**one** user, so the browser gets a `502 upstream_unavailable` saying *"Geometry
+service is unreachable"* — which is false, the service is fine and the finished
+answer is thrown away. Measured: the same click had to be made **three times**
+(two 502s, then a 22.7 s success once the abandoned rebuild's checkpoint reached
+the cache). At eight users the same thing happens on a **50-feature** part.
+
+There is also **no admission control** anywhere in the stack: the gateway's HTTP
+client allows httpx's default 100 connections and the geometry threadpool 40
+workers, all sharing one effective core. Overload therefore degrades by
+*processor sharing*, which under a fixed client timeout is the worst possible
+policy — 16 simultaneous requests all finished within 0.4 s of each other at
+~40 s, so **1 of 16 landed inside a 30 s ceiling where a plain FIFO queue would
+have delivered 11.**
+
+Operator takeaways until CONC-2/CONC-3 land: keep parts under ~100 features,
+prefer more workers over more users per worker, and read a burst of
+`upstream_unavailable` as *"geometry is saturated"*, not as *"geometry is
+down"* — check `loft_rebuild_cache_*` and the request histogram
+(`docs/OBSERVABILITY.md`) before restarting anything.
 
 ### Memory
 
@@ -281,12 +342,17 @@ comfortable in 512 MiB-1 GiB at this data size; MinIO in 256-512 MiB.
 
 ### Recommended configurations
 
-| use | cores | RAM | notes |
-| --- | ---: | ---: | --- |
-| **Single engineer, parts to ~50 features** | 2 | 4 GiB | 1 geometry worker. Everything under ~2 s. |
-| **Single engineer, real parts (to ~100 features)** | 4 | 8 GiB | 1 geometry worker. Cold opens 7 s, edits 0.4 s. |
-| **Small team, 3-5 concurrent modelers** | 8 | 16 GiB | `--scale geometry=4`, ~1 GiB each; read the cache caveat above. |
-| **Team with big parts / heavy STEP import** | 16 | 32 GiB | STEP import is a bounded subprocess with `RLIMIT_CPU`; give it real cores. |
+**Size on one rule: one geometry worker per concurrent modeler, one core per
+worker, ~1 GiB per worker.** (Measured 2026-08-01; the pre-2026-08-01 version of
+this table recommended one worker for a whole small team and was wrong by 4x.)
+
+| use | cores | RAM | geometry workers | notes |
+| --- | ---: | ---: | ---: | --- |
+| **Single engineer, parts to ~50 features** | 2 | 4 GiB | **1** | Everything under ~2 s. One worker genuinely is enough for one person. |
+| **Single engineer, real parts (to ~100 features)** | 4 | 8 GiB | **2** | Cold opens 7 s, edits 0.4 s. The second worker is for the background rebuild an open editor prefetches (PERF-1b) so it stops competing with your click. |
+| **Small team, 4 concurrent modelers** | 8 | 16 GiB | **4** | `--scale geometry=4` with `S3_URL` set. **Without affinity expect ~1.2-2x, not 4x** — put a consistent-hash proxy on part id in front of the replicas if you can. |
+| **Small team, 8 concurrent modelers** | 16 | 32 GiB | **8** | Same rule. Do not try to serve 8 people from 4 workers: the 5th user per worker also breaks the rebuild cache (fact (c) above). |
+| **Team with big parts / heavy STEP import** | 16+ | 32 GiB | **8** | STEP import is a bounded subprocess with `RLIMIT_CPU`; give it real cores. Parts over ~150 features hit the gateway timeout — see "What breaks first". |
 
 **Disk**: the databases are small — feature trees are JSON text — with one
 exception: an **imported STEP body is stored inline in the feature tree**, up to
@@ -314,6 +380,17 @@ today, and face count is not the limit — feature count is.** A machined bracke
 (40-80 features) is fine; a 150-400-feature housing is not, and the cold-open
 cost is the reason. `docs/PERF.md` has the ranked fix list.
 
+**Two caveats on that table, both measured 2026-08-01:**
+
+* **"add a feature" is not "change a dimension."** Appending is the case the
+  rebuild cache serves; an *edit* re-runs the tree from feature 0 unless an open
+  feature editor prefetched it first (PERF-1b). Measured over HTTP on the
+  50-feature tray: append **0.25 s**, edit **2.4 s** — the same as a cold open.
+  Most of a modelling day is edits.
+* **Every number in that table is for ONE user.** Multiply by the number of
+  concurrent modelers sharing a worker (fact (b)). Four people on one worker
+  turn the 50-feature row's 2.0 s open into 9.7 s.
+
 Two other bounds worth knowing before you promise anything:
 
 * **STEP import**: bounded by a 20 CPU-second ceiling and a 16 MiB upload cap.
@@ -321,6 +398,9 @@ Two other bounds worth knowing before you promise anything:
   upload cap costs ~6-7 CPU s — the upload cap binds first.
 * **Per-face selection highlighting** degrades to whole-body selection past
   ~207 features (`MAX_PROVENANCE_FACES`).
+* **The gateway gives up at 30 s** and reports it as *"Geometry service is
+  unreachable"*. A 200-feature face pick costs 40 s idle with one user, so parts
+  that size are not merely slow today — they error. See "What breaks first".
 
 ---
 
