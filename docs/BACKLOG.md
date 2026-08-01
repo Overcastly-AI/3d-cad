@@ -280,24 +280,28 @@ frame refactor are v2/§11. Spike de-collected.
       that walks `*.dist-info` AND the vendored `.libs` trees (`readelf -d`), and
       re-runs on every OCP/OCCT bump: the vendored set is a property of the
       wheel's build machine and changes without notice. [oss-curator]
-- [ ] (P2, S) **LIC-4 — the GCC runtime libraries may carry a source duty we are
-      not discharging.** Found 2026-08-01 while pinning LIC-2's manifest and left
-      OPEN on purpose rather than papered over. We redistribute `libgomp`,
-      `libgfortran` and `libquadmath` (9 files, GPL-3.0 **with** the GCC Runtime
-      Library Exception), auditwheel-vendored into the OCP/numpy/scipy/
-      scikit-learn wheels from manylinux build images. The exception plainly
-      frees compiled OUTPUT — that is why `check-licences.py` allows them and
-      that classification is right — but distributing the runtime library
-      BINARIES is arguably still a GPL-3.0 conveyance with its own §6 source
-      duty, which is how distros treat it. Blocker: the exact GCC build they came
-      from is not recorded anywhere we can read (the auditwheel SBOM names Ubuntu
-      packages for the OCP wheel's set, but not for numpy/scipy's), so a
-      plausible-looking GCC tarball would be a confident guess, not corresponding
-      source — the exact failure mode LIC-2 was written to avoid. Decide: either
-      derive the versions and add them to `deploy/licenses/corresponding-source.json`
-      (the manifest already supports it), or write the reasoning for why the
-      exception discharges it. Stated in the shipped `CORRESPONDING-SOURCE.md`
-      rather than left silent. docs/LICENSING.md §7.1. [platform-builder]
+- [x] (P2, S) **LIC-4 — the GCC runtime libraries: decided, and all of them
+      identified.** Done 2026-08-01 (platform-builder). DECISION: the GCC Runtime
+      Library Exception discharges the source duty for the way we convey them —
+      §1 permits propagating the Runtime Library combined with Independent
+      Modules "under terms of your choice", and a combined work of Target Code is
+      the only form Loft ever ships. Nothing is mirrored for them. The item's
+      blocker was WRONG, which is the useful part: the exact GCC build IS
+      derivable for every file (8, not 9 — the gate counts). `.comment` →
+      conda-forge GCC 15.2.0-19 for OCP's `libgomp`; auditwheel SBOMs → AlmaLinux
+      8 `gcc 8.5.0-28.el8_10.alma.1` (5 files); GNU **build-id** transfer → numpy's
+      two (it ships no SBOM) are byte-identical builds to scipy's; one wheel
+      further up → scipy's other pair came from scipy-openblas32, whose SBOM names
+      CentOS 7 `libgfortran5 8.3.1-2.1.1.el7` + `libquadmath 4.8.5-44.el7`,
+      confirmed by downloading that wheel and matching build-ids. No upstream
+      GCC 8.3.1 exists, so an FSF tarball would have been the LibRaw-`.orig`
+      mistake again. Ships: `GPL-3.0.txt` + `GCC-RUNTIME-LIBRARY-EXCEPTION-3.1.txt`
+      (GCC's own copies, identical at all three tags), the reasoning + per-file
+      table in `CORRESPONDING-SOURCE.md`, per-file records in the manifest's new
+      `gcc_runtime` block, and a gate: `check-licences.py` reads each build-id and
+      fails on any runtime library the manifest does not account for (4 negative
+      controls in `just licence-selftest`). docs/LICENSING.md §7.5.
+      [platform-builder]
 - [x] (P2, S) **LIC-5 — `pnpm ... dev -- --port N` silently starts Vite on 5173.**
       Done 2026-07-31 (oss-curator, docs half). pnpm 10 DISCARDS the
       npm-idiomatic `--` separator, so the port argument never reaches vite and

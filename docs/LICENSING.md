@@ -363,7 +363,7 @@ pnpm licenses list --prod
 | **`libjbig` (jbigkit)**            | **GPL-2.0-or-later**             | geometry         | **remove — P0** |
 | `libfreeimage` 3.18                | FIPL-1.0 **or** GPLv2 **or** GPLv3 | geometry       | elect **FIPL-1.0**; ship its text |
 | `libraw` 0.19                      | LGPL-2.1 **or** CDDL-1.0         | geometry         | elect LGPL-2.1; text + offer |
-| `libgomp`, `libgfortran`, `libquadmath` | GPL-3 **WITH** GCC-Runtime-Library-Exception | geometry | none beyond notice — the exception exists precisely for this |
+| `libgomp`, `libgfortran`, `libquadmath` | GPL-3 **WITH** GCC-Runtime-Library-Exception | geometry | ship both texts; no source offer — §7.5 |
 | `libfreetype`                      | FTL **or** GPLv2                 | geometry         | elect **FTL**; ship its text |
 | `certifi`                          | MPL-2.0                          | geometry         | file-level copyleft; ship text, note source location |
 | everything else                    | MIT / BSD / Apache-2.0 / ISC / PSF / MIT-CMU / 0BSD / Unlicense | all | attribution only |
@@ -374,7 +374,11 @@ Notes worth recording:
   GCC Runtime Library Exception_, which explicitly permits redistribution
   inside non-GPL software. This is the one place where "GPL" in a scan result
   is genuinely fine, and it is why a scanner that greps for the string GPL
-  will produce false alarms here. Do not "fix" them.
+  will produce false alarms here. Do not "fix" them. The narrower question —
+  whether redistributing the runtime library _binaries_ carries a GPL-3 §6
+  source duty of their own — was left open by this section and is settled in
+  **§7.5**: it does not, for the way we convey them, and all eight files are
+  now identified down to the GCC build.
 - **Dual-licensed components require us to elect, and to say so.** FreeImage,
   LibRaw, FreeType and zstd all offer a permissive-or-GPL choice; silence is
   not an election. `NOTICE` must state which arm we take.
@@ -506,13 +510,11 @@ have produced a wrong bundle:
 - **certifi (MPL-2.0) needs nothing extra** — it is pure Python, so the image
   itself contains the Source Code Form that MPL-2.0 §3.2 asks for.
 
-Not settled, deliberately: `libgomp` / `libgfortran` / `libquadmath`
-(GPL-3.0 **with** the GCC Runtime Library Exception), auditwheel-vendored from
-manylinux build images. The exception plainly frees compiled *output*;
-redistributing the runtime libraries themselves is arguably still a GPL-3.0
-conveyance with its own source duty, and the exact GCC build they came from is
-not recorded anywhere we can read. Tracked as **LIC-4**. It is left out of the
-manifest rather than papered over with a plausible-looking GCC tarball.
+`libgomp` / `libgfortran` / `libquadmath` (GPL-3.0 **with** the GCC Runtime
+Library Exception) are **not** in the bundle, by decision rather than by
+default — see **§7.5**, which also names the exact GCC build behind each of the
+eight files. Nothing about them is mirrored, and no upstream GCC tarball is
+substituted for a distributor's build.
 
 ### 7.2 Fetch it
 
@@ -603,6 +605,83 @@ The gate proves it can still fail: `just licence-selftest` runs the committed
 manifest (must pass), each component's version bumped (each must fail), and a
 manifest whose version cannot be *read* (must fail — a rotted detector is the
 failure mode that shows up green).
+
+### 7.5 The GCC runtime libraries — LIC-4, settled 2026-08-01
+
+**Decision: the GCC Runtime Library Exception discharges the source duty for
+the way Loft conveys these binaries. We mirror nothing for them. This is the
+project's reading of the licence, not legal advice.**
+
+The exception's §1 grants permission to propagate "a work of Target Code formed
+by combining the Runtime Library with Independent Modules, **even if such
+propagation would otherwise violate the terms of GPLv3**", and says you "may
+then convey such a combination under terms of your choice". Conveying object
+code without corresponding source is precisely what GPLv3 §6 would otherwise
+forbid, so the grant reaches it. Our images are that combination and nothing
+else: `libgomp`/`libgfortran`/`libquadmath` are present only because compiled
+extension modules `DT_NEEDED` them, and those modules are Independent Modules
+under §0 — they need the Runtime Library to run but are not based on it. Every
+one is produced by an Eligible Compilation Process (GCC, or a toolchain that is
+not a work based on GCC).
+
+What the exception does *not* plainly cover is conveying a Runtime Library **on
+its own**, detached from Target Code — which is what a distro does when it
+ships `libgomp` as a package, and why distros publish GCC source. Publishing a
+runtime library as an artifact in its own right would end this analysis; so
+would any part of the stack adopting a GCC-derived toolchain with a
+non-GPL-compatible optimiser, which breaks "Eligible".
+
+**The blocker in the LIC-4 backlog entry was wrong, and that is the more useful
+lesson.** It said the exact GCC build "is not recorded anywhere we can read"
+for the numpy/scipy set. It is, in every case, and the item said 9 files where
+the gate counts **8**. What was needed was to stop looking for one signal:
+
+| where to look                       | what it settled                                             |
+| ----------------------------------- | ----------------------------------------------------------- |
+| the `.comment` section              | conda-forge GCC 15.2.0 build 19 for the OCP wheel's `libgomp` — a GCC runtime library is built by the compiler it ships with, so that string is its own version |
+| the wheel's auditwheel CycloneDX SBOM | AlmaLinux 8 `gcc 8.5.0-28.el8_10.alma.1` for scipy's and scikit-learn's |
+| the **GNU build-id**                | numpy ships no SBOM at all — but its two files' build-ids are byte-identical to scipy's SBOM-identified pair, and their `.text`/`.rodata` hash identically. Same build, same source. |
+| one wheel further **up** the chain  | scipy's other pair came from the scipy-openblas32 wheel (auditwheel's doubled hash tag says so); *that* wheel's SBOM names CentOS 7 `libgfortran5 8.3.1-2.1.1.el7` and `libquadmath 4.8.5-44.el7`, confirmed by downloading it and matching build-ids |
+| symbol-version nodes, glibc needs   | independent corroboration: `QUADMATH_1.1` present on the el8 build and absent on the el7 one; `GLIBC_2.27` needed by the el8 `libgfortran` and not by the el7 one |
+
+Three traps found on the way, all of which would have produced a confident
+wrong answer:
+
+- **auditwheel's `bom-ref` suffix is not a content digest.** scipy's SBOM and
+  scipy-openblas32's carry the *identical* `#3362720c…` for `libgfortran` while
+  naming different distro packages and describing demonstrably different
+  binaries. Identity is the build-id.
+- **auditwheel's filename hash tag *is* content-addressed** — `<stem>-<sha256
+  [:8] of the file it copied>` — so a doubled tag (`libgfortran-<a>-<b>.so.5`)
+  means "re-vendored from another wheel", which is the thread that leads to the
+  el7 pair. Verified: scipy-openblas32's `libgfortran-040039e1.so.5.0.0` hashes
+  to `0352e75f…`, exactly the tail tag we ship.
+- **there is no upstream GCC 8.3.1.** FSF released 8.3.0, 8.4.0, 8.5.0 (checked
+  against `gcc-mirror/gcc`'s tags); `8.3.1` is a distributor snapshot. Mirroring
+  `gcc-8.3.0.tar.xz` as "corresponding source" would have been the LibRaw
+  `.orig`-without-patches mistake of §7.1 all over again.
+
+**What ships as a result.** `deploy/licenses/GPL-3.0.txt` and
+`GCC-RUNTIME-LIBRARY-EXCEPTION-3.1.txt` (GCC's own copies, byte-identical at
+the 4.8.5 / 8.5.0 / 15.2.0 tags); the reasoning and a per-file table in
+`deploy/licenses/CORRESPONDING-SOURCE.md`; and per-file records — build-id,
+SHA-256, size, GCC build, evidence, and the source package a stricter reader
+would ask for — in the `gcc_runtime` block of `corresponding-source.json`.
+
+**And a gate, because the set is somebody else's property.** The vendored set
+changes with every wheel bump, so `check-licences.py` now reads the build-id
+out of every GPL-with-exception binary and fails if one is not accounted for in
+the manifest, or if a recorded file's bytes have moved. `just
+licence-selftest` proves all four rejections (unrecorded file, moved build-id,
+stale digest, manifest that lost the block). A bump therefore reads:
+
+```
+FAIL …/libgomp-XXXXXXXX.so.1.0.0: unidentified GCC runtime library …
+Observed: build_id=… sha256=… comment='GCC: (…) …'
+```
+
+and the fix is the table above: `.comment`, then the wheel's SBOM, then the
+wheel it was re-vendored from.
 
 ---
 

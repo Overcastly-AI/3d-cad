@@ -1015,6 +1015,27 @@ source — with its own negative controls in `just licence-selftest`. Left
 deliberately open as LIC-4: the GCC runtime libraries' own source duty.
 docs/LICENSING.md §7 (procedure) + §10.
 
+**LIC-4 CLOSED, 2026-08-01 (platform-builder) — the GCC runtime libraries need
+no source offer, and all eight are now identified rather than assumed.** The
+Runtime Library Exception's §1 lets us propagate the Runtime Library combined
+with Independent Modules "under terms of your choice", and a combined work of
+Target Code is the only form Loft ever conveys, so nothing is mirrored. The
+open item claimed the GCC build behind numpy/scipy's copies was unreadable; it
+is readable in every case, and the answer came from four different signals —
+the `.comment` string (conda-forge GCC 15.2.0-19 for OCP's `libgomp`), the
+wheels' auditwheel SBOMs (AlmaLinux 8 `gcc 8.5.0-28.el8_10.alma.1`, five
+files), **GNU build-id transfer** for numpy's two (it ships no SBOM at all, but
+its files are byte-identical builds to scipy's SBOM-identified pair), and one
+wheel further up the vendoring chain for scipy's last two (scipy-openblas32's
+SBOM names CentOS 7 `libgfortran5 8.3.1-2.1.1.el7` + `libquadmath 4.8.5-44.el7`
+— confirmed by downloading that wheel and matching build-ids). There is no
+upstream GCC 8.3.1, so mirroring an FSF tarball would have repeated the
+LibRaw-`.orig`-without-patches mistake §7.1 was written about. Shipped: both
+GCC licence texts (GCC's own copies), the reasoning and a per-file table in the
+image's `CORRESPONDING-SOURCE.md`, per-file records in the manifest, and a gate
+that fails on any GCC runtime library the manifest does not account for — with
+four negative controls in `just licence-selftest`. docs/LICENSING.md §7.5.
+
 Source of truth for "what phase are we in." Every commit that ships an item
 ticks it here (and on `docs/BACKLOG.md`) in the same commit — see CLAUDE.md.
 

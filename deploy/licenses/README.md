@@ -19,10 +19,25 @@ wheel already provides.
 | `FTL.txt`                   | FreeType (our elected arm)          | `freetype/freetype` `docs/FTL.TXT`                                                              |
 | `FreeImage-FIPL-1.0.txt`    | FreeImage (our elected arm)         | FreeImage `license-fi.txt`                                                                      |
 | `MPL-2.0.txt`               | certifi                             | SPDX `license-list-data`                                                                        |
+| `GPL-3.0.txt`               | libgomp, libgfortran, libquadmath   | `gcc-mirror/gcc` `COPYING3` @ `releases/gcc-8.5.0` (commit `eafe83f`) — GCC's own copy           |
+| `GCC-RUNTIME-LIBRARY-EXCEPTION-3.1.txt` | the same three, and the reason they are here | `gcc-mirror/gcc` `COPYING.RUNTIME`, same commit                       |
 | `CORRESPONDING-SOURCE.md`   | the LGPL-2.1 §6(d)/(c) obligation   | written here                                                                                    |
 | `corresponding-source.json` | the machine-readable pin behind it  | written here; digests computed from real downloads (LIC-2, docs/LICENSING.md §10)              |
 
-All retrieved 2026-07-31 (`corresponding-source.json`: 2026-08-01).
+All retrieved 2026-07-31 (`corresponding-source.json` and the two GCC texts:
+2026-08-01). Both GCC texts are byte-identical at the `releases/gcc-4.8.5`,
+`releases/gcc-8.5.0` and `releases/gcc-15.2.0` tags — checked, because those are
+the three GCC vintages whose runtime libraries this image actually carries, and
+one text covering all three is a fact rather than an assumption.
+
+**The GCC texts are here for a decision, not for a source offer.** `libgomp`,
+`libgfortran` and `libquadmath` ship under GPL-3.0 **with** the Runtime Library
+Exception, and Loft's position (`CORRESPONDING-SOURCE.md`, LIC-4) is that the
+exception discharges the source duty for the only way we convey them: combined
+with the Target Code that links them. Shipping the texts costs nothing and is
+what tells a recipient which permission they hold; it is not an admission that
+we owe GCC source, and it is not an invitation to delete the per-file records
+in `corresponding-source.json` that make the position checkable.
 
 `corresponding-source.json` is not documentation — `scripts/check-licences.py`
 reads it on every `just lint`, in CI, and inside the image build, and fails when

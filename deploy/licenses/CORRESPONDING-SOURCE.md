@@ -89,15 +89,64 @@ may be relinked. Requests: open an issue at
 Loft itself is MIT-licensed and its complete source is public at that URL, so
 the relinking material is already available without a request.
 
-## What is NOT here, and is tracked
+## The GCC runtime libraries, and why no source is offered for them
 
-`libgomp`, `libgfortran` and `libquadmath` are GPL-3.0 **with** the GCC Runtime
-Library Exception, vendored into the wheels by auditwheel from a manylinux
-build image. The exception plainly frees compiled output; whether redistributing
-the runtime libraries themselves carries an independent source duty is not
-settled here, and the exact GCC build they came from is not recorded anywhere we
-can read. Tracked as LIC-4 in the project backlog. It is stated here rather than
-covered by a plausible-looking GCC tarball that might not be the right one.
+This image also contains eight files that are GPL-3.0 **with** the GCC Runtime
+Library Exception — `libgomp`, `libgfortran` and `libquadmath`, pulled in by
+auditwheel when the OCP, numpy, scipy and scikit-learn wheels were built. No
+corresponding source is offered for them. That is a decision, not an oversight,
+and this is our reading of the licence rather than legal advice.
+
+**The reasoning.** The exception's §1 says you may propagate "a work of Target
+Code formed by combining the Runtime Library with Independent Modules, even if
+such propagation would otherwise violate the terms of GPLv3", and that you "may
+then convey such a combination under terms of your choice". Conveying object
+code without corresponding source is exactly what would otherwise violate
+GPLv3 (§6), so the grant reaches it — and "under terms of your choice" does not
+sit alongside an inherited source duty. This image is that combination and
+nothing else: those three libraries are here only because compiled extension
+modules `DT_NEEDED` them, and those modules are Independent Modules under §0 —
+they require the Runtime Library to run but are not based on it. Every one of
+them was produced by an Eligible Compilation Process.
+
+The thing the exception does not plainly cover is conveying a Runtime Library
+**on its own**, detached from any Target Code. That is what a distribution does
+when it ships `libgomp` as an installable package, and it is why distributions
+publish GCC source; we are not disagreeing with them, we are doing a different
+thing. If Loft ever publishes a runtime library as an artifact in its own right,
+this analysis stops applying and the source duty is back.
+
+**We identified them anyway.** A decision that turns on _which_ binaries these
+are is only auditable if we say which binaries they are, so
+`corresponding-source.json` beside this file records all eight individually:
+GNU build-id, SHA-256, size, and the exact build of GCC each one came from,
+with the evidence for it. The full GPL-3.0 text and the exception text are here
+as `GPL-3.0.txt` and `GCC-RUNTIME-LIBRARY-EXCEPTION-3.1.txt`.
+
+| file                                         | GCC build                                  | how we know                                         |
+| -------------------------------------------- | ------------------------------------------ | --------------------------------------------------- |
+| `cadquery_ocp_novtk.libs/libgomp-*.so.1.0.0` | conda-forge GCC **15.2.0** (build 19)      | its own `.comment` string                           |
+| `scipy.libs/libgfortran-83c28eba.so.5.0.0`   | AlmaLinux 8 **gcc 8.5.0-28.el8_10.alma.1** | scipy's auditwheel SBOM                             |
+| `scipy.libs/libquadmath-2284e583.so.0.0.0`   | AlmaLinux 8 **gcc 8.5.0-28.el8_10.alma.1** | scipy's auditwheel SBOM                             |
+| `numpy.libs/libgfortran-83c28eba-*.so.5.0.0` | AlmaLinux 8 **gcc 8.5.0-28.el8_10.alma.1** | identical GNU build-id to scipy's copy              |
+| `numpy.libs/libquadmath-2284e583-*.so.0.0.0` | AlmaLinux 8 **gcc 8.5.0-28.el8_10.alma.1** | identical GNU build-id to scipy's copy              |
+| `scikit_learn.libs/libgomp-*.so.1.0.0`       | AlmaLinux 8 **gcc 8.5.0-28.el8_10.alma.1** | scikit-learn's auditwheel SBOM                      |
+| `scipy.libs/libgfortran-040039e1-*.so.5.0.0` | CentOS 7 **libgfortran5 8.3.1-2.1.1.el7**  | the scipy-openblas32 wheel's SBOM, build-id-matched |
+| `scipy.libs/libquadmath-96973f99-*.so.0.0.0` | CentOS 7 **libquadmath 4.8.5-44.el7**      | the scipy-openblas32 wheel's SBOM, build-id-matched |
+
+If you read the exception more strictly than we do, that table tells you exactly
+which source package to ask AlmaLinux, CentOS or conda-forge for. We do not
+mirror them, and we deliberately do not substitute an upstream FSF tarball for
+a distributor's build: for the seven distro files the corresponding source is
+the source package **including its patch series**, and in one case — CentOS 7's
+`8.3.1` — no upstream release of that version exists at all. Shipping
+`gcc-8.3.0.tar.xz` and calling it corresponding source would be the same defect
+as shipping LibRaw's `.orig` tarball without the Ubuntu patches.
+
+These identifications are not a hand-maintained claim either: Loft's licence
+gate reads the build-id out of every one of these binaries at build time and
+fails the build if it finds a GCC runtime library this file does not account
+for, so a wheel bump cannot quietly change the answer.
 
 One deliberate difference from upstream: this image ships a **GPL-free
 replacement** for `libjbig`, not jbigkit. It is original MIT work

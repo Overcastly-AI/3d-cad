@@ -391,6 +391,24 @@ The image also carries `/app/licenses/`, including `THIRD-PARTY.md` (generated
 from the installed environment at build time), the full licence texts, and the
 §6(c) written offer.
 
+## What is deliberately NOT here: the GCC runtime libraries
+
+The images also carry `libgomp`, `libgfortran` and `libquadmath` — GPL-3.0
+**with** the GCC Runtime Library Exception, auditwheel-vendored into the OCP,
+numpy, scipy and scikit-learn wheels. No source for them is in this bundle,
+and that is a decision rather than an omission: the exception's §1 permits
+propagating the Runtime Library combined with Independent Modules "under terms
+of your choice", and a combined work of Target Code is the only form in which
+Loft ever conveys them.
+
+Because a decision like that is only checkable if you know which binaries it is
+about, `corresponding-source.json` records all eight of them individually —
+GNU build-id, SHA-256, size, the exact distro/toolchain build of GCC each came
+from, and the evidence for that identification. `GPL-3.0.txt` and
+`GCC-RUNTIME-LIBRARY-EXCEPTION-3.1.txt` are in `licenses/` beside this file.
+If you read the exception more strictly than we do, those records name exactly
+which source package to ask for.
+
 ## One deliberate difference from upstream
 
 The geometry image ships a **GPL-free replacement** for `libjbig`, not
