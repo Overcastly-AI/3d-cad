@@ -41,6 +41,29 @@ with the modifier held. Gated by `e2e/sketch-escape-select.spec.ts`, six specs
 that go red on the old behaviour. Left for the strip's owner: `SketchStrip.tsx`
 still captions the Save chip "Esc".
 
+**FB-4 SHIPPED (2026-08-03, frontend-builder) — a cut on a face-seated sketch
+goes INTO the material, and you see which way before you commit.** The founder's
+"I select a sketch do a cut it somehow misses everything going a different way"
+was our default, not his aim: `defaultExtrudeForm` hardcoded `direction:
+"normal"` and never consulted the operation, while an `on_face` datum's `z_dir`
+IS the outward face normal — so every face-seated cut swept out of the solid and
+came back `cut_removed_nothing`, an error message guarding a bad default.
+Direction now resolves from operation × plane seat (`defaultExtrudeDirection`):
+face + cut → `reverse`, face + add → `normal`, and a base/constructed datum is
+left alone because it genuinely has no material side (no heuristic invented
+there). Switching the operation — or retargeting the profile at a differently
+seated sketch — re-defaults the direction unless the user has TOUCHED it;
+override is tracked as a flag, not inferred from the value, because "reverse" is
+both a default and a choice. Visible before Save: the live ghost now renders for
+face-seated sketches at all (their `on_face` basis was unresolvable in the layer
+walk, so the preview simply never appeared on the one seat where the direction is
+ambiguous), and the editor states the sweep in words — "Cuts into the part,
+behind the face", or a warning when an override runs it back out. Gated by
+`e2e/extrude-cut-direction.spec.ts` on the closed form: a 20 mm cube (8 000 mm³)
+with a 10 × 10 pocket 5 mm deep weighs 7 500 mm³ exactly; the same cut on the old
+default evaluates to `cut_removed_nothing`, which is untouched and now fires only
+when a cut really is empty.
+
 **NEXT — FOUNDER-DIRECTED PRE-SELECTION / HOVER MODEL (2026-08-01,
 vision-steward, design only).** Same-night founder reports name one root
 cause three ways: a sketch line that "wouldn't even select," face picking

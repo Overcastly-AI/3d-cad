@@ -98,7 +98,7 @@ about to hit).
 - [ ] (P0, M) **FB-3 — picking a FACE is "very difficult"** — finicky rather than
       dead. Wants a measured hit region, small-vs-large faces, zoom and grazing
       angle, not an impression. Likely the same defect as FB-2.
-- [ ] (P0, M) **FB-4 — a cut extrudes AWAY from the material and removes
+- [x] (P0, M) **FB-4 — a cut extrudes AWAY from the material and removes
       nothing** ("I select a sketch do a cut it somehow misses everything going a
       different way"). `defaultExtrudeForm` (`features/extrude.ts:66`) hardcodes
       `direction: "normal"` and never consults the operation; an on_face datum's
@@ -107,6 +107,12 @@ about to hit).
       re-default when the operation is switched unless overridden, show it in the
       ghost. The typed `cut_removed_nothing` error made this look like user error
       for months — an error message guarding a bad default.
+      DONE 2026-08-03 (frontend-builder): `defaultExtrudeDirection(operation,
+      provenance)` + touch-tracked override (`withOperation`/`withProfile`/
+      `withDirection`); base planes deliberately left alone. The ghost now
+      renders for face-seated sketches (their `on_face` basis was missing from
+      the solved-layer walk) and the editor says where the sweep goes. Closed
+      form in `e2e/extrude-cut-direction.spec.ts`: 8 000 mm³ → 7 500 mm³.
 - [ ] (P1, M) **FB-5 — cannot attach a sketch to a face; hovering a face should
       offer it.** The capability exists but only as `ctx-sketch-on-face` in a
       right-click Tools menu, which then enters a face-pick mode (so FB-3 may

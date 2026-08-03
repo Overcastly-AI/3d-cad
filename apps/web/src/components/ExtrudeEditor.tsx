@@ -27,14 +27,19 @@ import { useDocumentLengthUnit } from "../units/documentUnit";
 import type { ExtrudeParams } from "../api/parts";
 import {
   canSubmitExtrude,
+  describeExtrudeDirection,
   distanceError,
   type ExtrudeDirection,
   type ExtrudeForm,
   type ExtrudeOperation,
   type ExtrudePreviewState,
   extrudePreviewState,
+  optionProvenance,
   parseDistanceMm,
   type ProfileOption,
+  withDirection,
+  withOperation,
+  withProfile,
 } from "../features/extrude";
 import { EditorCard } from "./EditorCard";
 
@@ -139,6 +144,10 @@ export function ExtrudeEditor({
     [saving, submit],
   );
 
+  // The seat of the CHOSEN profile — a sketch on a model face knows which side
+  // the material is on, a datum plane does not (FB-4). Read from the offered
+  // options so retargeting the profile re-reads it.
+  const provenance = optionProvenance(profiles, form.profileFeatureId);
   const distanceMsg = distanceError(form.distanceInput, unit);
   const canSubmit = canSubmitExtrude(form, unit) && !saving;
   useCommandBridge(submit, canSubmit);
@@ -159,9 +168,12 @@ export function ExtrudeEditor({
                 data-testid="extrude-profile"
                 value={form.profileFeatureId}
                 options={profiles.map((p) => ({ value: p.id, label: p.name }))}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, profileFeatureId: e.target.value }))
-                }
+                onChange={(e) => {
+                  const id = e.target.value;
+                  setForm((f) =>
+                    withProfile(f, id, optionProvenance(profiles, id)),
+                  );
+                }}
               />
             ) : (
               <div className="flex flex-col gap-0.5">
@@ -192,15 +204,35 @@ export function ExtrudeEditor({
               label="Operation"
               value={form.operation}
               options={OPERATIONS}
-              onChange={(operation) => setForm((f) => ({ ...f, operation }))}
+              onChange={(operation) =>
+                setForm((f) => withOperation(f, operation, provenance))
+              }
             />
 
-            <SegmentedControl
-              label="Direction"
-              value={form.direction}
-              options={DIRECTIONS}
-              onChange={(direction) => setForm((f) => ({ ...f, direction }))}
-            />
+            <div className="flex flex-col gap-1">
+              <SegmentedControl
+                label="Direction"
+                value={form.direction}
+                options={DIRECTIONS}
+                onChange={(direction) =>
+                  setForm((f) => withDirection(f, direction))
+                }
+              />
+              {/* Where the sweep goes, before Save — the ghost shows it in the
+                  viewport, this says it in words for the case the ghost is
+                  off-screen or occluded (FB-4: a cut that leaves the solid used
+                  to be discoverable only by failing). */}
+              <span
+                data-testid="extrude-direction-hint"
+                className="font-body text-xs text-gauge"
+              >
+                {describeExtrudeDirection(
+                  form.operation,
+                  form.direction,
+                  provenance,
+                )}
+              </span>
+            </div>
 
             {form.operation === "add" ? (
               <Checkbox

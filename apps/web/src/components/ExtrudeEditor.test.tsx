@@ -19,14 +19,24 @@ import { describe, expect, it, vi } from "vitest";
 import type { ExtrudeParams } from "../api/parts";
 import {
   defaultExtrudeForm,
+  type ExtrudeForm,
   type ExtrudePreviewState,
+  type ProfileOption,
 } from "../features/extrude";
 import { DocumentUnitProvider } from "../units/documentUnit";
 import { ExtrudeEditor } from "./ExtrudeEditor";
 import type { LengthUnit } from "@loft/design";
 import { expectGated } from "../test/gated";
 
-const PROFILES = [{ id: "sk1", name: "Sketch 1" }];
+const PROFILES: ProfileOption[] = [
+  { id: "sk1", name: "Sketch 1", provenance: "base" },
+];
+
+/** Two profiles: one on a datum plane, one seated on a model face (FB-4). */
+const MIXED_PROFILES: ProfileOption[] = [
+  { id: "sk1", name: "Sketch 1", provenance: "base" },
+  { id: "sk2", name: "Sketch on face", provenance: "face" },
+];
 
 function renderEditor(
   overrides: {
@@ -34,6 +44,8 @@ function renderEditor(
     onPreviewChange?: (p: ExtrudePreviewState | null) => void;
     onSubmit?: (p: ExtrudeParams) => void;
     error?: string | null;
+    profiles?: ProfileOption[];
+    initial?: ExtrudeForm;
   } = {},
 ) {
   const onPreviewChange = overrides.onPreviewChange ?? vi.fn();
@@ -43,8 +55,8 @@ function renderEditor(
     <DocumentUnitProvider unit={overrides.unit ?? "mm"}>
       <ExtrudeEditor
         mode="create"
-        profiles={PROFILES}
-        initial={defaultExtrudeForm("sk1")}
+        profiles={overrides.profiles ?? PROFILES}
+        initial={overrides.initial ?? defaultExtrudeForm("sk1")}
         onSubmit={onSubmit}
         onCancel={onCancel}
         saving={false}
@@ -174,6 +186,96 @@ describe("ExtrudeEditor form", () => {
     expectGated(screen.getByTestId("extrude-submit"));
   });
 
+  it("surfaces a server failure as an alert, not a swallowed error", () => {
+    renderEditor({ error: "The profile is not a closed region." });
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveTextContent("The profile is not a closed region.");
+  });
+});
+
+// FB-4 — the founder's cut "somehow misses everything going a different way".
+// A sketch on a model face inherits that face's OUTWARD normal, so the choice
+// of Cut has to carry the direction with it, and the user has to SEE it.
+describe("ExtrudeEditor cut direction on a face-seated sketch", () => {
+  const faceForm = defaultExtrudeForm("sk2", "face");
+
+  it("turns a cut into the material and publishes it to the ghost", () => {
+    const onPreviewChange = vi.fn();
+    renderEditor({
+      profiles: MIXED_PROFILES,
+      initial: faceForm,
+      onPreviewChange,
+    });
+    fireEvent.click(screen.getByTestId("extrude-op-cut"));
+    expect(screen.getByTestId("extrude-dir-reverse")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    const preview = lastPreview(onPreviewChange);
+    expect(preview?.operation).toBe("cut");
+    expect(preview?.direction).toBe("reverse");
+  });
+
+  it("submits the resolved direction, not the seeded one", () => {
+    const onSubmit = vi.fn();
+    renderEditor({ profiles: MIXED_PROFILES, initial: faceForm, onSubmit });
+    fireEvent.click(screen.getByTestId("extrude-op-cut"));
+    fireEvent.click(screen.getByTestId("extrude-submit"));
+    const params = onSubmit.mock.calls[0]?.[0] as ExtrudeParams;
+    expect(params.operation).toBe("cut");
+    expect(params.direction).toBe("reverse");
+  });
+
+  it("keeps a direction the user picked when the operation changes", () => {
+    renderEditor({ profiles: MIXED_PROFILES, initial: faceForm });
+    fireEvent.click(screen.getByTestId("extrude-dir-normal"));
+    fireEvent.click(screen.getByTestId("extrude-op-cut"));
+    expect(screen.getByTestId("extrude-dir-normal")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
+
+  it("leaves a datum-plane sketch alone — no material side to infer", () => {
+    renderEditor();
+    fireEvent.click(screen.getByTestId("extrude-op-cut"));
+    expect(screen.getByTestId("extrude-dir-normal")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
+
+  it("re-defaults when the profile is retargeted at a face-seated sketch", () => {
+    renderEditor({ profiles: MIXED_PROFILES });
+    fireEvent.click(screen.getByTestId("extrude-op-cut"));
+    expect(screen.getByTestId("extrude-dir-normal")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    fireEvent.change(screen.getByTestId("extrude-profile"), {
+      target: { value: "sk2" },
+    });
+    expect(screen.getByTestId("extrude-dir-reverse")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
+
+  it("says where the sweep goes in words, before Save", () => {
+    renderEditor({ profiles: MIXED_PROFILES, initial: faceForm });
+    fireEvent.click(screen.getByTestId("extrude-op-cut"));
+    expect(screen.getByTestId("extrude-direction-hint")).toHaveTextContent(
+      "Cuts into the part",
+    );
+    // …and warns when the user overrides it back out of the solid.
+    fireEvent.click(screen.getByTestId("extrude-dir-normal"));
+    expect(screen.getByTestId("extrude-direction-hint")).toHaveTextContent(
+      "nothing to remove",
+    );
+  });
+});
+
+describe("ExtrudeEditor server errors", () => {
   it("surfaces a server failure as an alert, not a swallowed error", () => {
     renderEditor({ error: "The profile is not a closed region." });
     const alert = screen.getByRole("alert");
