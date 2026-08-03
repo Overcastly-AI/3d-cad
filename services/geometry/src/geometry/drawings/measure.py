@@ -33,9 +33,12 @@ Honest, typed failure (design §3.3/§5): a ref that no longer resolves is a
 :class:`~geometry.kernel.faces.SubshapeAmbiguousError` — the SAME taxonomy a mate
 and a fillet reuse (never a parallel one). A wrong-type ref (a diameter on a
 non-circular edge, an angular on a non-straight edge) is a
-:class:`DimensionTypeError`. :func:`measure_dimension_dto` maps all three onto the
-neutral :class:`~py_kit.schemas.drawings.MeasuredDimension` error channel — never
-a 500.
+:class:`DimensionTypeError`. An ``edge_to_edge`` linear whose two edges are not
+parallel — so no perpendicular distance EXISTS — is a
+:class:`DimensionNotParallelError` (FB-10): a wrong number on a print a shop will
+cut from is worse than no number, so this one refuses rather than measures.
+:func:`measure_dimension_dto` maps all four onto the neutral
+:class:`~py_kit.schemas.drawings.MeasuredDimension` error channel — never a 500.
 
 Determinism (RESEARCH §9): resolution + measurement are pure functions of the body
 and the ref; the same body + dimension yields the same value, in-process and
@@ -64,6 +67,7 @@ from py_kit.schemas.drawings import (
     DimensionParams,
     DimensionUnit,
     EdgeLengthMeasurement,
+    EdgeToEdgeMeasurement,
     LinearDimensionParams,
     MeasuredDimension,
     PointToPointMeasurement,
@@ -99,6 +103,15 @@ _FORESHORTEN_SIN_TOL = ANCHOR_DIRECTION_SIN_TOL
 #: angular dimension's two edges — the kernel edge endpoint tolerance twin.
 _VERTEX_TOL_MM = 1e-6
 
+#: How parallel two straight edges must be for an ``edge_to_edge`` perpendicular
+#: distance to EXIST (FB-10): the sine of the angle between their directions —
+#: ``|d_a x d_b|`` — must not exceed this. The SAME dimensionless sin-scale bound the
+#: foreshortening flag and the durable anchor's parallelism test already use
+#: (:data:`geometry.drawings.anchor.ANCHOR_DIRECTION_SIN_TOL`), aliased rather than
+#: re-stated so "parallel" means one thing across this service. Documented, not
+#: ad-hoc (CLAUDE.md; docs/GEOMETRY-QA.md).
+_PARALLEL_SIN_TOL = ANCHOR_DIRECTION_SIN_TOL
+
 
 class DimensionTypeError(ValueError):
     """A dimension's ref resolved, but to the WRONG kind of edge (design §3.1).
@@ -107,6 +120,19 @@ class DimensionTypeError(ValueError):
     edge is not a straight line. The honest "you named the wrong geometry"
     outcome, distinct from an unresolved/ambiguous ref; the boundary maps it onto
     the ``dimension_wrong_type`` code (never a 500)."""
+
+
+class DimensionNotParallelError(ValueError):
+    """An ``edge_to_edge`` dimension's two edges are not parallel (FB-10).
+
+    Both refs resolved, and both are straight — but they converge or are skew, so
+    there is no single perpendicular distance BETWEEN them: the separation depends
+    on where along the pair you measure. The shortest distance between two skew
+    lines is still a number, and stamping it would put a plausible, unusable value
+    on a print that goes to a shop — the worst outcome this dimension has. So we
+    refuse, in the same typed style as :class:`DimensionTypeError`; the boundary
+    maps it onto the ``dimension_not_parallel`` code (never a 500, and never a
+    number)."""
 
 
 @dataclass(frozen=True)
@@ -196,12 +222,22 @@ def _require_circle(edge: Edge, kind: str) -> None:
         )
 
 
-def _require_line(edge: Edge, which: str) -> None:
+def _require_line(edge: Edge, which: str, kind: str = "An angular") -> None:
     if edge.geom_type != GeomType.LINE:
         raise DimensionTypeError(
-            f"An angular dimension needs two straight edges, but {which} is "
+            f"{kind} dimension needs two straight edges, but {which} is "
             f"{edge.geom_type}. Re-pick a straight edge (design §3.1)."
         )
+
+
+def _cross(
+    a: tuple[float, float, float], b: tuple[float, float, float]
+) -> tuple[float, float, float]:
+    return (
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    )
 
 
 def _endpoint(
@@ -239,6 +275,8 @@ def _measure_linear(
             foreshortened=foreshortened,
             anchor=_anchor_dto(resolved),
         )
+    if isinstance(source, EdgeToEdgeMeasurement):
+        return _measure_edge_to_edge(source, body, normal)
     assert isinstance(source, PointToPointMeasurement)
     a, anchor_a = _endpoint(source.a, body)
     b, anchor_b = _endpoint(source.b, body)
@@ -250,6 +288,76 @@ def _measure_linear(
         unit="mm",
         foreshortened=foreshortened,
         anchor=_anchor_dto(anchor_a, anchor_b),
+    )
+
+
+def _measure_edge_to_edge(
+    source: EdgeToEdgeMeasurement,
+    body: BodyShape,
+    normal: tuple[float, float, float],
+) -> DimensionValue:
+    """The PERPENDICULAR distance between two parallel straight edges (FB-10).
+
+    The wall-thickness measurement. Both refs resolve through the two-tier anchor
+    like every other dimension, then:
+
+    1. both edges must be STRAIGHT (a curve has no single direction) — otherwise
+       :class:`DimensionTypeError`, the shipped ``dimension_wrong_type``;
+    2. they must be PARALLEL — ``|d_a x d_b| <= _PARALLEL_SIN_TOL`` — otherwise
+       :class:`DimensionNotParallelError`. A degenerate (zero-length) edge has no
+       direction at all, so it refuses on the same channel rather than reading as
+       trivially parallel and returning a meaningless number;
+    3. the value is the length of the component of ``(p_b - p_a)`` PERPENDICULAR to
+       the shared direction — i.e. the distance between the two supporting lines,
+       independent of where along either edge it is taken. That independence is the
+       whole point: it is what ``point_to_point`` cannot give, because two endpoints
+       carry the along-wall offset as well.
+
+    Foreshortening (design §3.2) is judged on the SEPARATION direction, exactly as
+    ``point_to_point`` judges it on ``b - a``: the thickness reads true-size when the
+    across-the-wall direction lies in the view plane.
+    """
+    resolved_a = resolve_anchor_edge(body, source.edge_a)
+    resolved_b = resolve_anchor_edge(body, source.edge_b)
+    _require_line(resolved_a.edge, "the first edge", "An edge-to-edge")
+    _require_line(resolved_b.edge, "the second edge", "An edge-to-edge")
+    sig_a = resolved_a.signature
+    sig_b = resolved_b.signature
+
+    da = _line_direction(sig_a)
+    db = _line_direction(sig_b)
+    if _norm(da) == 0.0 or _norm(db) == 0.0:
+        raise DimensionNotParallelError(
+            "An edge-to-edge dimension measures ACROSS two parallel edges, but one "
+            "of the referenced edges is degenerate (zero length) and has no "
+            "direction, so there is no perpendicular distance. Re-pick the edges."
+        )
+    sin_angle = _norm(_cross(da, db))
+    if sin_angle > _PARALLEL_SIN_TOL:
+        degrees = math.degrees(math.asin(min(1.0, sin_angle)))
+        raise DimensionNotParallelError(
+            "An edge-to-edge dimension measures the PERPENDICULAR distance between "
+            f"two parallel edges, but these two meet at {degrees:.3f}deg. Their "
+            "separation depends on where it is measured, so there is no single "
+            "thickness to stamp. Re-pick two parallel edges, or use an angular "
+            "dimension (design §3.1)."
+        )
+
+    # The perpendicular component of the offset between the two supporting lines.
+    offset = _sub(sig_b.end_a, sig_a.end_a)
+    along = _dot(offset, da)
+    perpendicular = (
+        offset[0] - along * da[0],
+        offset[1] - along * da[1],
+        offset[2] - along * da[2],
+    )
+    distance = _norm(perpendicular)
+    foreshortened = distance > 0.0 and _linear_foreshortened(perpendicular, normal)
+    return DimensionValue(
+        value=distance,
+        unit="mm",
+        foreshortened=foreshortened,
+        anchor=_anchor_dto(resolved_a, resolved_b),
     )
 
 
@@ -368,6 +476,9 @@ def measure_dimension(
         SubshapeUnresolvedError: a ref no longer matches any edge (design §3.3).
         SubshapeAmbiguousError: a ref matches a congruent twin (refuse to guess).
         DimensionTypeError: a ref resolved to the wrong edge kind (design §3.1).
+        DimensionNotParallelError: an ``edge_to_edge`` pair is not parallel, so no
+            perpendicular distance exists (FB-10) — refuse rather than stamp a
+            plausible, unusable number.
     """
     normal = view_normal(_as_direction(view))
     if isinstance(dimension, LinearDimensionParams):
@@ -418,6 +529,10 @@ def measure_dimension_dto(
     except DimensionTypeError as exc:
         return MeasuredDimension(
             error=FeatureError(code="dimension_wrong_type", message=str(exc))
+        )
+    except DimensionNotParallelError as exc:
+        return MeasuredDimension(
+            error=FeatureError(code="dimension_not_parallel", message=str(exc))
         )
     return MeasuredDimension(
         value=measured.value,

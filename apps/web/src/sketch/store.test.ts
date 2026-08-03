@@ -1113,3 +1113,136 @@ describe("snapping (UI-W5)", () => {
     expect(store().entities).toEqual([]); // the session itself still resets
   });
 });
+
+/**
+ * FB-16 — the size cells a shape offers while it is being drawn. The gesture
+ * that opens them is the scene's (FB-15, press-drag-release or click-click);
+ * both funnel through `placeAt`, so this is the one place the draft is born.
+ */
+describe("draw-time dimensions", () => {
+  const drawRect = () => {
+    const store = useSketchStore.getState;
+    store().begin();
+    store().choosePlane("XY");
+    store().setTool("rect");
+    store().placeAt({ x: 0, y: 0 });
+    store().placeAt({ x: 43, y: 23 });
+  };
+
+  it("opens size cells on the shape a placement emitted", () => {
+    drawRect();
+    const store = useSketchStore.getState;
+    expect(store().drawDimension).toMatchObject({
+      shape: "rect",
+      ids: ["e1", "e2", "e3", "e4"],
+      from: { x: 0, y: 0 },
+      to: { x: 43, y: 23 },
+    });
+    expect(store().drawDimension?.fields.map((f) => f.key)).toEqual([
+      "width",
+      "height",
+    ]);
+  });
+
+  it("offers nothing for the tools a drag cannot finish", () => {
+    const store = useSketchStore.getState;
+    store().begin();
+    store().choosePlane("XY");
+    store().setTool("arc");
+    store().placeAt({ x: 0, y: 0 });
+    store().placeAt({ x: 10, y: 0 });
+    store().placeAt({ x: 0, y: 10 });
+    expect(store().entities).toHaveLength(1);
+    expect(store().drawDimension).toBeNull();
+  });
+
+  it("a typed size resizes the shape AND records a driving dimension", () => {
+    drawRect();
+    const store = useSketchStore.getState;
+    const before = store().revision;
+    store().commitDrawDimensions({ width: 50, height: 30 });
+    expect(store().drawDimension).toBeNull();
+    expect(store().revision).toBe(before + 1);
+    const bottom = store().entities[0];
+    expect(bottom?.kind === "line" && bottom.end).toEqual({ x: 50, y: 0 });
+    // Rigidity first (the rectangle must stay a rectangle), then the two dims.
+    expect(store().constraints).toHaveLength(10);
+    expect(store().constraints.filter((c) => c.kind === "distance")).toEqual([
+      { kind: "distance", entity: "e1", value_mm: 50 },
+      { kind: "distance", entity: "e2", value_mm: 30 },
+    ]);
+  });
+
+  it("typing ONE size leaves the other free but still rigid", () => {
+    drawRect();
+    const store = useSketchStore.getState;
+    store().commitDrawDimensions({ width: 50 });
+    expect(store().constraints.filter((c) => c.kind === "distance")).toEqual([
+      { kind: "distance", entity: "e1", value_mm: 50 },
+    ]);
+    const right = store().entities[1];
+    // Height untouched by the width edit.
+    expect(right?.kind === "line" && right.start).toEqual({ x: 50, y: 0 });
+    expect(right?.kind === "line" && right.end).toEqual({ x: 50, y: 23 });
+  });
+
+  it("a drag with nothing typed leaves an undimensioned shape, not a refusal", () => {
+    drawRect();
+    const store = useSketchStore.getState;
+    const before = store().revision;
+    store().commitDrawDimensions({});
+    expect(store().drawDimension).toBeNull();
+    expect(store().entities).toHaveLength(4); // still drawn
+    expect(store().constraints).toEqual([]); // and still free
+    expect(store().revision).toBe(before); // nothing to save
+  });
+
+  it("rejects a zero or negative size rather than authoring it", () => {
+    drawRect();
+    const store = useSketchStore.getState;
+    store().commitDrawDimensions({ width: 0, height: -5 });
+    expect(store().constraints).toEqual([]);
+  });
+
+  it("Escape keeps the shape, drops the cells, and drops the tool in one go", () => {
+    drawRect();
+    const store = useSketchStore.getState;
+    store().escape();
+    expect(store().drawDimension).toBeNull();
+    expect(store().entities).toHaveLength(4);
+    expect(store().tool).toBe("select");
+  });
+
+  it("a new placement supersedes the last shape's cells", () => {
+    drawRect();
+    const store = useSketchStore.getState;
+    store().placeAt({ x: 60, y: 0 }); // first corner of the next rectangle
+    expect(store().drawDimension).toBeNull();
+    store().placeAt({ x: 70, y: 10 });
+    expect(store().drawDimension?.ids).toEqual(["e5", "e6", "e7", "e8"]);
+  });
+
+  it("changing tool dismisses the cells", () => {
+    drawRect();
+    const store = useSketchStore.getState;
+    store().focusDrawDimension("width");
+    store().setTool("select");
+    expect(store().drawDimension).toBeNull();
+    expect(store().drawDimensionFocus).toBeNull();
+  });
+
+  it("dimensions a circle by radius", () => {
+    const store = useSketchStore.getState;
+    store().begin();
+    store().choosePlane("XY");
+    store().setTool("circle");
+    store().placeAt({ x: 0, y: 0 });
+    store().placeAt({ x: 5, y: 0 });
+    store().commitDrawDimensions({ radius: 12 });
+    const circle = store().entities[0];
+    expect(circle?.kind === "circle" && circle.radius).toBe(12);
+    expect(store().constraints).toEqual([
+      { kind: "radius", entity: "e1", value_mm: 12 },
+    ]);
+  });
+});

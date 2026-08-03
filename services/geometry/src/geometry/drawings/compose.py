@@ -72,6 +72,7 @@ from py_kit.schemas.drawings import (
     DimensionParams,
     DrawingDimensionInput,
     DrawingViewResult,
+    EdgeToEdgeMeasurement,
     EvaluateDrawingViewsResult,
     LinearDimensionParams,
     MeasuredDimension,
@@ -990,6 +991,8 @@ def dimension_edge_signature(params: DimensionParams) -> EdgeSignature | None:
         measurement = params.measurement  # type: ignore[union-attr]
         if measurement.mode == "edge_length":
             return measurement.edge
+        if measurement.mode == "edge_to_edge":
+            return measurement.edge_a
         return measurement.a.signature
     if params.type == "angular":
         return params.edge_a  # type: ignore[union-attr]
@@ -1013,6 +1016,23 @@ def _endpoint_projected(edge: ProjectedViewEdge, endpoint: str) -> Vec2 | None:
     if endpoint == end_label:
         return _p2(edge.end)
     return None
+
+
+def _perpendicular_foot(p: Vec2, a: Vec2, b: Vec2) -> Vec2 | None:
+    """The foot of the perpendicular from *p* onto the infinite line through a-b.
+
+    The across-the-wall span an ``edge_to_edge`` dimension draws (FB-10): the second
+    projected edge's SUPPORTING LINE is what the distance is measured to, so the
+    witness line lands square on it even where the two edges do not overlap (a wall
+    whose inner face is shorter than its outer). ``None`` when a-b is degenerate in
+    this view (the edge projects end-on) — the caller then stamps the honest
+    "cannot be placed in this view" marker rather than drawing a zero-length span.
+    """
+    d = _sub(b, a)
+    if _hyp(d) < 1e-9:
+        return None
+    u = _unit(d)
+    return _add(a, _mul(u, _dot(_sub(p, a), u)))
 
 
 # ---------------------------------------------------------------------------------
@@ -1055,6 +1075,9 @@ _DIM_ERROR_PHRASE: dict[str, str] = {
     "subshape_unresolved": "REFERENCE LOST - RE-PICK THE EDGE",
     "subshape_ambiguous": "REFERENCE AMBIGUOUS - RE-PICK THE EDGE",
     "dimension_wrong_type": "WRONG EDGE TYPE FOR THIS DIMENSION",
+    # FB-10: the edges converge, so a "thickness" between them does not exist. The
+    # sheet says so in the machinist's words rather than carrying a plausible number.
+    "dimension_not_parallel": "EDGES NOT PARALLEL - NO PERPENDICULAR DISTANCE",
     "unmeasured": "NOT MEASURED",
     "dimension_not_placeable": "CANNOT BE PLACED IN THIS VIEW - RE-PICK IT",
 }
@@ -1446,6 +1469,38 @@ def _build_dimension_annotation_auto(
 
     if isinstance(dimension, LinearDimensionParams):
         measurement = dimension.measurement
+        if isinstance(measurement, EdgeToEdgeMeasurement):
+            # Across the wall: from the midpoint of the first projected edge, square
+            # onto the second edge's supporting line. `_place_linear_between` then
+            # runs its witness lines PARALLEL to the walls and the dimension line
+            # across them — the standard thickness callout.
+            sig_b = anchored_signature(measurement.edge_b, measured, secondary=True)
+            edge_a = find_matching_edge(edges, primary_sig) if primary_sig else None
+            edge_b = find_matching_edge(edges, sig_b) if sig_b else None
+            if edge_a is None or edge_b is None:
+                return unplaceable()
+            if edge_a.primitive != "line" or edge_b.primitive != "line":
+                return unplaceable()
+            p = _p2(edge_a.midpoint)
+            q = _perpendicular_foot(p, _p2(edge_b.start), _p2(edge_b.end))
+            if q is None:
+                return unplaceable()
+            return (
+                _place_linear_between(
+                    p,
+                    q,
+                    label,
+                    measured.foreshortened,
+                    view_center,
+                    to_svg,
+                    obstacles,
+                    sheet,
+                    dim_type,
+                    dim_id,
+                    authored_offset,
+                )
+                or unplaceable()
+            )
         if isinstance(measurement, PointToPointMeasurement):
             sig_b = anchored_signature(
                 measurement.b.signature, measured, secondary=True

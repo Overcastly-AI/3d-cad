@@ -166,6 +166,7 @@ import {
   type ExtrudeForm,
   type ExtrudePreviewState,
   formFromParams,
+  optionProvenance,
   profileOptions,
 } from "../features/extrude";
 import { precheckStepFile, stepFeatureName } from "../features/import";
@@ -286,6 +287,7 @@ import { TopToolbar } from "../components/TopToolbar";
 import { resolveSketchKey, type SolveInfo } from "../sketch/constraints";
 import {
   type AnyDatumParams,
+  faceBasis,
   faceSpecFromDatum,
   offsetSpecFromDatum,
   originBasis,
@@ -981,6 +983,19 @@ export function PartPage() {
         basis = originBasis(plane.plane);
       } else {
         basis = datumBasisById.get(plane.feature_id) ?? null;
+        if (basis === null) {
+          // An `on_face` datum has no world-frame walk (its plane belongs to a
+          // body face), but its face signature is right there in the params —
+          // the SAME reconstruction the sketch-on-face flow draws with. Without
+          // it a face-seated sketch had no layer at all, so the live extrude
+          // ghost simply never appeared on the one seat where the direction is
+          // ambiguous to the eye (FB-4: the user must SEE which way the cut
+          // goes before committing).
+          const datum = datumById.get(plane.feature_id);
+          if (datum?.kind === "on_face") {
+            basis = faceBasis(datum.face.selector.signature, datum.offset_mm);
+          }
+        }
       }
       if (basis === null) continue; // unresolved plane (rolled back / deleted)
       const result = results.get(feature.id);
@@ -994,7 +1009,7 @@ export function PartPage() {
       });
     }
     return layers;
-  }, [tree.data, evaluation.data, mode, featureId, datumBasisById]);
+  }, [tree.data, evaluation.data, mode, featureId, datumById, datumBasisById]);
 
   // Keyboard-first: Escape cascade always; tools, snap, constraint verbs and
   // Delete while drawing. One keyboard, two vocabularies — selection
@@ -1798,7 +1813,9 @@ export function PartPage() {
   }, [mode, editor, hasBody]);
 
   const openCreateExtrude = useCallback(() => {
-    const profileId = defaultProfileId(tree.data?.features ?? []);
+    const features = tree.data?.features ?? [];
+    const profiles = profileOptions(features);
+    const profileId = defaultProfileId(features);
     if (profileId === "") return;
     useMeasureStore.getState().deactivate();
     setEditorError(null);
@@ -1806,7 +1823,13 @@ export function PartPage() {
     setEditor({
       kind: "extrude",
       mode: "create",
-      initial: defaultExtrudeForm(profileId),
+      // The seat of the seeded profile decides the direction default: a sketch
+      // on a model face cuts INTO the material, a datum plane has no material
+      // side to infer one from (FB-4).
+      initial: defaultExtrudeForm(
+        profileId,
+        optionProvenance(profiles, profileId),
+      ),
     });
   }, [tree.data]);
 

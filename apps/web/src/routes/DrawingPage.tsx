@@ -46,7 +46,7 @@ import {
   IDLE,
   type AuthoringState,
   type DimensionAction,
-  armAngular,
+  armPair,
   armedSignatures,
   buildDimension,
   menuActions,
@@ -785,8 +785,8 @@ export function DrawingPage() {
   // ---------------------------------------------------------------------
   // Dimension authoring: pick sheet geometry → choose a valid type → persist it
   // (CRUD) → the re-evaluate measures + renders it model-true. Most types take
-  // one pick; angular takes two straight edges and point-to-point two endpoints,
-  // staged through the pure `authoring` state machine (design §3.1/§3.3).
+  // one pick; angular and edge-to-edge take two straight edges and point-to-point
+  // two endpoints, staged through the pure `authoring` state machine (§3.1/§3.3).
   // ---------------------------------------------------------------------
   const [authoring, setAuthoring] = useState<AuthoringState>(IDLE);
   const [dimBusy, setDimBusy] = useState(false);
@@ -839,9 +839,11 @@ export function DrawingPage() {
   const handleChooseAction = useCallback(
     (action: DimensionAction) => {
       if (dimBusy) return;
-      // "Angle" arms a second-edge pick rather than authoring immediately.
-      if (action === "start_angular") {
-        setAuthoring((state) => armAngular(state));
+      // "Angle" / "Distance to edge" arm a second-edge pick rather than
+      // authoring immediately; the intent orders the menu that follows.
+      if (action === "start_angular" || action === "start_edge_to_edge") {
+        const intent = action === "start_angular" ? "angular" : "edge_to_edge";
+        setAuthoring((state) => armPair(state, intent));
         return;
       }
       const built = buildDimension(authoring, action);
@@ -1886,7 +1888,8 @@ function DimensionsPanel({
       {dimensions.length === 0 ? (
         <p className="px-3 py-2.5 font-body text-2xs text-gauge">
           Click a highlighted edge on a view to add a dimension — a circle takes
-          a diameter or radius, a straight edge a linear.
+          a diameter or radius, a straight edge a linear; pick a second edge for
+          an angle or the distance across (a wall thickness).
         </p>
       ) : (
         <>
@@ -1920,6 +1923,13 @@ function DimensionsPanel({
                   className="px-3 py-1.5"
                   data-testid="dimension-row"
                   data-dimension-type={dim.dimension.type}
+                  // A linear dimension has three quite different meanings; the
+                  // row (and any test) can tell them apart without re-parsing.
+                  data-dimension-mode={
+                    dim.dimension.type === "linear"
+                      ? dim.dimension.measurement.mode
+                      : undefined
+                  }
                   data-foreshortened={foreshortened ? "true" : "false"}
                   data-anchor-tier={measured?.anchor?.tier ?? "none"}
                 >

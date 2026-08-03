@@ -42,6 +42,7 @@ from geometry.drawings.flat_pattern import (
     flat_pattern_view_result,
 )
 from geometry.drawings.measure import (
+    DimensionNotParallelError,
     DimensionTypeError,
     DimensionValue,
     measure_dimension,
@@ -72,6 +73,7 @@ __all__ = [
     "MIN_VIEW_CLEARANCE_MM",
     "SECTION_VIEW",
     "VIEW_GUTTER_MM",
+    "DimensionNotParallelError",
     "DimensionTypeError",
     "DimensionValue",
     "Point2D",

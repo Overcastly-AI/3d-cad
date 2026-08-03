@@ -86,7 +86,7 @@ def added_lines(hunk: str) -> list[str]:
     ]
 
 
-def foreign_entries(hunk: str, marker: str) -> list[str]:
+def foreign_entries(hunk: str, markers: list[str]) -> list[str]:
     """Entry-start lines in *hunk* that are NOT part of the marker's own entry.
 
     Marker-matching works at HUNK granularity, but git merges ADJACENT changed
@@ -109,13 +109,17 @@ def foreign_entries(hunk: str, marker: str) -> list[str]:
             entries.append((ln, [ln]))
         else:
             entries[-1][1].append(ln)
-    return [head for head, body in entries if not any(marker in ln for ln in body)]
+    return [
+        head
+        for head, body in entries
+        if not any(m in ln for ln in body for m in markers)
+    ]
 
 
 HUNK_HEADER = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
 
 
-def mine_only_subhunks(hunk: str, marker: str) -> list[str]:
+def mine_only_subhunks(hunk: str, markers: list[str]) -> list[str]:
     """Rebuild an insert-only *hunk* as sub-hunks carrying only YOUR entry.
 
     Emitted in `--unidiff-zero` form (`@@ -a,0 +b,n @@`), which is why the caller
@@ -157,9 +161,9 @@ def mine_only_subhunks(hunk: str, marker: str) -> list[str]:
         if ENTRY_START.match(ln) or not pending:
             for i in pending:
                 owner[i] = current_is_mine
-            pending, current_is_mine = [], marker in ln
+            pending, current_is_mine = [], any(m in ln for m in markers)
         else:
-            current_is_mine = current_is_mine or marker in ln
+            current_is_mine = current_is_mine or any(m in ln for m in markers)
         pending.append(idx)
     for i in pending:
         owner[i] = current_is_mine
@@ -199,7 +203,7 @@ def mine_only_subhunks(hunk: str, marker: str) -> list[str]:
     return out
 
 
-def hunk_adds_marker(hunk: str, marker: str) -> bool:
+def hunk_adds_marker(hunk: str, markers: list[str]) -> bool:
     """True when a line this hunk ADDS contains *marker*.
 
     Deliberately ignores context and removed lines: a neighbouring agent's entry
@@ -207,8 +211,9 @@ def hunk_adds_marker(hunk: str, marker: str) -> bool:
     re-introduce the very sweeping this script exists to prevent.
     """
     return any(
-        ln.startswith("+") and not ln.startswith("+++") and marker in ln
+        ln.startswith("+") and not ln.startswith("+++") and m in ln
         for ln in hunk.splitlines()
+        for m in markers
     )
 
 
@@ -244,13 +249,25 @@ def verify_staged(
     path: str,
     filtered: list[str],
     matched: list[str],
-    marker: str,
+    markers: list[str],
+    baseline: str,
     cwd: Path | None,
 ) -> list[str]:
     """Post-condition on the INDEX: exactly my lines went in, none of theirs.
 
-    Reads the blob `git commit` would use and compares it against HEAD's, line by
-    line. Two failures are possible and both are silent without this:
+    Compares the blob `git commit` would use against *baseline* — the index as it
+    was BEFORE this invocation, NOT against HEAD.
+
+    That distinction is the whole bug fix. Using HEAD made the tool impossible to
+    run twice on one file: the second invocation saw the FIRST run's correctly
+    staged lines as "lines I never claimed" and refused, restoring the index and
+    silently undoing run one. Two agents hit it on 2026-08-02, because a BACKLOG
+    tick is genuinely two disjoint edits (the `- [ ]`->`- [x]` flip and the DONE
+    note) and both worked around it by hand-building the blob — the fiddly path
+    this tool exists to remove. Baselining on the pre-run index makes runs
+    compose, which is what a staging tool has to do.
+
+    Two failures are possible and both are silent without this:
 
       * a colleague's added line reached the index — the sweep, in any of the
         three shapes it has taken so far;
@@ -264,8 +281,7 @@ def verify_staged(
     from collections import Counter
 
     staged = run(["git", "show", f":{path}"], cwd=cwd).stdout
-    head = run(["git", "show", f"HEAD:{path}"], cwd=cwd).stdout
-    gained = Counter(staged.splitlines()) - Counter(head.splitlines())
+    gained = Counter(staged.splitlines()) - Counter(baseline.splitlines())
 
     claimed = Counter(
         ln[1:] for hunk in filtered for ln in added_lines(hunk)
@@ -274,7 +290,7 @@ def verify_staged(
         ln[1:]
         for hunk in matched
         for ln in added_lines(hunk)
-        if ENTRY_START.match(ln) and marker not in ln
+        if ENTRY_START.match(ln) and not any(m in ln for m in markers)
     )  # entry-start lines that are definitely NOT mine
 
     problems: list[str] = []
@@ -288,19 +304,23 @@ def verify_staged(
     return problems
 
 
-def stage(path: str, marker: str, cwd: Path | None = None) -> int:
+def stage(path: str, markers: list[str], cwd: Path | None = None) -> int:
+    # The baseline for the post-condition is the index AS IT IS NOW, so repeated
+    # invocations compose instead of each one accusing the last of foreign lines.
+    baseline = run(["git", "show", f":{path}"], cwd=cwd).stdout
     diff = run(["git", "diff", "--", path], cwd=cwd).stdout
     if not diff.strip():
         print(f"stage-doc-hunks: {path} has no unstaged changes.")
         return 2
 
     header, hunks = split_hunks(diff)
-    mine = [h for h in hunks if hunk_adds_marker(h, marker)]
+    mine = [h for h in hunks if hunk_adds_marker(h, markers)]
     theirs = len(hunks) - len(mine)
 
     if not mine:
         print(
-            f"stage-doc-hunks: no hunk in {path} ADDS a line containing {marker!r}.\n"
+            f"stage-doc-hunks: no hunk in {path} ADDS a line containing any of\n"
+            f"  {markers!r}.\n"
             f"  {len(hunks)} hunk(s) present. Check the marker — staging nothing "
             "silently would be worse than failing."
         )
@@ -328,7 +348,7 @@ def stage(path: str, marker: str, cwd: Path | None = None) -> int:
                 "recognised entry-start line(s)"
             )
             continue
-        foreign = foreign_entries(hunk, marker)
+        foreign = foreign_entries(hunk, markers)
         if not foreign:
             filtered.append(hunk)
             continue
@@ -337,7 +357,7 @@ def stage(path: str, marker: str, cwd: Path | None = None) -> int:
         ):
             refuse.extend(foreign)
             continue
-        filtered.extend(mine_only_subhunks(hunk, marker))
+        filtered.extend(mine_only_subhunks(hunk, markers))
 
     if disagree:
         print(
@@ -382,7 +402,7 @@ def stage(path: str, marker: str, cwd: Path | None = None) -> int:
         print(f"stage-doc-hunks: patch did not apply.\n{applied.stderr}")
         return 3
 
-    problems = verify_staged(path, filtered, mine, marker, cwd)
+    problems = verify_staged(path, filtered, mine, markers, baseline, cwd)
     if problems:
         # Restore this path's index entry EXACTLY as we found it. Named path
         # only, and via the recorded blob rather than `git reset`, so a
@@ -420,7 +440,7 @@ def stage(path: str, marker: str, cwd: Path | None = None) -> int:
         if ENTRY_START.match(ln)
     ]
     print(
-        f"stage-doc-hunks: staged {len(mine)} hunk(s) of {path} matching {marker!r}; "
+        f"stage-doc-hunks: staged {len(mine)} hunk(s) of {path} matching {markers!r}; "
         f"left {theirs} hunk(s) unstaged for their author."
     )
     if staged_entries:
@@ -518,7 +538,7 @@ def _case(
         run(["git", "commit", "-qm", "base"], cwd=repo)
 
         doc.write_text(dirty)
-        code = stage(doc_name, marker, cwd=repo)
+        code = stage(doc_name, [marker], cwd=repo)
         staged = run(["git", "show", f":{doc_name}"], cwd=repo).stdout
         working = doc.read_text()
 
@@ -537,6 +557,59 @@ def _case(
     return checks
 
 
+def _twice_case() -> list[tuple[bool, str]]:
+    """Two invocations on ONE file must COMPOSE, not undo each other.
+
+    The real shape: a BACKLOG tick is two disjoint edits — the `- [ ]`->`- [x]`
+    flip and an appended DONE note — so an agent naturally runs the tool twice.
+    Before 2026-08-02 the post-condition baselined on HEAD, so run two saw run
+    one's correctly staged lines as "lines I never claimed", refused, and
+    restored the index — silently undoing run one while reporting a refusal for
+    a file that was fine. Two agents hit it in one night and both hand-built the
+    blob instead, which is exactly the fiddly path this tool exists to delete.
+    """
+    import tempfile
+
+    base = (
+        "# Board\n\n- [ ] (P1) **ITEM-A alpha.** Body.\n\n"
+        "- [ ] (P1) **ITEM-B beta.** Body.\n"
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp)
+        doc = repo / "BACKLOG.md"
+        for args in (
+            ["git", "init", "-q", "."],
+            ["git", "config", "user.email", "self-test@loft.invalid"],
+            ["git", "config", "user.name", "self-test"],
+        ):
+            run(args, cwd=repo)
+        doc.write_text(base)
+        run(["git", "add", "BACKLOG.md"], cwd=repo)
+        run(["git", "commit", "-qm", "base"], cwd=repo)
+
+        # Two appended entries, staged one marker at a time.
+        doc.write_text(
+            base
+            + "\n- [x] (P1) **ITEM-C gamma.** Done.\n\n"
+            + "- [x] (P1) **ITEM-D delta.** Done.\n"
+        )
+        first = stage("BACKLOG.md", ["ITEM-C gamma"], cwd=repo)
+        after_first = run(["git", "show", ":BACKLOG.md"], cwd=repo).stdout
+        second = stage("BACKLOG.md", ["ITEM-D delta"], cwd=repo)
+        staged = run(["git", "show", ":BACKLOG.md"], cwd=repo).stdout
+
+    return [
+        (first == 0, "twice: first invocation stages"),
+        (
+            "ITEM-C gamma" in after_first,
+            "twice: first invocation's entry is in the index",
+        ),
+        (second == 0, "twice: SECOND invocation stages instead of refusing"),
+        ("ITEM-C gamma" in staged, "twice: run one's entry SURVIVES run two"),
+        ("ITEM-D delta" in staged, "twice: run two's entry is there too"),
+    ]
+
+
 def self_test() -> int:
     """Stage a hunk shared with a colleague and demand the INDEX be exactly right.
 
@@ -551,20 +624,24 @@ def self_test() -> int:
     the tool swept a colleague's ROADMAP entry hours later. A gate is only as good
     as the shapes it feeds itself.
     """
-    checks = _case(
-        "backlog",
-        "BACKLOG.md",
-        _SELF_TEST_BASE,
-        _SELF_TEST_DIRTY,
-        _SELF_TEST_EXPECTED,
-        "MY NEW ENTRY marker-phrase",
-    ) + _case(
-        "roadmap",
-        "ROADMAP.md",
-        _ROADMAP_BASE,
-        _ROADMAP_DIRTY,
-        _ROADMAP_EXPECTED,
-        "MY ROADMAP ENTRY marker-phrase",
+    checks = (
+        _case(
+            "backlog",
+            "BACKLOG.md",
+            _SELF_TEST_BASE,
+            _SELF_TEST_DIRTY,
+            _SELF_TEST_EXPECTED,
+            "MY NEW ENTRY marker-phrase",
+        )
+        + _case(
+            "roadmap",
+            "ROADMAP.md",
+            _ROADMAP_BASE,
+            _ROADMAP_DIRTY,
+            _ROADMAP_EXPECTED,
+            "MY ROADMAP ENTRY marker-phrase",
+        )
+        + _twice_case()
     )
 
     for ok, label in checks:
@@ -579,10 +656,12 @@ def self_test() -> int:
 def main() -> int:
     if len(sys.argv) == 2 and sys.argv[1] == "--self-test":
         return self_test()
-    if len(sys.argv) != 3:
+    if len(sys.argv) < 3:
         print(__doc__)
         return 2
-    return stage(sys.argv[1], sys.argv[2])
+    # MULTIPLE markers are allowed and are the right answer for a BACKLOG tick,
+    # which is two disjoint edits (the `- [ ]`->`- [x]` flip and the DONE note).
+    return stage(sys.argv[1], sys.argv[2:])
 
 
 if __name__ == "__main__":

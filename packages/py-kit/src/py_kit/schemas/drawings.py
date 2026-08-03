@@ -318,19 +318,59 @@ class PointToPointMeasurement(BaseModel):
     b: DimensionEndpointRef = Field(description="Second endpoint")
 
 
-#: Discriminated linear-measurement source: a single edge's length, OR the
-#: distance between two edge-endpoints (design §3.1).
+class EdgeToEdgeMeasurement(BaseModel):
+    """Measure the PERPENDICULAR distance between two parallel model edges (FB-10).
+
+    The wall-thickness dimension: a shelled housing's outer and inner wall project
+    as two parallel straight edges, and the number a machinist needs is the
+    perpendicular distance across them. Neither shipped linear mode expresses it —
+    ``edge_length`` measures one edge, and ``point_to_point`` measures the two
+    ENDPOINTS the user picked, which is the thickness only when they happen to be
+    aligned across the wall and is silently wrong the moment they are not (a
+    staggered rim, a wall that steps). Naming the two EDGES states the intent, so
+    the value cannot drift with which vertex was clicked.
+
+    Names its pair the same way :class:`AngularDimensionParams` does (``edge_a`` /
+    ``edge_b``) — the shipped two-edge pattern, not a parallel one — and joins the
+    :data:`LinearMeasurement` union additively (feature-tree.md §1.4), so a client
+    that does not know this mode reads every older dimension unchanged.
+
+    DEFINED ONLY FOR PARALLEL STRAIGHT EDGES. Two skew or converging lines have a
+    shortest distance that is a real number and a lie on a print — it is not the
+    thickness of anything and a shop cannot use it — so geometry REFUSES with the
+    typed ``dimension_not_parallel`` error rather than stamping it (design §3.3
+    error taxonomy; the same posture as ``dimension_wrong_type``). Parallelism is a
+    property of the CURRENT body, not of the authored signatures: a draft angle
+    applied later makes two once-parallel walls diverge, so the check lives with
+    the measurement (geometry) and re-runs on every rebuild, and a dimension that
+    stops being meaningful says so on the sheet instead of quietly changing meaning.
+    """
+
+    mode: Literal["edge_to_edge"] = "edge_to_edge"
+    edge_a: EdgeSignature = Field(description="First straight model edge")
+    edge_b: EdgeSignature = Field(
+        description="Second straight model edge, PARALLEL to `edge_a` (a "
+        "non-parallel pair is refused with `dimension_not_parallel`)"
+    )
+
+
+#: Discriminated linear-measurement source: a single edge's length, the distance
+#: between two edge-endpoints, OR the perpendicular distance between two parallel
+#: edges (design §3.1; the third joined additively for FB-10).
 LinearMeasurement = Annotated[
-    EdgeLengthMeasurement | PointToPointMeasurement, Field(discriminator="mode")
+    EdgeLengthMeasurement | PointToPointMeasurement | EdgeToEdgeMeasurement,
+    Field(discriminator="mode"),
 ]
 
 
 class LinearDimensionParams(BaseModel):
-    """A linear dimension — an edge length or a point-to-point distance (§3.1)."""
+    """A linear dimension — an edge length, a point-to-point or an edge-to-edge
+    perpendicular distance (§3.1)."""
 
     type: Literal["linear"] = "linear"
     measurement: LinearMeasurement = Field(
-        description="What is measured (an edge's length or two endpoints)"
+        description="What is measured (an edge's length, two endpoints, or the "
+        "perpendicular distance between two parallel edges)"
     )
     placement: DimensionPlacement = Field(
         default_factory=DimensionPlacement, description="Authored 2D placement"
@@ -403,8 +443,10 @@ DimensionParams = (
 # the value is STILL model-true, and the flag lets the UI warn "dimension this in a
 # true-size view". A ref that no longer resolves is a typed `subshape_unresolved`,
 # a congruent twin `subshape_ambiguous`, and a wrong-type ref (a diameter on a
-# non-circular edge, an angular on a non-straight edge) `dimension_wrong_type` — the
-# reused subshape resolution taxonomy, never a 500 (design §3.3 / §5).
+# non-circular edge, an angular on a non-straight edge) `dimension_wrong_type`, and
+# an `edge_to_edge` whose two edges are not parallel — so there IS no perpendicular
+# distance — `dimension_not_parallel` (FB-10) — the reused subshape resolution
+# taxonomy, never a 500 (design §3.3 / §5).
 
 #: Unit of a measured dimension value — millimetres (linear/diameter/radius) or
 #: degrees (angular). Encoded explicitly so a consumer never guesses from `type`.
@@ -464,8 +506,9 @@ class MeasuredDimension(BaseModel):
     is null; ``foreshortened`` flags a feature not parallel to the view plane
     (design §3.2 — the value is still model-true). On failure ``value``/``unit``
     are null and ``error`` is a typed ``subshape_unresolved`` / ``subshape_ambiguous``
-    / ``dimension_wrong_type`` (never a 500 — design §3.3). Mirrors the per-view
-    :class:`DrawingViewResult` success/error envelope for a single dimension.
+    / ``dimension_wrong_type`` / ``dimension_not_parallel`` (never a 500 — design
+    §3.3). Mirrors the per-view :class:`DrawingViewResult` success/error envelope for
+    a single dimension.
     """
 
     value: float | None = Field(
@@ -485,7 +528,8 @@ class MeasuredDimension(BaseModel):
     error: FeatureError | None = Field(
         default=None,
         description="Typed resolution failure (`subshape_unresolved` / "
-        "`subshape_ambiguous` / `dimension_wrong_type`), or null on success",
+        "`subshape_ambiguous` / `dimension_wrong_type` / `dimension_not_parallel`), "
+        "or null on success",
     )
     anchor: DimensionAnchor | None = Field(
         default=None,
@@ -1084,7 +1128,8 @@ class MeasuredDimensionResult(BaseModel):
     Pairs the echoed correlation ``id`` + the ``view`` it was measured in with the
     model-true :class:`MeasuredDimension` (value + unit + ``foreshortened``, OR a
     typed ``subshape_unresolved`` / ``subshape_ambiguous`` / ``dimension_wrong_type``
-    error on its ``error`` channel). A per-dimension measurement failure is THAT
+    / ``dimension_not_parallel`` error on its ``error`` channel). A per-dimension
+    measurement failure is THAT
     dimension's typed error — never a 500, never a failure of the whole request or
     of any OTHER dimension/view — the same never-500 posture as the per-view
     :class:`DrawingViewResult` and the per-feature/per-mate strict-prefix rule.

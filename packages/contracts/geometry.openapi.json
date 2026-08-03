@@ -2539,6 +2539,31 @@
         "title": "EdgeTarget",
         "type": "object"
       },
+      "EdgeToEdgeMeasurement": {
+        "description": "Measure the PERPENDICULAR distance between two parallel model edges (FB-10).\n\nThe wall-thickness dimension: a shelled housing's outer and inner wall project\nas two parallel straight edges, and the number a machinist needs is the\nperpendicular distance across them. Neither shipped linear mode expresses it \u2014\n``edge_length`` measures one edge, and ``point_to_point`` measures the two\nENDPOINTS the user picked, which is the thickness only when they happen to be\naligned across the wall and is silently wrong the moment they are not (a\nstaggered rim, a wall that steps). Naming the two EDGES states the intent, so\nthe value cannot drift with which vertex was clicked.\n\nNames its pair the same way :class:`AngularDimensionParams` does (``edge_a`` /\n``edge_b``) \u2014 the shipped two-edge pattern, not a parallel one \u2014 and joins the\n:data:`LinearMeasurement` union additively (feature-tree.md \u00a71.4), so a client\nthat does not know this mode reads every older dimension unchanged.\n\nDEFINED ONLY FOR PARALLEL STRAIGHT EDGES. Two skew or converging lines have a\nshortest distance that is a real number and a lie on a print \u2014 it is not the\nthickness of anything and a shop cannot use it \u2014 so geometry REFUSES with the\ntyped ``dimension_not_parallel`` error rather than stamping it (design \u00a73.3\nerror taxonomy; the same posture as ``dimension_wrong_type``). Parallelism is a\nproperty of the CURRENT body, not of the authored signatures: a draft angle\napplied later makes two once-parallel walls diverge, so the check lives with\nthe measurement (geometry) and re-runs on every rebuild, and a dimension that\nstops being meaningful says so on the sheet instead of quietly changing meaning.",
+        "properties": {
+          "edge_a": {
+            "$ref": "#/components/schemas/EdgeSignature",
+            "description": "First straight model edge"
+          },
+          "edge_b": {
+            "$ref": "#/components/schemas/EdgeSignature",
+            "description": "Second straight model edge, PARALLEL to `edge_a` (a non-parallel pair is refused with `dimension_not_parallel`)"
+          },
+          "mode": {
+            "const": "edge_to_edge",
+            "default": "edge_to_edge",
+            "title": "Mode",
+            "type": "string"
+          }
+        },
+        "required": [
+          "edge_a",
+          "edge_b"
+        ],
+        "title": "EdgeToEdgeMeasurement",
+        "type": "object"
+      },
       "EntityPointRef": {
         "description": "Names one point of one entity, e.g. ``{\"entity\": \"e1\", \"point\": \"end\"}``.\n\n``point`` is a fixed named point (``start``/``end``/``center``/``position``)\nfor a line/arc/circle/point entity, or a spline fit point (``\"fit0\"``,\n``\"fit1\"``, \u2026) for a :class:`SketchSpline` \u2014 a constraint addresses a\nspline's Nth fit point exactly as it addresses a line's endpoint.",
         "properties": {
@@ -4398,13 +4423,14 @@
         "type": "object"
       },
       "LinearDimensionParams": {
-        "description": "A linear dimension \u2014 an edge length or a point-to-point distance (\u00a73.1).",
+        "description": "A linear dimension \u2014 an edge length, a point-to-point or an edge-to-edge\nperpendicular distance (\u00a73.1).",
         "properties": {
           "measurement": {
-            "description": "What is measured (an edge's length or two endpoints)",
+            "description": "What is measured (an edge's length, two endpoints, or the perpendicular distance between two parallel edges)",
             "discriminator": {
               "mapping": {
                 "edge_length": "#/components/schemas/EdgeLengthMeasurement",
+                "edge_to_edge": "#/components/schemas/EdgeToEdgeMeasurement",
                 "point_to_point": "#/components/schemas/PointToPointMeasurement"
               },
               "propertyName": "mode"
@@ -4415,6 +4441,9 @@
               },
               {
                 "$ref": "#/components/schemas/PointToPointMeasurement"
+              },
+              {
+                "$ref": "#/components/schemas/EdgeToEdgeMeasurement"
               }
             ],
             "title": "Measurement"
@@ -4787,7 +4816,7 @@
         "type": "object"
       },
       "MeasuredDimension": {
-        "description": "A dimension's value measured from the MODEL, or a typed resolution error.\n\nOn success ``value`` + ``unit`` carry the model-true measurement and ``error``\nis null; ``foreshortened`` flags a feature not parallel to the view plane\n(design \u00a73.2 \u2014 the value is still model-true). On failure ``value``/``unit``\nare null and ``error`` is a typed ``subshape_unresolved`` / ``subshape_ambiguous``\n/ ``dimension_wrong_type`` (never a 500 \u2014 design \u00a73.3). Mirrors the per-view\n:class:`DrawingViewResult` success/error envelope for a single dimension.",
+        "description": "A dimension's value measured from the MODEL, or a typed resolution error.\n\nOn success ``value`` + ``unit`` carry the model-true measurement and ``error``\nis null; ``foreshortened`` flags a feature not parallel to the view plane\n(design \u00a73.2 \u2014 the value is still model-true). On failure ``value``/``unit``\nare null and ``error`` is a typed ``subshape_unresolved`` / ``subshape_ambiguous``\n/ ``dimension_wrong_type`` / ``dimension_not_parallel`` (never a 500 \u2014 design\n\u00a73.3). Mirrors the per-view :class:`DrawingViewResult` success/error envelope for\na single dimension.",
         "properties": {
           "anchor": {
             "anyOf": [
@@ -4809,7 +4838,7 @@
                 "type": "null"
               }
             ],
-            "description": "Typed resolution failure (`subshape_unresolved` / `subshape_ambiguous` / `dimension_wrong_type`), or null on success"
+            "description": "Typed resolution failure (`subshape_unresolved` / `subshape_ambiguous` / `dimension_wrong_type` / `dimension_not_parallel`), or null on success"
           },
           "foreshortened": {
             "default": false,
@@ -4850,7 +4879,7 @@
         "type": "object"
       },
       "MeasuredDimensionResult": {
-        "description": "One requested dimension's measured outcome inside a 200 (design \u00a73/\u00a75).\n\nPairs the echoed correlation ``id`` + the ``view`` it was measured in with the\nmodel-true :class:`MeasuredDimension` (value + unit + ``foreshortened``, OR a\ntyped ``subshape_unresolved`` / ``subshape_ambiguous`` / ``dimension_wrong_type``\nerror on its ``error`` channel). A per-dimension measurement failure is THAT\ndimension's typed error \u2014 never a 500, never a failure of the whole request or\nof any OTHER dimension/view \u2014 the same never-500 posture as the per-view\n:class:`DrawingViewResult` and the per-feature/per-mate strict-prefix rule.",
+        "description": "One requested dimension's measured outcome inside a 200 (design \u00a73/\u00a75).\n\nPairs the echoed correlation ``id`` + the ``view`` it was measured in with the\nmodel-true :class:`MeasuredDimension` (value + unit + ``foreshortened``, OR a\ntyped ``subshape_unresolved`` / ``subshape_ambiguous`` / ``dimension_wrong_type``\n/ ``dimension_not_parallel`` error on its ``error`` channel). A per-dimension\nmeasurement failure is THAT\ndimension's typed error \u2014 never a 500, never a failure of the whole request or\nof any OTHER dimension/view \u2014 the same never-500 posture as the per-view\n:class:`DrawingViewResult` and the per-feature/per-mate strict-prefix rule.",
         "properties": {
           "id": {
             "anyOf": [

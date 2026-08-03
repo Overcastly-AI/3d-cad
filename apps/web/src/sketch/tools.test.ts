@@ -2,12 +2,15 @@ import { describe, expect, it } from "vitest";
 
 import {
   arcEndPoint,
+  dragDraws,
   escapeAction,
   finishPlacement,
   placePoint,
   previewEntities,
+  rectangleCorners,
   TOOL_SHORTCUTS,
   type SketchEntity,
+  type SketchTool,
 } from "./tools";
 
 const p = (x: number, y: number) => ({ x, y });
@@ -316,5 +319,32 @@ describe("escapeAction cascade", () => {
     expect(escapeAction("select", 0, true, false, true)).toBe(
       "clear-selection",
     );
+  });
+});
+
+describe("dragDraws", () => {
+  it("is the two-point tools — the ones a press-drag-release can finish", () => {
+    const twoPoint: SketchTool[] = ["line", "rect", "circle"];
+    expect(twoPoint.every(dragDraws)).toBe(true);
+    // An arc needs a third point and a spline never self-finishes, so a
+    // release has nothing to commit: both keep click-then-click alone.
+    expect(dragDraws("arc")).toBe(false);
+    expect(dragDraws("spline")).toBe(false);
+    expect(dragDraws("select")).toBe(false);
+    expect(dragDraws("trim")).toBe(false);
+  });
+});
+
+describe("rectangleCorners", () => {
+  it("is CCW from the lower-left whichever way the drag went", () => {
+    const up = rectangleCorners({ x: 0, y: 0 }, { x: 40, y: 25 });
+    const down = rectangleCorners({ x: 40, y: 25 }, { x: 0, y: 0 });
+    expect(up).toEqual(down);
+    expect(up).toEqual([
+      { x: 0, y: 0 },
+      { x: 40, y: 0 },
+      { x: 40, y: 25 },
+      { x: 0, y: 25 },
+    ]);
   });
 });

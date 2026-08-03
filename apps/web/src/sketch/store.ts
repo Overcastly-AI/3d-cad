@@ -24,6 +24,16 @@ import {
   type SolveInfo,
 } from "./constraints";
 import { toggleCornerPick, type CornerOp } from "./corner";
+import {
+  drawDimensionConstraints,
+  drawDimensionFields,
+  drawShapeOf,
+  resizeDrawn,
+  type DrawDimensionField,
+  type DrawDimensionKey,
+  type DrawDimensionValues,
+  type DrawShape,
+} from "./drawDimensions";
 import { toggleMirrorTarget, type MirrorAxis } from "./mirror";
 import type { DatumPlaneName, Point2D, SketchPlaneSpec } from "./plane";
 import {
@@ -52,6 +62,22 @@ import {
 export const DEFAULT_SNAP_STEP_MM = 1;
 
 export type SketchMode = "off" | "plane" | "draw";
+
+/**
+ * The size cells a just-drawn shape is offering (FB-16). Held apart from
+ * `dimensionEdit`, which edits a dimension that already EXISTS on geometry the
+ * user went back and selected: this one is part of the drawing gesture itself
+ * and dies with it.
+ */
+export interface DrawDimensionDraft {
+  shape: DrawShape;
+  /** Entity ids the placement emitted, in emission order. */
+  ids: string[];
+  /** The gesture's two points (plane mm) — the frame a retyped value rebuilds in. */
+  from: Point2D;
+  to: Point2D;
+  fields: DrawDimensionField[];
+}
 
 export interface SketchState {
   mode: SketchMode;
@@ -102,6 +128,17 @@ export interface SketchState {
   selectedConstraint: number | null;
   /** Open inline dimension editor, or null. */
   dimensionEdit: DimensionEditorTarget | null;
+  /**
+   * The size cells the shape under the cursor is offering (FB-16), or null.
+   * Set by the placement that emitted the shape; cleared by anything that ends
+   * the drawing gesture (a new placement, a tool change, Escape, exit).
+   */
+  drawDimension: DrawDimensionDraft | null;
+  /**
+   * Which draw-time cell has focus — the scene draws that dimension's witness
+   * callout, so the number being typed always names its own edge.
+   */
+  drawDimensionFocus: DrawDimensionKey | null;
   /** Persisted feature this session is bound to (null = unsaved). */
   featureId: string | null;
   /** Monotonic edit counter — the sync loop persists every bump. */
@@ -298,6 +335,16 @@ export interface SketchState {
   applyCornerResult: (entities: readonly SketchEntity[]) => void;
   /** Fail the in-flight corner op; the picks + editor survive for a retry. */
   failCorner: (message: string) => void;
+  /**
+   * Commit the draw-time size cells (Enter): rewrite the drawn geometry to the
+   * typed values and record them as driving dimensions. Typing nothing is a
+   * valid outcome — the draft closes and the shape stays exactly as drawn.
+   */
+  commitDrawDimensions: (values: DrawDimensionValues) => void;
+  /** Dismiss the draw-time size cells, keeping the shape undimensioned. */
+  dismissDrawDimensions: () => void;
+  /** Report which draw-time cell has focus (null = none). */
+  focusDrawDimension: (key: DrawDimensionKey | null) => void;
   /** Open the editor for an existing dimension constraint (glyph click). */
   editDimension: (constraintIndex: number) => void;
   /**
@@ -353,6 +400,8 @@ const INITIAL = {
   hoverPick: null,
   selectedConstraint: null,
   dimensionEdit: null,
+  drawDimension: null,
+  drawDimensionFocus: null,
   featureId: null,
   revision: 0,
   solve: null,
@@ -438,6 +487,8 @@ export const useSketchStore = create<SketchState>()((set, get) => ({
       hoverPick: null,
       selectedConstraint: null,
       dimensionEdit: null,
+      drawDimension: null,
+      drawDimensionFocus: null,
       offsetDraft: null,
       // Arming Mirror opens its target-collection phase; any other tool clears
       // the draft. The armed `mirrorRequest` is left alone — its nonce guards a
@@ -506,16 +557,69 @@ export const useSketchStore = create<SketchState>()((set, get) => ({
   placeAt: (point) => {
     const { tool, pending, nextIdIndex, entities, revision } = get();
     const result = placePoint(tool, pending, point, nextIdIndex);
+    const drawn = result.entities.length > 0;
+    // A new placement supersedes the last shape's size cells: anything typed
+    // into them and not committed is gone, the same way moving on abandons a
+    // half-typed value anywhere else. The cells stay visible right up to that
+    // moment, so nothing vanishes without the user acting.
+    const shape = drawShapeOf(tool);
+    const from = pending[0];
     set({
       pending: result.pending,
       nextIdIndex: result.nextIdIndex,
-      entities:
-        result.entities.length > 0
-          ? [...entities, ...result.entities]
-          : entities,
-      revision: result.entities.length > 0 ? revision + 1 : revision,
+      entities: drawn ? [...entities, ...result.entities] : entities,
+      revision: drawn ? revision + 1 : revision,
+      drawDimension:
+        drawn && shape !== null && from !== undefined
+          ? {
+              shape,
+              ids: result.entities.map((entity) => entity.id),
+              from,
+              to: point,
+              fields: drawDimensionFields(
+                shape,
+                from,
+                point,
+                result.entities.map((entity) => entity.id),
+              ),
+            }
+          : null,
+      drawDimensionFocus: null,
     });
   },
+
+  commitDrawDimensions: (values) => {
+    const { drawDimension, entities, constraints, revision } = get();
+    if (drawDimension === null) return;
+    const { shape, ids, from, to, fields } = drawDimension;
+    // Only positive, finite values for cells this draft actually offers; a
+    // cell left alone is not a dimension, it is a decision to leave it free.
+    const typed: DrawDimensionValues = {};
+    for (const field of fields) {
+      const value = values[field.key];
+      if (value !== undefined && Number.isFinite(value) && value > 0) {
+        typed[field.key] = value;
+      }
+    }
+    const added = drawDimensionConstraints(shape, ids, fields, typed);
+    if (added.length === 0) {
+      set({ drawDimension: null, drawDimensionFocus: null });
+      return;
+    }
+    set({
+      entities: resizeDrawn(shape, ids, from, to, entities, typed),
+      constraints: [...constraints, ...added],
+      revision: revision + 1,
+      drawDimension: null,
+      drawDimensionFocus: null,
+      hint: null,
+    });
+  },
+
+  dismissDrawDimensions: () =>
+    set({ drawDimension: null, drawDimensionFocus: null }),
+
+  focusDrawDimension: (drawDimensionFocus) => set({ drawDimensionFocus }),
 
   finishPlacement: () => {
     const { tool, pending, nextIdIndex, entities, revision } = get();
@@ -956,6 +1060,16 @@ export const useSketchStore = create<SketchState>()((set, get) => ({
   },
 
   escape: () => {
+    // The draw-time size cells are PART of the placement gesture, not a level
+    // above it (FB-13's one-rung-at-a-time rule is about levels the user built
+    // up deliberately). Fusion's rectangle behaves the same way: one Escape
+    // ends the command and the cells go with it, leaving the shape drawn and
+    // undimensioned. Escape *inside* a cell is the field's own — it abandons
+    // the typing and hands the canvas back with the tool still armed (handled
+    // in the scene, which stops that key from ever reaching here).
+    if (get().drawDimension !== null) {
+      set({ drawDimension: null, drawDimensionFocus: null });
+    }
     const {
       mode,
       tool,

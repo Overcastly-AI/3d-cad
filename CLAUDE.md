@@ -734,6 +734,20 @@ recipe here in the same commit as the fix.**
   app changed; the long-lived connection's handle goes bad. Restarting the three
   services clears it, so bounce them before each e2e leg rather than debugging the
   500 — an agent lost time to this on 2026-07-30 chasing a phantom regression.
+  **AND THE SAME 500 HAS A SECOND CAUSE UNDER PARALLELISM: a sibling deleted your
+  database. PREFIX SCRATCHPAD DB FILENAMES PER AGENT.** The session scratchpad is
+  SHARED, so `$SP/documents.db` / `$SP/gateway.db` are the obvious names for
+  everyone — and the boot recipe says to `rm -f` them first, because `create_all`
+  does not migrate. So agent B's perfectly correct "start from fresh files" step
+  unlinks the file agent A's live uvicorns are holding open, and A's gateway
+  returns `attempt to write a readonly database` from then on (deleted inode,
+  still-open handle). Measured 2026-08-02 with four agents live: isolating the
+  PORTS is not enough, the DATABASE PATH has to be isolated too. Use
+  `$SP/<slug>-documents.db` / `$SP/<slug>-gateway.db` and `rm -f` ONLY your own
+  prefix — never an unprefixed file, which may be someone's live stack. Note the
+  symptom is identical to the stale-handle case above and to the stale-Vite case,
+  so before diagnosing a 500 at register, restart YOUR stack on YOUR own files and
+  re-run; three separate environment faults wear the same mask.
 - **A `conftest.py` env var leaks ACROSS services, because pytest collects every
   conftest before running any test.** `services/gateway/tests/conftest.py` does
   `os.environ.setdefault("LOFT_ENV", "dev")` so the gateway suite can build

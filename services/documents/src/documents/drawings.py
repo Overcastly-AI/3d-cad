@@ -47,6 +47,7 @@ from py_kit.schemas.drawings import (
     DrawingResponse,
     DrawingTreeResponse,
     DrawingUpdate,
+    EdgeToEdgeMeasurement,
     RadiusDimensionParams,
     SectionViewParams,
     SheetContent,
@@ -63,6 +64,7 @@ from py_kit.schemas.drawings import (
 from py_kit.schemas.drawings import (
     SheetPoint as SheetPointDTO,
 )
+from py_kit.schemas.features import EdgeSignature
 from pydantic import TypeAdapter
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
@@ -322,11 +324,21 @@ def _validate_dimension(dimension: DimensionParams) -> None:
     """Write-time semantic checks a dimension can carry (design §3.1) → 422.
 
     The kernel-free checks documents CAN make on the DTO (the measured value is
-    geometry's job): a diameter/radius must name a CIRCULAR edge, and an angular
-    dimension must name two STRAIGHT edges — a typed 422 at the boundary, never a
-    500 or a nonsense stored dimension. Malformed / mis-typed payloads are already
-    a FastAPI request-validation 422 via the discriminated :data:`Dimension`
-    union; this catches the geometrically-inconsistent-but-well-typed case.
+    geometry's job): a diameter/radius must name a CIRCULAR edge, and an angular or
+    edge-to-edge dimension must name two STRAIGHT edges — a typed 422 at the
+    boundary, never a 500 or a nonsense stored dimension. Malformed / mis-typed
+    payloads are already a FastAPI request-validation 422 via the discriminated
+    :data:`Dimension` union; this catches the geometrically-inconsistent-but-well-
+    typed case.
+
+    Note what is deliberately NOT checked here: whether an ``edge_to_edge`` pair is
+    PARALLEL (FB-10). Parallelism is a property of the CURRENT body — a draft angle
+    added three features later makes two once-parallel walls diverge — so a
+    write-time verdict would be a snapshot that silently goes stale, and the
+    authored signatures documents holds are not the geometry the dimension will be
+    measured against tomorrow. That refusal therefore lives with the measurement
+    (``geometry.drawings.measure``), where it re-runs on every rebuild and surfaces
+    as the typed ``dimension_not_parallel`` on the dimension itself.
     """
     if isinstance(dimension, DiameterDimensionParams | RadiusDimensionParams):
         if dimension.edge.curve != "circle":
@@ -337,14 +349,33 @@ def _validate_dimension(dimension: DimensionParams) -> None:
                 details={"type": dimension.type, "curve": dimension.edge.curve},
             )
     elif isinstance(dimension, AngularDimensionParams):
-        for label, edge in (("edge_a", dimension.edge_a), ("edge_b", dimension.edge_b)):
-            if edge.curve != "line":
-                raise ValidationApiError(
-                    "An angular dimension requires two straight edges; "
-                    f"'{label}' is '{edge.curve}'.",
-                    code="dimension_requires_straight_edges",
-                    details={label: edge.curve},
-                )
+        _require_straight_pair("An angular", dimension.edge_a, dimension.edge_b)
+    elif isinstance(dimension.measurement, EdgeToEdgeMeasurement):
+        # The only member left is the linear union (the narrowing is pyright-checked,
+        # so a NEW dimension type cannot slip past this arm unnoticed).
+        _require_straight_pair(
+            "An edge-to-edge",
+            dimension.measurement.edge_a,
+            dimension.measurement.edge_b,
+        )
+
+
+def _require_straight_pair(
+    kind: str, edge_a: EdgeSignature, edge_b: EdgeSignature
+) -> None:
+    """Both edges of a two-edge dimension must be straight → 422 (design §3.1).
+
+    Shared by ``angular`` and the FB-10 ``edge_to_edge`` linear so the two cannot
+    drift apart; the ``kind`` phrase is the only difference between them.
+    """
+    for label, edge in (("edge_a", edge_a), ("edge_b", edge_b)):
+        if edge.curve != "line":
+            raise ValidationApiError(
+                f"{kind} dimension requires two straight edges; "
+                f"'{label}' is '{edge.curve}'.",
+                code="dimension_requires_straight_edges",
+                details={label: edge.curve},
+            )
 
 
 # --- serialization ----------------------------------------------------------------

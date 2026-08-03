@@ -41,6 +41,91 @@ with the modifier held. Gated by `e2e/sketch-escape-select.spec.ts`, six specs
 that go red on the old behaviour. Left for the strip's owner: `SketchStrip.tsx`
 still captions the Save chip "Esc".
 
+**FB-15 + FB-16 SHIPPED (2026-08-03, frontend-builder) — you draw by dragging,
+and you type the size while you draw.** Every tool was click-then-click, and the
+size of what you drew could only be set afterwards by hunting for a dimension
+verb — the founder's very first report ("dimensions are not working when I click
+a line to assign height") was really a complaint about being on the fallback
+path. Press-drag-release now draws line/rect/circle (the press places the first
+point, so the rubber band, the snap and Escape all run through the SAME `pending`
+sequence two clicks use); click-then-click is untouched and still the precision
+and touch gesture. Riding it, a drafting tag hangs off the shape as it forms:
+live W x H (or L, or R) while the pointer owns the size, then the same numbers in
+the same place become cells — type a digit anywhere to start, Tab walks and wraps,
+Enter applies, Escape keeps the shape and ends the command. A typed value rewrites
+the geometry immediately AND records a driving dimension, so the solver confirms
+rather than decides, and a dimensioned rectangle also gets the four coincidences
+and h/v constraints that keep it a rectangle (without them a `distance` stretches
+one line and tears the profile open). Gated by `e2e/sketch-drag-draw.spec.ts` (10
+specs, geometry asserted from the SOLVED evaluate payload); 68 existing sketcher/
+constraint/extrude specs pass UNCHANGED, because a click still presses and
+releases in place. New `DimensionTag` primitive in `packages/design`.
+
+**FB-17 SHIPPED (2026-08-02, qa-tester) — the suite can now catch the class of
+bug the founder found, and each new gate is mutation-verified.** The founder
+asked "how do you catch this stuff with playwright?" and the honest answer was
+that we could not: `mouse.click()` moves 0 px in 0 ms, so a 4 px click-slop
+threshold survived a fully green suite; pick specs clicked `getByTestId` and hit
+a 24 px dot perfectly, so they could never learn the face was dead; and the ink
+census REWARDED the broken screen. Four helpers close it, all under
+`apps/web/e2e/`: `hand.ts` (a click that approaches, presses, bows 6 px and
+dwells 90 ms — now the default for interaction tests), `reachability.ts`
+(clickable FRACTION of what the user can see, one `elementFromPoint` census for
+1457 points), `perception.ts` (WCAG contrast between ink and the surface sampled
+BEHIND it, plus context-in-frame, so no gate is satisfiable by making the screen
+worse), and `invariants.ts` (camera direction across an action via three.js's
+own `__THREE_DEVTOOLS__` seam — zero app hooks — plus model-bbox vs panel-rect
+occlusion). Numbers that now exist because of them: drift 0/2/4/6/10 all select;
+the face-pick affordance is 45/454 = **9.9 %** of the visible body against a
+50 % floor; a rebuild moves the camera **0.071°** (FB-1's fix holds); and an
+open extrude editor covers **9.0 %** of the body while declaring no
+`data-viewport-chrome`, so the app's own free-rect fit cannot see it either —
+FB-7's real mechanism, found by the gate rather than by a photograph. The
+occlusion gate refuses to pass vacuously (empty bbox or no chrome found), proven
+by removing the guard and watching three fully-occluded fixtures go green.
+`qa-harness.spec.ts` is the harness's harness: 17 specs, calibrated against
+arithmetic on a synthetic canvas, every gate paired with a negative control.
+
+**FB-4 SHIPPED (2026-08-03, frontend-builder) — a cut on a face-seated sketch
+goes INTO the material, and you see which way before you commit.** The founder's
+"I select a sketch do a cut it somehow misses everything going a different way"
+was our default, not his aim: `defaultExtrudeForm` hardcoded `direction:
+"normal"` and never consulted the operation, while an `on_face` datum's `z_dir`
+IS the outward face normal — so every face-seated cut swept out of the solid and
+came back `cut_removed_nothing`, an error message guarding a bad default.
+Direction now resolves from operation × plane seat (`defaultExtrudeDirection`):
+face + cut → `reverse`, face + add → `normal`, and a base/constructed datum is
+left alone because it genuinely has no material side (no heuristic invented
+there). Switching the operation — or retargeting the profile at a differently
+seated sketch — re-defaults the direction unless the user has TOUCHED it;
+override is tracked as a flag, not inferred from the value, because "reverse" is
+both a default and a choice. Visible before Save: the live ghost now renders for
+face-seated sketches at all (their `on_face` basis was unresolvable in the layer
+walk, so the preview simply never appeared on the one seat where the direction is
+ambiguous), and the editor states the sweep in words — "Cuts into the part,
+behind the face", or a warning when an override runs it back out. Gated by
+`e2e/extrude-cut-direction.spec.ts` on the closed form: a 20 mm cube (8 000 mm³)
+with a 10 × 10 pocket 5 mm deep weighs 7 500 mm³ exactly; the same cut on the old
+default evaluates to `cut_removed_nothing`, which is untouched and now fires only
+when a cut really is empty.
+
+**FB-10 SHIPPED (2026-08-03, backend-builder) — a shell wall thickness is
+dimensionable, and a non-parallel pair is REFUSED rather than guessed.** The
+founder could not put a number on a wall: `LinearMeasurement` offered an edge's
+own length or the distance between two picked ENDPOINTS, and a shelled box's
+inner rim is shorter than its outer by one wall on each side, so point-to-point
+measured a diagonal (4.243 mm across a 3 mm wall, measured) and looked right.
+`EdgeToEdgeMeasurement` names the two EDGES — the `edge_a`/`edge_b` shape
+`angular` already had — and geometry measures the perpendicular distance between
+their supporting lines, so the value does not move with which corner was clicked.
+The refusal is the point of the feature as much as the number: two converging or
+skew lines have a shortest distance that is a real number and a lie on a print, so
+`DimensionNotParallelError` → the typed `dimension_not_parallel`, stamped on the
+sheet as "EDGES NOT PARALLEL - NO PERPENDICULAR DISTANCE" with NO value. Gated by
+`e2e/drawing-wall-thickness.spec.ts` (a real 5 mm housing wall reads `5.000`; a
+perpendicular pair produces the marker and zero measured values) plus geometry
+goldens including the closed form (3.000 mm off a shelled box, residual 0.0).
+
 **NEXT — FOUNDER-DIRECTED PRE-SELECTION / HOVER MODEL (2026-08-01,
 vision-steward, design only).** Same-night founder reports name one root
 cause three ways: a sketch line that "wouldn't even select," face picking

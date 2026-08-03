@@ -1,8 +1,9 @@
 /**
  * The dimension author menu — a small popover that opens by a picked target and
  * offers only the dimension types VALID for it: a circle → diameter / radius, a
- * straight edge → linear (plus "Angle", which arms a second-edge pick), two
- * straight edges → angular, two endpoints → point to point. An impossible combo
+ * straight edge → linear (plus "Angle" and "Distance to edge", either of which
+ * arms a second-edge pick), two straight edges → angular OR the across-the-wall
+ * distance (FB-10), two endpoints → point to point. An impossible combo
  * (a diameter on a line) is never presented. Keyboard-first: the first choice
  * auto-focuses, arrows and Escape work, so a dimension is authored without
  * leaving the keyboard. Chrome recedes — a quiet anvil card with hairline
@@ -52,10 +53,22 @@ const CHOICES: Record<DimensionAction, Choice> = {
     hint: "pick 2nd edge",
     icon: <AngleIcon size={14} />,
   },
+  start_edge_to_edge: {
+    label: "Distance to edge",
+    hint: "pick 2nd edge",
+    icon: <DistanceIcon size={14} />,
+  },
   angular: {
     label: "Angular",
     hint: "°",
     icon: <AngleIcon size={14} />,
+  },
+  edge_to_edge: {
+    // The wall-thickness callout: measured PERPENDICULARLY, so it says so — the
+    // whole point is that it is not the distance between two picked corners.
+    label: "Distance between edges",
+    hint: "⟂",
+    icon: <DistanceIcon size={14} />,
   },
   point_to_point: {
     label: "Point to point",

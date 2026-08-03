@@ -98,7 +98,7 @@ about to hit).
 - [ ] (P0, M) **FB-3 — picking a FACE is "very difficult"** — finicky rather than
       dead. Wants a measured hit region, small-vs-large faces, zoom and grazing
       angle, not an impression. Likely the same defect as FB-2.
-- [ ] (P0, M) **FB-4 — a cut extrudes AWAY from the material and removes
+- [x] (P0, M) **FB-4 — a cut extrudes AWAY from the material and removes
       nothing** ("I select a sketch do a cut it somehow misses everything going a
       different way"). `defaultExtrudeForm` (`features/extrude.ts:66`) hardcodes
       `direction: "normal"` and never consults the operation; an on_face datum's
@@ -107,6 +107,12 @@ about to hit).
       re-default when the operation is switched unless overridden, show it in the
       ghost. The typed `cut_removed_nothing` error made this look like user error
       for months — an error message guarding a bad default.
+      DONE 2026-08-03 (frontend-builder): `defaultExtrudeDirection(operation,
+      provenance)` + touch-tracked override (`withOperation`/`withProfile`/
+      `withDirection`); base planes deliberately left alone. The ghost now
+      renders for face-seated sketches (their `on_face` basis was missing from
+      the solved-layer walk) and the editor says where the sweep goes. Closed
+      form in `e2e/extrude-cut-direction.spec.ts`: 8 000 mm³ → 7 500 mm³.
 - [ ] (P1, M) **FB-5 — cannot attach a sketch to a face; hovering a face should
       offer it.** The capability exists but only as `ctx-sketch-on-face` in a
       right-click Tools menu, which then enters a face-pick mode (so FB-3 may
@@ -141,7 +147,7 @@ about to hit).
       at z=30 — ink placement and the kernel's plane origin are computed in two
       places, which is where they drift. Distinguish wrong GEOMETRY from wrong
       RENDERING; they look identical on screen and have different fixes.
-- [ ] (P1, M) **FB-10 — drawings cannot dimension edge-to-edge, so a shell wall
+- [x] (P1, M) **FB-10 — drawings cannot dimension edge-to-edge, so a shell wall
       thickness is unmeasurable.** `LinearMeasurement` (`schemas/drawings.py:320`)
       is edge-length OR point-to-point between two ENDPOINTS. Point-to-point
       measures those points, not the perpendicular thickness, and is wrong as soon
@@ -150,6 +156,11 @@ about to hit).
       to extend additively. Add `EdgeToEdgeMeasurement` with a typed refusal for
       non-parallel edges rather than a confidently wrong number. Needs a QUIET
       tree: it regenerates contracts + ts-client.
+      SHIPPED 2026-08-03 (backend-builder): `EdgeToEdgeMeasurement{edge_a,edge_b}`
+      joined `LinearMeasurement` additively; geometry raises
+      `DimensionNotParallelError` → typed `dimension_not_parallel`, NO value, for a
+      converging/skew/degenerate pair. E2e `drawing-wall-thickness.spec.ts` reads
+      5.000 off a real housing wall and proves the refusal.
 - [ ] (P2, S) **FB-11 — nothing in the app says which BUILD it is.** The founder
       tests from a GitHub Codespace, so a report cannot be tied to a commit and
       "already fixed or still broken" is unanswerable. Inject the git SHA + build
@@ -211,7 +222,7 @@ about to hit).
       also takes an explicit mode for a caller holding the click event. The
       `aria-pressed` fit-point handles stay toggles — the modifier-free
       multi-select path. Every multi-entity constraint spec now Shift-clicks.
-- [ ] (P1, M) **FB-15 — every draw tool is click-then-click; users expect
+- [x] (P1, M) **FB-15 — every draw tool is click-then-click; users expect
       click-and-DRAG.** `tools.ts` `case "rect"` takes a corner click then a
       second point click (same shape for line/circle/arc). Press-drag-release is
       the near-universal convention for a rectangle in every tool the founder
@@ -222,7 +233,13 @@ about to hit).
       second will fight the first. Acceptance: press-drag-release draws the
       rectangle, a click-click still works, and a drag that turns out to be an
       orbit still orbits. [src: founder 2026-08-01]
-- [ ] (P1, L) **FB-16 — dimensions should be typed AS YOU DRAW, in inline text
+      SHIPPED 2026-08-03 with FB-16 (one interaction). The PRESS places the first
+      point, so the rubber band, snap and Escape all run through the one `pending`
+      sequence two clicks already used; the release completes the shape only when
+      `isClick` (FB-12's discriminator, no second threshold) says the pointer
+      travelled. Two-point tools only (`dragDraws`), mouse/pen only — on touch a
+      two-finger pan delivers a primary pointer-down, so tap-then-tap stays.
+- [x] (P1, L) **FB-16 — dimensions should be typed AS YOU DRAW, in inline text
       boxes, not applied afterwards.** "usually dimensions are applied
       automatically with text boxes." This is how Fusion / SolidWorks / Onshape
       sketching actually works: draw a rectangle and width/height fields appear at
@@ -238,7 +255,13 @@ about to hit).
       fields. Design it against `docs/design/pre-selection.md`'s vocabulary so the
       snap glyph and the dimension field do not fight for the same pixels.
       [src: founder 2026-08-01]
-- [ ] (P0, M) **FB-17 — the browser suite cannot catch the class of bug the
+      SHIPPED 2026-08-03 with FB-15. A drafting tag hangs off the shape's far
+      corner (clear of the snap mark's own pixels): live readout while dragging,
+      typeable cells on release. Typing rewrites the geometry AND records a
+      driving dimension; a dimensioned rectangle also gets the rigidity set that
+      keeps it rectangular. Cells are UNCONTROLLED on purpose — a controlled one
+      loses the first digit of "50" to its own re-render (measured).
+- [x] (P0, M) **FB-17 — the browser suite cannot catch the class of bug the
       founder found, and that is fixable.** Every FB-* defect this evening lived
       in the gap between Playwright's API and a hand/eye. Four gaps, each with a
       concrete gate: (a) INPUT FIDELITY — `mouse.click()` moves 0 px and takes
@@ -262,6 +285,12 @@ about to hit).
       cases flip to real assertions as each fix lands, and every new gate is
       mutation-verified. [src: founder "How do you catch this stuff with
       playwright?" 2026-08-01]
+      DONE 2026-08-02 (qa-tester): `e2e/{hand,reachability,perception,
+      invariants}.ts` + `qa-harness.spec.ts` (17 calibration/negative-control
+      specs). Measured: drift sweep 0/2/4/6/10 all select; pick affordance
+      45/454 = 9.9 % (floor 50 %, `test.fail` until FB-3/FB-5); rebuild moves
+      the camera 0.071 deg; the extrude editor covers 9.0 % of the body and
+      declares no `data-viewport-chrome`, so the app's own fit is blind to it.
 - [ ] (P1, L) **FB-18 — a 50x mirror/rotate never finished; it "errored and
       stopped".** Founder, 2026-08-01. Almost certainly the gateway's typed
       `upstream_timeout` (`py_kit/errors.py:134`) — which says the honest thing

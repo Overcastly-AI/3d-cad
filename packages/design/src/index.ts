@@ -79,6 +79,11 @@ export {
   ExpressionField,
   type ExpressionFieldProps,
 } from "./primitives/ExpressionField";
+export {
+  DimensionTag,
+  DimensionTagCell,
+  type DimensionTagCellProps,
+} from "./primitives/DimensionTag";
 export { TextField, type TextFieldProps } from "./primitives/TextField";
 export { Checkbox, type CheckboxProps } from "./primitives/Checkbox";
 export { Disclosure, type DisclosureProps } from "./primitives/Disclosure";
