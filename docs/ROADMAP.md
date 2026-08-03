@@ -41,6 +41,26 @@ with the modifier held. Gated by `e2e/sketch-escape-select.spec.ts`, six specs
 that go red on the old behaviour. Left for the strip's owner: `SketchStrip.tsx`
 still captions the Save chip "Esc".
 
+**FB-15 + FB-16 SHIPPED (2026-08-03, frontend-builder) — you draw by dragging,
+and you type the size while you draw.** Every tool was click-then-click, and the
+size of what you drew could only be set afterwards by hunting for a dimension
+verb — the founder's very first report ("dimensions are not working when I click
+a line to assign height") was really a complaint about being on the fallback
+path. Press-drag-release now draws line/rect/circle (the press places the first
+point, so the rubber band, the snap and Escape all run through the SAME `pending`
+sequence two clicks use); click-then-click is untouched and still the precision
+and touch gesture. Riding it, a drafting tag hangs off the shape as it forms:
+live W x H (or L, or R) while the pointer owns the size, then the same numbers in
+the same place become cells — type a digit anywhere to start, Tab walks and wraps,
+Enter applies, Escape keeps the shape and ends the command. A typed value rewrites
+the geometry immediately AND records a driving dimension, so the solver confirms
+rather than decides, and a dimensioned rectangle also gets the four coincidences
+and h/v constraints that keep it a rectangle (without them a `distance` stretches
+one line and tears the profile open). Gated by `e2e/sketch-drag-draw.spec.ts` (10
+specs, geometry asserted from the SOLVED evaluate payload); 68 existing sketcher/
+constraint/extrude specs pass UNCHANGED, because a click still presses and
+releases in place. New `DimensionTag` primitive in `packages/design`.
+
 **FB-17 SHIPPED (2026-08-02, qa-tester) — the suite can now catch the class of
 bug the founder found, and each new gate is mutation-verified.** The founder
 asked "how do you catch this stuff with playwright?" and the honest answer was

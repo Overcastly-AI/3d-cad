@@ -222,7 +222,7 @@ about to hit).
       also takes an explicit mode for a caller holding the click event. The
       `aria-pressed` fit-point handles stay toggles — the modifier-free
       multi-select path. Every multi-entity constraint spec now Shift-clicks.
-- [ ] (P1, M) **FB-15 — every draw tool is click-then-click; users expect
+- [x] (P1, M) **FB-15 — every draw tool is click-then-click; users expect
       click-and-DRAG.** `tools.ts` `case "rect"` takes a corner click then a
       second point click (same shape for line/circle/arc). Press-drag-release is
       the near-universal convention for a rectangle in every tool the founder
@@ -233,7 +233,13 @@ about to hit).
       second will fight the first. Acceptance: press-drag-release draws the
       rectangle, a click-click still works, and a drag that turns out to be an
       orbit still orbits. [src: founder 2026-08-01]
-- [ ] (P1, L) **FB-16 — dimensions should be typed AS YOU DRAW, in inline text
+      SHIPPED 2026-08-03 with FB-16 (one interaction). The PRESS places the first
+      point, so the rubber band, snap and Escape all run through the one `pending`
+      sequence two clicks already used; the release completes the shape only when
+      `isClick` (FB-12's discriminator, no second threshold) says the pointer
+      travelled. Two-point tools only (`dragDraws`), mouse/pen only — on touch a
+      two-finger pan delivers a primary pointer-down, so tap-then-tap stays.
+- [x] (P1, L) **FB-16 — dimensions should be typed AS YOU DRAW, in inline text
       boxes, not applied afterwards.** "usually dimensions are applied
       automatically with text boxes." This is how Fusion / SolidWorks / Onshape
       sketching actually works: draw a rectangle and width/height fields appear at
@@ -249,6 +255,12 @@ about to hit).
       fields. Design it against `docs/design/pre-selection.md`'s vocabulary so the
       snap glyph and the dimension field do not fight for the same pixels.
       [src: founder 2026-08-01]
+      SHIPPED 2026-08-03 with FB-15. A drafting tag hangs off the shape's far
+      corner (clear of the snap mark's own pixels): live readout while dragging,
+      typeable cells on release. Typing rewrites the geometry AND records a
+      driving dimension; a dimensioned rectangle also gets the rigidity set that
+      keeps it rectangular. Cells are UNCONTROLLED on purpose — a controlled one
+      loses the first digit of "50" to its own re-render (measured).
 - [x] (P0, M) **FB-17 — the browser suite cannot catch the class of bug the
       founder found, and that is fixable.** Every FB-* defect this evening lived
       in the gap between Playwright's API and a hand/eye. Four gaps, each with a

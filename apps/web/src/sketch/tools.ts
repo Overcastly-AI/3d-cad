@@ -86,6 +86,32 @@ export function placesPoints(tool: SketchTool): boolean {
   }
 }
 
+/**
+ * The tools drawn by PRESS-DRAG-RELEASE as well as click-then-click (FB-15).
+ *
+ * Founder, 2026-08-01: every tool was click-then-click, and press-drag-release
+ * is what a hand trained on any other CAD does first. Both gestures stay: two
+ * clicks are better for precision (you can let go, re-aim, zoom, and only then
+ * commit the second point) and they are the only sane gesture on touch, where
+ * the finger that would drag is also the finger that pans.
+ *
+ * Only the TWO-point tools qualify. An arc takes three points, so a drag can
+ * only ever place two of them and the release would leave the gesture half
+ * done; a spline is an open sequence with no release to speak of. Both keep
+ * click-then-click alone — no half-drag that ends somewhere the user didn't
+ * expect.
+ */
+export function dragDraws(tool: SketchTool): boolean {
+  switch (tool) {
+    case "line":
+    case "rect":
+    case "circle":
+      return true;
+    default:
+      return false;
+  }
+}
+
 /** Coordinates closer than this (mm) are the same point — degenerate. */
 const DEGENERATE_MM = 1e-9;
 
@@ -255,22 +281,35 @@ export function finishPlacement(
   return keep(pending, nextIdIndex);
 }
 
+/**
+ * The four corners of the rectangle spanned by two opposite points, CCW from
+ * the lower-left. ONE derivation: the entity emitter below and the draw-time
+ * resize (`drawDimensions.ts`) both build from it, so a retyped width can never
+ * lay its corners out differently from the drag that made them.
+ */
+export function rectangleCorners(
+  a: Point2D,
+  b: Point2D,
+): [Point2D, Point2D, Point2D, Point2D] {
+  const x0 = Math.min(a.x, b.x);
+  const x1 = Math.max(a.x, b.x);
+  const y0 = Math.min(a.y, b.y);
+  const y1 = Math.max(a.y, b.y);
+  return [
+    { x: x0, y: y0 },
+    { x: x1, y: y0 },
+    { x: x1, y: y1 },
+    { x: x0, y: y1 },
+  ];
+}
+
 /** Four CCW closed lines — the schema's rectangle (order: bottom, right, top, left). */
 function rectangleLines(
   a: Point2D,
   b: Point2D,
   nextIdIndex: number,
 ): SketchEntity[] {
-  const x0 = Math.min(a.x, b.x);
-  const x1 = Math.max(a.x, b.x);
-  const y0 = Math.min(a.y, b.y);
-  const y1 = Math.max(a.y, b.y);
-  const corners: Point2D[] = [
-    { x: x0, y: y0 },
-    { x: x1, y: y0 },
-    { x: x1, y: y1 },
-    { x: x0, y: y1 },
-  ];
+  const corners = rectangleCorners(a, b);
   return corners.map((start, i) => ({
     id: entityId(nextIdIndex + i),
     kind: "line" as const,

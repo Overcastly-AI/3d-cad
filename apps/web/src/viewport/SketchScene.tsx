@@ -5,6 +5,10 @@
  * renderers (verified by the e2e pixel probe).
  */
 import {
+  DimensionTag,
+  DimensionTagCell,
+  formatLength,
+  lengthUnitLabel,
   PerpendicularIcon,
   SnapCenterIcon,
   SnapEndpointIcon,
@@ -18,7 +22,15 @@ import {
 import { sketch, viewport } from "@loft/design/tokens";
 import { Html, useCursor } from "@react-three/drei";
 import { useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
-import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactElement,
+} from "react";
 import {
   BufferGeometry,
   Float32BufferAttribute,
@@ -30,12 +42,23 @@ import {
 } from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 
+import { isTypingTarget } from "../lib/isTypingTarget";
 import { useReducedMotion } from "../lib/useReducedMotion";
+import { useDocumentLengthUnit } from "../units/documentUnit";
+import { parsePositiveLengthMm } from "../units/length";
 import {
   definingPointPositions,
   entitySegmentPositions,
   pickedPointPositions,
 } from "../sketch/geometry";
+import {
+  dimensionWitness,
+  drawDimensionFields,
+  drawShapeOf,
+  type DrawDimensionField,
+  type DrawDimensionKey,
+  type DrawDimensionValues,
+} from "../sketch/drawDimensions";
 import { pickCandidates, samePick, PICK_TOLERANCE_PX } from "../sketch/pick";
 import {
   DATUM_PLANES,
@@ -47,13 +70,15 @@ import {
   type CameraPose,
   type DatumPlaneName,
   type PlaneBasis,
+  type Point2D,
   type SketchPlaneSpec,
 } from "../sketch/plane";
 import { axisLinePoints, reflectEntity } from "../sketch/mirror";
 import { isClick, type PointerGesture } from "../sketch/clickIntent";
 import { SNAP_LABELS, SNAP_TOLERANCE_PX, type SnapKind } from "../sketch/snap";
-import { useSketchStore } from "../sketch/store";
+import { useSketchStore, type DrawDimensionDraft } from "../sketch/store";
 import {
+  dragDraws,
   placesPoints,
   previewEntities,
   type SketchEntity,
@@ -143,6 +168,15 @@ const pressedAt = { current: null as number | null };
 function notePressStart(event: { nativeEvent: { timeStamp: number } }): void {
   pressedAt.current = event.nativeEvent.timeStamp;
 }
+
+/**
+ * Did the press that is still down OPEN a placement sequence? Set by the
+ * pointer-down that placed a first point; read by the release to decide whether
+ * a drag should COMPLETE the shape (FB-15). Module-level for the same reason as
+ * {@link pressedAt}: a press is one global thing, and re-rendering the scene
+ * mid-gesture would cost a frame exactly when the rubber band is moving.
+ */
+const strokeOpen = { current: false };
 
 /** The gesture this click event completes — travel plus press duration. */
 function gestureOf(event: {
@@ -469,11 +503,59 @@ function PointerCatcher({ basis }: { basis: PlaneBasis }) {
         setHoverPick(null);
         invalidate();
       }}
-      onPointerDown={notePressStart}
+      onPointerDown={(e) => {
+        notePressStart(e);
+        strokeOpen.current = false;
+        const store = useSketchStore.getState();
+        // PRESS-DRAG-RELEASE (FB-15). The press places the first point, so the
+        // rubber band follows the held pointer through the SAME `pending`
+        // sequence the two-click path uses — one state machine, two gestures,
+        // and nothing to keep in sync. The release below completes the shape
+        // only if the pointer actually travelled (`isClick`, the FB-12
+        // discriminator — no second threshold), so a press-and-release in place
+        // leaves the sequence open and click-then-click carries on unchanged.
+        //
+        // Mouse and pen only. On touch, the finger that would drag is also the
+        // finger that pans, and a two-finger pan delivers a primary
+        // pointer-down of its own — placing on THAT would scatter points every
+        // time somebody moved the view. Touch keeps tap-then-tap, which is the
+        // better touch gesture anyway.
+        if (
+          e.nativeEvent.button !== 0 ||
+          e.nativeEvent.pointerType === "touch" ||
+          !dragDraws(store.tool)
+        ) {
+          return;
+        }
+        store.placeAt(
+          store.aim(rawPlanePoint(e), snapToleranceMm(e), modifiers(e)),
+        );
+        strokeOpen.current = useSketchStore.getState().pending.length > 0;
+        invalidate();
+      }}
       onClick={(e) => {
-        if (!isClick(gestureOf(e))) return; // the camera moved, not the model
         const store = useSketchStore.getState();
         const clickTool = store.tool;
+        if (dragDraws(clickTool)) {
+          const wasOpen = strokeOpen.current;
+          strokeOpen.current = false;
+          // The press already placed; a RELEASE only finishes the shape when
+          // the gesture was a drag. `pending` is re-read live rather than
+          // trusted from the press: Escape mid-drag cancels the placement, and
+          // the release that follows must not resurrect it.
+          if (
+            wasOpen &&
+            !isClick(gestureOf(e)) &&
+            useSketchStore.getState().pending.length > 0
+          ) {
+            store.placeAt(
+              store.aim(rawPlanePoint(e), snapToleranceMm(e), modifiers(e)),
+            );
+            invalidate();
+          }
+          return;
+        }
+        if (!isClick(gestureOf(e))) return; // the camera moved, not the model
         if (clickTool === "select") {
           selectAt(rawPlanePoint(e), toleranceMm(e));
         } else if (clickTool === "trim" || clickTool === "extend") {
@@ -664,6 +746,240 @@ function SnapMarker({ basis }: { basis: PlaneBasis }) {
   );
 }
 
+/** The tag rail rides with the snap mark, under the HUD strips. */
+const DIMENSION_TAG_Z_RANGE: [number, number] = [21, 0];
+
+/** Display precision for a size cell — a size, not a coordinate readout. */
+const sizeText = (mm: number, unit: Parameters<typeof formatLength>[1]) =>
+  formatLength(mm, unit, { unitSuffix: false, maxFractionDigits: 2 });
+
+/** Keys that start a value: digits, a decimal point, a leading minus. */
+const STARTS_A_VALUE = /^[0-9.]$/;
+
+/**
+ * WHICH CORNER THE TAG HANGS FROM. The rail is anchored at the gesture's second
+ * point — where the cursor is, which is what the founder asked for — and pushed
+ * into the quadrant the drag was heading, so it hangs OFF the shape rather than
+ * over it. The snap mark owns the cursor itself and puts its word up-and-right
+ * (`SnapMarker`), so the rail never occupies the same pixels: it is offset by a
+ * gap and flipped by direction, not stacked on the same spot
+ * (docs/design/pre-selection.md §2 — one aim, one indicator).
+ */
+function tagTransform(from: Point2D, to: Point2D): string {
+  const gap = 10;
+  // Plane +y is up on screen, so a drag in +y hangs the rail upward.
+  const x = to.x >= from.x ? `${gap}px` : `calc(-100% - ${gap}px)`;
+  const y = to.y >= from.y ? `calc(-100% - ${gap}px)` : `${gap}px`;
+  return `translate(${x}, ${y})`;
+}
+
+interface TagState {
+  from: Point2D;
+  to: Point2D;
+  fields: DrawDimensionField[];
+  /** Armed = the shape is drawn and the cells take typing. */
+  armed: boolean;
+}
+
+/**
+ * DIMENSION WHILE YOU DRAW (FB-16) — the size cells hung on the shape being
+ * made. Two states, deliberately continuous:
+ *
+ *  · **live**, while the pointer still owns the size: a read-only strip showing
+ *    the width/height (or length, or radius) the rubber band currently has. The
+ *    DRO already reports WHERE the cursor is; nothing reported how BIG the
+ *    thing you are dragging is, which is the number you actually care about.
+ *    Pointer-inert, so it can never eat the click that finishes the shape.
+ *  · **armed**, the moment the shape commits: the same numbers in the same
+ *    place become cells you type into. Tab walks them (and wraps — a dimension
+ *    pair is a loop, and tabbing out of the viewport mid-value is a dead end),
+ *    Enter applies, Escape hands the canvas back with the shape kept.
+ *
+ * You do not have to click into a cell first: with the strip armed, typing a
+ * DIGIT anywhere puts it in the first cell and focuses it — the tool proposes,
+ * the user disposes (CLAUDE.md flow rule). Every other key still reaches the
+ * canvas, so `r`, `l`, `Escape` behave exactly as they do without a strip up.
+ *
+ * WHY VALUES APPLY ON ENTER, NOT PER KEYSTROKE: each applied value is a
+ * revision — a solve and a debounced save. Applying per keystroke would rebuild
+ * the sketch at "5" on the way to "50", and would make Escape unable to
+ * abandon anything, because the model would already have moved.
+ */
+function DrawDimensionTag({ basis }: { basis: PlaneBasis }) {
+  const draft = useSketchStore((state) => state.drawDimension);
+  const tool = useSketchStore((state) => state.tool);
+  const pending = useSketchStore((state) => state.pending);
+  const cursor = useSketchStore((state) => state.cursor);
+  const commit = useSketchStore((state) => state.commitDrawDimensions);
+  const dismiss = useSketchStore((state) => state.dismissDrawDimensions);
+  const focusCell = useSketchStore((state) => state.focusDrawDimension);
+  const unit = useDocumentLengthUnit();
+  const invalidate = useThree((state) => state.invalidate);
+  const inputs = useRef(new Map<DrawDimensionKey, HTMLInputElement>());
+
+  const state: TagState | null = useMemo(() => {
+    if (draft !== null) {
+      return {
+        from: draft.from,
+        to: draft.to,
+        fields: draft.fields,
+        armed: true,
+      };
+    }
+    const shape = drawShapeOf(tool);
+    const from = pending[0];
+    if (shape === null || from === undefined || cursor === null) return null;
+    if (pending.length !== 1) return null;
+    const fields = drawDimensionFields(shape, from, cursor);
+    // Nothing to say about a zero-size rubber band.
+    if (fields.every((field) => field.measuredMm === 0)) return null;
+    return { from, to: cursor, fields, armed: false };
+  }, [draft, tool, pending, cursor]);
+
+  const armed = state?.armed === true;
+  const firstKey = state?.fields[0]?.key;
+  // One identity per drawn shape: it re-keys the cells, so a new rectangle
+  // never inherits the numbers typed into the last one.
+  const draftKey = draft === null ? "live" : draft.ids.join(",");
+
+  /**
+   * THE CELLS ARE UNCONTROLLED, and that is a decision, not an oversight. A
+   * controlled cell has to round-trip every keystroke through React state, and
+   * between the two keystrokes of "50" it has not re-rendered yet — so the
+   * second digit lands in a field the DOM still shows as empty and the first is
+   * lost. Measured against the real browser: typing "50" yielded "0". Nothing
+   * here needs to re-render as you type (the callout follows FOCUS, not value),
+   * so the browser owns the text and {@link readValues} reads it at commit.
+   */
+  const readValues = useCallback((): DrawDimensionValues => {
+    const parsed: DrawDimensionValues = {};
+    for (const [key, input] of inputs.current) {
+      const mm = parsePositiveLengthMm(input.value, unit);
+      if (mm !== null) parsed[key] = mm;
+    }
+    return parsed;
+  }, [unit]);
+
+  const apply = useCallback(() => {
+    commit(readValues());
+    invalidate();
+  }, [commit, readValues, invalidate]);
+
+  // Type anywhere to start dimensioning: the first digit lands in the first
+  // cell. Enter with nothing typed accepts the shape as drawn and closes.
+  useEffect(() => {
+    if (!armed || firstKey === undefined) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (isTypingTarget(event.target)) return;
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      if (event.key === "Enter") {
+        event.preventDefault();
+        apply();
+        return;
+      }
+      if (!STARTS_A_VALUE.test(event.key) && event.key !== "Tab") return;
+      const input = inputs.current.get(firstKey);
+      if (input === undefined) return;
+      // Focus DURING keydown and let the BROWSER deliver the character to the
+      // newly-focused cell. Inserting it by hand (preventDefault + setState)
+      // is what loses it — see the note on `readValues`.
+      if (event.key === "Tab") event.preventDefault();
+      input.focus();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [armed, firstKey, apply]);
+
+  if (state === null) return null;
+
+  const { from, to, fields } = state;
+  const onKeyDown = (
+    event: ReactKeyboardEvent<HTMLInputElement>,
+    index: number,
+  ) => {
+    if (event.key === "Escape") {
+      // The field's own Escape: abandon the typing, keep the shape, hand the
+      // canvas back with the tool still armed. It never reaches the sketch
+      // cascade, so it cannot also drop the tool.
+      event.stopPropagation();
+      event.preventDefault();
+      event.currentTarget.blur();
+      dismiss();
+      invalidate();
+      return;
+    }
+    if (event.key === "Enter") {
+      // Explicit, not an implicit form submission: a form with no submit
+      // button only submits implicitly when it holds EXACTLY ONE field, so a
+      // rectangle's two cells would have swallowed Enter while a circle's one
+      // cell applied. Measured — the rectangle's Enter did nothing at all.
+      event.preventDefault();
+      apply();
+      return;
+    }
+    if (event.key !== "Tab" || fields.length < 2) return;
+    const step = event.shiftKey ? -1 : 1;
+    const next = fields[(index + step + fields.length) % fields.length];
+    if (next === undefined) return;
+    event.preventDefault();
+    inputs.current.get(next.key)?.focus();
+  };
+  return (
+    <Html
+      position={planeToWorld(basis, to)}
+      zIndexRange={DIMENSION_TAG_Z_RANGE}
+      style={{ pointerEvents: "none" }}
+    >
+      <div style={{ transform: tagTransform(from, to) }}>
+        <div
+          key={draftKey}
+          role={armed ? "group" : undefined}
+          data-testid="draw-dimensions"
+          data-state={armed ? "armed" : "live"}
+          style={{ pointerEvents: armed ? "auto" : "none" }}
+          aria-label={armed ? "Size of the shape you just drew" : undefined}
+        >
+          <DimensionTag unit={lengthUnitLabel(unit)}>
+            {fields.map((field, index) =>
+              armed ? (
+                <DimensionTagCell
+                  key={field.key}
+                  label={field.label}
+                  width={6}
+                  placeholder={sizeText(field.measuredMm, unit)}
+                  aria-label={`${field.name} in ${lengthUnitLabel(unit)}`}
+                  data-testid={`draw-dimension-${field.key}`}
+                  ref={(node: HTMLInputElement | null) => {
+                    if (node === null) inputs.current.delete(field.key);
+                    else inputs.current.set(field.key, node);
+                  }}
+                  onFocus={() => focusCell(field.key)}
+                  onBlur={() => focusCell(null)}
+                  onKeyDown={(event) => onKeyDown(event, index)}
+                />
+              ) : (
+                <DimensionTagCell
+                  key={field.key}
+                  label={field.label}
+                  width={6}
+                  readout={sizeText(field.measuredMm, unit)}
+                />
+              ),
+            )}
+          </DimensionTag>
+          {armed ? (
+            <p className="mt-1 font-body text-2xs text-gauge">
+              {fields.length > 1
+                ? "Type a size · Tab switches · Enter applies"
+                : "Type a size · Enter applies"}
+            </p>
+          ) : null}
+        </div>
+      </div>
+    </Html>
+  );
+}
+
 /**
  * Live modifier state for the aim. The pointer handlers already read Ctrl /
  * Cmd / Shift off each event, but a modifier pressed with the mouse HELD STILL
@@ -774,6 +1090,48 @@ function FaceBluing({
 }
 
 /**
+ * The drafting callout for the size cell that has focus — extension lines and a
+ * dimension line laid on the very edge the number drives. Without it a pair of
+ * cells labelled W and H is a form floating over a picture; with it, typing in
+ * a cell points at its own edge, which is how a drawing says the same thing.
+ * Empty whenever no cell has focus.
+ */
+function witnessPositions(
+  draft: DrawDimensionDraft | null,
+  focus: DrawDimensionKey | null,
+  entities: readonly SketchEntity[],
+  basis: PlaneBasis,
+): Float32Array {
+  if (draft === null || focus === null) return new Float32Array(0);
+  const field = draft.fields.find((f) => f.key === focus);
+  if (field?.entity == null) return new Float32Array(0);
+  const entity = entities.find((e) => e.id === field.entity);
+  if (entity === undefined) return new Float32Array(0);
+  const centre = {
+    x: (draft.from.x + draft.to.x) / 2,
+    y: (draft.from.y + draft.to.y) / 2,
+  };
+  const segments: Array<[Point2D, Point2D]> =
+    entity.kind === "line"
+      ? dimensionWitness(entity.start, entity.end, centre, sketch.glyphOffsetMm)
+      : entity.kind === "circle"
+        ? [
+            [
+              entity.center,
+              { x: entity.center.x + entity.radius, y: entity.center.y },
+            ],
+          ]
+        : [];
+  if (segments.length === 0) return new Float32Array(0);
+  const positions = new Float32Array(segments.length * 6);
+  segments.forEach(([a, b], i) => {
+    positions.set(planeToWorld(basis, a), i * 6);
+    positions.set(planeToWorld(basis, b), i * 6 + 3);
+  });
+  return positions;
+}
+
+/**
  * The live sketch: buffered entities (solved positions once persisted), the
  * rubber band, selection/hover ink (brass — the viewport selection tokens),
  * and the constraint annotation layer.
@@ -787,6 +1145,10 @@ function DrawLayer({ basis }: { basis: PlaneBasis }) {
   const hoverPick = useSketchStore((state) => state.hoverPick);
   const mirror = useSketchStore((state) => state.mirror);
   const corner = useSketchStore((state) => state.corner);
+  const drawDimension = useSketchStore((state) => state.drawDimension);
+  const drawDimensionFocus = useSketchStore(
+    (state) => state.drawDimensionFocus,
+  );
 
   // Mirror targets and corner legs read as "picked" (brass), the same
   // affordance as a selection — merged so the idle buffer never double-draws
@@ -885,6 +1247,10 @@ function DrawLayer({ basis }: { basis: PlaneBasis }) {
         : entitySegmentPositions(previewEntities(tool, pending, cursor), basis),
     [tool, pending, cursor, basis],
   );
+  const witness = useMemo(
+    () => witnessPositions(drawDimension, drawDimensionFocus, entities, basis),
+    [drawDimension, drawDimensionFocus, entities, basis],
+  );
 
   return (
     <group>
@@ -927,8 +1293,12 @@ function DrawLayer({ basis }: { basis: PlaneBasis }) {
         dashed
         onTop
       />
+      {/* The focused size cell's own dimension callout — brass, because a
+          driving dimension IS the parametric handle (`sketch.glyphDimension`). */}
+      <InkSegments positions={witness} color={sketch.glyphDimension} onTop />
       <Crosshair basis={basis} />
       <SnapMarker basis={basis} />
+      <DrawDimensionTag basis={basis} />
       <ConstraintGlyphs basis={basis} />
     </group>
   );
