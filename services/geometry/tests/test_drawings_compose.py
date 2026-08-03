@@ -58,6 +58,7 @@ from py_kit.schemas.drawings import (
     DiameterDimensionParams,
     DimensionEndpointRef,
     DimensionParams,
+    EdgeToEdgeMeasurement,
     LinearDimensionParams,
     MeasuredDimension,
     PointToPointMeasurement,
@@ -345,6 +346,111 @@ def test_parity_point_to_point() -> None:
     dim = next(line for line in a.lines if line.role == "dimension")
     span = ((dim.x2 - dim.x1) ** 2 + (dim.y2 - dim.y1) ** 2) ** 0.5
     assert span == pytest.approx((40**2 + 25**2) ** 0.5, abs=_ARC_TOL)
+
+
+# --- FB-10: the edge-to-edge (wall-thickness) annotation ------------------------
+#
+# Not a dimensions.ts parity case — the mode postdates the DE-1c cutover, so the
+# composer is the only authority for it.
+
+
+def _wall_sig(x: float) -> EdgeSignature:
+    """A straight edge running along Y at ``x`` — one face of a wall."""
+    return EdgeSignature(
+        curve="line",
+        end_a=_vec(x, 0, 0),
+        end_b=_vec(x, 25, 0),
+        midpoint=_vec(x, 12.5, 0),
+        length_mm=25,
+    )
+
+
+def _projected_wall(x: float, y0: float = 0.0, y1: float = 25.0) -> ProjectedViewEdge:
+    return ProjectedViewEdge(
+        primitive="line",
+        visible=True,
+        start=_pt(x, y0),
+        end=_pt(x, y1),
+        midpoint=_pt(x, (y0 + y1) / 2),
+        dimensionable=True,
+        source_edge=_wall_sig(x),
+        start_is_end_a=True,
+    )
+
+
+def test_edge_to_edge_draws_across_the_wall() -> None:
+    """A wall-thickness dimension spans PERPENDICULARLY from the first edge to the
+    second edge's supporting line — the dimension line is exactly the 3 mm gap, and
+    the witness lines run parallel to the walls."""
+    a = _build(
+        LinearDimensionParams(
+            measurement=EdgeToEdgeMeasurement(edge_a=_wall_sig(0), edge_b=_wall_sig(3))
+        ),
+        _ok(3, "mm"),
+        [_projected_wall(0), _projected_wall(3)],
+    )
+    assert isinstance(a, ComposedMeasuredDimension)
+    assert a.text.value == "3.000"
+    assert len(a.arrows) == 2
+    assert len([line for line in a.lines if line.role == "extension"]) == 2
+    dim = next(line for line in a.lines if line.role == "dimension")
+    span = ((dim.x2 - dim.x1) ** 2 + (dim.y2 - dim.y1) ** 2) ** 0.5
+    assert span == pytest.approx(3.0, abs=_TOL)
+    # Drawn ACROSS the wall (along X), not along it.
+    assert abs(dim.y2 - dim.y1) == pytest.approx(0.0, abs=_TOL)
+
+
+def test_edge_to_edge_spans_the_gap_even_when_the_edges_are_staggered() -> None:
+    """A real shell wall's inner edge is SHORTER than its outer one, so the two do
+    not line up end to end. The span is still the 3 mm perpendicular gap — the foot
+    lands on the second edge's supporting LINE, which is what the value measured."""
+    a = _build(
+        LinearDimensionParams(
+            measurement=EdgeToEdgeMeasurement(edge_a=_wall_sig(0), edge_b=_wall_sig(3))
+        ),
+        _ok(3, "mm"),
+        [_projected_wall(0), _projected_wall(3, y0=18.0, y1=25.0)],
+    )
+    assert isinstance(a, ComposedMeasuredDimension)
+    dim = next(line for line in a.lines if line.role == "dimension")
+    span = ((dim.x2 - dim.x1) ** 2 + (dim.y2 - dim.y1) ** 2) ** 0.5
+    assert span == pytest.approx(3.0, abs=_TOL)
+
+
+def test_edge_to_edge_refusal_is_stamped_in_the_machinist_s_words() -> None:
+    """A non-parallel pair never reaches placement — geometry refused it — so the
+    sheet carries the typed marker, in words a shop can act on, and NO number."""
+    from py_kit.schemas.features import FeatureError
+
+    a = _build(
+        LinearDimensionParams(
+            measurement=EdgeToEdgeMeasurement(edge_a=_line_sig(), edge_b=_vert_sig())
+        ),
+        MeasuredDimension(
+            foreshortened=False,
+            error=FeatureError(
+                code="dimension_not_parallel", message="these two meet at 90.000deg"
+            ),
+        ),
+        [_projected_line(), _projected_vert()],
+    )
+    assert isinstance(a, ComposedDimensionError)
+    assert a.code == "dimension_not_parallel"
+    assert a.message == "LINEAR DIM: EDGES NOT PARALLEL - NO PERPENDICULAR DISTANCE"
+
+
+def test_edge_to_edge_missing_second_edge_is_a_stamped_marker() -> None:
+    """The second wall face is not drawn in this view → the honest not-placeable
+    marker, never a silently dropped dimension (QA-4)."""
+    a = _build(
+        LinearDimensionParams(
+            measurement=EdgeToEdgeMeasurement(edge_a=_wall_sig(0), edge_b=_wall_sig(3))
+        ),
+        _ok(3, "mm"),
+        [_projected_wall(0)],
+    )
+    assert isinstance(a, ComposedDimensionError)
+    assert a.code == "dimension_not_placeable"
 
 
 def test_parity_point_to_point_missing_edge_is_a_stamped_marker() -> None:

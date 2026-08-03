@@ -4,17 +4,21 @@
  *
  * A dimension names model geometry by PICKING it on the sheet (design §3.3).
  * Most types need one pick (a circle → diameter/radius, a straight edge →
- * linear), but two need a pair:
+ * linear), but three need a pair:
  *
- *   • angular — TWO straight edges; and
+ *   • angular — TWO straight edges;
+ *   • edge-to-edge linear — TWO parallel straight edges (the wall thickness of a
+ *     shelled part, FB-10); and
  *   • point-to-point linear — TWO edge ENDPOINTS.
  *
  * So the flow is staged. A single edge pick opens the type menu (linear /
- * diameter / radius, plus an "Angle" action that ARMS a second-edge pick). A
- * vertex handle pick starts a point-to-point pair. The SECOND pick of a pair
- * completes it and the gated menu offers the multi-pick type. This module is
- * the single source of truth for that progression; the component only renders
- * the state and dispatches picks.
+ * diameter / radius, plus "Angle" and "Distance to edge", either of which ARMS
+ * a second-edge pick). A vertex handle pick starts a point-to-point pair. The
+ * SECOND pick of a pair completes it and the gated menu offers BOTH two-edge
+ * types — the arming choice orders them, it never locks you in, so a user who
+ * meant thickness and clicked "Angle" is one item away rather than restarting.
+ * This module is the single source of truth for that progression; the component
+ * only renders the state and dispatches picks.
  */
 import type {
   DimensionParams,
@@ -43,16 +47,24 @@ export interface EndpointTarget {
   clientY: number;
 }
 
+/** Which two-edge dimension the user reached for — it ORDERS the ready menu. */
+export type PairIntent = "angular" | "edge_to_edge";
+
 /**
- * The authoring progression. `single-edge` / `angular-ready` / `p2p-ready`
- * show the gated type menu (`anchor` positions it); `arming-angular` /
+ * The authoring progression. `single-edge` / `pair-ready` / `p2p-ready`
+ * show the gated type menu (`anchor` positions it); `arming-pair` /
  * `one-endpoint` show a "pick the second …" hint and keep the sheet live.
  */
 export type AuthoringState =
   | { kind: "idle" }
   | { kind: "single-edge"; target: EdgeTarget }
-  | { kind: "arming-angular"; edgeA: EdgeTarget }
-  | { kind: "angular-ready"; edgeA: EdgeTarget; edgeB: EdgeTarget }
+  | { kind: "arming-pair"; edgeA: EdgeTarget; intent: PairIntent }
+  | {
+      kind: "pair-ready";
+      edgeA: EdgeTarget;
+      edgeB: EdgeTarget;
+      intent: PairIntent;
+    }
   | { kind: "one-endpoint"; a: EndpointTarget }
   | { kind: "p2p-ready"; a: EndpointTarget; b: EndpointTarget };
 
@@ -65,7 +77,9 @@ export type DimensionAction =
   | "diameter"
   | "radius"
   | "start_angular"
+  | "start_edge_to_edge"
   | "angular"
+  | "edge_to_edge"
   | "point_to_point";
 
 const sameEdge = (a: EdgeSignature, b: EdgeSignature): boolean =>
@@ -85,24 +99,36 @@ export function pickEdge(
   state: AuthoringState,
   target: EdgeTarget,
 ): AuthoringState {
-  // A second straight edge completes an armed angular pick (same view only —
+  // A second straight edge completes an armed two-edge pick (same view only —
   // a dimension lives in one view).
   if (
-    state.kind === "arming-angular" &&
+    state.kind === "arming-pair" &&
     target.primitive === "line" &&
     target.projection === state.edgeA.projection &&
     !sameEdge(target.sourceEdge, state.edgeA.sourceEdge)
   ) {
-    return { kind: "angular-ready", edgeA: state.edgeA, edgeB: target };
+    return {
+      kind: "pair-ready",
+      edgeA: state.edgeA,
+      edgeB: target,
+      intent: state.intent,
+    };
   }
   // Any other edge pick starts fresh on that single edge.
   return { kind: "single-edge", target };
 }
 
-/** Arm a second-edge pick for an angular dimension (from the single-edge menu). */
-export function armAngular(state: AuthoringState): AuthoringState {
+/**
+ * Arm a second-edge pick from the single-edge menu. `intent` records which
+ * two-edge dimension was reached for so the ready menu leads with it — both are
+ * offered either way (a mis-entry is never a dead end, CLAUDE.md flow rule).
+ */
+export function armPair(
+  state: AuthoringState,
+  intent: PairIntent,
+): AuthoringState {
   if (state.kind === "single-edge" && state.target.primitive === "line") {
-    return { kind: "arming-angular", edgeA: state.target };
+    return { kind: "arming-pair", edgeA: state.target, intent };
   }
   return state;
 }
@@ -129,7 +155,7 @@ export function menuAnchor(
   switch (state.kind) {
     case "single-edge":
       return { x: state.target.clientX, y: state.target.clientY };
-    case "angular-ready":
+    case "pair-ready":
       return { x: state.edgeB.clientX, y: state.edgeB.clientY };
     case "p2p-ready":
       return { x: state.b.clientX, y: state.b.clientY };
@@ -148,12 +174,18 @@ export function menuActions(state: AuthoringState): DimensionAction[] {
         case "arc":
           return ["radius"];
         case "line":
-          return ["linear", "start_angular"];
+          return ["linear", "start_angular", "start_edge_to_edge"];
         default:
           return [];
       }
-    case "angular-ready":
-      return ["angular"];
+    case "pair-ready":
+      // BOTH two-edge types, the armed intent first. Geometry is the authority on
+      // whether the pair is parallel (it is a property of the CURRENT body), so
+      // the menu never pre-judges it — an unparallel pair comes back as the typed
+      // `dimension_not_parallel` on the sheet rather than a number.
+      return state.intent === "edge_to_edge"
+        ? ["edge_to_edge", "angular"]
+        : ["angular", "edge_to_edge"];
     case "p2p-ready":
       return ["point_to_point"];
     default:
@@ -164,8 +196,10 @@ export function menuActions(state: AuthoringState): DimensionAction[] {
 /** The "pick the second …" hint for an in-progress pair, or null. */
 export function pickHint(state: AuthoringState): string | null {
   switch (state.kind) {
-    case "arming-angular":
-      return "Pick the second edge for the angle";
+    case "arming-pair":
+      return state.intent === "edge_to_edge"
+        ? "Pick the second edge to measure across"
+        : "Pick the second edge for the angle";
     case "one-endpoint":
       return "Pick the second point";
     default:
@@ -185,14 +219,14 @@ export function armedSignatures(
           sourceEdge: state.target.sourceEdge,
         },
       ];
-    case "arming-angular":
+    case "arming-pair":
       return [
         {
           projection: state.edgeA.projection,
           sourceEdge: state.edgeA.sourceEdge,
         },
       ];
-    case "angular-ready":
+    case "pair-ready":
       return [
         {
           projection: state.edgeA.projection,
@@ -247,15 +281,28 @@ export function buildDimension(
     if (action === "radius") {
       return { viewId, params: { type: "radius", edge: sourceEdge } };
     }
-    return null; // start_angular arms; it does not author
+    return null; // a start_* action arms the next pick; it does not author
   }
-  if (state.kind === "angular-ready" && action === "angular") {
+  if (state.kind === "pair-ready" && action === "angular") {
     return {
       viewId: state.edgeA.viewId,
       params: {
         type: "angular",
         edge_a: state.edgeA.sourceEdge,
         edge_b: state.edgeB.sourceEdge,
+      },
+    };
+  }
+  if (state.kind === "pair-ready" && action === "edge_to_edge") {
+    return {
+      viewId: state.edgeA.viewId,
+      params: {
+        type: "linear",
+        measurement: {
+          mode: "edge_to_edge",
+          edge_a: state.edgeA.sourceEdge,
+          edge_b: state.edgeB.sourceEdge,
+        },
       },
     };
   }

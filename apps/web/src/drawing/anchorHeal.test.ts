@@ -108,6 +108,33 @@ describe("healDimensionParams", () => {
     });
   });
 
+  it("heals an edge-to-edge linear onto BOTH wall edges (FB-10)", () => {
+    const params: DimensionParams = {
+      type: "linear",
+      measurement: { mode: "edge_to_edge", edge_a: OLD, edge_b: OLD },
+      placement,
+    };
+    const healed = healDimensionParams(params, anchor("durable"));
+    expect(healed).toEqual({
+      type: "linear",
+      measurement: { mode: "edge_to_edge", edge_a: NEW_A, edge_b: NEW_B },
+      placement,
+    });
+  });
+
+  it("refuses to half-heal an edge-to-edge — a wall needs BOTH faces", () => {
+    expect(
+      healDimensionParams(
+        {
+          type: "linear",
+          measurement: { mode: "edge_to_edge", edge_a: OLD, edge_b: OLD },
+          placement,
+        },
+        anchor("durable", NEW_A, null),
+      ),
+    ).toBeNull();
+  });
+
   it("heals a diameter and a radius onto the primary signature", () => {
     for (const type of ["diameter", "radius"] as const) {
       const healed = healDimensionParams(

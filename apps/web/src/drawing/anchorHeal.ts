@@ -71,6 +71,14 @@ export function healDimensionParams(
         };
       }
       if (secondary === null) return null;
+      if (measurement.mode === "edge_to_edge") {
+        // Both wall faces moved (a thickness edit moves the inner one, an outer
+        // resize the other), so both refs heal — the same pair shape angular has.
+        return {
+          ...params,
+          measurement: { ...measurement, edge_a: primary, edge_b: secondary },
+        };
+      }
       return {
         ...params,
         measurement: {

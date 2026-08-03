@@ -5,7 +5,7 @@ import {
   IDLE,
   type EdgeTarget,
   type EndpointTarget,
-  armAngular,
+  armPair,
   buildDimension,
   menuActions,
   menuAnchor,
@@ -77,21 +77,27 @@ describe("authoring pick model", () => {
     expect(menuActions(state)).toEqual(["radius"]);
   });
 
-  it("a straight edge offers linear + the angular arm", () => {
+  it("a straight edge offers linear + both two-edge arms", () => {
     const state = pickEdge(IDLE, edge(lineSig(), "line"));
-    expect(menuActions(state)).toEqual(["linear", "start_angular"]);
+    expect(menuActions(state)).toEqual([
+      "linear",
+      "start_angular",
+      "start_edge_to_edge",
+    ]);
   });
 
   it("arming angular then picking a second edge readies an angular dimension", () => {
     const first = pickEdge(IDLE, edge(lineSig(), "line"));
-    const armed = armAngular(first);
-    expect(armed.kind).toBe("arming-angular");
+    const armed = armPair(first, "angular");
+    expect(armed.kind).toBe("arming-pair");
     expect(pickHint(armed)).toMatch(/second edge/i);
     expect(menuActions(armed)).toEqual([]); // no menu while a pick is pending
 
     const ready = pickEdge(armed, edge(vertSig(), "line"));
-    expect(ready.kind).toBe("angular-ready");
-    expect(menuActions(ready)).toEqual(["angular"]);
+    expect(ready.kind).toBe("pair-ready");
+    // Both two-edge types, the armed intent first — a mis-entry is one click
+    // away from the other, never a dead end.
+    expect(menuActions(ready)).toEqual(["angular", "edge_to_edge"]);
 
     const built = buildDimension(ready, "angular");
     expect(built?.viewId).toBe("view-1");
@@ -101,16 +107,39 @@ describe("authoring pick model", () => {
     expect(built.params.edge_b.length_mm).toBe(25);
   });
 
-  it("re-picking the SAME edge while arming does not complete an angle", () => {
-    const armed = armAngular(pickEdge(IDLE, edge(lineSig(), "line")));
+  it("arming edge-to-edge readies the across-the-wall linear, that type first", () => {
+    const armed = armPair(
+      pickEdge(IDLE, edge(lineSig(), "line")),
+      "edge_to_edge",
+    );
+    expect(pickHint(armed)).toMatch(/measure across/i);
+
+    const ready = pickEdge(armed, edge(vertSig(), "line"));
+    expect(ready.kind).toBe("pair-ready");
+    expect(menuActions(ready)).toEqual(["edge_to_edge", "angular"]);
+
+    const built = buildDimension(ready, "edge_to_edge");
+    expect(built?.viewId).toBe("view-1");
+    expect(built?.params.type).toBe("linear");
+    if (built?.params.type !== "linear") return;
+    expect(built.params.measurement.mode).toBe("edge_to_edge");
+    if (built.params.measurement.mode !== "edge_to_edge") return;
+    // Names the two EDGES — not two endpoints, which is the whole point (FB-10).
+    expect(built.params.measurement.edge_a.length_mm).toBe(40);
+    expect(built.params.measurement.edge_b.length_mm).toBe(25);
+  });
+
+  it("re-picking the SAME edge while arming does not complete a pair", () => {
+    const armed = armPair(pickEdge(IDLE, edge(lineSig(), "line")), "angular");
     const again = pickEdge(armed, edge(lineSig(), "line"));
-    // Same edge → falls back to a fresh single-edge selection, not angular-ready.
+    // Same edge → falls back to a fresh single-edge selection, not pair-ready.
     expect(again.kind).toBe("single-edge");
   });
 
-  it("start_angular only arms — it never authors", () => {
+  it("a start_* action only arms — it never authors", () => {
     const state = pickEdge(IDLE, edge(lineSig(), "line"));
     expect(buildDimension(state, "start_angular")).toBeNull();
+    expect(buildDimension(state, "start_edge_to_edge")).toBeNull();
     expect(buildDimension(state, "linear")?.params.type).toBe("linear");
   });
 

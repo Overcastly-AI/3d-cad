@@ -89,6 +89,23 @@ with a 10 × 10 pocket 5 mm deep weighs 7 500 mm³ exactly; the same cut on the 
 default evaluates to `cut_removed_nothing`, which is untouched and now fires only
 when a cut really is empty.
 
+**FB-10 SHIPPED (2026-08-03, backend-builder) — a shell wall thickness is
+dimensionable, and a non-parallel pair is REFUSED rather than guessed.** The
+founder could not put a number on a wall: `LinearMeasurement` offered an edge's
+own length or the distance between two picked ENDPOINTS, and a shelled box's
+inner rim is shorter than its outer by one wall on each side, so point-to-point
+measured a diagonal (4.243 mm across a 3 mm wall, measured) and looked right.
+`EdgeToEdgeMeasurement` names the two EDGES — the `edge_a`/`edge_b` shape
+`angular` already had — and geometry measures the perpendicular distance between
+their supporting lines, so the value does not move with which corner was clicked.
+The refusal is the point of the feature as much as the number: two converging or
+skew lines have a shortest distance that is a real number and a lie on a print, so
+`DimensionNotParallelError` → the typed `dimension_not_parallel`, stamped on the
+sheet as "EDGES NOT PARALLEL - NO PERPENDICULAR DISTANCE" with NO value. Gated by
+`e2e/drawing-wall-thickness.spec.ts` (a real 5 mm housing wall reads `5.000`; a
+perpendicular pair produces the marker and zero measured values) plus geometry
+goldens including the closed form (3.000 mm off a shelled box, residual 0.0).
+
 **NEXT — FOUNDER-DIRECTED PRE-SELECTION / HOVER MODEL (2026-08-01,
 vision-steward, design only).** Same-night founder reports name one root
 cause three ways: a sketch line that "wouldn't even select," face picking

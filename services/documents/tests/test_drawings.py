@@ -6,9 +6,9 @@ the dialect split. Exercises docs/design/drawings.md §2/§3: the sheet → view
 dimension/annotation CRUD round-trip, cross-document existence + owner-scoping of
 a view's referenced part, optimistic concurrency (stale ``expected_version`` →
 422), owner-scoped auth (non-owner → uniform 404), the write-time dimension
-semantic checks (diameter/radius need a circular edge; angular needs straight
-edges), the view→dimensions cascade + dense renumber, and the cross-document
-409-with-dependents when deleting a part a drawing view references.
+semantic checks (diameter/radius need a circular edge; angular + edge-to-edge
+need straight edges), the view→dimensions cascade + dense renumber, and the
+cross-document 409-with-dependents when deleting a part a drawing view references.
 """
 
 import asyncio
@@ -423,6 +423,66 @@ def test_linear_point_to_point_dimension_round_trips(client: TestClient) -> None
     dim = response.json()["dimension"]["dimension"]
     assert dim["measurement"]["mode"] == "point_to_point"
     assert dim["measurement"]["a"]["endpoint"] == "end_a"
+
+
+def test_edge_to_edge_dimension_round_trips(client: TestClient) -> None:
+    """FB-10: the wall-thickness mode stores + reads back through documents whole
+    (the union joined additively — the stored JSONB reassembles on its `mode`)."""
+    part = _create_part(client, "p")
+    drawing_id = _create_drawing(client, "dim4")
+    sheet_id = _add_sheet(client, drawing_id, 0).json()["sheet"]["id"]
+    view_id = _add_view(client, drawing_id, sheet_id, part, 1).json()["view"]["id"]
+
+    response = client.post(
+        f"/api/v1/drawings/{drawing_id}/views/{view_id}/dimensions",
+        json={
+            "expected_version": 2,
+            "dimension": {
+                "type": "linear",
+                "measurement": {
+                    "mode": "edge_to_edge",
+                    "edge_a": _edge_sig(),
+                    "edge_b": _edge_sig(),
+                },
+            },
+        },
+        headers=_headers(),
+    )
+    assert response.status_code == 201, response.text
+    dim = response.json()["dimension"]["dimension"]
+    assert dim["measurement"]["mode"] == "edge_to_edge"
+    assert dim["measurement"]["edge_a"]["curve"] == "line"
+
+    tree = client.get(f"/api/v1/drawings/{drawing_id}", headers=_headers()).json()
+    stored = tree["sheets"][0]["dimensions"][0]["dimension"]
+    assert stored["measurement"]["mode"] == "edge_to_edge"
+
+
+def test_edge_to_edge_dimension_requires_straight_edges(client: TestClient) -> None:
+    """A curved edge has no direction, so it can bound no wall — the same typed 422
+    the angular pair raises (one shared check, FB-10)."""
+    part = _create_part(client, "p")
+    drawing_id = _create_drawing(client, "dim5")
+    sheet_id = _add_sheet(client, drawing_id, 0).json()["sheet"]["id"]
+    view_id = _add_view(client, drawing_id, sheet_id, part, 1).json()["view"]["id"]
+
+    response = client.post(
+        f"/api/v1/drawings/{drawing_id}/views/{view_id}/dimensions",
+        json={
+            "expected_version": 2,
+            "dimension": {
+                "type": "linear",
+                "measurement": {
+                    "mode": "edge_to_edge",
+                    "edge_a": _edge_sig(),
+                    "edge_b": _edge_sig("circle"),
+                },
+            },
+        },
+        headers=_headers(),
+    )
+    assert response.status_code == 422
+    assert _error(response.json())["code"] == "dimension_requires_straight_edges"
 
 
 # --- mutation + cascade -----------------------------------------------------------

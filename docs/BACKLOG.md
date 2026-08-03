@@ -147,7 +147,7 @@ about to hit).
       at z=30 — ink placement and the kernel's plane origin are computed in two
       places, which is where they drift. Distinguish wrong GEOMETRY from wrong
       RENDERING; they look identical on screen and have different fixes.
-- [ ] (P1, M) **FB-10 — drawings cannot dimension edge-to-edge, so a shell wall
+- [x] (P1, M) **FB-10 — drawings cannot dimension edge-to-edge, so a shell wall
       thickness is unmeasurable.** `LinearMeasurement` (`schemas/drawings.py:320`)
       is edge-length OR point-to-point between two ENDPOINTS. Point-to-point
       measures those points, not the perpendicular thickness, and is wrong as soon
@@ -156,6 +156,11 @@ about to hit).
       to extend additively. Add `EdgeToEdgeMeasurement` with a typed refusal for
       non-parallel edges rather than a confidently wrong number. Needs a QUIET
       tree: it regenerates contracts + ts-client.
+      SHIPPED 2026-08-03 (backend-builder): `EdgeToEdgeMeasurement{edge_a,edge_b}`
+      joined `LinearMeasurement` additively; geometry raises
+      `DimensionNotParallelError` → typed `dimension_not_parallel`, NO value, for a
+      converging/skew/degenerate pair. E2e `drawing-wall-thickness.spec.ts` reads
+      5.000 off a real housing wall and proves the refusal.
 - [ ] (P2, S) **FB-11 — nothing in the app says which BUILD it is.** The founder
       tests from a GitHub Codespace, so a report cannot be tied to a commit and
       "already fixed or still broken" is unanswerable. Inject the git SHA + build

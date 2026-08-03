@@ -29,6 +29,7 @@ from typing import cast
 import pytest
 from build123d import Axis, Edge, Face, GeomType, Pos, Solid, Vector, Wire
 from geometry.drawings import (
+    DimensionNotParallelError,
     DimensionValue,
     measure_dimension,
     measure_dimension_dto,
@@ -36,12 +37,15 @@ from geometry.drawings import (
 )
 from geometry.kernel import build_box, build_cylinder, combine_body
 from geometry.kernel.edges import EdgeRecord, edge_signature_dto
+from geometry.kernel.shell import shell_body
+from geometry.kernel.types import BodyShape
 from py_kit.schemas.drawings import (
     AngularDimensionParams,
     DiameterDimensionParams,
     DimensionAnchor,
     DimensionEndpointRef,
     EdgeLengthMeasurement,
+    EdgeToEdgeMeasurement,
     LinearDimensionParams,
     PointToPointMeasurement,
     RadiusDimensionParams,
@@ -199,6 +203,194 @@ def test_angular_measures_true_vee_angle() -> None:
     assert result.unit == "deg"
     assert result.value == pytest.approx(45.0, abs=ANGLE_TOL_DEG)
     assert result.foreshortened is False, "both wedge front edges lie in the view plane"
+
+
+# --- Golden C2: edge-to-edge perpendicular distance (FB-10) ---------------------
+#
+# The founder's report: a shelled housing's WALL THICKNESS could not be dimensioned.
+# The number is measured across two parallel edges, and — the whole reason the mode
+# exists — it is INDEPENDENT of where along the wall it is taken, which is exactly
+# what point-to-point cannot promise.
+
+
+def _shelled_box(
+    x: float = 60.0, y: float = 40.0, z: float = 30.0, wall: float = 3.0
+) -> BodyShape:
+    """A ``x``x``y``x``z`` box hollowed to a uniform ``wall``, open at the top (+Z).
+
+    The real founder shape: an enclosure. Its top rim carries the OUTER boundary
+    edges of the box and, ``wall`` mm inside them, the INNER cavity edges — the pair
+    a wall-thickness dimension names. Built with the shipped ``shell_body`` so the
+    analytic model IS the input (never a hand-authored signature).
+    """
+    box = _make_box(x, y, z)
+    top = max(box.faces(), key=lambda f: f.center().Z)
+    return shell_body(box, [top], wall)
+
+
+def _rim_edge(body: BodyShape, at_x: float, wall_top_z: float) -> EdgeSignature:
+    """The straight top-rim edge running along Y at ``x == at_x`` (both ends on the
+    rim plane) — the outer wall face's rim edge for x=0, the inner cavity's for
+    x=wall."""
+
+    def predicate(edge: Edge) -> bool:
+        if edge.geom_type != GeomType.LINE:
+            return False
+        a, b = _at(edge, 0.0), _at(edge, 1.0)
+        return (
+            abs(a[0] - at_x) < 1e-9
+            and abs(b[0] - at_x) < 1e-9
+            and abs(a[2] - wall_top_z) < 1e-9
+            and abs(b[2] - wall_top_z) < 1e-9
+            and abs(a[1] - b[1]) > 1e-6
+        )
+
+    match = next((e for e in body.edges() if predicate(e)), None)
+    assert match is not None, f"no rim edge along Y at x={at_x}"
+    return edge_signature_dto(match)
+
+
+def test_edge_to_edge_measures_shell_wall_thickness() -> None:
+    """The FB-10 headline: the outer and inner rim edges of a 3 mm shelled wall
+    measure EXACTLY 3.000 mm apart — the closed form of the authored thickness."""
+    wall = 3.0
+    body = _shelled_box(wall=wall)
+    outer = _rim_edge(body, at_x=-30.0, wall_top_z=15.0)
+    inner = _rim_edge(body, at_x=-30.0 + wall, wall_top_z=15.0)
+    params = LinearDimensionParams(
+        measurement=EdgeToEdgeMeasurement(edge_a=outer, edge_b=inner)
+    )
+    result = measure_dimension(body, params, "top")
+    assert result.unit == "mm"
+    assert result.value == pytest.approx(wall, abs=LENGTH_TOL_MM)
+    assert result.foreshortened is False, "the wall separation lies in the top plane"
+    assert result.anchor is not None
+    assert result.anchor.tier == "exact"
+    assert result.anchor.primary is not None and result.anchor.secondary is not None
+
+
+def test_point_to_point_cannot_express_the_same_wall_thickness() -> None:
+    """WHY the mode exists, on the SAME real body: the wall's outer rim edge spans
+    40 mm and its inner rim edge 34 mm, so their endpoints are staggered 3 mm along
+    the wall. NO pairing of those endpoints measures the thickness — the closest
+    reads sqrt(3^2+3^2) = 4.243 mm — while edge-to-edge reads 3.000 from the same
+    two picks. That gap is the founder's silently-wrong dimension, in numbers."""
+    wall = 3.0
+    body = _shelled_box(wall=wall)
+    outer = _rim_edge(body, at_x=-30.0, wall_top_z=15.0)
+    inner = _rim_edge(body, at_x=-30.0 + wall, wall_top_z=15.0)
+
+    edge_to_edge = measure_dimension(
+        body,
+        LinearDimensionParams(
+            measurement=EdgeToEdgeMeasurement(edge_a=outer, edge_b=inner)
+        ),
+        "top",
+    )
+    assert edge_to_edge.value == pytest.approx(wall, abs=LENGTH_TOL_MM)
+
+    # Every one of the four endpoint pairings a user could have picked instead.
+    p2p_values: list[float] = []
+    for end_o in ("end_a", "end_b"):
+        for end_i in ("end_a", "end_b"):
+            measured = measure_dimension(
+                body,
+                LinearDimensionParams(
+                    measurement=PointToPointMeasurement(
+                        a=DimensionEndpointRef(signature=outer, endpoint=end_o),
+                        b=DimensionEndpointRef(signature=inner, endpoint=end_i),
+                    )
+                ),
+                "top",
+            )
+            p2p_values.append(measured.value)
+
+    assert min(p2p_values) == pytest.approx(
+        math.hypot(wall, wall), abs=LENGTH_TOL_MM
+    ), "the nearest endpoint pair reads 4.243, not the 3 mm wall"
+    assert all(abs(v - wall) > 1.0 for v in p2p_values), (
+        "no point-to-point pick on this wall can produce the thickness"
+    )
+
+
+def test_edge_to_edge_refuses_non_parallel_edges() -> None:
+    """THE REFUSAL (FB-10): two perpendicular edges of a box have a shortest
+    distance that is a real number and a lie on a print, so the measurer RAISES
+    :class:`DimensionNotParallelError` instead of returning it."""
+    box = _make_box(40, 25, 10)
+    along_x = _sig(box, lambda e: _runs(e, (-20, -12.5, -5), (20, -12.5, -5)))
+    along_y = _sig(box, lambda e: _runs(e, (-20, -12.5, -5), (-20, 12.5, -5)))
+    params = LinearDimensionParams(
+        measurement=EdgeToEdgeMeasurement(edge_a=along_x, edge_b=along_y)
+    )
+    with pytest.raises(DimensionNotParallelError) as excinfo:
+        measure_dimension(box, params, "top")
+    assert "90.000deg" in str(excinfo.value)
+
+
+def test_edge_to_edge_refusal_is_a_typed_error_not_a_500() -> None:
+    """The same refusal on the DTO channel: a typed ``dimension_not_parallel`` with
+    NO value — never a number, never a 500 (design §3.3)."""
+    box = _make_box(40, 25, 10)
+    along_x = _sig(box, lambda e: _runs(e, (-20, -12.5, -5), (20, -12.5, -5)))
+    along_y = _sig(box, lambda e: _runs(e, (-20, -12.5, -5), (-20, 12.5, -5)))
+    params = LinearDimensionParams(
+        measurement=EdgeToEdgeMeasurement(edge_a=along_x, edge_b=along_y)
+    )
+    result = measure_dimension_dto(box, params, "top")
+    assert result.value is None, "a refusal must carry NO number"
+    assert result.unit is None
+    assert result.error is not None
+    assert result.error.code == "dimension_not_parallel"
+
+
+def test_edge_to_edge_refuses_skew_edges() -> None:
+    """Skew (non-intersecting, non-parallel) lines are refused too — their shortest
+    distance is the case that looks MOST plausible and means least."""
+    wedge = _wedge()
+    # The wedge's X-edge at y=0 and its hypotenuse at y=10 neither meet nor align.
+    x_edge = _sig(wedge, lambda e: _runs(e, (0, 0, 0), (20, 0, 0)))
+    hyp_far = _sig(wedge, lambda e: _runs(e, (20, 10, 0), (0, 10, 20)))
+    params = LinearDimensionParams(
+        measurement=EdgeToEdgeMeasurement(edge_a=x_edge, edge_b=hyp_far)
+    )
+    result = measure_dimension_dto(wedge, params, "front")
+    assert result.value is None
+    assert result.error is not None
+    assert result.error.code == "dimension_not_parallel"
+
+
+def test_edge_to_edge_refuses_a_curved_edge_as_wrong_type() -> None:
+    """A circular edge has no single direction, so an edge-to-edge naming one is the
+    shipped ``dimension_wrong_type`` — the taxonomy is reused, not extended."""
+    plate = _through_hole_box()
+    circle = _sig(plate, _is_circle_r5)
+    line = _sig(plate, _is_line_40)
+    params = LinearDimensionParams(
+        measurement=EdgeToEdgeMeasurement(edge_a=line, edge_b=circle)
+    )
+    result = measure_dimension_dto(plate, params, "top")
+    assert result.value is None
+    assert result.error is not None
+    assert result.error.code == "dimension_wrong_type"
+
+
+def test_edge_to_edge_flags_foreshortening_without_changing_the_value() -> None:
+    """Viewed along the wall separation (the FRONT view of a +X/-X wall pair) the
+    thickness cannot read true-size — the flag warns, the number stays 3.000."""
+    wall = 3.0
+    body = _shelled_box(wall=wall)
+    outer = _rim_edge(body, at_x=-30.0, wall_top_z=15.0)
+    inner = _rim_edge(body, at_x=-30.0 + wall, wall_top_z=15.0)
+    params = LinearDimensionParams(
+        measurement=EdgeToEdgeMeasurement(edge_a=outer, edge_b=inner)
+    )
+    top = measure_dimension(body, params, "top")
+    right = measure_dimension(body, params, "right")
+    assert top.value == pytest.approx(wall, abs=LENGTH_TOL_MM)
+    assert right.value == pytest.approx(wall, abs=LENGTH_TOL_MM)
+    assert top.foreshortened is False
+    assert right.foreshortened is True, "the right view looks ALONG the separation"
 
 
 # --- Golden D: model-true even when foreshortened (design §3.2, DoD headline) ---
