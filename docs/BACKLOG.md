@@ -244,7 +244,7 @@ about to hit).
       fields. Design it against `docs/design/pre-selection.md`'s vocabulary so the
       snap glyph and the dimension field do not fight for the same pixels.
       [src: founder 2026-08-01]
-- [ ] (P0, M) **FB-17 — the browser suite cannot catch the class of bug the
+- [x] (P0, M) **FB-17 — the browser suite cannot catch the class of bug the
       founder found, and that is fixable.** Every FB-* defect this evening lived
       in the gap between Playwright's API and a hand/eye. Four gaps, each with a
       concrete gate: (a) INPUT FIDELITY — `mouse.click()` moves 0 px and takes
@@ -268,6 +268,12 @@ about to hit).
       cases flip to real assertions as each fix lands, and every new gate is
       mutation-verified. [src: founder "How do you catch this stuff with
       playwright?" 2026-08-01]
+      DONE 2026-08-02 (qa-tester): `e2e/{hand,reachability,perception,
+      invariants}.ts` + `qa-harness.spec.ts` (17 calibration/negative-control
+      specs). Measured: drift sweep 0/2/4/6/10 all select; pick affordance
+      45/454 = 9.9 % (floor 50 %, `test.fail` until FB-3/FB-5); rebuild moves
+      the camera 0.071 deg; the extrude editor covers 9.0 % of the body and
+      declares no `data-viewport-chrome`, so the app's own fit is blind to it.
 - [ ] (P1, L) **FB-18 — a 50x mirror/rotate never finished; it "errored and
       stopped".** Founder, 2026-08-01. Almost certainly the gateway's typed
       `upstream_timeout` (`py_kit/errors.py:134`) — which says the honest thing

@@ -41,6 +41,31 @@ with the modifier held. Gated by `e2e/sketch-escape-select.spec.ts`, six specs
 that go red on the old behaviour. Left for the strip's owner: `SketchStrip.tsx`
 still captions the Save chip "Esc".
 
+**FB-17 SHIPPED (2026-08-02, qa-tester) — the suite can now catch the class of
+bug the founder found, and each new gate is mutation-verified.** The founder
+asked "how do you catch this stuff with playwright?" and the honest answer was
+that we could not: `mouse.click()` moves 0 px in 0 ms, so a 4 px click-slop
+threshold survived a fully green suite; pick specs clicked `getByTestId` and hit
+a 24 px dot perfectly, so they could never learn the face was dead; and the ink
+census REWARDED the broken screen. Four helpers close it, all under
+`apps/web/e2e/`: `hand.ts` (a click that approaches, presses, bows 6 px and
+dwells 90 ms — now the default for interaction tests), `reachability.ts`
+(clickable FRACTION of what the user can see, one `elementFromPoint` census for
+1457 points), `perception.ts` (WCAG contrast between ink and the surface sampled
+BEHIND it, plus context-in-frame, so no gate is satisfiable by making the screen
+worse), and `invariants.ts` (camera direction across an action via three.js's
+own `__THREE_DEVTOOLS__` seam — zero app hooks — plus model-bbox vs panel-rect
+occlusion). Numbers that now exist because of them: drift 0/2/4/6/10 all select;
+the face-pick affordance is 45/454 = **9.9 %** of the visible body against a
+50 % floor; a rebuild moves the camera **0.071°** (FB-1's fix holds); and an
+open extrude editor covers **9.0 %** of the body while declaring no
+`data-viewport-chrome`, so the app's own free-rect fit cannot see it either —
+FB-7's real mechanism, found by the gate rather than by a photograph. The
+occlusion gate refuses to pass vacuously (empty bbox or no chrome found), proven
+by removing the guard and watching three fully-occluded fixtures go green.
+`qa-harness.spec.ts` is the harness's harness: 17 specs, calibrated against
+arithmetic on a synthetic canvas, every gate paired with a negative control.
+
 **FB-4 SHIPPED (2026-08-03, frontend-builder) — a cut on a face-seated sketch
 goes INTO the material, and you see which way before you commit.** The founder's
 "I select a sketch do a cut it somehow misses everything going a different way"

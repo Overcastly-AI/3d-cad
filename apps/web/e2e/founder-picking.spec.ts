@@ -1,6 +1,20 @@
 import { expect, test, type Page } from "./fixtures";
 
-import { createPartViaApi, distinctCanvasColors, seedSession } from "./support";
+import { handClick } from "./hand";
+import {
+  expectCameraStable,
+  expectModelUnoccluded,
+  installSceneProbe,
+  measureOcclusion,
+  waitForCameraRest,
+} from "./invariants";
+import { measureReachability, testIdPrefix } from "./reachability";
+import {
+  createPartViaApi,
+  distinctCanvasColors,
+  seedSession,
+  waitForFrames,
+} from "./support";
 
 /**
  * FOUNDER SESSION 2026-08-01 — the picking reports (BACKLOG FB-2/FB-3/FB-5,
@@ -24,6 +38,14 @@ import { createPartViaApi, distinctCanvasColors, seedSession } from "./support";
  *   - FB-13 — FIXED `d2e2162`; case REMOVED, not flipped (see the note below —
  *     it had also gone stale, waiting on a row that is no longer minted).
  *   - FB-3/FB-5 — STILL OPEN: the face itself is not a click target.
+ *
+ * FB-17 (2026-08-01) added the second half: the gates that make this class of
+ * defect VISIBLE rather than relying on a founder to find it. `hand.ts` drives
+ * clicks with real drift and dwell, `reachability.ts` measures the affordance
+ * as a FRACTION of what the user can see, and `invariants.ts` asserts the
+ * camera and the panels behave across an action. Their own calibration and
+ * negative controls live in `qa-harness.spec.ts`; what lives here is those
+ * gates pointed at the real product.
  */
 
 /** Enter the sketcher on a base plane with snap OFF, so clicks land on pixels. */
@@ -165,6 +187,227 @@ test.describe("founder picking reports", () => {
 
       await expect(page.getByTestId("sketch-step")).toHaveText("On Face", {
         timeout: 5_000,
+      });
+    },
+  );
+
+  /**
+   * FB-17(a) — INPUT FIDELITY, swept rather than sampled.
+   *
+   * `founder-picking`'s FB-12 case pins ONE drift value (6 px). One value is a
+   * spot check on a threshold, and thresholds are exactly what regress: the
+   * original bug was a single constant, and any replacement constant fails at
+   * some distance. Sweeping the range a trackpad actually produces turns the
+   * assertion from "6 px works" into "the whole band a hand covers works",
+   * which is the property the product needs and the one a spot check cannot
+   * express. 0 is included deliberately as the degenerate machine input, so a
+   * regression that broke only the STILL click would show up here too.
+   */
+  for (const drift of [0, 2, 4, 6, 10]) {
+    test(`FB-12 sweep: a click that drifts ${drift} px selects the line`, async ({
+      page,
+    }) => {
+      const account = await seedSession(page);
+      const part = await createPartViaApi(
+        page,
+        account.token,
+        `Drift ${drift}`,
+      );
+      await page.goto(`/parts/${part.id}`);
+      await sketchOnXY(page);
+      await drawProbeRectangle(page);
+      await expect(page.getByTestId("selection-readout")).toContainText(
+        "nothing selected",
+      );
+
+      await handClick(page, BOTTOM_EDGE.x, BOTTOM_EDGE.y, { drift });
+
+      // The readout, not the dimension editor: this asserts the PICK resolved,
+      // with no second interaction to muddy which step failed.
+      await expect(page.getByTestId("selection-readout")).not.toContainText(
+        "nothing selected",
+      );
+      await page.keyboard.press("d");
+      await expect(page.getByTestId("dimension-input")).toBeVisible();
+    });
+  }
+
+  /**
+   * FB-17(c) — MEASURE THE AFFORDANCE.
+   *
+   * The `test.fail()` above proves ONE coordinate is dead, which a single
+   * 24 px dot in the right place would satisfy. This measures the fraction of
+   * the body's visible area that is a live pick target, which no arrangement of
+   * dots can fake.
+   *
+   * STILL FAILING, and expected to. Measured on this spec 2026-08-01:
+   * **45/454 sampled points = 9.9 %**, and 46/796 = 5.8 % on a run where the
+   * body framed larger. That spread is not noise to be tuned away, it is the
+   * defect stated numerically — six 24 px `PickNode` markers do not grow when
+   * the face does, so the affordance gets WORSE the closer you look at the
+   * part. (The earlier QA pass's 2.2 % is the same effect at a larger framing.)
+   * The fit is pinned before measuring so the number is comparable run to run.
+   *
+   * The floor is 50 %: when the face itself becomes the target (FB-3/FB-5,
+   * FB-8's hovered-face highlight), every lit point over the body picks it and
+   * this lands near 100 %, so 50 % cannot be reached by adding dots — only by
+   * changing the model of what a target is. Flip this to a plain `test` then.
+   */
+  test.fail(
+    "FB-3/FB-5: only a few percent of the visible body is a pick target",
+    async ({ page }) => {
+      const account = await seedSession(page);
+      const part = await createPartViaApi(page, account.token, "Affordance");
+      await page.goto(`/parts/${part.id}`);
+      await buildBox(page);
+
+      // Pin the framing: the fraction is a ratio of screen areas, so it is only
+      // comparable between runs if the body is the same size in frame.
+      const viewport = page.getByTestId("viewport");
+      await viewport.evaluate((node) => {
+        node.dataset["fitRect"] = "";
+      });
+      await page.getByTestId("view-fit").click();
+      await expect(viewport).not.toHaveAttribute("data-fit-rect", "", {
+        timeout: 20_000,
+      });
+
+      await page.getByTestId("new-sketch").click();
+      await page.getByTestId("plane-pick-face").click();
+      await expect(page.getByTestId("face-pick-prompt")).toBeVisible();
+      await expect(
+        page.locator('[data-testid^="plane-pick-face-"]').first(),
+      ).toBeVisible({ timeout: 20_000 });
+      await waitForFrames(page, 6);
+
+      const measured = await measureReachability(page, {
+        step: 8,
+        accept: testIdPrefix("plane-pick-face-"),
+      });
+      // Guards BEFORE the real assertion, so this case cannot start "failing
+      // as expected" for a new reason — the trap the FB-13 case fell into.
+      expect(measured.sampled, "body sampled").toBeGreaterThan(300);
+      expect(measured.reachable, "the markers ARE reachable").toBeGreaterThan(
+        10,
+      );
+      expect(
+        measured.fraction,
+        `clickable ${measured.reachable}/${measured.sampled} = ${(measured.fraction * 100).toFixed(1)}%`,
+      ).toBeGreaterThanOrEqual(0.5);
+    },
+  );
+
+  /**
+   * FB-17 — INVARIANTS ACROSS AN ACTION (the FB-1 gate).
+   *
+   * "After the extrude it flipped to xy." The extrude was always correct; the
+   * auto-fit re-imposed iso on every rebuild, and no spec noticed because every
+   * spec asserted the RESULT. One line — record the direction, act, compare —
+   * would have caught it, and now does.
+   */
+  test("FB-1 gate: a rebuild re-frames the body without stealing the viewpoint", async ({
+    page,
+  }) => {
+    await installSceneProbe(page); // before goto: it hooks three.js construction
+    const account = await seedSession(page);
+    const part = await createPartViaApi(page, account.token, "Viewpoint");
+    await page.goto(`/parts/${part.id}`);
+    await buildBox(page);
+
+    // Put the user somewhere deliberate and NOT iso, via the view rail: a snap
+    // ends in the rig's own settle stamp, so the precondition is established by
+    // a condition rather than by waiting out orbit damping.
+    const viewport = page.getByTestId("viewport");
+    await viewport.evaluate((node) => {
+      node.dataset["fitRect"] = "";
+    });
+    await page.getByTestId("view-front").click();
+    await expect(viewport).not.toHaveAttribute("data-fit-rect", "", {
+      timeout: 20_000,
+    });
+    const chosen = await waitForCameraRest(page);
+    expect(chosen.agreesWithStamp, "probe locked onto the model camera").toBe(
+      true,
+    );
+
+    // Now change the model. This rebuilds the geometry, which changes `fitKey`
+    // and re-runs the auto-fit — the exact trigger of FB-1.
+    const drift = await expectCameraStable(page, async () => {
+      await page.getByTestId("feature-select-1").click();
+      await expect(page.getByTestId("extrude-editor")).toBeVisible();
+      await page.getByTestId("extrude-distance").fill("25");
+      await page.getByTestId("extrude-distance").press("Enter");
+      await expect
+        .poll(() => distinctCanvasColors(page), { timeout: 30_000 })
+        .toBeGreaterThan(24);
+    });
+    // Measured 0.071° on 2026-08-01 — the fit re-frames distance and target and
+    // leaves the direction alone. The 1° ceiling is `expectCameraStable`'s
+    // default; this records what "correct" actually costs.
+    expect(drift).toBeLessThan(0.5);
+  });
+
+  /**
+   * FB-17 — OCCLUSION (the FB-7 gate, which the founder photographed).
+   *
+   * Two halves, and the second is the finding. At rest the fit does its job:
+   * the body lands between the tree and the inspector with no overlap. Open a
+   * feature editor and it lands ON the model — and the app's own free-rect fit
+   * cannot see it, because the editor card never declares
+   * `data-viewport-chrome` the way `FloatingPanel` and `ViewBar` do. So the
+   * editor has to be named explicitly here, which is itself the bug report.
+   */
+  test("FB-7 gate: at rest, no chrome covers the model", async ({ page }) => {
+    const account = await seedSession(page);
+    const part = await createPartViaApi(page, account.token, "Occlusion rest");
+    await page.goto(`/parts/${part.id}`);
+    await buildBox(page);
+    const viewport = page.getByTestId("viewport");
+    await viewport.evaluate((node) => {
+      node.dataset["fitRect"] = "";
+    });
+    await page.getByTestId("view-fit").click();
+    await expect(viewport).not.toHaveAttribute("data-fit-rect", "", {
+      timeout: 20_000,
+    });
+    await waitForFrames(page, 6);
+
+    const report = await expectModelUnoccluded(page);
+    // Measured: model box 375–1239 × 340–799 between panel-tree (ends 332) and
+    // panel-inspector (starts 1268), with view-bar below at y 906.
+    expect(report.chromeCount).toBeGreaterThanOrEqual(3);
+  });
+
+  test.fail(
+    "FB-7: an open feature editor covers the model it is editing",
+    async ({ page }) => {
+      const account = await seedSession(page);
+      const part = await createPartViaApi(
+        page,
+        account.token,
+        "Occlusion edit",
+      );
+      await page.goto(`/parts/${part.id}`);
+      await buildBox(page);
+
+      await page.getByTestId("feature-select-1").click();
+      await expect(page.getByTestId("extrude-editor")).toBeVisible();
+      await waitForFrames(page, 6);
+
+      // Measured on this spec 2026-08-01, with the annotation lifted so the
+      // reason is on record: the editor card (x 344–664, y 112–480) covers
+      // **50 069 px² = 9.0 %** of the body's box (375–1239 × 307–951) — the
+      // panel editing the part is sitting on the part. The same report also
+      // named `view-bar` at 6 630 px² (1.2 %), i.e. the bottom rail overlaps
+      // too once the editor pushes the framing; both are FB-7, and only the
+      // second is visible to the app's own free-rect fit.
+      const report = await measureOcclusion(page, {
+        extraSelectors: ['[data-testid="extrude-editor"]'],
+      });
+      expect(report.modelPixels, "body rendered").toBeGreaterThan(500);
+      expect(report.chromeCount, "chrome measured").toBeGreaterThan(0);
+      await expectModelUnoccluded(page, {
+        extraSelectors: ['[data-testid="extrude-editor"]'],
       });
     },
   );
