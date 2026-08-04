@@ -355,6 +355,36 @@ about to hit).
       every FB-1..FB-19 report was a flow failure rather than a missing
       capability, so this is the root the others are symptoms of. [src: founder
       2026-08-01]
+- [ ] (P0, M) **FB-21 — the origin axis glyphs are labelled in KERNEL space but
+      drawn in SCENE space, which the GLB rotation has already turned.** Founder,
+      2026-08-02: *"check the axis. Turn on the axis and compare them to the view
+      cube."* MEASURED, not inferred. A 40x20 rectangle on Plane.XY extruded
+      10 mm gives GLB mesh-local extents X 0.04 / Y 0.02 / **Z 0.01** — the
+      extrude is along kernel +Z, correct — and the glTF node carries rotation
+      `[-0.7071, 0, 0, 0.7071]`, a -90 deg turn about X, so **kernel +Z maps to
+      scene +Y** (and kernel +Y to scene -Z). `glbGeometry.ts` states it bakes
+      that node matrix into the merged buffer, and no compensating rotation
+      exists on the model mesh or the origin group (checked). But
+      `OriginGeometry.AXIS_DIRECTION` draws X/Y/Z at scene
+      `[1,0,0]/[0,1,0]/[0,0,1]` — an identity. So the glyph labelled **Z** points
+      along scene +Z, which is where the kernel's **-Y** lives, while the part's
+      height runs along scene +Y where the glyph labelled **Y** is drawn. Y and Z
+      read as swapped against the model. `Viewport.tsx` compounds it: camera
+      `up` is `(0,1,0)` and `upFor()` detects top/bottom with
+      `Math.abs(dir.y) > 0.99` — Y-up — so the ViewCube's TOP looks down the
+      part's true height while the axis captioned Z points sideways. That is the
+      disagreement the founder asked us to check.
+      **NOT yet established, and the next step:** whether `sketch/plane.ts`'s
+      bases (XY normal `[0,0,1]`, stated as build123d's kernel triples) are
+      likewise un-rotated — if so the PLANE glyphs mislead the same way, and the
+      plane a user picks is not the plane they see. Settle it by rendering, not
+      by reading: turn the axes on, screenshot against the ViewCube at a named
+      view, and compare with a body of known dimensions. Do NOT "fix" the labels
+      before that — geometry is verified exact (FB-9), so this is a naming/render
+      frame bug and swapping constants blind could break the half that is right.
+      Acceptance: one stated frame convention, documented; axis glyph, plane
+      glyph, ViewCube and model agree; a gate asserting the labelled Z glyph is
+      parallel to the extrude direction of an XY sketch. [src: founder 2026-08-02]
 
 **QA verdicts on the founder block (qa-tester, 2026-08-01, HEAD + bisect):**
 `d8a4126` (PERF-4b) is **EXONERATED — do not revert**: face picking uses drei
