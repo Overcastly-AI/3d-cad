@@ -161,12 +161,17 @@ about to hit).
       `DimensionNotParallelError` → typed `dimension_not_parallel`, NO value, for a
       converging/skew/degenerate pair. E2e `drawing-wall-thickness.spec.ts` reads
       5.000 off a real housing wall and proves the refusal.
-- [ ] (P2, S) **FB-11 — nothing in the app says which BUILD it is.** The founder
+- [x] (P2, S) **FB-11 — nothing in the app says which BUILD it is.** The founder
       tests from a GitHub Codespace, so a report cannot be tied to a commit and
       "already fixed or still broken" is unanswerable. Inject the git SHA + build
       time via Vite `define`, surface it quietly with a `data-testid`. Small, but
       it removes a whole class of wasted round-trip — two fixes landed mid-session
       and neither side can say whether the last report included them.
+      SHIPPED 2026-08-04: `vite.config.ts` injects `__BUILD_SHA__`/`__BUILD_TIME__`
+      (`-dirty` suffix when the tree is), read through `src/lib/build.ts`, printed
+      in the `?` key card's footer — reachable everywhere, costing the viewport
+      nothing. Falls back to `unknown` with no git; 4 tests cover the fallback so
+      it can never render `Build undefined`.
 - [x] (P0, S) **FB-12 — a click that drifts 5 px is silently discarded, which is
       what "the line wouldn't even select" actually is** (qa-tester, measured
       2026-08-01; `docs/QA-REVIEW.md` "founder session: the picking reports").

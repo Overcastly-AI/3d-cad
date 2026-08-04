@@ -13,6 +13,19 @@ library and cleared two of three images to publish (`c7f23dd`). OPEN: LIC-1,
 stripping jbigkit from the geometry image, which is what still blocks
 publishing it.
 
+**FB-11 SHIPPED 2026-08-04 — the app now says which build it is.** The founder
+tests from a Codespace, so "is that fixed in the build you were on?" had no
+answer from either side, and two fixes landed mid-session that neither of us
+could attribute. `vite.config.ts` injects the short SHA and an ISO build time at
+bundle time (suffixed `-dirty` when the tree is, because a dirty build is a
+different artifact from the commit under it); `src/lib/build.ts` reads them
+behind `typeof` guards so a tarball with no git degrades to `unknown` rather than
+failing the build. It surfaces in the `?` key card's footer, selectable and
+monospace so it can be pasted into a report — deliberately NOT permanent chrome,
+which would take pixels from the model to answer a question asked once a day.
+Four tests pin the fallback path, because a stamp that renders `Build undefined`
+answers the question wrongly, which is worse than not shipping one.
+
 **FOUNDER SESSION 2026-08-02 — the sketcher has something to start from, and a
 way back.** Two reports, one theme: the sheet gave you nothing to hold onto and
 no undo. (1) *"there isn't an origin to start a drawing from"* — `sketch/snap.ts`
