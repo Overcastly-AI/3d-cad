@@ -9,8 +9,30 @@
  * (`featureId`), `PartPage` debounce-saves every revision and feeds the
  * solved evaluate payload back through `adoptSolved` — which does NOT bump
  * `revision`, so the loop terminates.
+ *
+ * ## Sketch-local history (`past` / `future`, 2026-08-02)
+ *
+ * Founder report: *"there are no undo or redo buttons"* — true in the sketcher,
+ * where they are needed most. The part-level History group undoes FEATURES
+ * through the server's history ring, and a sketch in progress is not yet a
+ * feature, so wiring the sketcher's buttons to THAT would have been the worst
+ * outcome available: a control that looks like sketch undo and silently rolls
+ * back the extrude you did before you opened the sketcher.
+ *
+ * So the sketcher gets its own stack, and it is a stack of the only state that
+ * can be edited here: `entities` + `constraints` + `nextIdIndex`. Recording is
+ * DERIVED, not hand-rolled per action — the store's `set` is wrapped, and any
+ * transition that bumps `revision` (which is exactly the definition of a
+ * persisted sketch edit, and already had to be right for saving to work) pushes
+ * the pre-edit snapshot. A new action cannot forget to be undoable, and a
+ * transient one (selection, tool, cursor, `adoptSolved`) cannot accidentally
+ * become a history step.
+ *
+ * Undo/redo bump `revision` themselves, so a restored state flows through the
+ * same debounced save + re-solve as any other edit — undo is not a UI-only
+ * rewind that the server never hears about.
  */
-import { create } from "zustand";
+import { create, type StateCreator } from "zustand";
 
 import {
   applyConstraintAction,
@@ -35,6 +57,7 @@ import {
   type DrawShape,
 } from "./drawDimensions";
 import { toggleMirrorTarget, type MirrorAxis } from "./mirror";
+import { originIdentity } from "./origin";
 import type { DatumPlaneName, Point2D, SketchPlaneSpec } from "./plane";
 import {
   applyPick,
@@ -78,6 +101,44 @@ export interface DrawDimensionDraft {
   to: Point2D;
   fields: DrawDimensionField[];
 }
+
+/**
+ * One reversible sketch edit: everything an edit can change, and nothing else.
+ * Selection, tool and cursor are deliberately absent — restoring them would
+ * make undo move the user's hands as well as their geometry.
+ */
+export interface SketchSnapshot {
+  entities: SketchEntity[];
+  constraints: SketchConstraint[];
+  nextIdIndex: number;
+}
+
+/** Deepest history the sketcher keeps (entity buffers are small; this is ample). */
+export const SKETCH_HISTORY_LIMIT = 200;
+
+const snapshotOf = (state: SketchState): SketchSnapshot => ({
+  entities: state.entities,
+  constraints: state.constraints,
+  nextIdIndex: state.nextIdIndex,
+});
+
+/**
+ * What an undo/redo hands back besides the geometry: every transient draft that
+ * addressed the state being replaced. A pending placement anchored to an entity
+ * that just left, or size cells describing a shape that no longer exists, would
+ * be a live editor pointing at nothing.
+ */
+const CLEARED_BY_HISTORY = {
+  pending: [] as Point2D[],
+  selection: [] as SketchPick[],
+  hoverPick: null,
+  selectedConstraint: null,
+  dimensionEdit: null,
+  drawDimension: null,
+  drawDimensionFocus: null,
+  offsetDraft: null,
+  hint: null,
+} as const;
 
 export interface SketchState {
   mode: SketchMode;
@@ -143,6 +204,14 @@ export interface SketchState {
   featureId: string | null;
   /** Monotonic edit counter — the sync loop persists every bump. */
   revision: number;
+  /**
+   * Sketch-local history (module note above): states BEFORE each edit, oldest
+   * first. `past.length > 0` is the honest `canUndo` — it is the stack itself,
+   * not a claim about it.
+   */
+  past: SketchSnapshot[];
+  /** States undone out of `past`, ready to be redone; cleared by any new edit. */
+  future: SketchSnapshot[];
   /** Latest solve feedback for the bound feature (DRO + diagnostics). */
   solve: SolveInfo | null;
   /**
@@ -356,6 +425,15 @@ export interface SketchState {
   cancelDimension: () => void;
   selectConstraint: (index: number | null) => void;
   removeConstraint: (index: number) => void;
+  /**
+   * Undo one SKETCH edit — the entity you just drew, the constraint you just
+   * applied, the trim you just made. Scoped to this sketch session and to
+   * nothing else: it can never reach a feature (see the module note). A no-op
+   * with an empty `past`, or while a geometry edit is in flight.
+   */
+  undo: () => void;
+  /** Redo the last undone sketch edit (cleared the moment you draw again). */
+  redo: () => void;
   /** Bind the session to its persisted feature (first save). */
   bind: (featureId: string) => void;
   /**
@@ -404,6 +482,8 @@ const INITIAL = {
   drawDimensionFocus: null,
   featureId: null,
   revision: 0,
+  past: [],
+  future: [],
   solve: null,
   solvedDimensions: [],
   hint: null,
@@ -451,6 +531,8 @@ function resolveAim(
   toleranceMm: number,
   modifiers: { suppressed: boolean; axisLock: boolean },
 ): SnapResolution {
+  // A tool that PLACES gets both snap sources; one that picks gets neither.
+  const placing = placesPoints(state.tool);
   return resolveSnap({
     point,
     entities: state.entities,
@@ -462,11 +544,62 @@ function resolveAim(
     gridStepMm: state.snapEnabled ? state.snapStepMm : 0,
     suppressed: modifiers.suppressed,
     axisLock: modifiers.axisLock,
-    entitySnap: placesPoints(state.tool),
+    entitySnap: placing,
+    // The plane's own frame, named by what its zero IS — a datum's fixed zero
+    // or a seated face's area centroid (`sketch/origin.ts`).
+    originSnap: placing ? { label: originIdentity(state.plane).label } : null,
   });
 }
 
-export const useSketchStore = create<SketchState>()((set, get) => ({
+/** The `set` signature every action in this store uses (no `replace`). */
+type SketchSet = (
+  partial:
+    Partial<SketchState> | ((state: SketchState) => Partial<SketchState>),
+) => void;
+
+/**
+ * History recorder. Wraps the store's `set` so that any transition which BUMPS
+ * `revision` — the existing, already-load-bearing definition of "a sketch edit
+ * the server needs to hear about" — pushes the pre-edit state onto `past`.
+ *
+ * Derived rather than hand-rolled in each of the fifteen mutating actions: a
+ * new action becomes undoable by construction, and a transient one (selection,
+ * tool, cursor, `adoptSolved`) can never become a history step by accident.
+ *
+ * Two transitions are NOT edits and are skipped:
+ *   · `revision` unchanged or RESET — `exit` / the Escape cascade zero the
+ *     counter through `freshSession`, which is the opposite of an edit;
+ *   · a set that rewrites `past`/`future` itself — that IS the history move
+ *     (undo/redo), and recording it would push a step per undo, leaving a stack
+ *     that can never empty.
+ */
+const withSketchHistory =
+  (
+    creator: (set: SketchSet, get: () => SketchState) => SketchState,
+  ): StateCreator<SketchState> =>
+  (rawSet, get) =>
+    creator((partial) => {
+      const before = get();
+      rawSet(partial);
+      const after = get();
+      if (after.revision <= before.revision) return;
+      if (after.past !== before.past || after.future !== before.future) return;
+      const past = [...before.past, snapshotOf(before)];
+      rawSet({
+        past:
+          past.length > SKETCH_HISTORY_LIMIT
+            ? past.slice(past.length - SKETCH_HISTORY_LIMIT)
+            : past,
+        // A new edit forks the timeline: what was undone is unreachable now.
+        future: [],
+      });
+    }, get);
+
+/** Every action, over the recording `set` (never the raw one). */
+const createSketchState = (
+  set: SketchSet,
+  get: () => SketchState,
+): SketchState => ({
   ...INITIAL,
 
   begin: () => set((state) => ({ ...freshSession(state), mode: "plane" })),
@@ -1042,6 +1175,44 @@ export const useSketchStore = create<SketchState>()((set, get) => ({
     });
   },
 
+  undo: () => {
+    const state = get();
+    const previous = state.past[state.past.length - 1];
+    // A trim/offset/mirror/corner in flight will land on the CURRENT entity set
+    // when it returns; rewinding underneath it would apply its result to a
+    // sketch it never saw. The button holds for the same reason.
+    if (previous === undefined || state.editBusy) return;
+    set({
+      ...previous,
+      past: state.past.slice(0, -1),
+      future: [...state.future, snapshotOf(state)],
+      // A restored sketch is a change like any other: bump so it saves and
+      // re-solves. Undo is not a local rewind the server never hears about.
+      revision: state.revision + 1,
+      ...CLEARED_BY_HISTORY,
+      // Multi-phase tools stay armed but drop picks, which may name entities
+      // the restored state no longer holds — the same rung their own Escape
+      // cascade stops at.
+      mirror: state.mirror === null ? null : { phase: "targets", targets: [] },
+      corner: state.corner === null ? null : { op: state.corner.op, picks: [] },
+    });
+  },
+
+  redo: () => {
+    const state = get();
+    const next = state.future[state.future.length - 1];
+    if (next === undefined || state.editBusy) return;
+    set({
+      ...next,
+      past: [...state.past, snapshotOf(state)],
+      future: state.future.slice(0, -1),
+      revision: state.revision + 1,
+      ...CLEARED_BY_HISTORY,
+      mirror: state.mirror === null ? null : { phase: "targets", targets: [] },
+      corner: state.corner === null ? null : { op: state.corner.op, picks: [] },
+    });
+  },
+
   bind: (featureId) => set({ featureId }),
 
   adoptSolved: (entities, solve, dimensions) => {
@@ -1158,4 +1329,8 @@ export const useSketchStore = create<SketchState>()((set, get) => ({
   },
 
   exit: () => set(freshSession(get())),
-}));
+});
+
+export const useSketchStore = create<SketchState>()(
+  withSketchHistory(createSketchState),
+);

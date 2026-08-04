@@ -56,6 +56,10 @@ const input = (over: Partial<SnapInput>): SnapInput => ({
   suppressed: false,
   axisLock: false,
   entitySnap: true,
+  // OFF by default so every pre-existing case still measures the ENTITY snap
+  // alone; the plane-frame cases below opt in explicitly, which also makes
+  // their negative control (the same aim with `originSnap: null`) meaningful.
+  originSnap: null,
   ...over,
 });
 
@@ -380,5 +384,130 @@ describe("resolveSnap — Shift axis lock", () => {
       input({ point: raw, from, axisLock: true, suppressed: true }),
     );
     expect(result.at).toEqual(raw);
+  });
+});
+
+describe("the plane's own frame — origin and axes (founder, 2026-08-02)", () => {
+  const ORIGIN = { label: "Origin" };
+
+  it("offers the origin of an EMPTY sketch — nothing drawn to hold onto", () => {
+    // The whole defect in one case: with no entities, every other snap kind is
+    // undefined, so before this the first point of a sketch could only ever
+    // take the grid. The negative control is the same aim with the frame off.
+    const aim = { x: 0.4, y: -0.3 };
+    const withFrame = resolveSnap(
+      input({ point: aim, gridStepMm: 0, originSnap: ORIGIN }),
+    );
+    expect(withFrame.candidate?.kind).toBe("origin");
+    expect(withFrame.at).toEqual({ x: 0, y: 0 });
+
+    const without = resolveSnap(input({ point: aim, gridStepMm: 0 }));
+    expect(without.candidate).toBeNull();
+    expect(without.at).toEqual(aim);
+  });
+
+  it("carries the plane's OWN word for zero, so a face centroid is never called the origin", () => {
+    const result = resolveSnap(
+      input({
+        point: { x: 0.2, y: 0.2 },
+        gridStepMm: 0,
+        originSnap: { label: "Face centre" },
+      }),
+    );
+    expect(result.candidate?.kind).toBe("origin");
+    expect(result.candidate?.label).toBe("Face centre");
+  });
+
+  it("snaps ONTO an axis with the free coordinate still on the grid", () => {
+    // Grid ON: `25.4 → 25` is the grid's doing, `y → 0` is the axis's. Both
+    // have to happen, or "start on the X axis" gives you 24.87.
+    const onX = resolveSnap(
+      input({ point: { x: 25.4, y: 0.3 }, originSnap: ORIGIN }),
+    );
+    expect(onX.candidate?.kind).toBe("x-axis");
+    expect(onX.at).toEqual({ x: 25, y: 0 });
+
+    const onY = resolveSnap(
+      input({ point: { x: -0.3, y: 12.4 }, originSnap: ORIGIN }),
+    );
+    expect(onY.candidate?.kind).toBe("y-axis");
+    expect(onY.at).toEqual({ x: 0, y: 12 });
+  });
+
+  it("holds the axis exactly at zero with the grid OFF", () => {
+    const result = resolveSnap(
+      input({ point: { x: 25.37, y: 0.3 }, gridStepMm: 0, originSnap: ORIGIN }),
+    );
+    expect(result.candidate?.kind).toBe("x-axis");
+    expect(result.at).toEqual({ x: 25.37, y: 0 });
+  });
+
+  it("lets a drawn point outrank the axis it happens to lie on", () => {
+    // An axis is a whole LINE — the weakest claim about where you are aiming.
+    // If it could outrank an endpoint, drawing along X would stop snapping to
+    // the corners you already made, which is the silent-wrong-thing this
+    // module exists to refuse.
+    const result = resolveSnap(
+      input({
+        point: { x: 9.7, y: 0.2 },
+        entities: [line("a", 0, 0, 9.7, 0.4)],
+        toleranceMm: 1,
+        gridStepMm: 0,
+        originSnap: ORIGIN,
+      }),
+    );
+    expect(result.candidate?.kind).toBe("endpoint");
+    expect(result.at).toEqual({ x: 9.7, y: 0.4 });
+  });
+
+  it("yields to a corner drawn AT the origin — the ink is the finer claim", () => {
+    // The constant real case: a rectangle started at zero. Both candidates are
+    // the same point to the last bit, so the tie is decided on which is more
+    // specific — the endpoint, which carries an entity id a constraint can
+    // address, and which the user can actually see.
+    const result = resolveSnap(
+      input({
+        point: { x: 0.3, y: 0.2 },
+        entities: [line("a", 0, 0, 40, 0)],
+        gridStepMm: 0,
+        originSnap: ORIGIN,
+      }),
+    );
+    expect(result.candidate?.kind).toBe("endpoint");
+    expect(result.at).toEqual({ x: 0, y: 0 });
+  });
+
+  it("prefers the origin over the axes that cross it", () => {
+    const result = resolveSnap(
+      input({ point: { x: 0.2, y: 0.1 }, gridStepMm: 0, originSnap: ORIGIN }),
+    );
+    expect(result.candidate?.kind).toBe("origin");
+  });
+
+  it("is suppressed by Ctrl/Cmd like every other snap", () => {
+    const raw = { x: 0.3, y: 0.2 };
+    const result = resolveSnap(
+      input({
+        point: raw,
+        suppressed: true,
+        gridStepMm: 0,
+        originSnap: ORIGIN,
+      }),
+    );
+    expect(result.candidate).toBeNull();
+    expect(result.at).toEqual(raw);
+  });
+
+  it("never reaches past the magnet — an aim 40 mm out stays where it is", () => {
+    const result = resolveSnap(
+      input({
+        point: { x: 40, y: 40 },
+        toleranceMm: 1,
+        gridStepMm: 0,
+        originSnap: ORIGIN,
+      }),
+    );
+    expect(result.candidate).toBeNull();
+    expect(result.at).toEqual({ x: 40, y: 40 });
   });
 });

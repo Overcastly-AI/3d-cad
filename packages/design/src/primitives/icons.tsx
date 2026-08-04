@@ -671,6 +671,43 @@ export const SnapIntersectionIcon = (p: IconProps) => (
   </Icon>
 );
 
+// The sketch PLANE's own frame — its origin and its two axes — snapped like any
+// other point. These three are not object snaps: they address the sheet, not
+// anything drawn on it, so they are drawn from a different vocabulary on
+// purpose. The axes carry the ISO centreline (long-dash / dot / long-dash),
+// which is what a drawing uses to say "axis"; the origin carries the corner of
+// a coordinate frame, its vertex ON the point being taken. Neither can be
+// mistaken for `HorizontalIcon` / `VerticalIcon` (the Shift axis LOCK, a plain
+// scribe noded at both ends) — that pair says "this click runs level with where
+// you started", these say "this click lands on the sheet's own datum".
+
+/**
+ * Origin — the corner of the frame, its vertex ON the point being taken (the
+ * mark is drawn centred at the candidate, so the vertex has to be the centre of
+ * the grid or the symbol would name a spot 6 units from the one it takes). The
+ * arms run +X right and +Y up, which is true by construction: the sketch camera
+ * parks with up = the plane's +v, so +u always reads left→right on screen.
+ */
+export const SnapOriginIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M12 3 V12 H21" />
+  </Icon>
+);
+
+/** X axis — the ISO centreline (long dash · dot · long dash), running level. */
+export const SnapXAxisIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M2 12 H8 M11 12 H13 M16 12 H22" />
+  </Icon>
+);
+
+/** Y axis — the same centreline stood on end. */
+export const SnapYAxisIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M12 2 V8 M12 11 V13 M12 16 V22" />
+  </Icon>
+);
+
 // --- Export -----------------------------------------------------------------
 
 /** STEP = an exact B-rep solid (an isometric cube — every edge is real). */

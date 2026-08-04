@@ -13,6 +13,35 @@ library and cleared two of three images to publish (`c7f23dd`). OPEN: LIC-1,
 stripping jbigkit from the geometry image, which is what still blocks
 publishing it.
 
+**FOUNDER SESSION 2026-08-02 — the sketcher has something to start from, and a
+way back.** Two reports, one theme: the sheet gave you nothing to hold onto and
+no undo. (1) *"there isn't an origin to start a drawing from"* — `sketch/snap.ts`
+offered four kinds, all derived from geometry already drawn, so the first point
+of a sketch could take only the grid, and nothing marked (0,0). The plane's own
+frame is now drawn AND snappable: a centre-punch ring at zero with both axes,
+solid on the positive half and phantom on the negative (the `OriginGeometry`
+dialect, so the sketcher and the world speak one axis language), plus `origin` /
+`x-axis` / `y-axis` snap kinds that rank with endpoints and yield to a corner
+drawn at zero. It is stated in plane (u,v) throughout, so a change of world
+convention cannot rotate it off its own zero. And it is NAMED per plane kind: a
+datum's zero is "Origin", a face-seated sketch's is "Face centre" with the
+caveat that it MOVES when the outline changes — which is the QA3-2 mechanism
+(a ring 0.065 mm eccentric because "the middle" and "the origin" looked like the
+same place), finally said out loud where the user reads it. (2) *"there are no
+undo or redo buttons"* — true in the sketcher, and the fix was NOT to point the
+familiar chrome at the familiar handler: part history undoes FEATURES, and a
+sketch in progress is not one, so that pairing would have silently rolled back
+the previous extrude. The sketch store grew its own stack, recorded by
+derivation (the `set` wrapper snapshots any transition that bumps `revision`, so
+a new action is undoable by construction), restoring through the same
+debounce-save + re-solve as any other edit. The shared `HistoryGroup` renders it
+— one control, one name, three workspaces — with a `scope` caption saying what
+one step reverses. Gates: `e2e/sketch-origin.spec.ts` draws from a 6 px-off aim
+with the grid OFF and asserts the persisted corner is exactly (0,0), and asserts
+the feature tree + 8,000 mm³ body are untouched across sketch undo/redo.
+Before/after at 1600 and 1280:
+`docs/screenshots/sketch-origin-history-{before,after}-{1600,1280}.png`.
+
 **FOUNDER SESSION 2026-08-01 — the sketcher answers back.** Two of the evening's
 reports were closed at the source rather than worked around. FB-1b, *"sketches
 should be more visible"*: a sketch seated on a model face was putting ZERO

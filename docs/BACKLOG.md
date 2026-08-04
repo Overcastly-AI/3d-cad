@@ -386,6 +386,51 @@ about to hit).
       glyph, ViewCube and model agree; a gate asserting the labelled Z glyph is
       parallel to the extrude direction of an XY sketch. [src: founder 2026-08-02]
 
+- [x] (P0, M) **FB-22 — the sheet now says where zero is, and you can start
+      there** (founder 2026-08-02: *"there isn't an origin to start a drawing
+      from."*). `sketch/snap.ts` offered four kinds, every one derived from
+      geometry already drawn, so the FIRST point of a sketch could hold onto
+      nothing but the grid — and nothing on screen marked (0,0). Shipped: the
+      plane's own frame, drawn (`sketch/origin.ts` + `SketchOrigin` — a
+      centre-punch ring at zero with both axes, solid on the positive half and
+      phantom on the negative, letter engraved on the positive half; the
+      OriginGeometry dialect, in plane (u,v) so it survives a world-frame
+      change) and SNAPPABLE (`origin` / `x-axis` / `y-axis` kinds, ranked with
+      endpoints and yielding to a corner drawn at zero, the axes last of all).
+      Named honestly per plane kind: a datum's zero is "Origin", a face-seated
+      sketch's is "Face centre" with the caveat that it MOVES — the QA3-2
+      mechanism, now stated where the user reads it. Gates:
+      `e2e/sketch-origin.spec.ts` draws a rectangle from a 6 px-off aim with the
+      grid OFF and asserts the persisted corner is exactly (0,0). [src: founder
+      2026-08-02]
+- [x] (P0, M) **FB-23 — undo and redo, in the sketcher, on the SKETCH's own
+      stack** (founder 2026-08-02: *"there are no undo or redo buttons."*).
+      `HistoryGroup` was rendered by the part and assembly bands and not by
+      `SketchStrip`, so entering the sketcher removed undo exactly where the
+      work is most reversible. The trap was wiring the familiar chrome to the
+      familiar handler: part history undoes FEATURES, and a sketch in progress
+      is not yet a feature. So the store grew its own `past`/`future`, RECORDED
+      BY DERIVATION — the `set` wrapper snapshots any transition that bumps
+      `revision`, which is already the definition of a persisted sketch edit, so
+      a new action is undoable by construction. Undo bumps `revision` too, so a
+      restored sketch saves and re-solves. Same shared `HistoryGroup`, same
+      Ctrl+Z grammar, plus a `scope` caption naming what one step reverses.
+      Gate: `e2e/sketch-origin.spec.ts` asserts the feature tree and the 8,000
+      mm³ body are UNTOUCHED across sketch undo/redo. [src: founder 2026-08-02]
+- [ ] (P2, S) **A bound sketch undone to ZERO entities cannot persist that
+      state** (`apps/web`). `PartPage.persistBuffer` early-returns when
+      `entities.length === 0`, which predates sketch undo (nothing could shrink
+      the buffer before FB-23), so undoing the last entity of a SAVED sketch
+      shows an empty sheet while the server keeps the last geometry — and
+      Finish then closes without reconciling them. Fix in the sync loop, not the
+      store: an empty bound sketch is a legal state to save. [src: FB-23
+      as-built]
+- [ ] (P3, XS) **Fold the two private `calibratePlane` copies into
+      `e2e/planeMap.ts`** (`apps/web`). `constraints.spec.ts` and
+      `sketch-snap.spec.ts` each carry their own copy of the plane→screen
+      calibration; the shared module landed with FB-22 rather than adding a
+      third. Next time either spec is opened, import it. [src: FB-22 as-built]
+
 **QA verdicts on the founder block (qa-tester, 2026-08-01, HEAD + bisect):**
 `d8a4126` (PERF-4b) is **EXONERATED — do not revert**: face picking uses drei
 `Html` DOM buttons, `ModelMesh` has no click handler at any of `3cf6650` /
@@ -418,6 +463,11 @@ so it is the pre-`5bd4c46` camera snap or a stale Codespace bundle (see FB-11).
       circular-edge centres + straight edges of the sketched face), snappable and
       dimensionable; and the sketch frame's origin drawn and named against the
       part. [docs/QA-REVIEW.md 2026-08-01 QA3-2]
+      PARTIAL 2026-08-02 (FB-22): the origin half is DONE — the sketch frame's
+      zero is drawn, snappable, and named per plane kind, so a face-seated
+      sketch's origin now says "Face centre" and that it moves. What remains is
+      the projection half: body edges/hole centres projected into the sketch,
+      snappable and dimensionable.
 
 - [ ] (P1, M) **SEL-1 — default hover lights the whole body; a working
       engineer needs the FACE** (`apps/web`). `ModelMesh.tsx`'s pointer handler
