@@ -83,6 +83,28 @@ with the modifier held. Gated by `e2e/sketch-escape-select.spec.ts`, six specs
 that go red on the old behaviour. Left for the strip's owner: `SketchStrip.tsx`
 still captions the Save chip "Esc".
 
+**SEL-1 A2 SHIPPED (2026-08-05) — the face you can see is the face you can
+click: 9.9 % -> 84.6 %.** The founder called face picking "very difficult" and
+QA put the number on it — 2.2 % of the body's on-screen area was a live target,
+because the only thing listening was a 24 px `PickNode` at each face's
+centroid. The affordance got WORSE the closer you zoomed, since six dots do not
+grow when the face does. The drawn mesh is now the hit-test: `ModelMesh`
+publishes its geometry through `partView`, `FacePickOverlay` raycasts it and
+resolves the struck triangle to a B-rep ordinal — already `OverlayFace.index`,
+so no mapping table exists to drift — and all three armed-pick call sites
+(sketch-on-face, datum, hole) inherit it. `PickNode` is untouched, demoted to
+the role §5 always wanted for it: keyboard focus, screen-reader name, touch
+target. A hit on a non-planar face is ignored rather than snapped to a
+neighbour, because a pick that acts on geometry you did not address is worse
+than one that does nothing. **The two FB-3/FB-5 `test.fail`s flipped to real
+assertions, and neither flipped by changing the annotation** — the affordance
+case was hit-testing the DOM, and `elementFromPoint` can only answer "the
+canvas" for a raycast handler, so it would have read 9.9 % with the defect
+fully fixed; the seat case had been clicking a hardcoded coordinate 40 px OFF
+the body, so it had never failed for its stated reason. Both are the same
+lesson this repo keeps paying for: a gate is only as honest as its INPUT, and
+"it failed" tells you nothing until you know WHY. 44 pick-related specs pass.
+
 **SEL-1 A1 SHIPPED (2026-08-05) — the pointer tells you which FACE it is about
 to act on.** The founder's "there are too many to see what you are clicking"
 (FB-8) and "picking a face is very difficult" (FB-3) shared one mechanism:

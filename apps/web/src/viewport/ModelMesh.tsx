@@ -596,9 +596,20 @@ export function ModelMesh({
   // its eye on exactly this).
   const setBodyPresent = usePartViewStore((state) => state.setBodyPresent);
   const setPartitioned = usePartViewStore((state) => state.setPartitioned);
+  const setPickGeometry = usePartViewStore((state) => state.setPickGeometry);
   useEffect(() => {
     setBodyPresent(geometry !== null);
   }, [geometry, setBodyPresent]);
+  /**
+   * SEL-1 / A2: publish the drawn mesh so an armed pick overlay can raycast the
+   * real surface instead of its 24 px centroid buttons. The cleanup runs BEFORE
+   * the dispose effect below re-runs for a new geometry, so no consumer is ever
+   * holding a disposed object — the mesh owns this lifetime and says so.
+   */
+  useEffect(() => {
+    setPickGeometry(geometry);
+    return () => setPickGeometry(null);
+  }, [geometry, setPickGeometry]);
   useEffect(() => {
     setPartitioned(perBodyFaces !== null);
   }, [perBodyFaces, setPartitioned]);

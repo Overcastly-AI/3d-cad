@@ -506,6 +506,21 @@ so it is the pre-`5bd4c46` camera snap or a stale Codespace bundle (see FB-11).
       body-wide edge overlay's and the two came out STIPPLED. A2 (raycast as
       the primary hit-test for armed picks — the 9.9 %-vs-50 % reachability
       floor) and A7 remain OPEN; this ships the hover cue, not the hit-test.
+      **A2 SHIPPED 2026-08-05 — the drawn face IS the target: 9.9 % -> 84.6 %.**
+      `ModelMesh` publishes its geometry through `partView`; `FacePickOverlay`
+      raycasts it and resolves the struck triangle to a B-rep ordinal, which is
+      already `OverlayFace.index`, so there is no mapping table to drift. All
+      three armed-pick call sites (sketch-on-face, datum, hole) get it for free.
+      `PickNode` is unchanged and demoted to what §5 asks: keyboard focus,
+      screen-reader name, touch target. A hit on a NON-pickable (non-planar)
+      face is ignored rather than snapped to a neighbour. Both FB-3/FB-5
+      `test.fail`s in `founder-picking.spec.ts` flipped to real assertions —
+      and BOTH needed their measurement repaired first, which is the reusable
+      lesson: the affordance case hit-tested the DOM, and `elementFromPoint`
+      answers "the canvas" for a raycast handler, so it would have stayed at
+      9.9 % with the defect fully fixed; the seat case clicked a hardcoded
+      coordinate that is 40 px OFF the body, so it had never once failed for
+      the reason it claimed. A7 (PickNode rest opacity) remains OPEN.
 
 - [ ] (P1, S) **SEL-2 — a sketch pick never names what it's about to select**
       (`apps/web`). `sketch/pick.ts` resolves a winning candidate silently;

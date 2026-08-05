@@ -18,13 +18,15 @@
 import { PickNode } from "@loft/design";
 import { viewport } from "@loft/design/tokens";
 import { Html } from "@react-three/drei";
-import { useThree } from "@react-three/fiber";
-import { useEffect, useMemo, useState } from "react";
+import { useThree, type ThreeEvent } from "@react-three/fiber";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { DoubleSide, Quaternion, Vector3 } from "three";
 
 import type { OverlayFace, PlanarFaceSignature } from "../api/parts";
 import { faceLabel, isPickableFace } from "../features/face";
 import { occtToScene } from "../measure/geometry";
+import { faceOrdinalOfTriangle } from "./glbGeometry";
+import { usePartViewStore } from "./partView";
 
 export interface FacePickOverlayProps {
   /** The evaluated body's faces (from `OverlayResult.faces`), or null. */
@@ -91,6 +93,8 @@ export function FacePickOverlay({
 }: FacePickOverlayProps) {
   const invalidate = useThree((s) => s.invalidate);
   const [hovered, setHovered] = useState<number | null>(null);
+  /** The drawn mesh, published by `ModelMesh` — the raycast target for A2. */
+  const pickGeometry = usePartViewStore((state) => state.pickGeometry);
 
   // frameloop="demand": redraw when the pickable set / pending / hover changes.
   useEffect(() => {
@@ -102,10 +106,110 @@ export function FacePickOverlay({
     setHovered(null);
   }, [faces]);
 
+  /**
+   * QA hook: which face the armed pick is currently addressing (SEL-1 / A2).
+   * Stamped on the viewport container — the same posture `data-hovered-face`
+   * and `data-body-highlight` already take — because the thing under test is a
+   * RAYCAST handler, and `document.elementFromPoint` can only ever answer
+   * "the canvas" for those. Without it the affordance can only be measured by
+   * clicking, which mutates the document once per sample point.
+   */
+  const canvas = useThree((state) => state.gl.domElement);
+  useEffect(() => {
+    const node = canvas.closest<HTMLElement>('[data-testid="viewport"]');
+    if (node === null) return;
+    if (hovered === null) delete node.dataset["facePickHover"];
+    else node.dataset["facePickHover"] = String(hovered);
+    return () => {
+      delete node.dataset["facePickHover"];
+    };
+  }, [hovered, canvas]);
+
+  /**
+   * SEL-1 / spec A2 — the surface IS the target.
+   *
+   * The founder said face picking was "very difficult" and QA put a number on
+   * it: 32 of 1457 sample points over the body were live targets, **2.2 %**.
+   * The other 97.8 % was dead, because the only thing listening was a 24 px
+   * `PickNode` at each face's area CENTROID. Every pick spec was green the
+   * whole time — they call `getByTestId(...).click()`, which lands on that dot
+   * with machine precision, so the suite proved a path no hand takes (FB-17b).
+   *
+   * A face is now hit by RAYCASTING the drawn mesh and resolving the struck
+   * triangle back to its B-rep face ordinal — the same ordinal space
+   * `OverlayFace.index` uses, so no mapping table is needed and none can drift.
+   * `PickNode` stays exactly where it was, demoted from sole hit-test to what
+   * §5 asks of it: the keyboard focus target, the screen-reader name, and the
+   * touch tap target.
+   *
+   * A hit on a face that is NOT pickable (non-planar — it carries no signature,
+   * so there is nothing to seat a datum on) resolves to null and is IGNORED
+   * rather than snapped to a nearby planar face. A pick that quietly acts on
+   * geometry the user did not address is worse than one that does nothing, and
+   * "nothing" here is honest: the overlay draws no patch there either, so the
+   * screen already said this face is not on offer.
+   */
+  const pickableAt = useCallback(
+    (event: ThreeEvent<PointerEvent>): OverlayFace | null => {
+      if (faces === null || pickGeometry === null) return null;
+      const triangle = event.faceIndex;
+      if (triangle === undefined || triangle === null) return null;
+      const ordinal = faceOrdinalOfTriangle(pickGeometry, triangle);
+      if (ordinal === null) return null;
+      const face = faces.find((candidate) => candidate.index === ordinal);
+      return face !== undefined && isPickableFace(face) ? face : null;
+    },
+    [faces, pickGeometry],
+  );
+
+  const onSurfaceMove = useCallback(
+    (event: ThreeEvent<PointerEvent>) => {
+      const face = pickableAt(event);
+      setHovered((current) => {
+        const next = face?.index ?? null;
+        return current === next ? current : next;
+      });
+    },
+    [pickableAt],
+  );
+
+  const onSurfaceClick = useCallback(
+    (event: ThreeEvent<MouseEvent>) => {
+      const face = pickableAt(event as unknown as ThreeEvent<PointerEvent>);
+      if (face === null || !isPickableFace(face)) return;
+      event.stopPropagation();
+      onPick(face);
+    },
+    [pickableAt, onPick],
+  );
+
   if (faces === null) return null;
 
   return (
     <group>
+      {/*
+        The raycast target. It draws NOTHING — `colorWrite:false` plus
+        `depthWrite:false` means it contributes no fragments and no depth, so
+        the body on screen is still `ModelMesh`'s and this cannot tint, hide or
+        z-fight with it. It exists purely so r3f's event system has a surface
+        to hit. `renderOrder={-1}` keeps it out of the transparent pass.
+      */}
+      {pickGeometry !== null ? (
+        <mesh
+          geometry={pickGeometry}
+          onPointerMove={onSurfaceMove}
+          onPointerOut={() => setHovered(null)}
+          onClick={onSurfaceClick}
+          renderOrder={-1}
+        >
+          <meshBasicMaterial
+            colorWrite={false}
+            depthWrite={false}
+            transparent
+            opacity={0}
+          />
+        </mesh>
+      ) : null}
       {faces.map((face) =>
         isPickableFace(face) ? (
           <group key={`f${face.index}`}>

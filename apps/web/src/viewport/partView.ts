@@ -55,6 +55,7 @@
  */
 import { useEffect } from "react";
 import { create } from "zustand";
+import type { BufferGeometry } from "three";
 
 import { isTypingTarget } from "../lib/isTypingTarget";
 import {
@@ -144,11 +145,20 @@ interface PartViewState {
   partitioned: boolean;
   /** The row `V` / `⇧V` act on — the browser's addressed entity. */
   addressedKey: string | null;
+  /**
+   * The drawn mesh, published by `ModelMesh` so an armed pick overlay can
+   * RAYCAST it (SEL-1 / spec A2) instead of relying on its 24 px centroid
+   * buttons. The mesh is the only component that owns this object's lifetime,
+   * so it publishes null before disposing — a consumer must treat null as "no
+   * raycast target", never as "not loaded yet".
+   */
+  pickGeometry: BufferGeometry | null;
 
   setSubject: (subjectId: string) => void;
   setBodies: (bodies: readonly PartBodyView[]) => void;
   setBodyPresent: (present: boolean) => void;
   setPartitioned: (partitioned: boolean) => void;
+  setPickGeometry: (geometry: BufferGeometry | null) => void;
   setAddressed: (key: string | null) => void;
   toggle: (key: string) => void;
   setMode: (key: string, mode: VisibilityMode) => void;
@@ -163,6 +173,7 @@ export const usePartViewStore = create<PartViewState>((set, get) => ({
   bodyPresent: false,
   partitioned: false,
   addressedKey: null,
+  pickGeometry: null,
 
   setSubject: (subjectId) => {
     if (get().subjectId === subjectId) return;
@@ -173,6 +184,7 @@ export const usePartViewStore = create<PartViewState>((set, get) => ({
       bodyPresent: false,
       partitioned: false,
       addressedKey: null,
+      pickGeometry: null,
     });
   },
   setBodies: (bodies) => {
@@ -187,6 +199,10 @@ export const usePartViewStore = create<PartViewState>((set, get) => ({
   setPartitioned: (partitioned) => {
     if (get().partitioned === partitioned) return;
     set({ partitioned });
+  },
+  setPickGeometry: (pickGeometry) => {
+    if (get().pickGeometry === pickGeometry) return;
+    set({ pickGeometry });
   },
   setAddressed: (addressedKey) => {
     if (get().addressedKey === addressedKey) return;

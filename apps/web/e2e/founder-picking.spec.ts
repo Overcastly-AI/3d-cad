@@ -8,7 +8,7 @@ import {
   measureOcclusion,
   waitForCameraRest,
 } from "./invariants";
-import { measureReachability, testIdPrefix } from "./reachability";
+import { litPoints, measureReachabilityWith } from "./reachability";
 import {
   createPartViaApi,
   distinctCanvasColors,
@@ -37,7 +37,14 @@ import {
  *     `test` that fails if the 4 px slop ever returns.
  *   - FB-13 — FIXED `d2e2162`; case REMOVED, not flipped (see the note below —
  *     it had also gone stale, waiting on a row that is no longer minted).
- *   - FB-3/FB-5 — STILL OPEN: the face itself is not a click target.
+ *   - FB-3/FB-5 — FIXED (SEL-1 A2): the drawn face IS the click target now.
+ *     Both cases flipped to plain `test`s, and BOTH needed more than the
+ *     annotation changed. The affordance case had to stop hit-testing the DOM
+ *     (`elementFromPoint` answers "the canvas" for a raycast handler, so it
+ *     could not have scored the fix); the seat case had to stop clicking a
+ *     hardcoded coordinate that turned out to be 40 px off the body, i.e. it
+ *     had never failed for its stated reason. Affordance: **9.9 % -> 84.6 %**
+ *     of the visible body, against a 50 % floor.
  *
  * FB-17 (2026-08-01) added the second half: the gates that make this class of
  * defect VISIBLE rather than relying on a founder to find it. `hand.ts` drives
@@ -162,34 +169,59 @@ test.describe("founder picking reports", () => {
    * thing: read why it failed, never just that it did.
    */
 
-  test.fail(
-    "FB-3/FB-5: clicking a highlighted face does not seat the sketch on it",
-    async ({ page }) => {
-      const account = await seedSession(page);
-      const part = await createPartViaApi(page, account.token, "Face pick");
-      await page.goto(`/parts/${part.id}`);
-      await buildBox(page);
+  test("FB-3/FB-5: clicking a highlighted face seats the sketch on it", async ({
+    page,
+  }) => {
+    const account = await seedSession(page);
+    const part = await createPartViaApi(page, account.token, "Face pick");
+    await page.goto(`/parts/${part.id}`);
+    await buildBox(page);
 
-      await page.getByTestId("new-sketch").click();
-      await page.getByTestId("plane-pick-face").click();
-      await expect(page.getByTestId("face-pick-prompt")).toBeVisible();
-      const nodes = page.locator('[data-testid^="plane-pick-face-"]');
-      await expect(nodes.first()).toBeVisible({ timeout: 20_000 });
+    await page.getByTestId("new-sketch").click();
+    await page.getByTestId("plane-pick-face").click();
+    await expect(page.getByTestId("face-pick-prompt")).toBeVisible();
+    const nodes = page.locator('[data-testid^="plane-pick-face-"]');
+    await expect(nodes.first()).toBeVisible({ timeout: 20_000 });
 
-      // The prompt says "Click a highlighted planar face to sketch on it", but
-      // the only live targets are the six 24 px `PickNode` markers at the face
-      // CENTROIDS — the face itself carries no raycast handler (ModelMesh has
-      // no onClick at all). Measured: 2.2% of the body's on-screen area is a
-      // pick target. This clicks the top face well away from every marker.
-      const marker = await nodes.first().boundingBox();
-      expect(marker).not.toBeNull();
-      await page.mouse.click(1000, 430);
+    // The prompt says "Click a highlighted planar face to sketch on it", and
+    // until SEL-1 A2 that was a lie: the only live targets were the six 24 px
+    // `PickNode` markers at the face CENTROIDS, so 2.2 % of the body's
+    // on-screen area was a pick target and the sentence described an
+    // affordance that did not exist. The click below lands ON the body and
+    // well AWAY from every marker — the exact aim that used to do nothing.
+    //
+    // THE POINT IS DERIVED, and it has to be. This case used to click a
+    // hardcoded (1000, 430) under `test.fail()`, and when the fix landed and it
+    // was flipped, it still failed — because at this framing (1000, 430) is
+    // bench, roughly 40 px off the body's upper-right corner. So the old case
+    // had never been testing what it said: it "failed as expected" for years
+    // because the click MISSED, not because the face was dead, and it would
+    // have kept failing after any fix whatsoever. That is the same trap the
+    // FB-13 case fell into, and the general rule this file already states —
+    // read WHY it failed, never just that it did. A point taken from the lit
+    // silhouette cannot drift out from under the assertion when the fit changes.
+    const markers = await nodes.all();
+    const boxes = (
+      await Promise.all(markers.map((n) => n.boundingBox()))
+    ).flatMap((b) => (b === null ? [] : [b]));
+    expect(boxes.length, "the PickNode markers are present").toBeGreaterThan(0);
+    const clear = (await litPoints(page, { step: 8 })).find((point) =>
+      boxes.every(
+        (b) =>
+          point.x < b.x - 12 ||
+          point.x > b.x + b.width + 12 ||
+          point.y < b.y - 12 ||
+          point.y > b.y + b.height + 12,
+      ),
+    );
+    expect(clear, "a lit point clear of every marker").toBeDefined();
+    if (clear === undefined) return;
+    await page.mouse.click(clear.x, clear.y);
 
-      await expect(page.getByTestId("sketch-step")).toHaveText("On Face", {
-        timeout: 5_000,
-      });
-    },
-  );
+    await expect(page.getByTestId("sketch-step")).toHaveText("On Face", {
+      timeout: 5_000,
+    });
+  });
 
   /**
    * FB-17(a) — INPUT FIDELITY, swept rather than sampled.
@@ -240,62 +272,78 @@ test.describe("founder picking reports", () => {
    * the body's visible area that is a live pick target, which no arrangement of
    * dots can fake.
    *
-   * STILL FAILING, and expected to. Measured on this spec 2026-08-01:
-   * **45/454 sampled points = 9.9 %**, and 46/796 = 5.8 % on a run where the
-   * body framed larger. That spread is not noise to be tuned away, it is the
-   * defect stated numerically — six 24 px `PickNode` markers do not grow when
-   * the face does, so the affordance gets WORSE the closer you look at the
-   * part. (The earlier QA pass's 2.2 % is the same effect at a larger framing.)
-   * The fit is pinned before measuring so the number is comparable run to run.
+   * Measured on this spec 2026-08-01, BEFORE the fix: **45/454 sampled points
+   * = 9.9 %**, and 46/796 = 5.8 % on a run where the body framed larger. That
+   * spread was not noise to be tuned away, it was the defect stated
+   * numerically — six 24 px `PickNode` markers do not grow when the face does,
+   * so the affordance got WORSE the closer you looked at the part. (The
+   * earlier QA pass's 2.2 % is the same effect at a larger framing.) The fit is
+   * pinned before measuring so the number is comparable run to run.
    *
-   * The floor is 50 %: when the face itself becomes the target (FB-3/FB-5,
-   * FB-8's hovered-face highlight), every lit point over the body picks it and
-   * this lands near 100 %, so 50 % cannot be reached by adding dots — only by
-   * changing the model of what a target is. Flip this to a plain `test` then.
+   * The floor is 50 %: when the face itself becomes the target, every lit point
+   * over the body picks it and this lands near 100 %, so 50 % cannot be reached
+   * by adding dots — only by changing the model of what a target is.
+   *
+   * NOW A REAL ASSERTION (SEL-1 A2, 2026-08-05) — and note WHAT HAD TO CHANGE
+   * ABOUT THE MEASUREMENT, because the old form could not have scored the fix.
+   * `measureReachability` hit-tests the DOM with `elementFromPoint`, which was
+   * the right model while every target WAS DOM (a drei `Html` `PickNode`). The
+   * fix makes the drawn surface itself the target via a raycast handler, and
+   * `elementFromPoint` can only ever answer "the canvas" for one of those — so
+   * the DOM census would have stayed pinned near 9.9 % with the defect fully
+   * fixed. That is the `gen-check`-measuring-the-wrong-input trap in another
+   * costume: a gate is only as honest as its INPUT. The probe therefore aims
+   * the pointer and asks the app what it is ADDRESSING (`data-face-pick-hover`),
+   * which is exactly the question the founder was asking.
    */
-  test.fail(
-    "FB-3/FB-5: only a few percent of the visible body is a pick target",
-    async ({ page }) => {
-      const account = await seedSession(page);
-      const part = await createPartViaApi(page, account.token, "Affordance");
-      await page.goto(`/parts/${part.id}`);
-      await buildBox(page);
+  test("FB-3/FB-5: the visible body IS the pick target", async ({ page }) => {
+    const account = await seedSession(page);
+    const part = await createPartViaApi(page, account.token, "Affordance");
+    await page.goto(`/parts/${part.id}`);
+    await buildBox(page);
 
-      // Pin the framing: the fraction is a ratio of screen areas, so it is only
-      // comparable between runs if the body is the same size in frame.
-      const viewport = page.getByTestId("viewport");
-      await viewport.evaluate((node) => {
-        node.dataset["fitRect"] = "";
-      });
-      await page.getByTestId("view-fit").click();
-      await expect(viewport).not.toHaveAttribute("data-fit-rect", "", {
-        timeout: 20_000,
-      });
+    // Pin the framing: the fraction is a ratio of screen areas, so it is only
+    // comparable between runs if the body is the same size in frame.
+    const viewport = page.getByTestId("viewport");
+    await viewport.evaluate((node) => {
+      node.dataset["fitRect"] = "";
+    });
+    await page.getByTestId("view-fit").click();
+    await expect(viewport).not.toHaveAttribute("data-fit-rect", "", {
+      timeout: 20_000,
+    });
 
-      await page.getByTestId("new-sketch").click();
-      await page.getByTestId("plane-pick-face").click();
-      await expect(page.getByTestId("face-pick-prompt")).toBeVisible();
-      await expect(
-        page.locator('[data-testid^="plane-pick-face-"]').first(),
-      ).toBeVisible({ timeout: 20_000 });
-      await waitForFrames(page, 6);
+    await page.getByTestId("new-sketch").click();
+    await page.getByTestId("plane-pick-face").click();
+    await expect(page.getByTestId("face-pick-prompt")).toBeVisible();
+    await expect(
+      page.locator('[data-testid^="plane-pick-face-"]').first(),
+    ).toBeVisible({ timeout: 20_000 });
+    await waitForFrames(page, 6);
 
-      const measured = await measureReachability(page, {
-        step: 8,
-        accept: testIdPrefix("plane-pick-face-"),
-      });
-      // Guards BEFORE the real assertion, so this case cannot start "failing
-      // as expected" for a new reason — the trap the FB-13 case fell into.
-      expect(measured.sampled, "body sampled").toBeGreaterThan(300);
-      expect(measured.reachable, "the markers ARE reachable").toBeGreaterThan(
-        10,
-      );
-      expect(
-        measured.fraction,
-        `clickable ${measured.reachable}/${measured.sampled} = ${(measured.fraction * 100).toFixed(1)}%`,
-      ).toBeGreaterThanOrEqual(0.5);
-    },
-  );
+    // One round trip per point, so the grid is coarse (the helper's own
+    // guidance). The lit silhouette supplies the points either way, so this
+    // is still a fraction of what the user can SEE, not of the canvas.
+    const points = await litPoints(page, { step: 24 });
+    const measured = await measureReachabilityWith(points, async (point) => {
+      await page.mouse.move(point.x, point.y);
+      return (await viewport.getAttribute("data-face-pick-hover")) !== null;
+    });
+
+    // Guards BEFORE the real assertion, so this case cannot start passing
+    // for a new reason — e.g. an attribute that gets stuck set, which would
+    // score 100 % on a body that is not there at all.
+    expect(measured.sampled, "body sampled").toBeGreaterThan(40);
+    await page.mouse.move(5, 5);
+    await expect(viewport).not.toHaveAttribute("data-face-pick-hover", /.*/, {
+      timeout: 5_000,
+    });
+
+    expect(
+      measured.fraction,
+      `clickable ${measured.reachable}/${measured.sampled} = ${(measured.fraction * 100).toFixed(1)}%`,
+    ).toBeGreaterThanOrEqual(0.5);
+  });
 
   /**
    * FB-17 — INVARIANTS ACROSS AN ACTION (the FB-1 gate).
