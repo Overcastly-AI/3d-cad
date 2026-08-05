@@ -619,6 +619,25 @@ export function Viewport({
   }, []);
 
   /**
+   * QA hook: the face ordinal under the cursor (SEL-1 / spec A1). Proves the
+   * hover lights exactly ONE face of the body's `data-total-faces`, rather
+   * than the whole solid, as a number — the same raster-independent posture
+   * `data-selected-faces` takes for selection. Absent (attribute removed)
+   * whenever no face is addressed, so "nothing hovered" and "face 0 hovered"
+   * stay distinguishable — `String(0)` would collide with a falsy read.
+   */
+  const handleFaceHover = useCallback(
+    (ordinal: number | null, total: number) => {
+      const node = containerRef.current;
+      if (node === null) return;
+      if (ordinal === null) delete node.dataset["hoveredFace"];
+      else node.dataset["hoveredFace"] = String(ordinal);
+      node.dataset["totalFaces"] = String(total);
+    },
+    [],
+  );
+
+  /**
    * QA hook: the drawn / ghosted / hidden face census (UI-W2). The load-bearing
    * proof that a body eye moved the SCENE is the spec's pixel census; this is
    * its raster-independent companion, and it is what makes a "hidden means
@@ -814,6 +833,7 @@ export function Viewport({
             selectedFaceIndices={bodySelectedFaces}
             onHighlightChange={handleHighlight}
             onFaceSelectionChange={handleFaceSelection}
+            onFaceHoverChange={handleFaceHover}
             onVisibleBounds={setVisibleBounds}
             onBodyViewChange={handleBodyView}
           />

@@ -152,6 +152,25 @@ export const viewport = {
     selected: color.brass,
     hoverOpacity: 0.16,
     selectedOpacity: 0.3,
+    /**
+     * Surface tint of the face UNDER THE CURSOR in the default select tool
+     * (SEL-1). It multiplies the studio matcap exactly as the other surface
+     * tints do, and it sits deliberately between them:
+     *
+     *   restSurfaceTint        #FFFFFF  untinted machined aluminium
+     *   facePick.hoverTint     #EFD6AE  <- addressed, not yet committed
+     *   featureSelect.faceTint #E4BE85  committed selection
+     *
+     * The design spec expected `hoverSurfaceTint` to carry this, and the first
+     * build did use it — then the screenshot said no. That token was chosen to
+     * wash the WHOLE body, so it is only ~5 % off white; spread over every
+     * face that is a tasteful glow, but landed on ONE face it is invisible,
+     * which makes it a cue that does not cue. Localising the highlight is
+     * exactly what buys the room to state it louder, so this is a new value
+     * rather than a reused one — while staying a clear step below the
+     * selection brass, because hover must never read as committed.
+     */
+    hoverTint: "#EFD6AE",
   },
   /** The view reference cube (orientation gizmo) — a machinist's block. */
   gizmo: {

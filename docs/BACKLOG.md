@@ -488,6 +488,24 @@ so it is the pre-`5bd4c46` camera snap or a stale Codespace bundle (see FB-11).
       `PickNode`'s fixed 24px centroid/midpoint button to a keyboard/touch
       fallback. Design + acceptance A1/A2/A7: `docs/design/pre-selection.md`
       §1, §6. [src: founder]
+      **A1 SHIPPED 2026-08-05 — the pointer now addresses a FACE.** Hover
+      resolves the ordinal under the cursor and routes it to its own draw group
+      (`setFaceMaterials` slot 4) with its boundary traced by `subsetEdges`;
+      the whole-body glow survives as the fallback for a mesh that cannot be
+      face-partitioned, or a single-face body. Gated by `e2e/face-hover.spec
+      .ts` (5 specs), mutation-verified: deleting `onPointerMove` turns "the
+      addressed face FOLLOWS the cursor" red (distinct ordinals seen across a
+      grid sweep 2+ -> 1) while the arrival case stays green — r3f re-fires
+      `onPointerOver` only on mesh ENTRY, never between faces of one fused
+      mesh, which is the whole defect. Two deviations from the spec, both
+      forced by the founder capture rather than by taste: the surface tint is a
+      NEW token (`facePick.hoverTint` #EFD6AE) because the reused
+      `hoverSurfaceTint` is ~5 % off white — invisible once localized to one
+      face, i.e. a cue that does not cue; and the traced boundary draws
+      `depthTest:false`, because its segments are numerically identical to the
+      body-wide edge overlay's and the two came out STIPPLED. A2 (raycast as
+      the primary hit-test for armed picks — the 9.9 %-vs-50 % reachability
+      floor) and A7 remain OPEN; this ships the hover cue, not the hit-test.
 
 - [ ] (P1, S) **SEL-2 — a sketch pick never names what it's about to select**
       (`apps/web`). `sketch/pick.ts` resolves a winning candidate silently;

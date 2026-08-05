@@ -83,6 +83,29 @@ with the modifier held. Gated by `e2e/sketch-escape-select.spec.ts`, six specs
 that go red on the old behaviour. Left for the strip's owner: `SketchStrip.tsx`
 still captions the Save chip "Esc".
 
+**SEL-1 A1 SHIPPED (2026-08-05) — the pointer tells you which FACE it is about
+to act on.** The founder's "there are too many to see what you are clicking"
+(FB-8) and "picking a face is very difficult" (FB-3) shared one mechanism:
+`ModelMesh` typed its highlight per BODY, so hovering glowed the entire solid —
+the same answer everywhere, which is no answer, and a mis-aim stayed invisible
+until it was expensive. Hover is now face-grain: the ordinal under the cursor
+goes to its own draw group with its true boundary traced, the rest of the body
+keeps its studio matcap, and the whole-body glow survives only as the honest
+fallback for a mesh that cannot be face-partitioned. The load-bearing detail is
+`onPointerMove` — r3f re-fires `onPointerOver` on mesh ENTRY only, never as the
+pointer crosses between two faces of one fused mesh, so without it the
+highlight freezes on whichever face you arrived at. Two things the founder
+capture forced, and neither was in the spec: the reused `hoverSurfaceTint` is
+~5 % off white and vanishes once localized to a single face, so
+`facePick.hoverTint` (#EFD6AE) is a new token; and the traced boundary shares
+its segments exactly with the body-wide edge overlay, which z-fought into a
+STIPPLED line until it was drawn depth-test-free. Gated by
+`e2e/face-hover.spec.ts` (5 specs, mutation-verified against the
+`onPointerOver`-only implementation it replaces); the 13 adjacent
+hover/selection specs pass unchanged. A2 — the raycast becoming the PRIMARY
+hit-test, which is what moves the measured 9.9 % pick affordance against its
+50 % floor — is the next slice and is NOT in this one.
+
 **FB-15 + FB-16 SHIPPED (2026-08-03, frontend-builder) — you draw by dragging,
 and you type the size while you draw.** Every tool was click-then-click, and the
 size of what you drew could only be set afterwards by hunting for a dimension
