@@ -269,7 +269,36 @@ async function captureFaceHover(
   });
 }
 
+/**
+ * SEL-1 A7 — the pick reticles at rest, over a body, with a face pick armed.
+ * This is the "blanket of floating squares" the founder was reading through;
+ * since A2 they are the keyboard/touch fallback rather than the way you aim.
+ */
+async function captureArmedPick(
+  page: Page,
+  width: "desktop" | "laptop",
+): Promise<void> {
+  await openBoxPart(page);
+  await page.getByTestId("new-sketch").click();
+  await page.getByTestId("plane-pick-face").click();
+  await expect(page.getByTestId("face-pick-prompt")).toBeVisible();
+  await expect(
+    page.locator('[data-testid^="plane-pick-face-"]').first(),
+  ).toBeVisible({ timeout: 20_000 });
+  // Park the pointer off the body so nothing is hover-lit — the shot is the
+  // RESTING state, which is the whole subject of A7.
+  await page.mouse.move(8, 8);
+  await page.screenshot({
+    path: `${SCREENSHOT_DIR}/sel1-pick-reticles-${width}.png`,
+  });
+}
+
 test.describe("SEL-1 — founder screenshots", () => {
+  test("pick reticles at rest (desktop 1600×1000)", async ({ page }) => {
+    await page.setViewportSize({ width: 1600, height: 1000 });
+    await captureArmedPick(page, "desktop");
+  });
+
   test("the addressed face (desktop 1600×1000)", async ({ page }) => {
     await page.setViewportSize({ width: 1600, height: 1000 });
     await captureFaceHover(page, "desktop");

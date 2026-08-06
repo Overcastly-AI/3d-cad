@@ -83,6 +83,23 @@ with the modifier held. Gated by `e2e/sketch-escape-select.spec.ts`, six specs
 that go red on the old behaviour. Left for the strip's owner: `SketchStrip.tsx`
 still captions the Save chip "Esc".
 
+**SEL-1 COMPLETE (2026-08-06) — A7 lands, so the whole pre-selection item is
+done: A1 hover, A2 hit-test, A7 chrome.** The pick reticles used to sit at full
+strength over the body, which is the founder's "too many to see what you are
+clicking" (FB-8) showing up as CHROME rather than as picking — a bored face wore
+a blanket of bright dots over the geometry being read. They rest at 50 % now and
+return to full on hover, focus-visible and selected. It is a contrast cut and
+deliberately not a size cut: the 24 px hit area (WCAG 2.5.8) is untouched,
+because trading "too many to see" for "cannot hit it" on a laptop trackpad is
+the worse defect. This only became safe once A2 made the drawn surface the
+primary hit-test — the marks are the keyboard/touch fallback now, not how you
+aim. Worth recording: **A7's stated acceptance, a pixel census, is not
+deliverable, and finding out why is the useful part.** Every census in
+`e2e/support.ts` reads `[data-testid="viewport"] canvas`, and a `PickNode` is a
+drei `Html` DOM node that contributes ZERO canvas pixels — so no pixel gate we
+own could ever have scored this, which is precisely how the blanket survived.
+Gated on the property that decides it instead (`PickNode.test.tsx`).
+
 **CI GREEN AGAIN (2026-08-06) — and the commit that broke it never had a run at
 all.** `e2e` shard 4 was red on `sketch-visibility.spec.ts` (FB-1b's gate): ink
 244 px against a 319.5 floor. Bisected on the real stack — `8c0aa9b` (main)

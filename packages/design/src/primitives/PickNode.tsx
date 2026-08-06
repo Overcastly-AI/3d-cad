@@ -63,7 +63,25 @@ export function PickNode({
         className={cx(
           // 12px core + a 2px halo ring: the two-tone reticle that survives
           // both the light body faces and the dark ground.
-          "block h-3 w-3 ring-2 transition-colors duration-fast",
+          "block h-3 w-3 ring-2 transition duration-fast",
+          // AT REST THE RETICLE RECEDES (SEL-1 A7). It used to sit at full
+          // strength, which is how a bored face came to wear a blanket of
+          // bright dots over the geometry the modeller is trying to read —
+          // the founder's "too many to see what you are clicking" (FB-8),
+          // stated as chrome rather than as picking. Since SEL-1 A2 the drawn
+          // surface itself is the primary hit-test, so these marks are no
+          // longer how you aim: they are the keyboard focus target, the
+          // screen-reader name and the touch tap target (spec §5). Chrome that
+          // is not the primary affordance should not out-shout the model.
+          //
+          // Only the OPACITY moves, and only at rest. The hit area stays a
+          // full 24px (WCAG 2.5.8) — this is deliberately not a size cut,
+          // because a smaller target would trade one founder complaint for a
+          // worse one — and hover / focus-visible / selected all return to
+          // full strength, so the mark still answers the moment you address it.
+          selected
+            ? "opacity-100"
+            : "opacity-50 group-hover/pn:opacity-100 group-focus-visible/pn:opacity-100",
           shape === "vertex"
             ? "rounded-full"
             : shape === "center"

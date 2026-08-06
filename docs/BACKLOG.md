@@ -532,7 +532,22 @@ so it is the pre-`5bd4c46` camera snap or a stale Codespace bundle (see FB-11).
       answers "the canvas" for a raycast handler, so it would have stayed at
       9.9 % with the defect fully fixed; the seat case clicked a hardcoded
       coordinate that is 40 px OFF the body, so it had never once failed for
-      the reason it claimed. A7 (PickNode rest opacity) remains OPEN.
+      the reason it claimed.
+      **A7 SHIPPED 2026-08-05 — the reticles stop out-shouting the model, so
+      SEL-1 is COMPLETE (A1+A2+A7).** `PickNode`'s mark rests at 50 % opacity
+      and returns to full on hover, focus-visible and selected; the 24 px hit
+      area (WCAG 2.5.8) is untouched, because trading "too many to see" for
+      "cannot hit it" would be the worse defect. It follows A2: once the drawn
+      surface is the primary hit-test, these marks are the keyboard/touch
+      fallback rather than how you aim. NOTE the acceptance asked for a pixel
+      census and it is not deliverable — every census in `e2e/support.ts` reads
+      the WebGL canvas, and a `PickNode` is a drei `Html` DOM node that puts
+      ZERO pixels on it. That blindness is itself the finding: it is why the
+      "DOM-square blanket" survived every pixel gate we own. Gated instead on
+      the property that decides it (`PickNode.test.tsx`, 5 specs incl. the
+      target-size floor and all four shapes), which is exact and cannot be
+      satisfied by degrading anything else. Before/after at 1600 under
+      `docs/screenshots/sel1-pick-reticles-*`.
 
 - [ ] (P1, S) **SEL-2 — a sketch pick never names what it's about to select**
       (`apps/web`). `sketch/pick.ts` resolves a winning candidate silently;
