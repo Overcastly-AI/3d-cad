@@ -83,22 +83,52 @@ with the modifier held. Gated by `e2e/sketch-escape-select.spec.ts`, six specs
 that go red on the old behaviour. Left for the strip's owner: `SketchStrip.tsx`
 still captions the Save chip "Esc".
 
-**SEL-1 COMPLETE (2026-08-06) — A7 lands, so the whole pre-selection item is
-done: A1 hover, A2 hit-test, A7 chrome.** The pick reticles used to sit at full
-strength over the body, which is the founder's "too many to see what you are
-clicking" (FB-8) showing up as CHROME rather than as picking — a bored face wore
-a blanket of bright dots over the geometry being read. They rest at 50 % now and
-return to full on hover, focus-visible and selected. It is a contrast cut and
+**SEL-1 — A1 / A2(face) / A7 SHIPPED 2026-08-06; the edge, shell and draft
+surfaces remain (now SEL-4).** The pick reticles used to sit at full strength
+over the body, which is the founder's "too many to see what you are clicking"
+(FB-8) showing up as CHROME rather than as picking — a bored face wore a blanket
+of bright dots over the geometry being read. They now recede at rest and return
+to full on hover, focus-visible and selected. It is a contrast cut and
 deliberately not a size cut: the 24 px hit area (WCAG 2.5.8) is untouched,
 because trading "too many to see" for "cannot hit it" on a laptop trackpad is
-the worse defect. This only became safe once A2 made the drawn surface the
-primary hit-test — the marks are the keyboard/touch fallback now, not how you
-aim. Worth recording: **A7's stated acceptance, a pixel census, is not
-deliverable, and finding out why is the useful part.** Every census in
+the worse defect. Worth recording: **A7's stated acceptance, a pixel census, is
+not deliverable, and finding out why is the useful part.** Every census in
 `e2e/support.ts` reads `[data-testid="viewport"] canvas`, and a `PickNode` is a
 drei `Html` DOM node that contributes ZERO canvas pixels — so no pixel gate we
 own could ever have scored this, which is precisely how the blanket survived.
 Gated on the property that decides it instead (`PickNode.test.tsx`).
+
+**AND THE FIRST CUT OVERSHOT IN THREE PLACES — the review caught all three,
+and the shape of the error is the same each time: a claim true of ONE surface
+applied to every surface** (2026-08-06, fixing `ad710d1` `8b693f5` `9f6d21c`
+`4cf096b`). (1) A7 argued the recession "only became safe with A2", which is
+true of `FacePickOverlay` and false of the five overlays A2 never converted —
+measure, fillet/chamfer edge, shell/draft, instance-mate, hole-point — where
+`PickNode` is still the ONLY hit-test and the dimmed mark IS the aim
+affordance. Recession is now an opt-in `recede` prop, defaulting OFF.
+MEASURED while fixing it: the mark's dark halo ring, which is the half that
+carries it on a light machined face, composites `carbide` over `aluminum` to
+**2.98:1 at 50 % — under the 3:1 WCAG 1.4.11 non-text floor**, and 3.86:1 at
+60 %, so the receded state is now 60 % (bright core over `carbide`: 5.81:1).
+(2) The addressed face's traced boundary drew with `depthTest:false` because
+two coincident 1 px GL lines stipple — right diagnosis, too wide a cure.
+`EdgesGeometry` emits every unmatched edge, so a cylindrical face's loop is the
+near circle AND the far one, and a bore's bottom circle painted a bright
+ellipse across the OUTSIDE of the plate (screenshots:
+`docs/screenshots/sel1-bore-trace-*`). Now two passes — a depth-tested
+`Line2` (instanced quads, so `polygonOffset` actually applies and the stipple
+cannot come back) plus a faint depth-test-free x-ray hint that says the face
+wraps out of sight. (3) The armed pick raycast tested HIDDEN bodies, because
+`Mesh._computeIntersections` only honours a group material's `visible` when the
+mesh carries a material ARRAY and the pick mesh carries one material — so a
+switched-off body in front absorbed the ray. The hidden ordinals are now
+published alongside `pickGeometry` and refused. Three smaller ones with the
+same flavour: a re-tessellation under a resting pointer left `hovered` true
+with no ordinal, which is exactly the whole-body glow A1 exists to remove; the
+geometry and its edge overlay shared one dispose effect keyed on both, so a
+ghost/hide toggle disposed the still-current geometry (self-healing, hence
+invisible); and the hover trace ignored the "selection beats hover" precedence
+its own material assignment implements.
 
 **CI GREEN AGAIN (2026-08-06) — and the commit that broke it never had a run at
 all.** `e2e` shard 4 was red on `sketch-visibility.spec.ts` (FB-1b's gate): ink
@@ -109,7 +139,17 @@ one run per push keyed to the HEAD commit, so `6d8a8dd` was never built.** That
 is precisely the hole CLAUDE.md documents — an unbuilt commit leaves no row, so
 the board looks complete — and it stayed invisible until the SEL-1 commits were
 pushed one at a time. Push each commit separately; it is the only thing that
-closes this.
+closes this. **AMENDED 2026-08-06 (review):** the restated floor shipped as
+BOTH a 12 % ratio and an absolute 120 px, and at the framing that actually
+ships the ratio computes to 128 — so it decided nothing the floor had not, and
+it kept the gate coupled to a framing the spec deliberately leaves free, which
+is the exact fault being fixed. One instrument now (the absolute count), with
+the scale asserted first in a band so the next re-framing fails at the
+calibration line naming its reason. Re-measured on the real stack: 26.63 px/mm,
+ink 244; the mutation (the served `SketchScene.tsx` rewritten in flight so the
+active ink's `depthTest: false` becomes `true`) gives **0**, not the "single
+digits" the code comment claimed — the commit message and this file were right
+and the comment was the outlier.
 
 The defect turned out to be the GATE, not the product, and the reasoning is
 worth keeping because the first two hypotheses were both wrong and both had to

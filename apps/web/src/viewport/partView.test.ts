@@ -1,3 +1,4 @@
+import { BufferGeometry } from "three";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
@@ -144,5 +145,53 @@ describe("body stops, isolate and the way back", () => {
     usePartViewStore.getState().toggle(originPlaneKey("XY"));
     const { view } = usePartViewStore.getState();
     expect(hiddenBodyCount(view, BODIES)).toBe(0);
+  });
+});
+
+/**
+ * The pick slice (SEL-1 / A2) — the mesh publishes what an armed overlay is
+ * allowed to raycast, and what that raycast is allowed to answer. Every other
+ * slice in this store already had coverage; this one shipped without any, which
+ * is how the hidden-face half came to be missing (code review, 2026-08-06).
+ */
+describe("the raycast target the mesh publishes", () => {
+  beforeEach(reset);
+
+  it("starts empty — no mesh means no pick target, never 'not loaded yet'", () => {
+    const state = usePartViewStore.getState();
+    expect(state.pickGeometry).toBeNull();
+    expect(state.pickHiddenFaces.size).toBe(0);
+  });
+
+  it("carries the hidden ordinals so an overlay can refuse them", () => {
+    usePartViewStore.getState().setPickHiddenFaces(new Set([2, 5]));
+    expect([...usePartViewStore.getState().pickHiddenFaces].sort()).toEqual([
+      2, 5,
+    ]);
+  });
+
+  it("re-publishing the SAME ordinals does not churn the store", () => {
+    usePartViewStore.getState().setPickHiddenFaces(new Set([2, 5]));
+    const first = usePartViewStore.getState().pickHiddenFaces;
+    // `bodyFaceState` is a fresh Set on every re-derive, so an identity-only
+    // guard would re-render the whole scene on any unrelated store write.
+    usePartViewStore.getState().setPickHiddenFaces(new Set([5, 2]));
+    expect(usePartViewStore.getState().pickHiddenFaces).toBe(first);
+  });
+
+  it("RESETS on a new subject — a pick target can never follow you", () => {
+    const geometry = new BufferGeometry();
+    usePartViewStore.getState().setPickGeometry(geometry);
+    usePartViewStore.getState().setPickHiddenFaces(new Set([1]));
+
+    usePartViewStore.getState().setSubject("part-b");
+
+    const state = usePartViewStore.getState();
+    // Opening another part must not leave the previous part's mesh addressable:
+    // the geometry belongs to a `ModelMesh` that is being torn down, and a
+    // stale ordinal set would let a pick refuse faces of a body it never saw.
+    expect(state.pickGeometry).toBeNull();
+    expect(state.pickHiddenFaces.size).toBe(0);
+    geometry.dispose();
   });
 });

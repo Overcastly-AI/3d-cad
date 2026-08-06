@@ -53,6 +53,36 @@ duplication.
 
 ## Ready (top of queue)
 
+- [ ] (P1, M) **SEL-4 — the armed EDGE and shell/draft picks are still 24 px
+      dots; only the FACE pick got its raycast** (`apps/web`). SEL-1 A2 made
+      the drawn surface the primary hit-test for `FacePickOverlay` and lifted
+      reachability 9.9 % -> 84.6 %. `EdgePickOverlay` (fillet, chamfer),
+      `ShellFaceOverlay` (shell, draft), `MeasureOverlay`, `InstanceMateOverlay`
+      and `HolePointOverlay` were NOT converted: `PickNode` is still their sole
+      hit-test, so the founder's "picking is very difficult" is unfixed the
+      moment the tool is fillet rather than sketch-on-face. Edges need a
+      screen-space tolerance band around the polyline rather than a triangle
+      raycast, which is why they were deferred and why this is M not S. Two
+      riders, both from the 2026-08-06 review: each overlay passes `recede` to
+      `PickNode` as it converts (the prop exists and defaults OFF precisely so
+      an unconverted surface keeps its aim affordance at full strength); and
+      A2's acceptance names a DENSE-HOLE-PATTERN fixture, which the shipped
+      gate does not have — the six-face box cannot show a mis-resolved ordinal
+      the way seven overlapping bores can. Acceptance A2:
+      `docs/design/pre-selection.md` §6. [src: code review 2026-08-06]
+
+- [ ] (P2, S) **SEL-5 — no gate proves the addressed face's trace respects
+      OCCLUSION** (`apps/web`). The 2026-08-06 fix (depth-tested `Line2` +
+      faint x-ray pass) is evidenced by founder screenshots
+      (`docs/screenshots/sel1-bore-trace-*`) and nothing else, because every
+      instrument we own for this is a pixel census and the honest direction
+      here is FEWER lit pixels — exactly the "a census can reward the broken
+      screen" trap FB-17d records. Wanted: an assertion tied to WHERE the brass
+      lands (inside the hole's silhouette vs across the plate) rather than to
+      how much of it there is. The bored-plate fixture and the island-finding
+      sweep that addresses its bore wall already exist in
+      `e2e/face-hover.spec.ts`. [src: code review 2026-08-06]
+
 - [x] (P0, S) **CI-1 — `sketch-visibility` gate red since `6d8a8dd`, which never
       got a CI run.** Found 2026-08-06 by reading the e2e run for a SEL-1 push.
       `6d8a8dd` and `be8a2a5` were pushed together; GitHub builds only a push's
@@ -60,8 +90,13 @@ duplication.
       FIXED: the gate's 30 % ink floor was calibrated to a framing FB-22 has
       since improved (the sketch camera now rests over the face centre, which is
       wider — 35.5 -> 26.6 px/mm), and its stated model was backwards. Floor
-      restated at 12 % + an absolute 120 px around what the gate actually
-      discriminates (hundreds vs ZERO) and mutation-verified at 0. Two wrong
+      restated around what the gate actually discriminates (hundreds vs ZERO)
+      and mutation-verified at 0. AMENDED 2026-08-06 (code review): the first
+      cut kept BOTH a 12 % ratio and a 120 px floor, and at the shipped framing
+      the ratio computes to 128 — so it decided nothing and left the gate
+      framing-coupled, which is the very fault it was fixing. One instrument
+      now (the absolute count), preceded by a `pxPerMm` band so the next
+      re-framing fails at the calibration line with a message. Two wrong
       hypotheses were measured away first (snap-corrupted DRO calibration;
       unsettled camera ease) — both recorded in ROADMAP so nobody re-derives them.
 
@@ -533,21 +568,33 @@ so it is the pre-`5bd4c46` camera snap or a stale Codespace bundle (see FB-11).
       9.9 % with the defect fully fixed; the seat case clicked a hardcoded
       coordinate that is 40 px OFF the body, so it had never once failed for
       the reason it claimed.
-      **A7 SHIPPED 2026-08-05 — the reticles stop out-shouting the model, so
-      SEL-1 is COMPLETE (A1+A2+A7).** `PickNode`'s mark rests at 50 % opacity
-      and returns to full on hover, focus-visible and selected; the 24 px hit
-      area (WCAG 2.5.8) is untouched, because trading "too many to see" for
-      "cannot hit it" would be the worse defect. It follows A2: once the drawn
-      surface is the primary hit-test, these marks are the keyboard/touch
-      fallback rather than how you aim. NOTE the acceptance asked for a pixel
-      census and it is not deliverable — every census in `e2e/support.ts` reads
-      the WebGL canvas, and a `PickNode` is a drei `Html` DOM node that puts
-      ZERO pixels on it. That blindness is itself the finding: it is why the
-      "DOM-square blanket" survived every pixel gate we own. Gated instead on
-      the property that decides it (`PickNode.test.tsx`, 5 specs incl. the
-      target-size floor and all four shapes), which is exact and cannot be
-      satisfied by degrading anything else. Before/after at 1600 under
+      **A7 SHIPPED 2026-08-05 — the reticles stop out-shouting the model.**
+      `PickNode`'s mark rests dimmed and returns to full on hover,
+      focus-visible and selected; the 24 px hit area (WCAG 2.5.8) is untouched,
+      because trading "too many to see" for "cannot hit it" would be the worse
+      defect. It follows A2: once the drawn surface is the primary hit-test,
+      these marks are the keyboard/touch fallback rather than how you aim. NOTE
+      the acceptance asked for a pixel census and it is not deliverable — every
+      census in `e2e/support.ts` reads the WebGL canvas, and a `PickNode` is a
+      drei `Html` DOM node that puts ZERO pixels on it. That blindness is
+      itself the finding: it is why the "DOM-square blanket" survived every
+      pixel gate we own. Gated instead on the property that decides it
+      (`PickNode.test.tsx`), which is exact and cannot be satisfied by
+      degrading anything else. Shots at 1600 AND 1280 under
       `docs/screenshots/sel1-pick-reticles-*`.
+      **STATUS 2026-08-06 (code review) — A1 / A2(face) / A7 shipped; the item
+      is NOT complete.** An earlier note here said it was, which the unticked
+      box already contradicted. What remains, and is now SEL-4: the armed
+      EDGE and shell/draft picks (fillet, chamfer, shell, draft) still hang
+      their only hit-test on a 24 px `PickNode`, so the reachability floor A2
+      measured for faces is untouched on them; and A2's stated acceptance names
+      a dense-hole-pattern fixture, where the shipped gate uses a six-face box.
+      Two review findings fixed in the same pass: A7's recession was GLOBAL, so
+      it dimmed the aim affordance on the five overlays A2 never converted (it
+      is now opt-in per surface, and 50 % was under the WCAG 1.4.11 non-text
+      floor at 2.98:1 — 60 % measures 3.86:1); and the addressed face's traced
+      boundary drew with no depth test, so a bore's far circle painted a bright
+      ellipse across the outside of the plate.
 
 - [ ] (P1, S) **SEL-2 — a sketch pick never names what it's about to select**
       (`apps/web`). `sketch/pick.ts` resolves a winning candidate silently;

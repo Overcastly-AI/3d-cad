@@ -112,6 +112,9 @@ export interface PartBodyView {
   readonly lumps: number;
 }
 
+/** Shared empty set — a stable identity, so "nothing hidden" costs no render. */
+const NO_HIDDEN_FACES: ReadonlySet<number> = new Set<number>();
+
 /** Every origin key, seeded hidden — the resting state of a fresh part. */
 function seededOriginState(): VisibilityState {
   const seed: Record<string, { hidden: boolean; ghost: boolean }> = {};
@@ -153,12 +156,31 @@ interface PartViewState {
    * raycast target", never as "not loaded yet".
    */
   pickGeometry: BufferGeometry | null;
+  /**
+   * B-rep face ordinals of `pickGeometry` that are NOT drawn, because the body
+   * owning them is hidden. Published together with the geometry and by the same
+   * component, because they are one fact: *what a raycast against this mesh is
+   * allowed to answer*.
+   *
+   * It has to be published rather than re-derived, and the reason is a three.js
+   * detail worth writing down. A hidden body is expressed as a draw group whose
+   * material has `visible: false` — the renderer skips it, so nothing is drawn.
+   * `Mesh.raycast` does not: `_computeIntersections` only consults per-group
+   * materials when `this.material` is an ARRAY, and an overlay's invisible pick
+   * mesh takes a SINGLE material, so every triangle of the fused mesh is tested
+   * whatever its body's state. A hidden body in FRONT would therefore swallow
+   * the ray and the overlay would report a face nobody can see. `ModelMesh`
+   * already applies exactly this rule to its own handler; this is that rule
+   * made available to the overlays instead of duplicated by them.
+   */
+  pickHiddenFaces: ReadonlySet<number>;
 
   setSubject: (subjectId: string) => void;
   setBodies: (bodies: readonly PartBodyView[]) => void;
   setBodyPresent: (present: boolean) => void;
   setPartitioned: (partitioned: boolean) => void;
   setPickGeometry: (geometry: BufferGeometry | null) => void;
+  setPickHiddenFaces: (ordinals: ReadonlySet<number>) => void;
   setAddressed: (key: string | null) => void;
   toggle: (key: string) => void;
   setMode: (key: string, mode: VisibilityMode) => void;
@@ -174,6 +196,7 @@ export const usePartViewStore = create<PartViewState>((set, get) => ({
   partitioned: false,
   addressedKey: null,
   pickGeometry: null,
+  pickHiddenFaces: NO_HIDDEN_FACES,
 
   setSubject: (subjectId) => {
     if (get().subjectId === subjectId) return;
@@ -185,6 +208,7 @@ export const usePartViewStore = create<PartViewState>((set, get) => ({
       partitioned: false,
       addressedKey: null,
       pickGeometry: null,
+      pickHiddenFaces: NO_HIDDEN_FACES,
     });
   },
   setBodies: (bodies) => {
@@ -203,6 +227,10 @@ export const usePartViewStore = create<PartViewState>((set, get) => ({
   setPickGeometry: (pickGeometry) => {
     if (get().pickGeometry === pickGeometry) return;
     set({ pickGeometry });
+  },
+  setPickHiddenFaces: (pickHiddenFaces) => {
+    if (sameOrdinals(get().pickHiddenFaces, pickHiddenFaces)) return;
+    set({ pickHiddenFaces });
   },
   setAddressed: (addressedKey) => {
     if (get().addressedKey === addressedKey) return;
@@ -244,6 +272,14 @@ function sameBodies(
       other.lumps === body.lumps
     );
   });
+}
+
+/** Set equality — avoids a store write (and a scene re-render) per re-derive. */
+function sameOrdinals(a: ReadonlySet<number>, b: ReadonlySet<number>): boolean {
+  if (a === b) return true;
+  if (a.size !== b.size) return false;
+  for (const ordinal of a) if (!b.has(ordinal)) return false;
+  return true;
 }
 
 /**

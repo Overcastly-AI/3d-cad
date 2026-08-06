@@ -171,6 +171,21 @@ export const viewport = {
      * selection brass, because hover must never read as committed.
      */
     hoverTint: "#EFD6AE",
+    /**
+     * The addressed face's TRACED boundary (SEL-1). Drawn as a screen-space
+     * ribbon rather than a GL line so it can carry width and a depth bias:
+     * the trace is numerically coincident with the body's own B-rep edge
+     * overlay, and two 1 px lines at identical depth come out stippled.
+     *
+     * `xrayOpacity` is the strength of the part of the loop that is BEHIND the
+     * body — a cylindrical face's far seam, a bore's bottom circle. It is
+     * drawn, faintly, because the boundary of the face you are addressing does
+     * genuinely wrap out of sight and saying so is information; it is drawn
+     * FAINTLY because at full strength it paints over the face in front of it
+     * and stops being a trace of anything (code review, 2026-08-06).
+     */
+    hoverEdgeWidthPx: 2,
+    hoverEdgeXrayOpacity: 0.22,
   },
   /** The view reference cube (orientation gizmo) — a machinist's block. */
   gizmo: {

@@ -95,6 +95,8 @@ export function FacePickOverlay({
   const [hovered, setHovered] = useState<number | null>(null);
   /** The drawn mesh, published by `ModelMesh` — the raycast target for A2. */
   const pickGeometry = usePartViewStore((state) => state.pickGeometry);
+  /** …and which of its faces belong to a body the modeller switched off. */
+  const pickHiddenFaces = usePartViewStore((state) => state.pickHiddenFaces);
 
   // frameloop="demand": redraw when the pickable set / pending / hover changes.
   useEffect(() => {
@@ -148,18 +150,34 @@ export function FacePickOverlay({
    * geometry the user did not address is worse than one that does nothing, and
    * "nothing" here is honest: the overlay draws no patch there either, so the
    * screen already said this face is not on offer.
+   *
+   * A face of a HIDDEN body is refused for the same reason and by the same
+   * rule `ModelMesh` applies to its own handler. It has to be refused
+   * explicitly: the raycast target below takes a SINGLE material, and
+   * `Mesh._computeIntersections` only consults a group's material — and so its
+   * `visible` flag — when `mesh.material` is an ARRAY. Every triangle of the
+   * fused mesh is therefore tested whatever its body's state, so without this a
+   * hidden body in FRONT would absorb the ray and the pick would address an
+   * invisible face while the modeller aimed at the visible one behind it.
+   *
+   * Only the `event` object's `faceIndex` is read, so the parameter is typed as
+   * exactly that. It used to take a full `ThreeEvent<PointerEvent>`, which
+   * forced the click handler — whose event is a `MouseEvent` — through a double
+   * cast; narrowing the requirement removes the cast instead of silencing it.
    */
   const pickableAt = useCallback(
-    (event: ThreeEvent<PointerEvent>): OverlayFace | null => {
+    (
+      event: Pick<ThreeEvent<PointerEvent>, "faceIndex">,
+    ): OverlayFace | null => {
       if (faces === null || pickGeometry === null) return null;
       const triangle = event.faceIndex;
       if (triangle === undefined || triangle === null) return null;
       const ordinal = faceOrdinalOfTriangle(pickGeometry, triangle);
-      if (ordinal === null) return null;
+      if (ordinal === null || pickHiddenFaces.has(ordinal)) return null;
       const face = faces.find((candidate) => candidate.index === ordinal);
       return face !== undefined && isPickableFace(face) ? face : null;
     },
-    [faces, pickGeometry],
+    [faces, pickGeometry, pickHiddenFaces],
   );
 
   const onSurfaceMove = useCallback(
@@ -175,7 +193,7 @@ export function FacePickOverlay({
 
   const onSurfaceClick = useCallback(
     (event: ThreeEvent<MouseEvent>) => {
-      const face = pickableAt(event as unknown as ThreeEvent<PointerEvent>);
+      const face = pickableAt(event);
       if (face === null || !isPickableFace(face)) return;
       event.stopPropagation();
       onPick(face);
@@ -191,8 +209,13 @@ export function FacePickOverlay({
         The raycast target. It draws NOTHING — `colorWrite:false` plus
         `depthWrite:false` means it contributes no fragments and no depth, so
         the body on screen is still `ModelMesh`'s and this cannot tint, hide or
-        z-fight with it. It exists purely so r3f's event system has a surface
-        to hit. `renderOrder={-1}` keeps it out of the transparent pass.
+        z-fight with it. It exists purely so r3f's event system has a surface to
+        hit. `renderOrder={-1}` puts it first within its pass; it carries no
+        `transparent`, because `colorWrite:false` already guarantees nothing is
+        written and the OPAQUE list is the cheaper place to draw nothing (an
+        earlier note claimed `renderOrder` was what kept it out of the
+        transparent pass — `transparent` is what selects that list, so the flag
+        was putting it in the very pass the comment said it avoided).
       */}
       {pickGeometry !== null ? (
         <mesh
@@ -202,12 +225,7 @@ export function FacePickOverlay({
           onClick={onSurfaceClick}
           renderOrder={-1}
         >
-          <meshBasicMaterial
-            colorWrite={false}
-            depthWrite={false}
-            transparent
-            opacity={0}
-          />
+          <meshBasicMaterial colorWrite={false} depthWrite={false} />
         </mesh>
       ) : null}
       {faces.map((face) =>
@@ -226,6 +244,12 @@ export function FacePickOverlay({
             >
               <PickNode
                 shape="face"
+                // A7's recession, scoped to the ONE overlay that earned it: A2
+                // made the drawn surface this pick's primary hit-test, so the
+                // mark here is the keyboard/touch fallback and may rest quiet.
+                // The overlays still hanging their only handler on `PickNode`
+                // pass nothing and stay at full strength.
+                recede
                 selected={pendingIndex === face.index}
                 data-testid={`plane-pick-face-${face.index}`}
                 aria-label={faceLabel(face.index, face.signature)}

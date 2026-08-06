@@ -197,9 +197,7 @@ test.describe("a sketch on a model face is visible while you draw it", () => {
     await page.mouse.move(centre.x + half * 3, centre.y - half * 3);
     await waitForFrames(page, 20);
 
-    // (1) DEPTH — the ink is on screen at its exact token hex. Scored against
-    // the perimeter actually drawn, because the absolute count scales with the
-    // framing and the framing is deliberately not fixed here.
+    // (1) DEPTH — the ink is on screen at its exact token hex.
     //
     // THE FLOOR WAS 30%, AND THE MODEL BEHIND IT WAS WRONG. The original note
     // claimed the exact-token fraction RISES as the view widens (49% at
@@ -221,17 +219,41 @@ test.describe("a sketch on a model face is visible while you draw it", () => {
     //
     // So the floor is restated around what this gate can actually discriminate.
     // Its power is not 23% vs 30%; it is HUNDREDS vs **ZERO**, which is what
-    // the pre-fix build measured when coplanar ink lost the depth test against
-    // the face it sits on — everywhere, not dimly. 12% sits at roughly half the
-    // worst framing measured and still an order of magnitude clear of the
-    // regression it exists to catch, and the absolute floor keeps a pathological
-    // framing from satisfying the ratio with a handful of pixels.
-    // Mutation-verified: restoring `depthTest` on the active ink drops this to
-    // single digits and turns the case red.
-    const perimeterPx = 8 * half;
+    // the build measures the moment coplanar ink loses the depth test against
+    // the face it sits on — everywhere, not dimly.
+    //
+    // ONE INSTRUMENT, AND A CALIBRATION GUARD (code review, 2026-08-06). This
+    // used to assert BOTH an absolute floor of 120 and `perimeterPx * 0.12`,
+    // which at the framing that actually ships is 128 — so the ratio decided
+    // nothing the floor had not already decided, and the "12 %" model was
+    // decoration on an absolute number. Worse, the ratio is what made the gate
+    // framing-COUPLED, and the framing is deliberately free here: `6d8a8dd`
+    // (FB-22) improved the sketch camera and turned this red without breaking
+    // anything, because a better framing is a wider one and a wider one prints
+    // less exact-token ink.
+    //
+    // The fix is to say out loud what the floor is calibrated AGAINST. The
+    // scale is asserted first, in a band, so the next framing change fails HERE
+    // with a message naming the reason instead of failing below as a
+    // mysteriously thin scribe. Inside the band the absolute count is the whole
+    // instrument, and it is the honest one: it is what the defect drives to
+    // zero.
+    //
+    // MEASURED 2026-08-06 on the real stack at 1600x1000: 26.63 px/mm, a
+    // 1 065 px perimeter, ink = 244. The mutation — the served
+    // `SketchScene.tsx` module rewritten in flight so the active ink's
+    // `depthTest: false` becomes `true` — gives **ink = 0**, not the "single
+    // digits" an earlier note here claimed. Zero is also what the commit
+    // message and the roadmap entry said; this comment was the odd one out.
+    expect(
+      frame.pxPerMm,
+      "the sketch camera re-framed: this gate's ink floor is calibrated for " +
+        "~20-40 px/mm (26.6 measured 2026-08-06). Re-measure the floor above " +
+        "rather than relaxing this band.",
+    ).toBeGreaterThan(20);
+    expect(frame.pxPerMm).toBeLessThan(40);
     const ink = await countTokenPixels(page, "#E9F1F8");
     expect(ink).toBeGreaterThan(120);
-    expect(ink).toBeGreaterThan(perimeterPx * 0.12);
 
     // (2) CONTRAST — the face under the sketch is blued, so the scribe has a
     // dark ground rather than a 1.32:1 one. Measured strictly INSIDE the
@@ -289,7 +311,10 @@ test.describe("a sketch on a model face is visible while you draw it", () => {
  * the argument FOR `depthTest: false`, not a reason to gate on the tie.)
  *
  *  · Assertion 1 (depth): pre-fix `ink = 0` of a 1 600 px perimeter; post-fix
- *    784, three runs identical. Floor 480.
+ *    784, three runs identical. (Floor was 480 at THAT framing; the sketch
+ *    camera has since been improved and widened — see the calibration guard in
+ *    the test. Re-measured 2026-08-06 at 26.63 px/mm: post-fix 244, and the
+ *    depth-test mutation still gives exactly 0. Floor 120.)
  *  · Assertion 2 (contrast): pre-fix 56 728 lit px inside the 57 600 px
  *    interior box — the face stays bare aluminum end to end; post-fix 0, three
  *    runs identical. Ceiling 2 880.
