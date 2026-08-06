@@ -83,6 +83,37 @@ with the modifier held. Gated by `e2e/sketch-escape-select.spec.ts`, six specs
 that go red on the old behaviour. Left for the strip's owner: `SketchStrip.tsx`
 still captions the Save chip "Esc".
 
+**CI GREEN AGAIN (2026-08-06) — and the commit that broke it never had a run at
+all.** `e2e` shard 4 was red on `sketch-visibility.spec.ts` (FB-1b's gate): ink
+244 px against a 319.5 floor. Bisected on the real stack — `8c0aa9b` (main)
+green, `6d8a8dd` (FB-22, the sketch origin) RED, deterministic, same number in
+CI and locally. **`6d8a8dd` was pushed together with `be8a2a5`, and GitHub fires
+one run per push keyed to the HEAD commit, so `6d8a8dd` was never built.** That
+is precisely the hole CLAUDE.md documents — an unbuilt commit leaves no row, so
+the board looks complete — and it stayed invisible until the SEL-1 commits were
+pushed one at a time. Push each commit separately; it is the only thing that
+closes this.
+
+The defect turned out to be the GATE, not the product, and the reasoning is
+worth keeping because the first two hypotheses were both wrong and both had to
+be MEASURED away. Not the origin/axis snaps corrupting the DRO calibration
+(moving the probe a full span clear of both axes gives the identical reading);
+not an unsettled camera ease (150 frames gives the identical reading). The
+camera probe settled it: with the origin frame the sketch camera rests at
+`(10, 66.71, -10)` — squarely over the 20 mm cube's top-face centre — and
+without it at `(4.41, 49.41, -10)`, which is off-centre. So FB-22 *improved* the
+framing, and a better framing is a WIDER one: 35.5 px/mm before, 26.6 after.
+The gate's 30 % floor was calibrated to the old framing and its stated model was
+backwards — it claimed the exact-token fraction RISES as the view widens, where
+measurement gives 37.1 % at 35.5 px/mm and 22.9 % at 26.6. Two of the three
+terms do not scale with zoom: whole-pixel coverage of a 1 px GL line is a
+sub-pixel lottery, and the sheet's 1 mm grid is fixed in MODEL space, so a 10 mm
+square is crossed at 40 points at ANY zoom and those fixed crossings are a
+larger share of a shorter perimeter. The floor is now stated around what the
+gate can actually discriminate — hundreds versus ZERO, which is what the
+pre-FB-1b build measured — and mutation-verified there: restoring `depthTest`
+on the active ink drops it to **0** and the case goes red.
+
 **SEL-1 A2 SHIPPED (2026-08-05) — the face you can see is the face you can
 click: 9.9 % -> 84.6 %.** The founder called face picking "very difficult" and
 QA put the number on it — 2.2 % of the body's on-screen area was a live target,

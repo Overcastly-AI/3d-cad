@@ -53,6 +53,18 @@ duplication.
 
 ## Ready (top of queue)
 
+- [x] (P0, S) **CI-1 — `sketch-visibility` gate red since `6d8a8dd`, which never
+      got a CI run.** Found 2026-08-06 by reading the e2e run for a SEL-1 push.
+      `6d8a8dd` and `be8a2a5` were pushed together; GitHub builds only a push's
+      HEAD commit, so the breaking one was never built and left no row to notice.
+      FIXED: the gate's 30 % ink floor was calibrated to a framing FB-22 has
+      since improved (the sketch camera now rests over the face centre, which is
+      wider — 35.5 -> 26.6 px/mm), and its stated model was backwards. Floor
+      restated at 12 % + an absolute 120 px around what the gate actually
+      discriminates (hundreds vs ZERO) and mutation-verified at 0. Two wrong
+      hypotheses were measured away first (snap-corrupted DRO calibration;
+      unsettled camera ease) — both recorded in ROADMAP so nobody re-derives them.
+
 ### FOUNDER SESSION FEEDBACK 2026-08-01 — eleven reports from one evening of real use
 
 The founder modelled in the app and reported the following. These outrank the

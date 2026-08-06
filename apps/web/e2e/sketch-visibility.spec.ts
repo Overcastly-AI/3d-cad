@@ -198,15 +198,40 @@ test.describe("a sketch on a model face is visible while you draw it", () => {
     await waitForFrames(page, 20);
 
     // (1) DEPTH — the ink is on screen at its exact token hex. Scored against
-    // the perimeter actually drawn, so the bar holds at any zoom: a 1 px GL
-    // line lands on the exact token only where it covers a whole pixel (MSAA
-    // blends the rest into the ground), which measures 49% of the perimeter at
-    // a 40 px/mm frame and 93% at 6.9 px/mm. 30% is the floor, against ZERO on
-    // the pre-fix build — coplanar ink lost the depth test against the face it
-    // sits on, everywhere.
+    // the perimeter actually drawn, because the absolute count scales with the
+    // framing and the framing is deliberately not fixed here.
+    //
+    // THE FLOOR WAS 30%, AND THE MODEL BEHIND IT WAS WRONG. The original note
+    // claimed the exact-token fraction RISES as the view widens (49% at
+    // 40 px/mm, 93% at 6.9 px/mm). Measured on this spec, it falls: **37.1% at
+    // 35.5 px/mm, 22.9% at 26.6 px/mm**. The reason is that two of the three
+    // things eating the count do not scale with zoom. A 1 px GL line lands on
+    // the exact token only where it covers a WHOLE pixel — MSAA blends the rest
+    // into the ground, and how much survives is a sub-pixel alignment lottery
+    // that changes with every framing. On top of that the sheet's 1 mm grid is
+    // fixed in MODEL space, so this 10 mm square is crossed at 40 points no
+    // matter the zoom; each crossing blends a slice of scribe away, and 40
+    // fixed crossings are a larger share of a SHORTER perimeter. Widening the
+    // view therefore costs the count twice.
+    //
+    // That is why `6d8a8dd` (FB-22, the sketch origin) turned this red without
+    // breaking anything: it settles the sketch camera squarely over the face
+    // centre instead of off to one side, which is a BETTER framing and a wider
+    // one — 35.5 px/mm before, 26.6 after. Nothing about the ink got worse.
+    //
+    // So the floor is restated around what this gate can actually discriminate.
+    // Its power is not 23% vs 30%; it is HUNDREDS vs **ZERO**, which is what
+    // the pre-fix build measured when coplanar ink lost the depth test against
+    // the face it sits on — everywhere, not dimly. 12% sits at roughly half the
+    // worst framing measured and still an order of magnitude clear of the
+    // regression it exists to catch, and the absolute floor keeps a pathological
+    // framing from satisfying the ratio with a handful of pixels.
+    // Mutation-verified: restoring `depthTest` on the active ink drops this to
+    // single digits and turns the case red.
     const perimeterPx = 8 * half;
     const ink = await countTokenPixels(page, "#E9F1F8");
-    expect(ink).toBeGreaterThan(perimeterPx * 0.3);
+    expect(ink).toBeGreaterThan(120);
+    expect(ink).toBeGreaterThan(perimeterPx * 0.12);
 
     // (2) CONTRAST — the face under the sketch is blued, so the scribe has a
     // dark ground rather than a 1.32:1 one. Measured strictly INSIDE the
