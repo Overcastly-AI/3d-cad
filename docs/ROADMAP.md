@@ -16,6 +16,36 @@ publishing it.
 **FB-7 SHIPPED 2026-08-06 — the editor no longer sits on the part, and the
 ghost no longer lies about where the metal goes.** The founder photographed an
 open feature editor covering the model it was editing; measured at HEAD it took
+**50 069 px2 = 9.0 %** of the body's screen box. The fix is structural rather
+than cosmetic — compaction was rejected because a smaller panel still covers the
+part, and making the card draggable would hand the user a chore on every edit.
+`ChromeRail` gives each side ONE column at the seat the tree and inspector
+already hold, and `EditorCard` portals into it, so all seventeen editors docked
+at once and the surfaces with no rail (assembly, drawings, unit tests) keep
+floating untouched. Because the rail is the same column and width as the tree
+alone, the inset the fit charges does not change when an editor opens: free rect
+`356,24,888,758` before and after, camera unmoved, so no coordinate-driven spec
+could be destabilised by the fix.
+
+The residual overlap was not chrome at all. Re-opening an UNMODIFIED extrude
+painted its ghost 152 px below the body — through the ground grid and into the
+view rail — because `sketch/plane.ts` stated the origin-datum bases in the
+KERNEL's Z-up frame while the scene renders Y-up and `faceBasis` had already
+been converted. Measured in a browser: body at scene y∈[0,10] z∈[−15.4,16.6],
+its own ghost at y∈[−16.6,15.4] z∈[0,10] — the same solid, minus the frame
+rotation. That is also FB-9's mechanism ("the extruded is not on the same
+plane"). The datum ALGEBRA stays in the kernel frame so the client and the
+server still agree on what (u,v) means; only the renderer's entry points rotate
+(`sceneOriginBasis`, `resolveSpecBasis`, `resolveDatumSceneBasis`). Two latent
+defects fell out of it: two camera rigs easing one camera to different poses
+deadlocked forever (nothing ever settles, and every scene-anchored DOM overlay
+jitters, so a face-pick target is literally unclickable), and the ghost turned
+out to need `depthTest:false` now that it lands INSIDE the body it is previewing
+— two specs had been passing on ink that was only visible because it was in the
+wrong place. `founder-picking.spec.ts`'s FB-7 case is now a plain `test` with no
+`extraSelectors`, carrying a containment assertion so it cannot pass by failing
+to find the editor; mutation-verified red on both halves of the old behaviour.
+
 **FB-11 SHIPPED 2026-08-04 — the app now says which build it is.** The founder
 tests from a Codespace, so "is that fixed in the build you were on?" had no
 answer from either side, and two fixes landed mid-session that neither of us
