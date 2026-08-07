@@ -2,6 +2,7 @@ import { expect, test, type Page } from "./fixtures";
 
 import { handClick } from "./hand";
 import {
+  chromeRects,
   expectCameraStable,
   expectModelUnoccluded,
   installSceneProbe,
@@ -37,6 +38,11 @@ import {
  *     `test` that fails if the 4 px slop ever returns.
  *   - FB-13 — FIXED `d2e2162`; case REMOVED, not flipped (see the note below —
  *     it had also gone stale, waiting on a row that is no longer minted).
+ *   - FB-7  — FIXED 2026-08-06 (ChromeRail + the plane-frame fix): the editors
+ *     dock into the tree's own column and the extrude ghost stopped painting on
+ *     the far side of the sketch plane. The case is a plain `test` with NO
+ *     `extraSelectors`, and it carries a containment assertion so it cannot
+ *     pass by simply failing to find the editor.
  *   - FB-3/FB-5 — FIXED (SEL-1 A2): the drawn face IS the click target now.
  *     Both cases flipped to plain `test`s, and BOTH needed more than the
  *     annotation changed. The affordance case had to stop hit-testing the DOM
@@ -103,6 +109,26 @@ async function buildBox(page: Page): Promise<void> {
   await expect
     .poll(() => distinctCanvasColors(page), { timeout: 20_000 })
     .toBeGreaterThan(24);
+}
+
+/**
+ * Frame the body deliberately and wait for the fit to land, returning the free
+ * rect it solved. The auto-fit that follows an extrude is not a settled state:
+ * the inspector mounts a beat later and gives the column back, which announces
+ * a chrome change and re-frames. Both halves of the FB-7 gate start from the
+ * same explicit fit so "before" and "after" are the same measurement.
+ */
+async function settleFit(page: Page): Promise<string | null> {
+  const viewport = page.getByTestId("viewport");
+  await viewport.evaluate((node) => {
+    node.dataset["fitRect"] = "";
+  });
+  await page.getByTestId("view-fit").click();
+  await expect(viewport).not.toHaveAttribute("data-fit-rect", "", {
+    timeout: 20_000,
+  });
+  await waitForFrames(page, 6);
+  return viewport.getAttribute("data-fit-rect");
 }
 
 test.describe("founder picking reports", () => {
@@ -398,27 +424,34 @@ test.describe("founder picking reports", () => {
   /**
    * FB-17 — OCCLUSION (the FB-7 gate, which the founder photographed).
    *
-   * Two halves, and the second is the finding. At rest the fit does its job:
-   * the body lands between the tree and the inspector with no overlap. Open a
-   * feature editor and it lands ON the model — and the app's own free-rect fit
-   * cannot see it, because the editor card never declares
-   * `data-viewport-chrome` the way `FloatingPanel` and `ViewBar` do. So the
-   * editor has to be named explicitly here, which is itself the bug report.
+   * Two halves. At rest the fit does its job: the body lands between the tree
+   * and the inspector with no overlap. Opening a feature editor used to land it
+   * ON the model — and the app's own free-rect fit could not see it, because
+   * the editor card declared no `data-viewport-chrome`, so this spec had to
+   * name the selector by hand, which was itself the bug report.
+   *
+   * FIXED 2026-08-06. The editors DOCK into a `ChromeRail` — the same column
+   * and the same width as the tree panel — so the overlap is structurally
+   * impossible rather than merely smaller, and the rail declares itself as
+   * chrome. `extraSelectors` is gone from both halves: the editor is gated
+   * because the app admits it exists.
+   *
+   * Two things had to be true for that to work, and both are asserted below.
+   * The charged inset must NOT change when an editor opens, or the fit would
+   * lurch. And the ghost had to stop drawing on the wrong side of the sketch
+   * plane: re-opening an unmodified 10 mm extrude painted a translucent prism
+   * 152 px BELOW the body — through the ground grid and into the view rail —
+   * because the origin-datum plane bases were stated in the kernel's Z-up frame
+   * while the scene renders Y-up (FB-7c / FB-9, `sketch/plane.ts`). No framing
+   * change could have fixed that one: the fit's subject is the body's bounds,
+   * and a preview is not in them.
    */
   test("FB-7 gate: at rest, no chrome covers the model", async ({ page }) => {
     const account = await seedSession(page);
     const part = await createPartViaApi(page, account.token, "Occlusion rest");
     await page.goto(`/parts/${part.id}`);
     await buildBox(page);
-    const viewport = page.getByTestId("viewport");
-    await viewport.evaluate((node) => {
-      node.dataset["fitRect"] = "";
-    });
-    await page.getByTestId("view-fit").click();
-    await expect(viewport).not.toHaveAttribute("data-fit-rect", "", {
-      timeout: 20_000,
-    });
-    await waitForFrames(page, 6);
+    await settleFit(page);
 
     const report = await expectModelUnoccluded(page);
     // Measured: model box 375–1239 × 340–799 between panel-tree (ends 332) and
@@ -426,37 +459,65 @@ test.describe("founder picking reports", () => {
     expect(report.chromeCount).toBeGreaterThanOrEqual(3);
   });
 
-  test.fail(
-    "FB-7: an open feature editor covers the model it is editing",
-    async ({ page }) => {
-      const account = await seedSession(page);
-      const part = await createPartViaApi(
-        page,
-        account.token,
-        "Occlusion edit",
-      );
-      await page.goto(`/parts/${part.id}`);
-      await buildBox(page);
+  test("FB-7 FIXED: an open feature editor does not cover the model", async ({
+    page,
+  }) => {
+    const account = await seedSession(page);
+    const part = await createPartViaApi(page, account.token, "Occlusion edit");
+    await page.goto(`/parts/${part.id}`);
+    await buildBox(page);
+    const restFit = await settleFit(page);
+    const restBox = (await measureOcclusion(page)).model;
 
-      await page.getByTestId("feature-select-1").click();
-      await expect(page.getByTestId("extrude-editor")).toBeVisible();
-      await waitForFrames(page, 6);
+    await page.getByTestId("feature-select-1").click();
+    await expect(page.getByTestId("extrude-editor")).toBeVisible();
+    await waitForFrames(page, 6);
 
-      // Measured on this spec 2026-08-01, with the annotation lifted so the
-      // reason is on record: the editor card (x 344–664, y 112–480) covers
-      // **50 069 px² = 9.0 %** of the body's box (375–1239 × 307–951) — the
-      // panel editing the part is sitting on the part. The same report also
-      // named `view-bar` at 6 630 px² (1.2 %), i.e. the bottom rail overlaps
-      // too once the editor pushes the framing; both are FB-7, and only the
-      // second is visible to the app's own free-rect fit.
-      const report = await measureOcclusion(page, {
-        extraSelectors: ['[data-testid="extrude-editor"]'],
-      });
-      expect(report.modelPixels, "body rendered").toBeGreaterThan(500);
-      expect(report.chromeCount, "chrome measured").toBeGreaterThan(0);
-      await expectModelUnoccluded(page, {
-        extraSelectors: ['[data-testid="extrude-editor"]'],
-      });
-    },
-  );
+    // NON-VACUITY, and it is the whole reason this reads as a pass rather than
+    // as a gate that stopped looking: the editor must be CONTAINED by a rect
+    // `chromeRects` returns on its own — no `extraSelectors`. Take the rail
+    // away and the card floats free of every declared rect, so this fails
+    // before the overlap assertion is even reached.
+    const editorBox = await page.getByTestId("extrude-editor").boundingBox();
+    expect(editorBox, "editor rendered").not.toBeNull();
+    const declared = await chromeRects(page);
+    const housing = declared.find(
+      (rect) =>
+        editorBox !== null &&
+        rect.left <= editorBox.x + 1 &&
+        rect.top <= editorBox.y + 1 &&
+        rect.right >= editorBox.x + editorBox.width - 1 &&
+        rect.bottom >= editorBox.y + editorBox.height - 1,
+    );
+    expect(
+      housing,
+      "the editor declares itself as chrome " +
+        `(rects: ${JSON.stringify(declared)}, editor: ${JSON.stringify(editorBox)})`,
+    ).toBeDefined();
+
+    // Measured on this spec 2026-08-01, BEFORE the fix, so the size of what was
+    // wrong stays on record: the editor card (x 344-664, y 112-480) covered
+    // **50 069 px2 = 9.0 %** of the body's box (375-1239 x 307-951), and
+    // `view-bar` another 6 630 px2 (1.2 %) — the panel editing the part sitting
+    // on the part, plus the bottom rail catching the mis-framed ghost.
+    const report = await measureOcclusion(page);
+    expect(report.modelPixels, "body rendered").toBeGreaterThan(500);
+    expect(report.chromeCount, "chrome measured").toBeGreaterThan(0);
+    await expectModelUnoccluded(page);
+
+    // The FRAMING invariant that made docking the safe first move: the column
+    // the editor takes is the column the tree already had, so the fit's free
+    // rect is untouched and the camera never moves (2026-08-06: 356,24,888,758
+    // either way).
+    expect(
+      await page.getByTestId("viewport").getAttribute("data-fit-rect"),
+    ).toBe(restFit);
+
+    // The GHOST invariant: re-opening an extrude WITHOUT changing anything
+    // previews exactly the body that is already there, so the lit silhouette
+    // must not grow. It grew 152 px downward before the frame fix — a
+    // translucent prism on the far side of the sketch plane (FB-7c / FB-9).
+    expect(report.model.bottom).toBeLessThanOrEqual(restBox.bottom + 2);
+    expect(report.model.top).toBeGreaterThanOrEqual(restBox.top - 2);
+  });
 });

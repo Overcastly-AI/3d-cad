@@ -461,10 +461,15 @@ test.describe("harness: occlusion (invariants.ts)", () => {
   test("a panel that never declared itself as chrome can still be gated", async ({
     page,
   }) => {
-    // The real shape of FB-7, measured on the app: the feature editors float
-    // over the viewport and carry no `data-viewport-chrome`, so the app's own
-    // free-rect fit is blind to them and so, by default, is this gate. Naming
-    // the selector is the interim; the attribute is the fix.
+    // The escape hatch, kept CALIBRATED rather than kept in use. It was written
+    // for FB-7, when the feature editors floated over the viewport carrying no
+    // `data-viewport-chrome` at all — the app's own free-rect fit was blind to
+    // them and so, by default, was this gate. That is fixed: the editors dock
+    // into a `ChromeRail`, which declares itself, so `founder-picking.spec.ts`
+    // no longer passes `extraSelectors` for them. This synthetic case stays,
+    // because the NEXT undeclared panel is a question of when, not whether, and
+    // a gate whose escape hatch has gone untested is a gate that will be wrong
+    // about it.
     await paintSynthetic(page, [
       fill(BENCH),
       { color: ALUMINIUM, x: 100, y: 60, w: 400, h: 300 },

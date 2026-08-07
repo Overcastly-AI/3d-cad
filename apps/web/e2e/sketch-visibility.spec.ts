@@ -275,25 +275,45 @@ test.describe("a sketch on a model face is visible while you draw it", () => {
   }) => {
     // The other half of the rule: drawing the ACTIVE sketch on top must not
     // turn the viewport into stacked ghost profiles. `Sketch1` made this body,
-    // so bringing it back puts it on the base face, under 20 mm of aluminum —
-    // it may peek at the silhouette and no more.
+    // so bringing it back puts it on the base face, under 20 mm of aluminum.
+    //
+    // IT IS NOW FULLY HIDDEN, AND THAT IS THE FIX, NOT A REGRESSION (FB-7c,
+    // 2026-08-06). This used to assert `shown > hidden + 50` — a "silhouette
+    // peek" — and the peek was the DEFECT: the origin-datum plane bases were
+    // stated in the kernel's Z-up frame while the scene renders Y-up, so
+    // Sketch1's ink stood VERTICALLY through the body it had made instead of
+    // lying on its base face, and the part sticking out was what this counted.
+    // With the frames reconciled the ink is exactly coplanar with the bottom
+    // face, which the solid covers completely: 0 px, every time.
+    //
+    // So the control's non-vacuity is proven where it is actually visible —
+    // with the body out of the way — instead of by an artefact of a bug.
     await openCubePart(page);
     const row = page.getByTestId(/^sketch-visibility-/).first();
     await row.click();
     await expect(row).toHaveAttribute("aria-pressed", "true");
     await waitForFrames(page);
 
-    const shown = await countTokenPixels(page, "#C4D2DE");
+    // (1) OCCLUDED: under 20 mm of aluminum, a 20 mm profile prints nothing.
+    const overSolid = await countTokenPixels(page, "#C4D2DE");
+    expect(overSolid).toBeLessThan(1500);
+
+    // (2) DRAWN: hide the body and the same ink is right there. Without this
+    // the assertion above would pass just as happily on a row that does
+    // nothing at all.
+    await page.getByTestId("body-visibility-0").click();
+    await waitForFrames(page);
+    const uncovered = await countTokenPixels(page, "#C4D2DE");
+    expect(uncovered).toBeGreaterThan(overSolid + 50);
+
+    // (3) …and it is THIS row that draws it: turn the sketch off with the body
+    // still hidden and the ink goes with it.
     await row.click();
     await expect(row).toHaveAttribute("aria-pressed", "false");
     await waitForFrames(page);
-    const hidden = await countTokenPixels(page, "#C4D2DE");
-
-    // It is drawn (the control works)…
-    expect(shown).toBeGreaterThan(hidden + 50);
-    // …and it is still OCCLUDED: a 20 mm square profile drawn unclipped over
-    // this framing is thousands of pixels of ink; a silhouette peek is not.
-    expect(shown).toBeLessThan(1500);
+    expect(await countTokenPixels(page, "#C4D2DE")).toBeLessThan(
+      uncovered - 50,
+    );
   });
 });
 

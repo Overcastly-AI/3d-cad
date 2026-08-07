@@ -12,6 +12,7 @@ import { cx } from "@loft/design";
 import { useEffect, useState, type ReactNode } from "react";
 
 import { announceChromeChange } from "../viewport/fitFraming";
+import { useRailSlot } from "./ChromeRail";
 
 export interface FloatingPanelProps {
   side: "left" | "right";
@@ -62,12 +63,20 @@ export function FloatingPanel({
   footer,
 }: FloatingPanelProps) {
   const [collapsed, setCollapsed] = useState(false);
+  // Inside a `ChromeRail` the panel is a FLOW child of the column it shares
+  // with the feature editor, not an absolutely-placed card: the rail owns the
+  // seat, the inset and the clamp, and the panel takes whatever the editor
+  // leaves — down to `min-h-rail-panel`, never to nothing.
+  const railed = useRailSlot(side) !== null;
   // A panel that opens or closes changes how much of the scene the modeler can
   // see, so "Fit model" has to be re-solvable against the new free rect —
   // announced rather than polled (see `fitFraming.VIEWPORT_CHROME_EVENT`).
+  // In a rail the rail itself observes the column's edge, so the announcement
+  // is made once, by whichever of the two actually changed the charged inset.
   useEffect(() => {
+    if (railed) return;
     announceChromeChange();
-  }, [collapsed]);
+  }, [collapsed, railed]);
 
   if (collapsed) {
     return (
@@ -78,11 +87,16 @@ export function FloatingPanel({
         data-viewport-chrome={`panel-${id}`}
         onClick={() => setCollapsed(false)}
         className={cx(
-          "absolute top-3 z-panel border border-hairline bg-anvil px-2 py-1.5 shadow-float",
+          "pointer-events-auto border border-hairline bg-anvil px-2 py-1.5 shadow-float",
           "font-display text-2xs uppercase tracking-[0.16em] text-gauge",
           "transition-colors duration-fast hover:text-brass",
           "focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass",
-          side === "left" ? "left-3" : "right-3",
+          railed
+            ? "shrink-0 self-start"
+            : cx(
+                "absolute top-3 z-panel",
+                side === "left" ? "left-3" : "right-3",
+              ),
         )}
       >
         {title} {side === "left" ? "▸" : "◂"}
@@ -94,9 +108,26 @@ export function FloatingPanel({
     <div
       data-viewport-chrome={`panel-${id}`}
       className={cx(
-        "absolute top-3 z-panel flex w-inspector max-w-[calc(100%-1.5rem)] flex-col",
-        maxHeightClassName,
-        side === "left" ? "left-3" : "right-3",
+        "pointer-events-auto flex w-inspector flex-col",
+        railed
+          ? // A flow child of the rail: shrinkable so a tall editor can take the
+            // room it needs, floored at `min-h-rail-panel` so the tree it was
+            // opened from stays usable. Its own body scroll (below) does the
+            // rest. `relative` keeps the collapse tab anchored to the panel's
+            // own corner — in the floating case `absolute` already provides
+            // that. NO `max-w` here: percentages would resolve against the rail
+            // (320px) instead of the frame and shave 24px off every panel; the
+            // rail carries the frame clamp for the whole column. No `flex-1`
+            // either: the panel HUGS its content the way it always has, and
+            // only shrinks (scrolling its own body) when the card above it
+            // needs the room — a tree stretched to fill the column would just
+            // be a taller box of empty anvil.
+            "relative min-h-rail-panel"
+          : cx(
+              "absolute top-3 z-panel max-w-[calc(100%-1.5rem)]",
+              maxHeightClassName,
+              side === "left" ? "left-3" : "right-3",
+            ),
       )}
     >
       {/* Collapse tab — pinned to the heading row's empty right corner (the

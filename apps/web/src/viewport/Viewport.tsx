@@ -132,6 +132,7 @@ function CameraRig({
   fitKey,
   reducedMotion,
   framing,
+  owns,
   onSettle,
 }: {
   bounds: Box3 | null;
@@ -139,6 +140,20 @@ function CameraRig({
   reducedMotion: boolean;
   /** The live canvas + unobstructed rect, measured from the DOM at fit time. */
   framing: () => { canvas: Rect; free: Rect } | null;
+  /**
+   * Does THIS rig own the camera right now? False while the SKETCHER owns it —
+   * `SketchScene.SketchCameraRig` parks the view normal-on to the plane (and at
+   * a fixed iso for the plane pick), easing the same camera object every frame.
+   *
+   * Two rigs easing one camera toward different poses do not average out, they
+   * DEADLOCK: neither ever gets within its settle epsilon, so both keep writing
+   * forever. Measured while landing FB-7 (rails announcing a chrome change when
+   * the inspector leaves on entering the sketcher): the part rig wanted radius
+   * 70, the sketch rig 230, and the camera oscillated around 180 indefinitely —
+   * which also jitters every DOM overlay anchored to the scene, so a face-pick
+   * target never becomes click-stable and the flow simply stops.
+   */
+  owns: boolean;
   onSettle: (view: string, position: Vector3, framed: Rect | null) => void;
 }) {
   const camera = useThree((state) => state.camera);
@@ -369,6 +384,23 @@ function CameraRig({
   ]);
 
   /**
+   * RELEASE THE CAMERA when another rig takes over. An ease in flight is state:
+   * `goal.current` keeps this rig writing the camera every frame until it lands
+   * within its settle epsilon, and if the sketcher takes the view in that
+   * window, it never does — the two rigs pull the same camera to two different
+   * radii and it oscillates between them forever, which is not just wrong but
+   * UNCLICKABLE (every scene-anchored DOM overlay jitters, so Playwright — and
+   * a hand on a trackpad — can never land on a face-pick target).
+   *
+   * Measured while landing FB-7: part rig wanting radius 70, sketch rig 230,
+   * camera parked at ~120 and moving on every frame indefinitely.
+   */
+  useEffect(() => {
+    if (owns) return;
+    goal.current = null;
+  }, [owns]);
+
+  /**
    * Give the space back. A collapsed panel un-covers a third of the frame, and
    * a fit that was correct for the old free rect is now off-centre in the new
    * one — so the chrome announces its own change and the rig re-frames.
@@ -383,7 +415,10 @@ function CameraRig({
     };
     controls?.addEventListener("start", onControlStart);
     const onChromeChange = () => {
-      if (userMoved.current) return;
+      // Not while another rig owns the camera, and not after the modeler has
+      // taken it by hand — the two ways a refit here would be a THEFT rather
+      // than a courtesy.
+      if (!owns || userMoved.current) return;
       useViewCommandStore.getState().request("fit");
     };
     window.addEventListener(VIEWPORT_CHROME_EVENT, onChromeChange);
@@ -391,7 +426,7 @@ function CameraRig({
       controls?.removeEventListener("start", onControlStart);
       window.removeEventListener(VIEWPORT_CHROME_EVENT, onChromeChange);
     };
-  }, [controls]);
+  }, [controls, owns]);
 
   useFrame((_, delta) => {
     const g = goal.current;
@@ -847,6 +882,10 @@ export function Viewport({
           fitKey={resolvedFitKey}
           reducedMotion={reducedMotion}
           framing={framing}
+          // `viewNav` is already the workspace's own statement of "the part
+          // camera is in charge" — it is false exactly while the sketcher owns
+          // the view, which is when a second rig is easing this same camera.
+          owns={viewNav}
           onSettle={handleSettle}
         />
         {viewNav ? <ReferenceCube /> : null}

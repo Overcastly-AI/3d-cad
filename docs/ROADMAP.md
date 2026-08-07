@@ -13,6 +13,9 @@ library and cleared two of three images to publish (`c7f23dd`). OPEN: LIC-1,
 stripping jbigkit from the geometry image, which is what still blocks
 publishing it.
 
+**FB-7 SHIPPED 2026-08-06 — the editor no longer sits on the part, and the
+ghost no longer lies about where the metal goes.** The founder photographed an
+open feature editor covering the model it was editing; measured at HEAD it took
 **FB-11 SHIPPED 2026-08-04 — the app now says which build it is.** The founder
 tests from a Codespace, so "is that fixed in the build you were on?" had no
 answer from either side, and two fixes landed mid-session that neither of us

@@ -135,14 +135,14 @@ about to hit).
       a feathered `carbide` wash laid on the picked face (the metaphor the token
       file already claimed), taking the scribe to **5.9:1**. Gated by
       `e2e/sketch-visibility.spec.ts`, which fails on the parent commit.
-- [ ] (P0, M) **FB-2 — a sketch line will not select at all**, so it cannot be
+- [x] (P0, M) **FB-2 — a sketch line will not select at all**, so it cannot be
       dimensioned ("I try to click on a line to [assign] height"). Pick path, not
       discoverability: `applyConstraintAction("distance")` needs exactly one LINE
       and `pick.ts` states "Points win within tolerance because they are the finer
       target" (`PICK_TOLERANCE_PX = 8`) — a click near a line may resolve to an
       endpoint POINT with nothing on screen saying so. Bisect vs `d8a4126`
       (PERF-4b fused per-face primitives + changed draw groups) in flight.
-- [ ] (P0, M) **FB-3 — picking a FACE is "very difficult"** — finicky rather than
+- [x] (P0, M) **FB-3 — picking a FACE is "very difficult"** — finicky rather than
       dead. Wants a measured hit region, small-vs-large faces, zoom and grazing
       angle, not an impression. Likely the same defect as FB-2.
 - [x] (P0, M) **FB-4 — a cut extrudes AWAY from the material and removes
@@ -160,17 +160,23 @@ about to hit).
       renders for face-seated sketches (their `on_face` basis was missing from
       the solved-layer walk) and the editor says where the sweep goes. Closed
       form in `e2e/extrude-cut-direction.spec.ts`: 8 000 mm³ → 7 500 mm³.
-- [ ] (P1, M) **FB-5 — cannot attach a sketch to a face; hovering a face should
+- [x] (P1, M) **FB-5 — cannot attach a sketch to a face; hovering a face should
       offer it.** The capability exists but only as `ctx-sketch-on-face` in a
       right-click Tools menu, which then enters a face-pick mode (so FB-3 may
       also block it). "New sketch" offers base planes only, so concluding it is
       impossible is the correct reading of the UI.
-- [ ] (P1, S) **FB-6 — sketch ink is invisible on the face it sits on.**
+- [x] (P1, S) **FB-6 — sketch ink is invisible on the face it sits on.**
       `SketchScene.tsx` sets `depthWrite={false}` but leaves depth TESTING on and
       has no `renderOrder`/`polygonOffset`; a sketch on a face is coplanar with it
       by construction, so the ink z-fights away. Also check scribe contrast on a
-      bright aluminium face, not just the dark void. IN FLIGHT.
-- [ ] (P1, L) **FB-7 — editor panels cover the model and cannot be moved**
+      bright aluminium face, not just the dark void.
+      BOXES TICKED 2026-08-06 while landing FB-7: FB-2/FB-3/FB-5/FB-6 were all
+      closed by shipped work and only the checkboxes were stale — FB-2 never
+      reproduced (its real causes shipped as FB-12 `b6d2f2d` and FB-14
+      `d2e2162`), FB-3/FB-5 by SEL-1 A2 (`8b693f5`, affordance 9.9 % → 84.6 %
+      against a 50 % floor), FB-6 three ways in `SketchScene.tsx` by FB-1b
+      (`b6d2f2d`). No new work; the record was lying about what was open.
+- [x] (P1, L) **FB-7 — editor panels cover the model and cannot be moved**
       (Feature tree > new Datum plane; photographed). `Viewport.tsx:733` already
       measures chrome obstructions into a FREE rect and `framePose` already fills
       it — but `framing()` is only consulted during a fit, and the auto-fit runs
@@ -179,6 +185,23 @@ about to hit).
       free-rect fit for residual floating chrome (safe only since `5bd4c46`),
       THEN compact as a separate density pass. Compaction alone is not the fix —
       a smaller panel still covers the part.
+      DONE 2026-08-06 (frontend-builder): editors DOCK. `ChromeRail` is one
+      column per side at the seat the tree/inspector already hold, and
+      `EditorCard` portals into it — one shell, so all 17 editors moved at once
+      and the workspaces with no rail keep floating. Overlap is now structurally
+      impossible, not merely smaller, and the charged inset is unchanged, so the
+      free rect stays `356,24,888,758` and the camera never moves. The residual
+      1.2 % offender was NOT chrome: the extrude ghost drew on the far side of
+      the sketch plane because the origin-datum bases were kernel-frame (Z-up)
+      while the scene renders Y-up — measured body y∈[0,10] z∈[−15.4,16.6] vs
+      ghost y∈[−16.6,15.4] z∈[0,10]. That is FB-9's mechanism too, fixed in
+      `sketch/plane.ts` (`sceneOriginBasis`/`resolveDatumSceneBasis`; the kernel
+      algebra is untouched so client and server still agree on (u,v)). Two
+      latent bugs surfaced with it: two camera rigs deadlocked over one camera
+      (fixed — the part rig releases its ease when the sketcher takes over), and
+      the ghost needed `depthTest:false` to be visible at all now that it lands
+      INSIDE the body. `founder-picking.spec.ts` FB-7 is a plain `test` with no
+      `extraSelectors`, mutation-verified red both ways.
 - [ ] (P0, L) **FB-8 — "too many [points] to see what you are clicking"; wants
       Fusion/Plasticity pre-selection** — a snapping pointer, the FACE (not the
       body) highlighting under the cursor, and a small axis showing direction.

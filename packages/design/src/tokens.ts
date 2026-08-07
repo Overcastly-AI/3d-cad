@@ -801,6 +801,19 @@ export const layout = {
    */
   hudLaneBottom: spacing["3"] + 34 + spacing["3"],
   /**
+   * The least a co-resident panel may be squeezed to in a chrome RAIL — the
+   * column where a feature editor and the feature tree share one seat instead
+   * of the editor floating over the model (FB-7).
+   *
+   * A floor, not a height: the editor is the instrument being operated, so it
+   * takes the room it needs, but the tree it was opened FROM must never be
+   * squeezed to a sliver — about three rows plus its heading, still scrollable.
+   * Auto-collapsing the neighbour instead was rejected: a panel that vanishes
+   * when you open an editor is its own flow defect (and specs read the tree
+   * while editors are open).
+   */
+  railPanelFloor: 120,
+  /**
    * Bottom band occupied by the in-canvas reference cube (drei GizmoHelper,
    * bottom-RIGHT). A right-side panel clamps above it so a table-stakes nav
    * element is never covered (mandate 3a).

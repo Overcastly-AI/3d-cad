@@ -216,15 +216,27 @@ test.describe("UI-W2 part half — the browser controls what is drawn", () => {
 
     await row.click();
     await expect(row).toHaveAttribute("aria-pressed", "true");
-    const inkAfter = await settled(page, () => scribeInkPixels(page));
-    // The profile sits ON the body's base face, so most of it is occluded by
-    // the solid it made and only the silhouette peeks — a modest but decisive
-    // count against a baseline of zero.
-    expect(inkAfter).toBeGreaterThan(inkBefore + 50);
+    const inkOverSolid = await settled(page, () => scribeInkPixels(page));
 
+    // The profile sits ON the body's base face, so the solid it made covers it
+    // COMPLETELY. This used to expect "a silhouette peek" of >50 px, and the
+    // peek was the defect: the origin-datum plane bases were stated in the
+    // kernel's Z-up frame while the scene renders Y-up, so the ink stood
+    // vertically THROUGH the body instead of lying on its base face, and the
+    // part sticking out was what got counted (FB-7c, 2026-08-06).
+    //
+    // So the row's effect is proven where the ink can actually be seen — with
+    // the body out of the way. Without this the "occluded" reading would pass
+    // just as happily on a control that does nothing.
+    await page.getByTestId("body-visibility-0").click();
+    const inkUncovered = await settled(page, () => scribeInkPixels(page));
+    expect(inkUncovered).toBeGreaterThan(inkOverSolid + 50);
+
+    // …and it is THIS row that draws it: off again, with the body still hidden.
     await row.click();
     const inkOff = await settled(page, () => scribeInkPixels(page));
-    expect(inkOff).toBeLessThan(inkAfter / 2);
+    expect(inkOff).toBeLessThan(inkUncovered / 2);
+    expect(inkBefore).toBeLessThan(inkUncovered / 2);
   });
 
   test("hide and ghost a body change what the viewport draws", async ({

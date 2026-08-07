@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  chargedInsetChanged,
   fitDistance,
   insetsFor,
   targetShift,
@@ -239,5 +240,43 @@ describe("targetShift", () => {
     // The free rect sits right of centre, so the orbit target moves LEFT in
     // world — which is what carries the part out from under the tree.
     expect(shift.right).toBeLessThan(0);
+  });
+});
+
+describe("chargedInsetChanged — what a rail may wake the camera for", () => {
+  /** The left rail at rest: the tree's column, 320 wide at x=12. */
+  const RAIL: Rect = { x: 12, y: 12, width: 320, height: 420 };
+
+  it("ignores height — a card that grows a row must not re-frame", () => {
+    // THE reason this predicate exists. An editor docked in the rail gains a
+    // row every time a field is revealed or a list gets an entry, and a naive
+    // ResizeObserver would refit on each one: the lurching FB-1 removed, back
+    // by a different door. Measured at HEAD: opening the extrude editor left
+    // the free rect at 356,24,888,758 — identical — because only the column's
+    // HEIGHT changed.
+    expect(
+      chargedInsetChanged(RAIL, { ...RAIL, height: RAIL.height + 260 }),
+    ).toBe(false);
+  });
+
+  it("answers to a collapse — the column gives its width back", () => {
+    // `panel-collapse-tree` shrinks the rail to a ~120px tab; a third of the
+    // frame comes back and a fit that was correct is now off-centre.
+    expect(chargedInsetChanged(RAIL, { ...RAIL, width: 118 })).toBe(true);
+  });
+
+  it("answers to the edge moving (a resized window, a docked drawer)", () => {
+    expect(chargedInsetChanged(RAIL, { ...RAIL, x: 340 })).toBe(true);
+  });
+
+  it("treats the first measurement as no change", () => {
+    // The rail mounts into a frame the fit has already solved for; announcing
+    // there would fire a refit on every navigation into the workspace.
+    expect(chargedInsetChanged(null, RAIL)).toBe(false);
+  });
+
+  it("ignores sub-pixel jitter", () => {
+    // Layout rounding, a scrollbar appearing inside a child, DPR arithmetic.
+    expect(chargedInsetChanged(RAIL, { ...RAIL, width: 320.3 })).toBe(false);
   });
 });

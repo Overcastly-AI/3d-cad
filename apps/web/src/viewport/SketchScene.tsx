@@ -74,7 +74,7 @@ import {
 import { pickCandidates, samePick, PICK_TOLERANCE_PX } from "../sketch/pick";
 import {
   DATUM_PLANES,
-  originBasis,
+  sceneOriginBasis,
   planeCameraPose,
   planeToWorld,
   resolveSpecBasis,
@@ -387,7 +387,7 @@ function DatumSheet({ plane }: { plane: DatumPlaneName }) {
   useCursor(pointerOver);
   const hovered = hoveredPlane === plane;
 
-  const basis = useMemo(() => originBasis(plane), [plane]);
+  const basis = useMemo(() => sceneOriginBasis(plane), [plane]);
   const quaternion = useMemo(() => planeQuaternion(basis), [basis]);
   const edgePositions = useMemo(() => {
     const s = PLANE_SIZE_MM / 2;
