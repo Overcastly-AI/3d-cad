@@ -13,6 +13,22 @@ library and cleared two of three images to publish (`c7f23dd`). OPEN: LIC-1,
 stripping jbigkit from the geometry image, which is what still blocks
 publishing it.
 
+**SEL-4 (1/5) 2026-08-08 — one pick hit-test implementation, not six.** SEL-1
+A2 converted `FacePickOverlay` to a surface raycast and left five overlays
+hanging their only handler on a 24 px `PickNode`; copying the conversion five
+times is how the two ends drift, so it is shared code first. New in
+`apps/web/src/viewport/`: `pickSurface.tsx` (the invisible `colorWrite:false`
+raycast mesh plus the hidden-body refusal, lifted verbatim out of
+`FacePickOverlay`), `facePatch.tsx` (the on-plane topology highlight, which two
+of the unconverted overlays never had at all), `pickStamp.ts` (the `data-*` QA
+hook a raycast NEEDS, because `document.elementFromPoint` can only ever answer
+"the canvas" for one), and `edgeBand.ts` — a pure, unit-tested module for the
+screen-space edge corridor, because "which edge owns this segment" and "is this
+hit behind the solid" are exactly the two decisions a screenshot cannot check.
+`sketch/plane.ts` gains `sceneToOcctTuple` beside its forward twin, round-trip
+tested. `FacePickOverlay` is rewritten onto the shared pieces with NO behaviour
+change, guarded by the existing FB-3/FB-5 census.
+
 **FB-7 SHIPPED 2026-08-06 — the editor no longer sits on the part, and the
 ghost no longer lies about where the metal goes.** The founder photographed an
 open feature editor covering the model it was editing; measured at HEAD it took

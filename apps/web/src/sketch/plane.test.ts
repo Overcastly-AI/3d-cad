@@ -20,6 +20,7 @@ import {
   resolveDatumPlaneOptions,
   resolveSpecBasis,
   sceneOriginBasis,
+  sceneToOcctTuple,
   snapPoint,
   snapValue,
   worldToPlane,
@@ -216,6 +217,34 @@ describe("occtToSceneTuple — the one OCCT(Z-up)→scene(Y-up) rotation", () =>
   it("never emits -0 for a zero Y", () => {
     const [, , z] = occtToSceneTuple([5, 0, 7]);
     expect(Object.is(z, 0)).toBe(true);
+  });
+});
+
+describe("sceneToOcctTuple — the inverse, for a pick that lands in the scene", () => {
+  it("maps (x, y, z) → (x, −z, y)", () => {
+    expect([...sceneToOcctTuple([1, 3, -2])]).toEqual([1, 2, 3]);
+    expect([...sceneToOcctTuple([0, 1, 0])]).toEqual([0, 0, 1]); // up → +Z
+  });
+
+  it("round-trips every axis, in both directions", () => {
+    // A hole placed by raycasting the drawn surface goes scene → OCCT; the
+    // crosshair that confirms it goes back OCCT → scene. A frame transform that
+    // is not its own inverse puts the drill where the mark is not.
+    const samples: [number, number, number][] = [
+      [1, 2, 3],
+      [-4.5, 0, 7.25],
+      [0, 0, 0],
+      [1e-6, -1e-6, 1e6],
+    ];
+    for (const v of samples) {
+      expect([...sceneToOcctTuple(occtToSceneTuple(v))]).toEqual(v);
+      expect([...occtToSceneTuple(sceneToOcctTuple(v))]).toEqual(v);
+    }
+  });
+
+  it("never emits -0 for a zero scene Z", () => {
+    const [, y] = sceneToOcctTuple([5, 7, 0]);
+    expect(Object.is(y, 0)).toBe(true);
   });
 });
 

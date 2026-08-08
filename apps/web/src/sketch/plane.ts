@@ -428,6 +428,21 @@ export function occtToSceneTuple(v: Vec3Tuple): Vec3Tuple {
 }
 
 /**
+ * The INVERSE of {@link occtToSceneTuple}: three.js scene (Y-up) → OCCT world-mm
+ * (Z-up), `(x, y, z) → (x, −z, y)`.
+ *
+ * It lives here, beside its forward twin, because this file is THE one
+ * OCCT↔scene rotation and a second copy of a frame transform is how a hole ends
+ * up 0.065 mm out (CLAUDE.md DRY rule). Needed the moment a pick reports a
+ * point in the SCENE — hole free placement raycasts the drawn surface, and the
+ * hit point has to come back to the kernel's frame before it can be written as
+ * a `HoleParamsV1.position`.
+ */
+export function sceneToOcctTuple(v: Vec3Tuple): Vec3Tuple {
+  return [v[0], v[2] === 0 ? 0 : -v[2], v[1]];
+}
+
+/**
  * A whole basis, rotated OCCT (Z-up) → scene (Y-up). The rotation is linear and
  * proper (det +1), so it carries u/v/normal as directions and `origin` as a
  * point, and a right-handed basis stays right-handed — which the extrude ghost

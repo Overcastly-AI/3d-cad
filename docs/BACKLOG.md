@@ -3481,6 +3481,10 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
+- 2026-08-08 — **SEL-4 (1/5) one pick hit-test, shared (frontend-builder):**
+  `PickSurface` / `FacePatch` / `useViewportPickStamp` / `edgeBand` (pure,
+  unit-tested) extracted from `FacePickOverlay`, plus `sceneToOcctTuple`.
+
 - 2026-08-01 — **Escape no longer ends your sketch, and a click no longer piles
   up (frontend-builder):** FB-13/FB-14 — the cascade unwinds and then stops (it
   still backs out of a sketch holding no work); plain click replaces, Shift or
