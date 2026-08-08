@@ -1,11 +1,18 @@
 /**
- * The measurement overlay inside the WebGL viewport. Pickable vertices and
- * edges are DOM-in-canvas via drei `Html` — real buttons, so picking is
- * keyboard-navigable, screen-reader named, and e2e-drivable — while the edge
- * highlights and the dimension line are canvas draws in the shared `measure`
- * tokens (one palette, un-tonemapped so the hue lands exactly). The dimension
- * line ignores depth and draws last, so a measurement is never hidden by the
- * part it measures.
+ * The measurement overlay inside the WebGL viewport.
+ *
+ * EDGES are hit-tested by the edge itself: an invisible screen-space band
+ * follows every polyline (`EdgeBandLayer`, SEL-4), so a measurement can be
+ * taken by clicking anywhere along an edge. VERTICES are hit-tested by their
+ * `PickNode` alone, which is the honest model for a point — see the comment on
+ * the vertex nodes below.
+ *
+ * Both kinds still carry a DOM-in-canvas `PickNode` via drei `Html` — real
+ * buttons, so picking is keyboard-navigable, screen-reader named, and
+ * e2e-drivable — while the edge highlights and the dimension line are canvas
+ * draws in the shared `measure` tokens (one palette, un-tonemapped so the hue
+ * lands exactly). The dimension line ignores depth and draws last, so a
+ * measurement is never hidden by the part it measures.
  */
 import { PickNode } from "@loft/design";
 import { measure } from "@loft/design/tokens";
@@ -22,7 +29,10 @@ import {
   polylineSegments,
 } from "../measure/geometry";
 import { useMeasureStore } from "../measure/store";
+import { EdgeBandLayer } from "./EdgeBandLayer";
+import type { EdgeBandInput } from "./edgeBand";
 import { concatPositions, Segments } from "./overlaySegments";
+import { useViewportPickStamp } from "./pickStamp";
 
 /**
  * Overlay pick-node stacking, kept under the HUD strips (Viewport hud sits at
@@ -84,6 +94,20 @@ export function MeasureOverlay() {
     invalidate();
   }, [active, overlay, picks, hoverEdge, result, invalidate]);
 
+  /** QA hook: which edge the measurement is addressing (SEL-4 / A2). */
+  useViewportPickStamp("measureEdgeHover", active ? hoverEdge : null);
+
+  const bandEdges = useMemo<EdgeBandInput[]>(
+    () =>
+      overlay === null
+        ? []
+        : overlay.edges.map((edge, index) => ({
+            index,
+            polyline: edge.polyline,
+          })),
+    [overlay],
+  );
+
   const selectedVertices = useMemo(
     () => new Set(picks.flatMap((p) => (p.kind === "vertex" ? [p.index] : []))),
     [picks],
@@ -125,6 +149,13 @@ export function MeasureOverlay() {
 
   return (
     <group>
+      {/* The hit-test: a 24 px screen-space corridor along every edge. */}
+      <EdgeBandLayer
+        edges={bandEdges}
+        onHover={setHoverEdge}
+        onPick={pickEdge}
+      />
+
       {/* Edge highlights (hover under selection). */}
       <Segments positions={hoveredEdgePositions} color={measure.edgeHover} />
       <Segments
@@ -134,7 +165,15 @@ export function MeasureOverlay() {
 
       {/* Pickable edges — diamond marks at each edge's TRUE mid-span. Rendered
           BEFORE the vertices (and in a lower z band) so a corner click resolves
-          to the vertex, an edge-midspan click to the edge. */}
+          to the vertex, an edge-midspan click to the edge.
+
+          WIDENING THE EDGES DOES NOT COST THE VERTICES THEIR PRECEDENCE, and
+          the reason is mechanical rather than a tuned z-order: a `PickNode`
+          lives in a drei `Html` layer ABOVE the canvas, so a pointer over a
+          vertex square is consumed by the DOM and never reaches r3f at all —
+          the band cannot steal it. The `VERTEX_Z_RANGE` / `EDGE_Z_RANGE` split
+          still settles edge-mark versus vertex-mark, which is a DOM-to-DOM
+          contest. Asserted in `pick-affordance.spec.ts`, not assumed. */}
       {overlay.edges.map((edge, index) => (
         <Html
           key={`e${index}`}
@@ -144,6 +183,9 @@ export function MeasureOverlay() {
         >
           <PickNode
             shape="edge"
+            // A7's recession: the edge band is this pick's primary hit-test
+            // now, so the mark is the keyboard/touch fallback.
+            recede
             selected={selectedEdges.has(index)}
             data-testid={`measure-edge-${index}`}
             aria-label={`Edge ${index + 1}, ${edge.kind}`}
@@ -157,7 +199,14 @@ export function MeasureOverlay() {
       ))}
 
       {/* Pickable vertices — round snap nodes, rendered LAST + in the higher z
-          band so they always win the hit-test against a nearby edge mark. */}
+          band so they always win the hit-test against a nearby edge mark.
+
+          THEY PASS NO `recede`, deliberately (SEL-4 / A7). A projected point
+          has no "true boundary" to raycast — a 24 px square around it already
+          IS a ~12 px screen-space proximity test — so this button is still the
+          SOLE hit-test here. Dimming it would dim the aim affordance itself,
+          which is the exact trade A7 refuses (`PickNode.tsx`'s opacity block
+          states the same rule from the primitive's side). */}
       {overlay.vertices.map((vertex: Vec3, index) => (
         <Html
           key={`v${index}`}

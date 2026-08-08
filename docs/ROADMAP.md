@@ -13,6 +13,22 @@ library and cleared two of three images to publish (`c7f23dd`). OPEN: LIC-1,
 stripping jbigkit from the geometry image, which is what still blocks
 publishing it.
 
+**SEL-4 (2/5) 2026-08-08 — the EDGE is the target for fillet, chamfer and
+measure.** An edge is 1-D, so there is nothing to raycast; what it needs is a
+TOLERANCE, and `LineSegments2`'s raycast already is one — with
+`worldUnits === false` a hit is `material.linewidth / 2` SCREEN pixels, and the
+intersection's `faceIndex` IS the segment index, so the segment→edge lookup is
+free. `EdgeBandLayer` draws an invisible 24 px corridor (12 px each side: WCAG
+2.5.8's target size spent ALONG the entity instead of parked on a dot) and
+mounts a `PickSurface` beside it purely to compare depths, so an edge behind the
+material loses and a silhouette edge — which has no surface behind it — wins.
+Both handlers resolve from the same `event.intersections`, so the answer cannot
+depend on hit order. MEASURED on a seven-bore plate: **13 px in every direction
+before, 40–130 px along the entity and ≤13 px across it after**; the vertex
+marks keep their precedence by MECHANISM (a drei `Html` node sits above the
+canvas, so the band never sees the pointer) and are the one surface that
+deliberately does NOT `recede`.
+
 **SEL-4 (1/5) 2026-08-08 — one pick hit-test implementation, not six.** SEL-1
 A2 converted `FacePickOverlay` to a surface raycast and left five overlays
 hanging their only handler on a 24 px `PickNode`; copying the conversion five

@@ -1,9 +1,11 @@
 /**
  * The edge-pick overlay inside the WebGL viewport — the "Pick edges" step of
- * the Fillet / Chamfer editors. Every B-rep edge of the current body gets a
- * DOM-in-canvas `PickNode` diamond (drei `Html`) at its true mid-span, so
- * picking is keyboard-navigable, screen-reader named, and e2e-drivable — the
- * same posture as the measurement overlay's edge marks. Clicking toggles that
+ * the Fillet / Chamfer / edge-flange / hem editors. The EDGE ITSELF is the
+ * hit-test: an invisible screen-space band follows every polyline
+ * (`EdgeBandLayer`, SEL-4), so a click anywhere along an edge picks it. Every
+ * edge also carries a DOM-in-canvas `PickNode` diamond (drei `Html`) at its
+ * true mid-span, which is now the keyboard focus target, the screen-reader name
+ * and the touch tap target rather than the way you aim. Clicking toggles that
  * edge into the picked set; the fillet/chamfer then rounds ONLY those edges.
  *
  * The highlight draws (selected = brass, hover = brass-hover) reuse the shared
@@ -17,7 +19,7 @@ import { PickNode } from "@loft/design";
 import { measure } from "@loft/design/tokens";
 import { Html } from "@react-three/drei";
 import { useThree } from "@react-three/fiber";
-import { useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 
 import type { Vec3 } from "../api/measure";
 import { edgeSignatureKey } from "../features/edge";
@@ -27,7 +29,10 @@ import {
   polylineMidpoint,
   polylineSegments,
 } from "../measure/geometry";
+import { EdgeBandLayer } from "./EdgeBandLayer";
+import type { EdgeBandInput } from "./edgeBand";
 import { concatPositions, Segments } from "./overlaySegments";
+import { useViewportPickStamp } from "./pickStamp";
 
 /** Edge marks sit just under the HUD strips (same band as measurement edges). */
 const EDGE_Z_RANGE: [number, number] = [17, 0];
@@ -51,9 +56,32 @@ export function EdgePickOverlay() {
     invalidate();
   }, [overlay, picked, hoverEdge, invalidate]);
 
+  /** QA hook: which edge the armed pick is addressing (SEL-4 / A2). */
+  useViewportPickStamp("edgePickHover", hoverEdge);
+
   const pickedKeys = useMemo(
     () => new Set(picked.map(edgeSignatureKey)),
     [picked],
+  );
+
+  /** Every edge is bandable — the picked set is a choice, not a filter. */
+  const bandEdges = useMemo<EdgeBandInput[]>(
+    () =>
+      overlay === null
+        ? []
+        : overlay.edges.map((edge, index) => ({
+            index,
+            polyline: edge.polyline,
+          })),
+    [overlay],
+  );
+
+  const pickBandEdge = useCallback(
+    (index: number) => {
+      const edge = overlay?.edges[index];
+      if (edge !== undefined) toggle(edge.signature);
+    },
+    [overlay, toggle],
   );
 
   const selectedPositions = useMemo(() => {
@@ -81,6 +109,13 @@ export function EdgePickOverlay() {
 
   return (
     <group>
+      {/* The hit-test: a 24 px screen-space corridor along every edge. */}
+      <EdgeBandLayer
+        edges={bandEdges}
+        onHover={setHoverEdge}
+        onPick={pickBandEdge}
+      />
+
       {/* Highlights (hover under selection), brass token — one palette. */}
       <Segments positions={hoveredPositions} color={measure.edgeHover} />
       <Segments positions={selectedPositions} color={measure.edgeSelected} />
@@ -97,6 +132,10 @@ export function EdgePickOverlay() {
           >
             <PickNode
               shape="edge"
+              // A7's recession: the edge band is this pick's primary hit-test
+              // now, so the mark is the keyboard/touch fallback and may rest
+              // quiet.
+              recede
               selected={pickedKeys.has(edgeSignatureKey(edge.signature))}
               data-testid={`edge-pick-${index}`}
               aria-label={edgeLabel(index, edge.kind, midpoint)}

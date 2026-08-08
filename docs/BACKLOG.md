@@ -3481,6 +3481,10 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
+- 2026-08-08 — **SEL-4 (2/5) fillet/chamfer/measure pick the EDGE
+  (frontend-builder):** a 24 px screen-space `LineSegments2` corridor with an
+  occlusion test. Measured 13 px in every direction -> 40–130 px along.
+
 - 2026-08-08 — **SEL-4 (1/5) one pick hit-test, shared (frontend-builder):**
   `PickSurface` / `FacePatch` / `useViewportPickStamp` / `edgeBand` (pure,
   unit-tested) extracted from `FacePickOverlay`, plus `sceneToOcctTuple`.
