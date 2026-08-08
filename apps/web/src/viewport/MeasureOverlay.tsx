@@ -5,7 +5,8 @@
  * follows every polyline (`EdgeBandLayer`, SEL-4), so a measurement can be
  * taken by clicking anywhere along an edge. VERTICES are hit-tested by their
  * `PickNode` alone, which is the honest model for a point — see the comment on
- * the vertex nodes below.
+ * the vertex nodes below. Neither is offered for a SWITCHED-OFF body
+ * (`hiddenPicks.ts`).
  *
  * Both kinds still carry a DOM-in-canvas `PickNode` via drei `Html` — real
  * buttons, so picking is keyboard-navigable, screen-reader named, and
@@ -31,6 +32,7 @@ import {
 import { useMeasureStore } from "../measure/store";
 import { EdgeBandLayer } from "./EdgeBandLayer";
 import type { EdgeBandInput } from "./edgeBand";
+import { useHiddenPicks } from "./hiddenPicks";
 import { concatPositions, Segments } from "./overlaySegments";
 import { useViewportPickStamp } from "./pickStamp";
 
@@ -88,24 +90,59 @@ export function MeasureOverlay() {
   const pickEdge = useMeasureStore((s) => s.pickEdge);
   const setHoverEdge = useMeasureStore((s) => s.setHoverEdge);
   const invalidate = useThree((s) => s.invalidate);
-
-  // frameloop="demand": redraw when the pick/hover/result state changes.
-  useEffect(() => {
-    invalidate();
-  }, [active, overlay, picks, hoverEdge, result, invalidate]);
+  const hiddenPicks = useHiddenPicks();
 
   /** QA hook: which edge the measurement is addressing (SEL-4 / A2). */
   useViewportPickStamp("measureEdgeHover", active ? hoverEdge : null);
 
-  const bandEdges = useMemo<EdgeBandInput[]>(
+  /**
+   * The entities ON OFFER, each keeping its overlay index — that index is what
+   * a measurement is taken BY (`EdgeTarget.index`), so filtering may thin these
+   * lists but must never renumber them. A switched-off body leaves the offer
+   * with its edges and its snap points: measuring geometry you cannot see is
+   * the same defect as picking it (SEL-6's mirror half), and the band's 24 px
+   * corridor made it easy to do by accident.
+   */
+  const offeredEdges = useMemo(
     () =>
       overlay === null
         ? []
-        : overlay.edges.map((edge, index) => ({
-            index,
-            polyline: edge.polyline,
-          })),
-    [overlay],
+        : overlay.edges.flatMap((edge, index) =>
+            hiddenPicks.isHiddenEdge(edge.polyline) ? [] : [{ edge, index }],
+          ),
+    [overlay, hiddenPicks],
+  );
+  const offeredVertices = useMemo(
+    () =>
+      overlay === null
+        ? []
+        : overlay.vertices.flatMap((vertex: Vec3, index) =>
+            hiddenPicks.isHiddenPoint(vertex) ? [] : [{ vertex, index }],
+          ),
+    [overlay, hiddenPicks],
+  );
+
+  // frameloop="demand": redraw when the pick/hover/result state changes —
+  // including the OFFER, since switching a body off changes what is drawn.
+  useEffect(() => {
+    invalidate();
+  }, [
+    active,
+    offeredEdges,
+    offeredVertices,
+    picks,
+    hoverEdge,
+    result,
+    invalidate,
+  ]);
+
+  const bandEdges = useMemo<EdgeBandInput[]>(
+    () =>
+      offeredEdges.map(({ edge, index }) => ({
+        index,
+        polyline: edge.polyline,
+      })),
+    [offeredEdges],
   );
 
   const selectedVertices = useMemo(
@@ -117,25 +154,28 @@ export function MeasureOverlay() {
     [picks],
   );
 
-  const selectedEdgePositions = useMemo(() => {
-    if (overlay === null) return new Float32Array(0);
-    return concatPositions(
-      [...selectedEdges].map((i) =>
-        polylineSegments(overlay.edges[i]?.polyline ?? []),
+  // The highlights follow the OFFER: a picked edge whose body is switched off
+  // keeps its pick (showing the body restores it) but must not keep drawing
+  // brass where the body no longer is.
+  const selectedEdgePositions = useMemo(
+    () =>
+      concatPositions(
+        offeredEdges
+          .filter(({ index }) => selectedEdges.has(index))
+          .map(({ edge }) => polylineSegments(edge.polyline)),
       ),
-    );
-  }, [overlay, selectedEdges]);
+    [offeredEdges, selectedEdges],
+  );
 
   const hoveredEdgePositions = useMemo(() => {
-    if (
-      overlay === null ||
-      hoverEdge === null ||
-      selectedEdges.has(hoverEdge)
-    ) {
+    if (hoverEdge === null || selectedEdges.has(hoverEdge)) {
       return new Float32Array(0);
     }
-    return polylineSegments(overlay.edges[hoverEdge]?.polyline ?? []);
-  }, [overlay, hoverEdge, selectedEdges]);
+    const hit = offeredEdges.find(({ index }) => index === hoverEdge);
+    return hit === undefined
+      ? new Float32Array(0)
+      : polylineSegments(hit.edge.polyline);
+  }, [offeredEdges, hoverEdge, selectedEdges]);
 
   const dimensionPositions = useMemo(() => {
     if (result === null) return new Float32Array(0);
@@ -174,7 +214,7 @@ export function MeasureOverlay() {
           the band cannot steal it. The `VERTEX_Z_RANGE` / `EDGE_Z_RANGE` split
           still settles edge-mark versus vertex-mark, which is a DOM-to-DOM
           contest. Asserted in `pick-affordance.spec.ts`, not assumed. */}
-      {overlay.edges.map((edge, index) => (
+      {offeredEdges.map(({ edge, index }) => (
         <Html
           key={`e${index}`}
           position={occtToScene(polylineMidpoint(edge.polyline))}
@@ -207,7 +247,7 @@ export function MeasureOverlay() {
           SOLE hit-test here. Dimming it would dim the aim affordance itself,
           which is the exact trade A7 refuses (`PickNode.tsx`'s opacity block
           states the same rule from the primitive's side). */}
-      {overlay.vertices.map((vertex: Vec3, index) => (
+      {offeredVertices.map(({ vertex, index }) => (
         <Html
           key={`v${index}`}
           position={occtToScene(vertex)}

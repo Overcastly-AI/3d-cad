@@ -257,6 +257,52 @@ async function litAfterHiding(page: Page, index: number): Promise<number> {
   return count;
 }
 
+/**
+ * WHICH BODY AN ENTITY BELONGS TO, read off its own accessible name.
+ *
+ * `seedOccludedEdgePlate` puts the wall at OCCT y = 0…20 and the plate at
+ * y = 30…50, so the y of any mid-span or centroid says which solid it is —
+ * without hardcoding a kernel ordinal, which is not a contract. Both label
+ * grammars ("… centred at x, y, z millimetres") carry it in the same position.
+ */
+function labelIsWall(label: string): boolean {
+  const y = Number.parseFloat(
+    (label.match(/centred at -?[\d.]+, (-?[\d.]+),/) ?? [])[1] ?? "NaN",
+  );
+  expect(Number.isFinite(y), `a located label: ${label}`).toBe(true);
+  return y < 25;
+}
+
+/** The edge marks on offer, split by the body each one belongs to. */
+async function splitEdgeMarks(page: Page): Promise<{
+  marks: EdgeMark[];
+  wall: EdgeMark[];
+  plate: EdgeMark[];
+}> {
+  const marks = await edgeMarks(page);
+  return {
+    marks,
+    wall: marks.filter((m) => labelIsWall(m.label)),
+    plate: marks.filter((m) => !labelIsWall(m.label)),
+  };
+}
+
+/** How many shell face marks each body currently offers. */
+async function splitFaceMarks(
+  page: Page,
+): Promise<{ wall: number; plate: number }> {
+  const nodes = page.locator('[data-testid^="shell-face-"]');
+  await expect(nodes.first()).toBeVisible({ timeout: 20_000 });
+  let wall = 0;
+  let plate = 0;
+  for (const node of await nodes.all()) {
+    const label = (await node.getAttribute("aria-label")) ?? "";
+    if (labelIsWall(label)) wall += 1;
+    else plate += 1;
+  }
+  return { wall, plate };
+}
+
 async function armFilletPick(page: Page): Promise<void> {
   await expect(page.getByTestId("new-fillet")).toBeEnabled({ timeout: 30_000 });
   await page.getByTestId("new-fillet").click();
@@ -810,6 +856,130 @@ test.describe("SEL-4 — the armed pick addresses the geometry", () => {
       ghost.reachable,
       `points over the vacated region that still name a face: ${ghost.reachable}/${ghost.sampled}`,
     ).toBe(0);
+  });
+
+  test("SEL-6 — a hidden body stops OFFERING picks, not only eating them", async ({
+    page,
+  }) => {
+    test.setTimeout(300_000);
+    // THE MIRROR HALF, and the gap the first SEL-6 pass left open (review,
+    // 2026-08-08). `/overlay` describes the WHOLE part with no notion of
+    // visibility, so a switched-off body kept every one of its entities on
+    // offer: its edges hoverable and clickable through the full 24 px
+    // `EdgeBandLayer` corridor (a 24 px dot before SEL-4 widened it), its faces
+    // selectable through their centroid marks, and a brass `FacePatch` painted
+    // over the empty space where the body used to be. The previous gate here
+    // hid the plate and asserted only that the WALL still occludes — it never
+    // asked whether the hidden plate had left the offer.
+    const viewport = await openOccludedPlate(page);
+
+    // The lit silhouette with BOTH bodies drawn, captured before anything is
+    // armed: the region the wall covers is where its entities live on screen.
+    const covered = await litPoints(page, { step: 24 });
+
+    await armFilletPick(page);
+    const both = await splitEdgeMarks(page);
+    expect(
+      [both.wall.length, both.plate.length],
+      `both bodies' edges are on offer (${both.marks.map((m) => m.label).join(" | ")})`,
+    ).toEqual([12, 12]);
+
+    // WHICH ROW IS THE WALL, discovered rather than assumed — a kernel ordinal
+    // is not a contract. Hiding one body must remove exactly ITS edges from
+    // the offer and leave the other's untouched, so the two rows answer
+    // symmetrically and neither ordering needs to be known in advance.
+    const afterHiding: { wall: number; plate: number }[] = [];
+    for (const row of [0, 1]) {
+      await setBodyMode(page, row, "hidden");
+      await waitForFrames(page, 6);
+      const split = await splitEdgeMarks(page);
+      afterHiding.push({ wall: split.wall.length, plate: split.plate.length });
+      await setBodyMode(page, row, "solid");
+      await waitForFrames(page, 6);
+    }
+    const report = afterHiding
+      .map((r, i) => `row ${i}: ${r.wall} wall + ${r.plate} plate edges`)
+      .join("; ");
+    // Before the fix BOTH rows read "12 wall + 12 plate" — hiding a body
+    // removed nothing from the offer.
+    expect(
+      afterHiding.map((r) => `${r.wall}/${r.plate}`).sort(),
+      `exactly the hidden body's edges leave the offer (${report})`,
+    ).toEqual(["0/12", "12/0"]);
+    const wall = afterHiding[0]?.wall === 0 ? 0 : 1;
+
+    // …AND THE CORRIDOR GOES WITH THEM. A mark can be gone from the DOM while
+    // the band still answers along the edge, which is the half SEL-4 made
+    // bigger: the sweep is over the region the wall VACATED, and no probe
+    // there may report an edge the wall owned. Plate edges may legitimately
+    // answer here — their corridor is 12 px wide and the bodies are close — so
+    // the assertion names the wall's indices rather than demanding silence.
+    const wallEdges = new Set(both.wall.map((m) => String(m.index)));
+    await setBodyMode(page, wall, "hidden");
+    await waitForFrames(page, 6);
+    const stillLit = await litPoints(page, { step: 24 });
+    const litKeys = new Set(
+      stillLit.map((p) => `${Math.round(p.x)},${Math.round(p.y)}`),
+    );
+    const nowEmpty = covered.filter(
+      (p) => !litKeys.has(`${Math.round(p.x)},${Math.round(p.y)}`),
+    );
+    expect(
+      nowEmpty.length,
+      "the wall really did cover part of the frame",
+    ).toBeGreaterThan(20);
+    const stamped = new Set<string>();
+    for (const point of nowEmpty) {
+      await page.mouse.move(point.x, point.y);
+      const value = await viewport.getAttribute("data-edge-pick-hover");
+      if (value !== null) stamped.add(value);
+    }
+    expect(
+      [...stamped].filter((s) => wallEdges.has(s)),
+      `edges of the hidden wall still answering over the space it vacated (all stamps: ${[...stamped].join(",") || "none"})`,
+    ).toEqual([]);
+
+    // NON-VACUITY, two ways: the stamp clears off the body (so the sweep was
+    // not reading a dead attribute), and showing the wall again brings its 12
+    // edges back — the filter is a view of the state, not a one-way sink.
+    await page.mouse.move(5, 5);
+    await expect(viewport).not.toHaveAttribute("data-edge-pick-hover", /.*/, {
+      timeout: 5_000,
+    });
+    await setBodyMode(page, wall, "solid");
+    await waitForFrames(page, 6);
+    const restored = await splitEdgeMarks(page);
+    expect(
+      [restored.wall.length, restored.plate.length],
+      "showing the body puts its edges back on offer",
+    ).toEqual([12, 12]);
+
+    // THE FACE HALF, on the overlay whose only DOM target is a centroid mark.
+    await page.getByTestId("fillet-cancel").click();
+    await expect(page.getByTestId("new-shell")).toBeEnabled({
+      timeout: 30_000,
+    });
+    await page.getByTestId("new-shell").click();
+    await expect(page.getByTestId("shell-editor")).toBeVisible();
+    await expect(
+      page.locator('[data-testid^="shell-face-"]').first(),
+    ).toBeVisible({ timeout: 20_000 });
+    await waitForFrames(page, 6);
+
+    const facesDrawn = await splitFaceMarks(page);
+    expect(
+      [facesDrawn.wall, facesDrawn.plate],
+      "both bodies' faces are on offer",
+    ).toEqual([6, 6]);
+    await setBodyMode(page, wall, "hidden");
+    await waitForFrames(page, 6);
+    const facesHidden = await splitFaceMarks(page);
+    expect(
+      [facesHidden.wall, facesHidden.plate],
+      `the hidden body's faces leave the offer (${facesHidden.wall} wall + ${facesHidden.plate} plate)`,
+    ).toEqual([0, 6]);
+    await setBodyMode(page, wall, "solid");
+    await waitForFrames(page, 6);
   });
 
   test("hole: the face is the placement target, and a snap still lands exact", async ({

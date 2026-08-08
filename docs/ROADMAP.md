@@ -13,6 +13,41 @@ library and cleared two of three images to publish (`c7f23dd`). OPEN: LIC-1,
 stripping jbigkit from the geometry image, which is what still blocks
 publishing it.
 
+**SEL-6b CLOSED (2026-08-08, frontend-builder) — and the MIRROR half: a hidden
+body stops OFFERING picks, not only eating them.** Raised by review on the SEL-6
+commit and correct: `/overlay` describes the whole part with no notion of
+visibility, so a switched-off body kept every entity on offer — its edges
+hoverable and clickable along the full 24 px `EdgeBandLayer` corridor (a 24 px
+dot before SEL-4 widened it), its faces selectable through their centroid
+`PickNode`s, and a brass `FacePatch` painted over the empty space where the body
+had been. The previous gate hid the plate and asserted only that the wall still
+OCCLUDES; it never asked whether the hidden plate had left the offer. New pure
+`apps/web/src/viewport/hiddenPicks.ts` answers "is this entity on offer" once for
+every overlay: faces from `pickHiddenFaces` directly (`OverlayFace.index` IS the
+mesh's face ordinal), edges and snap points BY POSITION — an edge's endpoints are
+exact B-rep vertices, hence triangulation nodes, and bodies are disjoint solids
+that share no coordinates, so `bodyPartition.ts`'s weld bucket says which body
+owns them (`weldKey` is now shared, so the two derivations cannot disagree).
+Every ambiguity — a point matching no bucket, or matching a hidden AND a drawn
+body — resolves to OFFERING, because withholding a pick the modeller can see
+would be worse than the defect. Filter applied to `EdgePickOverlay`,
+`FacePickOverlay`, `ShellFaceOverlay` and `MeasureOverlay` (edges + vertices);
+overlay indices are preserved, never renumbered, since the index IS the pick's
+identity. MEASURED on `seedOccludedEdgePlate` with the wall hidden: **24 edge
+marks -> 12** and **12 face marks -> 6**, the drawn body's counts unmoved, and
+zero of the wall's 12 edges answer anywhere over the region it vacated (13
+answered before). Mutation-verified three ways — pre-fix overlays read "12 wall +
+12 plate" for BOTH rows; leaving only `ShellFaceOverlay` unfixed fails the face
+leg alone; filtering the marks but NOT the band leaves 12 wall edges answering
+over empty space, which is the SEL-4-widened half a DOM-only fix would have
+missed. 45 adjacent e2e green (measure / sketch-on-face / shell / draft / fillet
+/ part-visibility / multibody / qa-sel4-verify) plus all 13 of
+`pick-affordance.spec.ts`. Founder shots:
+`docs/screenshots/sel6-hidden-body-offer-{before,after}.png` — same body hidden
+in both; 12 diamonds floating in empty air, then none. Also fixed: the FOURTH
+copy of the wrong `material.visible` reason, in `ModelMesh.tsx`, missed when the
+other three were corrected.
+
 **SEL-6 CLOSED (2026-08-08, frontend-builder) — hiding the thing in your way no
 longer takes the pick with it, and the SEL-4 review's stated REASON was wrong.**
 The review blamed the pick mesh's single material ("`_computeIntersections` only

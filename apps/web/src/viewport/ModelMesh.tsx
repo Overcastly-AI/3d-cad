@@ -655,12 +655,14 @@ export function ModelMesh({
     return () => setPickGeometry(null);
   }, [geometry, setPickGeometry]);
   /**
-   * …and, with it, which of that mesh's face ordinals are switched off. See
-   * `PartViewState.pickHiddenFaces` for why an overlay cannot work this out
-   * from the geometry alone: `Mesh.raycast` ignores a group material's
-   * `visible` flag unless the mesh carries a material ARRAY, and the overlay's
-   * pick mesh carries one material. Without this, a hidden body in FRONT
-   * absorbs the ray and the overlay addresses a face nobody can see.
+   * …and, with it, which of that mesh's face ordinals are switched off — the
+   * FOURTH copy of the reason SEL-6 corrected, missed when the other three were
+   * fixed. `Mesh.raycast` ignores `material.visible` FULL STOP (it consults only
+   * `material.side`, array branch included), so a hidden body is raycast exactly
+   * like a drawn one and nothing downstream can work its state out from the
+   * geometry alone. Both halves of the fix read this set: `pickRaycast.ts` so a
+   * hidden body in front cannot absorb the ray, and `hiddenPicks.ts` so a hidden
+   * body's own faces and edges leave the offer.
    */
   useEffect(() => {
     setPickHiddenFaces(bodyFaceState.hidden);

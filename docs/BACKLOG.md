@@ -2960,6 +2960,16 @@ Full narrative evidence lives in `docs/ROADMAP.md` (Phase 4/4b sections) and
 
 ### Recently shipped (2026-08-08)
 
+- **SEL-6b — a hidden body stops OFFERING picks, not only eating them.** The
+  mirror half, raised by review: `/overlay` has no notion of visibility, so a
+  switched-off body's edges stayed hoverable along the whole 24 px band corridor
+  and its faces selectable via their centroid marks. New pure
+  `apps/web/src/viewport/hiddenPicks.ts` decides the offer once for every overlay
+  — faces from `pickHiddenFaces`, edges/points by weld bucket (shared `weldKey`
+  with `bodyPartition.ts`), ambiguity always resolving to OFFER. Wall hidden on
+  `seedOccludedEdgePlate`: **24 edge marks -> 12, 12 face marks -> 6**, drawn
+  body unmoved, and none of the wall's edges answer over the space it vacated
+  (13 did). Mutation-verified three ways, including marks-filtered-but-band-not.
 - **SEL-6 — a hidden body in front no longer eats the pick for the body behind
   it.** The SEL-4 guard could only REFUSE the hidden triangle, never see past it:
   three never reads `material.visible` (only `material.side`), and r3f keeps one
@@ -3535,6 +3545,9 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
+- 2026-08-08 — **SEL-6b a hidden body stops OFFERING picks too
+  (frontend-builder):** `hiddenPicks.ts` withholds a switched-off body's edges,
+  faces and snap points; 24 edge marks -> 12, 12 face marks -> 6, wall hidden.
 - 2026-08-08 — **SEL-6 a hidden body stops eating the pick behind it
   (frontend-builder):** `pickRaycast.ts` filters hidden triangles inside
   `raycast`; shell reachability with the wall hidden 7.4 % -> 96.3 %.

@@ -175,6 +175,11 @@ interface PartViewState {
    * would never be offered at all. `pickRaycast.ts` turns this set into the
    * filter that runs inside `raycast`, for the overlays and for `ModelMesh`'s
    * own hover alike, so the rule exists once rather than per consumer.
+   *
+   * It answers the MIRROR question too, in `hiddenPicks.ts`: an overlay lists
+   * `/overlay`'s entities for the whole part, so without this set a
+   * switched-off body's faces stay clickable through their centroid marks and
+   * its edges through the band corridor. Same fact, both directions.
    */
   pickHiddenFaces: ReadonlySet<number>;
 
