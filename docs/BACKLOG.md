@@ -87,6 +87,30 @@ duplication.
       than a dead end, which is why the review let SEL-4 through as amber.
       [src: code-reviewer, SEL-4 slice 2026-08-08]
 
+- [ ] (P2, XS) **CI-2 — `deploy-path` never got the per-SHA concurrency fix, so
+      it is still evicting runs** (`.github/workflows`). Filed 2026-08-08 by the
+      orchestrator from the CI board. `ci.yml` and `e2e.yml` both key their PUSH
+      concurrency group on `github.sha`; `deploy-path.yml:39-41` still reads
+      `group: deploy-path-${{ github.ref }}` with `cancel-in-progress: false`,
+      and its header comment justifies that with "Runs QUEUE instead, so one
+      always completes." That reasoning is the exact one CLAUDE.md records as
+      false: a group admits one RUNNING plus one PENDING run, and a newer
+      arrival evicts the pending one no matter what `cancel-in-progress` says —
+      which only governs runs already holding a runner.
+      EVIDENCE: `207d36c` (run 31237861400) and `e53e4e4` (run 31237776502) both
+      came back `cancelled` on `deploy-path` while their `ci` and `e2e` runs
+      completed. `list_workflow_jobs` on 31237861400 returns
+      `{"total_count": 0}` — no job ever started, which is the eviction
+      signature, not the `timeout-minutes` one (a timeout kills ONE job near its
+      ceiling and leaves siblings green).
+      FIX: mirror `ci.yml`'s expression — per-SHA group on `push`, per-ref on
+      `pull_request` — and correct the stale comment in the same commit so the
+      next reader does not re-derive the wrong model. Cheap: deploy-path is the
+      86 s job, so per-commit runs cost little.
+      ACCEPTANCE: two commits pushed back-to-back each get a completed
+      `deploy-path` run; no `cancelled` with zero jobs.
+      [src: orchestrator CI read, 2026-08-08]
+
 - [x] (P1, M) **SEL-4 — the armed EDGE and shell/draft picks are still 24 px
       dots; only the FACE pick got its raycast** (`apps/web`). SHIPPED
       2026-08-08 (`757ca9f` `e53e4e4` `8cb7700` `207d36c` + this commit): all
