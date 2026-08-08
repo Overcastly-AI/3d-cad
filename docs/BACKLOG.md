@@ -53,6 +53,40 @@ duplication.
 
 ## Ready (top of queue)
 
+- [ ] (P1, S) **SEL-6 — a HIDDEN body in front eats the pick for the drawn body
+      behind it, and it is measured** (`apps/web`). Filed 2026-08-08 by the
+      orchestrator: the SEL-4 review raised this twice as amber with numbers and
+      asked for it to be filed, and it was not — the board would otherwise have
+      closed SEL-4 with a known, quantified affordance hole still open.
+      MECHANISM, one root cause with two faces. r3f 9.6.1 dedupes intersections
+      per object (`makeId` = uuid + index + instanceId) and three 0.185's
+      `Mesh.raycast` sets `faceIndex` but never `index`, so the fused pick mesh
+      yields exactly ONE hit: the nearest triangle. When that triangle belongs to
+      a hidden body, `ordinalAt` returns null and the DRAWN face behind it is
+      never offered — there is no second hit to fall back to. The current guard
+      (reject hidden ordinals, shipped in `b7ecf8a`) therefore refuses the pick
+      instead of seeing past it.
+      MEASURED on `seedOccludedEdgePlate` with shell armed: **1334/1361 = 98.0 %**
+      of lit points live with both bodies drawn; **27/317 = 8.5 %** with the wall
+      in FRONT hidden and the plate fully visible; 1307/1332 = 98.1 % with the
+      plate hidden. The 27 survivors are exactly the plate's overhangs outside the
+      hidden wall's span. **8.5 % is below the >=50 % shell floor SEL-4 itself
+      establishes** (`pick-affordance.spec.ts:310`).
+      SECOND FACE, opposite direction: `edgeBand.ts:239-268` — because only the
+      nearest triangle survives, a hidden body in front makes `surfaceOccludes`
+      return false and `surfaceDistance` stay null, so edges behind genuinely
+      drawn material are accepted. Over-permissive rather than dead, so lower
+      impact, but the occlusion test silently stops applying behind a hidden body.
+      FIX (one change closes both, and removes the need for the `hidden` kind
+      entirely): give the pick mesh a CUSTOM `raycast` that drops hidden-body
+      triangles BEFORE r3f dedupes, so the nearest DRAWN triangle is reported.
+      Affects `ShellFaceOverlay`, `InstanceMateOverlay`, `HolePointOverlay` free
+      placement (QA3-1 returns behind a hidden body) and `FacePickOverlay`, which
+      inherited it from SEL-1. NOT a regression versus pre-SEL-4 — the `PickNode`
+      centroid dots survive as a DOM fallback, so it is degraded affordance rather
+      than a dead end, which is why the review let SEL-4 through as amber.
+      [src: code-reviewer, SEL-4 slice 2026-08-08]
+
 - [x] (P1, M) **SEL-4 — the armed EDGE and shell/draft picks are still 24 px
       dots; only the FACE pick got its raycast** (`apps/web`). SHIPPED
       2026-08-08 (`757ca9f` `e53e4e4` `8cb7700` `207d36c` + this commit): all
