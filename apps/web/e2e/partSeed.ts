@@ -224,6 +224,78 @@ export async function seedDenseHolePlate(
 }
 
 /**
+ * TWO BODIES, ONE BEHIND THE OTHER in the FRONT view — the fixture for "hide a
+ * body to reach the geometry behind it".
+ *
+ * Body 1 (the blocker) is a 40×20 wall standing 40 mm tall at y∈[0,20];
+ * body 2 (the target) is a 60×20 plate 10 mm thick at y∈[30,50], so the two
+ * never touch (`merge: false` starts the second body). `occtToSceneTuple` maps
+ * OCCT y to scene −z and the front view puts the camera on scene +z, so SMALLER
+ * OCCT y is NEARER: the wall stands directly in front of the plate, and the
+ * plate's top-front edge — mid-span at OCCT (30, 30, 10) — is squarely behind
+ * it, with the wall's own nearest edge 10 mm away in the view plane.
+ *
+ * A one-body fixture cannot pose this question at all: the occlusion test is
+ * only wrong when the material in front is material the modeller has switched
+ * OFF, which takes two bodies and a visibility toggle.
+ */
+export async function seedOccludedEdgePlate(
+  page: Page,
+  token: string,
+  partId: string,
+): Promise<number> {
+  const wall = await createFeature(page, token, partId, {
+    name: "Wall sketch",
+    feature: {
+      type: "sketch",
+      version: 1,
+      params: rectangleSketch(10, 0, 40, 20),
+    },
+    expected_tree_version: 0,
+  });
+  const wallSolid = await createFeature(page, token, partId, {
+    name: "Wall",
+    feature: {
+      type: "extrude",
+      version: 1,
+      params: {
+        profile: { kind: "feature", feature_id: wall.feature.id },
+        distance_mm: 40,
+        operation: "add",
+        direction: "normal",
+        merge: true,
+      },
+    },
+    expected_tree_version: wall.tree_version,
+  });
+  const plate = await createFeature(page, token, partId, {
+    name: "Plate sketch",
+    feature: {
+      type: "sketch",
+      version: 1,
+      params: rectangleSketch(0, 30, 60, 20),
+    },
+    expected_tree_version: wallSolid.tree_version,
+  });
+  const plateSolid = await createFeature(page, token, partId, {
+    name: "Plate",
+    feature: {
+      type: "extrude",
+      version: 1,
+      params: {
+        profile: { kind: "feature", feature_id: plate.feature.id },
+        distance_mm: 10,
+        operation: "add",
+        direction: "normal",
+        merge: false,
+      },
+    },
+    expected_tree_version: plate.tree_version,
+  });
+  return plateSolid.tree_version;
+}
+
+/**
  * Park the travel stop on `featureId` (null = tip) through the gateway — the
  * API half of the timeline's drag, for specs that need a part whose evaluate
  * genuinely covers only a PREFIX. Resolves with the new tree version.

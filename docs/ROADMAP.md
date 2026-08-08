@@ -13,6 +13,29 @@ library and cleared two of three images to publish (`c7f23dd`). OPEN: LIC-1,
 stripping jbigkit from the geometry image, which is what still blocks
 publishing it.
 
+**SEL-4 review 2026-08-08 — a hidden body no longer eats the edge picks behind
+it, and the mate conversion finally has a gate.** Three review findings, all in
+`apps/web/src/viewport`. (a) The band's occlusion test measured the nearest hit
+on the FUSED pick mesh without asking whose body it was — `Mesh.raycast` tests a
+switched-off body's triangles like any other (single material, so no per-group
+`visible` check), so hiding a body to reach what is behind it killed
+fillet/chamfer/measure edge picking over exactly the region the modeller cleared,
+which is the one thing hiding a body is FOR. `usePickSurfaceTarget` now resolves
+a struck triangle to `face | hidden | none` for BOTH consumers, and
+`resolveBandIntersections` discards a hidden hit while still occluding on an
+unpartitioned mesh ("no ordinal" is not "no material"). MUTATION-VERIFIED e2e on
+a two-body wall+plate fixture in the FRONT view (`seedOccludedEdgePlate`): under
+the old rule NEITHER body toggle brings the edge back. (b) The assembly-mate
+half shipped with no gate — the only mate coverage dispatches clicks at
+`mate-face-*` by test id, verbatim the "path no hand takes" the conversion
+exists to fix, so it passed before and after. The new census aims at the
+geometry instead: 8.9 % of the lit body (dots only) -> ≥50 %, and because the
+stamp carries `instanceId:index` both instances must answer as THEMSELVES.
+(c) That stamp was written by N sibling overlays under one dataset key, so
+crossing from one instance to another could run A's cleanup after B's setup and
+wipe B's live value; hover is now owned once by `AssemblyScene` — one pointer,
+one answer.
+
 **SEL-4 (5/5) 2026-08-08 — the gate A2 asked for, on the fixture A2 named.**
 `seedDenseHolePlate` (seven Ø6 bores on a Ø40 bolt circle, two features) is the
 dense-hole fixture the shipped SEL-1 gate did not have; a six-face box cannot

@@ -197,3 +197,72 @@ export function resolveBandEdge(
   }
   return edgeOfSegment[hit.segment] as number;
 }
+
+/** An r3f intersection, as much of one as the band resolution reads. */
+export interface BandIntersection {
+  /** Compared by IDENTITY against the band and the occlusion surface. */
+  object: object;
+  /** Ray origin → hit, in scene mm. */
+  distance: number;
+  /** Segment ordinal on a band hit; struck triangle on a surface hit. */
+  faceIndex?: number | null | undefined;
+}
+
+/** The two raycast targets one band layer mounts, and how to read the surface. */
+export interface BandTargets {
+  /** The `LineSegments2` carrying the corridors, or null before it mounts. */
+  band: object | null;
+  /** The invisible solid mounted for the occlusion test, or null. */
+  surface: object | null;
+  /**
+   * Does a surface hit on this triangle count as MATERIAL IN FRONT of the edge?
+   *
+   * False for a triangle whose body is switched off. The pick mesh is fused and
+   * takes a single material, so `Mesh.raycast` tests a hidden body's triangles
+   * exactly like a drawn one's (`partView.ts` `pickHiddenFaces`) — and the
+   * nearest hit is the only one r3f keeps, so a hidden body in front would set
+   * the occlusion distance and refuse every edge behind it. Hiding a body to
+   * reach the geometry behind it is the whole reason to hide one, so that hit
+   * has to be discarded rather than measured.
+   */
+  surfaceOccludes: (faceIndex: number | null | undefined) => boolean;
+}
+
+/**
+ * The edge a pointer is addressing, from ONE r3f intersection list.
+ *
+ * The scan is here rather than in the layer because both of its handlers (the
+ * band's and the surface's) run it over the same list, so a difference between
+ * them would be a pick that depends on hit order — and because "which hits
+ * count" is exactly the kind of decision a screenshot cannot check.
+ */
+export function resolveBandIntersections(
+  intersections: readonly BandIntersection[],
+  targets: BandTargets,
+  edgeOfSegment: Uint32Array,
+  bias: number,
+): number | null {
+  let hit: BandHit | null = null;
+  let surfaceDistance: number | null = null;
+  for (const intersection of intersections) {
+    if (
+      hit === null &&
+      targets.band !== null &&
+      intersection.object === targets.band &&
+      typeof intersection.faceIndex === "number"
+    ) {
+      hit = {
+        segment: intersection.faceIndex,
+        distance: intersection.distance,
+      };
+    } else if (
+      surfaceDistance === null &&
+      targets.surface !== null &&
+      intersection.object === targets.surface &&
+      targets.surfaceOccludes(intersection.faceIndex)
+    ) {
+      surfaceDistance = intersection.distance;
+    }
+  }
+  return resolveBandEdge(hit, surfaceDistance, edgeOfSegment, bias);
+}

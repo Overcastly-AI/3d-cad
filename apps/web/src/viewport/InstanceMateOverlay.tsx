@@ -26,7 +26,7 @@ import { PickNode } from "@loft/design";
 import { measure } from "@loft/design/tokens";
 import { Html } from "@react-three/drei";
 import { useThree } from "@react-three/fiber";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import type { BufferGeometry } from "three";
 
 import type { EdgeSignature, PlanarFaceSignature } from "../api/parts";
@@ -39,7 +39,6 @@ import type { EdgeBandInput } from "./edgeBand";
 import { FacePatch } from "./facePatch";
 import { Segments } from "./overlaySegments";
 import { PickSurface } from "./pickSurface";
-import { useViewportPickStamp } from "./pickStamp";
 
 export interface InstanceMateOverlayProps {
   instanceId: string;
@@ -53,6 +52,20 @@ export interface InstanceMateOverlayProps {
   overlay: OverlayResult | null;
   /** The face/edge index already picked on THIS instance (selected cue), or null. */
   selectedIndex: number | null;
+  /**
+   * The entity of THIS instance the pointer is addressing, or null.
+   *
+   * Hover is the SCENE's state, not the overlay's, even though it looks local:
+   * one pointer addresses one entity across every instance, and the QA stamp
+   * that publishes it is one attribute on one viewport node. Per-overlay
+   * `useState` made N writers for that one attribute, and crossing from
+   * instance A to instance B in a single commit could run A's cleanup after B's
+   * setup and wipe the live stamp (SEL-4 review, 2026-08-08). One owner, one
+   * writer.
+   */
+  hovered: number | null;
+  /** The pointer addressed this entity of this instance (null = left it). */
+  onHover: (index: number | null) => void;
   onPickFace: (index: number, signature: PlanarFaceSignature) => void;
   onPickAxis: (index: number, signature: EdgeSignature) => void;
 }
@@ -64,32 +77,23 @@ export function InstanceMateOverlay({
   tool,
   overlay,
   selectedIndex,
+  hovered,
+  onHover,
   onPickFace,
   onPickAxis,
 }: InstanceMateOverlayProps) {
   const invalidate = useThree((s) => s.invalidate);
-  /**
-   * Hover is LOCAL state here, not store state: it is presentational (a patch
-   * or a highlight under the cursor) and it belongs to one instance. Before
-   * SEL-4 this overlay had no hover at all, which was survivable while the only
-   * target was a dot you aimed at — with a raycast, a pick with no feedback
-   * lands invisibly, so the hover ships with the conversion.
-   */
-  const [hovered, setHovered] = useState<number | null>(null);
 
   useEffect(() => {
     invalidate();
   }, [overlay, selectedIndex, tool, hovered, invalidate]);
 
-  // Drop a stale hover when the offered set changes out from under it.
-  useEffect(() => {
-    setHovered(null);
-  }, [overlay, tool]);
-
-  /** QA hook: which instance + entity the armed mate pick is addressing. */
-  useViewportPickStamp(
-    "matePickHover",
-    hovered === null ? null : `${instanceId}:${hovered}`,
+  /** Leave an entity only if the pointer is still ON it (out/blur races). */
+  const clearHover = useCallback(
+    (index: number) => {
+      if (hovered === index) onHover(null);
+    },
+    [hovered, onHover],
   );
 
   /** The circular edges on offer for a concentric mate, with their signatures. */
@@ -135,8 +139,8 @@ export function InstanceMateOverlay({
   );
 
   const onSurfaceMove = useCallback(
-    (ordinal: number | null) => setHovered(faceAt(ordinal)?.index ?? null),
-    [faceAt],
+    (ordinal: number | null) => onHover(faceAt(ordinal)?.index ?? null),
+    [faceAt, onHover],
   );
 
   const onSurfaceClick = useCallback(
@@ -166,7 +170,7 @@ export function InstanceMateOverlay({
           <PickSurface
             geometry={geometry}
             onMove={onSurfaceMove}
-            onOut={() => setHovered(null)}
+            onOut={() => onHover(null)}
             onClick={onSurfaceClick}
           />
           {overlay.faces.map((face) =>
@@ -192,14 +196,10 @@ export function InstanceMateOverlay({
                     data-testid={`mate-face-${instanceId}-${face.index}`}
                     aria-label={faceLabel(face.index, face.signature)}
                     onClick={() => onPickFace(face.index, face.signature)}
-                    onPointerOver={() => setHovered(face.index)}
-                    onPointerOut={() =>
-                      setHovered((h) => (h === face.index ? null : h))
-                    }
-                    onFocus={() => setHovered(face.index)}
-                    onBlur={() =>
-                      setHovered((h) => (h === face.index ? null : h))
-                    }
+                    onPointerOver={() => onHover(face.index)}
+                    onPointerOut={() => clearHover(face.index)}
+                    onFocus={() => onHover(face.index)}
+                    onBlur={() => clearHover(face.index)}
                   />
                 </Html>
               </group>
@@ -211,7 +211,7 @@ export function InstanceMateOverlay({
           <EdgeBandLayer
             edges={circleBand}
             geometry={geometry}
-            onHover={setHovered}
+            onHover={onHover}
             onPick={onBandPick}
           />
           <Segments
@@ -237,10 +237,10 @@ export function InstanceMateOverlay({
                 data-testid={`mate-axis-${instanceId}-${index}`}
                 aria-label={`Circular edge ${index + 1} — hole axis`}
                 onClick={() => onPickAxis(index, signature)}
-                onPointerOver={() => setHovered(index)}
-                onPointerOut={() => setHovered((h) => (h === index ? null : h))}
-                onFocus={() => setHovered(index)}
-                onBlur={() => setHovered((h) => (h === index ? null : h))}
+                onPointerOver={() => onHover(index)}
+                onPointerOut={() => clearHover(index)}
+                onFocus={() => onHover(index)}
+                onBlur={() => clearHover(index)}
               />
             </Html>
           ))}

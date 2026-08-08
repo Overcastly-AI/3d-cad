@@ -10,7 +10,7 @@
  */
 import { assembly as assemblyTokens, viewport } from "@loft/design/tokens";
 import { Html } from "@react-three/drei";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Box3, Matrix4, Quaternion, Vector3 } from "three";
 
 import type { OverlayResult } from "../api/measure";
@@ -20,6 +20,7 @@ import { groundShadowTexture } from "./groundShadow";
 import { InstanceMateOverlay } from "./InstanceMateOverlay";
 import { InstanceMesh } from "./InstanceMesh";
 import type { VisibilityMode } from "./instanceVisibility";
+import { useViewportPickStamp } from "./pickStamp";
 import type { InstanceGeometry } from "./useInstanceGeometries";
 
 /** One placed instance the scene draws. */
@@ -278,6 +279,31 @@ export function AssemblyScene({
         ? "coincident"
         : null;
 
+  /**
+   * The mate entity under the pointer, ACROSS instances — one pointer, one
+   * answer. Held here rather than per overlay because the overlays are
+   * siblings: two of them holding independent hover state can both believe
+   * they are hovered while React tears the shared QA stamp between them (see
+   * `InstanceMateOverlayProps.hovered`).
+   */
+  const [mateHover, setMateHover] = useState<{
+    instanceId: string;
+    index: number;
+  } | null>(null);
+
+  // Drop a stale hover when the offered set changes out from under it.
+  useEffect(() => {
+    setMateHover(null);
+  }, [overlayTool, overlaysByInstance]);
+
+  /** QA hook: which instance + entity the armed mate pick is addressing. */
+  useViewportPickStamp(
+    "matePickHover",
+    overlayTool === null || mateHover === null
+      ? null
+      : `${mateHover.instanceId}:${mateHover.index}`,
+  );
+
   /** Measured clash wins over unverified; both are separate from rest. */
   const clashStateOf = (instanceId: string): ClashState =>
     clashingInstanceIds.has(instanceId)
@@ -362,6 +388,22 @@ export function AssemblyScene({
                 tool={overlayTool}
                 overlay={overlay}
                 selectedIndex={selectedPickIndex(inst.id)}
+                hovered={
+                  mateHover?.instanceId === inst.id ? mateHover.index : null
+                }
+                // The null case is scoped to THIS instance: crossing from one
+                // instance to the next fires the old one's "left" after the new
+                // one's "entered", and an unguarded clear would drop the live
+                // hover on the instance the pointer just reached.
+                onHover={(index) =>
+                  setMateHover((current) =>
+                    index === null
+                      ? current?.instanceId === inst.id
+                        ? null
+                        : current
+                      : { instanceId: inst.id, index },
+                  )
+                }
                 onPickFace={(index, signature) =>
                   pickFace(inst.id, index, signature)
                 }

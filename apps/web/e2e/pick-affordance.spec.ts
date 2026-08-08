@@ -2,7 +2,8 @@ import type { Locator } from "@playwright/test";
 
 import { expect, test, type Page } from "./fixtures";
 
-import { seedDenseHolePlate } from "./partSeed";
+import { setupTwoInstances } from "./assemblyFlow";
+import { seedDenseHolePlate, seedOccludedEdgePlate } from "./partSeed";
 import { litPoints, measureReachabilityWith, type Point } from "./reachability";
 import {
   SCREENSHOT_DIR,
@@ -70,6 +71,8 @@ const PERP_MAX_PX = 16;
 interface EdgeMark {
   index: number;
   kind: string;
+  /** The mark's full accessible name — carries the edge's own mid-span. */
+  label: string;
   centre: Point;
 }
 
@@ -122,6 +125,7 @@ async function edgeMarks(page: Page): Promise<EdgeMark[]> {
       index: Number(testId.replace("edge-pick-", "")),
       // "Edge 5, circle, centred at …" — the kernel's own edge kind.
       kind: (label.split(",")[1] ?? "").trim(),
+      label,
       centre: { x: box.x + box.width / 2, y: box.y + box.height / 2 },
     });
   }
@@ -139,8 +143,9 @@ async function measureReach(
   viewport: Locator,
   mark: EdgeMark,
   attribute = "data-edge-pick-hover",
+  /** The stamp value that counts as "this edge" (mates stamp `instance:index`). */
+  wanted = String(mark.index),
 ): Promise<EdgeReach> {
-  const wanted = String(mark.index);
   const profile: number[] = [];
   const crossTalk = new Set<string>();
   for (let d = 0; d < DIRECTIONS; d += 1) {
@@ -356,6 +361,7 @@ test.describe("SEL-4 — the armed pick addresses the geometry", () => {
       marks.push({
         index: Number(testId.replace("measure-edge-", "")),
         kind: "",
+        label: (await node.getAttribute("aria-label")) ?? "",
         centre: { x: box.x + box.width / 2, y: box.y + box.height / 2 },
       });
     }
@@ -386,6 +392,119 @@ test.describe("SEL-4 — the armed pick addresses the geometry", () => {
       sampled.filter((r) => r.along >= ALONG_MIN_PX).length,
       `measure edges addressable >= ${ALONG_MIN_PX}px along: ${report}`,
     ).toBeGreaterThanOrEqual(2);
+  });
+
+  test("a HIDDEN body stops occluding the edges behind it", async ({
+    page,
+  }) => {
+    // THE REASON YOU HIDE A BODY IS TO REACH WHAT IS BEHIND IT. The pick mesh
+    // is fused and takes a single material, so `Mesh.raycast` tests a
+    // switched-off body's triangles exactly like a drawn one's
+    // (`partView.pickHiddenFaces`) — and the band's occlusion test used to
+    // measure that hit, so hiding the wall killed edge picking over the whole
+    // region it used to cover. No spec covered multi-body + hidden + edge pick,
+    // which is why it shipped (SEL-4 review, 2026-08-08).
+    const account = await seedSession(page);
+    const part = await createPartViaApi(page, account.token, "Wall and plate");
+    await seedOccludedEdgePlate(page, account.token, part.id);
+    await page.goto(`/parts/${part.id}`);
+    await expect(page.getByTestId("prop-volume")).toContainText(/\d/, {
+      timeout: 30_000,
+    });
+    const viewport = page.getByTestId("viewport");
+    await expect
+      .poll(() => distinctCanvasColors(page), { timeout: 30_000 })
+      .toBeGreaterThan(24);
+
+    // FRONT view is the whole fixture: it puts the wall exactly between the
+    // camera and the plate's top-front edge (see `seedOccludedEdgePlate`).
+    await page.getByTestId("view-front").click();
+    await viewport.evaluate((node) => {
+      node.dataset["fitRect"] = "";
+    });
+    await page.getByTestId("view-fit").click();
+    await expect(viewport).not.toHaveAttribute("data-fit-rect", "", {
+      timeout: 20_000,
+    });
+    await waitForFrames(page, 6);
+    await armFilletPick(page);
+
+    // The plate's two top edges — y = 30 (facing the camera) and y = 50 —
+    // project to the SAME screen line in the front view, so either is a correct
+    // answer for a probe on it. Named by their own OCCT mid-span rather than by
+    // an index that depends on kernel order.
+    const marks = await edgeMarks(page);
+    const topEdges = marks.filter(
+      (m) => m.kind === "line" && /centred at 30, (30|50), 10 /.test(m.label),
+    );
+    expect(
+      topEdges.map((m) => m.index).sort(),
+      `the plate's top edges are on offer (${marks.map((m) => m.label).join(" | ")})`,
+    ).toHaveLength(2);
+    const wanted = new Set(topEdges.map((m) => String(m.index)));
+    const centre = (topEdges[0] as EdgeMark).centre;
+
+    /** Which edges answer along the occluded span, clear of any 24 px mark. */
+    const probe = async (): Promise<Set<string>> => {
+      const seen = new Set<string>();
+      for (const dx of [-45, -30, -18, 18, 30, 45]) {
+        await page.mouse.move(centre.x + dx, centre.y);
+        const stamped = await viewport.getAttribute("data-edge-pick-hover");
+        if (stamped !== null) seen.add(stamped);
+      }
+      return seen;
+    };
+
+    /** Cycle a body's eye to a wanted state (solid → ghost → hidden → solid). */
+    const setBodyMode = async (index: number, mode: string): Promise<void> => {
+      const row = page.getByTestId("body-row").nth(index);
+      for (let i = 0; i < 4; i += 1) {
+        if ((await row.getAttribute("data-visibility")) === mode) return;
+        await page.getByTestId(`body-visibility-${index}`).click();
+      }
+      await expect(row).toHaveAttribute("data-visibility", mode);
+    };
+    await expect(page.getByTestId("body-row")).toHaveCount(2, {
+      timeout: 20_000,
+    });
+
+    // 1) WITH BOTH BODIES DRAWN the edge is genuinely behind material, and the
+    //    occlusion test is RIGHT to refuse it. This is the control that keeps
+    //    the fix from being "delete the occlusion test".
+    const occluded = await probe();
+    expect(
+      [...occluded].filter((s) => wanted.has(s)),
+      "an edge behind drawn material must not answer",
+    ).toEqual([]);
+
+    // 2) HIDE ONE BODY AT A TIME. Hiding the wall must open the pick; hiding
+    //    the plate itself must not (the wall is still in the way) — so exactly
+    //    one of the two toggles changes the answer, whichever ordinal the
+    //    kernel gave the wall.
+    const answered: boolean[] = [];
+    for (const index of [0, 1]) {
+      await setBodyMode(index, "hidden");
+      await waitForFrames(page, 4);
+      const seen = await probe();
+      answered.push([...seen].some((s) => wanted.has(s)));
+      await setBodyMode(index, "solid");
+      await waitForFrames(page, 4);
+    }
+    expect(
+      answered,
+      `edges behind the hidden body answered: body1=${answered[0]} body2=${answered[1]}`,
+    ).toEqual(expect.arrayContaining([true]));
+    expect(
+      answered.filter(Boolean),
+      "exactly ONE body is the occluder — hiding the other changes nothing",
+    ).toHaveLength(1);
+
+    // Negative control for the stamp: off the body it must clear, or every
+    // probe above scored on a stuck attribute.
+    await page.mouse.move(5, 5);
+    await expect(viewport).not.toHaveAttribute("data-edge-pick-hover", /.*/, {
+      timeout: 5_000,
+    });
   });
 
   test("hole: the face is the placement target, and a snap still lands exact", async ({
@@ -486,6 +605,97 @@ test.describe("SEL-4 — the armed pick addresses the geometry", () => {
     await expect(viewport).not.toHaveAttribute("data-hole-point-hover", /.*/, {
       timeout: 5_000,
     });
+  });
+
+  test("assembly mates: each INSTANCE's own geometry is the mate target", async ({
+    page,
+  }) => {
+    // The mate half of SEL-4 shipped without a gate. The only mate coverage —
+    // `assembly.spec.ts` via `authorBoltMates` — dispatches clicks straight at
+    // `mate-face-*` / `mate-axis-*` by test id, which is verbatim the "the
+    // suite proved a path no hand takes" failure the conversion exists to fix:
+    // those specs passed before it and after it, so they cannot discriminate.
+    // This one aims at the geometry.
+    const { idA, idB } = await setupTwoInstances(page);
+    const viewport = page.getByTestId("viewport");
+
+    await page.getByTestId("mate-coincident").click();
+    await expect(page.getByTestId("mate-hud")).toBeVisible();
+    await expect(
+      page.locator('[data-testid^="mate-face-"]').first(),
+    ).toBeVisible({ timeout: 20_000 });
+    await waitForFrames(page, 6);
+
+    // The FB-3/FB-5 census over both plates at once. The stamp carries
+    // `instanceId:index`, so this measures not just "something answered" but
+    // WHICH instance answered — a single shared hover writer cannot fake it.
+    const stamps = new Set<string>();
+    const points = await litPoints(page, { step: 24 });
+    const measured = await measureReachabilityWith(points, async (point) => {
+      await page.mouse.move(point.x, point.y);
+      const stamped = await viewport.getAttribute("data-mate-pick-hover");
+      if (stamped !== null) stamps.add(stamped);
+      return stamped !== null;
+    });
+    expect(measured.sampled, "two plates sampled").toBeGreaterThan(40);
+
+    await page.mouse.move(5, 5);
+    await expect(viewport).not.toHaveAttribute("data-mate-pick-hover", /.*/, {
+      timeout: 5_000,
+    });
+
+    // The same 50 % floor the shell and sketch-plane picks are held to. The
+    // Ø10 bore wall is cylindrical and a coincident mate refuses it, so this
+    // will not reach 100 % on this fixture and should not.
+    expect(
+      measured.fraction,
+      `mate faces clickable ${measured.reachable}/${measured.sampled} = ${(measured.fraction * 100).toFixed(1)}%`,
+    ).toBeGreaterThanOrEqual(0.5);
+
+    // BOTH instances answer, and each answers AS ITSELF. This is the
+    // cross-instance check: the overlays are siblings writing one stamp, so a
+    // hover owned per-overlay can have A's unmount clobber B's live value.
+    expect(
+      new Set([...stamps].map((s) => s.split(":")[0])),
+      `instances addressed: ${[...stamps].join(" ")}`,
+    ).toEqual(new Set([idA, idB]));
+
+    // …AND THE AXIS PICK IS A BAND, not a diamond. Same sweep as the part
+    // workspace, against the assembly's own `EdgeBandLayer` mount.
+    await page.getByTestId("mate-concentric").click();
+    await expect(page.getByTestId("mate-hud")).toBeVisible();
+    const axes = page.locator(`[data-testid^="mate-axis-${idA}-"]`);
+    await expect(axes.first()).toBeVisible({ timeout: 20_000 });
+    await waitForFrames(page, 4);
+
+    const sampled: EdgeReach[] = [];
+    for (const node of (await axes.all()).slice(0, 2)) {
+      const testId = (await node.getAttribute("data-testid")) ?? "";
+      const box = await node.boundingBox();
+      if (box === null) continue;
+      const index = Number(testId.replace(`mate-axis-${idA}-`, ""));
+      sampled.push(
+        await measureReach(
+          page,
+          viewport,
+          {
+            index,
+            kind: "circle",
+            label: (await node.getAttribute("aria-label")) ?? "",
+            centre: { x: box.x + box.width / 2, y: box.y + box.height / 2 },
+          },
+          "data-mate-pick-hover",
+          `${idA}:${index}`,
+        ),
+      );
+    }
+    const report = sampled
+      .map((r) => `#${r.mark.index} ${r.along}px`)
+      .join(" ");
+    expect(
+      sampled.filter((r) => r.along >= ALONG_MIN_PX).length,
+      `mate axes addressable >= ${ALONG_MIN_PX}px along: ${report}`,
+    ).toBeGreaterThanOrEqual(1);
   });
 });
 

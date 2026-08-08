@@ -20,7 +20,7 @@
  * Extracted from `FacePickOverlay` by SEL-4, which had to make the same
  * conversion five more times. One implementation, not six.
  */
-import { useCallback, type RefObject } from "react";
+import { useCallback, useMemo, type RefObject } from "react";
 import type { BufferGeometry, Mesh } from "three";
 import type { ThreeEvent } from "@react-three/fiber";
 
@@ -29,6 +29,80 @@ import { usePartViewStore } from "./partView";
 
 /** Shared empty set — a stable identity, so "nothing hidden" costs no render. */
 const NO_HIDDEN_FACES: ReadonlySet<number> = new Set<number>();
+
+/**
+ * What a struck triangle of the pick surface IS — three outcomes, held apart
+ * because two consumers need different subsets of them.
+ *
+ * `hidden` is the one worth naming. A face pick wants "not addressable" and
+ * treats it exactly like `none`; the EDGE band wants "there is no material
+ * here", which is true of `hidden` and false of `none` — a mesh with no B-rep
+ * partition is still solid, it just cannot say which face it is. Collapsing the
+ * two to `null` is what let a switched-off body in front go on occluding every
+ * edge behind it (SEL-4 review, 2026-08-08).
+ */
+export type PickTriangle =
+  { kind: "face"; ordinal: number } | { kind: "hidden" } | { kind: "none" };
+
+/** Shared singletons — the two payload-free outcomes allocate nothing. */
+const TRIANGLE_NONE: PickTriangle = { kind: "none" };
+const TRIANGLE_HIDDEN: PickTriangle = { kind: "hidden" };
+
+export interface PickSurfaceTarget {
+  /** The raycast geometry, or null when there is nothing to hit. */
+  geometry: BufferGeometry | null;
+  /** What the triangle an intersection struck resolves to. */
+  triangleAt: (faceIndex: number | null | undefined) => PickTriangle;
+}
+
+/**
+ * Resolve the pick surface and its triangle→face rule ONCE, for every consumer
+ * of it.
+ *
+ * `PickSurface` renders it; `EdgeBandLayer` mounts that same surface and needs
+ * the SAME verdict about a hit on it, from a handler that never sees the
+ * surface's own callback (a hit on the band resolves the whole intersection
+ * list itself). So the rule lives here rather than in either component —
+ * duplicating it is how the two ends came to disagree about hidden bodies.
+ */
+export function usePickSurfaceTarget(
+  geometry?: BufferGeometry | null,
+  hiddenFaces?: ReadonlySet<number>,
+): PickSurfaceTarget {
+  const partGeometry = usePartViewStore((state) => state.pickGeometry);
+  const partHiddenFaces = usePartViewStore((state) => state.pickHiddenFaces);
+  const ownGeometry = geometry !== undefined;
+  const target = (ownGeometry ? geometry : partGeometry) ?? null;
+  const hidden =
+    hiddenFaces ?? (ownGeometry ? NO_HIDDEN_FACES : partHiddenFaces);
+
+  /**
+   * A face of a HIDDEN body is refused explicitly, by the same rule `ModelMesh`
+   * applies to its own handler. It HAS to be explicit: the mesh below takes a
+   * SINGLE material, and `Mesh._computeIntersections` only consults a group's
+   * material — and so its `visible` flag — when `mesh.material` is an ARRAY.
+   * Every triangle of the fused mesh is therefore tested whatever its body's
+   * state, so without this a hidden body in FRONT would absorb the ray and the
+   * pick would address an invisible face while the modeller aimed at the
+   * visible one behind it.
+   */
+  const triangleAt = useCallback(
+    (faceIndex: number | null | undefined): PickTriangle => {
+      if (target === null) return TRIANGLE_NONE;
+      if (faceIndex === undefined || faceIndex === null) return TRIANGLE_NONE;
+      const ordinal = faceOrdinalOfTriangle(target, faceIndex);
+      if (ordinal === null) return TRIANGLE_NONE;
+      if (hidden.has(ordinal)) return TRIANGLE_HIDDEN;
+      return { kind: "face", ordinal };
+    },
+    [target, hidden],
+  );
+
+  return useMemo(
+    () => ({ geometry: target, triangleAt }),
+    [target, triangleAt],
+  );
+}
 
 export interface PickSurfaceProps {
   /**
@@ -64,25 +138,15 @@ export function PickSurface({
   onOut,
   onClick,
 }: PickSurfaceProps) {
-  const partGeometry = usePartViewStore((state) => state.pickGeometry);
-  const partHiddenFaces = usePartViewStore((state) => state.pickHiddenFaces);
-  const ownGeometry = geometry !== undefined;
-  const target = ownGeometry ? geometry : partGeometry;
-  const hidden =
-    hiddenFaces ?? (ownGeometry ? NO_HIDDEN_FACES : partHiddenFaces);
+  const { geometry: target, triangleAt } = usePickSurfaceTarget(
+    geometry,
+    hiddenFaces,
+  );
 
   /**
    * The struck triangle → its B-rep face ordinal, or null when there is nothing
-   * addressable there.
-   *
-   * A face of a HIDDEN body is refused explicitly, by the same rule `ModelMesh`
-   * applies to its own handler. It HAS to be explicit: the mesh below takes a
-   * SINGLE material, and `Mesh._computeIntersections` only consults a group's
-   * material — and so its `visible` flag — when `mesh.material` is an ARRAY.
-   * Every triangle of the fused mesh is therefore tested whatever its body's
-   * state, so without this a hidden body in FRONT would absorb the ray and the
-   * pick would address an invisible face while the modeller aimed at the
-   * visible one behind it.
+   * addressable there (no partition, or a body that is not drawn — see
+   * {@link PickTriangle}).
    *
    * Only the event's `faceIndex` is read, so the parameter is typed as exactly
    * that — which lets the click handler, whose event carries a `MouseEvent`,
@@ -90,14 +154,10 @@ export function PickSurface({
    */
   const ordinalAt = useCallback(
     (event: Pick<ThreeEvent<PointerEvent>, "faceIndex">): number | null => {
-      if (target === null || target === undefined) return null;
-      const triangle = event.faceIndex;
-      if (triangle === undefined || triangle === null) return null;
-      const ordinal = faceOrdinalOfTriangle(target, triangle);
-      if (ordinal === null || hidden.has(ordinal)) return null;
-      return ordinal;
+      const triangle = triangleAt(event.faceIndex);
+      return triangle.kind === "face" ? triangle.ordinal : null;
     },
-    [target, hidden],
+    [triangleAt],
   );
 
   const handleMove = useCallback(
@@ -110,7 +170,7 @@ export function PickSurface({
     [ordinalAt, onClick],
   );
 
-  if (target === null || target === undefined) return null;
+  if (target === null) return null;
 
   return (
     /*

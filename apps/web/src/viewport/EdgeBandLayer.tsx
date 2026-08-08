@@ -34,10 +34,16 @@
  *
  * An edge on the FAR side of the solid must not win over the material in front
  * of it. The surface is mounted as a second raycast target purely so the
- * handler can compare depths; the decision itself is `resolveBandEdge`'s, and
- * both handlers run it over the SAME `event.intersections` array, so whichever
- * fires first they compute the same answer and the result cannot depend on hit
- * order.
+ * handler can compare depths; the decision itself is
+ * `resolveBandIntersections`', and both handlers run it over the SAME
+ * `event.intersections` array, so whichever fires first they compute the same
+ * answer and the result cannot depend on hit order.
+ *
+ * A hit on that surface only counts when the triangle it struck belongs to a
+ * body that is DRAWN, which is why the layer resolves the surface itself
+ * (`usePickSurfaceTarget`) instead of taking the ordinal `PickSurface` hands
+ * its own callback: the band's handler never sees that callback, and a fused
+ * pick mesh raycasts a switched-off body's triangles just like a drawn one's.
  */
 import { Line } from "@react-three/drei";
 import type { ThreeEvent } from "@react-three/fiber";
@@ -49,12 +55,12 @@ import {
   bandRadius,
   buildEdgeBand,
   edgeOcclusionBias,
-  resolveBandEdge,
-  type BandHit,
+  resolveBandIntersections,
+  type BandIntersection,
   type EdgeBandInput,
   EDGE_BAND_WIDTH_PX,
 } from "./edgeBand";
-import { PickSurface } from "./pickSurface";
+import { PickSurface, usePickSurfaceTarget } from "./pickSurface";
 
 export interface EdgeBandLayerProps {
   /** The pickable edges, each with the index a hit should report. */
@@ -69,9 +75,6 @@ export interface EdgeBandLayerProps {
   /** A click that resolved to an edge. */
   onPick?: (index: number) => void;
 }
-
-/** An r3f intersection, as much of it as this layer reads. */
-type BandIntersection = ThreeEvent<PointerEvent>["intersections"][number];
 
 export function EdgeBandLayer({
   edges,
@@ -88,34 +91,36 @@ export function EdgeBandLayer({
   const surfaceRef = useRef<Mesh | null>(null);
 
   /**
+   * The same surface `PickSurface` mounts below, resolved here too so the
+   * occlusion test can tell a drawn body's triangle from a switched-off one's.
+   * Both calls take the same `geometry` prop, so both resolve the same mesh and
+   * the same hidden set.
+   */
+  const { triangleAt } = usePickSurfaceTarget(geometry);
+  const surfaceOccludes = useCallback(
+    (faceIndex: number | null | undefined) =>
+      triangleAt(faceIndex).kind !== "hidden",
+    [triangleAt],
+  );
+
+  /**
    * The addressed edge for one pointer event. Reads the whole intersection
    * list rather than the event's own hit, so the band handler and the surface
    * handler are the same function of the same input.
    */
   const resolve = useCallback(
-    (intersections: readonly BandIntersection[]): number | null => {
-      let hit: BandHit | null = null;
-      let surfaceDistance: number | null = null;
-      for (const intersection of intersections) {
-        if (
-          hit === null &&
-          intersection.object === lineRef.current &&
-          typeof intersection.faceIndex === "number"
-        ) {
-          hit = {
-            segment: intersection.faceIndex,
-            distance: intersection.distance,
-          };
-        } else if (
-          surfaceDistance === null &&
-          intersection.object === surfaceRef.current
-        ) {
-          surfaceDistance = intersection.distance;
-        }
-      }
-      return resolveBandEdge(hit, surfaceDistance, band.edgeOfSegment, bias);
-    },
-    [band, bias],
+    (intersections: readonly BandIntersection[]): number | null =>
+      resolveBandIntersections(
+        intersections,
+        {
+          band: lineRef.current,
+          surface: surfaceRef.current,
+          surfaceOccludes,
+        },
+        band.edgeOfSegment,
+        bias,
+      ),
+    [band, bias, surfaceOccludes],
   );
 
   const handleMove = useCallback(
