@@ -21,49 +21,44 @@
  * conversion five more times. One implementation, not six.
  */
 import { useCallback, useMemo, type RefObject } from "react";
-import type { BufferGeometry, Mesh } from "three";
+import type { BufferGeometry, Intersection, Mesh, Raycaster } from "three";
 import type { ThreeEvent } from "@react-three/fiber";
 
 import { faceOrdinalOfTriangle } from "./glbGeometry";
 import { usePartViewStore } from "./partView";
+import { drawnSurfaceRaycast, hiddenTriangleTest } from "./pickRaycast";
 
 /** Shared empty set — a stable identity, so "nothing hidden" costs no render. */
 const NO_HIDDEN_FACES: ReadonlySet<number> = new Set<number>();
 
-/**
- * What a struck triangle of the pick surface IS — three outcomes, held apart
- * because two consumers need different subsets of them.
- *
- * `hidden` is the one worth naming. A face pick wants "not addressable" and
- * treats it exactly like `none`; the EDGE band wants "there is no material
- * here", which is true of `hidden` and false of `none` — a mesh with no B-rep
- * partition is still solid, it just cannot say which face it is. Collapsing the
- * two to `null` is what let a switched-off body in front go on occluding every
- * edge behind it (SEL-4 review, 2026-08-08).
- */
-export type PickTriangle =
-  { kind: "face"; ordinal: number } | { kind: "hidden" } | { kind: "none" };
-
-/** Shared singletons — the two payload-free outcomes allocate nothing. */
-const TRIANGLE_NONE: PickTriangle = { kind: "none" };
-const TRIANGLE_HIDDEN: PickTriangle = { kind: "hidden" };
-
 export interface PickSurfaceTarget {
   /** The raycast geometry, or null when there is nothing to hit. */
   geometry: BufferGeometry | null;
-  /** What the triangle an intersection struck resolves to. */
-  triangleAt: (faceIndex: number | null | undefined) => PickTriangle;
+  /** The B-rep face ordinal a struck triangle belongs to, or null. */
+  ordinalAt: (faceIndex: number | null | undefined) => number | null;
+  /** The mesh's `raycast`, which reports the nearest DRAWN triangle only. */
+  raycast: (
+    this: Mesh,
+    raycaster: Raycaster,
+    intersects: Intersection[],
+  ) => void;
 }
 
 /**
- * Resolve the pick surface and its triangle→face rule ONCE, for every consumer
- * of it.
+ * Resolve the pick surface, its hidden-body filter and its triangle→face rule
+ * ONCE, for every consumer of it.
  *
- * `PickSurface` renders it; `EdgeBandLayer` mounts that same surface and needs
- * the SAME verdict about a hit on it, from a handler that never sees the
- * surface's own callback (a hit on the band resolves the whole intersection
- * list itself). So the rule lives here rather than in either component —
- * duplicating it is how the two ends came to disagree about hidden bodies.
+ * WHERE THE REFUSAL LIVES, AND WHY NOT IN THE HANDLER (SEL-6). A hidden body is
+ * a draw group whose material is `visible: false`, and three's raycaster does
+ * not read `visible` at all — `checkIntersection()` consults only
+ * `material.side` — so a switched-off body's triangles are tested exactly like
+ * a drawn one's. r3f then keeps ONE hit per object, the nearest triangle. A
+ * handler handed that hit can only refuse it; it never sees the drawn face
+ * BEHIND it, because no second hit was ever offered. That is why this used to
+ * return a three-way `PickTriangle` with a `hidden` case, and why the case is
+ * gone: {@link drawnSurfaceRaycast} drops hidden triangles inside `raycast`,
+ * before r3f dedupes, so the nearest DRAWN triangle is what reaches the
+ * handler and `ordinalAt` has nothing left to refuse.
  */
 export function usePickSurfaceTarget(
   geometry?: BufferGeometry | null,
@@ -76,31 +71,23 @@ export function usePickSurfaceTarget(
   const hidden =
     hiddenFaces ?? (ownGeometry ? NO_HIDDEN_FACES : partHiddenFaces);
 
-  /**
-   * A face of a HIDDEN body is refused explicitly, by the same rule `ModelMesh`
-   * applies to its own handler. It HAS to be explicit: the mesh below takes a
-   * SINGLE material, and `Mesh._computeIntersections` only consults a group's
-   * material — and so its `visible` flag — when `mesh.material` is an ARRAY.
-   * Every triangle of the fused mesh is therefore tested whatever its body's
-   * state, so without this a hidden body in FRONT would absorb the ray and the
-   * pick would address an invisible face while the modeller aimed at the
-   * visible one behind it.
-   */
-  const triangleAt = useCallback(
-    (faceIndex: number | null | undefined): PickTriangle => {
-      if (target === null) return TRIANGLE_NONE;
-      if (faceIndex === undefined || faceIndex === null) return TRIANGLE_NONE;
-      const ordinal = faceOrdinalOfTriangle(target, faceIndex);
-      if (ordinal === null) return TRIANGLE_NONE;
-      if (hidden.has(ordinal)) return TRIANGLE_HIDDEN;
-      return { kind: "face", ordinal };
+  const ordinalAt = useCallback(
+    (faceIndex: number | null | undefined): number | null => {
+      if (target === null) return null;
+      if (faceIndex === undefined || faceIndex === null) return null;
+      return faceOrdinalOfTriangle(target, faceIndex);
     },
+    [target],
+  );
+
+  const raycast = useMemo(
+    () => drawnSurfaceRaycast(hiddenTriangleTest(target, hidden)),
     [target, hidden],
   );
 
   return useMemo(
-    () => ({ geometry: target, triangleAt }),
-    [target, triangleAt],
+    () => ({ geometry: target, ordinalAt, raycast }),
+    [target, ordinalAt, raycast],
   );
 }
 
@@ -114,10 +101,10 @@ export interface PickSurfaceProps {
    */
   geometry?: BufferGeometry | null;
   /**
-   * Face ordinals to refuse. Defaults to the part store's hidden set when
-   * `geometry` is omitted, and to none when it is passed (assembly instance
-   * visibility is already gated upstream — an undrawn instance mounts no
-   * overlay at all).
+   * Face ordinals that are NOT DRAWN, and so must not absorb the ray. Defaults
+   * to the part store's hidden set when `geometry` is omitted, and to none when
+   * it is passed (assembly instance visibility is already gated upstream — an
+   * undrawn instance mounts no overlay at all, so the filter is a no-op there).
    */
   hiddenFaces?: ReadonlySet<number>;
   /** The mesh itself, for callers that must identify its hit among others. */
@@ -138,36 +125,35 @@ export function PickSurface({
   onOut,
   onClick,
 }: PickSurfaceProps) {
-  const { geometry: target, triangleAt } = usePickSurfaceTarget(
-    geometry,
-    hiddenFaces,
-  );
+  const {
+    geometry: target,
+    ordinalAt,
+    raycast,
+  } = usePickSurfaceTarget(geometry, hiddenFaces);
 
   /**
-   * The struck triangle → its B-rep face ordinal, or null when there is nothing
-   * addressable there (no partition, or a body that is not drawn — see
-   * {@link PickTriangle}).
+   * The struck triangle → its B-rep face ordinal, or null when the mesh carries
+   * no partition there. A HIDDEN body's triangle can no longer arrive here —
+   * `raycast` dropped it (SEL-6).
    *
    * Only the event's `faceIndex` is read, so the parameter is typed as exactly
    * that — which lets the click handler, whose event carries a `MouseEvent`,
    * share it without a cast.
    */
-  const ordinalAt = useCallback(
-    (event: Pick<ThreeEvent<PointerEvent>, "faceIndex">): number | null => {
-      const triangle = triangleAt(event.faceIndex);
-      return triangle.kind === "face" ? triangle.ordinal : null;
-    },
-    [triangleAt],
+  const ordinalOf = useCallback(
+    (event: Pick<ThreeEvent<PointerEvent>, "faceIndex">): number | null =>
+      ordinalAt(event.faceIndex),
+    [ordinalAt],
   );
 
   const handleMove = useCallback(
-    (event: ThreeEvent<PointerEvent>) => onMove(ordinalAt(event), event),
-    [ordinalAt, onMove],
+    (event: ThreeEvent<PointerEvent>) => onMove(ordinalOf(event), event),
+    [ordinalOf, onMove],
   );
 
   const handleClick = useCallback(
-    (event: ThreeEvent<MouseEvent>) => onClick?.(ordinalAt(event), event),
-    [ordinalAt, onClick],
+    (event: ThreeEvent<MouseEvent>) => onClick?.(ordinalOf(event), event),
+    [ordinalOf, onClick],
   );
 
   if (target === null) return null;
@@ -183,10 +169,15 @@ export function PickSurface({
       first within its pass; it carries no `transparent`, because
       `colorWrite:false` already guarantees nothing is written and the OPAQUE
       list is the cheaper place to draw nothing.
+
+      `raycast` is the SEL-6 filter: it reports the nearest DRAWN triangle, so a
+      hidden body in FRONT is seen past rather than merely refused. It has to be
+      here and not in the handler — see {@link usePickSurfaceTarget}.
     */
     <mesh
       ref={meshRef}
       geometry={target}
+      raycast={raycast}
       onPointerMove={handleMove}
       onPointerOut={onOut}
       onClick={onClick === undefined ? undefined : handleClick}

@@ -163,15 +163,18 @@ interface PartViewState {
    * allowed to answer*.
    *
    * It has to be published rather than re-derived, and the reason is a three.js
-   * detail worth writing down. A hidden body is expressed as a draw group whose
-   * material has `visible: false` — the renderer skips it, so nothing is drawn.
-   * `Mesh.raycast` does not: `_computeIntersections` only consults per-group
-   * materials when `this.material` is an ARRAY, and an overlay's invisible pick
-   * mesh takes a SINGLE material, so every triangle of the fused mesh is tested
+   * detail worth writing down CORRECTLY — an earlier version of this comment
+   * blamed the pick mesh's single material, which is wrong (SEL-6, read in the
+   * vendored source). A hidden body is expressed as a draw group whose material
+   * has `visible: false`; the renderer skips it, so nothing is drawn.
+   * `Mesh.raycast` does not skip it, and the material-ARRAY branch does not
+   * either: three 0.185's `checkIntersection()` consults only `material.side`
+   * and never `material.visible`, so every triangle of the fused mesh is tested
    * whatever its body's state. A hidden body in FRONT would therefore swallow
-   * the ray and the overlay would report a face nobody can see. `ModelMesh`
-   * already applies exactly this rule to its own handler; this is that rule
-   * made available to the overlays instead of duplicated by them.
+   * the ray, and — since r3f keeps one hit per object — the drawn face behind it
+   * would never be offered at all. `pickRaycast.ts` turns this set into the
+   * filter that runs inside `raycast`, for the overlays and for `ModelMesh`'s
+   * own hover alike, so the rule exists once rather than per consumer.
    */
   pickHiddenFaces: ReadonlySet<number>;
 

@@ -138,8 +138,7 @@ describe("resolveBandIntersections", () => {
   const map = Uint32Array.from([3, 3, 8]);
   const band = { id: "band" };
   const surface = { id: "surface" };
-  /** Every triangle is drawn — the single-body case. */
-  const allDrawn = () => true;
+  const targets = { band, surface };
 
   const hit = (
     object: object,
@@ -152,7 +151,7 @@ describe("resolveBandIntersections", () => {
     expect(
       resolveBandIntersections(
         [hit(grid, 10, 0), hit(band, 50, 1)],
-        { band, surface, surfaceOccludes: allDrawn },
+        targets,
         map,
         1,
       ),
@@ -163,7 +162,7 @@ describe("resolveBandIntersections", () => {
     expect(
       resolveBandIntersections(
         [hit(band, 50, 2), hit(band, 90, 0)],
-        { band, surface, surfaceOccludes: allDrawn },
+        targets,
         map,
         1,
       ),
@@ -174,37 +173,28 @@ describe("resolveBandIntersections", () => {
     expect(
       resolveBandIntersections(
         [hit(surface, 50, 12), hit(band, 70, 2)],
-        { band, surface, surfaceOccludes: allDrawn },
+        targets,
         map,
         1,
       ),
     ).toBeNull();
   });
 
-  it("accepts an edge behind a HIDDEN body — hiding it is how you reach this", () => {
-    // The regression this exists for. `Mesh.raycast` tests a switched-off
-    // body's triangles like any other (single material, no per-group visible
-    // check), so the nearest surface hit here is material nobody can see. Left
-    // measured, it refuses every edge behind a hidden body — i.e. hiding a body
-    // to get at the geometry behind it kills the pick over that whole region.
-    const hidden = (faceIndex: number | null | undefined) => faceIndex !== 12;
-    expect(
-      resolveBandIntersections(
-        [hit(surface, 50, 12), hit(band, 70, 2)],
-        { band, surface, surfaceOccludes: hidden },
-        map,
-        1,
-      ),
-    ).toBe(8);
-  });
+  // "accepts an edge behind a HIDDEN body" USED TO LIVE HERE and now lives in
+  // `pickRaycast.test.ts`. The decision moved a layer down: a hidden body's
+  // triangle never reaches this intersection list, so there is no longer a
+  // `surfaceOccludes` predicate here to state it against (SEL-6). The case
+  // below is what remains — and it is now the guard that the new filter did
+  // NOT become "drop everything unresolvable".
 
   it("still occludes when the surface has no B-rep partition at all", () => {
     // "No ordinal" is NOT "no material": an unpartitioned mesh is still solid,
-    // so the occlusion test must keep applying. Only a hidden body is skipped.
+    // so the occlusion test must keep applying. Only a hidden body is skipped,
+    // and it is skipped before this list is built.
     expect(
       resolveBandIntersections(
         [hit(surface, 50, 12), hit(band, 70, 2)],
-        { band, surface, surfaceOccludes: allDrawn },
+        targets,
         map,
         1,
       ),
@@ -212,14 +202,9 @@ describe("resolveBandIntersections", () => {
   });
 
   it("accepts a silhouette edge, with no surface hit in the list", () => {
-    expect(
-      resolveBandIntersections(
-        [hit(band, 70, 2)],
-        { band, surface, surfaceOccludes: allDrawn },
-        map,
-        1,
-      ),
-    ).toBe(8);
+    expect(resolveBandIntersections([hit(band, 70, 2)], targets, map, 1)).toBe(
+      8,
+    );
   });
 
   it("resolves nothing before the band mounts — a null target matches no hit", () => {
@@ -228,7 +213,7 @@ describe("resolveBandIntersections", () => {
     expect(
       resolveBandIntersections(
         [hit(surface, 50, 12), hit(band, 70, 2)],
-        { band: null, surface, surfaceOccludes: allDrawn },
+        { band: null, surface },
         map,
         1,
       ),
@@ -237,12 +222,7 @@ describe("resolveBandIntersections", () => {
 
   it("treats a band hit with no faceIndex as no hit", () => {
     expect(
-      resolveBandIntersections(
-        [hit(band, 70)],
-        { band, surface, surfaceOccludes: allDrawn },
-        map,
-        1,
-      ),
+      resolveBandIntersections([hit(band, 70)], targets, map, 1),
     ).toBeNull();
   });
 });

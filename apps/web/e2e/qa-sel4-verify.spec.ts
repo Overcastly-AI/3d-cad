@@ -438,9 +438,22 @@ test.describe("SEL-4 QA — shell and draft refusals, and the draft half", () =>
     // Sweep the FULL canvas, not just the lit silhouette: the hidden body's
     // triangles are still in the fused pick mesh, so if the refusal is missing
     // the pointer picks up faces over empty bench where the body used to draw.
+    //
+    // INTERIOR unlit points only — the pixel AND its neighbours must be dark.
+    // `isLit` is a luminance threshold, and a threshold cannot tell "off the
+    // body" from "on the body's anti-aliased silhouette": measured 2026-08-08
+    // at (692, 600), luminance **23** two pixels from body at **135**. That
+    // pixel is ON the still-drawn plate, so the shell pick naming its face is
+    // correct, and counting it as a ghost is the proxy's error, not the app's.
+    // It only started mattering with SEL-6: before the fix the hidden wall's
+    // triangle swallowed the ray there, so the sweep passed for the wrong
+    // reason — the pointer was dead over the drawn plate, which is the defect
+    // SEL-6 exists to close. Same reasoning as the cylinder-wall check above,
+    // which already refuses to judge rim pixels.
     const box = await viewport.boundingBox();
     expect(box).not.toBeNull();
     if (box === null) return;
+    const HALO = 8;
     let ghostHits = 0;
     const ghosts: string[] = [];
     let unlitProbed = 0;
@@ -448,6 +461,19 @@ test.describe("SEL-4 QA — shell and draft refusals, and the draft half", () =>
       for (let x = box.x + 20; x < box.x + box.width - 20; x += 48) {
         const point = { x, y };
         if (await isLit(page, point)) continue;
+        let onSilhouette = false;
+        for (const [dx, dy] of [
+          [HALO, 0],
+          [-HALO, 0],
+          [0, HALO],
+          [0, -HALO],
+        ] as const) {
+          if (await isLit(page, { x: x + dx, y: y + dy })) {
+            onSilhouette = true;
+            break;
+          }
+        }
+        if (onSilhouette) continue;
         unlitProbed += 1;
         const stamped = await stampAfterMove(
           page,
@@ -462,13 +488,13 @@ test.describe("SEL-4 QA — shell and draft refusals, and the draft half", () =>
     }
     report(
       "hidden-body ghost picks",
-      `${unlitProbed} unlit points probed after hiding a body`,
+      `${unlitProbed} interior-unlit points probed after hiding a body`,
     );
-    expect(unlitProbed, "unlit points probed").toBeGreaterThan(20);
+    expect(unlitProbed, "interior-unlit points probed").toBeGreaterThan(20);
     void ghosts;
     expect(
       ghostHits,
-      `unlit points that still answer with a face (a hidden body's): ${ghosts.join(" ")}`,
+      `unlit points clear of the drawn silhouette that still answer with a face (a hidden body's): ${ghosts.join(" ")}`,
     ).toBe(0);
   });
 });

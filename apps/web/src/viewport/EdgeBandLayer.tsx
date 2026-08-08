@@ -39,11 +39,12 @@
  * `event.intersections` array, so whichever fires first they compute the same
  * answer and the result cannot depend on hit order.
  *
- * A hit on that surface only counts when the triangle it struck belongs to a
- * body that is DRAWN, which is why the layer resolves the surface itself
- * (`usePickSurfaceTarget`) instead of taking the ordinal `PickSurface` hands
- * its own callback: the band's handler never sees that callback, and a fused
- * pick mesh raycasts a switched-off body's triangles just like a drawn one's.
+ * A hit on that surface is DRAWN material by construction: `PickSurface` mounts
+ * it with the `pickRaycast.ts` filter, which drops a hidden body's triangles
+ * inside `Mesh.raycast` before r3f ever dedupes the list. So this layer needs no
+ * opinion about visibility at all — it used to carry a `surfaceOccludes`
+ * predicate, and that predicate could only ever REFUSE the nearest hit, never
+ * see past it (SEL-6). One filter, one place, and both handlers inherit it.
  */
 import { Line } from "@react-three/drei";
 import type { ThreeEvent } from "@react-three/fiber";
@@ -60,7 +61,7 @@ import {
   type EdgeBandInput,
   EDGE_BAND_WIDTH_PX,
 } from "./edgeBand";
-import { PickSurface, usePickSurfaceTarget } from "./pickSurface";
+import { PickSurface } from "./pickSurface";
 
 export interface EdgeBandLayerProps {
   /** The pickable edges, each with the index a hit should report. */
@@ -91,19 +92,6 @@ export function EdgeBandLayer({
   const surfaceRef = useRef<Mesh | null>(null);
 
   /**
-   * The same surface `PickSurface` mounts below, resolved here too so the
-   * occlusion test can tell a drawn body's triangle from a switched-off one's.
-   * Both calls take the same `geometry` prop, so both resolve the same mesh and
-   * the same hidden set.
-   */
-  const { triangleAt } = usePickSurfaceTarget(geometry);
-  const surfaceOccludes = useCallback(
-    (faceIndex: number | null | undefined) =>
-      triangleAt(faceIndex).kind !== "hidden",
-    [triangleAt],
-  );
-
-  /**
    * The addressed edge for one pointer event. Reads the whole intersection
    * list rather than the event's own hit, so the band handler and the surface
    * handler are the same function of the same input.
@@ -112,15 +100,11 @@ export function EdgeBandLayer({
     (intersections: readonly BandIntersection[]): number | null =>
       resolveBandIntersections(
         intersections,
-        {
-          band: lineRef.current,
-          surface: surfaceRef.current,
-          surfaceOccludes,
-        },
+        { band: lineRef.current, surface: surfaceRef.current },
         band.edgeOfSegment,
         bias,
       ),
-    [band, bias, surfaceOccludes],
+    [band, bias],
   );
 
   const handleMove = useCallback(

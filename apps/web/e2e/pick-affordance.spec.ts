@@ -68,6 +68,9 @@ const ALONG_MIN_PX = 40;
 /** Reach ceiling PERPENDICULAR to a straight edge (px) — it stays a corridor. */
 const PERP_MAX_PX = 16;
 
+/** The band's half-width — `edgeBand.EDGE_BAND_TOLERANCE_PX`, in CSS px. */
+const EDGE_CORRIDOR_PX = 12;
+
 interface EdgeMark {
   index: number;
   kind: string;
@@ -184,6 +187,74 @@ async function measureReach(
     perp,
     crossTalk: [...crossTalk],
   };
+}
+
+/**
+ * The two-body fixture, framed FRONT-ON and pinned.
+ *
+ * `seedOccludedEdgePlate` puts a 40 × 20 × 40 wall at y = 0…20 and a
+ * 60 × 20 × 10 plate at y = 30…50, so from the front view the wall sits exactly
+ * between the camera and the middle of the plate. Every number below is in
+ * screen pixels, so the fit is pinned the same way `openDensePlate` pins it.
+ */
+async function openOccludedPlate(page: Page): Promise<Locator> {
+  const account = await seedSession(page);
+  const part = await createPartViaApi(page, account.token, "Wall and plate");
+  await seedOccludedEdgePlate(page, account.token, part.id);
+  await page.goto(`/parts/${part.id}`);
+  await expect(page.getByTestId("prop-volume")).toContainText(/\d/, {
+    timeout: 30_000,
+  });
+  const viewport = page.getByTestId("viewport");
+  await expect
+    .poll(() => distinctCanvasColors(page), { timeout: 30_000 })
+    .toBeGreaterThan(24);
+  await page.getByTestId("view-front").click();
+  await viewport.evaluate((node) => {
+    node.dataset["fitRect"] = "";
+  });
+  await page.getByTestId("view-fit").click();
+  await expect(viewport).not.toHaveAttribute("data-fit-rect", "", {
+    timeout: 20_000,
+  });
+  await waitForFrames(page, 6);
+  await expect(page.getByTestId("body-row")).toHaveCount(2, {
+    timeout: 20_000,
+  });
+  return viewport;
+}
+
+/** Cycle a body's eye to a wanted state (solid → ghost → hidden → solid). */
+async function setBodyMode(
+  page: Page,
+  index: number,
+  mode: string,
+): Promise<void> {
+  const row = page.getByTestId("body-row").nth(index);
+  for (let i = 0; i < 4; i += 1) {
+    if ((await row.getAttribute("data-visibility")) === mode) return;
+    await page.getByTestId(`body-visibility-${index}`).click();
+  }
+  await expect(row).toHaveAttribute("data-visibility", mode);
+}
+
+/**
+ * Which body row is the WALL — the one in FRONT — DISCOVERED, never hardcoded.
+ *
+ * A kernel ordinal is not a contract, so the row is found by measurement: hide
+ * each body in turn and count the lit silhouette that remains. In the front
+ * view the plate is 60 × 10 mm and the wall 40 × 40 mm, so hiding the WALL
+ * leaves a much smaller lit region than hiding the plate (measured 135 vs 625
+ * points at `step: 24`). The caller asserts the two counts are far enough apart
+ * for that to be a decision rather than a coin flip.
+ */
+async function litAfterHiding(page: Page, index: number): Promise<number> {
+  await setBodyMode(page, index, "hidden");
+  await waitForFrames(page, 6);
+  const count = (await litPoints(page, { step: 24 })).length;
+  await setBodyMode(page, index, "solid");
+  await waitForFrames(page, 6);
+  return count;
 }
 
 async function armFilletPick(page: Page): Promise<void> {
@@ -398,35 +469,14 @@ test.describe("SEL-4 — the armed pick addresses the geometry", () => {
     page,
   }) => {
     // THE REASON YOU HIDE A BODY IS TO REACH WHAT IS BEHIND IT. The pick mesh
-    // is fused and takes a single material, so `Mesh.raycast` tests a
-    // switched-off body's triangles exactly like a drawn one's
-    // (`partView.pickHiddenFaces`) — and the band's occlusion test used to
-    // measure that hit, so hiding the wall killed edge picking over the whole
-    // region it used to cover. No spec covered multi-body + hidden + edge pick,
-    // which is why it shipped (SEL-4 review, 2026-08-08).
-    const account = await seedSession(page);
-    const part = await createPartViaApi(page, account.token, "Wall and plate");
-    await seedOccludedEdgePlate(page, account.token, part.id);
-    await page.goto(`/parts/${part.id}`);
-    await expect(page.getByTestId("prop-volume")).toContainText(/\d/, {
-      timeout: 30_000,
-    });
-    const viewport = page.getByTestId("viewport");
-    await expect
-      .poll(() => distinctCanvasColors(page), { timeout: 30_000 })
-      .toBeGreaterThan(24);
-
-    // FRONT view is the whole fixture: it puts the wall exactly between the
-    // camera and the plate's top-front edge (see `seedOccludedEdgePlate`).
-    await page.getByTestId("view-front").click();
-    await viewport.evaluate((node) => {
-      node.dataset["fitRect"] = "";
-    });
-    await page.getByTestId("view-fit").click();
-    await expect(viewport).not.toHaveAttribute("data-fit-rect", "", {
-      timeout: 20_000,
-    });
-    await waitForFrames(page, 6);
+    // is fused, and three's raycaster never reads `material.visible` — only
+    // `material.side` — so `Mesh.raycast` tests a switched-off body's triangles
+    // exactly like a drawn one's (`partView.pickHiddenFaces`), and the band's
+    // occlusion test used to measure that hit, so hiding the wall killed edge
+    // picking over the whole region it used to cover. No spec covered
+    // multi-body + hidden + edge pick, which is why it shipped (SEL-4 review,
+    // 2026-08-08).
+    const viewport = await openOccludedPlate(page);
     await armFilletPick(page);
 
     // The plate's two top edges — y = 30 (facing the camera) and y = 50 —
@@ -455,19 +505,6 @@ test.describe("SEL-4 — the armed pick addresses the geometry", () => {
       return seen;
     };
 
-    /** Cycle a body's eye to a wanted state (solid → ghost → hidden → solid). */
-    const setBodyMode = async (index: number, mode: string): Promise<void> => {
-      const row = page.getByTestId("body-row").nth(index);
-      for (let i = 0; i < 4; i += 1) {
-        if ((await row.getAttribute("data-visibility")) === mode) return;
-        await page.getByTestId(`body-visibility-${index}`).click();
-      }
-      await expect(row).toHaveAttribute("data-visibility", mode);
-    };
-    await expect(page.getByTestId("body-row")).toHaveCount(2, {
-      timeout: 20_000,
-    });
-
     // 1) WITH BOTH BODIES DRAWN the edge is genuinely behind material, and the
     //    occlusion test is RIGHT to refuse it. This is the control that keeps
     //    the fix from being "delete the occlusion test".
@@ -483,11 +520,11 @@ test.describe("SEL-4 — the armed pick addresses the geometry", () => {
     //    kernel gave the wall.
     const answered: boolean[] = [];
     for (const index of [0, 1]) {
-      await setBodyMode(index, "hidden");
+      await setBodyMode(page, index, "hidden");
       await waitForFrames(page, 4);
       const seen = await probe();
       answered.push([...seen].some((s) => wanted.has(s)));
-      await setBodyMode(index, "solid");
+      await setBodyMode(page, index, "solid");
       await waitForFrames(page, 4);
     }
     expect(
@@ -505,6 +542,274 @@ test.describe("SEL-4 — the armed pick addresses the geometry", () => {
     await expect(viewport).not.toHaveAttribute("data-edge-pick-hover", /.*/, {
       timeout: 5_000,
     });
+  });
+
+  test("SEL-6 — a hidden body in FRONT no longer eats the pick for the body behind it", async ({
+    page,
+  }) => {
+    test.setTimeout(300_000);
+    // THE HEADLINE NUMBER. SEL-4's shell pick refused a hidden body's face —
+    // correctly — but could only ever REFUSE it: three's raycaster ignores
+    // `material.visible`, r3f keeps ONE hit per object, so the nearest triangle
+    // was the hidden wall's and the DRAWN plate behind it was never offered.
+    // Measured on this fixture before the fix: 8.5 % of the plate's lit pixels
+    // could address a face with the wall hidden, against 98 % with both bodies
+    // drawn — i.e. hiding the thing in your way, which is the whole reason to
+    // hide it, took the pick with it, and it did so BELOW the >= 50 % floor
+    // SEL-4 itself establishes for this overlay a few tests above.
+    const viewport = await openOccludedPlate(page);
+
+    // WHICH ROW IS THE WALL, discovered rather than assumed — a kernel ordinal
+    // is not a contract. See `litAfterHiding`.
+    const litWithout = [
+      await litAfterHiding(page, 0),
+      await litAfterHiding(page, 1),
+    ];
+    const wall = (litWithout[0] as number) < (litWithout[1] as number) ? 0 : 1;
+    const plate = 1 - wall;
+    expect(
+      Math.max(...litWithout) / Math.max(1, Math.min(...litWithout)),
+      `the two bodies must be tellable apart by silhouette: ${litWithout.join(" vs ")} lit points`,
+    ).toBeGreaterThan(1.5);
+
+    await expect(page.getByTestId("new-shell")).toBeEnabled({
+      timeout: 30_000,
+    });
+    await page.getByTestId("new-shell").click();
+    await expect(page.getByTestId("shell-editor")).toBeVisible();
+    await expect(
+      page.locator('[data-testid^="shell-face-"]').first(),
+    ).toBeVisible({ timeout: 20_000 });
+    await waitForFrames(page, 6);
+
+    /** The FB-3/FB-5 census, over whatever is currently lit. */
+    const census = async () => {
+      const points = await litPoints(page, { step: 24 });
+      return measureReachabilityWith(points, async (point) => {
+        await page.mouse.move(point.x, point.y);
+        return (await viewport.getAttribute("data-shell-face-hover")) !== null;
+      });
+    };
+    const pct = (n: number) => `${(n * 100).toFixed(1)}%`;
+
+    const bothDrawn = await census();
+    await setBodyMode(page, wall, "hidden");
+    await waitForFrames(page, 6);
+    const wallHidden = await census();
+    await setBodyMode(page, wall, "solid");
+    await waitForFrames(page, 6);
+    await setBodyMode(page, plate, "hidden");
+    await waitForFrames(page, 6);
+    const plateHidden = await census();
+    await setBodyMode(page, plate, "solid");
+    await waitForFrames(page, 6);
+
+    const report =
+      `both drawn ${bothDrawn.reachable}/${bothDrawn.sampled} = ${pct(bothDrawn.fraction)}; ` +
+      `WALL (row ${wall}) hidden ${wallHidden.reachable}/${wallHidden.sampled} = ${pct(wallHidden.fraction)}; ` +
+      `plate (row ${plate}) hidden ${plateHidden.reachable}/${plateHidden.sampled} = ${pct(plateHidden.fraction)}`;
+
+    for (const leg of [bothDrawn, wallHidden, plateHidden]) {
+      expect(leg.sampled, `body sampled (${report})`).toBeGreaterThan(40);
+    }
+
+    // NON-VACUITY: a stamp that got stuck set would score every leg at 100 %.
+    await page.mouse.move(5, 5);
+    await expect(viewport).not.toHaveAttribute("data-shell-face-hover", /.*/, {
+      timeout: 5_000,
+    });
+
+    // The two CONTROLS first, so a regression in either is not mistaken for the
+    // claim: nothing about hiding a body behind, or hiding nothing at all,
+    // should move the number.
+    expect(
+      bothDrawn.fraction,
+      `control, both drawn (${report})`,
+    ).toBeGreaterThanOrEqual(0.5);
+    expect(
+      plateHidden.fraction,
+      `control, the body BEHIND hidden (${report})`,
+    ).toBeGreaterThanOrEqual(0.5);
+
+    // THE CLAIM, against the same floor SEL-4 set at `pick-affordance.spec.ts`'s
+    // shell census: with the occluder switched off, the body you switched it off
+    // to reach is a pick target. Measured 8.5 % before the fix.
+    expect(
+      wallHidden.fraction,
+      `the WALL is hidden and the plate behind it must be pickable — ${report}`,
+    ).toBeGreaterThanOrEqual(0.5);
+  });
+
+  test("SEL-6 — and the occlusion test still applies BEHIND a hidden body", async ({
+    page,
+  }) => {
+    test.setTimeout(300_000);
+    // THE OPPOSITE FACE OF THE SAME BUG, and the reason this fix is not "delete
+    // the occlusion test". While a hidden wall was the nearest surface hit,
+    // `edgeBand` discarded it and left `surfaceDistance` null — so BEHIND a
+    // hidden body every edge was accepted, including edges buried inside the
+    // still-DRAWN plate. Both faces close together, because the hidden
+    // triangle now never reaches the intersection list at all.
+    const viewport = await openOccludedPlate(page);
+    const litWithout = [
+      await litAfterHiding(page, 0),
+      await litAfterHiding(page, 1),
+    ];
+    const wall = (litWithout[0] as number) < (litWithout[1] as number) ? 0 : 1;
+    expect(
+      Math.max(...litWithout) / Math.max(1, Math.min(...litWithout)),
+      `the two bodies must be tellable apart by silhouette: ${litWithout.join(" vs ")} lit points`,
+    ).toBeGreaterThan(1.5);
+
+    await armFilletPick(page);
+
+    /**
+     * The plate's BACK-BOTTOM edge and its visible y = 30 twin, named by their
+     * own OCCT mid-spans rather than by kernel indices.
+     *
+     * That edge is the one entity of this fixture that is unambiguously INSIDE
+     * the solid from the front: the plate's underside faces away from the
+     * camera, and under perspective the far edge projects ~29 px ABOVE its near
+     * twin — outside the 12 px corridor, so IT and not the visible edge is the
+     * nearest band hit on its own line. A probe there is a probe on material
+     * you cannot see, with drawn plate in the way.
+     */
+    const buriedPair = async () => {
+      const marks = await edgeMarks(page);
+      const buried = marks.find((m) => /centred at 30, 50, 0 /.test(m.label));
+      const twin = marks.find((m) => /centred at 30, 30, 0 /.test(m.label));
+      expect(
+        buried,
+        `the plate's back-bottom edge is on offer (${marks.map((m) => m.label).join(" | ")})`,
+      ).toBeDefined();
+      expect(twin, "its visible y = 30 twin is on offer too").toBeDefined();
+      if (buried === undefined || twin === undefined) {
+        throw new Error("the plate's bottom edges are not on offer");
+      }
+      expect(
+        Math.abs(buried.centre.y - twin.centre.y),
+        "the twins must be further apart than the 12 px corridor, or this probe measures the VISIBLE edge",
+      ).toBeGreaterThan(EDGE_CORRIDOR_PX);
+      return { marks, buried };
+    };
+
+    /** Which edges answer along a mark's own line, clear of its 24 px mark. */
+    const probe = async (mark: EdgeMark): Promise<Set<string>> => {
+      const seen = new Set<string>();
+      for (const dx of [-45, -30, -18, 18, 30, 45]) {
+        await page.mouse.move(mark.centre.x + dx, mark.centre.y);
+        const stamped = await viewport.getAttribute("data-edge-pick-hover");
+        if (stamped !== null) seen.add(stamped);
+      }
+      return seen;
+    };
+
+    // 1) BOTH BODIES DRAWN — refused, which is the pre-existing behaviour.
+    const drawn = await buriedPair();
+    const drawnSeen = await probe(drawn.buried);
+    expect(
+      [...drawnSeen],
+      `an edge inside the solid must not answer with both bodies drawn (answered: ${[...drawnSeen].join(",") || "nothing"})`,
+    ).not.toContain(String(drawn.buried.index));
+
+    // 2) WALL HIDDEN — the case that regressed. The plate is still drawn and
+    //    the edge is still buried inside it, so the answer must not change.
+    //    Before the fix it DID: the hidden wall's hit was discarded,
+    //    `surfaceDistance` stayed null, and the buried edge answered.
+    //
+    //    The marks are RE-READ rather than reused: the framing follows the
+    //    visible bounds, so hiding the wall moves every mark on screen (~29 px
+    //    here) and a stale coordinate would probe empty space.
+    await setBodyMode(page, wall, "hidden");
+    await waitForFrames(page, 6);
+    const behind = await buriedPair();
+    const behindSeen = await probe(behind.buried);
+    expect(
+      [...behindSeen],
+      `hiding the wall must not make the plate transparent (answered: ${[...behindSeen].join(",") || "nothing"})`,
+    ).not.toContain(String(behind.buried.index));
+
+    // …AND THE FIX IS NOT "REFUSE EVERYTHING". The plate's own VISIBLE top edge
+    // answers over the span the hidden wall used to cover — the claim of the
+    // census above, stated on the edge overlay, and the non-vacuity guard for
+    // the two refusals: a dead stamp would satisfy both of them.
+    const topFront = behind.marks.find((m) =>
+      /centred at 30, 30, 10 /.test(m.label),
+    );
+    expect(
+      topFront,
+      "the plate's visible front-top edge is on offer",
+    ).toBeDefined();
+    if (topFront === undefined) return;
+    const live = await probe(topFront);
+    expect(
+      [...live],
+      `the visible top edge over the hidden wall's span (answered: ${[...live].join(",") || "nothing"})`,
+    ).toContain(String(topFront.index));
+
+    await page.mouse.move(5, 5);
+    await expect(viewport).not.toHaveAttribute("data-edge-pick-hover", /.*/, {
+      timeout: 5_000,
+    });
+  });
+
+  test("SEL-6 — the default face hover sees past a hidden body too", async ({
+    page,
+  }) => {
+    test.setTimeout(300_000);
+    // `ModelMesh`'s own face-grain hover (SEL-1 A1) had the same defect on the
+    // same mechanism: the nearest triangle won even when its body was switched
+    // off, so `data-hovered-face` went silent over the region the wall covered
+    // instead of naming the plate's face behind it.
+    const viewport = await openOccludedPlate(page);
+    const litWithout = [
+      await litAfterHiding(page, 0),
+      await litAfterHiding(page, 1),
+    ];
+    const wall = (litWithout[0] as number) < (litWithout[1] as number) ? 0 : 1;
+
+    // Where the wall DRAWS today — the region whose picks it used to eat.
+    const covered = await litPoints(page, { step: 24 });
+    await setBodyMode(page, wall, "hidden");
+    await waitForFrames(page, 6);
+    const stillLit = await litPoints(page, { step: 24 });
+    const litKeys = new Set(
+      stillLit.map((p) => `${Math.round(p.x)},${Math.round(p.y)}`),
+    );
+    const nowEmpty = covered.filter(
+      (p) => !litKeys.has(`${Math.round(p.x)},${Math.round(p.y)}`),
+    );
+    expect(stillLit.length, "the plate is still on screen").toBeGreaterThan(20);
+    expect(
+      nowEmpty.length,
+      "the wall really did cover part of the frame",
+    ).toBeGreaterThan(20);
+
+    const answered = await measureReachabilityWith(stillLit, async (point) => {
+      await page.mouse.move(point.x, point.y);
+      return (await viewport.getAttribute("data-hovered-face")) !== null;
+    });
+    const ghost = await measureReachabilityWith(nowEmpty, async (point) => {
+      await page.mouse.move(point.x, point.y);
+      return (await viewport.getAttribute("data-hovered-face")) !== null;
+    });
+
+    await page.mouse.move(5, 5);
+    await expect(viewport).not.toHaveAttribute("data-hovered-face", /.*/, {
+      timeout: 5_000,
+    });
+
+    // The drawn plate names a face…
+    expect(
+      answered.fraction,
+      `hovered faces over the still-drawn plate: ${answered.reachable}/${answered.sampled}`,
+    ).toBeGreaterThanOrEqual(0.5);
+    // …and the vacated region names nothing, which is the guard that seeing
+    // PAST the hidden body did not make it pickable.
+    expect(
+      ghost.reachable,
+      `points over the vacated region that still name a face: ${ghost.reachable}/${ghost.sampled}`,
+    ).toBe(0);
   });
 
   test("hole: the face is the placement target, and a snap still lands exact", async ({

@@ -13,6 +13,40 @@ library and cleared two of three images to publish (`c7f23dd`). OPEN: LIC-1,
 stripping jbigkit from the geometry image, which is what still blocks
 publishing it.
 
+**SEL-6 CLOSED (2026-08-08, frontend-builder) — hiding the thing in your way no
+longer takes the pick with it, and the SEL-4 review's stated REASON was wrong.**
+The review blamed the pick mesh's single material ("`_computeIntersections` only
+consults per-group materials when `mesh.material` is an ARRAY"). Read in the
+vendored source, that is false: three 0.185's `checkIntersection()` looks at
+`material.side` and never at `material.visible`, so the array branch raycasts a
+switched-off body's triangles too — the conclusion was right for the wrong
+reason, and the wrong reason had been copied into three comments. What actually
+bites is r3f 9.6.1 deduping per object (`uuid + index + instanceId`, and
+`Mesh.raycast` sets `faceIndex` but never `index`): the fused mesh contributes
+exactly ONE hit, so a guard in the HANDLER can only refuse it and can never see
+past it. New pure module `apps/web/src/viewport/pickRaycast.ts` filters hidden
+triangles inside `raycast`, before r3f dedupes; `PickSurface` and `ModelMesh`'s
+own hover both mount it, which closes SEL-1's `FacePickOverlay`, shell, draft,
+mate and hole-placement surfaces in one change and lets `PickTriangle`'s
+`hidden` kind and `edgeBand`'s `surfaceOccludes` be deleted. MEASURED with shell
+armed on `seedOccludedEdgePlate`, wall in FRONT hidden: **7.4 % -> 96.3 %** of
+the plate's lit points address a face (the >= 50 % floor SEL-4 set for this
+overlay); controls unmoved at 96.7 % both drawn and 98.0 % plate hidden. The
+opposite face of the same bug closed with it: while the hidden wall was the
+nearest surface hit, `surfaceDistance` stayed null and edges buried inside the
+still-DRAWN plate were accepted — the e2e now probes the plate's back-bottom
+edge and it answers under the old code and not under the new. All three new
+gates mutation-verified by restoring the pre-SEL-6 source, and
+`qa-sel4-verify.spec.ts`'s "a HIDDEN body's face is not pickable" still passes
+over 527 interior-unlit points, which is what proves the pick sees past the
+hidden body without making it pickable — its "unlit" proxy needed one
+correction, because a luminance threshold cannot tell "off the body" from "on
+the body's anti-aliased silhouette" (measured: luminance 23 two pixels from body
+at 135, on the DRAWN plate), and before this fix that pixel passed for the wrong
+reason. Founder shots: `docs/screenshots/sel6-hidden-body-pick-{before,after}.png`
+— pointer resting on the plate with the wall hidden, dead before, face lit and
+traced after.
+
 **SEL-4 review 2026-08-08 — a hidden body no longer eats the edge picks behind
 it, and the mate conversion finally has a gate.** Three review findings, all in
 `apps/web/src/viewport`. (a) The band's occlusion test measured the nearest hit

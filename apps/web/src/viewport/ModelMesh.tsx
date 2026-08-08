@@ -28,6 +28,7 @@ import {
 } from "./glbGeometry";
 import { instanceView } from "./instanceVisibility";
 import { usePartViewStore } from "./partView";
+import { drawnSurfaceRaycast, hiddenTriangleTest } from "./pickRaycast";
 import { studioMatcap } from "./studioMatcap";
 
 /**
@@ -470,12 +471,17 @@ export function ModelMesh({
   }, [geometry]);
 
   /**
-   * Hidden means NOTHING drawn — including no pick target. `Mesh.raycast` walks
-   * every draw group regardless of its material's `visible`, so a hidden body
-   * would still light the hover state from under the parts you can see. The
-   * intersected triangle is resolved back to a B-rep face ordinal and dropped
-   * when that face is hidden, which also lets the pointer fall THROUGH to
-   * whatever is genuinely behind it.
+   * Hidden means NOTHING drawn — including no pick target.
+   *
+   * `Mesh.raycast` walks every draw group regardless of its material's
+   * `visible` (three 0.185's `checkIntersection()` reads only `material.side`),
+   * so a hidden body would otherwise light the hover from under the parts you
+   * can see. Refusing that hit in THIS handler was not enough and could not be:
+   * r3f dedupes to one hit per object, so the drawn face behind the hidden one
+   * was never offered and the pointer went dead over that whole region rather
+   * than falling through it. The filter now runs inside `raycast` — see
+   * {@link drawnSurfaceRaycast} — so what arrives here is the nearest DRAWN
+   * triangle and there is nothing left for the handler to refuse (SEL-6).
    */
   const faceOrdinalOf = useCallback(
     (event: ThreeEvent<PointerEvent>): number | null => {
@@ -492,12 +498,11 @@ export function ModelMesh({
     (event: ThreeEvent<PointerEvent>) => {
       if (!interactive) return;
       const ordinal = faceOrdinalOf(event);
-      if (ordinal !== null && bodyFaceState.hidden.has(ordinal)) return;
       event.stopPropagation();
       setHovered(true);
       setHoveredFace(ordinal);
     },
-    [interactive, faceOrdinalOf, bodyFaceState],
+    [interactive, faceOrdinalOf],
   );
   /**
    * SEL-1: r3f re-fires `onPointerOver` only when the pointer ENTERS the mesh,
@@ -510,24 +515,13 @@ export function ModelMesh({
     (event: ThreeEvent<PointerEvent>) => {
       if (!interactive) return;
       const ordinal = faceOrdinalOf(event);
-      // A hidden face is not addressed — the pointer falls THROUGH it to
-      // whatever is genuinely behind, the same rule `onPointerOver` applies.
-      // BOTH pieces of hover state go, for the same reason the re-tessellation
-      // effect above drops both: `hovered` true + `hoveredFace` null is the
-      // whole-body glow, so clearing the ordinal alone would light the entire
-      // solid the moment the pointer crossed onto a body you switched off.
-      if (ordinal !== null && bodyFaceState.hidden.has(ordinal)) {
-        setHovered(false);
-        setHoveredFace(null);
-        return;
-      }
       event.stopPropagation();
       setHovered(true);
       // Re-render only when the addressed face actually changes; a pointer move
       // across one face fires this handler every frame.
       setHoveredFace((current) => (current === ordinal ? current : ordinal));
     },
-    [interactive, faceOrdinalOf, bodyFaceState],
+    [interactive, faceOrdinalOf],
   );
   const onPointerOut = useCallback(() => {
     setHovered(false);
@@ -742,6 +736,19 @@ export function ModelMesh({
     return points.length > 0 ? points : null;
   }, [faceHoverEdges]);
 
+  /**
+   * The SEL-6 filter for the DRAWN mesh's own hover (SEL-1 A1). Same defect,
+   * one more surface: without it the nearest triangle wins even when its body
+   * is switched off, so the drawn face behind a hidden one is never offered and
+   * the default face-grain hover dies over that whole region instead of naming
+   * the face you can actually see there.
+   */
+  const raycast = useMemo(
+    () =>
+      drawnSurfaceRaycast(hiddenTriangleTest(geometry, bodyFaceState.hidden)),
+    [geometry, bodyFaceState],
+  );
+
   if (geometry === null) {
     return null;
   }
@@ -767,6 +774,7 @@ export function ModelMesh({
               ? [baseMaterial, featureMaterial]
               : baseMaterial
         }
+        raycast={raycast}
         onPointerOver={interactive ? onPointerOver : undefined}
         onPointerMove={interactive ? onPointerMove : undefined}
         onPointerOut={interactive ? onPointerOut : undefined}

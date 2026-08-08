@@ -208,24 +208,12 @@ export interface BandIntersection {
   faceIndex?: number | null | undefined;
 }
 
-/** The two raycast targets one band layer mounts, and how to read the surface. */
+/** The two raycast targets one band layer mounts. */
 export interface BandTargets {
   /** The `LineSegments2` carrying the corridors, or null before it mounts. */
   band: object | null;
   /** The invisible solid mounted for the occlusion test, or null. */
   surface: object | null;
-  /**
-   * Does a surface hit on this triangle count as MATERIAL IN FRONT of the edge?
-   *
-   * False for a triangle whose body is switched off. The pick mesh is fused and
-   * takes a single material, so `Mesh.raycast` tests a hidden body's triangles
-   * exactly like a drawn one's (`partView.ts` `pickHiddenFaces`) — and the
-   * nearest hit is the only one r3f keeps, so a hidden body in front would set
-   * the occlusion distance and refuse every edge behind it. Hiding a body to
-   * reach the geometry behind it is the whole reason to hide one, so that hit
-   * has to be discarded rather than measured.
-   */
-  surfaceOccludes: (faceIndex: number | null | undefined) => boolean;
 }
 
 /**
@@ -235,6 +223,16 @@ export interface BandTargets {
  * band's and the surface's) run it over the same list, so a difference between
  * them would be a pick that depends on hit order — and because "which hits
  * count" is exactly the kind of decision a screenshot cannot check.
+ *
+ * THE FIRST SURFACE HIT IS THE OCCLUDER, unconditionally. It used to be
+ * screened by a `surfaceOccludes` predicate, because a hidden body in front was
+ * reported as the nearest hit and would then refuse every edge behind it. SEL-6
+ * moved that decision a layer down — `pickRaycast.drawnSurfaceRaycast` drops
+ * hidden triangles inside `Mesh.raycast`, before r3f dedupes — so by the time a
+ * surface hit reaches this list it is DRAWN material by construction. Which
+ * also fixes the opposite half of the same bug: the predicate made
+ * `surfaceDistance` stay null behind a hidden body, so edges genuinely buried
+ * inside the still-drawn plate were accepted. The occlusion test applies again.
  */
 export function resolveBandIntersections(
   intersections: readonly BandIntersection[],
@@ -258,8 +256,7 @@ export function resolveBandIntersections(
     } else if (
       surfaceDistance === null &&
       targets.surface !== null &&
-      intersection.object === targets.surface &&
-      targets.surfaceOccludes(intersection.faceIndex)
+      intersection.object === targets.surface
     ) {
       surfaceDistance = intersection.distance;
     }

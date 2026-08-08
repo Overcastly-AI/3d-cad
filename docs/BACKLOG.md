@@ -53,40 +53,6 @@ duplication.
 
 ## Ready (top of queue)
 
-- [ ] (P1, S) **SEL-6 — a HIDDEN body in front eats the pick for the drawn body
-      behind it, and it is measured** (`apps/web`). Filed 2026-08-08 by the
-      orchestrator: the SEL-4 review raised this twice as amber with numbers and
-      asked for it to be filed, and it was not — the board would otherwise have
-      closed SEL-4 with a known, quantified affordance hole still open.
-      MECHANISM, one root cause with two faces. r3f 9.6.1 dedupes intersections
-      per object (`makeId` = uuid + index + instanceId) and three 0.185's
-      `Mesh.raycast` sets `faceIndex` but never `index`, so the fused pick mesh
-      yields exactly ONE hit: the nearest triangle. When that triangle belongs to
-      a hidden body, `ordinalAt` returns null and the DRAWN face behind it is
-      never offered — there is no second hit to fall back to. The current guard
-      (reject hidden ordinals, shipped in `b7ecf8a`) therefore refuses the pick
-      instead of seeing past it.
-      MEASURED on `seedOccludedEdgePlate` with shell armed: **1334/1361 = 98.0 %**
-      of lit points live with both bodies drawn; **27/317 = 8.5 %** with the wall
-      in FRONT hidden and the plate fully visible; 1307/1332 = 98.1 % with the
-      plate hidden. The 27 survivors are exactly the plate's overhangs outside the
-      hidden wall's span. **8.5 % is below the >=50 % shell floor SEL-4 itself
-      establishes** (`pick-affordance.spec.ts:310`).
-      SECOND FACE, opposite direction: `edgeBand.ts:239-268` — because only the
-      nearest triangle survives, a hidden body in front makes `surfaceOccludes`
-      return false and `surfaceDistance` stay null, so edges behind genuinely
-      drawn material are accepted. Over-permissive rather than dead, so lower
-      impact, but the occlusion test silently stops applying behind a hidden body.
-      FIX (one change closes both, and removes the need for the `hidden` kind
-      entirely): give the pick mesh a CUSTOM `raycast` that drops hidden-body
-      triangles BEFORE r3f dedupes, so the nearest DRAWN triangle is reported.
-      Affects `ShellFaceOverlay`, `InstanceMateOverlay`, `HolePointOverlay` free
-      placement (QA3-1 returns behind a hidden body) and `FacePickOverlay`, which
-      inherited it from SEL-1. NOT a regression versus pre-SEL-4 — the `PickNode`
-      centroid dots survive as a DOM fallback, so it is degraded affordance rather
-      than a dead end, which is why the review let SEL-4 through as amber.
-      [src: code-reviewer, SEL-4 slice 2026-08-08]
-
 - [ ] (P2, XS) **CI-2 — `deploy-path` never got the per-SHA concurrency fix, so
       it is still evicting runs** (`.github/workflows`). Filed 2026-08-08 by the
       orchestrator from the CI board. `ci.yml` and `e2e.yml` both key their PUSH
@@ -2992,6 +2958,20 @@ frame refactor are v2/§11. Spike de-collected.
 Full narrative evidence lives in `docs/ROADMAP.md` (Phase 4/4b sections) and
 `CHANGELOG.md`; one line per item below per token economy.
 
+### Recently shipped (2026-08-08)
+
+- **SEL-6 — a hidden body in front no longer eats the pick for the body behind
+  it.** The SEL-4 guard could only REFUSE the hidden triangle, never see past it:
+  three never reads `material.visible` (only `material.side`), and r3f keeps one
+  hit per object, so the drawn face behind was never offered. New pure
+  `apps/web/src/viewport/pickRaycast.ts` drops hidden triangles inside `raycast`,
+  before r3f dedupes — one change for every overlay plus `ModelMesh`'s own face
+  hover, and `PickTriangle`'s `hidden` kind and `edgeBand`'s `surfaceOccludes`
+  both go away. Shell reachability with the wall hidden: **7.4 % -> 96.3 %**,
+  controls unmoved; the occlusion test starts applying again behind a hidden
+  body (a buried edge answered before the fix, not after). Three e2e legs plus
+  the node-side two-quad raycast case, all mutation-verified.
+
 ### Recently shipped (2026-08-01)
 
 - **QA3-1 — you can drill where you want now.** Placement was two points, the
@@ -3555,6 +3535,9 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
+- 2026-08-08 — **SEL-6 a hidden body stops eating the pick behind it
+  (frontend-builder):** `pickRaycast.ts` filters hidden triangles inside
+  `raycast`; shell reachability with the wall hidden 7.4 % -> 96.3 %.
 - 2026-08-08 — **SEL-4 independent QA verdict: PASS (qa-tester):** 25 e2e green
   on the real stack, `e2e/qa-sel4-verify.spec.ts` adding the 10 checks the
   shipped gate did not express (draft, refusals, recede, mount audit, touch).
