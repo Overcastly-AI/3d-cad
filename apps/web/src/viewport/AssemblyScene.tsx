@@ -355,6 +355,10 @@ export function AssemblyScene({
                 key={`ov-${inst.id}`}
                 instanceId={inst.id}
                 transform={inst.transform}
+                // The instance's own drawn mesh IS the mate face hit-test
+                // (SEL-4). Same `loadGlbGeometry` parser as the part scene, so
+                // it carries the same B-rep face partition.
+                geometry={inst.geometry.surface}
                 tool={overlayTool}
                 overlay={overlay}
                 selectedIndex={selectedPickIndex(inst.id)}

@@ -3481,6 +3481,10 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
+- 2026-08-08 — **SEL-4 (3/5) shell, draft and mates address the geometry
+  (frontend-builder):** surface raycast + edge band + the hover highlight
+  neither had. Shell reachability measured 1.7 % -> 95.6 % of the lit body.
+
 - 2026-08-08 — **SEL-4 (2/5) fillet/chamfer/measure pick the EDGE
   (frontend-builder):** a 24 px screen-space `LineSegments2` corridor with an
   occlusion test. Measured 13 px in every direction -> 40–130 px along.

@@ -1,25 +1,38 @@
 /**
- * The shell face-pick overlay inside the WebGL viewport — the face-pick step of
- * the ShellEditor. Every PLANAR face of the current body gets a DOM-in-canvas
- * `PickNode` (drei `Html`) at its area centroid, so picking is keyboard-
- * navigable, screen-reader named, and e2e-drivable — the same posture as the
- * sketch-on-face overlay. Clicking TOGGLES that face into the "open" set; the
- * shell then leaves ONLY those faces open (empty set = a sealed hollow).
+ * The shell/draft face-pick overlay inside the WebGL viewport — the face-pick
+ * step of the Shell and Draft editors. The DRAWN SURFACE is the hit-test
+ * (`PickSurface`, SEL-4): a raycast resolves the struck triangle back to its
+ * B-rep face ordinal, so clicking anywhere on a face toggles that face. Every
+ * PLANAR face also carries a DOM-in-canvas `PickNode` (drei `Html`) at its area
+ * centroid, which is the keyboard focus target, the screen-reader name and the
+ * touch tap target — the same posture as the sketch-on-face overlay.
  *
- * Unlike the single-select sketch-on-face picker (`FacePickOverlay`), this is a
- * store-driven MULTI-select set (the edge picker's posture), keyed by full-
- * precision `PlanarFaceSignature` — never the transient overlay index — so a
- * refetch never mismarks a pick. Selected faces take the brass fill (the app's
- * selection language); the parent store owns the picked set + hover.
+ * Clicking TOGGLES that face into the "open" set; the shell then leaves ONLY
+ * those faces open (empty set = a sealed hollow). Unlike the single-select
+ * sketch-on-face picker (`FacePickOverlay`), this is a store-driven MULTI-select
+ * set (the edge picker's posture), keyed by full-precision
+ * `PlanarFaceSignature` — never the transient overlay index — so a refetch never
+ * mismarks a pick. Selected faces take the brass fill (the app's selection
+ * language); the parent store owns the picked set + hover.
+ *
+ * The hovered face gets the shared `FacePatch` laid on its plane. That is new
+ * with the raycast and it is not decoration: before SEL-4 this overlay drew no
+ * topology highlight at all, and a surface hit-test with no hover feedback
+ * would be WORSE than the dot it replaces — the dot at least said where the
+ * target was.
  */
 import { PickNode } from "@loft/design";
 import { Html } from "@react-three/drei";
 import { useThree } from "@react-three/fiber";
-import { useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 
+import type { OverlayFace } from "../api/parts";
 import { faceLabel, faceSignatureKey, isPickableFace } from "../features/face";
 import { useFacePickStore } from "../features/facePickStore";
 import { occtToScene } from "../measure/geometry";
+import { FacePatch } from "./facePatch";
+import { PickSurface } from "./pickSurface";
+import { useViewportPickStamp } from "./pickStamp";
 
 export interface ShellFaceOverlayProps {
   /**
@@ -45,35 +58,88 @@ export function ShellFaceOverlay({
     invalidate();
   }, [overlay, picked, hoverFace, invalidate]);
 
+  /** QA hook: which face the armed shell/draft pick is addressing (SEL-4). */
+  useViewportPickStamp("shellFaceHover", hoverFace);
+
   const pickedKeys = useMemo(
     () => new Set(picked.map(faceSignatureKey)),
     [picked],
+  );
+
+  /**
+   * A hit on a face that is NOT pickable (non-planar — shell/draft address
+   * planar faces only) resolves to null and is IGNORED rather than snapped to a
+   * neighbouring planar face. A pick that quietly opens a wall the modeller did
+   * not address is worse than one that does nothing, and "nothing" is honest
+   * here: the overlay draws neither a mark nor a patch there.
+   */
+  const pickableAt = useCallback(
+    (ordinal: number | null): OverlayFace | null => {
+      if (overlay === null || ordinal === null) return null;
+      const face = overlay.faces.find(
+        (candidate) => candidate.index === ordinal,
+      );
+      return face !== undefined && isPickableFace(face) ? face : null;
+    },
+    [overlay],
+  );
+
+  const onSurfaceMove = useCallback(
+    (ordinal: number | null) =>
+      setHoverFace(pickableAt(ordinal)?.index ?? null),
+    [pickableAt, setHoverFace],
+  );
+
+  const onSurfaceClick = useCallback(
+    (ordinal: number | null, event: { stopPropagation: () => void }) => {
+      const face = pickableAt(ordinal);
+      if (face === null || !isPickableFace(face)) return;
+      event.stopPropagation();
+      toggle(face.signature);
+    },
+    [pickableAt, toggle],
   );
 
   if (overlay === null) return null;
 
   return (
     <group>
+      <PickSurface
+        onMove={onSurfaceMove}
+        onOut={() => setHoverFace(null)}
+        onClick={onSurfaceClick}
+      />
       {overlay.faces.map((face) =>
         isPickableFace(face) ? (
-          <Html
-            key={`f${face.index}`}
-            position={occtToScene(face.signature.centroid)}
-            center
-            zIndexRange={[30, 10]}
-          >
-            <PickNode
-              shape="face"
-              selected={pickedKeys.has(faceSignatureKey(face.signature))}
-              data-testid={`${testIdPrefix}-${face.index}`}
-              aria-label={faceLabel(face.index, face.signature)}
-              onClick={() => toggle(face.signature)}
-              onPointerOver={() => setHoverFace(face.index)}
-              onPointerOut={() => setHoverFace(null)}
-              onFocus={() => setHoverFace(face.index)}
-              onBlur={() => setHoverFace(null)}
-            />
-          </Html>
+          <group key={`f${face.index}`}>
+            {pickedKeys.has(faceSignatureKey(face.signature)) ||
+            hoverFace === face.index ? (
+              <FacePatch
+                signature={face.signature}
+                selected={pickedKeys.has(faceSignatureKey(face.signature))}
+              />
+            ) : null}
+            <Html
+              position={occtToScene(face.signature.centroid)}
+              center
+              zIndexRange={[30, 10]}
+            >
+              <PickNode
+                shape="face"
+                // A7's recession: the drawn surface is this pick's primary
+                // hit-test now, so the mark is the keyboard/touch fallback.
+                recede
+                selected={pickedKeys.has(faceSignatureKey(face.signature))}
+                data-testid={`${testIdPrefix}-${face.index}`}
+                aria-label={faceLabel(face.index, face.signature)}
+                onClick={() => toggle(face.signature)}
+                onPointerOver={() => setHoverFace(face.index)}
+                onPointerOut={() => setHoverFace(null)}
+                onFocus={() => setHoverFace(face.index)}
+                onBlur={() => setHoverFace(null)}
+              />
+            </Html>
+          </group>
         ) : null,
       )}
     </group>

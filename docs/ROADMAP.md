@@ -13,6 +13,20 @@ library and cleared two of three images to publish (`c7f23dd`). OPEN: LIC-1,
 stripping jbigkit from the geometry image, which is what still blocks
 publishing it.
 
+**SEL-4 (3/5) 2026-08-08 — shell, draft and assembly mates address the
+geometry.** `ShellFaceOverlay` and `InstanceMateOverlay` get the surface
+raycast, the edge band (concentric mates band the circular edges only) and
+`recede`. Both of them also gain a HOVER HIGHLIGHT they never had — the shared
+`FacePatch` on the addressed face, brass segments on the addressed axis —
+because a raycast with no feedback is worse than a dot: the dot at least said
+where the target was. The assembly is not in the part scene, so
+`usePartViewStore.pickGeometry` is unavailable; it does not need it, because
+`AssemblyScene` already holds `inst.geometry.surface` from the SAME
+`loadGlbGeometry` parser, carrying the same face partition, and the surface is
+mounted INSIDE the instance's transform group so it rides the solved pose.
+MEASURED with a shell armed on the seven-bore plate: **6/363 sampled points over
+the visible body were live targets before = 1.7 %, and 347/363 = 95.6 % after.**
+
 **SEL-4 (2/5) 2026-08-08 — the EDGE is the target for fillet, chamfer and
 measure.** An edge is 1-D, so there is nothing to raycast; what it needs is a
 TOLERANCE, and `LineSegments2`'s raycast already is one — with

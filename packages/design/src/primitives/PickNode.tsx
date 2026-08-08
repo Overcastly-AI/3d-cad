@@ -85,12 +85,15 @@ export function PickNode({
           // demotes the mark there to the keyboard focus target, the
           // screen-reader name and the touch tap target (spec §5).
           //
-          // That demotion is per-surface, so the recession is too. Measure,
-          // fillet/chamfer edge, shell/draft, instance-mate and hole-point
-          // overlays have NOT been converted: on those this button is still the
-          // sole hit-test, so dimming it would dim the aim affordance itself —
-          // the exact trade A7 refuses. They pass no `recede` and stay at full
-          // strength until their raycast lands.
+          // That demotion is per-surface, so the recession is too, and the
+          // default stays OFF: on a surface where this button is still the sole
+          // hit-test, dimming it would dim the aim affordance itself — the exact
+          // trade A7 refuses. SEL-4 (2026-08-08) converted the remaining five —
+          // fillet/chamfer edge, measure EDGES, shell/draft, instance-mate and
+          // hole placement — so those now pass `recede` too. Measure VERTICES
+          // deliberately do not: a projected point has no boundary to raycast,
+          // so a 24 px square around it already IS the proximity test and this
+          // button remains the only target there.
           //
           // WHERE IT DOES RECEDE, THE FLOOR IS MEASURED, NOT ESTIMATED. The
           // mark is two-tone: a `mist` core that carries it over the dark
