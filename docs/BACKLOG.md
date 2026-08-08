@@ -53,8 +53,21 @@ duplication.
 
 ## Ready (top of queue)
 
-- [ ] (P1, M) **SEL-4 — the armed EDGE and shell/draft picks are still 24 px
-      dots; only the FACE pick got its raycast** (`apps/web`). SEL-1 A2 made
+- [x] (P1, M) **SEL-4 — the armed EDGE and shell/draft picks are still 24 px
+      dots; only the FACE pick got its raycast** (`apps/web`). SHIPPED
+      2026-08-08 (`757ca9f` `e53e4e4` `8cb7700` `207d36c` + this commit): all
+      five converted onto ONE shared implementation (`pickSurface` /
+      `facePatch` / `pickStamp` / `edgeBand` + `EdgeBandLayer`), each passing
+      `recede`; edges get a 24 px `LineSegments2` corridor with a unit-tested
+      occlusion decision; hole placement becomes FREE placement with snap
+      (behaviour change, flagged to the founder). Dense-hole fixture
+      (`seedDenseHolePlate`, seven Ø6 bores on a Ø40 bolt circle) + gate
+      `e2e/pick-affordance.spec.ts`, mutation-verified on all three
+      conversions. MEASURED: edges 13 px in every direction -> 40–130 px along
+      and ≤13 px across; shell reachability 1.7 % -> 95.6 %. NB the item id is
+      AMBIGUOUS — there is a second "SEL-4" (hovered-face normal arrow) further
+      down this file, and a duplicate "SEL-5" pair as well; flagged for the
+      groomer to renumber. SEL-1 A2 made
       the drawn surface the primary hit-test for `FacePickOverlay` and lifted
       reachability 9.9 % -> 84.6 %. `EdgePickOverlay` (fillet, chamfer),
       `ShellFaceOverlay` (shell, draft), `MeasureOverlay`, `InstanceMateOverlay`
@@ -3480,6 +3493,10 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
       engineering-audit debt items closed. [src: engineering-auditor]
 
 ## Changelog
+
+- 2026-08-08 — **SEL-4 (5/5) the dense-hole gate A2 asked for
+  (frontend-builder):** `seedDenseHolePlate` + `e2e/pick-affordance.spec.ts`,
+  anisotropy not area for edges, mutation-verified on all three conversions.
 
 - 2026-08-08 — **SEL-4 (4/5) drill anywhere on the face (frontend-builder):**
   free placement by raycast + plane projection; the snap nodes still win inside

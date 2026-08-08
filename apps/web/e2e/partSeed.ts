@@ -127,6 +127,103 @@ export async function seedAllEdgeFillet(
 }
 
 /**
+ * A 60 mm plate with SEVEN bores on a Ø40 bolt circle — the dense-hole fixture
+ * spec A2 names (`docs/design/pre-selection.md` §6) and the shipped SEL-1 gate
+ * did not have.
+ *
+ * Why it has to exist: a six-face box cannot show a MIS-RESOLVED ordinal. Every
+ * face of a box is metres apart in ordinal space and centimetres apart on
+ * screen, so a pick model that quietly answers "the face next door" scores
+ * perfectly on it. Seven bores put ~14 circular edges and 7 snap centres within
+ * a few millimetres of one another, which is where a widened pick corridor
+ * either stays a corridor or becomes a blanket.
+ *
+ * Two features, not eight: ONE sketch carries all seven circles and ONE cut
+ * extrude drills them, so the fixture costs two kernel evaluations. The circles
+ * are deliberately NON-overlapping (17.4 mm apart on a Ø40 circle, Ø6 bores) —
+ * overlapping profiles would fuse into a single face and destroy the very
+ * ordinal crowding the fixture exists to create.
+ */
+export function boltCircleSketch(
+  count: number,
+  centre: { x: number; y: number },
+  pitchRadiusMm: number,
+  boreRadiusMm: number,
+) {
+  return {
+    plane: { kind: "datum_plane", plane: "XY" },
+    entities: Array.from({ length: count }, (_unused, i) => {
+      const angle = (2 * Math.PI * i) / count;
+      return {
+        id: `c${i + 1}`,
+        kind: "circle",
+        center: {
+          x: centre.x + pitchRadiusMm * Math.cos(angle),
+          y: centre.y + pitchRadiusMm * Math.sin(angle),
+        },
+        radius: boreRadiusMm,
+      };
+    }),
+    constraints: [],
+  };
+}
+
+/** Sketch + extrude the plate, then sketch + cut the bolt circle. */
+export async function seedDenseHolePlate(
+  page: Page,
+  token: string,
+  partId: string,
+): Promise<number> {
+  const plate = await createFeature(page, token, partId, {
+    name: "Plate",
+    feature: {
+      type: "sketch",
+      version: 1,
+      params: rectangleSketch(0, 0, 60, 60),
+    },
+    expected_tree_version: 0,
+  });
+  const solid = await createFeature(page, token, partId, {
+    name: "Extrude1",
+    feature: {
+      type: "extrude",
+      version: 1,
+      params: {
+        profile: { kind: "feature", feature_id: plate.feature.id },
+        distance_mm: 10,
+        operation: "add",
+        direction: "normal",
+      },
+    },
+    expected_tree_version: plate.tree_version,
+  });
+  const bores = await createFeature(page, token, partId, {
+    name: "Bolt circle",
+    feature: {
+      type: "sketch",
+      version: 1,
+      params: boltCircleSketch(7, { x: 30, y: 30 }, 20, 3),
+    },
+    expected_tree_version: solid.tree_version,
+  });
+  const cut = await createFeature(page, token, partId, {
+    name: "Bores",
+    feature: {
+      type: "extrude",
+      version: 1,
+      params: {
+        profile: { kind: "feature", feature_id: bores.feature.id },
+        distance_mm: 10,
+        operation: "cut",
+        direction: "normal",
+      },
+    },
+    expected_tree_version: bores.tree_version,
+  });
+  return cut.tree_version;
+}
+
+/**
  * Park the travel stop on `featureId` (null = tip) through the gateway — the
  * API half of the timeline's drag, for specs that need a part whose evaluate
  * genuinely covers only a PREFIX. Resolves with the new tree version.

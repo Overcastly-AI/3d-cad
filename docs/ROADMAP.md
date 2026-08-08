@@ -13,6 +13,23 @@ library and cleared two of three images to publish (`c7f23dd`). OPEN: LIC-1,
 stripping jbigkit from the geometry image, which is what still blocks
 publishing it.
 
+**SEL-4 (5/5) 2026-08-08 — the gate A2 asked for, on the fixture A2 named.**
+`seedDenseHolePlate` (seven Ø6 bores on a Ø40 bolt circle, two features) is the
+dense-hole fixture the shipped SEL-1 gate did not have; a six-face box cannot
+show a mis-resolved ordinal, because every entity on it is far from every other
+in both ordinal and screen space. `e2e/pick-affordance.spec.ts` measures each
+overlay with the instrument its geometry deserves: an AREA FRACTION for faces
+(the FB-3/FB-5 census, pointed at shell) and ANISOTROPY for edges, because an
+edge has no area and a fraction of it would be meaningless — sweep 16 directions
+from the edge's own mark and record how far it still answers. MUTATION-VERIFIED
+on all three conversions: without the band every direction collapses to the DOM
+node's 13 px (0 of 8 sampled edges reach 40 px); without the shell raycast the
+census reads 1.7 %; without the hole raycast no free-placement point exists at
+all. The fixture also earned its keep immediately — a bore's OCCLUDED bottom
+mouth sits 34 px from a neighbour's visible top mouth on a 10 mm plate, so the
+cross-talk assertion had to be scoped to edges that are actually addressable,
+which is the occlusion test being right rather than the gate being lenient.
+
 **SEL-4 (4/5) 2026-08-08 — you can drill ANYWHERE on the face. BEHAVIOUR
 CHANGE, flagged deliberately.** For a POINT pick, converting the hit-test buys
 nothing — a `PickNode` is already a ~12 px screen-space proximity test around a
