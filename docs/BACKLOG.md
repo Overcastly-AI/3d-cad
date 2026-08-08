@@ -3497,6 +3497,9 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
+- 2026-08-08 — **SEL-4 independent QA verdict: PASS (qa-tester):** 25 e2e green
+  on the real stack, `e2e/qa-sel4-verify.spec.ts` adding the 10 checks the
+  shipped gate did not express (draft, refusals, recede, mount audit, touch).
 - 2026-08-08 — **SEL-4 review follow-up 2026-08-08 (frontend-builder):** a
   hidden body stops occluding the edge band (`resolveBandIntersections` +
   `PickTriangle`); mate picks gated (8.9 % -> ≥50 %); one owner for mate hover.

@@ -36,6 +36,30 @@ crossing from one instance to another could run A's cleanup after B's setup and
 wipe B's live value; hover is now owned once by `AssemblyScene` — one pointer,
 one answer.
 
+**SEL-4 independent QA 2026-08-08 — PASS on the real stack, and ten checks the
+shipped gate could not express.** Verified natively (uvicorn + SQLite, isolated
+ports) rather than from the unit suite: `apps/web/e2e/qa-sel4-verify.spec.ts`
+adds what `pick-affordance.spec.ts` does not state — the DRAFT half of the
+shared face overlay (95.6 % reachable), the shell REFUSALS (a cylinder's wall
+answers nothing on 40 interior pixels, and clicking it opens no face; a hidden
+body's ordinals answer at none of 529 unlit points), the seven-bore ordinal
+census (8 distinct circular edges addressed from the rims), A2's literal wording
+on A2's own fixture (sketch-on-face 89.9–92.1 %, and a click on a face BOUNDARY
+>70 px from every centroid mark seats the sketch), the hole snap's precision
+(each bore's X/Y cells land 20.000 mm from the frame's zero, nearest-bore, and a
+click on another face does not move the drill), the `recede` rider stated per
+overlay (edge/shell/draft/hole-ring/measure-edge/mate-face/mate-axis all rest at
+opacity 0.6 and return to 1 on hover and keyboard focus, while measure VERTICES
+stay at 1 because they are still their own sole hit-test), keyboard/SR parity,
+the UNMOUNT half of the stamp contract, a mount audit (exactly one armed pick
+answers a given pointer), and TOUCH taps for both a face toggle and an edge
+pick. Gates: full Playwright suite 453/453 on the real artifact, `just lint`,
+1547 web + 77 design unit tests, geometry 2460 passed / 1 skipped. NB the first
+draft of three of these checks failed for reasons that were the SPEC's, not the
+app's — a stale hover read one point behind, a circular edge's mark sitting on
+the RIM rather than the centre, and ground truth read while it was deliberately
+suppressed — so each now carries the measurement that distinguishes it.
+
 **SEL-4 (5/5) 2026-08-08 — the gate A2 asked for, on the fixture A2 named.**
 `seedDenseHolePlate` (seven Ø6 bores on a Ø40 bolt circle, two features) is the
 dense-hole fixture the shipped SEL-1 gate did not have; a six-face box cannot
