@@ -1404,6 +1404,7 @@ export function PartPage() {
   });
   const holePickableFaces =
     holePick === "face" ? (holeOverlayQuery.data?.faces ?? null) : null;
+  const holeOverlayFaces = holeOverlayQuery.data?.faces ?? null;
   const holeOverlayVertices = holeOverlayQuery.data?.vertices ?? null;
   const holeOverlayEdges = holeOverlayQuery.data?.edges ?? null;
 
@@ -4475,6 +4476,10 @@ export function PartPage() {
               holePreview?.signature != null ? (
                 <HolePointOverlay
                   signature={holePreview.signature}
+                  // Not `holePickableFaces`, which is gated on the FACE pick
+                  // being armed — the point pick needs the same list to resolve
+                  // its placement face's ordinal for the free-placement raycast.
+                  faces={holeOverlayFaces}
                   vertices={holeOverlayVertices}
                   edges={holeOverlayEdges}
                   position={holePreview.position}

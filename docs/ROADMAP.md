@@ -13,6 +13,21 @@ library and cleared two of three images to publish (`c7f23dd`). OPEN: LIC-1,
 stripping jbigkit from the geometry image, which is what still blocks
 publishing it.
 
+**SEL-4 (4/5) 2026-08-08 — you can drill ANYWHERE on the face. BEHAVIOUR
+CHANGE, flagged deliberately.** For a POINT pick, converting the hit-test buys
+nothing — a `PickNode` is already a ~12 px screen-space proximity test around a
+projected point — so the honest A2 fix is FREE PLACEMENT: raycast the placement
+face, accept only its own ordinal, bring the hit back through the new
+`sceneToOcctTuple`, project it onto the face plane to kill the round-trip float
+error, and drill there. Before this, a hole could be placed at the face centre,
+a corner, or a circular-edge centre and NOWHERE ELSE, which is the mechanism
+behind QA3-1 ("a fifth mounting hole could not be authored through the UI").
+SNAP STILL WINS WHERE IT SHOULD, and by mechanism rather than by a second radius
+test: the snap `PickNode`s are DOM above the canvas, so within their 24 px the
+raycast never runs and the bore centre is echoed at full precision. This is the
+one part of SEL-4 that changes what a click DOES; everything else only changes
+where you may click.
+
 **SEL-4 (3/5) 2026-08-08 — shell, draft and assembly mates address the
 geometry.** `ShellFaceOverlay` and `InstanceMateOverlay` get the surface
 raycast, the edge band (concentric mates band the circular edges only) and

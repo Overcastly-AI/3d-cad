@@ -14,14 +14,31 @@
  *   motor register (QA-REVIEW 2026-08-01, QA3-2). The live drill point takes the
  *   brass, so typing a coordinate MOVES a mark you can watch.
  *
- *   THE SNAPS (while the point pick is armed). Every point guaranteed on the
- *   face gets a DOM-in-canvas `PickNode` (drei `Html`) — the same affordance the
- *   measurement overlay places at every vertex, so picking is keyboard-navigable,
- *   screen-reader named and e2e-drivable. Three kinds: the face CENTRE (its area
- *   centroid), the face's own corner VERTICES, and — new with QA3-1 — the CENTRE
- *   of every circular edge lying in the face's plane, which is what makes
- *   concentric and bolt-circle placement possible: snap a bore centre, read its
- *   coordinates in the cells, dial the pitch circle from there.
+ *   THE PLACEMENT (while the point pick is armed). The FACE ITSELF is the
+ *   target: a raycast against the drawn surface accepts hits on the placement
+ *   face, projects the hit back onto the face plane and drills there (SEL-4,
+ *   spec A2). This is the one part of SEL-4 that changes what a click DOES, and
+ *   it is the honest fix rather than a wider dot: a `PickNode` is already a
+ *   ~12 px proximity test around a projected point, so converting the hit-test
+ *   alone would buy nothing. Free placement is what makes a dense bolt pattern
+ *   placeable at all, and it is what Fusion does.
+ *
+ *   THE SNAPS. Every point guaranteed on the face keeps a DOM-in-canvas
+ *   `PickNode` (drei `Html`) — the same affordance the measurement overlay
+ *   places at every vertex, so picking is keyboard-navigable, screen-reader
+ *   named and e2e-drivable. Three kinds: the face CENTRE (its area centroid),
+ *   the face's own corner VERTICES, and the CENTRE of every circular edge lying
+ *   in the face's plane, which is what makes concentric and bolt-circle
+ *   placement possible: snap a bore centre, read its coordinates in the cells,
+ *   dial the pitch circle from there.
+ *
+ *   SNAP BEATS FREE PLACEMENT BY MECHANISM, not by a second radius test. A
+ *   `PickNode` lives in a drei `Html` layer ABOVE the canvas, so a pointer
+ *   within its 24 px target is consumed by the DOM and the raycast never runs —
+ *   the snap wins exactly where a snap should win, and the bore centre is
+ *   echoed at full precision instead of at whatever pixel was under the cursor.
+ *   That is also why the snap nodes now `recede`: they are secondary to the
+ *   surface, the way `FacePickOverlay`'s marks became secondary in A2.
  *
  * Presentational: the parent owns the position state and the resulting param
  * write. Geometry comes from `../features/facePlacement` (one frame, shared with
@@ -31,18 +48,34 @@ import { formatLength, PickNode } from "@loft/design";
 import { sketch, viewport } from "@loft/design/tokens";
 import { Html } from "@react-three/drei";
 import { useThree } from "@react-three/fiber";
-import { useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import type { OverlayEdge } from "../api/measure";
-import type { PlanarFaceSignature, Vec3 } from "../api/parts";
+import type { OverlayFace, PlanarFaceSignature, Vec3 } from "../api/parts";
+import { faceSignatureKey, isPickableFace } from "../features/face";
 import { coplanarVertexIndices, samePoint } from "../features/hole";
-import { facePlacement, type FaceFrame } from "../features/facePlacement";
+import {
+  facePlacement,
+  toFacePoint,
+  toWorldPoint,
+  type FaceFrame,
+} from "../features/facePlacement";
 import { formatVec3Mm, occtToScene } from "../measure/geometry";
+import { sceneToOcctTuple } from "../sketch/plane";
 import { Segments } from "./overlaySegments";
+import { PickSurface } from "./pickSurface";
+import { useViewportPickStamp } from "./pickStamp";
 
 export interface HolePointOverlayProps {
   /** The picked placement face's signature, or null before a face is chosen. */
   signature: PlanarFaceSignature | null;
+  /**
+   * The evaluated body's B-rep faces, or null. Only used to resolve the
+   * placement face's ORDINAL, which is what a raycast reports — matching on the
+   * signature rather than carrying a second copy of the index keeps this
+   * overlay's input the same one the editor already holds.
+   */
+  faces: readonly OverlayFace[] | null;
   /** The evaluated body's B-rep vertices (from the overlay), or null. */
   vertices: readonly Vec3[] | null;
   /** The evaluated body's B-rep edges (from the overlay), or null. */
@@ -71,6 +104,7 @@ function at(frame: FaceFrame, from: Vec3, x: number, y: number): Vec3 {
 
 export function HolePointOverlay({
   signature,
+  faces,
   vertices,
   edges,
   position,
@@ -78,11 +112,18 @@ export function HolePointOverlay({
   onPick,
 }: HolePointOverlayProps) {
   const invalidate = useThree((s) => s.invalidate);
+  /** The free-placement point under the cursor (world mm), or null. */
+  const [hoverPoint, setHoverPoint] = useState<Vec3 | null>(null);
 
   // frameloop="demand": redraw when the pickable set or the placement changes.
   useEffect(() => {
     invalidate();
-  }, [signature, vertices, edges, position, armed, invalidate]);
+  }, [signature, vertices, edges, position, armed, hoverPoint, invalidate]);
+
+  // A disarmed pick offers no free placement, so it shows no candidate.
+  useEffect(() => {
+    if (!armed) setHoverPoint(null);
+  }, [armed]);
 
   // The face's own corners (overlay vertices coplanar with the face plane) —
   // the snap points besides the centre. Empty until the overlay loads.
@@ -126,6 +167,92 @@ export function HolePointOverlay({
     return Float32Array.from(out);
   }, [placement, position, armMm]);
 
+  /** The candidate crosshair under the cursor — smaller than the live one. */
+  const hoverPositions = useMemo(() => {
+    if (placement === null || hoverPoint === null) return new Float32Array(0);
+    const { frame } = placement;
+    const r = armMm * 0.16;
+    const out: number[] = [];
+    pushSegment(out, at(frame, hoverPoint, -r, 0), at(frame, hoverPoint, r, 0));
+    pushSegment(out, at(frame, hoverPoint, 0, -r), at(frame, hoverPoint, 0, r));
+    return Float32Array.from(out);
+  }, [placement, hoverPoint, armMm]);
+
+  /**
+   * The placement face's B-rep ordinal — what a raycast reports. Resolved by
+   * matching the signature the editor already holds, so there is no second copy
+   * of the index to drift.
+   */
+  const placementOrdinal = useMemo(() => {
+    if (signature === null || faces === null) return null;
+    const key = faceSignatureKey(signature);
+    const match = faces.find(
+      (face) =>
+        isPickableFace(face) && faceSignatureKey(face.signature) === key,
+    );
+    return match?.index ?? null;
+  }, [signature, faces]);
+
+  /**
+   * A raycast hit → the drill point, or null.
+   *
+   * Only the PLACEMENT face answers. A hit on any other face — including a
+   * coplanar one — is refused rather than projected onto the plane anyway: the
+   * hole is resolved against this face, so drilling at a point the modeller
+   * addressed on a different one would be a pick acting on geometry nobody
+   * chose. The hit is projected onto the face plane regardless, which costs
+   * nothing and kills the float error the scene round trip introduces.
+   */
+  const pointAt = useCallback(
+    (
+      ordinal: number | null,
+      hit: { point: { x: number; y: number; z: number } },
+    ): Vec3 | null => {
+      if (placement === null || placementOrdinal === null) return null;
+      if (ordinal !== placementOrdinal) return null;
+      const [x, y, z] = sceneToOcctTuple([
+        hit.point.x,
+        hit.point.y,
+        hit.point.z,
+      ]);
+      const world: Vec3 = { x, y, z };
+      return toWorldPoint(placement.frame, toFacePoint(placement.frame, world));
+    },
+    [placement, placementOrdinal],
+  );
+
+  const onSurfaceMove = useCallback(
+    (
+      ordinal: number | null,
+      event: { point: { x: number; y: number; z: number } },
+    ) => {
+      setHoverPoint(pointAt(ordinal, event));
+    },
+    [pointAt],
+  );
+
+  const onSurfaceClick = useCallback(
+    (
+      ordinal: number | null,
+      event: {
+        point: { x: number; y: number; z: number };
+        stopPropagation: () => void;
+      },
+    ) => {
+      const point = pointAt(ordinal, event);
+      if (point === null) return;
+      event.stopPropagation();
+      onPick(point);
+    },
+    [pointAt, onPick],
+  );
+
+  /** QA hook: is the armed point pick addressing the placement face? */
+  useViewportPickStamp(
+    "holePointHover",
+    armed && hoverPoint !== null ? 1 : null,
+  );
+
   if (signature === null || placement === null) return null;
 
   const { frame, circles } = placement;
@@ -153,6 +280,16 @@ export function HolePointOverlay({
       <Segments
         positions={pointPositions}
         color={viewport.selection}
+        depthTest={false}
+        renderOrder={4}
+      />
+      {/* The free-placement candidate under the cursor. Without it the raycast
+          would land invisibly — the modeller would learn where the drill went
+          only after clicking, which is the failure mode the snap dots at least
+          did not have. */}
+      <Segments
+        positions={hoverPositions}
+        color={viewport.hover}
         depthTest={false}
         renderOrder={4}
       />
@@ -195,10 +332,20 @@ export function HolePointOverlay({
 
       {armed ? (
         <>
+          {/* FREE PLACEMENT: the placement face itself is the target. */}
+          <PickSurface
+            onMove={onSurfaceMove}
+            onOut={() => setHoverPoint(null)}
+            onClick={onSurfaceClick}
+          />
+
           {/* The face centre — the seed placement (a hole in the middle). */}
           <Html position={occtToScene(centroid)} center zIndexRange={[36, 18]}>
             <PickNode
               shape="vertex"
+              // A7's recession: the face itself is the placement target now, so
+              // the snap marks are secondary — they are exact, not primary.
+              recede
               selected={samePoint(position, centroid)}
               data-testid="hole-point-center"
               aria-label={`Centre of the face at ${formatVec3Mm(centroid)} millimetres`}
@@ -219,6 +366,7 @@ export function HolePointOverlay({
               >
                 <PickNode
                   shape="vertex"
+                  recede
                   selected={samePoint(position, vertex)}
                   data-testid={`hole-point-vertex-${index}`}
                   aria-label={`Corner at ${formatVec3Mm(vertex)} millimetres`}
@@ -238,6 +386,7 @@ export function HolePointOverlay({
             >
               <PickNode
                 shape="center"
+                recede
                 selected={samePoint(position, circle.center)}
                 data-testid={`hole-point-circle-${index}`}
                 data-diameter-mm={circle.radiusMm * 2}

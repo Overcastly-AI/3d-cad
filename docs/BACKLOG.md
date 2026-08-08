@@ -3481,6 +3481,10 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
+- 2026-08-08 — **SEL-4 (4/5) drill anywhere on the face (frontend-builder):**
+  free placement by raycast + plane projection; the snap nodes still win inside
+  their 24 px because they are DOM above the canvas. Behaviour change.
+
 - 2026-08-08 — **SEL-4 (3/5) shell, draft and mates address the geometry
   (frontend-builder):** surface raycast + edge band + the hover highlight
   neither had. Shell reachability measured 1.7 % -> 95.6 % of the lit body.
