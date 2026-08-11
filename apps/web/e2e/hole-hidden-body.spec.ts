@@ -2,6 +2,7 @@ import { sketch, viewport as viewportTokens } from "@loft/design/tokens";
 
 import { expect, test, type Page } from "./fixtures";
 
+import { labelCentroid, setBodyMode } from "./occludedPlate";
 import { seedBoredPlateAndBlock } from "./partSeed";
 import { litPoints, type Point } from "./reachability";
 import {
@@ -92,45 +93,22 @@ async function openBoredPlateAndBlock(page: Page): Promise<void> {
 }
 
 /**
- * Cycle a body's eye to a wanted stop (solid → ghost → hidden → solid).
+ * A face on offer in the hole's FACE pick, located by its own accessible name.
  *
- * Deliberately a local copy of the same eight lines `occludedPlate.ts` carries:
- * that helper is another agent's in-flight file at the time of writing, and a
- * commit that imports a module its own tree may not contain is a commit that
- * cannot be green on its own. Fold the two together when both have landed.
+ * `setBodyMode` and `labelCentroid` come from `occludedPlate.ts` — the shared
+ * two-body-occlusion module every "what does a HIDDEN body do to a pick" spec
+ * draws on. They were local copies here while that file was another agent's
+ * in-flight work (a commit cannot import a module its own tree may not
+ * contain); it landed in `7ffac16`, so the copies are gone. Its `labelCentroid`
+ * is the same regex plus a finiteness assertion, i.e. strictly stronger, and
+ * the fixture below relies on nothing else it does.
  */
-async function setBodyMode(
-  page: Page,
-  index: number,
-  mode: string,
-): Promise<void> {
-  const row = page.getByTestId("body-row").nth(index);
-  for (let i = 0; i < 4; i += 1) {
-    if ((await row.getAttribute("data-visibility")) === mode) return;
-    await page.getByTestId(`body-visibility-${index}`).click();
-  }
-  await expect(row).toHaveAttribute("data-visibility", mode);
-}
-
-/** A face on offer in the hole's FACE pick, located by its own accessible name. */
 interface OfferedFace {
   testId: string;
   label: string;
   centroid: { x: number; y: number; z: number };
   /** The 60 × 60 plate lives at y = 0…60; the block at y = 80…100. */
   plate: boolean;
-}
-
-/** WHERE a mark is, read off its own label — a kernel ordinal is not a contract. */
-function labelCentroid(label: string): { x: number; y: number; z: number } {
-  const parts = label.match(
-    /centred at (-?[\d.]+), (-?[\d.]+), (-?[\d.]+) millimetres/,
-  );
-  expect(parts, `a located label: ${label}`).not.toBeNull();
-  const [x, y, z] = [1, 2, 3].map((i) =>
-    Number.parseFloat((parts ?? [])[i] ?? "NaN"),
-  ) as [number, number, number];
-  return { x, y, z };
 }
 
 /** Every planar face currently offered by the armed face pick. */

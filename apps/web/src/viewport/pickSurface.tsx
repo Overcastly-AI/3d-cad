@@ -25,11 +25,8 @@ import type { BufferGeometry, Intersection, Mesh, Raycaster } from "three";
 import type { ThreeEvent } from "@react-three/fiber";
 
 import { faceOrdinalOfTriangle } from "./glbGeometry";
-import { usePartViewStore } from "./partView";
+import { NO_HIDDEN_FACES, usePartViewStore } from "./partView";
 import { drawnSurfaceRaycast, hiddenTriangleTest } from "./pickRaycast";
-
-/** Shared empty set — a stable identity, so "nothing hidden" costs no render. */
-const NO_HIDDEN_FACES: ReadonlySet<number> = new Set<number>();
 
 export interface PickSurfaceTarget {
   /** The raycast geometry, or null when there is nothing to hit. */

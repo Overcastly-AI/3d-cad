@@ -50,6 +50,39 @@ body gone. Founder shots:
 1280 x 800 capture of the withheld state. `apps/web` unit suite 1582 green,
 `just lint` clean.
 
+**SEL-7 review follow-up (2026-08-11, frontend-builder) — two findings, both
+real, both fixed.** (1) A STALE HIDDEN SET COULD OUTLIVE ITS MESH. `ModelMesh`
+publishes `pickHiddenFaces`, `Viewport` mounts it on the GLB, and its unmount
+cleanup reset `bodyPresent` and `partitioned` but never the ordinal set — so
+rolling back below the first solid (or suppressing the last body) with a body
+hidden left ordinals describing a mesh that no longer exists. Every other reader
+survives that on the null geometry (`hiddenPickFilter` returns
+`OFFER_EVERYTHING`, `usePickSurfaceTarget` short-circuits);
+`useIsHiddenFaceOrdinal` was the one without the guard, so it could answer
+"hidden" for a mesh that is gone — against the fail-toward-DRAWN direction the
+module states at length. Fixed at BOTH ends, because they answer different
+questions: the unmount cleanup now clears the set beside the other two (they are
+one fact — `setSubject` already resets the pair), and the hook takes the guard as
+the reader-side half, with a BOOLEAN selector so it re-renders on a presence flip
+rather than on every republished mesh. Two new unit tests, mutation-verified:
+reverting the guard reddens the reader-side one while the publisher-side one
+stays green, which is the evidence that both are load-bearing. The fixture now
+publishes a geometry alongside the ordinals, because that is the only state the
+app can reach — setting the ordinals alone measured an unreachable state, which
+is exactly how the missing guard stayed invisible. `NO_HIDDEN_FACES` is now
+exported from `partView.ts` instead of privately re-declared per consumer.
+(2) The `setBodyMode` / `labelCentroid` copies in `hole-hidden-body.spec.ts` are
+gone — it imports both from `occludedPlate.ts`, whose absence justified the
+copies at `45c8592` and which landed in `7ffac16`. SEL-7 e2e re-run green on the
+native stack (23 nodes -> 0, ink 124 px -> 0, all 23 restored); `apps/web` unit
+suite 1584 green (1582 + the two new); `just lint` clean. One unrelated red on
+the way, root-caused rather than shrugged at as flake: `pick-affordance.spec.ts`'s
+mate test timed out inside its final pointer sweep in the five-spec run, and
+passes ALONE in a quiet window in 44.9 s against the config's 60 s default. It
+runs THREE sweeps on 15 s of headroom and is the only test in that file whose
+four equally heavy siblings all raise the ceiling to 300 s and it does not — an
+omission, not a regression, and it now takes the same 300 s.
+
 **SEL-6/6b independent QA 2026-08-11 — PASS on the real stack, with the
 numbers in the run log and every assertion seen to fail.** Verified natively
 (uvicorn + SQLite, isolated DB files) in a real browser, desktop AND touch:

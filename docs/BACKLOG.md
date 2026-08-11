@@ -81,6 +81,11 @@ duplication.
       nothing. Mutation-verified both halves (gate reverted: 23 nodes + 319 px
       of ink over the void; editor prop forced false: the row never says why).
       Shots: `docs/screenshots/sel7-hole-placement-hidden-{before,after}.png`.
+      REVIEW FOLLOW-UP 2026-08-11 — both findings real, both fixed: `ModelMesh`
+      now clears `pickHiddenFaces` on unmount (a stale ordinal set outlived its
+      mesh) AND `useIsHiddenFaceOrdinal` takes the null-geometry guard its two
+      sibling consumers already had, mutation-verified independently; the spec's
+      `setBodyMode`/`labelCentroid` copies now import from `occludedPlate.ts`.
       [src: code-reviewer, SEL-6 slice 2026-08-08]
 
 - [ ] (P3, XS) **SEL-8 — SEL-6 aftercare: five loose ends the review logged

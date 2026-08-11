@@ -1007,6 +1007,14 @@ test.describe("SEL-4 — the armed pick addresses the geometry", () => {
   test("assembly mates: each INSTANCE's own geometry is the mate target", async ({
     page,
   }) => {
+    // The same ceiling its four heavy siblings in this file already take, which
+    // this one was simply never given. It runs a `litPoints` census over two
+    // plates plus TWO `measureReach` sweeps (DIRECTIONS x RADII pointer moves
+    // each), and measured ALONE in a quiet window it takes 44.9 s against the
+    // config's 60 s default — 15 s of headroom for a test whose cost is three
+    // sweeps. It duly timed out inside the final sweep in a five-spec run
+    // (2026-08-11), a false red in nobody's diff.
+    test.setTimeout(300_000);
     // The mate half of SEL-4 shipped without a gate. The only mate coverage —
     // `assembly.spec.ts` via `authorBoltMates` — dispatches clicks straight at
     // `mate-face-*` / `mate-axis-*` by test id, which is verbatim the "the

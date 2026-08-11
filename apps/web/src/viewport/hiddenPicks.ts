@@ -192,8 +192,23 @@ export function useHiddenPicks(): HiddenPickFilter {
  *
  * Ghosting is not hiding: `pickHiddenFaces` carries `bodyFaceState.hidden`
  * only, so a GHOSTED body stays pickable — correct, because you can see it.
+ *
+ * NO MESH, NO HIDING — the same guard {@link hiddenPickFilter} applies with its
+ * null-geometry early return and `usePickSurfaceTarget` with its null target,
+ * and this hook was the one consumer of the set without it (code review,
+ * 2026-08-11). An ordinal is a position in a MESH's face partition, so with no
+ * mesh published it names nothing and the honest answer is the failing-toward-
+ * DRAWN one. `ModelMesh` now clears the set as it unmounts, which is where the
+ * contradiction is actually fixed; this is the reader-side half, kept because a
+ * two-line guard is cheaper than trusting every future publisher — and it is
+ * the half a unit test can hold (`hiddenPicks.test.tsx`). The selector returns a
+ * BOOLEAN, not the geometry, so a re-render costs only a presence flip and not
+ * every republished mesh.
  */
 export function useIsHiddenFaceOrdinal(ordinal: number | null): boolean {
+  const meshPublished = usePartViewStore(
+    (state) => state.pickGeometry !== null,
+  );
   const hidden = usePartViewStore((state) => state.pickHiddenFaces);
-  return ordinal !== null && hidden.has(ordinal);
+  return meshPublished && ordinal !== null && hidden.has(ordinal);
 }

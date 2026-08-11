@@ -112,8 +112,16 @@ export interface PartBodyView {
   readonly lumps: number;
 }
 
-/** Shared empty set — a stable identity, so "nothing hidden" costs no render. */
-const NO_HIDDEN_FACES: ReadonlySet<number> = new Set<number>();
+/**
+ * Shared empty set — a stable identity, so "nothing hidden" costs no render.
+ *
+ * Exported because it is the value every PUBLISHER resets to (`ModelMesh` on
+ * unmount) and every non-part consumer substitutes (`pickSurface.tsx`, whose
+ * assembly instances carry their own geometry and no hidden ordinals). A
+ * private copy per consumer is one more identity the store's `sameOrdinals`
+ * guard has to walk instead of short-circuiting on `a === b`.
+ */
+export const NO_HIDDEN_FACES: ReadonlySet<number> = new Set<number>();
 
 /** Every origin key, seeded hidden — the resting state of a fresh part. */
 function seededOriginState(): VisibilityState {
