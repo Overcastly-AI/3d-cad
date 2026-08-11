@@ -75,7 +75,44 @@ def split_hunks(diff: str) -> tuple[list[str], list[str]]:
 #: and the tool staged 31 lines where 16 were mine — reporting "left 0 hunk(s)
 #: unstaged for their author" while it did. Note `[-*]\s` cannot match `**bold`
 #: anyway: `[-*]` takes the first star and `\s` then fails on the second.
-ENTRY_START = re.compile(r"^\+(?:\s*[-*]\s|#{1,6}\s|>\s*ATTRIBUTION|\*\*)")
+#:
+#: A list item, a heading or the attribution marker opens an entry wherever it
+#: appears — nothing else in these docs starts a line that way.
+ENTRY_START_ANYWHERE = re.compile(r"^\+(?:\s*[-*]\s|#{1,6}\s|>\s*ATTRIBUTION)")
+
+#: A bold lead, which is ROADMAP's entry format AND an ordinary way to open a
+#: sentence INSIDE an entry ("**94.8 %**, every answer naming the near face").
+#: Treating it as an entry start unconditionally is the MIRROR of the defect
+#: above: instead of MISSING a boundary it INVENTS one, splitting a single entry
+#: in two. The marker then matches only the first half, the second half is
+#: attributed to a colleague who does not exist, and `mine_only_subhunks` drops
+#: it — so the tool truncates the author's OWN entry while reporting "left 0
+#: hunk(s) unstaged for their author". Measured 2026-08-11 by the SEL-6 QA agent:
+#: 7 lines staged of a 31-line ROADMAP entry, caught only because it read
+#: `git diff --cached` in full. Hence the context rule in `entry_heads`: a bold
+#: lead opens an entry only where an entry CAN begin — at the top of the run or
+#: after a blank line. Both docs separate entries with a blank line, so this
+#: keeps the ROADMAP fix the unconditional form was added for.
+BOLD_LEAD = re.compile(r"^\+\s*\*\*")
+
+
+def entry_heads(added: list[str]) -> list[bool]:
+    """Which of *added* (in order) open a new entry — bold leads read IN CONTEXT.
+
+    ONE derivation, used by attribution and by reporting alike, so "where an
+    entry begins" cannot come to mean two different things in two places.
+    """
+    heads: list[bool] = []
+    prev_blank = True  # the first added line can only be a beginning
+    for ln in added:
+        if ENTRY_START_ANYWHERE.match(ln):
+            heads.append(True)
+        elif BOLD_LEAD.match(ln):
+            heads.append(prev_blank)
+        else:
+            heads.append(False)
+        prev_blank = ln.strip() == "+"
+    return heads
 
 
 def added_lines(hunk: str) -> list[str]:
@@ -103,9 +140,10 @@ def foreign_entries(hunk: str, markers: list[str]) -> list[str]:
     so there is no correct automatic answer, only a visible failure or a silent
     sweep.
     """
+    added = added_lines(hunk)
     entries: list[tuple[str, list[str]]] = []
-    for ln in added_lines(hunk):
-        if ENTRY_START.match(ln) or not entries:
+    for is_head, ln in zip(entry_heads(added), added, strict=True):
+        if is_head or not entries:
             entries.append((ln, [ln]))
         else:
             entries[-1][1].append(ln)
@@ -155,10 +193,16 @@ def mine_only_subhunks(hunk: str, markers: list[str]) -> list[str]:
     owner: dict[int, bool] = {}
     current_is_mine = False
     pending: list[int] = []
+    # Same head derivation as foreign_entries, over the added lines in the same
+    # order, so the two cannot disagree about where an entry starts.
+    added_idx = [i for i, ln in enumerate(lines[1:], start=1) if ln.startswith("+")]
+    head_of = dict(
+        zip(added_idx, entry_heads([lines[i] for i in added_idx]), strict=True),
+    )
     for idx, ln in enumerate(lines[1:], start=1):
         if not ln.startswith("+"):
             continue
-        if ENTRY_START.match(ln) or not pending:
+        if head_of[idx] or not pending:
             for i in pending:
                 owner[i] = current_is_mine
             pending, current_is_mine = [], any(m in ln for m in markers)
@@ -289,8 +333,10 @@ def verify_staged(
     theirs = Counter(
         ln[1:]
         for hunk in matched
-        for ln in added_lines(hunk)
-        if ENTRY_START.match(ln) and not any(m in ln for m in markers)
+        for is_head, ln in zip(
+            entry_heads(added_lines(hunk)), added_lines(hunk), strict=True
+        )
+        if is_head and not any(m in ln for m in markers)
     )  # entry-start lines that are definitely NOT mine
 
     problems: list[str] = []
@@ -340,11 +386,19 @@ def stage(path: str, markers: list[str], cwd: Path | None = None) -> int:
     disagree: list[str] = []
     filtered: list[str] = []
     for hunk in mine:
-        seen = len([ln for ln in added_lines(hunk) if ENTRY_START.match(ln)])
+        seen = max(sum(entry_heads(added_lines(hunk))), 1)
         blanks = entry_count_by_blank_line(hunk)
-        if blanks > max(seen, 1):
+        # BOTH DIRECTIONS, and the second one is not hypothetical. The original
+        # check read `blanks > seen`, which catches ENTRY_START MISSING a
+        # boundary (two entries read as one -> a colleague gets swept) and is
+        # blind to it INVENTING one (one entry read as two -> the author's own
+        # entry gets truncated). The blind direction shipped the 2026-08-11
+        # defect: `seen=2, blanks=1`, so `1 > 2` was false and nothing fired.
+        # A disagreement either way means the tool cannot tell whose lines these
+        # are, and guessing is the whole failure mode — so refuse either way.
+        if blanks != seen:
             disagree.append(
-                f"{blanks} entries by blank-line separation, but only {seen} "
+                f"{blanks} entries by blank-line separation, but {seen} "
                 "recognised entry-start line(s)"
             )
             continue
@@ -436,8 +490,10 @@ def stage(path: str, markers: list[str], cwd: Path | None = None) -> int:
     staged_entries = [
         ln.rstrip()
         for hunk in filtered
-        for ln in added_lines(hunk)
-        if ENTRY_START.match(ln)
+        for is_head, ln in zip(
+            entry_heads(added_lines(hunk)), added_lines(hunk), strict=True
+        )
+        if is_head
     ]
     print(
         f"stage-doc-hunks: staged {len(mine)} hunk(s) of {path} matching {markers!r}; "
@@ -515,6 +571,43 @@ _ROADMAP_EXPECTED = _ROADMAP_BASE.replace(
     "wrapped.** My body prose here.\n"
     "\n"
     "**An older entry",
+)
+
+
+#: THE MIRROR SHAPE: my entry contains a CONTINUATION line that opens with a
+#: bold run — "**94.8 %**, every answer…" — which is how anyone writes a measured
+#: result, and is what a QA agent actually wrote on 2026-08-11. An unconditional
+#: `\*\*` entry-start reads that line as a second entry, the marker matches only
+#: the text above it, and everything from there down is dropped as "somebody
+#: else's" — 7 lines staged of 31, reported as a clean run.
+#:
+#: The colleague's entry is here too so the case proves BOTH properties at once:
+#: my entry must arrive WHOLE, and theirs must still not be swept.
+_CONT_BASE = """# Roadmap
+
+Status legend.
+
+**An older entry that was already here.** Its second line of prose.
+"""
+
+_CONT_MINE = (
+    "**MY ROADMAP ENTRY marker-phrase — the headline.** Body prose\n"
+    "that runs on for a line.\n"
+    "**94.8 %** of points answered, every one of them naming the near\n"
+    "face — the continuation line that used to end the entry early.\n"
+    "**Mutation-verified**: reverting the fix turns this red.\n"
+)
+
+_CONT_DIRTY = _CONT_BASE.replace(
+    "**An older entry",
+    "**THEIR ENTRY (colleague) — a headline.** Their body prose,\n"
+    "which continues for a second line.\n"
+    "\n" + _CONT_MINE + "\n**An older entry",
+)
+
+_CONT_EXPECTED = _CONT_BASE.replace(
+    "**An older entry",
+    _CONT_MINE + "\n**An older entry",
 )
 
 
@@ -619,10 +712,38 @@ def self_test() -> int:
     reading the resulting tree does, so this compares `git show :FILE`
     byte-for-byte.
 
-    TWO fixtures, in the two formats these docs actually use, because the first
-    version of this self-test had only the BACKLOG one and therefore passed while
-    the tool swept a colleague's ROADMAP entry hours later. A gate is only as good
-    as the shapes it feeds itself.
+    THREE fixtures, because each was added the day the tool failed for a shape
+    the previous fixtures could not express:
+
+      backlog            list items — the original.
+      roadmap            bold-lead PARAGRAPHS. Added 2026-08-01 after the
+                         BACKLOG-only self-test passed while the tool swept a
+                         colleague's ROADMAP entry hours later.
+      bold-continuation  a bold run OPENING A LINE INSIDE my own entry. Added
+                         2026-08-11 after the tool staged 7 lines of a 31-line
+                         entry and called it clean.
+
+    The two ROADMAP cases pull in opposite directions and that is the point: one
+    fails if a boundary is MISSED, the other if a boundary is INVENTED. A fixture
+    in the wrong shape is a gate that cannot fail for the reason you care about.
+
+    NEGATIVE CONTROLS — each was RUN, and what each actually does is written
+    down here rather than what it was expected to do:
+
+      * bold lead unconditional (`heads.append(True)` in `entry_heads`)
+        -> bold-continuation REFUSES: "2 entries by blank-line separation, but
+        4 recognised entry-start line(s)". Loud, so nothing is lost.
+      * the same, PLUS the cross-check reverted to `blanks > seen`
+        -> bold-continuation EXITS 0, leaves the colleague alone, and stages a
+        truncated entry. The shipped 2026-08-11 defect, reproduced exactly —
+        and note only the byte-for-byte tree check catches it. An exit-code
+        assertion passes here, which is why this self-test compares the tree.
+      * bold NEVER a head (`heads.append(False)`, the pre-2026-08-01 blindness)
+        -> roadmap AND bold-continuation both refuse. Worth stating plainly:
+        that shape used to SWEEP a colleague silently, and it no longer can,
+        because the cross-check now fires in the missed-boundary direction even
+        when the regex is blind. The regex got the case right; the cross-check
+        is what makes being wrong survivable.
     """
     checks = (
         _case(
@@ -639,6 +760,14 @@ def self_test() -> int:
             _ROADMAP_BASE,
             _ROADMAP_DIRTY,
             _ROADMAP_EXPECTED,
+            "MY ROADMAP ENTRY marker-phrase",
+        )
+        + _case(
+            "bold-continuation",
+            "ROADMAP.md",
+            _CONT_BASE,
+            _CONT_DIRTY,
+            _CONT_EXPECTED,
             "MY ROADMAP ENTRY marker-phrase",
         )
         + _twice_case()

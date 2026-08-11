@@ -430,6 +430,29 @@ on completion with a watchdog fallback (`docs/AUTONOMOUS-LOOP.md` §1.4).
   happily against itself. That is the `gen-check`-measuring-the-wrong-input trap
   wearing different clothes, and the fix is the same — get a second opinion from
   a different derivation, not a louder assertion of the first.
+  **AND THE CROSS-CHECK THAT WAS ADDED TO CATCH ALL THIS WAS ONE-DIRECTIONAL, SO
+  IT SAT OUT THE NEXT FAILURE.** Fixed 2026-08-11, found by the SEL-6 QA agent.
+  The bold-lead alternative from the fix above matched `**` ANYWHERE, so a
+  CONTINUATION line opening with a bold run — `**94.8 %**, every answer naming
+  the near face`, i.e. how anyone writes a measured result — read as a new entry.
+  The marker matched only the text above it, everything below was attributed to a
+  colleague who does not exist, and `mine_only_subhunks` dropped it: **7 lines
+  staged of a 31-line ROADMAP entry**, reported as `left 0 hunk(s) unstaged for
+  their author`. Caught only by reading `git diff --cached` in full. This is the
+  MIRROR of the previous defect — that one MISSED a boundary and swept a
+  neighbour, this one INVENTED a boundary and truncated the author's own entry —
+  and the guard added for the first was written as `blanks > seen`, which is
+  blind to `seen > blanks`. It was `seen=2, blanks=1`; `1 > 2` is false; nothing
+  fired. Two changes: a bold lead now opens an entry only where an entry CAN
+  begin (top of the run, or after a blank line — both docs separate entries that
+  way), and the cross-check refuses on ANY disagreement, either direction. The
+  general lesson is narrower and sharper than "add a cross-check": **a guard
+  written against one failure tends to encode that failure's DIRECTION.** Ask
+  what the symmetric mistake looks like and make sure the guard fires on it too.
+  Note also that the exit code was 0 throughout — `--self-test` now carries a
+  third fixture (`bold-continuation`) and its negative control reproduces the
+  defect exactly: exit 0, colleague untouched, tree wrong. Only the byte-for-byte
+  `git show :FILE` comparison catches it.
   **When you are ready to commit and ANOTHER agent already has files staged, do
   not touch their index — build your commit against an isolated one.** The
   staging protocol above assumes the index is yours to arrange, and under four
