@@ -89,6 +89,15 @@ duplication.
       DO NOT "fix" this by adding Playwright retries: `e2e complete` runs
       `--fail-on-flaky` deliberately, and a retry would convert a real
       intermittent product defect (CI-3 is one) into a green board.
+      PLATFORM SLICE SHIPPED 2026-08-11 (this commit) — move (1) and (2) are
+      done and the no-retry posture is now enforced by the workflow: service
+      logs survive the run (`E2E_LOG_DIR`, uploaded `if: always()`, tailed into
+      the job log on a red — the trap used to delete them before upload), a 2 s
+      resource sampler runs on green and red alike, `e2e-shard-audit.py
+      --timeline` prints where in the shard each test ran, and the verdict step
+      greps for retries. STILL OPEN: move (3) — reproduce `sketch-visibility`
+      ink = 0 locally at HEAD (frontend slice F1) — and CI-3's gateway fix.
+      Re-derive shard ordinals per-SHA; the suite is 467 tests today.
       [src: orchestrator CI root-cause, 2026-08-11]
 
 - [ ] (P1, S) **CI-3 — a dropped keep-alive to documents becomes a user-visible

@@ -13,6 +13,31 @@ library and cleared two of three images to publish (`c7f23dd`). OPEN: LIC-1,
 stripping jbigkit from the geometry image, which is what still blocks
 publishing it.
 
+**CI-4 PLATFORM SLICE SHIPPED 2026-08-11 (platform-builder) — the e2e gate
+stopped destroying its own evidence.** `scripts/e2e.sh`'s exit trap `rm -rf`'d
+the tempdir holding the three service logs, so on a red shard they were deleted
+seconds before the upload step ran — which is why `aea990a`'s `502
+upstream_unavailable / ReadError` could only be GUESSED at (CI-3). Now:
+`E2E_LOG_DIR` keeps them (the workflow points it at `runner.temp`, uploaded
+`if: always()` beside the traces) and 60 lines of each is tailed into the job
+log when Playwright exits non-zero, not only when a service fails readiness —
+i.e. for the first time in the case anybody has actually had to debug. Plus
+`scripts/e2e-sample-resources.sh`: host load + per-process RSS/CPU every 2 s for
+chrome / crashpad / node / the three uvicorns, uploaded from GREEN runs too
+because a pressure reading with no baseline proves nothing. VERIFIED on a real
+native run here — chrome 542 MB at 76% CPU, sampler and Vite both reaped, logs
+tailed on a forced red. `e2e-shard-audit.py --timeline` answers "did it die late
+in a loaded shard?" from the reports CI already downloads (ordinal, minutes-in,
+duration, slowest 10, per-shard wall), print-only and self-tested against a
+mutation that makes it vote. Posture is now asserted, not remembered: the
+verdict step greps the workflow AND `playwright.config.ts` for retries
+(mutation-verified red both ways) and for `--fail-on-flaky`. Headroom re-measured
+— **467 tests / 119+115+117+116**, +33% since the workflow's cost argument was
+written against 352 — and the Playwright STEP now carries `timeout-minutes: 40`
+inside the job's 45, so a slow shard fails NAMED instead of arriving as
+`cancelled` (the same word as an eviction) with its artifacts killed. Shard
+count stays 4 until a hosted-runner wall is in hand; the timeline prints it.
+
 **SEL-7 QA VERDICT: PASS (2026-08-11, qa-tester) — verified on the real stack,
 desktop and touch, with one unrelated P1 found on the way.** Independent gate
 `apps/web/e2e/qa-sel7-verify.spec.ts`, six legs, all green, every number printed:
