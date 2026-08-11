@@ -13,6 +13,45 @@ library and cleared two of three images to publish (`c7f23dd`). OPEN: LIC-1,
 stripping jbigkit from the geometry image, which is what still blocks
 publishing it.
 
+**SEL-7 QA VERDICT: PASS (2026-08-11, qa-tester) — verified on the real stack,
+desktop and touch, with one unrelated P1 found on the way.** Independent gate
+`apps/web/e2e/qa-sel7-verify.spec.ts`, six legs, all green, every number printed:
+23 snap nodes (1 centre + 15 coplanar vertices + 7 bore centres) -> **0** with
+the plate hidden and `hole-frame-origin` gone with them, `data-hole-placement-hidden="1"`
+present so the absence is a statement and not an editor that never opened, all
+**23 back at the same ids** on show with `hole-position-x/y` still reading X 50 /
+Y 30 and `hole-point-circle-0` still wearing its selected cue; the CONTROL (hide
+the OTHER body) leaves all 23 mounted AND LIVE — a click there still moves the
+drill X 30 -> 50; hiding the plate BEFORE opening Hole leaves the FACE pick 0
+plate + 6 block faces (SEL-6b intact); and on a 1024x768 TOUCH frame a nine-tap
+cluster over where a bore diamond stood moves nothing (X 50, Y 30 unchanged),
+which is the leg SEL-6's QA said no gate had ever completed. MUTATION-VERIFIED
+one mutation per claim: `|| placementHidden` removed -> **23 nodes still
+mounted**, red on three legs (and the touch cluster then DRILLS: X 50 -> 0,
+Y 30 -> 60); the builder's own spec is red there too. Honest correction to the
+brief: `data-hole-placement-hidden` is stamped ABOVE the early return, so it
+survives that mutation — the counts carry the claim, not the attribute. Likewise
+the hover-stamp guard reverted ALONE is green everywhere: the
+`placementHidden -> setHoverPoint(null)` effect clears it, and reverting BOTH is
+what reddens the new KEYBOARD leg (`V` hides the addressed body with the cursor
+parked on the face — the only path a pointer never leaves the canvas, which is
+why no click-driven leg can reach the stale stamp). NOT SEL-7, found by driving
+Create from the withheld state and filed as **MB-HOLE (P1)**: a Hole only ever
+drills `state.active_body`, so on the two-body fixture the plate's own top face
+returns `HOLE_OFF_BODY` — with the body DRAWN as well as hidden, while the same
+hole on the same face SOLVES when the plate is the only body (34 020.8 ->
+33 738.05 mm³) and the second body drills fine (38 020.8 -> 37 738.05). The face
+pick offers a target the command cannot act on and the refusal arrives after
+Create; every modifying feature reads the same `active_body_id`, so Fillet /
+Chamfer / Shell want measuring in the same pass. Also logged: SPEC-2 (P3) — the
+SEL-4 hidden-body leg failed once on its own 180 s ceiling (2.5 m / 2.9 m / 3.0 m
+measured), root-caused rather than retried into green, and a UX note that showing
+a body again does not re-frame, so restored marks are mounted but `display:none`
+until Fit. Regression sweep green: `hole.spec.ts`, `hole-hidden-body.spec.ts`,
+`preselection.spec.ts`, `pick-affordance.spec.ts`, `qa-sel4-verify.spec.ts` (29
+passed, 16.0 m); `apps/web` 1584 unit tests, `pnpm typecheck`, full `just lint`
+all green.
+
 **SEL-7 CLOSED (2026-08-11, frontend-builder) — hole placement was the last
 overlay drilling into a body nobody can see.** SEL-6 closed the raycast half and
 SEL-6b the offer half for the marks, the band corridor and the FacePatch;

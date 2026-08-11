@@ -2450,6 +2450,31 @@ frame refactor are v2/§11. Spike de-collected.
       documents seam assertion; additive ts-client, `gen-check` clean.
       [src: FINDINGS #7 / AUDIT-PRODUCT.md]
 
+- [ ] (P1, M) **MB-HOLE — Hole only ever drills the ACTIVE body, while the face
+      pick offers every body's faces, so a hole on any earlier body dies at
+      Create with `HOLE_OFF_BODY`** (`services/geometry`, `apps/web`). Found
+      2026-08-11 by qa-tester while verifying SEL-7 on the two-body
+      `seedBoredPlateAndBlock` fixture; NOT a SEL-7 regression — measured with
+      the body drawn and hidden, identical either way. MEASURED, three runs, same
+      face each time (`plane-pick-face-4`, the plate's top at OCCT 30, 30, 10):
+      one-body dense plate -> **Solved**, volume 34 020.8 -> 33 738.05 mm³
+      (Δ 282.7 = Ø6 x 10); the SAME plate as body 1 of a two-body part ->
+      **Failed / HOLE_OFF_BODY**, volume unchanged at 38 020.8; the second body's
+      own top face -> **Solved**, 38 020.8 -> 37 738.05. The plate's BOTTOM face
+      fails too, so it is the BODY that is unreachable, not a face-normal case.
+      Mechanism (read-only): `evaluate.py:_hole` drills `state.active_body`, and a
+      `merge: false` extrude makes the NEW body active — every modifying feature
+      inherits this, so Fillet/Chamfer/Shell on an earlier body are very likely
+      the same defect and should be measured in the same pass. FLOW: the pick
+      offers a target the command cannot act on, and the refusal arrives only
+      AFTER Create, as a red tree row ("no dead ends, no ambiguous exits").
+      FIX candidates: derive the target body from the picked FACE rather than
+      from `active_body_id`, or withhold the faces of non-active bodies in the
+      pick (worse — it makes the model invisible instead of wrong). ACCEPTANCE: a
+      hole placed on any body's face drills THAT body; e2e on the two-body
+      fixture asserting Solved + the Δ-volume for a hole on body 1.
+      [src: qa-tester, SEL-7 verification 2026-08-11]
+
 ## Next (P2)
 
 - [x] (P2, M) **QA3-3 — selecting a Ø3 hole lit the whole plate; a feature now owns
@@ -2998,6 +3023,16 @@ frame refactor are v2/§11. Spike de-collected.
       correctness bar (code/egress/energy) the team doesn't have — NOT a
       near-term pillar, does not compete with Phase 4b/5 for attention.
       [src: founder]
+
+- [ ] (P3, XS) **SPEC-2 — `qa-sel4-verify.spec.ts`'s hidden-body leg sits on its
+      own timeout ceiling** (`apps/web/e2e`). Found 2026-08-11 by qa-tester: the
+      test declares `test.setTimeout(180_000)` and measured 2.5 m and 2.9 m in
+      isolation and 3.0 m in a five-spec run, where it FAILED on the ceiling —
+      i.e. ~17 % headroom on a gate whose cost grows with the canvas sweep. Not a
+      product defect (it passes alone, twice), but a red CI shard waiting for a
+      slower runner. FIX: raise the budget or thin the sweep; same class as the
+      contention-robustness hardening already applied to the founder-flow specs.
+      [src: qa-tester, SEL-7 verification 2026-08-11]
 
 ## Blocked (environment/timing — not build-blocked)
 
