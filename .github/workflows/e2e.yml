@@ -385,11 +385,67 @@ jobs:
             echo "$hits"
             exit 1
           fi
-          if ! grep -q -- '--fail-on-flaky' .github/workflows/e2e.yml; then
-            echo "::error::the audit no longer runs with --fail-on-flaky"
+          # Same disease, second half of the step: a `grep -q -- '--fail-on-
+          # flaky' e2e.yml` matched its OWN text, so the guard passed with the
+          # real argument deleted (mutation-proved: 7 occurrences in this file,
+          # exactly one of them is the argument). So the flag literal is
+          # assembled from two pieces AND the search is scoped to the audit's
+          # actual command line: continuation lines are joined, comments
+          # dropped, and only a line that really invokes `python3
+          # …e2e-shard-audit.py` (excluding the --self-test step) counts.
+          flag="--""fail-on-flaky"
+          audit_cmd() {
+            grep -v '^[[:space:]]*#' "$1" |
+              awk '{ buf = buf $0
+                     if (buf ~ /\\[[:space:]]*$/) { sub(/\\[[:space:]]*$/, "", buf); next }
+                     print buf; buf = "" }' |
+              grep -E '^[[:space:]]*python3[[:space:]]+.*e2e-shard-audit\.py' |
+              grep -vF -e '--self-test' || true
+          }
+          has_flag() {
+            audit_cmd "$1" | grep -qE -e "(^|[[:space:]])${flag}([[:space:]]|\$)"
+          }
+          # The guard's own probes, as the retries guard above has: one
+          # synthetic invocation that carries the flag (must match), one that
+          # lost it (must not), and one where the flag appears ONLY in prose —
+          # the exact defect this replaces (must not).
+          probe="$(mktemp -d)"
+          {
+            echo "          python3 scripts/e2e-shard-audit.py \\"
+            echo "            --discovered discovered.json \\"
+            echo "            $flag \\"
+            echo "            shard-reports/*.json"
+          } >"$probe/with.yml"
+          sed "/$flag/d" "$probe/with.yml" >"$probe/without.yml"
+          {
+            echo "          # $flag: the shards run with no retries, so ..."
+            echo "          if ! grep -q -- '$flag' .github/workflows/e2e.yml; then :; fi"
+            echo "          python3 scripts/e2e-shard-audit.py \\"
+            echo "            shard-reports/*.json"
+          } >"$probe/prose-only.yml"
+          if ! has_flag "$probe/with.yml"; then
+            echo "::error::the flaky guard cannot see the flag on a real invocation"
             exit 1
           fi
-          echo "posture: no retries, --fail-on-flaky intact"
+          if has_flag "$probe/without.yml"; then
+            echo "::error::the flaky guard passes an invocation that lost the flag"
+            exit 1
+          fi
+          if has_flag "$probe/prose-only.yml"; then
+            echo "::error::the flaky guard is matching prose, not the invocation"
+            exit 1
+          fi
+          rm -rf "$probe"
+          invocations="$(audit_cmd .github/workflows/e2e.yml | wc -l)"
+          if [[ "$invocations" -lt 1 ]]; then
+            echo "::error::no audit invocation found — the flaky guard has nothing to check"
+            exit 1
+          fi
+          if ! has_flag .github/workflows/e2e.yml; then
+            echo "::error::the audit no longer runs with $flag"
+            exit 1
+          fi
+          echo "posture: no retries, $flag intact ($invocations audit invocation(s))"
           shards='${{ needs.playwright.result }}'
           audit='${{ steps.audit.outcome }}'
           echo "playwright shards: $shards"

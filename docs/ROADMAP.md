@@ -13,6 +13,29 @@ library and cleared two of three images to publish (`c7f23dd`). OPEN: LIC-1,
 stripping jbigkit from the geometry image, which is what still blocks
 publishing it.
 
+**CI-4 REVIEW FIX SHIPPED 2026-08-11 (backend-builder) — the posture guard that
+guarded nothing.** The verdict step's `grep -q -- '--fail-on-flaky'
+.github/workflows/e2e.yml` matched its OWN text: 7 occurrences in that file, one
+of them the actual argument, so deleting the argument left the guard exit-0
+(mutation-proved). The retries guard 15 lines above had already been given the
+piecewise-literal + self-probe treatment for exactly this reason; the second half
+of the same step had not. Now the flag literal is assembled from two pieces AND
+the search is SCOPED — continuation lines joined, comments dropped, only a line
+that really invokes `python3 …e2e-shard-audit.py` (minus the `--self-test` step)
+counts — with three probes of its own: a synthetic invocation carrying the flag
+must match, one that lost it must not, and one where the flag appears only in
+PROSE must not (that last is the shipped defect, so the guard now fails the code
+it replaces). Four mutations verified against the script extracted from the YAML:
+unmodified 0; argument deleted 1; argument commented out 1; audit invocation
+renamed 1 (the extractor guards itself — no invocation found is a failure, not a
+pass). Also dating a fix that never got dated: **`aea990a`** (stage-doc-hunks
+stops truncating the author's own entry) is the only fix on this branch with no
+ROADMAP/BACKLOG tick — its reasoning went into CLAUDE.md's recipes instead.
+History is not being rewritten (siblings have rebased on it); the rule it missed
+is recorded here instead: **a fix to a shared control — the commit tooling every
+agent depends on, a CI gate, a lint rule — is a fix for the docs rule like any
+other, and is exactly the kind of change the roadmap must be able to date.**
+
 **CI-4 FRONTEND SLICE SHIPPED 2026-08-11 (frontend-builder) — every pixel census
 in the suite was waiting on the wrong clock, and `sketch-visibility` turns out to
 be a ~50 % coin flip at HEAD with the product correct.** `waitForFrames` (106

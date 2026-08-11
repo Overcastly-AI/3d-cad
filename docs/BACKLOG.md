@@ -3792,6 +3792,10 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
+- 2026-08-11 — **CI-4 review fix — the `--fail-on-flaky` guard matched its own
+  text (backend-builder):** flag literal now assembled in pieces and scoped to
+  the audit's real invocation, with three probes; 4 mutations verified. Also
+  dates `aea990a`, the one fix on this branch that shipped with no doc tick.
 - 2026-08-11 — **CI-4 frontend slice — the e2e render clock
   (frontend-builder):** `waitForRenders` counts r3f renders (demand loop: 92
   animation frames, 0 renders) and throws with the count achieved; reds attach
