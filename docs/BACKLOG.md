@@ -53,6 +53,53 @@ duplication.
 
 ## Ready (top of queue)
 
+- [ ] (P2, S) **SEL-7 — hole placement is the one overlay that still drills
+      into a body nobody can see** (`apps/web`). Filed 2026-08-08 by the
+      orchestrator from the SEL-6 review (amber, confirmed real by the
+      reviewer). SEL-6 closed the raycast half everywhere and SEL-6b closed the
+      offer half for the marks, the band corridor and the FacePatch — but
+      `HolePointOverlay.tsx:333` mounts its DOM snap nodes (`hole-point-center`,
+      `-vertex-N`, `-circle-N`) and the datum crosshair on EDITOR state only
+      (`PartPage.tsx:4474`), never on visibility. Its `PickSurface` is covered;
+      the DOM buttons are not. Hide the body mid-command and diamonds float in
+      empty air that still drills a real hole into geometry the user cannot see.
+      Exactly the class SEL-6b named — "a PickNode is a DOM button that never
+      asked the scene" — one overlay short of a clean sweep.
+      FIX: gate the armed block on `useHiddenPicks().isHiddenFace(placementOrdinal)`,
+      or `isHiddenPoint` per snap. The hook already exists; this is wiring.
+      ACCEPTANCE: with the target body hidden, no hole-point DOM node is
+      mounted and no crosshair is drawn; unhiding restores every one of them at
+      its previous ordinal. Mutation-verify the gate goes red on today's code.
+      [src: code-reviewer, SEL-6 slice 2026-08-08]
+
+- [ ] (P3, XS) **SEL-8 — SEL-6 aftercare: five loose ends the review logged
+      green** (`apps/web`). Filed 2026-08-08 by the orchestrator. None blocks
+      anything; batched so they are fixed once rather than rediscovered five
+      times. (a) `pickRaycast.ts:6` — the evidence numbers DISAGREE for the same
+      pre-fix census: the commit message and `docs/ROADMAP.md` say 7.4% -> 96.3%
+      (control 96.7%), the module header and `pick-affordance.spec.ts:601` say
+      8.5% (27/317, control 98.0%). Probably pre/post the unlit luminance-proxy
+      correction, but this repo's standard is measured numbers that AGREE — name
+      the run each came from or reconcile them. (b) `ModelMesh.tsx:207` — a
+      fifth copy of the stale reason survived the four-copy sweep; the comment
+      still credits a pointer-handler refusal SEL-6 deleted, and the
+      `!bodyFaceState.hidden.has(hoveredFace)` guard at :220 is now dead (
+      harmless as defence-in-depth, but say so). (c) `hiddenPicks.ts:83` — every
+      mounting overlay builds its own weld-bucket Map, so two live overlays mean
+      duplicate O(V) passes with string allocation; free today via the
+      OFFER_EVERYTHING short-circuit, but derive it once beside
+      `pickHiddenFaces` in `partView.ts` if it shows on a heavy part.
+      (d) `EdgePickOverlay.tsx:56` — `FacePickOverlay` drops its hover when the
+      offer changes; `EdgePickOverlay`, `ShellFaceOverlay` and `MeasureOverlay`
+      do not, so the QA stamps the e2e gates read can carry a withheld entity's
+      index for one frame. Fails toward a false RED, so robustness only.
+      (e) `partView.ts:163` — only `hidden` feeds `pickHiddenFaces`, so a
+      GHOSTED body still both eats and offers picks. Defensible and pre-existing
+      (Fusion keeps translucent bodies selectable), but now that the hidden case
+      is spelled out at length the omission reads as an oversight; one explicit
+      line in the module doc.
+      [src: code-reviewer, SEL-6 slice 2026-08-08]
+
 - [ ] (P2, XS) **CI-2 — `deploy-path` never got the per-SHA concurrency fix, so
       it is still evicting runs** (`.github/workflows`). Filed 2026-08-08 by the
       orchestrator from the CI board. `ci.yml` and `e2e.yml` both key their PUSH
