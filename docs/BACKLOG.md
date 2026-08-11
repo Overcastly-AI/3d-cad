@@ -3603,6 +3603,9 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
+- 2026-08-11 — **SEL-6/6b independent QA verdict: PASS (qa-tester):** the
+  occluded plate answers 94.8 % with the occluder hidden (8.5 % before) and
+  names its NEAR face; `e2e/qa-sel6-verify.spec.ts`, five mutations each red.
 - 2026-08-08 — **SEL-6b a hidden body stops OFFERING picks too
   (frontend-builder):** `hiddenPicks.ts` withholds a switched-off body's edges,
   faces and snap points; 24 edge marks -> 12, 12 face marks -> 6, wall hidden.

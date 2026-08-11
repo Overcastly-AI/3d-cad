@@ -50,6 +50,37 @@ body gone. Founder shots:
 1280 x 800 capture of the withheld state. `apps/web` unit suite 1582 green,
 `just lint` clean.
 
+**SEL-6/6b independent QA 2026-08-11 — PASS on the real stack, with the
+numbers in the run log and every assertion seen to fail.** Verified natively
+(uvicorn + SQLite, isolated DB files) in a real browser, desktop AND touch:
+`apps/web/e2e/qa-sel6-verify.spec.ts`, three legs, plus the shipped
+`pick-affordance.spec.ts` re-run green (14/14). It does not restate the
+builder's gate, which asks a BOOLEAN of each sample point against a >= 50 %
+floor; this one records WHICH face answered. Measured with the occluder hidden:
+128/135 = **94.8 %**, every answer the plate's NEAR face (ordinal 6, y = 30) and
+none the hidden wall's; controls 96.7 % both drawn and 99.2 % with the body
+BEHIND hidden; a 1710-point sweep of the whole canvas names a hidden face ZERO
+times; and on a 1024 x 768 TOUCH frame a tap 26 px clear of every mark, inside
+the span the wall used to cover, actually OPENS that face ("1 face open") and
+the pick survives switching the wall back on — no SEL-6 gate had ever completed
+a pick. Five mutations, each reverted, each red at a different assertion:
+pre-SEL-6 raycast (11.1 %, 10/1710, touch 25.0 %); pre-SEL-6b offer filter (the
+wall's marks answer at 3 canvas points); farthest-drawn-hit (every fraction
+UNCHANGED — caught only by the occluded-share control, 20 % against a 5 %
+ceiling); the fix applied to half the model (51.9 %, clears the 50 % floor,
+caught by the 85 % one); double-sided pick surface + farthest hit (94.8 %, all
+controls green, caught only by "the dominant face is the NEAR one" — it read the
+BACK face through the front). Two spec defects fixed while writing it: the
+canvas-wide sweep was reading the CONTAINER's rect, which a hidden body's
+off-frame `Html` marks shift out from under the canvas (the pre-SEL-6b mutation
+scored 0 answers in 1710 points — a refusal gate that passes for free), and two
+"a hidden body never answers" lines over the LIT silhouette that no mutation
+could turn red were deleted rather than kept as false comfort. Gates: `just
+lint` clean, `apps/web` typecheck clean. NB both flakes seen were cross-agent
+contention on the shared :5173 Vite (the failure point MOVED between runs, green
+in a quiet window); this spec's intermediate waits are now explicit and generous
+so a loaded box cannot read as a regression.
+
 **SEL-6b CLOSED (2026-08-08, frontend-builder) — and the MIRROR half: a hidden
 body stops OFFERING picks, not only eating them.** Raised by review on the SEL-6
 commit and correct: `/overlay` describes the whole part with no notion of

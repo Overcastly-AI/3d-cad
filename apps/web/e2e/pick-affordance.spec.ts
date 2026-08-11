@@ -3,7 +3,13 @@ import type { Locator } from "@playwright/test";
 import { expect, test, type Page } from "./fixtures";
 
 import { setupTwoInstances } from "./assemblyFlow";
-import { seedDenseHolePlate, seedOccludedEdgePlate } from "./partSeed";
+import {
+  labelIsWall,
+  litAfterHiding,
+  openOccludedPlate,
+  setBodyMode,
+} from "./occludedPlate";
+import { seedDenseHolePlate } from "./partSeed";
 import { litPoints, measureReachabilityWith, type Point } from "./reachability";
 import {
   SCREENSHOT_DIR,
@@ -187,90 +193,6 @@ async function measureReach(
     perp,
     crossTalk: [...crossTalk],
   };
-}
-
-/**
- * The two-body fixture, framed FRONT-ON and pinned.
- *
- * `seedOccludedEdgePlate` puts a 40 × 20 × 40 wall at y = 0…20 and a
- * 60 × 20 × 10 plate at y = 30…50, so from the front view the wall sits exactly
- * between the camera and the middle of the plate. Every number below is in
- * screen pixels, so the fit is pinned the same way `openDensePlate` pins it.
- */
-async function openOccludedPlate(page: Page): Promise<Locator> {
-  const account = await seedSession(page);
-  const part = await createPartViaApi(page, account.token, "Wall and plate");
-  await seedOccludedEdgePlate(page, account.token, part.id);
-  await page.goto(`/parts/${part.id}`);
-  await expect(page.getByTestId("prop-volume")).toContainText(/\d/, {
-    timeout: 30_000,
-  });
-  const viewport = page.getByTestId("viewport");
-  await expect
-    .poll(() => distinctCanvasColors(page), { timeout: 30_000 })
-    .toBeGreaterThan(24);
-  await page.getByTestId("view-front").click();
-  await viewport.evaluate((node) => {
-    node.dataset["fitRect"] = "";
-  });
-  await page.getByTestId("view-fit").click();
-  await expect(viewport).not.toHaveAttribute("data-fit-rect", "", {
-    timeout: 20_000,
-  });
-  await waitForFrames(page, 6);
-  await expect(page.getByTestId("body-row")).toHaveCount(2, {
-    timeout: 20_000,
-  });
-  return viewport;
-}
-
-/** Cycle a body's eye to a wanted state (solid → ghost → hidden → solid). */
-async function setBodyMode(
-  page: Page,
-  index: number,
-  mode: string,
-): Promise<void> {
-  const row = page.getByTestId("body-row").nth(index);
-  for (let i = 0; i < 4; i += 1) {
-    if ((await row.getAttribute("data-visibility")) === mode) return;
-    await page.getByTestId(`body-visibility-${index}`).click();
-  }
-  await expect(row).toHaveAttribute("data-visibility", mode);
-}
-
-/**
- * Which body row is the WALL — the one in FRONT — DISCOVERED, never hardcoded.
- *
- * A kernel ordinal is not a contract, so the row is found by measurement: hide
- * each body in turn and count the lit silhouette that remains. In the front
- * view the plate is 60 × 10 mm and the wall 40 × 40 mm, so hiding the WALL
- * leaves a much smaller lit region than hiding the plate (measured 135 vs 625
- * points at `step: 24`). The caller asserts the two counts are far enough apart
- * for that to be a decision rather than a coin flip.
- */
-async function litAfterHiding(page: Page, index: number): Promise<number> {
-  await setBodyMode(page, index, "hidden");
-  await waitForFrames(page, 6);
-  const count = (await litPoints(page, { step: 24 })).length;
-  await setBodyMode(page, index, "solid");
-  await waitForFrames(page, 6);
-  return count;
-}
-
-/**
- * WHICH BODY AN ENTITY BELONGS TO, read off its own accessible name.
- *
- * `seedOccludedEdgePlate` puts the wall at OCCT y = 0…20 and the plate at
- * y = 30…50, so the y of any mid-span or centroid says which solid it is —
- * without hardcoding a kernel ordinal, which is not a contract. Both label
- * grammars ("… centred at x, y, z millimetres") carry it in the same position.
- */
-function labelIsWall(label: string): boolean {
-  const y = Number.parseFloat(
-    (label.match(/centred at -?[\d.]+, (-?[\d.]+),/) ?? [])[1] ?? "NaN",
-  );
-  expect(Number.isFinite(y), `a located label: ${label}`).toBe(true);
-  return y < 25;
 }
 
 /** The edge marks on offer, split by the body each one belongs to. */
