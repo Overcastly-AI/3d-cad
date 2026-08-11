@@ -53,6 +53,63 @@ duplication.
 
 ## Ready (top of queue)
 
+- [ ] (P1, S) **CI-3 — a dropped keep-alive to documents becomes a user-visible
+      502, because only the GEOMETRY path retries** (`services/gateway`). Filed
+      2026-08-11 by the orchestrator, root-caused from a CI red. A PRODUCT
+      defect that the suite happened to find, not a test-only flake.
+      EVIDENCE: `aea990a`'s e2e went red on
+      `sketch-drag-draw.spec.ts:258 › FB-16`, failing inside `createPartViaApi`
+      (`support.ts:161`) with `502 {"code":"upstream_unavailable","message":
+      "Documents service is unreachable","details":{"reason":"ReadError"}}`.
+      That commit changed ONLY `scripts/stage-doc-hunks.py` and `CLAUDE.md`, so
+      its diff cannot reach the app — the failure is independent of app code.
+      MECHANISM: `httpx.ReadError` on a pooled connection is the idle keep-alive
+      race — the server closes an idle connection just as the client sends on
+      it. The gateway already KNOWS this failure: the geometry path lists
+      `httpx.ReadError` in `_WORKER_DOWN` (`affinity.py:198-205`) and fails over
+      once, with the reasoning written out. The documents path gets none of it —
+      `parts.py:80` uses the plain client from `create_upstream_client`
+      (`upstream.py:69`), so the same transport failure leaves as a 502. The
+      asymmetry reads as accidental rather than decided.
+      FIX — prefer closing the race over retrying, and note why:
+      (a) set `keepalive_expiry` on the pool BELOW the server's keep-alive
+      timeout (uvicorn defaults to 5 s; httpx's pool default is also 5.0 s,
+      which is exactly the race), so the CLIENT retires a connection before the
+      server can. No retry-safety question arises.
+      (b) a one-shot retry is the fallback and must NOT be copied blindly from
+      the geometry path: documents is a single instance, so there is no other
+      worker to fail over TO, and `ReadError` means the request WAS transmitted
+      — blindly retrying a POST risks a DUPLICATE part. Restrict any retry to
+      requests known not to have been transmitted, or to idempotent methods.
+      ACCEPTANCE: a documents upstream that closes idle keep-alive connections
+      aggressively (drive it with a transport that closes after one response)
+      yields no 502 at the gateway. Mutation-verify the gate goes red against
+      today's client config.
+      [src: orchestrator CI root-cause, 2026-08-11]
+
+- [ ] (P3, XS) **SPEC-3 — the live-extrude-ghost gate is a thin statistical
+      margin, and it fails on framing rather than on the ghost** (`apps/web`).
+      Filed 2026-08-11 by the orchestrator. `45c8592`'s e2e went red on
+      `interaction-depth.spec.ts:40` at `Expected > 336, Received 316`; the
+      assertion is `distinctCanvasColors(page) > inkColors + 8`.
+      WHY THE GATE AND NOT THE FEATURE: the raster-INDEPENDENT hook asserted
+      immediately above it — `extrude-preview-active` attached with
+      `data-distance-mm="10"` — PASSED, so the ghost was present. The descendant
+      `7ffac16` then ran the same spec GREEN on the same tree.
+      WHY IT IS FRAGILE: `distinctCanvasColors` (`support.ts:345`) samples every
+      16th pixel and counts distinct RGB, so it is an AA- and framing-sensitive
+      statistic. The assertion is a NET — colours the ghost ADDS minus any the
+      extrude editor REMOVES (sketch grid/plane) — and +8 is a thin margin on a
+      difference. The spec's comment calls a bare sketch "relatively few shades"
+      while the measured baseline was 328, so the premise no longer describes
+      the scene it runs in.
+      FIX: assert on something the ghost alone controls (its own pixels inside a
+      known rect, or a token-coloured sample), or restate the floor around a
+      margin measured across runs instead of a hardcoded +8. Same class as the
+      CI-1 fix — pin the claim to hundreds-vs-zero, not to a framing-specific
+      ratio.
+      [src: orchestrator CI root-cause, 2026-08-11]
+
 - [x] (P2, S) **SEL-7 — hole placement is the one overlay that still drills
       into a body nobody can see** (`apps/web`). Filed 2026-08-08 by the
       orchestrator from the SEL-6 review (amber, confirmed real by the
