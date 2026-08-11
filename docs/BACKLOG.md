@@ -53,6 +53,44 @@ duplication.
 
 ## Ready (top of queue)
 
+- [ ] (P1, M) **CI-4 — the e2e suite has gone systemically unstable: THREE
+      mechanisms in FOUR consecutive runs, so no commit's CI signal can be
+      trusted right now** (`apps/web`, `.github/workflows`). Filed 2026-08-11 by
+      the orchestrator. This is the umbrella over CI-3 and SPEC-3; it outranks
+      both, because the rule "every commit green on its own" is unenforceable
+      while the suite fails for a different reason every other run.
+      THE BOARD: `45c8592` FAIL, `7ffac16` PASS, `aea990a` FAIL, `688539d` PASS,
+      `c6b6c6d` FAIL. Always exactly ONE spec of 115-116, never the same one.
+      (a) `45c8592` — `interaction-depth.spec.ts:40`, colour count 316 vs > 336;
+      the ghost's raster-independent marker PASSED (see SPEC-3).
+      (b) `aea990a` — `sketch-drag-draw.spec.ts:258`, dying in `createPartViaApi`
+      with `502 upstream_unavailable / reason: ReadError`, on a commit holding
+      only a python script and `CLAUDE.md` (see CI-3).
+      (c) `c6b6c6d` — `sketch-visibility.spec.ts:164`, `countTokenPixels(page,
+      "#E9F1F8")` = ZERO against a floor of 120. Qualitatively different from a
+      thin margin: no scribe pixels at all. The `frame.pxPerMm < 40` assertion
+      immediately above it passed, so the frame WAS fitted.
+      WHY AN UMBRELLA AND NOT THREE SPEC PATCHES: three unrelated assertions
+      failing one-at-a-time across consecutive runs, including on a commit whose
+      diff cannot reach the app, is the signature of a shared substrate problem
+      — most likely resource pressure on the runner over a ~12 min shard —
+      rather than three independent spec bugs. Patching each assertion would
+      raise the pass rate while leaving the cause, which is the outcome this
+      repo's "no hand-waving" rule exists to prevent.
+      FIRST MOVES, in order: (1) instrument rather than guess — have the shard
+      record wall-clock, RSS and CPU alongside each spec, and capture the three
+      services' logs as artifacts on failure (the gateway log would settle CI-3
+      immediately); (2) check whether failures cluster late in a shard;
+      (3) `sketch-visibility` ink = 0 must be reproduced LOCALLY at HEAD before
+      being called environmental — SEL-6 changed `pickSurface.tsx` and
+      `ModelMesh.tsx`, so a real sketch-on-face rendering regression is NOT ruled
+      out by CI alone, even though `7ffac16` and `688539d` (both carrying SEL-6)
+      ran that spec green.
+      DO NOT "fix" this by adding Playwright retries: `e2e complete` runs
+      `--fail-on-flaky` deliberately, and a retry would convert a real
+      intermittent product defect (CI-3 is one) into a green board.
+      [src: orchestrator CI root-cause, 2026-08-11]
+
 - [ ] (P1, S) **CI-3 — a dropped keep-alive to documents becomes a user-visible
       502, because only the GEOMETRY path retries** (`services/gateway`). Filed
       2026-08-11 by the orchestrator, root-caused from a CI red. A PRODUCT
