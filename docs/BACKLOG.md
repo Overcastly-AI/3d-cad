@@ -53,7 +53,7 @@ duplication.
 
 ## Ready (top of queue)
 
-- [ ] (P2, S) **SEL-7 — hole placement is the one overlay that still drills
+- [x] (P2, S) **SEL-7 — hole placement is the one overlay that still drills
       into a body nobody can see** (`apps/web`). Filed 2026-08-08 by the
       orchestrator from the SEL-6 review (amber, confirmed real by the
       reviewer). SEL-6 closed the raycast half everywhere and SEL-6b closed the
@@ -70,6 +70,17 @@ duplication.
       ACCEPTANCE: with the target body hidden, no hole-point DOM node is
       mounted and no crosshair is drawn; unhiding restores every one of them at
       its previous ordinal. Mutation-verify the gate goes red on today's code.
+      SHIPPED 2026-08-11 (this commit): ONE early return withholds the WHOLE
+      overlay — snap nodes, `PickSurface`, all three crosshairs and the frame
+      labels — off `useIsHiddenFaceOrdinal`, a new ordinal-only hook that reads
+      the hidden set without the weld pass `useHiddenPicks` would have cost.
+      The editor says why (`hole-placement-hidden-note`), stays armed and does
+      not gate Create. MEASURED on a new two-body bored-plate fixture: 23 snap
+      nodes -> 0 and 124 px of crosshair ink -> 0 with the plate hidden, all 23
+      back at their previous ordinals on show; hiding the OTHER body changes
+      nothing. Mutation-verified both halves (gate reverted: 23 nodes + 319 px
+      of ink over the void; editor prop forced false: the row never says why).
+      Shots: `docs/screenshots/sel7-hole-placement-hidden-{before,after}.png`.
       [src: code-reviewer, SEL-6 slice 2026-08-08]
 
 - [ ] (P3, XS) **SEL-8 — SEL-6 aftercare: five loose ends the review logged

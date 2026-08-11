@@ -13,6 +13,43 @@ library and cleared two of three images to publish (`c7f23dd`). OPEN: LIC-1,
 stripping jbigkit from the geometry image, which is what still blocks
 publishing it.
 
+**SEL-7 CLOSED (2026-08-11, frontend-builder) — hole placement was the last
+overlay drilling into a body nobody can see.** SEL-6 closed the raycast half and
+SEL-6b the offer half for the marks, the band corridor and the FacePatch;
+`HolePointOverlay` never asked about visibility at all, and the backlog's FIX
+line named only half of it. Two leaks, not one: the armed block's DOM snap nodes
+(`hole-point-center` / `-vertex-N` / `-circle-N`) mounted on editor state, AND
+the datum crosshair plus the frame labels drew from the moment a face was chosen
+— `PartPage` mounts the overlay on `editor.kind === "hole"`, so gating only the
+armed block would have satisfied the FIX and still failed the ACCEPTANCE. The
+fix is therefore ONE early return for the whole overlay, below every hook:
+snaps, `PickSurface`, all three `Segments` crosshairs, the X/Y labels. It reads
+`useIsHiddenFaceOrdinal` — a new ordinal-only hook beside `useHiddenPicks` that
+subscribes to `pickHiddenFaces` and nothing else, because this caller only ever
+holds an ordinal and the full filter's weld pass over the index buffer would be
+paid for an answer it never reads. The ordinal itself comes from
+`faceOrdinalOfSignature`, lifted out of the overlay into `features/face.ts` on
+its second real use (the editor needs the same answer). Failure direction is
+this module's: an unresolved ordinal reads as DRAWN. FLOW half, because a
+viewport that empties itself mid-command is a dead end: the position row reads
+"Body hidden" and a quiet note under it says which panel to show the body in —
+a view state, deliberately NOT the `role="alert"` pick-error slot — while the
+pick stays ARMED and Create stays reachable (auto-disarming would cost a click
+on the way back; a hole is legitimate geometry whose visibility is a view
+decision). MEASURED on a new `seedBoredPlateAndBlock` fixture (the dense bored
+plate plus a disjoint block, so one body can be switched off while the other
+stays drawn and every snap kind is present): with the plate hidden **23 snap
+nodes -> 0** and **124 px of crosshair ink -> 0** (exact-token census, floor 0),
+all **23 back at their previous ordinals** on show, and hiding the OTHER body
+moves nothing. Mutation-verified both halves: the gate reverted leaves 23 nodes
+mounted and **319 px** of crosshair over the void — brighter than when the body
+was there, because hiding refits the camera — and forcing the editor's prop
+false leaves the row still reading "Centre of face (30, 30, 10 mm)" with the
+body gone. Founder shots:
+`docs/screenshots/sel7-hole-placement-hidden-{before,after}.png` plus a
+1280 x 800 capture of the withheld state. `apps/web` unit suite 1582 green,
+`just lint` clean.
+
 **SEL-6b CLOSED (2026-08-08, frontend-builder) — and the MIRROR half: a hidden
 body stops OFFERING picks, not only eating them.** Raised by review on the SEL-6
 commit and correct: `/overlay` describes the whole part with no notion of

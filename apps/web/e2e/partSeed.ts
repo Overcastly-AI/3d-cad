@@ -224,6 +224,60 @@ export async function seedDenseHolePlate(
 }
 
 /**
+ * THE BORED PLATE, PLUS A SECOND BODY THAT CAN BE SWITCHED OFF INDEPENDENTLY —
+ * the fixture for "what does hiding a body do to the hole PLACEMENT overlay"
+ * (SEL-7).
+ *
+ * That question needs three things at once, and no existing fixture has all
+ * three. `seedDenseHolePlate` has the snap density — the plate's top face
+ * carries 1 centre + 4 corners + 7 bore centres = 12 snap nodes — but it is ONE
+ * body, and `BodiesPanel` offers a per-body eye only while the fused mesh
+ * PARTITIONS, so there is nothing to hide. `seedOccludedEdgePlate` has two
+ * bodies but is two plain boxes: zero circular edges, so it cannot show the
+ * `-circle-N` snaps at all, and it pins screen pixels for the SEL-6 specs, so
+ * widening it would move measurements those specs report in fixed units.
+ *
+ * So: the dense plate exactly as it is, plus a disjoint 20 × 20 × 10 block at
+ * y = 80…100 (`merge: false` starts the second body), well clear of the 60 × 60
+ * plate so the partition can never be ambiguous. Two body rows, `partitioned`,
+ * and every snap kind on a face whose body can be switched off while the other
+ * stays drawn — which is what makes the CONTROL possible too: hiding the OTHER
+ * body must change nothing.
+ */
+export async function seedBoredPlateAndBlock(
+  page: Page,
+  token: string,
+  partId: string,
+): Promise<number> {
+  const platedVersion = await seedDenseHolePlate(page, token, partId);
+  const block = await createFeature(page, token, partId, {
+    name: "Block sketch",
+    feature: {
+      type: "sketch",
+      version: 1,
+      params: rectangleSketch(0, 80, 20, 20),
+    },
+    expected_tree_version: platedVersion,
+  });
+  const blockSolid = await createFeature(page, token, partId, {
+    name: "Block",
+    feature: {
+      type: "extrude",
+      version: 1,
+      params: {
+        profile: { kind: "feature", feature_id: block.feature.id },
+        distance_mm: 10,
+        operation: "add",
+        direction: "normal",
+        merge: false,
+      },
+    },
+    expected_tree_version: block.tree_version,
+  });
+  return blockSolid.tree_version;
+}
+
+/**
  * TWO BODIES, ONE BEHIND THE OTHER in the FRONT view — the fixture for "hide a
  * body to reach the geometry behind it".
  *

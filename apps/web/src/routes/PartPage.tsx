@@ -302,11 +302,13 @@ import {
   resolveDatumPlaneOptions,
 } from "../sketch/plane";
 import {
+  faceOrdinalOfSignature,
   faceSignatureKey,
   isPickableFace,
   lastBodyFeatureId,
   onFaceDatumParams,
 } from "../features/face";
+import { useIsHiddenFaceOrdinal } from "../viewport/hiddenPicks";
 import { isTypingTarget } from "../lib/isTypingTarget";
 import { executeHistoryStep } from "../lib/historyStep";
 import {
@@ -1407,6 +1409,16 @@ export function PartPage() {
   const holeOverlayFaces = holeOverlayQuery.data?.faces ?? null;
   const holeOverlayVertices = holeOverlayQuery.data?.vertices ?? null;
   const holeOverlayEdges = holeOverlayQuery.data?.edges ?? null;
+  /**
+   * Is the placement face's own body switched OFF (SEL-7)? The viewport
+   * withholds the whole placement overlay in that state; the EDITOR has to say
+   * why, or the crosshair just vanishes mid-command and the pick becomes a dead
+   * end. Ordinal-only — a set membership, no weld pass — and the hook reads the
+   * store, so it is safe out here outside the r3f `Canvas`.
+   */
+  const holePlacementHidden = useIsHiddenFaceOrdinal(
+    faceOrdinalOfSignature(holePreview?.signature ?? null, holeOverlayFaces),
+  );
 
   // ---------------------------------------------------------------------
   // Fillet/Chamfer edge picking. The anchor for a picked edge's `SubshapeRef`
@@ -4153,6 +4165,7 @@ export function PartPage() {
                         facePick={holeFacePicked}
                         pointPick={holePointPicked}
                         pickError={holePickError}
+                        placementHidden={holePlacementHidden}
                         edges={holeOverlayEdges}
                         onPreviewChange={onHolePreviewChange}
                       />

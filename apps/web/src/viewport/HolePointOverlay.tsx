@@ -5,7 +5,7 @@
  *
  * Two layers, and they answer different questions:
  *
- *   THE FRAME (always, once a face is chosen). A datum crosshair drawn ON the
+ *   THE FRAME (always, once a face is chosen AND DRAWN). A datum crosshair on the
  *   face at the origin of the X/Y cells in the editor, with its axes labelled.
  *   It is drawn in the resting datum-plane ink the sketcher already uses for a
  *   reference it is not addressing, and it is the answer to "what does 0, 0 mean on this
@@ -13,6 +13,15 @@
  *   origin is invisible is exactly how a ring came out 0.065 mm eccentric to a
  *   motor register (QA-REVIEW 2026-08-01, QA3-2). The live drill point takes the
  *   brass, so typing a coordinate MOVES a mark you can watch.
+ *
+ *   "Always" is qualified by ONE thing (SEL-7): the body carrying the placement
+ *   face has to be switched ON. Hide it and the whole overlay withholds — the
+ *   crosshairs, the labels and every snap node — in a single early return below,
+ *   because a datum drawn over the empty air a body used to occupy annotates
+ *   nothing, and a `PickNode` floating there is a DOM button that never asked
+ *   the scene and would still drill a real hole. The editor says WHY (the
+ *   position row + `hole-placement-hidden-note`); showing the body restores
+ *   every mark at its previous ordinal, and the pick stays armed throughout.
  *
  *   THE PLACEMENT (while the point pick is armed). The FACE ITSELF is the
  *   target: a raycast against the drawn surface accepts hits on the placement
@@ -52,7 +61,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import type { OverlayEdge } from "../api/measure";
 import type { OverlayFace, PlanarFaceSignature, Vec3 } from "../api/parts";
-import { faceSignatureKey, isPickableFace } from "../features/face";
+import { faceOrdinalOfSignature } from "../features/face";
 import { coplanarVertexIndices, samePoint } from "../features/hole";
 import {
   facePlacement,
@@ -62,6 +71,7 @@ import {
 } from "../features/facePlacement";
 import { formatVec3Mm, occtToScene } from "../measure/geometry";
 import { sceneToOcctTuple } from "../sketch/plane";
+import { useIsHiddenFaceOrdinal } from "./hiddenPicks";
 import { Segments } from "./overlaySegments";
 import { PickSurface } from "./pickSurface";
 import { useViewportPickStamp } from "./pickStamp";
@@ -115,15 +125,50 @@ export function HolePointOverlay({
   /** The free-placement point under the cursor (world mm), or null. */
   const [hoverPoint, setHoverPoint] = useState<Vec3 | null>(null);
 
-  // frameloop="demand": redraw when the pickable set or the placement changes.
+  /**
+   * The placement face's B-rep ordinal — what a raycast reports. Resolved by
+   * matching the signature the editor already holds, so there is no second copy
+   * of the index to drift.
+   */
+  const placementOrdinal = useMemo(
+    () => faceOrdinalOfSignature(signature, faces),
+    [signature, faces],
+  );
+
+  /**
+   * Is the body carrying the placement face switched OFF? The one fact that
+   * turns this whole overlay off (SEL-7 — see the module header). Ordinal-only,
+   * so it costs a set lookup, not a pass over the index buffer.
+   */
+  const placementHidden = useIsHiddenFaceOrdinal(placementOrdinal);
+
+  // frameloop="demand": redraw when the pickable set or the placement changes —
+  // including when the placement body is switched off, or the withheld
+  // crosshair would stay on screen until something else asked for a frame.
   useEffect(() => {
     invalidate();
-  }, [signature, vertices, edges, position, armed, hoverPoint, invalidate]);
+  }, [
+    signature,
+    vertices,
+    edges,
+    position,
+    armed,
+    hoverPoint,
+    placementHidden,
+    invalidate,
+  ]);
 
   // A disarmed pick offers no free placement, so it shows no candidate.
   useEffect(() => {
     if (!armed) setHoverPoint(null);
   }, [armed]);
+
+  // …and neither does a pick whose face is on a body nobody can see. Without
+  // this, showing the body again restores a candidate crosshair at a point the
+  // cursor left minutes ago — a stale mark stating something untrue.
+  useEffect(() => {
+    if (placementHidden) setHoverPoint(null);
+  }, [placementHidden]);
 
   // The face's own corners (overlay vertices coplanar with the face plane) —
   // the snap points besides the centre. Empty until the overlay loads.
@@ -179,21 +224,6 @@ export function HolePointOverlay({
   }, [placement, hoverPoint, armMm]);
 
   /**
-   * The placement face's B-rep ordinal — what a raycast reports. Resolved by
-   * matching the signature the editor already holds, so there is no second copy
-   * of the index to drift.
-   */
-  const placementOrdinal = useMemo(() => {
-    if (signature === null || faces === null) return null;
-    const key = faceSignatureKey(signature);
-    const match = faces.find(
-      (face) =>
-        isPickableFace(face) && faceSignatureKey(face.signature) === key,
-    );
-    return match?.index ?? null;
-  }, [signature, faces]);
-
-  /**
    * A raycast hit → the drill point, or null.
    *
    * Only the PLACEMENT face answers. A hit on any other face — including a
@@ -247,13 +277,33 @@ export function HolePointOverlay({
     [pointAt, onPick],
   );
 
-  /** QA hook: is the armed point pick addressing the placement face? */
+  /**
+   * QA hook: is the armed point pick addressing the placement face?
+   *
+   * `placementHidden` is part of the VALUE, not only of the early return below:
+   * this hook runs above it, so a withheld overlay would otherwise leave
+   * `data-hole-point-hover` set on a body that is not on screen and score 100 %
+   * for any gate reading it — the "stamp left set after the overlay unmounts"
+   * failure `pickStamp.ts` calls out.
+   */
   useViewportPickStamp(
     "holePointHover",
-    armed && hoverPoint !== null ? 1 : null,
+    armed && !placementHidden && hoverPoint !== null ? 1 : null,
   );
 
-  if (signature === null || placement === null) return null;
+  /**
+   * QA hook: the overlay is mounted and DELIBERATELY withholding everything.
+   *
+   * The absence of DOM nodes is satisfied for free by an editor that never
+   * opened, so a gate written only on absence cannot tell the fix from a broken
+   * command. This attribute is the positive statement of the same fact.
+   */
+  useViewportPickStamp("holePlacementHidden", placementHidden ? 1 : null);
+
+  // THE GATE (SEL-7), one early return for the WHOLE overlay: no snap nodes, no
+  // `PickSurface`, no datum / point / candidate crosshair, no axis labels. It
+  // sits below every hook, so nothing about the hook order depends on it.
+  if (signature === null || placement === null || placementHidden) return null;
 
   const { frame, circles } = placement;
   const centroid = signature.centroid;

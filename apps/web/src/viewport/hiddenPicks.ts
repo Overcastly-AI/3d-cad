@@ -170,3 +170,30 @@ export function useHiddenPicks(): HiddenPickFilter {
     [geometry, hiddenFaces],
   );
 }
+
+/**
+ * Is this B-rep face ordinal owned by a switched-off body? Subscribes to the
+ * ordinal set ONLY — no weld pass, so a caller that needs nothing else costs
+ * nothing.
+ *
+ * The full filter above builds a weld bucket over the whole index buffer to
+ * answer the POINT and EDGE questions; a caller that only ever holds an ordinal
+ * (hole placement, SEL-7) would pay for a geometry pass it never reads, and a
+ * second mounting consumer would duplicate it. Same rule, one place, both call
+ * sites — the overlay that withholds its marks and the editor that says why.
+ *
+ * FAILURE DIRECTION, deliberate and the same as this module's: a null ordinal
+ * (the signature matched no pickable face in the overlay) reads as DRAWN —
+ * ambiguity resolves toward OFFERING. Do NOT add
+ * `isHiddenPoint(signature.centroid)` as a fallback: a face's AREA centroid is
+ * not a mesh vertex, so `flagsNear` returns mask 0 and the answer is `false`
+ * whatever the body's state. A safety net that is a no-op is worse than none,
+ * because it stops anyone looking for the real one.
+ *
+ * Ghosting is not hiding: `pickHiddenFaces` carries `bodyFaceState.hidden`
+ * only, so a GHOSTED body stays pickable — correct, because you can see it.
+ */
+export function useIsHiddenFaceOrdinal(ordinal: number | null): boolean {
+  const hidden = usePartViewStore((state) => state.pickHiddenFaces);
+  return ordinal !== null && hidden.has(ordinal);
+}

@@ -152,6 +152,34 @@ export function faceSignatureKey(signature: PlanarFaceSignature): string {
   );
 }
 
+/**
+ * The B-rep ORDINAL of the face a signature names — what a raycast reports, and
+ * what `pickHiddenFaces` is keyed on — or null when the overlay lists no such
+ * pickable face.
+ *
+ * Resolved by matching the signature the editor already holds rather than
+ * carrying a second copy of the index, so the two can never drift.
+ * `OverlayFace.index` IS the mesh's face ordinal (`glbGeometry.ts` — "group
+ * ordinal === face ordinal === OverlayFace.index"), which is the identity
+ * `FacePickOverlay` already relies on.
+ *
+ * Extracted from `HolePointOverlay` on the second real use (the overlay
+ * resolves it to aim its free-placement raycast; the editor resolves it to ask
+ * whether the placement body is switched off) — DRY rule, second use not first
+ * imagined one.
+ */
+export function faceOrdinalOfSignature(
+  signature: PlanarFaceSignature | null,
+  faces: readonly OverlayFace[] | null,
+): number | null {
+  if (signature === null || faces === null) return null;
+  const key = faceSignatureKey(signature);
+  const match = faces.find(
+    (face) => isPickableFace(face) && faceSignatureKey(face.signature) === key,
+  );
+  return match?.index ?? null;
+}
+
 /** True when a face signature is already in the picked (open) set, by identity. */
 export function isFacePicked(
   picked: readonly PlanarFaceSignature[],
