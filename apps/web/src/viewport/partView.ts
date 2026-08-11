@@ -115,8 +115,9 @@ export interface PartBodyView {
 /**
  * Shared empty set — a stable identity, so "nothing hidden" costs no render.
  *
- * Exported because it is the value every PUBLISHER resets to (`ModelMesh` on
- * unmount) and every non-part consumer substitutes (`pickSurface.tsx`, whose
+ * Exported because it is the value the store resets to (`setSubject`,
+ * `releasePickSubject` — the latter is what `ModelMesh` calls as it unmounts)
+ * and every non-part consumer substitutes (`pickSurface.tsx`, whose
  * assembly instances carry their own geometry and no hidden ordinals). A
  * private copy per consumer is one more identity the store's `sameOrdinals`
  * guard has to walk instead of short-circuiting on `a === b`.
@@ -197,6 +198,17 @@ interface PartViewState {
   setPartitioned: (partitioned: boolean) => void;
   setPickGeometry: (geometry: BufferGeometry | null) => void;
   setPickHiddenFaces: (ordinals: ReadonlySet<number>) => void;
+  /**
+   * The publisher is going away: drop the mesh AND the ordinals that index it,
+   * in one write.
+   *
+   * It exists as an ACTION rather than as two calls at the call site because
+   * the two fields are one fact (see `pickHiddenFaces`), and a publisher that
+   * released only half of it left a state describing a mesh that no longer
+   * exists — the SEL-7 review defect. As one action there is no half to forget,
+   * and the clearing itself is app code a test can invoke instead of imitating.
+   */
+  releasePickSubject: () => void;
   setAddressed: (key: string | null) => void;
   toggle: (key: string) => void;
   setMode: (key: string, mode: VisibilityMode) => void;
@@ -247,6 +259,11 @@ export const usePartViewStore = create<PartViewState>((set, get) => ({
   setPickHiddenFaces: (pickHiddenFaces) => {
     if (sameOrdinals(get().pickHiddenFaces, pickHiddenFaces)) return;
     set({ pickHiddenFaces });
+  },
+  releasePickSubject: () => {
+    const { pickGeometry, pickHiddenFaces } = get();
+    if (pickGeometry === null && pickHiddenFaces.size === 0) return;
+    set({ pickGeometry: null, pickHiddenFaces: NO_HIDDEN_FACES });
   },
   setAddressed: (addressedKey) => {
     if (get().addressedKey === addressedKey) return;

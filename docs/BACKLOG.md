@@ -141,8 +141,15 @@ duplication.
       REVIEW FOLLOW-UP 2026-08-11 — both findings real, both fixed: `ModelMesh`
       now clears `pickHiddenFaces` on unmount (a stale ordinal set outlived its
       mesh) AND `useIsHiddenFaceOrdinal` takes the null-geometry guard its two
-      sibling consumers already had, mutation-verified independently; the spec's
-      `setBodyMode`/`labelCentroid` copies now import from `occludedPlate.ts`.
+      sibling consumers already had; the spec's `setBodyMode`/`labelCentroid`
+      copies now import from `occludedPlate.ts`. CORRECTION (SEL-7 review round
+      2, 2026-08-11): this note claimed both were "mutation-verified
+      independently". True of the READER half only — deleting the clear from
+      `ModelMesh` left all 1584 tests green, because the test's own helper did
+      the clearing. Now really gated: `releasePickSubject()` releases mesh +
+      ordinals in one store action, `ModelMesh.unmount.test.tsx` renders and
+      unmounts the REAL component, and both mutations redden (call site dropped
+      -> 1 red; store action stripped -> 3 red). 1588 unit tests green.
       [src: code-reviewer, SEL-6 slice 2026-08-08]
 
 - [ ] (P3, XS) **SEL-8 — SEL-6 aftercare: five loose ends the review logged

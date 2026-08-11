@@ -103,9 +103,14 @@ module states at length. Fixed at BOTH ends, because they answer different
 questions: the unmount cleanup now clears the set beside the other two (they are
 one fact — `setSubject` already resets the pair), and the hook takes the guard as
 the reader-side half, with a BOOLEAN selector so it re-renders on a presence flip
-rather than on every republished mesh. Two new unit tests, mutation-verified:
-reverting the guard reddens the reader-side one while the publisher-side one
-stays green, which is the evidence that both are load-bearing. The fixture now
+rather than on every republished mesh. Two new unit tests. CORRECTION, SEL-7
+review round 2: this paragraph originally read "mutation-verified: reverting the
+guard reddens the reader-side one while the publisher-side one stays green,
+which is the evidence that both are load-bearing." Only the READER half of that
+was true. Reverting the guard does redden the reader-side test, but NO change to
+`ModelMesh` could redden the publisher-side one — its own helper did the
+clearing — so the pair was evidence about one half and about the test harness,
+not about both. Superseded by the round-2 entry below. The fixture now
 publishes a geometry alongside the ordinals, because that is the only state the
 app can reach — setting the ordinals alone measured an unreachable state, which
 is exactly how the missing guard stayed invisible. `NO_HIDDEN_FACES` is now
@@ -121,6 +126,36 @@ passes ALONE in a quiet window in 44.9 s against the config's 60 s default. It
 runs THREE sweeps on 15 s of headroom and is the only test in that file whose
 four equally heavy siblings all raise the ceiling to 300 s and it does not — an
 omission, not a regression, and it now takes the same 300 s.
+
+**SEL-7 review round 2 (2026-08-11, frontend-builder) — the publisher-side
+"gate" could not be reddened by any change to the app, and the record claimed it
+could.** The behaviour was right and stayed: `ModelMesh` must not leave a
+hidden-ordinal set behind when it unmounts. The EVIDENCE was the defect. The
+reviewer measured it: delete the clear from `ModelMesh` and the whole `apps/web`
+suite is still 1584/1584 green, because `hiddenPicks.test.tsx`'s `unmountMesh`
+helper performed the clearing itself — it tested the helper. No e2e covered
+rollback-below-first-solid with a body hidden either, so the ROADMAP's "evidence
+that both are load-bearing" and the BACKLOG's "mutation-verified independently"
+were both false as written; an assertion never seen to fail is not a gate, and a
+doc saying it is is worse than silence. Fixed in two places. (a) The store owns
+the release: `releasePickSubject()` drops `pickGeometry` and `pickHiddenFaces` in
+ONE write, because they are one fact — so the half that was forgotten is no
+longer a separate call to forget, and the clearing is app code a test can invoke
+instead of imitate (`hiddenPicks.test.tsx`'s helper now calls it; two cases in
+`partView.test.ts` cover it directly, including the no-churn identity guard).
+(b) The CALL SITE is gated on the component: `ModelMesh.unmount.test.tsx` renders
+the REAL `ModelMesh` in jsdom and unmounts it. That is possible because the
+component returns `null` until its GLB parses, so with `loadGlbGeometry` stubbed
+there is no r3f element tree to host — only the effects, which is where the
+cleanup lives (`useThree` is the one r3f import mocked; drei still loads for
+real). BOTH mutations now redden, measured, not asserted: dropping
+`releasePickSubject()` from `ModelMesh`'s unmount effect fails
+`ModelMesh.unmount.test.tsx` ("expected 1 to be +0", `pickHiddenFaces.size`);
+stripping `pickHiddenFaces` from the store action fails THREE cases across
+`ModelMesh.unmount.test.tsx`, `hiddenPicks.test.tsx` (the case that previously
+could not fail) and `partView.test.ts`. `apps/web` 1588 unit tests green (1584 +
+4), `pnpm --filter @loft/web typecheck` clean, full `just lint` green. No e2e
+touched — the flow is unchanged; what changed is what the unit tier can prove.
 
 **SEL-6/6b independent QA 2026-08-11 — PASS on the real stack, with the
 numbers in the run log and every assertion seen to fail.** Verified natively

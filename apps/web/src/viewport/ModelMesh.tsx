@@ -27,7 +27,7 @@ import {
   subsetEdges,
 } from "./glbGeometry";
 import { instanceView } from "./instanceVisibility";
-import { NO_HIDDEN_FACES, usePartViewStore } from "./partView";
+import { usePartViewStore } from "./partView";
 import { drawnSurfaceRaycast, hiddenTriangleTest } from "./pickRaycast";
 import { studioMatcap } from "./studioMatcap";
 
@@ -634,6 +634,9 @@ export function ModelMesh({
   const setPickHiddenFaces = usePartViewStore(
     (state) => state.setPickHiddenFaces,
   );
+  const releasePickSubject = usePartViewStore(
+    (state) => state.releasePickSubject,
+  );
   useEffect(() => {
     setBodyPresent(geometry !== null);
   }, [geometry, setBodyPresent]);
@@ -674,23 +677,27 @@ export function ModelMesh({
   // rollback below the first solid) — the sketch layer's default flips back to
   // "show the ink", which is the only thing left to look at.
   //
-  // The hidden-ordinal set goes with them, and that one was MISSED (code
-  // review, 2026-08-11). `Viewport` mounts this component conditionally on the
-  // GLB, so unmounting with a body switched off used to leave `pickHiddenFaces`
-  // populated and `pickGeometry` null — a state describing a mesh that no
-  // longer exists, in which `useIsHiddenFaceOrdinal` could answer "hidden" for
-  // it. Every other reader of the set already survives that (`hiddenPickFilter`
-  // and `usePickSurfaceTarget` both fall back to offering everything on a null
-  // geometry); the fix is to stop publishing the contradiction at its source,
-  // because the two are ONE fact and are reset together everywhere else
-  // (`setSubject` does exactly this pair).
+  // The pick subject goes with them, and the hidden-ordinal half of it was
+  // MISSED (code review, 2026-08-11). `Viewport` mounts this component
+  // conditionally on the GLB, so unmounting with a body switched off used to
+  // leave `pickHiddenFaces` populated and `pickGeometry` null — a state
+  // describing a mesh that no longer exists, in which `useIsHiddenFaceOrdinal`
+  // could answer "hidden" for it. Every other reader of the set already
+  // survives that (`hiddenPickFilter` and `usePickSurfaceTarget` both fall back
+  // to offering everything on a null geometry); the fix is to stop publishing
+  // the contradiction at its source.
+  //
+  // `releasePickSubject` releases BOTH in one write, so the half that was
+  // forgotten here is no longer a separate call anyone can forget again — and
+  // the clearing is store code the unit tier can invoke rather than imitate
+  // (the second SEL-7 review round: the imitation could not redden).
   useEffect(
     () => () => {
       setBodyPresent(false);
       setPartitioned(false);
-      setPickHiddenFaces(NO_HIDDEN_FACES);
+      releasePickSubject();
     },
-    [setBodyPresent, setPartitioned, setPickHiddenFaces],
+    [setBodyPresent, setPartitioned, releasePickSubject],
   );
 
   // QA hook: the drawn / ghosted / hidden face census.

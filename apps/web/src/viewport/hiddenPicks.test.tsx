@@ -32,11 +32,16 @@ const setHidden = (ordinals: readonly number[]) =>
     usePartViewStore.getState().setPickHiddenFaces(new Set(ordinals));
   });
 
-/** What `ModelMesh` does as it unmounts: the mesh goes, and the set with it. */
+/**
+ * What `ModelMesh` does as it unmounts — the STORE ACTION it calls, not a
+ * hand-rolled imitation of it. The first version of this helper cleared the two
+ * fields itself, which made the case below unable to redden for any change to
+ * the app (SEL-7 review, second round). That the component actually calls this
+ * is gated separately, on the component, in `ModelMesh.unmount.test.tsx`.
+ */
 const unmountMesh = () =>
   act(() => {
-    usePartViewStore.getState().setPickGeometry(null);
-    usePartViewStore.getState().setPickHiddenFaces(NO_HIDDEN_FACES);
+    usePartViewStore.getState().releasePickSubject();
   });
 
 describe("useIsHiddenFaceOrdinal", () => {

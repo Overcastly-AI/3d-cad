@@ -179,6 +179,28 @@ describe("the raycast target the mesh publishes", () => {
     expect(usePartViewStore.getState().pickHiddenFaces).toBe(first);
   });
 
+  it("RELEASES both halves together — the set cannot outlive the mesh", () => {
+    const geometry = new BufferGeometry();
+    usePartViewStore.getState().setPickGeometry(geometry);
+    usePartViewStore.getState().setPickHiddenFaces(new Set([4]));
+
+    // What `ModelMesh` calls as it unmounts (a rollback below the first solid
+    // with a body switched off). An ordinal indexes a mesh's face partition, so
+    // keeping the set without the mesh describes a state that cannot exist.
+    usePartViewStore.getState().releasePickSubject();
+
+    const state = usePartViewStore.getState();
+    expect(state.pickGeometry).toBeNull();
+    expect(state.pickHiddenFaces.size).toBe(0);
+    geometry.dispose();
+  });
+
+  it("releasing an already-released subject does not churn the store", () => {
+    const before = usePartViewStore.getState().pickHiddenFaces;
+    usePartViewStore.getState().releasePickSubject();
+    expect(usePartViewStore.getState().pickHiddenFaces).toBe(before);
+  });
+
   it("RESETS on a new subject — a pick target can never follow you", () => {
     const geometry = new BufferGeometry();
     usePartViewStore.getState().setPickGeometry(geometry);
