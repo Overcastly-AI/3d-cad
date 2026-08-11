@@ -312,33 +312,184 @@ export async function countLitPixels(
   );
 }
 
+/** What {@link waitForRenders} actually observed. */
+export interface RenderWait {
+  /** r3f RENDERS observed while waiting (`window.__loftRenderTick` delta). */
+  renders: number;
+  /** Browser animation frames observed while waiting. */
+  frames: number;
+  /** True when it exited on the frame budget rather than on the render count. */
+  settled: boolean;
+  /** Wall clock spent, ms. */
+  ms: number;
+  /** `live` when the viewport's render probe is on the page. */
+  probe: "live" | "missing";
+}
+
+export interface RenderWaitOptions {
+  /** Give up (and THROW) after this long. */
+  timeoutMs?: number;
+  /** Refuse the frame-budget exit: `renders` must happen, or throw. */
+  requireRenders?: boolean;
+}
+
+/** Defaults, named so the harness gate can assert against them. */
+const RENDER_WAIT_TIMEOUT_MS = 15_000;
 /**
- * Wait for the page to actually PAINT `frames` times before sampling the
- * drawing buffer — the render loop's own clock, not the wall clock.
- *
- * The specs that census canvas pixels assert on NUMBERS, and a numeric
- * `expect` does not auto-retry the way a locator assertion does (GATE-1a), so
- * whatever they wait on has to be right first time. `waitForTimeout(400)` is
- * the wrong quantity for that job: under CPU contention — four agents, or a CI
- * shard — 400 ms of wall clock can pass with no rendering opportunity at all,
- * which is precisely the load where the sample is taken early. `rAF` callbacks
- * fire on rendering opportunities, so counting them waits for the work rather
- * than for time, and returns as soon as it has happened.
- *
- * The timeout race is a safety valve, not the mechanism: a page that somehow
- * stops painting resolves late instead of hanging until the test timeout.
+ * Cap on the frame budget, so `waitForRenders(page, 1_000_000)` — the harness
+ * gate's way of saying "settle, whatever that takes" — does not ask for a
+ * million frames.
  */
-export async function waitForFrames(page: Page, frames = 4): Promise<void> {
-  await page.evaluate(async (count: number) => {
-    await Promise.race([
-      (async () => {
-        for (let i = 0; i < count; i += 1) {
-          await new Promise((resolve) => requestAnimationFrame(resolve));
+const RENDER_WAIT_FRAME_CAP = 30;
+
+/**
+ * Wait before sampling the drawing buffer: until the scene has RENDERED
+ * `renders` more times, or — for a scene that has nothing left to draw — until
+ * `renders` animation frames have gone by, whichever comes first.
+ *
+ * WHY NOT COUNT ANIMATION FRAMES (CI-4). Its predecessor `waitForFrames`
+ * counted rAF callbacks, and was wrong in two independent ways that only show
+ * up on a loaded runner:
+ *
+ *  (a) it raced the rAF loop against `setTimeout(2000)` and RESOLVED SILENTLY
+ *      when the timer won. `waitForFrames(page, 30)` therefore degrades to
+ *      "wait 2 s" below ~15 fps — the census then samples an unfinished frame
+ *      and nothing anywhere reports that the valve tripped. A software-GL scene
+ *      on a 4-core hosted runner is exactly that regime. This function throws
+ *      instead, naming the count it actually achieved.
+ *  (b) the viewport is `frameloop="demand"` (`Viewport.tsx`), so rAFs measure
+ *      BROWSER frames, not renders: 30 of them can pass with the scene not
+ *      re-rendered once, and `preserveDrawingBuffer: true` then serves a
+ *      perfectly valid STALE readback. That is the shape of "ink = 0 with the
+ *      frame correctly fitted".
+ *
+ * So the clock is the render probe's (`window.__loftRenderTick`, incremented
+ * inside the demand loop). `waitForFrames` is a thin alias over this, which is
+ * how ~100 existing call sites are fixed at ONE seam rather than edited.
+ *
+ * THE FRAME BUDGET, and why it is exactly `n`. A settled `demand` scene will
+ * never render again on its own, so waiting for N renders unconditionally would
+ * hang the many call sites that wait AFTER an animation has finished. So the
+ * wait also returns after `n` ANIMATION frames (capped) — precisely what
+ * `waitForFrames(page, n)` waited — which makes it NEVER SLOWER THAN ITS
+ * PREDECESSOR while removing both defects above: no wall-clock shortcut, and
+ * nothing exits quietly.
+ *
+ * That budget is the difference between shipping this and reverting it, and it
+ * was MEASURED, not chosen. A stricter rule — also require the scene to fall
+ * silent (idle frames + a ms floor) — costs 40 ms per call where a frame costs
+ * 5: `qa-sel4-verify`'s two shell tests issue **1 622 waits** (`stampAfterMove`
+ * probes hundreds of pixels), which took them from 1.6-1.8 / 2.4 min to
+ * 3.0 / 3.0 min against a 180 s ceiling, and both TIMED OUT. Traced, not
+ * guessed: 65 s of the 168 s run was inside this function.
+ *
+ * What the budget gives up, stated plainly: at `n` frames with rendering still
+ * in flight it returns like its predecessor did, rather than waiting for quiet.
+ * It reports what it saw (`renders`, `frames`, `settled`) so a census can say
+ * so, and `requireRenders` — no budget exit at all, throw instead — is there
+ * for the assertions that need rendering to have HAPPENED.
+ */
+export async function waitForRenders(
+  page: Page,
+  renders = 4,
+  options: RenderWaitOptions = {},
+): Promise<RenderWait> {
+  const { timeoutMs = RENDER_WAIT_TIMEOUT_MS, requireRenders = false } =
+    options;
+  const result = await page.evaluate(
+    async (input: {
+      want: number;
+      timeoutMs: number;
+      frameCap: number;
+      requireRenders: boolean;
+    }): Promise<RenderWait & { ok: boolean }> => {
+      const read = (): number | null => {
+        const tick = (window as { __loftRenderTick?: number }).__loftRenderTick;
+        return typeof tick === "number" ? tick : null;
+      };
+      // `baseline` stays null until the probe exists, and rebases the moment it
+      // appears: a page that navigates mid-wait would otherwise show the whole
+      // new document's tick as "renders since I started waiting".
+      let baseline = read();
+      const start = performance.now();
+      let last = baseline ?? 0;
+      let frames = 0;
+      for (;;) {
+        // The setTimeout is a STARVATION valve, not a race for the answer: a
+        // page that stops firing rAF (backgrounded, or a lost context) keeps
+        // this loop measuring so it can report, instead of silently resolving.
+        const painted = await new Promise<boolean>((resolve) => {
+          let settled = false;
+          const finish = (viaRaf: boolean): void => {
+            if (settled) return;
+            settled = true;
+            resolve(viaRaf);
+          };
+          requestAnimationFrame(() => finish(true));
+          setTimeout(() => finish(false), 250);
+        });
+        if (painted) frames += 1;
+        const now = performance.now();
+        const current = read();
+        if (baseline === null && current !== null) {
+          baseline = current;
+          last = current;
+        } else if (current !== null && current !== last) {
+          last = current;
         }
-      })(),
-      new Promise((resolve) => setTimeout(resolve, 2000)),
-    ]);
-  }, frames);
+        const observed = baseline === null ? 0 : last - baseline;
+        const state = {
+          renders: observed,
+          frames,
+          ms: now - start,
+          probe: (baseline === null ? "missing" : "live") as "live" | "missing",
+        };
+        if (observed >= input.want) {
+          return { ...state, settled: false, ok: true };
+        }
+        if (
+          !input.requireRenders &&
+          frames >= Math.min(input.want, input.frameCap)
+        ) {
+          return { ...state, settled: true, ok: true };
+        }
+        if (now - start >= input.timeoutMs) {
+          return { ...state, settled: false, ok: false };
+        }
+      }
+    },
+    {
+      want: renders,
+      timeoutMs,
+      frameCap: RENDER_WAIT_FRAME_CAP,
+      requireRenders,
+    },
+  );
+  if (!result.ok) {
+    throw new Error(
+      `waitForRenders: wanted ${renders}, achieved ${result.renders} render(s) ` +
+        `in ${Math.round(result.ms)}ms (${result.frames} animation frame(s), ` +
+        `render probe ${result.probe}). The scene is rendering slower than the ` +
+        `wait allows, or it has stopped painting altogether — do NOT sample ` +
+        `the drawing buffer on this frame.`,
+    );
+  }
+  return result;
+}
+
+/**
+ * Wait for the scene to be current before sampling the drawing buffer.
+ *
+ * Kept as the suite's vocabulary — ~100 call sites — but it is now an alias
+ * over {@link waitForRenders}, which counts r3f RENDERS rather than browser
+ * animation frames and throws rather than resolving quietly. See that
+ * function for why counting frames was wrong (CI-4).
+ */
+export async function waitForFrames(
+  page: Page,
+  frames = 4,
+): Promise<RenderWait> {
+  return waitForRenders(page, frames);
 }
 
 /** Count distinct colors on the WebGL canvas — proves a real render. */

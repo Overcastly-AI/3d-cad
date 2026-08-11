@@ -95,9 +95,17 @@ duplication.
       the job log on a red — the trap used to delete them before upload), a 2 s
       resource sampler runs on green and red alike, `e2e-shard-audit.py
       --timeline` prints where in the shard each test ran, and the verdict step
-      greps for retries. STILL OPEN: move (3) — reproduce `sketch-visibility`
-      ink = 0 locally at HEAD (frontend slice F1) — and CI-3's gateway fix.
+      greps for retries. STILL OPEN: CI-3's gateway fix.
       Re-derive shard ordinals per-SHA; the suite is 467 tests today.
+      FRONTEND SLICE SHIPPED 2026-08-11 (this commit) — F1/F2 landed and move
+      (3) is DONE: `waitForFrames` counted browser animation frames against a
+      silent 2 s valve while the viewport is `frameloop="demand"` (an idle page
+      ticks 92 frames in 1.5 s with ZERO renders), so it now waits on a real
+      r3f render counter and THROWS with the count achieved; every non-passing
+      test attaches the viewport readback + substrate. And ink = 0 REPRODUCES
+      locally at HEAD (5 of 10 runs) with the ink plainly on screen at 0.74
+      coverage — an anti-aliasing phase lottery in the census, not a rendering
+      regression, and not the runner. See SPEC-4.
       [src: orchestrator CI root-cause, 2026-08-11]
 
 - [ ] (P1, S) **CI-3 — a dropped keep-alive to documents becomes a user-visible
@@ -133,6 +141,36 @@ duplication.
       yields no 502 at the gateway. Mutation-verify the gate goes red against
       today's client config.
       [src: orchestrator CI root-cause, 2026-08-11]
+
+- [ ] (P1, XS) **SPEC-4 — `sketch-visibility`'s exact-token ink census is a
+      sub-pixel lottery: ~50 % red at HEAD, locally, with the product correct**
+      (`apps/web/e2e`). Filed 2026-08-11 by frontend-builder from CI-4's
+      instrumented runs — this is what CI-4 move (3) actually found, and it
+      retires "resource pressure on the runner" as the explanation for (c).
+      MEASURED at HEAD, no mutation: `sketch-visibility.spec.ts:164` fails 2 of
+      5 runs in a quiet window and 3 of 5 under a 3-core burner, always with
+      `ink === 0` — the full mutation signature. The attached readback shows the
+      rectangle plainly drawn over the solid: its pixels land at (190,197,204),
+      i.e. the `#E9F1F8` token blended at ~0.74 coverage against the blued face,
+      which is a 1 px GL line straddling the pixel grid rather than filling it.
+      Pixels within ±48 of the token: **736 on a pass, 734 on a fail** — the same
+      ink, a different sub-pixel phase. `pxPerMm` is 26.625 in both.
+      WHY IT MATTERS BEYOND THIS SPEC: an exact-hex census of an anti-aliased
+      1 px line cannot distinguish "the ink lost the depth fight" (0 near the
+      token too) from "the line moved a third of a pixel" (hundreds near it), so
+      the gate's headline power — hundreds vs ZERO — is real for the defect and
+      also fires on nothing at all. `countTokenPixels(hex, 6)` has the same
+      exposure wherever it censuses LINES; area fills are unaffected.
+      FIX: census the ink by coverage, not by exact equality — count pixels
+      within a tolerance that admits the AA blend (±48 measured here), or sum
+      estimated coverage along the token↔ground axis, and re-derive the floor
+      from that instrument. `inkNearToken` is already recorded on every run
+      (`scribe-census.json`) so the new floor can be calibrated from history.
+      ACCEPTANCE: 10 consecutive local runs green, and the `depthTest: false` ->
+      `true` mutation still red (it must give ~0 under the new census too, since
+      the ink is then absent rather than blended). Do NOT relax the 120 floor as
+      a substitute — that is the move CI-4's F5 forbids.
+      [src: CI-4 frontend slice, 2026-08-11]
 
 - [ ] (P3, XS) **SPEC-3 — the live-extrude-ghost gate is a thin statistical
       margin, and it fails on framing rather than on the ghost** (`apps/web`).
@@ -3754,6 +3792,11 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
+- 2026-08-11 — **CI-4 frontend slice — the e2e render clock
+  (frontend-builder):** `waitForRenders` counts r3f renders (demand loop: 92
+  animation frames, 0 renders) and throws with the count achieved; reds attach
+  the viewport readback. `sketch-visibility` ink = 0 reproduced 5/10 locally —
+  an AA phase lottery, not a regression (SPEC-4).
 - 2026-08-11 — **SEL-6/6b independent QA verdict: PASS (qa-tester):** the
   occluded plate answers 94.8 % with the occluder hidden (8.5 % before) and
   names its NEAR face; `e2e/qa-sel6-verify.spec.ts`, five mutations each red.

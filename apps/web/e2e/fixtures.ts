@@ -1,6 +1,7 @@
 import { test as base, expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
 
+import { attachViewportDiagnostics } from "./diagnostics";
 import { withStableSessionEmail } from "./support";
 
 /** Committed founder screenshots live here (see support.SCREENSHOT_DIR). */
@@ -45,9 +46,15 @@ function targetsFounderShot(path: unknown): boolean {
  *
  * Centralising here (rather than at ~90 call sites) is one seam that also covers
  * future screenshots. Specs import `test`/`expect` from this module.
+ *
+ * The same seam attaches the VIEWPORT SUBSTRATE state when a test ends
+ * non-passing (CI-4). A failed pixel census reports one number and destroys the
+ * context that would explain it, which is how four consecutive CI reds were
+ * each settled by argument rather than evidence; `diagnostics.ts` documents
+ * exactly which reading separates which cause.
  */
 export const test = base.extend({
-  page: async ({ page }, use) => {
+  page: async ({ page }, use, testInfo) => {
     const original = page.screenshot.bind(page);
     // Preserve Playwright's overload signature; the wrapper interposes the
     // header-normalisation + stable-capture defaults + write-gate.
@@ -61,6 +68,9 @@ export const test = base.extend({
         return original({ animations: "disabled", caret: "hide", ...gated });
       })) as Page["screenshot"];
     await use(page);
+    if (testInfo.status !== testInfo.expectedStatus) {
+      await attachViewportDiagnostics(page, testInfo);
+    }
   },
 });
 

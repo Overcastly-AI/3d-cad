@@ -13,6 +13,55 @@ library and cleared two of three images to publish (`c7f23dd`). OPEN: LIC-1,
 stripping jbigkit from the geometry image, which is what still blocks
 publishing it.
 
+**CI-4 FRONTEND SLICE SHIPPED 2026-08-11 (frontend-builder) — every pixel census
+in the suite was waiting on the wrong clock, and `sketch-visibility` turns out to
+be a ~50 % coin flip at HEAD with the product correct.** `waitForFrames` (106
+call sites, 12 spec files) counted BROWSER animation frames against a silent
+`setTimeout(2000)` valve — so under ~15 fps it degraded to "wait 2 s" and nothing
+reported it — and the viewport is `frameloop="demand"`, so rAFs are not renders
+at all: measured here, an idle part page ticks **92 animation frames in 1.5 s
+with ZERO renders**, and `preserveDrawingBuffer: true` then serves a perfectly
+valid STALE readback. Fixed at one seam rather than 106: `<RenderProbe/>`
+publishes `window.__loftRenderTick` from inside the demand loop (plus
+`webglcontextlost/restored` stamps — loss was entirely silent, and a restored
+context used to sit blank until the user orbited, which `invalidate()` now
+fixes); `waitForRenders` waits on THAT clock and THROWS naming the count it
+achieved; `waitForFrames` is a thin alias. Its fallback is a FRAME BUDGET of
+exactly `n` — what the predecessor waited — and that number was measured, not
+chosen: the strict version (wait for the scene to fall silent) costs 40 ms per
+call where a frame costs 5, and `qa-sel4-verify`'s two shell tests issue
+**1 622 waits**, which took them from 1.6-1.8 / 2.4 min to 3.0 / 3.0 min against
+a 180 s ceiling and TIMED BOTH OUT. Traced rather than guessed — 65 s of a 168 s
+run inside one function — and back to 8.6 s / 1.8 min on the budget. A gate that
+is correct and unaffordable gets reverted, so the instrument is cost-neutral by
+construction and `requireRenders` carries the strict mode for the assertions
+that need it. Second seam, `e2e/fixtures.ts`: any
+test that ends non-passing now attaches the viewport substrate — the census's OWN
+PNG readback, distinct colours, render-tick delta, GL context events, drawing-
+buffer dims, renderer string, heap — so a red census explains itself instead of
+being argued (proven from the run report: a failing test carried a 735 KB
+readback + the JSON, a passing one carried none). THE F3 FINDING, and it is not
+what the board suggested: `sketch-visibility` ink = 0 REPRODUCES LOCALLY at HEAD
+— 2 of 5 quiet runs, 3 of 5 under a 3-core burner — and the readback shows the
+rectangle plainly drawn over the solid. Its pixels land at **(190,197,204)**: the
+`#E9F1F8` token blended at ~0.74 coverage, i.e. a 1 px GL line straddling the
+pixel grid. Pixels within ±48 of the token: **736 on a pass, 734 on a fail**. So
+the exact-hex census is a sub-pixel phase lottery that returns the SAME zero the
+`depthTest` mutation gives, and CI's red was never evidence of a rendering
+regression. No threshold moved (CI-4 F5 forbids it); filed as SPEC-4 with the
+measurement. One more flake fell out of the instrumented runs and is worth its
+own look: `qa-sel7-verify.spec.ts:555` ("Create costs nothing") reads
+`feature-error-*` the instant `eval-status` stops saying "Evaluating", with no
+wait in between, and came back `errors: []` once in three — a race in the SPEC
+(2 of 2 green on a re-run), same class as SPEC-3/SPEC-4. Gate:
+`qa-harness.spec.ts` "the render clock", mutation-verified
+three ways — restore the silent valve and the gate cannot tell a starved wait
+from a working one (`waitForQuiet: the scene never stopped rendering in
+20000ms`); remove `<RenderProbe/>` and the tick reads null; and
+`frameloop="always"` is MEASURED and documented as NOT a usable control (it
+renders ~9 fps for 13 s then stops on its own), which is why the demand-loop
+claim is asserted as arithmetic instead of against that mutation.
+
 **CI-4 PLATFORM SLICE SHIPPED 2026-08-11 (platform-builder) — the e2e gate
 stopped destroying its own evidence.** `scripts/e2e.sh`'s exit trap `rm -rf`'d
 the tempdir holding the three service logs, so on a red shard they were deleted

@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "./fixtures";
 
+import { collectViewportDiagnostics } from "./diagnostics";
 import {
   driftPath,
   handClick,
@@ -15,6 +16,7 @@ import {
   measureOcclusion,
   overlapArea,
 } from "./invariants";
+import { seedCube } from "./partSeed";
 import { expectInkLegible, measureInk, silhouette } from "./perception";
 import {
   expectReachableFraction,
@@ -23,7 +25,12 @@ import {
   measureReachability,
   testIdPrefix,
 } from "./reachability";
-import { createPartViaApi, seedSession } from "./support";
+import {
+  createPartViaApi,
+  distinctCanvasColors,
+  seedSession,
+  waitForRenders,
+} from "./support";
 
 /**
  * THE HARNESS'S HARNESS (FB-17).
@@ -609,5 +616,204 @@ test.describe("harness: camera probe (invariants.ts)", () => {
     ).rejects.toThrow(/camera direction moved/);
     const front = await cameraPose(page);
     expect(angleBetween(iso.direction, front.direction)).toBeGreaterThan(20);
+  });
+});
+
+test.describe("harness: the render clock (support.ts + Viewport RenderProbe)", () => {
+  /**
+   * Orbit the scene for real, so renders are being produced WHILE the wait
+   * runs. Deliberately not "click a view snap and hope the ease is still
+   * going": the point of the assertion is that the wait observes work, and a
+   * wait that started after the work finished would prove nothing either way.
+   */
+  async function orbit(page: Page): Promise<void> {
+    const box = await page
+      .locator('[data-testid="viewport"] canvas')
+      .boundingBox();
+    if (box === null) throw new Error("no viewport canvas to orbit");
+    const cx = box.x + box.width / 2;
+    const cy = box.y + box.height / 2;
+    await page.mouse.move(cx, cy);
+    await page.mouse.down();
+    for (let i = 1; i <= 12; i += 1) {
+      await page.mouse.move(cx + i * 6, cy + i * 2);
+    }
+    await page.mouse.up();
+  }
+
+  /**
+   * Settle the scene the only way a `demand` loop can be settled: demand a
+   * render and keep demanding until one FAILS to arrive. The rejection is the
+   * measurement — it carries the frames that went by with nothing behind them —
+   * so this returns it rather than throwing it away.
+   *
+   * Written as a loop deliberately. A single strict demand right after an orbit
+   * is a coin flip on whether OrbitControls is still damping, which is exactly
+   * how this gate first went red (2026-08-11): it read "the wait did not throw"
+   * as a broken instrument when the scene was simply still moving.
+   */
+  async function waitForQuiet(page: Page, deadlineMs = 20_000): Promise<Error> {
+    const until = Date.now() + deadlineMs;
+    for (;;) {
+      const outcome = await waitForRenders(page, 1, {
+        requireRenders: true,
+        timeoutMs: 1_000,
+      }).catch((error: Error) => error);
+      if (outcome instanceof Error) return outcome;
+      if (Date.now() > until) {
+        throw new Error(
+          `waitForQuiet: the scene never stopped rendering in ${deadlineMs}ms`,
+        );
+      }
+    }
+  }
+
+  test("it counts RENDERS not animation frames, and reports what it achieved", async ({
+    page,
+  }) => {
+    const { token } = await seedSession(page);
+    const part = await createPartViaApi(page, token, "Render clock");
+    await seedCube(page, token, part.id);
+    await page.goto(`/parts/${part.id}`);
+    await expect(page.getByTestId("body-inspector")).toBeVisible({
+      timeout: 60_000,
+    });
+    await expect
+      .poll(() => distinctCanvasColors(page), { timeout: 30_000 })
+      .toBeGreaterThan(24);
+
+    // (0) The product hook exists. Without it every wait below silently falls
+    // back to its frame budget — i.e. the whole instrument degrades to the
+    // predecessor and reports health while doing it. That is the CI-4 failure
+    // mode wearing a different hat, so it is asserted rather than assumed.
+    const tick = await page.evaluate(
+      () => (window as { __loftRenderTick?: number }).__loftRenderTick ?? null,
+    );
+    expect(
+      tick,
+      "Viewport's RenderProbe must publish window.__loftRenderTick",
+    ).not.toBeNull();
+    expect(tick as number).toBeGreaterThan(0);
+
+    // (1) SATISFIED: renders happening while the wait runs are counted, and
+    // the wait returns on the RENDER count, not on a clock.
+    const [moving] = await Promise.all([
+      waitForRenders(page, 5, { requireRenders: true, timeoutMs: 20_000 }),
+      orbit(page),
+    ]);
+    expect(moving.probe).toBe("live");
+    expect(moving.renders).toBeGreaterThanOrEqual(5);
+    expect(moving.settled).toBe(false);
+
+    // (2) THE FRAME BUDGET: ask for more renders than a settled scene will
+    // ever produce, and the wait must still return — on frames, capped —
+    // because otherwise every one of the ~100 call sites that waits AFTER an
+    // animation has finished would hang.
+    const idle = await waitForRenders(page, 1_000_000, { timeoutMs: 20_000 });
+    expect(idle.settled).toBe(true);
+    expect(idle.frames).toBeGreaterThan(0);
+
+    // (2b) THE DEMAND LOOP (F1(b)), as a measurement rather than a comment:
+    // this settled scene keeps producing ANIMATION FRAMES with NO render
+    // behind them. That divergence is the whole reason counting rAFs was
+    // unsound — `preserveDrawingBuffer` then serves a valid STALE readback —
+    // and the two numbers come out of one message, so they cannot disagree.
+    //
+    // The obvious mutation (`frameloop="always"`) is NOT the control it looks
+    // like, measured rather than assumed: under software GL the always-loop
+    // renders at ~9 fps for ~13 s and then stops on its own (110 renders in
+    // 116 frames, then zero renders in the next second), so it passes both
+    // this assertion and the budget one. The falsification here is the
+    // arithmetic — 0 renders against several frames — plus mutation (3),
+    // which is what actually catches a wait that stops reporting.
+    const report = String(await waitForQuiet(page));
+    expect(report).toMatch(/achieved 0 render\(s\)/);
+    const painted = Number(/(\d+) animation frame/.exec(report)?.[1] ?? 0);
+    // >5, not >50: a loaded shard paints slower, and the CLAIM is the
+    // divergence, not the frame rate. 92 frames in 1.5 s here; 15 fps on a
+    // contended runner still clears this comfortably.
+    expect(
+      painted,
+      `the page must keep painting while the scene does not render: ${report}`,
+    ).toBeGreaterThan(5);
+
+    // (3) NEGATIVE CONTROL — the CI-4 F1(a) defect itself. The predecessor
+    // raced the frame loop against `setTimeout(2000)` and RESOLVED SILENTLY
+    // when the timer won, so a census on a loaded runner sampled an unfinished
+    // frame and nothing said so. An unreachable demand must FAIL, naming the
+    // count it got.
+    await expect(
+      waitForRenders(page, 1_000_000, {
+        requireRenders: true,
+        timeoutMs: 1_500,
+      }),
+    ).rejects.toThrow(/achieved \d+ render\(s\)/);
+
+    // (4) …and the failure evidence a red census will now carry.
+    const live = await collectViewportDiagnostics(page);
+    expect(live.diagnostics.canvasPresent).toBe(true);
+    expect(live.diagnostics.contextLost).toBe(false);
+    expect(live.diagnostics.glEvents).toEqual([]);
+    expect(live.diagnostics.drawingBuffer?.width ?? 0).toBeGreaterThan(0);
+    expect(live.diagnostics.drawingBuffer?.height ?? 0).toBeGreaterThan(0);
+    expect(live.diagnostics.renderTick ?? 0).toBeGreaterThan(0);
+    expect(live.diagnostics.framesInProbeWindow).toBeGreaterThan(0);
+    // The discriminator: a rendered frame is hundreds of colours. This is the
+    // reading that separates "the ink is missing" from "the readback is blank".
+    expect(live.diagnostics.distinctColors).toBeGreaterThan(24);
+    expect(live.diagnostics.renderer ?? "").not.toBe("");
+    expect((live.readbackPng ?? "").length).toBeGreaterThan(1_000);
+  });
+
+  test("the diagnostics separate a blank readback from a missing render", async ({
+    page,
+  }) => {
+    // The other half of the discriminator, on a frame whose answer is known on
+    // paper. A viewport-shaped canvas with ONE colour in it and no render probe
+    // is precisely the substrate failure `c6b6c6d` could not be distinguished
+    // from — so the collector must report it as such rather than as a canvas
+    // that merely lacks ink.
+    await page.setContent(`<!doctype html>
+<html><body style="margin:0;background:#000">
+  <div data-testid="viewport" style="position:relative;width:400px;height:300px">
+    <canvas id="synthetic" width="400" height="300"
+            style="position:absolute;inset:0;width:400px;height:300px"></canvas>
+  </div>
+</body></html>`);
+    /** Fill the whole frame with `colors` as equal vertical bands. */
+    const paint = async (colors: string[]): Promise<void> => {
+      await page.evaluate((fills: string[]) => {
+        const canvas = document.querySelector<HTMLCanvasElement>("#synthetic");
+        const ctx = canvas?.getContext("2d");
+        if (!ctx) throw new Error("no 2d context");
+        const band = 400 / fills.length;
+        fills.forEach((color, index) => {
+          ctx.fillStyle = color;
+          ctx.fillRect(index * band, 0, band, 300);
+        });
+      }, colors);
+    };
+
+    await paint([BENCH]);
+    const blank = await collectViewportDiagnostics(page);
+    expect(blank.diagnostics.canvasPresent).toBe(true);
+    expect(blank.diagnostics.distinctColors).toBe(1);
+    // No `<Canvas>` on this page, so no probe — reported, never faked.
+    expect(blank.diagnostics.renderTick).toBeNull();
+    expect(blank.diagnostics.rendersInProbeWindow).toBeNull();
+    expect((blank.readbackPng ?? "").length).toBeGreaterThan(100);
+
+    // The same instrument on a frame with content moves, so `1` above is a
+    // measurement and not a constant.
+    await paint([BENCH, ALUMINIUM, INK, "#3B82F6", "#8B5CF6"]);
+    const painted = await collectViewportDiagnostics(page);
+    expect(painted.diagnostics.distinctColors).toBeGreaterThan(1);
+
+    // A page with no viewport at all must not throw during a failing test's
+    // teardown — the original failure stays the reported one.
+    await page.setContent("<!doctype html><html><body></body></html>");
+    const bare = await collectViewportDiagnostics(page);
+    expect(bare.diagnostics.canvasPresent).toBe(false);
+    expect(bare.readbackPng).toBeNull();
   });
 });

@@ -175,8 +175,8 @@ test.describe("a sketch on a model face is visible while you draw it", () => {
     await expect(page.getByTestId("sketch-step")).toHaveText("On Face", {
       timeout: 30_000,
     });
-    // The camera eases normal-on to the picked face; sample after it paints.
-    await waitForFrames(page, 30);
+    // The camera eases normal-on to the picked face; sample after it renders.
+    const eased = await waitForFrames(page, 30);
 
     const frame = await measurePlaneFrame(page);
     const half = RECT_HALF_MM * frame.pxPerMm;
@@ -195,7 +195,7 @@ test.describe("a sketch on a model face is visible while you draw it", () => {
     // Park the pointer well off the rectangle so the crosshair and the hover
     // affordance are not part of what gets counted.
     await page.mouse.move(centre.x + half * 3, centre.y - half * 3);
-    await waitForFrames(page, 20);
+    const settled = await waitForFrames(page, 20);
 
     // (1) DEPTH — the ink is on screen at its exact token hex.
     //
@@ -253,6 +253,38 @@ test.describe("a sketch on a model face is visible while you draw it", () => {
     ).toBeGreaterThan(20);
     expect(frame.pxPerMm).toBeLessThan(40);
     const ink = await countTokenPixels(page, "#E9F1F8");
+
+    // INSTRUMENT, NOT DECORATION (CI-4). This census came back ZERO on CI
+    // `c6b6c6d` and the run held nothing that could say WHY: ink = 0 with
+    // hundreds of canvas colours is a rendering defect, ink = 0 with ~1 colour
+    // is a blank readback, and ink = 0 with no renders behind the waits is the
+    // harness sampling early. Every number is now recorded on every run — green
+    // ones included, because a reading with no baseline proves nothing.
+    //
+    // `inkNearToken` is the fourth discriminator, and it is the one that
+    // settles THIS assertion. Reproduced locally at HEAD on 2026-08-11, 2 runs
+    // in 5 in a quiet window: exact-token ink = 0 while the scribe is plainly
+    // drawn over the solid, its pixels landing at (190,197,204) — the token
+    // blended at ~0.74 coverage over the blued face, i.e. a 1 px GL line that
+    // straddles the pixel grid instead of filling it. So a zero here has TWO
+    // causes that look identical: the ink losing the depth fight (nothing near
+    // the token either) and an anti-aliasing phase miss (hundreds near it).
+    // Recording both makes a future red say which, instead of being argued.
+    await test.info().attach("scribe-census.json", {
+      body: JSON.stringify(
+        {
+          pxPerMm: frame.pxPerMm,
+          ink,
+          inkNearToken: await countTokenPixels(page, "#E9F1F8", 48),
+          distinctColors: await distinctCanvasColors(page),
+          easeWait: eased,
+          settleWait: settled,
+        },
+        null,
+        2,
+      ),
+      contentType: "application/json",
+    });
     expect(ink).toBeGreaterThan(120);
 
     // (2) CONTRAST — the face under the sketch is blued, so the scribe has a
