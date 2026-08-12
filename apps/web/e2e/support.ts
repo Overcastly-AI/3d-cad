@@ -259,6 +259,182 @@ export async function countTokenPixels(
   );
 }
 
+/** What {@link measureInkCoverage} measured. */
+export interface InkCoverage {
+  /**
+   * Estimated ink AREA in canvas px — the SUM of per-pixel coverage, not a
+   * count of pixels. This is the phase-invariant number: anti-aliasing splits
+   * a line's coverage between neighbouring pixels but conserves the total.
+   */
+  coverage: number;
+  /** Pixels carrying at least `minCoverage` of ink. */
+  pixels: number;
+  /** The ground the coverage was measured against — MEASURED, not assumed. */
+  ground: [number, number, number];
+  /**
+   * Pixels bright enough to be ink but NOT on the ground→token axis, i.e. some
+   * other colour. Non-zero means the box caught something that is not this ink;
+   * it is reported so a census can say so instead of quietly counting it.
+   */
+  offAxis: number;
+}
+
+export interface InkCoverageOptions {
+  /** Ignore pixels below this coverage — AA tails, not ink. */
+  minCoverage?: number;
+  /** Max distance off the ground→token axis before a pixel is foreign. */
+  axisTolerance?: number;
+  /** Restrict to this canvas rectangle. */
+  box?: CanvasBox;
+}
+
+/** Defaults, exported so a spec can state what it calibrated against. */
+export const INK_MIN_COVERAGE = 0.25;
+export const INK_AXIS_TOLERANCE = 24;
+
+/**
+ * Measure ink by COVERAGE rather than by exact token equality (SPEC-4).
+ *
+ * WHY THIS EXISTS. `countTokenPixels(hex, 6)` asks "how many pixels are exactly
+ * this token", which is the right question for an area fill and the wrong one
+ * for a 1 px GL line: the line only lands on the token where it covers a WHOLE
+ * pixel, and how much of it does is a sub-pixel phase lottery that changes with
+ * the framing, the camera ease, and nothing at all. Measured at HEAD on
+ * `sketch-visibility.spec.ts` (2026-08-11): the exact census returned 0 on 5 of
+ * 10 runs with the scribe plainly drawn — its pixels sitting at (190,197,204),
+ * the token blended at ~0.74 coverage over the blued face — while the count of
+ * pixels within ±48 of the token was **736 on a pass and 734 on a fail**. Same
+ * ink, different phase, and the exact census returns the SAME zero that a real
+ * depth-order regression gives. A gate that cannot tell those apart is not an
+ * instrument.
+ *
+ * HOW. Anti-aliasing conserves coverage, so the sum of it is stable where a
+ * count of saturated pixels is not. Each pixel is projected onto the
+ * ground→token axis: `t` is how much token is in it (0 = bare ground, 1 = solid
+ * ink), and the perpendicular residual is how far the colour is from anything
+ * that could BE this ink over this ground. Pixels off the axis are rejected and
+ * reported (`offAxis`) rather than counted, which is what keeps a neighbouring
+ * token out of the census — `sketch.scribeSolved` (#C4D2DE) sits within ±48 of
+ * `sketch.scribe` per channel, so a fat tolerance alone would conflate the two.
+ *
+ * The ground is MEASURED from the frame (per-channel median of the box), not
+ * passed in: the sketcher's bluing is a feathered wash over a shaded face, so
+ * there is no constant to hard-code, and a census that hard-codes its own
+ * ground drifts silently the day the wash changes.
+ *
+ * WHAT IT KEEPS. The defect this replaces a census for — coplanar ink losing
+ * the depth fight — removes the ink entirely, so every pixel in the box reads
+ * as ground, `t ≈ 0`, and the coverage is ~0. The headline power (hundreds vs
+ * ZERO) is unchanged; only the false zero is gone.
+ */
+export async function measureInkCoverage(
+  page: Page,
+  hex: string,
+  options: InkCoverageOptions = {},
+): Promise<InkCoverage> {
+  const {
+    minCoverage = INK_MIN_COVERAGE,
+    axisTolerance = INK_AXIS_TOLERANCE,
+    box,
+  } = options;
+  return page.evaluate(
+    ({ hex, minCoverage, axisTolerance, box }) => {
+      // The annotation is erased before this function crosses into the page;
+      // only the value travels.
+      const empty: InkCoverage = {
+        coverage: 0,
+        pixels: 0,
+        ground: [0, 0, 0],
+        offAxis: 0,
+      };
+      const canvas = document.querySelector<HTMLCanvasElement>(
+        '[data-testid="viewport"] canvas',
+      );
+      if (!canvas) return empty;
+      const probe = document.createElement("canvas");
+      probe.width = canvas.width;
+      probe.height = canvas.height;
+      const ctx = probe.getContext("2d");
+      if (!ctx) return empty;
+      ctx.drawImage(canvas, 0, 0);
+      const rect = box ?? {
+        x: 0,
+        y: 0,
+        width: probe.width,
+        height: probe.height,
+      };
+      if (rect.width <= 0 || rect.height <= 0) return empty;
+      const { data } = ctx.getImageData(
+        rect.x,
+        rect.y,
+        rect.width,
+        rect.height,
+      );
+      const total = data.length / 4;
+      if (total === 0) return empty;
+
+      // The ground: per-channel median of the box. The ink is a thin minority
+      // of a box that is mostly the surface it is drawn on, so the median is
+      // that surface — and unlike a mean it is untouched by the ink itself.
+      const ground: [number, number, number] = [0, 0, 0];
+      for (let channel = 0; channel < 3; channel += 1) {
+        const histogram = new Uint32Array(256);
+        for (let i = 0; i < data.length; i += 4) {
+          const bin = data[i + channel] ?? 0;
+          histogram[bin] = (histogram[bin] ?? 0) + 1;
+        }
+        let seen = 0;
+        for (let value = 0; value < 256; value += 1) {
+          seen += histogram[value] ?? 0;
+          if (seen * 2 >= total) {
+            ground[channel] = value;
+            break;
+          }
+        }
+      }
+
+      const token = Number.parseInt(hex.slice(1), 16);
+      const axis: [number, number, number] = [
+        ((token >> 16) & 255) - ground[0],
+        ((token >> 8) & 255) - ground[1],
+        (token & 255) - ground[2],
+      ];
+      const axisLengthSq =
+        axis[0] * axis[0] + axis[1] * axis[1] + axis[2] * axis[2];
+      // Ink indistinguishable from its ground: no coverage is measurable, and
+      // saying zero is honest where dividing by it would not be.
+      if (axisLengthSq < 1) return { ...empty, ground };
+
+      let coverage = 0;
+      let pixels = 0;
+      let offAxis = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        const v0 = (data[i] ?? 0) - ground[0];
+        const v1 = (data[i + 1] ?? 0) - ground[1];
+        const v2 = (data[i + 2] ?? 0) - ground[2];
+        const t = (v0 * axis[0] + v1 * axis[1] + v2 * axis[2]) / axisLengthSq;
+        if (t < minCoverage) continue;
+        const r0 = v0 - t * axis[0];
+        const r1 = v1 - t * axis[1];
+        const r2 = v2 - t * axis[2];
+        if (Math.hypot(r0, r1, r2) > axisTolerance) {
+          offAxis += 1;
+          continue;
+        }
+        coverage += Math.min(t, 1);
+        pixels += 1;
+      }
+      return {
+        coverage: Math.round(coverage * 100) / 100,
+        pixels,
+        ground,
+        offAxis,
+      };
+    },
+    { hex, minCoverage, axisTolerance, box },
+  );
+}
+
 /**
  * Count canvas pixels brighter than `minLuminance` (WCAG relative-luminance
  * weights on the raw sRGB bytes — the same banding `part-visibility` uses to

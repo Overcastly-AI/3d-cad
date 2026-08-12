@@ -6,6 +6,7 @@ import {
   countTokenPixels,
   createPartViaApi,
   distinctCanvasColors,
+  measureInkCoverage,
   seedSession,
   waitForFrames,
 } from "./support";
@@ -252,7 +253,26 @@ test.describe("a sketch on a model face is visible while you draw it", () => {
         "rather than relaxing this band.",
     ).toBeGreaterThan(20);
     expect(frame.pxPerMm).toBeLessThan(40);
+    // THE CENSUS IS BY COVERAGE, NOT BY EXACT EQUALITY (SPEC-4). `ink` below
+    // is the exact-token count this gate used to assert on, kept only as
+    // evidence: measured 10 times at HEAD on 2026-08-11 it came back ZERO on 5
+    // of them with the scribe plainly on screen, because a 1 px GL line lands
+    // on its literal token only where it happens to cover a whole pixel. The
+    // assertion now sums estimated coverage along the ground→token axis, which
+    // anti-aliasing conserves — see `measureInkCoverage`. The box is the
+    // rectangle the modeler just drew, so what is counted is ink ON the picked
+    // face and nothing else on the canvas.
     const ink = await countTokenPixels(page, "#E9F1F8");
+    const margin = half * 1.15;
+    const scribeBox = {
+      x: Math.round(frame.originCanvas.x - margin),
+      y: Math.round(frame.originCanvas.y - margin),
+      width: Math.round(margin * 2),
+      height: Math.round(margin * 2),
+    };
+    const scribe = await measureInkCoverage(page, "#E9F1F8", {
+      box: scribeBox,
+    });
 
     // INSTRUMENT, NOT DECORATION (CI-4). This census came back ZERO on CI
     // `c6b6c6d` and the run held nothing that could say WHY: ink = 0 with
@@ -270,22 +290,55 @@ test.describe("a sketch on a model face is visible while you draw it", () => {
     // causes that look identical: the ink losing the depth fight (nothing near
     // the token either) and an anti-aliasing phase miss (hundreds near it).
     // Recording both makes a future red say which, instead of being argued.
+    // `ink` and `inkNearToken` stay recorded now that the ASSERTION has moved
+    // to `scribe.coverage`: they are the history the new floor was calibrated
+    // from, and the pair is what proves a future zero is a phase miss.
+    const census = {
+      pxPerMm: frame.pxPerMm,
+      ink,
+      inkNearToken: await countTokenPixels(page, "#E9F1F8", 48),
+      scribe,
+      distinctColors: await distinctCanvasColors(page),
+      easeWait: eased,
+      settleWait: settled,
+    };
     await test.info().attach("scribe-census.json", {
-      body: JSON.stringify(
-        {
-          pxPerMm: frame.pxPerMm,
-          ink,
-          inkNearToken: await countTokenPixels(page, "#E9F1F8", 48),
-          distinctColors: await distinctCanvasColors(page),
-          easeWait: eased,
-          settleWait: settled,
-        },
-        null,
-        2,
-      ),
+      body: JSON.stringify(census, null, 2),
       contentType: "application/json",
     });
-    expect(ink).toBeGreaterThan(120);
+    if (process.env.LOFT_CENSUS_LOG) console.log(JSON.stringify(census));
+
+    // THE FLOOR. 120 was the exact-token floor and it is NOT relaxed here: the
+    // coverage instrument reads HIGHER than the exact count on the same frame
+    // (it collects the AA blend the exact census throws away), so the same
+    // scribe has to clear a floor several times larger than the one it
+    // replaces. Calibrated from measurement, not chosen.
+    //
+    // THE MUTANT IS NOT ZERO, AND THE FIRST DRAFT OF THIS COMMENT SAID IT WAS.
+    // Measured 2026-08-12 by flipping BOTH `depthTest: false` sites in
+    // `SketchScene.tsx` to `true` and running this spec against the real stack:
+    //
+    //   healthy   coverage 1168.32   (ink 244, inkNearToken 736, offAxis  99)
+    //   depthTest coverage  212.49   (ink   0, inkNearToken   0, offAxis  65)
+    //
+    // So the exact census and the near-token count BOTH collapse to 0, but
+    // coverage does NOT: about a fifth of the ink still reaches the frame,
+    // because a coplanar sketch under `depthTest: true` z-fights rather than
+    // disappearing, and some fragments win. The separation this gate actually
+    // has is 1168 vs 212 — 5.5x, with the floor sitting ~2.9x clear of each
+    // side — not the "hundreds versus zero" the exact census had. That is
+    // still a sound floor, and it is a DIFFERENT claim from the one the
+    // predecessor comment made; anyone re-calibrating needs the real number,
+    // because a floor set anywhere below ~250 would pass the mutant.
+    expect(
+      scribe.coverage,
+      `the scribe is not on the picked face: ${JSON.stringify(census)}`,
+    ).toBeGreaterThan(400);
+    // The box caught a colour that is not this ink — a neighbouring token, or
+    // the face coming through un-blued. The count is ink-bright pixels OFF the
+    // ground→token axis, so a handful is AA at a grid crossing and a flood is
+    // the census measuring the wrong thing.
+    expect(scribe.offAxis).toBeLessThan(scribe.pixels);
 
     // (2) CONTRAST — the face under the sketch is blued, so the scribe has a
     // dark ground rather than a 1.32:1 one. Measured strictly INSIDE the

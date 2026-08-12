@@ -142,7 +142,7 @@ duplication.
       today's client config.
       [src: orchestrator CI root-cause, 2026-08-11]
 
-- [ ] (P1, XS) **SPEC-4 — `sketch-visibility`'s exact-token ink census is a
+- [x] (P1, XS) **SPEC-4 — `sketch-visibility`'s exact-token ink census is a
       sub-pixel lottery: ~50 % red at HEAD, locally, with the product correct**
       (`apps/web/e2e`). Filed 2026-08-11 by frontend-builder from CI-4's
       instrumented runs — this is what CI-4 move (3) actually found, and it
@@ -170,6 +170,26 @@ duplication.
       `true` mutation still red (it must give ~0 under the new census too, since
       the ink is then absent rather than blended). Do NOT relax the 120 floor as
       a substitute — that is the move CI-4's F5 forbids.
+      CLOSED 2026-08-12 by the orchestrator, reconciling the CI-4 workflow's
+      uncommitted work after a container restart killed it mid-run.
+      `measureInkCoverage` sums per-pixel coverage on the ground->token axis
+      (AA conserves it) and rejects off-axis pixels so `scribeSolved` cannot be
+      counted as `scribe`; the ground is measured per-run, not hard-coded. The
+      floor went UP, 120 -> 400, because coverage reads higher than the exact
+      count on the same frame.
+      VERIFIED: 11 local runs of this spec, all green — 5 in a quiet window, 3
+      under a 3-core burner at load average 6.5 (the condition where the old
+      census failed 3 of 5), 1 census-logging run, and 2 more after the comment
+      correction below. Plus 1 deliberately mutated run, red. The old instrument
+      failed 5 of 10 on this same machine.
+      ONE PREDICTION IN THIS ENTRY WAS WRONG AND IS CORRECTED RATHER THAN
+      QUIETLY DROPPED: the mutation does NOT give ~0. Measured healthy
+      coverage 1168.32 vs mutant 212.49 (`ink` and `inkNearToken` DO both go to
+      0 in the mutant). A coplanar sketch under `depthTest: true` z-fights
+      instead of vanishing, so about a fifth of the ink still lands. The gate's
+      real separation is 5.5x with the floor ~2.9x clear either side — sound,
+      but any floor below ~250 would pass the mutant, which is what the next
+      person calibrating needs to know.
       [src: CI-4 frontend slice, 2026-08-11]
 
 - [ ] (P3, XS) **SPEC-3 — the live-extrude-ghost gate is a thin statistical
