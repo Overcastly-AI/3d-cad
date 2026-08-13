@@ -53,6 +53,126 @@ duplication.
 
 ## Ready (top of queue)
 
+- [ ] (P1, S) **REV-1 — seven gates in the CI-4 batch cannot fail, and one
+      reusable helper reads 12034 on a frame with NO ink** (`apps/web/e2e`,
+      `scripts`, `.github/workflows`). Filed 2026-08-13 from the five-lens
+      ultracode review. None is masking a defect today; all will be counted as
+      coverage by the next reader unless closed.
+      (a) `support.ts:406` — THE SERIOUS ONE. The only degeneracy guard is
+      `axisLengthSq < 1`. On an inkless lit-aluminium frame (ground 197,199,200)
+      the axis is short, +/-25 of shading noise inflates `t`, and the census
+      returns **12034** against a 400 floor. That is the founder defect this
+      spec exists for ("bluing missing, I couldn't see the sketch") reading
+      GREEN. Backstopped inside `sketch-visibility` by the separate contrast
+      assertion, but latent in a REUSABLE helper. Needs a ground-vs-token
+      separation floor, not just a length check.
+      (b) `sketch-visibility.spec.ts:341` — `offAxis < pixels` is implied by
+      `coverage > 400`; firing needs >400 foreign bright pixels against a
+      measured baseline of 99, and the only known mutation moves it the WRONG
+      way (99 -> 65). Use an absolute ceiling derived from the recorded 99, or
+      demote it to an attachment.
+      (c) `qa-harness.spec.ts:730` — `/achieved 0 render\(s\)/` is tautological:
+      the error only exists when observed < 1. Same at :704-706, where three
+      asserted values are guaranteed by construction after a non-throwing call.
+      (d) `diagnostics.ts:19-20` — the advertised third discriminator ("ink 0
+      with a ZERO render-tick delta") returns the DEFECT value on a healthy
+      scene, because the delta is collected at teardown when a `demand` scene is
+      idle. Asserted once in the repo, as `toBeNull()`, never `> 0`.
+      (e) `e2e-shard-audit.py:420` — `self_test()` with zero checks returns 0 and
+      prints "the gate can fail" (`all([])` is True — the repo's recurring
+      shape). Close with `if len(checks) < 14: return 1`.
+      (f) `stage-doc-hunks.py:389` — the `blanks != seen` cross-check is
+      structurally DEAD for the bold-lead question it was added to arbitrate: a
+      bold line is a head iff it starts a paragraph, so `seen == blanks` by
+      construction there. It still works for list-item docs; the docstring's
+      justification no longer holds in the bold direction and should say so.
+      (g) `e2e.yml:405` — `has_flag` is ANY-not-ALL over audit invocations: a
+      decoy step under `if: false` carrying the flag passes while the real
+      invocation has lost it. One-line hardening using the invocation count
+      already computed.
+      [src: ultracode review, 2026-08-13]
+
+- [ ] (P2, XS) **REV-2 — the retries posture guard stops covering a renamed
+      Playwright config, silently** (`.github/workflows/e2e.yml:380`). Filed
+      2026-08-13; PROVEN BY EXECUTION in the review. `grep ... || true` absorbs
+      grep's exit 2 (no such file) as well as exit 1 (no match), so renaming
+      `apps/web/playwright.config.ts` to `.mts` — which Playwright still
+      auto-discovers — with `retries: 2` injected prints
+      `posture: no retries, --fail-on-flaky intact` and exits 0. The only trace
+      is one swallowed stderr line. Exactly the "enumerated gate that quietly
+      stops covering" shape the same file's prose condemns 200 lines above.
+      Not higher priority because `--fail-on-flaky` remains a genuine
+      independent backstop: a retry that actually FIRES still reddens the
+      reconcile job. It is the posture CLAIM that is falsifiable-in-name-only.
+      FIX (3 lines, before the greps): assert each file the guard enumerates
+      exists, and fail naming it when it does not.
+      [src: ultracode review, 2026-08-13]
+
+- [ ] (P3, XS) **REV-3 — FB-7's collapsed rail tab aligns to the wrong edge on
+      the RIGHT rail** (`apps/web/components/FloatingPanel.tsx:94-95`). Filed
+      2026-08-13; MEASURED in Chromium against the repo's real Tailwind build.
+      `railed ? "shrink-0 self-start"` has no side branch, unlike every other
+      side-aware clause in the file. At 1280x650 with a 320px card docked above:
+      rail `right=1268`, tab `right=1049.8` — 218 px of empty column to the
+      right of a tab on a `right-3`-anchored rail, and a behaviour change from
+      the floating case, which pinned it to `right-3`. Reachable in the shipped
+      flow: `HoleEditor` is unconditionally `seat="right"` and the inspector is
+      mounted during hole editing.
+      FIX: `railed ? cx("shrink-0", side === "right" ? "self-end" : "self-start")`.
+      Cosmetic — the tab stays visible and clickable — but one line, and it sits
+      in the flow FB-7 exists to fix. Also note (a) of the same lens: collapsing
+      the inspector leaves ~91 px of measured dead column; worth a note, not a
+      restructure.
+      [src: ultracode review, 2026-08-13]
+
+- [ ] (P3, S) **REV-4 — six more untrue statements in comments and docs, plus
+      two dead code paths** (`apps/web`, `scripts`). Filed 2026-08-13 from the
+      review's claims audit. Each is small; batched so they are fixed once.
+      (a) `support.ts:550-552` — "NEVER SLOWER THAN ITS PREDECESSOR" is false and
+      self-contradicting two clauses later. The predecessor raced n rAFs against
+      a 2 s timeout; the successor has a 15 s ceiling and no shortcut. MEASURED:
+      `waitForFrames(page, 30)` took **2317.7 ms** in a quiet window. Correct
+      form: never waits fewer FRAMES; wall clock can be longer, by design.
+      (b) `ChromeRail.tsx:53-59` — the stated reason for context-over-ref is
+      wrong in both halves: the shipped `useState`+`useEffect` path is ALSO null
+      on first commit, and a plain ref would float forever, not "for one frame".
+      The code is right; the reason is not.
+      (c) `support.ts:292` — constants "exported so a spec can state what it
+      calibrated against"; no spec imports them and the calibration comment
+      never names 0.25 or 24.
+      (d) `e2e-shard-audit.py` — the `"timedOut" in self.statuses` branch is dead
+      (Playwright's JSON reporter serialises a timeout as `unexpected`, already
+      covered); harmless, but say so or delete it.
+      (e) `e2e-shard-audit.py` timeline — "N tests" / "% of the way through"
+      counts only tests that RAN; skipped tests have `results: []` and vanish.
+      (f) `e2e.yml:204` — "a job timeout kills the `if: always()` upload steps"
+      is REASONING ONLY and unmeasurable from this container; GitHub documents
+      `always()` as running on cancellation. The step-timeout change is right for
+      its other stated reason, so nothing needs reverting — soften the sentence
+      or check it against one real timed-out job.
+      (g) `ChromeRail.test.tsx:54` — the second case's assertion is byte-identical
+      to the first's and its title claims a `data-viewport-chrome` check it does
+      not make. It can fail, so it is not dead; it adds zero coverage.
+      [src: ultracode review, 2026-08-13]
+
+- [ ] (P2, S) **REV-5 — the two instruments that could close the stale-readback
+      and context-loss exposures are exercised only by themselves**
+      (`apps/web`). Filed 2026-08-13.
+      (a) `requireRenders` — the strict mode `de3755f` shipped precisely to stop
+      a census sampling a stale buffer — has ZERO product consumers. All three
+      call sites are in `qa-harness.spec.ts`, the gate that tests it. Note the
+      review's warning before wiring it in: `waitForRenders` counts renders
+      since the WAIT starts, so `requireRenders: true` at a census site throws
+      whenever the render already landed, which is the common case. Wiring it up
+      needs a different shape, not a flag flip.
+      (b) `qa-harness.spec.ts:756` asserts `glEvents` is EMPTY, i.e. that the
+      `webglcontextrestored` path was never taken — so the `invalidate()` fix at
+      `Viewport.tsx:505`, sold as a real product fix, is exercised by nothing.
+      `WEBGL_lose_context` is available in headless Chromium, so the mutation is
+      cheap: lose, restore, assert the scene repaints with no user input, and
+      assert it FAILS with the `invalidate()` removed.
+      [src: ultracode review, 2026-08-13]
+
 - [ ] (P1, M) **CI-4 — the e2e suite has gone systemically unstable: THREE
       mechanisms in FOUR consecutive runs, so no commit's CI signal can be
       trusted right now** (`apps/web`, `.github/workflows`). Filed 2026-08-11 by
