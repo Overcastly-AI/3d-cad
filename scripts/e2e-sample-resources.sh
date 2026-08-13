@@ -95,7 +95,15 @@ TICKS=0
 read_ticks() { # utime+stime for a pid, in clock ticks; 0 when it has gone
   local line rest
   TICKS=0
-  read -r line <"/proc/$1/stat" 2>/dev/null || return 0
+  # REDIRECTION ORDER MATTERS. `read -r line <FILE 2>/dev/null` does NOT silence
+  # a missing file: bash's own "No such file or directory" diagnostic is emitted
+  # by the redirection itself, before `read` runs, so it escapes the 2>/dev/null
+  # attached to the command. Observed in a real shard run —
+  # `e2e-sample-resources.sh: line 98: /proc/4604/stat: No such file or
+  # directory` interleaved with Playwright output, i.e. noise in exactly the log
+  # this sampler exists to make readable. A sampled process exiting mid-sweep is
+  # normal, not an error. Putting 2>/dev/null FIRST silences the redirection too.
+  read -r line 2>/dev/null <"/proc/$1/stat" || return 0
   # comm (field 2) is parenthesised and may contain spaces, so split after the
   # LAST ')': the remainder starts at field 3, making utime token 12, stime 13.
   rest="${line##*') '}"

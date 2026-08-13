@@ -308,11 +308,14 @@ test.describe("a sketch on a model face is visible while you draw it", () => {
     });
     if (process.env.LOFT_CENSUS_LOG) console.log(JSON.stringify(census));
 
-    // THE FLOOR. 120 was the exact-token floor and it is NOT relaxed here: the
-    // coverage instrument reads HIGHER than the exact count on the same frame
-    // (it collects the AA blend the exact census throws away), so the same
-    // scribe has to clear a floor several times larger than the one it
-    // replaces. Calibrated from measurement, not chosen.
+    // THE FLOOR, stated only in the units it was measured in. An earlier draft
+    // argued "120 -> 400, so the floor went UP and is NOT relaxed": that
+    // compares incommensurable numbers (an exact-token pixel COUNT against a
+    // coverage SUM) and, taken as a fraction of the healthy reading, it went
+    // the other way — 120/244 = 49 % becomes 400/1168 = 34 %. The comparison is
+    // dropped rather than re-argued, because the old floor's apparent
+    // strictness was noise anyway: it returned 0 on 5 of 10 HEALTHY runs. The
+    // honest argument for this floor is the mutant separation below, nothing else.
     //
     // THE MUTANT IS NOT ZERO, AND THE FIRST DRAFT OF THIS COMMENT SAID IT WAS.
     // Measured 2026-08-12 by flipping BOTH `depthTest: false` sites in
@@ -325,11 +328,22 @@ test.describe("a sketch on a model face is visible while you draw it", () => {
     // coverage does NOT: about a fifth of the ink still reaches the frame,
     // because a coplanar sketch under `depthTest: true` z-fights rather than
     // disappearing, and some fragments win. The separation this gate actually
-    // has is 1168 vs 212 — 5.5x, with the floor sitting ~2.9x clear of each
-    // side — not the "hundreds versus zero" the exact census had. That is
-    // still a sound floor, and it is a DIFFERENT claim from the one the
-    // predecessor comment made; anyone re-calibrating needs the real number,
-    // because a floor set anywhere below ~250 would pass the mutant.
+    // has is 1168 vs 212 — 5.5x end to end — not the "hundreds versus zero" the
+    // exact census had.
+    //
+    // THE FLOOR IS NOT CENTRED, AND A PREVIOUS VERSION OF THIS COMMENT SAID IT
+    // WAS ("~2.9x clear of each side", "below ~250 would pass the mutant").
+    // Both numbers were wrong. 1168.32 / 400 = 2.92 above; 400 / 212.49 = 1.88
+    // below. Geometrically centred would be 498. And the number that matters to
+    // a re-calibrator is the MUTANT, 212.49: anything below ~213 passes it, so
+    // a 230 floor would still redden. Quote 213, not 250.
+    //
+    // The floor stays correctly SIGNED across the whole 20-40 px/mm band this
+    // spec permits (at 40: mutant ~319 < 400 < healthy ~1755; at 20: 160 < 400
+    // < 877), but the margin on the mutant side is only ~1.25x at the top of
+    // that band. That is reachable solely by editing source, so it is a
+    // calibration note rather than a defect — but do not tighten the band
+    // without re-deriving this.
     expect(
       scribe.coverage,
       `the scribe is not on the picked face: ${JSON.stringify(census)}`,

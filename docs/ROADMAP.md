@@ -13,6 +13,36 @@ library and cleared two of three images to publish (`c7f23dd`). OPEN: LIC-1,
 stripping jbigkit from the geometry image, which is what still blocks
 publishing it.
 
+**SPEC-4 CLOSED-PENDING-REVIEW 2026-08-12/13 (`0983935`) — the scribe census is
+measured by coverage now, and the review that followed corrected four of this
+entry's own numbers.** `sketch-visibility`'s exact-token census was a sub-pixel
+lottery: an anti-aliased 1 px GL line lands on its literal token only where it
+covers a whole pixel, so it returned 0 on 5 of 10 runs with the scribe plainly
+drawn — the same zero a real depth-order regression gives.
+`measureInkCoverage` sums per-pixel coverage along the ground->token axis, which
+anti-aliasing conserves, and measures the ground per run rather than hard-coding
+a wash that drifts. Verified 11 runs green (5 quiet, 3 under a 3-core burner at
+load average 6.5 — the condition where the old census failed 3 of 5, 1
+census-logging, 2 post-correction), plus a deliberate mutation red.
+MEASURED, and these are the numbers to calibrate from: healthy **1168.32**,
+mutant (both `depthTest: false` sites flipped) **212.49**, floor **400** — 2.92x
+below healthy, 1.88x above the mutant, and **anything below ~213 passes the
+mutant**. `ink` and `inkNearToken` both collapse to 0 under that mutation;
+coverage does not, because a coplanar sketch under `depthTest: true` z-fights
+rather than vanishing.
+THE INSTRUMENT'S ADVERTISED DISCRIMINATION DOES NOT EXIST, and the claim
+travelled from the original docstring into the commit message before the
+five-lens review caught it: off-axis rejection does NOT keep `scribeSolved`
+(#C4D2DE) out of the census. Recomputed independently — t = 0.81, residual 9.0
+against `INK_AXIS_TOLERANCE = 24`, i.e. counted; `constructionInk` likewise at
+19.3. It is structural (those tokens differ from `scribe` almost purely in
+luminance, and luminance IS the axis), so no tolerance admitting real faint ink
+can separate them. A rectangle in entirely the wrong token clears the floor.
+Corrected in the docstring, the spec comment and BACKLOG.
+MARKED CLOSED-PENDING-REVIEW, not CLOSED: `0983935` was the orchestrator
+reconciling a dead agent's work after a container restart and has had a code
+review (this one) but still NO independent QA pass.
+
 **CI-4 REVIEW FIX SHIPPED 2026-08-11 (backend-builder) — the posture guard that
 guarded nothing.** The verdict step's `grep -q -- '--fail-on-flaky'
 .github/workflows/e2e.yml` matched its OWN text: 7 occurrences in that file, one

@@ -142,7 +142,7 @@ duplication.
       today's client config.
       [src: orchestrator CI root-cause, 2026-08-11]
 
-- [x] (P1, XS) **SPEC-4 — `sketch-visibility`'s exact-token ink census is a
+- [x] (P1, XS) **SPEC-4 (CLOSED-PENDING-QA) — `sketch-visibility`'s exact-token ink census is a
       sub-pixel lottery: ~50 % red at HEAD, locally, with the product correct**
       (`apps/web/e2e`). Filed 2026-08-11 by frontend-builder from CI-4's
       instrumented runs — this is what CI-4 move (3) actually found, and it
@@ -186,10 +186,30 @@ duplication.
       QUIETLY DROPPED: the mutation does NOT give ~0. Measured healthy
       coverage 1168.32 vs mutant 212.49 (`ink` and `inkNearToken` DO both go to
       0 in the mutant). A coplanar sketch under `depthTest: true` z-fights
-      instead of vanishing, so about a fifth of the ink still lands. The gate's
-      real separation is 5.5x with the floor ~2.9x clear either side — sound,
-      but any floor below ~250 would pass the mutant, which is what the next
-      person calibrating needs to know.
+      instead of vanishing, so about a fifth of the ink still lands.
+      CORRECTED AGAIN 2026-08-13 by the five-lens ultracode review, which caught
+      three further wrong numbers in the paragraph above — written by the
+      orchestrator while correcting somebody else's wrong number, which is its
+      own lesson. (a) The floor is NOT "~2.9x clear either side": 1168.32/400 =
+      2.92 ABOVE, 400/212.49 = 1.88 BELOW; centred would be 498. (b) "any floor
+      below ~250 would pass the mutant" is wrong — the mutant is 212.49, so 230
+      still reddens; the number to quote is ~213. (c) The "floor went UP,
+      120 -> 400" framing compares an exact-token COUNT with a coverage SUM; as
+      a fraction of healthy it FELL, 49% -> 34%. That comparison is now dropped
+      rather than re-argued.
+      AND THE INSTRUMENT DOES NOT DO WHAT ITS DOCSTRING CLAIMED. "Rejects
+      off-axis pixels so `scribeSolved` cannot be counted as `scribe`" is FALSE
+      and was repeated into `0983935`'s commit message. Verified independently
+      against the measured ground (72,75,78): `scribeSolved` (#C4D2DE) projects
+      to t = 0.81 with residual **9.0**, `constructionInk` to t = 0.53 residual
+      **19.3**, both inside `INK_AXIS_TOLERANCE = 24`, so both are COUNTED. It
+      is structural, not tuning: those tokens differ from `scribe` almost purely
+      in LUMINANCE and luminance is the axis, and a foreign token's residual
+      scales with coverage, so rejecting one would need coverage > tol/distance,
+      which exceeds 1 for both. A rectangle drawn ENTIRELY in the wrong token
+      clears the 400 floor. The helper answers "is there ink of roughly this hue
+      here", never "is this ink this exact token" — corrected in the docstring;
+      the commit message stands as history with this entry as its annotation.
       [src: CI-4 frontend slice, 2026-08-11]
 
 - [ ] (P3, XS) **SPEC-3 — the live-extrude-ghost gate is a thin statistical

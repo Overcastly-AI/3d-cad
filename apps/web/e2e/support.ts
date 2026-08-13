@@ -313,19 +313,41 @@ export const INK_AXIS_TOLERANCE = 24;
  * ground→token axis: `t` is how much token is in it (0 = bare ground, 1 = solid
  * ink), and the perpendicular residual is how far the colour is from anything
  * that could BE this ink over this ground. Pixels off the axis are rejected and
- * reported (`offAxis`) rather than counted, which is what keeps a neighbouring
- * token out of the census — `sketch.scribeSolved` (#C4D2DE) sits within ±48 of
- * `sketch.scribe` per channel, so a fat tolerance alone would conflate the two.
+ * reported (`offAxis`) rather than counted.
+ *
+ * WHAT THE RESIDUAL DOES *NOT* DO, because the first version of this docstring
+ * claimed the opposite and was wrong: it does NOT separate `sketch.scribe` from
+ * `sketch.scribeSolved` (#C4D2DE), and no tolerance that admits real faint ink
+ * can. Computed against the measured ground (72,75,78): `scribeSolved`
+ * projects to t = 0.81 with a residual of **9.0**, and `constructionInk` to
+ * t = 0.53 residual **19.3** — both inside `INK_AXIS_TOLERANCE = 24`, so both
+ * are COUNTED, at ~0.8 and ~0.5 weight. The reason is structural, not a tuning
+ * miss: these tokens differ from `scribe` almost purely in LUMINANCE, and
+ * luminance is the axis. A foreign token's residual also scales with its
+ * coverage, so rejecting one needs coverage > tolerance/distance — greater
+ * than 1 for both. Consequence to respect: a rectangle drawn entirely in the
+ * WRONG token still clears the 400 floor. This helper answers "is there ink of
+ * roughly this hue here", not "is this ink exactly this token".
+ *
+ * What the residual DOES reject is a genuinely different hue — the un-blued
+ * face, or brass UI at residual ~100. That is what `offAxis` is for.
  *
  * The ground is MEASURED from the frame (per-channel median of the box), not
  * passed in: the sketcher's bluing is a feathered wash over a shaded face, so
  * there is no constant to hard-code, and a census that hard-codes its own
  * ground drifts silently the day the wash changes.
  *
- * WHAT IT KEEPS. The defect this replaces a census for — coplanar ink losing
- * the depth fight — removes the ink entirely, so every pixel in the box reads
- * as ground, `t ≈ 0`, and the coverage is ~0. The headline power (hundreds vs
- * ZERO) is unchanged; only the false zero is gone.
+ * WHAT IT KEEPS — AND THIS PARAGRAPH USED TO STATE A PREDICTION THE SAME COMMIT
+ * HAD ALREADY MEASURED FALSE. It said the depth-fight defect "removes the ink
+ * entirely … the coverage is ~0" and that the headline power was "hundreds vs
+ * ZERO, unchanged". Measured, by flipping both `depthTest: false` sites in
+ * `SketchScene.tsx`: healthy **1168.32**, mutant **212.49**. The exact-token
+ * count and the ±48 near-token count DO both collapse to 0; coverage does not,
+ * because a coplanar sketch under `depthTest: true` z-fights rather than
+ * disappearing, so roughly a fifth of the ink still reaches the frame.
+ * So the real separation is 1168 vs 212 — the floor of 400 sits 2.9x below
+ * healthy and 1.9x above the mutant, and ANY FLOOR BELOW ~213 PASSES THE
+ * MUTANT. Calibrate from those two numbers, not from "versus zero".
  */
 export async function measureInkCoverage(
   page: Page,
