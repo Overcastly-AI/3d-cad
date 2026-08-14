@@ -28,6 +28,15 @@ were not being used and the orchestrator was doing their work by hand.
 
 1. **Reading CI.** `api.github.com` is policy-denied for every subagent. You are
    the only one who can see a run, so you read it and relay failures back.
+   **THERE ARE THREE WORKFLOWS AND `ci` IS ONLY ONE OF THEM** — `ci.yml`,
+   `e2e.yml`, `deploy-path.yml`. Reading `ci` alone and saying "CI is green" is
+   a false statement about the build, and I made it repeatedly on 2026-08-14
+   while `e2e` had been RED for **ten consecutive commits** (last green
+   `a34382b`; red from `221a7ca` onward, which is a DOCS-ONLY commit, so the
+   red was never in anyone's diff). Nobody caught it because the sentence
+   "green on ci" is true and reads like the whole answer. Check all three, name
+   which one you checked, and treat "green" as a claim that needs the same
+   measurement discipline as any other.
 2. **Dispatching batches** and assigning **disjoint territories**.
 3. **Integrating** green branches and verifying the MERGED tree before pushing.
 4. **Relaunching dead agents** and reconciling their preserved work.

@@ -244,6 +244,33 @@ a second opinion from a different derivation.
 
 ---
 
+## 4a. "CI is green" was a false claim for ten commits, and the fault was mine
+
+There are three workflows — `ci.yml`, `e2e.yml`, `deploy-path.yml`. Through
+2026-08-14 I read `ci` and reported "CI green", including to the founder, while
+`e2e` had been failing on **every commit since `221a7ca`** — ten in a row, last
+green `a34382b`. `221a7ca` is a docs-only commit, so the red was never in
+anybody's diff: it is CI-4's systemic instability, sitting in plain sight in a
+workflow nobody was reading.
+
+The failure shape is the point. "Green on `ci`" is a TRUE sentence that reads
+like a complete answer, so it never invited a second look — the same shape as
+every other entry in §4. It is also exactly the trap `just gen-check` had
+(a gate is only as honest as its input) wearing different clothes: the question
+I asked was narrower than the question I reported answering.
+
+The two specs failing at the tip, for the record: `qa-harness.spec.ts:968`
+("the probe window must see renders while the scene is orbiting", Expected > 0,
+Received 0) and `qa-sel7-verify.spec.ts:555` (QA7-1, already root-caused by the
+engineering audit as a wait on a string the product never renders — a vacuous
+wait, so the spec's two arms are sampled at different settle depths). 118 passed
+on that shard.
+
+Rule: name the workflow you checked. "Green on ci" and "green" are different
+claims and only one of them is defensible from one API call.
+
+---
+
 ## 5. Environment facts that cost real time
 
 Full detail lives in `CLAUDE.md`'s environment-recipes section; these are the
