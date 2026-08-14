@@ -46,6 +46,8 @@ import {
   usePartViewStore,
 } from "./partView";
 import {
+  safeUp,
+  upFor,
   useViewCommandStore,
   useViewHotkeys,
   VIEW_DIRECTIONS,
@@ -79,13 +81,6 @@ interface CameraGoal {
   target: Vector3;
   /** Named view stamped on the container once the move settles (QA hook). */
   view: string;
-}
-
-/** Camera up for a snap direction — top/bottom need a non-parallel up. */
-function upFor(dir: Vector3): Vector3 {
-  return Math.abs(dir.y) > 0.99
-    ? new Vector3(0, 0, dir.y > 0 ? -1 : 1)
-    : new Vector3(0, 1, 0);
 }
 
 /**
@@ -271,8 +266,24 @@ function CameraRig({
     [camera, framing],
   );
 
-  // Has the auto-fit ever run for this viewport? The FIRST fit has no viewpoint
-  // to respect and picks iso; every later one does, and must keep it.
+  /**
+   * DOES THIS SCENE HAVE A VIEWPOINT WORTH KEEPING?
+   *
+   * NOT "has the auto-fit run" — that reading is what FB-20 was. Every path
+   * that POSES the camera must set this: the view commands (snaps, fit,
+   * reference-cube picks), the auto-fit, and the moment the sketcher takes the
+   * camera, because it hands back a pose the user chose by choosing the plane.
+   * If you add another way to move the camera, set it there too.
+   *
+   * Why the distinction is the whole bug: it used to be set in exactly ONE
+   * place, inside the auto-fit. So a user who had pinned iso on the view rail,
+   * then drawn a sketch and extruded it, was still `first` when their geometry
+   * appeared — and the first extrude of every session snapped the view away.
+   * The founder reported it as "I draw in a plane and then all of a sudden it
+   * switches after an extrude" (2026-08-14), and the FB-1 gate could not see
+   * it: its fixture builds a box before it starts measuring, so it had only
+   * ever watched the SECOND extrude.
+   */
   const framedOnce = useRef(false);
 
   // Auto-fit whenever the subject changes (a fresh geometry, or an assembly
@@ -305,8 +316,10 @@ function CameraRig({
     if (first) userMoved.current = false;
 
     // Direction points from the target TO the camera, matching framePose's
-    // convention. Falling back to iso covers a degenerate pose (camera sitting
-    // exactly on its target), which would otherwise normalise to a zero vector.
+    // convention. The iso fallback is for a scene NOBODY has posed yet (an
+    // empty part opening for the first time) and for a degenerate pose (camera
+    // sitting exactly on its target), which would otherwise normalise to a zero
+    // vector. It is not the "first geometry" case: see `framedOnce`.
     let dir = ISO_DIR.clone();
     let up = new Vector3(0, 1, 0);
     if (!first) {
@@ -314,7 +327,7 @@ function CameraRig({
       const offset = camera.position.clone().sub(currentTarget);
       if (offset.lengthSq() > 1e-12) {
         dir = offset.normalize();
-        up = camera.up.clone();
+        up = safeUp(dir, camera.up.clone());
       }
     }
 
@@ -337,6 +350,10 @@ function CameraRig({
   useEffect(() => {
     if (command === null || command.nonce === executed.current) return;
     executed.current = command.nonce;
+    // Every branch below poses the camera deliberately — a snap, a fit, or a
+    // reference-cube pick — so from here on this scene HAS a viewpoint. One
+    // assignment rather than three: a branch added later inherits it.
+    framedOnce.current = true;
     const box = boundsRef.current;
     const hasBounds = box !== null && !box.isEmpty();
     const center = hasBounds
@@ -364,7 +381,14 @@ function CameraRig({
       // Keep the view direction, frame the subject.
       const dir = camera.position.clone().sub(currentTarget).normalize();
       userMoved.current = false;
-      pose = framePose(dir, camera.up.clone(), center, fitRadius, "fit", box);
+      pose = framePose(
+        dir,
+        safeUp(dir, camera.up.clone()),
+        center,
+        fitRadius,
+        "fit",
+        box,
+      );
     } else {
       const named = command.kind === "home" ? "iso" : command.kind;
       const dir = new Vector3(...VIEW_DIRECTIONS[named]).normalize();
@@ -394,10 +418,18 @@ function CameraRig({
    *
    * Measured while landing FB-7: part rig wanting radius 70, sketch rig 230,
    * camera parked at ~120 and moving on every frame indefinitely.
+   *
+   * Handing the camera over also COUNTS AS A POSE. The sketcher parks it
+   * normal-on to the plane the user picked, so whatever comes back is a
+   * viewpoint they chose — by choosing that plane. Without this the first
+   * extrude of a session would only keep the view if some chrome change
+   * happened to fire a fit on the way out; with it the invariant holds even
+   * when no panel moves.
    */
   useEffect(() => {
     if (owns) return;
     goal.current = null;
+    framedOnce.current = true;
   }, [owns]);
 
   /**
