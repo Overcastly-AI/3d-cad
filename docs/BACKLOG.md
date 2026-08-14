@@ -69,7 +69,7 @@ duplication.
 
 ## Ready (top of queue)
 
-- [ ] (P1, S) **QA7-1 — ROOT-CAUSED this pass (K1): the spec waits on a string
+- [x] (P1, S) **QA7-1 — ROOT-CAUSED this pass (K1): the spec waits on a string
       the product never renders, so the wait is a no-op and the two arms of its
       comparison sample at different settle depths** (`apps/web/e2e/
       qa-sel7-verify.spec.ts:596-616`). `expect.poll(() => status.textContent(),
@@ -98,6 +98,39 @@ duplication.
       TERRITORY: `apps/web/e2e/qa-sel7-verify.spec.ts` only — read-only on
       `partBuild.ts` (cite its status union, do not change it).
       agentType: frontend-builder.
+      SHIPPED db144d7, and REVIEWED non-blocking (3 green, 1 amber). Root cause
+      confirmed independently: `solveSummary` returns exactly
+      `"Solving…" | "—" | "Failed" | "Solved"`, and `grep -rn Evaluating
+      apps/web/src` is 0 hits, so the old `.not.toBe("Evaluating")` poll was
+      satisfied by its FIRST sample and the two arms of `run()` were then
+      sampled at different settle depths (drawn arm immediately; hidden arm
+      after a re-show + view-fit + six frames). Fix waits on
+      `toHaveText(/Solved|Failed/)` and samples both arms at the same point
+      before the arm-specific restore; the hidden arm's restore now carries its
+      own assertion instead of running for scenery. `"—"` is deliberately NOT
+      accepted: the evaluate query is keyed on tree version with no
+      keepPreviousData, so its data is briefly undefined right after Hole1
+      lands and that window must not end the wait.
+      The interesting part is the GATE ON THE GATE: a static check reads the
+      four allowed strings out of `solveSummary` in the product source — never
+      copied into the spec — scans the spec's own source for SOLVE-cell
+      assertions, and demands every string they name is in that vocabulary. It
+      carries its own negative control (the shipped defect line verbatim,
+      asserted BEFORE the subject) so "0 violations" can never mean "the
+      scanner matched nothing". The reviewer re-ran all four mutation arms and
+      reproduced them verbatim, plus two of its own.
+      **AMBER, for a follow-up:** the scanner recognises a SOLVE-cell subject
+      only via the literal `"eval-status"` or a `const <name> =
+      page.getByTestId("eval-status")` binding, so `page.locator(
+      "[data-testid=eval-status]")` and `const cell = status` both slip past —
+      measured, each applied and reverted, 1 passed. Neither shape exists in
+      the file today so nothing is unguarded now, but the gate's header claims
+      completeness the code does not meet, which is this repo's own
+      guard-encodes-the-direction-of-its-defect pattern. Also NOT done: the
+      gate is scoped to this one file rather than all of `apps/web/e2e`
+      (sibling specs were other agents' territory that batch); promoting it, or
+      lifting it into `just lint` as a standalone script, is the cheap
+      follow-up. QA never ran — the verify agent died on a session limit.
       DISPATCHED 2026-08-14 alongside FB-19 (disjoint territories — no
       viewport/sketch/geometry files touched by either).
 

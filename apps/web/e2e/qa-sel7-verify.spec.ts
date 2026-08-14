@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+
 import { expect, test, type Page } from "./fixtures";
 
 import { labelCentroid, setBodyMode } from "./occludedPlate";
@@ -592,29 +594,63 @@ test.describe("SEL-7 QA — the hole placement overlay against a hidden body", (
       await expect(
         page.getByTestId("feature-row").filter({ hasText: "Hole1" }),
       ).toBeVisible({ timeout: 60_000 });
+
+      /*
+        WAIT FOR A STATE THE PRODUCT CAN ACTUALLY BE IN.
+
+        This wait used to read `.not.toBe("Evaluating")`, and "Evaluating" is
+        not in the SOLVE cell's vocabulary: `solveSummary` in
+        `src/features/partBuild.ts` returns exactly one of "Solving…" | "—" |
+        "Failed" | "Solved" (cited by NAME, not by line: the gate at the foot
+        of this file re-reads that function every run, so the four strings
+        cannot go stale here without the gate saying so). The predicate was
+        therefore satisfied by the FIRST sample and the wait was worth
+        nothing, so the two arms below sampled whatever the page happened to
+        be showing — which is how a load-correlated `toEqual` failure got in
+        (QA7-1).
+
+        The terminal states are the two verdicts. "—" is reachable and is NOT
+        one: the evaluation query is keyed on the tree version, so creating
+        Hole1 swaps the key and its data is briefly `undefined` — the exact
+        window this regex refuses to accept as an answer.
+      */
       const status = page.getByTestId("eval-status");
-      await expect
-        .poll(() => status.textContent(), { timeout: 60_000 })
-        .not.toBe("Evaluating");
+      await expect(status).toHaveText(/Solved|Failed/, { timeout: 120_000 });
+
+      /*
+        BOTH ARMS ARE SAMPLED HERE — at the same point in run(), BEFORE the
+        arm-specific restore below. Sampling the verdict and the volume after
+        the hidden arm's re-show + re-fit (six frames and two round trips
+        later than the drawn arm reaches the same line) makes the comparison
+        measure that skew rather than the SEL-7 property.
+      */
+      const settled = (await status.textContent()) ?? "";
       const errors = await page
         .locator('[data-testid^="feature-error-"]')
         .allInnerTexts();
-
-      if (hide) {
-        await setBodyMode(page, rows.plate, "solid");
-        await page.getByTestId("view-fit").click();
-        await waitForFrames(page, 6);
-      }
       const volumeAfter = (
         (await page.getByTestId("prop-volume").textContent()) ?? ""
       ).trim();
       const outcome: Outcome = {
-        status: (await status.textContent()) ?? "",
+        status: settled,
         errors,
         promised,
         volumeBefore,
         volumeAfter,
       };
+
+      if (hide) {
+        // Put the body back — and ASSERT on it, so this is a measurement and
+        // not a step that runs for scenery: visibility is a view decision, so
+        // showing the plate again must not move the number the model reports.
+        await setBodyMode(page, rows.plate, "solid");
+        await page.getByTestId("view-fit").click();
+        await waitForFrames(page, 6);
+        expect(
+          ((await page.getByTestId("prop-volume").textContent()) ?? "").trim(),
+          "showing the body again does not change the reported volume",
+        ).toBe(volumeAfter);
+      }
       report(
         `Create ${what}`,
         `X ${promised.x}, Y ${promised.y} → ${outcome.status}` +
@@ -729,5 +765,263 @@ test.describe("SEL-7 QA — with a finger", () => {
     await waitForFrames(page, 6);
     await expect(page.getByTestId("hole-point-center")).toHaveCount(1);
     expect(await coordinates(page)).toEqual(drilled);
+  });
+});
+
+/* ==========================================================================
+   THE GATE ON THE GATE — static, no browser, no stack.
+
+   QA7-1: the wait in `run()` above shipped reading `.not.toBe("Evaluating")`,
+   and "Evaluating" is a word the SOLVE cell has never rendered. An assertion
+   whose expected value is outside the product's vocabulary cannot fail for the
+   reason it was written, so it is satisfied by the first sample and everything
+   that depends on it runs against an unsettled page. Same defect class as a CI
+   grep that matches its own prose.
+
+   The reported failure was load-correlated, so REVERTING the vacuous wait is
+   not a reliable way to reproduce it — one green run would prove nothing. What
+   IS deterministic is the vocabulary mismatch, so that is what is gated: the
+   allowed strings are read out of `solveSummary` in the product source rather
+   than copied here, and every assertion in this file that names the SOLVE cell
+   must claim one of them.
+   ========================================================================== */
+
+/** `src/features/partBuild.ts` — the SOLVE cell's only vocabulary. */
+const PART_BUILD_URL = new URL("../src/features/partBuild.ts", import.meta.url);
+/** This file, read as text: the gate's subject is its own source. */
+const THIS_SPEC_URL = new URL(import.meta.url);
+
+/**
+ * The line as it shipped, kept verbatim as the gate's NEGATIVE CONTROL.
+ *
+ * A fixture in the wrong shape is a gate that cannot fail for the reason you
+ * care about, so the control is not a paraphrase: it is the statement the
+ * scanner has to be able to see, in the formatting prettier gave it.
+ */
+const THE_QA7_1_DEFECT = `await expect
+        .poll(() => status.textContent(), { timeout: 60_000 })
+        .not.toBe("Evaluating");`;
+
+/** Skip a string/template literal; returns the index of its closing quote. */
+function skipStringLiteral(src: string, open: number): number {
+  const quote = src[open];
+  for (let i = open + 1; i < src.length; i += 1) {
+    if (src[i] === "\\") {
+      i += 1;
+      continue;
+    }
+    if (src[i] === quote) return i;
+  }
+  return src.length - 1;
+}
+
+/** Skip a `//` or a block comment; returns the index of its last character. */
+function skipComment(src: string, open: number): number {
+  if (src.startsWith("//", open)) {
+    const end = src.indexOf("\n", open);
+    return end === -1 ? src.length - 1 : end - 1;
+  }
+  const end = src.indexOf("*/", open + 2);
+  return end === -1 ? src.length - 1 : end + 1;
+}
+
+/**
+ * Every `expect…;` statement in a source text.
+ *
+ * Bracket-balanced and literal-aware, for two reasons that both bite here:
+ * assertion messages carry parentheses of their own ("(SEL-6b, the stage
+ * before this one)") so a naive scan ends a statement in the middle of one;
+ * and the negative-control fixture above is an `expect` statement living
+ * inside a template literal in THIS file, which must not be mistaken for a
+ * real assertion when the gate reads its own source.
+ */
+function expectStatements(src: string): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < src.length; i += 1) {
+    const ch = src[i] ?? "";
+    if (ch === '"' || ch === "'" || ch === "`") {
+      i = skipStringLiteral(src, i);
+      continue;
+    }
+    if (ch === "/" && (src[i + 1] === "/" || src[i + 1] === "*")) {
+      i = skipComment(src, i);
+      continue;
+    }
+    if (!src.startsWith("expect", i)) continue;
+    const before = i === 0 ? " " : (src[i - 1] ?? " ");
+    // Prettier breaks a long chain right after `expect`, which is exactly how
+    // the QA7-1 line was formatted — so the next MEANINGFUL character is what
+    // decides, not the next character. (The negative control caught this: an
+    // `after = src[i + 6]` test found 0 statements in the shipped defect.)
+    let k = i + "expect".length;
+    while (k < src.length && /\s/.test(src[k] ?? "")) k += 1;
+    const after = src[k] ?? "";
+    // `expect(` or `expect.poll(` only — not `expected`, not `.expect`.
+    if (/[\w$.]/.test(before) || (after !== "(" && after !== ".")) continue;
+    let depth = 0;
+    let j = i;
+    for (; j < src.length; j += 1) {
+      const c = src[j] ?? "";
+      if (c === '"' || c === "'" || c === "`") {
+        j = skipStringLiteral(src, j);
+      } else if (c === "/" && (src[j + 1] === "/" || src[j + 1] === "*")) {
+        j = skipComment(src, j);
+      } else if (c === "(" || c === "[" || c === "{") {
+        depth += 1;
+      } else if (c === ")" || c === "]" || c === "}") {
+        depth -= 1;
+      } else if (c === ";" && depth === 0) {
+        break;
+      }
+    }
+    out.push(src.slice(i, j));
+    i = j;
+  }
+  return out;
+}
+
+/** The source text of the first argument of the call opening at `open`. */
+function firstArgument(src: string, open: number): string {
+  let depth = 0;
+  for (let i = open; i < src.length; i += 1) {
+    const c = src[i] ?? "";
+    if (c === '"' || c === "'" || c === "`") {
+      i = skipStringLiteral(src, i);
+    } else if (c === "/" && (src[i + 1] === "/" || src[i + 1] === "*")) {
+      i = skipComment(src, i);
+    } else if (c === "(" || c === "[" || c === "{") {
+      depth += 1;
+    } else if (c === ")" || c === "]" || c === "}") {
+      depth -= 1;
+      if (depth === 0) return src.slice(open + 1, i).trim();
+    } else if (c === "," && depth === 1) {
+      return src.slice(open + 1, i).trim();
+    }
+  }
+  return src.slice(open + 1).trim();
+}
+
+/**
+ * The text(s) a matcher argument CLAIMS the cell can read, or `[]` when the
+ * argument is an expression the gate cannot evaluate (a variable, another
+ * locator's text) and therefore says nothing about.
+ */
+function claimedTexts(arg: string): string[] {
+  // Backticks count: `toHaveText(\`Evaluating\`)` is the same defect wearing
+  // different quotes. An INTERPOLATED template is an expression, not a claim.
+  const literal = /^(["'`])([\s\S]*)\1$/.exec(arg);
+  if (literal !== null) {
+    const text = literal[2] ?? "";
+    if (literal[1] === "`" && text.includes("${")) return [];
+    return [text.replace(/\\(.)/g, "$1")];
+  }
+  const pattern = /^\/([\s\S]+)\/[dgimsuvy]*$/.exec(arg);
+  if (pattern === null) return [];
+  // `/Solved|Failed/` and `/(Solved|Failed)/` are the two shapes written here;
+  // anything richer falls through to alternatives the vocabulary will refuse,
+  // which is the loud direction to fail in.
+  const body = (pattern[1] ?? "").replace(/^\((?:\?:)?([\s\S]*)\)$/, "$1");
+  return body
+    .split("|")
+    .map((alt) => alt.replace(/^\^/, "").replace(/\$$/, ""))
+    .map((alt) => alt.replace(/\\(.)/g, "$1"));
+}
+
+const SOLVE_MATCHERS =
+  /\.(?:not\.)?(?:toBe|toEqual|toHaveText|toContainText|toMatch)\(/;
+
+/** Every text an `expect…` statement claims of the thing it asserts on. */
+function statementClaims(statement: string): string[] {
+  const claims: string[] = [];
+  const re = new RegExp(SOLVE_MATCHERS.source, "g");
+  for (let m = re.exec(statement); m !== null; m = re.exec(statement)) {
+    const open = m.index + m[0].length - 1;
+    claims.push(...claimedTexts(firstArgument(statement, open)));
+  }
+  return claims;
+}
+
+/** The `expect…` statements in `src` that assert on the SOLVE cell. */
+function solveCellStatements(src: string): string[] {
+  const bound: string[] = [];
+  const binding = /const (\w+) = page\.getByTestId\("eval-status"\)/g;
+  for (let m = binding.exec(src); m !== null; m = binding.exec(src)) {
+    bound.push(m[1] ?? "");
+  }
+  const names = bound.filter((n) => n.length > 0);
+  return expectStatements(src).filter(
+    (s) =>
+      s.includes('"eval-status"') ||
+      names.some((n) => new RegExp(`(?<![\\w$.])${n}\\b`).test(s)),
+  );
+}
+
+test.describe("SEL-7 QA — the gate on the gate (QA7-1)", () => {
+  test("no assertion here names a SOLVE state the product cannot render", async () => {
+    // (1) THE VOCABULARY, read from the product — never copied into the spec,
+    //     so a fifth verdict is inside this gate the day it lands.
+    const productSource = await readFile(PART_BUILD_URL, "utf8");
+    const fn = /export function solveSummary\([\s\S]*?\n}/.exec(productSource);
+    expect(fn, "solveSummary() in src/features/partBuild.ts").not.toBeNull();
+    const vocabulary: string[] = [];
+    const returns = /return "([^"]*)"/g;
+    const body = fn?.[0] ?? "";
+    for (let m = returns.exec(body); m !== null; m = returns.exec(body)) {
+      vocabulary.push(m[1] ?? "");
+    }
+    report("SOLVE vocabulary", vocabulary.map((v) => `"${v}"`).join(" | "));
+    // Non-vacuity of the vocabulary itself: an extractor that found NOTHING
+    // would refuse every claim (loud), but one that found the wrong thing
+    // could bless anything — so name the two verdicts this file waits on.
+    expect(vocabulary.length, "solveSummary returns literals").toBeGreaterThan(
+      1,
+    );
+    expect(vocabulary).toContain("Solved");
+    expect(vocabulary).toContain("Failed");
+
+    // (2) THE NEGATIVE CONTROL, run before the subject: the scanner must be
+    //     able to SEE the statement that shipped, and the vocabulary must
+    //     refuse it. Without this, "0 violations" is indistinguishable from
+    //     "the scanner matched nothing" — the all([]) trap.
+    const controlStatements = solveCellStatements(
+      `const status = page.getByTestId("eval-status");\n${THE_QA7_1_DEFECT}`,
+    );
+    expect(
+      controlStatements.length,
+      "the scanner sees the statement QA7-1 was filed against",
+    ).toBe(1);
+    const controlClaims = controlStatements.flatMap(statementClaims);
+    expect(controlClaims, "…and reads its expected value").toEqual([
+      "Evaluating",
+    ]);
+    expect(
+      vocabulary,
+      "…and the product's vocabulary refuses it — the gate can go red",
+    ).not.toContain("Evaluating");
+
+    // (3) THE SUBJECT: this file.
+    const specSource = await readFile(THIS_SPEC_URL, "utf8");
+    const statements = solveCellStatements(specSource);
+    expect(
+      statements.length,
+      "this file asserts on the SOLVE cell at all",
+    ).toBeGreaterThan(0);
+    const claims = statements.flatMap(statementClaims);
+    report(
+      "SOLVE-cell assertions",
+      `${statements.length} statement(s) claiming ${claims
+        .map((c) => `"${c}"`)
+        .join(", ")}`,
+    );
+    expect(
+      claims.length,
+      "…and at least one of them names an expected state",
+    ).toBeGreaterThan(0);
+    for (const claim of claims) {
+      expect(
+        vocabulary,
+        `the SOLVE cell can render "${claim}" (solveSummary, partBuild.ts)`,
+      ).toContain(claim);
+    }
   });
 });
