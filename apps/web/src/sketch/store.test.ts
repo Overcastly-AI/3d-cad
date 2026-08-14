@@ -364,6 +364,127 @@ describe("constraints", () => {
   });
 });
 
+/**
+ * FOUNDER 2026-08-14, "I still cannot click dimension and actually have it
+ * assign a dimension." Reproduced in a browser as a DEAD END, not a wrong
+ * value: a draw tool stays armed after it draws, so the click meant to select
+ * the line is eaten as the next shape's first corner, and the dimension verb
+ * kept answering "Select one line to dimension." These tests hold the fix at
+ * the level where it lives — the verb arms and consumes the next entity click.
+ */
+describe("dimension verb with nothing selected — arms instead of refusing", () => {
+  /** Draw a rectangle and leave the RECT TOOL ARMED, as a real user does. */
+  const rectangleStillDrawing = () => {
+    useSketchStore.getState().begin();
+    useSketchStore.getState().choosePlane("XY");
+    useSketchStore.getState().setTool("rect");
+    useSketchStore.getState().placeAt({ x: 0, y: 0 });
+    useSketchStore.getState().placeAt({ x: 40, y: 25 });
+  };
+
+  it("drops the draw tool and asks for a click, instead of a dead end", () => {
+    rectangleStillDrawing();
+    const store = useSketchStore.getState;
+    expect(store().tool).toBe("rect"); // the reason a click could not select
+    expect(store().drawDimension).not.toBeNull();
+
+    store().applyConstraint("distance");
+
+    expect(store().dimensionPick).toBe("distance");
+    expect(store().tool).toBe("select"); // the load-bearing half
+    expect(store().pending).toEqual([]);
+    expect(store().drawDimension).toBeNull();
+    expect(store().hint).toBe("Click a line to dimension it.");
+    expect(store().dimensionEdit).toBeNull();
+  });
+
+  it("the next entity click opens THAT entity's editor and disarms", () => {
+    rectangleStillDrawing();
+    const store = useSketchStore.getState;
+    store().applyConstraint("distance");
+    store().selectAt({ x: 20, y: 0.5 }, 2); // the bottom line
+
+    expect(store().dimensionEdit).toMatchObject({
+      kind: "distance",
+      entity: "e1",
+      initialMm: 40,
+      constraintIndex: null,
+    });
+    expect(store().dimensionPick).toBeNull();
+    // The pick is CONSUMED by the verb, not left as a selection behind the
+    // editor — the editor already names its target.
+    expect(store().selection).toEqual([]);
+  });
+
+  it("a click on empty space keeps it armed rather than silently disarming", () => {
+    rectangleStillDrawing();
+    const store = useSketchStore.getState;
+    store().applyConstraint("distance");
+    store().selectAt({ x: 500, y: 500 }, 2);
+    expect(store().dimensionPick).toBe("distance");
+    expect(store().dimensionEdit).toBeNull();
+  });
+
+  it("a wrong-kind pick says so and stays armed (circle under Distance)", () => {
+    useSketchStore.getState().begin();
+    useSketchStore.getState().choosePlane("XY");
+    useSketchStore.getState().setTool("circle");
+    useSketchStore.getState().placeAt({ x: 0, y: 0 });
+    useSketchStore.getState().placeAt({ x: 10, y: 0 });
+    const store = useSketchStore.getState;
+    store().applyConstraint("distance");
+    store().selectAt({ x: 10, y: 0 }, 2); // on the circle
+    expect(store().dimensionEdit).toBeNull();
+    expect(store().dimensionPick).toBe("distance");
+    expect(store().hint).toMatch(/one line/i);
+  });
+
+  it("radius arms the same way, and picks the circle", () => {
+    useSketchStore.getState().begin();
+    useSketchStore.getState().choosePlane("XY");
+    useSketchStore.getState().setTool("circle");
+    useSketchStore.getState().placeAt({ x: 0, y: 0 });
+    useSketchStore.getState().placeAt({ x: 10, y: 0 });
+    const store = useSketchStore.getState;
+    store().applyConstraint("radius");
+    expect(store().dimensionPick).toBe("radius");
+    expect(store().hint).toBe("Click a circle or arc to dimension it.");
+    store().selectAt({ x: 10, y: 0 }, 2);
+    expect(store().dimensionEdit).toMatchObject({
+      kind: "radius",
+      entity: "e1",
+      initialMm: 10,
+    });
+  });
+
+  it("Escape disarms it and does NOT exit the sketch", () => {
+    rectangleStillDrawing();
+    const store = useSketchStore.getState;
+    store().applyConstraint("distance");
+    store().escape();
+    expect(store().dimensionPick).toBeNull();
+    expect(store().hint).toBeNull();
+    expect(store().mode).toBe("draw"); // the sketch survives
+    expect(store().entities).toHaveLength(4);
+  });
+
+  it("reaching for another tool abandons the armed verb", () => {
+    rectangleStillDrawing();
+    const store = useSketchStore.getState;
+    store().applyConstraint("distance");
+    store().setTool("line");
+    expect(store().dimensionPick).toBeNull();
+  });
+
+  it("a NON-dimension verb still refuses with its own hint", () => {
+    rectangleStillDrawing();
+    const store = useSketchStore.getState;
+    store().applyConstraint("coincident");
+    expect(store().dimensionPick).toBeNull();
+    expect(store().hint).toMatch(/two points/i);
+  });
+});
+
 describe("construction toggle", () => {
   it("marks the selected entity construction, bumps revision, clears selection", () => {
     rectangleAt();

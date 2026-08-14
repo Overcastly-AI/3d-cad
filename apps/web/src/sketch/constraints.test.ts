@@ -79,6 +79,26 @@ describe("resolveSketchKey — one keyboard, two vocabularies", () => {
     expect(resolveSketchKey("h", false)).toBeNull();
   });
 
+  /**
+   * FOUNDER 2026-08-14 ("cannot click dimension and have it assign one"): D
+   * with an empty selection used to resolve to NOTHING — no tool owns `d` —
+   * so the one advertised dimension key was a no-op at exactly the moment a
+   * user reaches for it (just after drawing, when nothing is selected). It now
+   * hands `distance` to the store, which arms the verb for the next click.
+   */
+  it("D dimensions even with nothing selected; R stays the Rectangle tool", () => {
+    expect(resolveSketchKey("d", false)).toEqual({
+      type: "constraint",
+      action: "distance",
+    });
+    // A DRAWING key must never turn into a dimension key.
+    expect(resolveSketchKey("r", false)).toEqual({ type: "tool" });
+    // Nothing else changes: the other verbs are still selection-first.
+    for (const key of ["h", "v", "x", "p", "t", "e", "o", "n"]) {
+      expect(resolveSketchKey(key, false)).toBeNull();
+    }
+  });
+
   it("J/K are not constraint verbs when a selection exists", () => {
     expect(resolveSketchKey("j", true)).toBeNull();
     expect(resolveSketchKey("k", true)).toBeNull();

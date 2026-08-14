@@ -333,7 +333,7 @@ duplication.
       TERRITORY: `apps/web/src/viewport/SketchScene.tsx`,
       `apps/web/src/sketch/**`, new e2e spec. agentType: frontend-builder.
 
-- [ ] (P0, S) **FOUNDER — dimensions not assigning.** Founder report, not yet
+- [x] (P0, S) **FOUNDER — dimensions not assigning.** Founder report, not yet
       reproduced by an auditor. REPRODUCE FIRST: draw a sketch entity, add a
       dimensional constraint (Distance or Radius), type a value into the
       dimension's input field, press Enter — confirm whether the geometry
@@ -353,6 +353,31 @@ duplication.
       [src: founder report 2026-08-14, needs reproduction]
       TERRITORY: `apps/web/src/sketch/**` (exact files TBD by reproduction).
       agentType: frontend-builder.
+      REPRODUCED and SHIPPED 5289694 — branch (i). A draw tool stays armed after
+      it draws, so the click meant to select a side is consumed as the NEXT
+      rectangle's first corner; the Dimension verb is selection-first only, so
+      it demands a step the user cannot perform from where they stand and every
+      retry repeats it. `D` was worse: `resolveSketchKey("d", false)` returned
+      null, so it did literally nothing with an empty selection. The verb now
+      ARMS instead of refusing. Mutation: spec 2 failed / 0 passed reverted vs
+      2 passed; units 9 failed / 137 passed reverted vs 146 passed. Gates
+      re-run on the merged tree by the orchestrator (typecheck clean, 1612 unit
+      tests). NOT yet reviewed or QA'd — dispatched.
+      **TWO ADJACENT FINDINGS the agent measured and did NOT touch (outside its
+      territory), both for the groomer to file:** (a) P0 — the dimension VALUE
+      field loses keystrokes typed at human speed. `ConstraintGlyphs.tsx` is a
+      CONTROLLED React input inside the r3f canvas via drei `<Html>`; typing
+      `125` into a field pre-filled `43` yields `435` at every inter-key delay
+      from 0 to 120 ms and only survives at 200 ms. Event trace: `[input]
+      value="1"` -> 86 ms blocked main thread -> `macro value="43"` (React
+      restores from a stale render). `SketchScene.tsx` documents this SAME
+      defect and fixed it by making the FB-16 draw cells UNCONTROLLED; the same
+      remedy applies. This is plausibly the founder's actual experience.
+      (b) M22 confirmed as designed: before the second click `draw-dimensions`
+      is `data-state="live"` with ZERO input cells, so the live W/H chip is
+      indistinguishable from a field and typing does nothing.
+      FB-16 is NOT regressed and SKETCH-1 is not implicated — editing an
+      existing dimension works end to end (measured 60 then 25).
 
 - [ ] (P0, M) **FB-21 — the origin axis glyphs are labelled in KERNEL space but
       drawn in SCENE space, which the GLB rotation has already turned.**

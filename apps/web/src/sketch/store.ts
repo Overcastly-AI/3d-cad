@@ -86,6 +86,17 @@ export const DEFAULT_SNAP_STEP_MM = 1;
 
 export type SketchMode = "off" | "plane" | "draw";
 
+/** The two verbs that open a value editor, hence the two that can be ARMED. */
+export type DimensionPickAction = "distance" | "radius";
+
+/** What an armed dimension verb asks for, in the user's words. */
+export const DIMENSION_PICK_HINT: Readonly<
+  Record<DimensionPickAction, string>
+> = {
+  distance: "Click a line to dimension it.",
+  radius: "Click a circle or arc to dimension it.",
+};
+
 /**
  * The size cells a just-drawn shape is offering (FB-16). Held apart from
  * `dimensionEdit`, which edits a dimension that already EXISTS on geometry the
@@ -134,6 +145,7 @@ const CLEARED_BY_HISTORY = {
   hoverPick: null,
   selectedConstraint: null,
   dimensionEdit: null,
+  dimensionPick: null,
   drawDimension: null,
   drawDimensionFocus: null,
   offsetDraft: null,
@@ -189,6 +201,26 @@ export interface SketchState {
   selectedConstraint: number | null;
   /** Open inline dimension editor, or null. */
   dimensionEdit: DimensionEditorTarget | null;
+  /**
+   * A DIMENSION VERB ARMED WITH NOTHING TO DIMENSION — the founder's
+   * "I still cannot click dimension and actually have it assign a dimension"
+   * (2026-08-14), which reproduced as a dead end rather than a wrong value.
+   *
+   * The dimension verbs were selection-first ONLY: with nothing selected the
+   * strip's Dimension > Distance printed "Select one line to dimension." and
+   * stopped. That instruction cannot be followed from where it appears, because
+   * a draw tool stays armed after it draws (Fusion does the same) — so the
+   * click the user makes to "select the line" is consumed as the first corner
+   * of the next rectangle, the readout keeps saying "nothing selected", and the
+   * verb keeps refusing. Measured end to end in a browser: draw a rectangle,
+   * click a side, Dimension > Distance -> selection "nothing selected",
+   * dimension editor count 0.
+   *
+   * Armed, the verb becomes a TOOL: the draw tool is dropped, the next entity
+   * click opens that entity's dimension editor, and Escape disarms. The verb
+   * proposes, the user disposes (CLAUDE.md flow rule) instead of dead-ending.
+   */
+  dimensionPick: DimensionPickAction | null;
   /**
    * The size cells the shape under the cursor is offering (FB-16), or null.
    * Set by the placement that emitted the shape; cleared by anything that ends
@@ -497,6 +529,7 @@ const INITIAL = {
   hoverPick: null,
   selectedConstraint: null,
   dimensionEdit: null,
+  dimensionPick: null,
   drawDimension: null,
   drawDimensionFocus: null,
   featureId: null,
@@ -671,6 +704,9 @@ const createSketchState = (
       hoverPick: null,
       selectedConstraint: null,
       dimensionEdit: null,
+      // Reaching for another tool abandons an armed dimension pick, the same
+      // way it abandons a mirror or corner draft.
+      dimensionPick: null,
       drawDimension: null,
       drawDimensionFocus: null,
       offsetDraft: null,
@@ -820,6 +856,45 @@ const createSketchState = (
   selectAt: (point, toleranceMm, mode) => {
     const state = get();
     const candidates = pickCandidates(state.entities, point, toleranceMm);
+    // An ARMED dimension verb consumes this click instead of selecting with it:
+    // the whole point of arming was that "select the line first" was the step
+    // the user could not reach. Take the CURVE under the pointer (points are
+    // not dimensionable), exactly as trim/extend/offset do.
+    const armed = state.dimensionPick;
+    if (armed !== null) {
+      const entityPick = candidates.find((pick) => pick.kind === "entity");
+      if (entityPick === undefined) {
+        // Empty space: stay armed and keep asking, rather than silently
+        // disarming and leaving the user's next click to mean something else.
+        set({ selection: [], selectedConstraint: null });
+        return;
+      }
+      const result = applyConstraintAction(
+        armed,
+        [entityPick],
+        state.entities,
+        state.constraints,
+      );
+      if (result.outcome === "editor") {
+        set({
+          dimensionEdit: result.target,
+          dimensionPick: null,
+          selection: [],
+          selectedConstraint: null,
+          hint: null,
+        });
+        return;
+      }
+      // Wrong KIND under the pointer (a circle while Distance is armed): say
+      // so and stay armed, so the next click is still a dimension pick.
+      set({
+        selection: [],
+        selectedConstraint: null,
+        hint:
+          result.outcome === "hint" ? result.hint : DIMENSION_PICK_HINT[armed],
+      });
+      return;
+    }
     set({
       selection: applyPick(
         state.selection,
@@ -859,9 +934,28 @@ const createSketchState = (
         });
         return;
       case "editor":
-        set({ dimensionEdit: result.target, hint: null });
+        set({ dimensionEdit: result.target, dimensionPick: null, hint: null });
         return;
       case "hint":
+        // A DIMENSION verb with nothing usable selected ARMS instead of
+        // refusing (see `dimensionPick`). Dropping the draw tool is the
+        // load-bearing half: while it is armed, every canvas click is the next
+        // shape's first corner, so "select one line" is an instruction the user
+        // cannot carry out. The size cells of the shape just drawn go too —
+        // they hang over the geometry now being picked.
+        if (action === "distance" || action === "radius") {
+          set({
+            dimensionPick: action,
+            tool: "select",
+            pending: [],
+            selection: [],
+            selectedConstraint: null,
+            drawDimension: null,
+            drawDimensionFocus: null,
+            hint: DIMENSION_PICK_HINT[action],
+          });
+          return;
+        }
         set({ hint: result.hint });
         return;
     }
@@ -1302,10 +1396,18 @@ const createSketchState = (
       constraints,
       featureId,
       dimensionEdit,
+      dimensionPick,
       offsetDraft,
       mirror,
       corner,
     } = get();
+    // An ARMED dimension verb is the most local rung there is — it owns the
+    // next click, so it must be what the next Escape gives back. Without this
+    // the cascade would fall through to "nothing to lose" and exit the sketch.
+    if (dimensionPick !== null && dimensionEdit === null) {
+      set({ dimensionPick: null, hint: null });
+      return;
+    }
     // Corner's own cascade, most-local first: an open editor / any picks →
     // clear the picks (close the editor); empty picks → drop the tool.
     if (corner !== null) {

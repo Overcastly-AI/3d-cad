@@ -27,6 +27,33 @@ harness-produced fixture). Groom pass 2026-08-14 (post-VP-1/SKETCH-1) filed
 onto the board; both queue behind the currently-occupied
 `apps/web/src/{viewport,sketch}/**` territories.
 
+**FOUNDER "dimensions not assigning" REPRODUCED and FIXED (5289694,
+2026-08-14).** The report had sat un-reproduced by anyone. The mechanism is a
+flow defect, not a wrong value: a draw tool stays armed after it draws (Fusion
+does the same), so the click meant to select a side is consumed as the NEXT
+rectangle's first corner — and the Dimension verb is selection-first only, so it
+answers "nothing selected / Select one line to dimension." and every retry
+repeats it. A closed loop the user cannot leave. The keyboard half was worse:
+`resolveSketchKey("d", false)` returned null, so `D` did literally nothing with
+an empty selection, which is exactly when a user reaches for it. The verb now
+ARMS instead of refusing — drops the draw tool, clears the size cells, asks
+"Click a line to dimension it."; the next entity click opens that entity's
+editor. Escape disarms as a new most-local rung; without it the cascade fell
+through and would have EXITED the sketch. Mutation, both directions: the new
+spec is 2 failed / 0 passed with the fix reverted and 2 passed with it in; the
+unit suites are 9 failed / 137 passed reverted and 146 passed in place.
+
+The same pass measured a second, probably-more-important defect it correctly
+did NOT touch because the file belongs to a live sibling: **the dimension VALUE
+field loses keystrokes typed at human speed** (`ConstraintGlyphs.tsx`, a
+controlled React input inside the r3f canvas via drei `<Html>`). Typing `125`
+into a field pre-filled `43` yields `435` at every inter-key delay from 0 to
+120 ms and only survives at 200 ms; the event trace shows an 86 ms blocked main
+thread between the input event and React's restore from a stale render.
+`SketchScene.tsx` already documents and fixed this same defect by making its
+cells uncontrolled. Filed for the next batch — this is plausibly what the
+founder actually hit.
+
 **VP-1 PARTIAL (c31bd7d, 2026-08-14) — orbit works while sketching, on the
 middle button; it does not yet reach a trackpad.** The sketcher draws with a
 left press-drag-release and three.js binds orbit to LEFT, so the app had
