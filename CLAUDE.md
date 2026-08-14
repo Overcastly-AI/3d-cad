@@ -360,6 +360,40 @@ on completion with a watchdog fallback (`docs/AUTONOMOUS-LOOP.md` §1.4).
 
 ## Multi-agent orchestration protocol
 
+**READ THIS FIRST — most of the rules below exist because we were not doing the
+two things at the top of this list, and they become far less load-bearing once
+we are.**
+
+- **THE ORCHESTRATOR DISPATCHES AND INTEGRATES. IT DOES NOT DO THE ORG'S JOB.**
+  Audited 2026-08-14 after the founder said "none of the agents are being used":
+  nine of the fourteen agents in `.claude/agents/` had never been invoked, and
+  the orchestrator had been writing `docs/BACKLOG.md` ITSELF — `file CI-4`,
+  `file REV-1..REV-5`, `file QA7-1` are all orchestrator commits. That is the
+  `backlog-groomer`'s entire job, performed in the most expensive context in the
+  system. Every symptom followed from it: two classes of writer on the shared
+  docs (hence overwrites, hence the staging tool below), audits done by hand
+  instead of by `product-auditor`/`engineering-auditor`, and a cron racing its
+  own slices. **The groomer owns the board. The auditors own the audit docs. The
+  builders own their code. The orchestrator hands out tickets, integrates green
+  branches, and reads CI — which is the one thing no subagent can do.**
+- **BUILD IN WORKTREES.** Give every parallel builder `isolation: 'worktree'`.
+  We documented this at `.claude/workflows/autonomous-dev-loop.md` for weeks and
+  never did it, and the cost is most of this section: a shared index is the only
+  reason `git add` can sweep a colleague, the only reason a stale `read-tree`
+  can revert one, and the only reason `stage-doc-hunks.py` exists. Next-Lane
+  runs the same loop with worktrees and has no equivalent script at all.
+- **DOC EDITS ARE THE LAST STEP, STAGED AND COMMITTED IN THE SAME TURN.** This
+  is Next-Lane's actual mitigation for the shared-doc race, and it is cheaper
+  and more reliable than ours. Never leave `docs/ROADMAP.md` / `docs/BACKLOG.md`
+  edits unstaged across other tool calls — that window is the whole hazard. When
+  several agents must touch the same docs, serialize the doc-writers or give one
+  a worktree. `scripts/stage-doc-hunks.py` is now a FALLBACK for the
+  unavoidable shared-tree case, not the default path: it is 750 lines, it has
+  failed silently three times in production (swept a colleague's entry;
+  relocated the author's own entry to the end of the file; truncated an entry to
+  7 lines of 31 while reporting "left 0 hunk(s) unstaged"), and every one of
+  those failures was a cost of sharing a tree rather than a reason to trust the
+  tool. Read `git diff --cached` in full before every commit regardless.
 - **File territories.** Parallel agents get explicitly disjoint territories in
   their briefs (e.g. one holds `services/geometry/**`, another `apps/web/**`).
   Never edit, revert, or commit another agent's in-flight files. Foreign
