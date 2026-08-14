@@ -86,7 +86,7 @@ duplication.
       a string absent from `partBuild.ts`'s status union (grep gate is fine).
       [src: engineering-auditor pass 5, 2026-08-14 (K1)]
 
-- [ ] (P0, M) **SKETCH-1 (M15) — a saved sketch can never be re-opened; every
+- [x] (P0, M) **SKETCH-1 (M15) — a saved sketch can never be re-opened; every
       driving dimension in the product is write-once** (`apps/web/src/routes/
       PartPage.tsx`, `apps/web/src/sketch/store.ts`). MEASURED exhaustively:
       clicking the `Sketch1` tree row selects but opens no editor; the
@@ -127,6 +127,10 @@ duplication.
       TERRITORY: `apps/web/src/routes/PartPage.tsx`,
       `apps/web/src/sketch/store.ts`, new `apps/web/e2e/sketch-reopen.spec.ts`.
       agentType: frontend-builder.
+      SHIPPED a7f81ba — `beginEdit` hydrates the session from the persisted
+      params and carries the EXISTING feature id, so the next save PATCHes.
+      Gates re-run by the orchestrator after the agent died mid-slice (typecheck
+      + 1603 unit tests + prettier); NOT reviewed, NOT QA'"'"'d.
 
 - [ ] (P0, S) **VP-1 — no orbit while sketching (founder complaint, root-caused
       this pass)** (`apps/web/src/viewport/Viewport.tsx`). Founder: cannot

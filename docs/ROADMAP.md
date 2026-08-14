@@ -19,6 +19,23 @@ write-once; a viewport pick is stamped with the tip feature's id rather than
 the one that owns the sub-shape). See `docs/BACKLOG.md` Ready:
 SKETCH-1/SKETCH-2/PICK-1/GEOM-2/VP-1 are the next batch.
 
+**SKETCH-1 CLOSED (a7f81ba, 2026-08-14) — a saved sketch can now be re-opened,
+so driving dimensions stop being write-once.** `selectFeature` had a branch for
+every feature type except `sketch` and fell through to `setEditor(null)`, so the
+tree row and its context-menu `Edit` were both silent no-ops. The new
+`beginEdit` hydrates the sketch session from the persisted params and carries
+the EXISTING feature id, which is what makes the next save a PATCH rather than a
+POST minting a second sketch. Two subtleties covered by unit tests: the id
+counter resumes above the highest loaded `e<n>` (otherwise a re-opened sketch
+re-mints `e1` and every id-keyed consumer addresses two entities at once), and
+`SketchPlaneRef` -> `SketchPlaneSpec` needs the inverse of `planeRefFromSpec`
+including the `on_face` reconstruction. Built in an isolated worktree — the
+first batch to use `isolation: 'worktree'` — by an agent that died mid-slice at
+04:45 UTC; the orchestrator reconciled the preserved work and re-ran the gates
+(typecheck clean, 1603 unit tests, prettier clean). **Not reviewed by
+`code-reviewer` and not QA'd by `qa-tester`**: the batch died before those
+stages, and that is recorded here rather than only in the commit message (K8).
+
 **REV-1 (a)(b) PARTIAL 2026-08-14 — the scribe census counted 48 462 of ink on a
 frame with NO INK ON IT, and the assertion beside it could not be reddened by a
 TOTAL hue swap.** (a) `measureInkCoverage`'s only degeneracy guard was
