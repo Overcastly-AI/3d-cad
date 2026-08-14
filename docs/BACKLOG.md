@@ -53,6 +53,55 @@ duplication.
 
 ## Ready (top of queue)
 
+- [ ] (P0, S) **FB-20 — the camera is stolen after an extrude, and the guard
+      written to stop it has a first-run hole** (`apps/web/src/viewport`).
+      FOUNDER REPORT 2026-08-14: "I draw in a plane and then all of a sudden it
+      switches after an extrude." REPRODUCED AND MEASURED by the orchestrator,
+      not inferred — `apps/web/e2e/axis-flip-probe.spec.ts` samples `data-view`
+      and `data-camera-pos` at every step of the founder's own flow —
+      `02-iso-pinned` view=iso pos=173.5,124.9,278.4;
+      `03-in-sketch-on-XY` iso, unchanged; `04-rectangle-drawn` iso, unchanged;
+      `05-sketch-saved` view=**fit** pos=**-9.5,350.0,8.6** (first move);
+      `06-extrude-editor-open` fit, unchanged;
+      `07-after-extrude` view=**fit-auto** pos=**46.4,33.5,61.0** (the theft).
+      Note the camera moves TWICE and the first move is at SAVE, not extrude.
+      Saving frames you normal-on to the sketch you just drew (-9.5, 350, 8.6 is
+      straight down scene +Y onto the XY sketch), which is defensible. The
+      complaint is 07: the extrude throws that away and lands on an iso-ish
+      direction the user never asked for.
+      ROOT CAUSE, read from the source and consistent with every number above:
+      `Viewport.tsx:296-332`. The auto-fit effect already carries the rule —
+      "RE-FRAME, DO NOT RE-ORIENT", added after the founder reported this once
+      before ("after the extrude it flipped to xy") — and preserves the current
+      direction and up on every run EXCEPT the first, where it uses `ISO_DIR`
+      and `up = +Y` outright. The hole is that `framedOnce` is set in exactly
+      ONE place, line 304, INSIDE that same effect. No view command sets it, and
+      neither does the sketch-save fit (which stamps `view: "fit"`, a different
+      path). So a user whose framing came from the view rail or from saving a
+      sketch is still `first` when geometry first appears, and the extrude
+      re-orients them exactly once — which is precisely what the founder sees,
+      because the extrude IS the first geometry.
+      Same line discards `userMoved`: `if (first) userMoved.current = false`
+      throws away the fact that the user had deliberately orbited (set at :414).
+      FIX: `framedOnce` must mean "this scene has a framing the user could have
+      chosen", so every path that poses the camera sets it — the view commands
+      at :366/:371 and the sketch-save fit, not just the auto-fit. Then the
+      `first` branch only fires on a genuinely unposed scene. Do NOT fix it by
+      deleting the `first` branch: an empty part with no prior pose does need a
+      default, and ISO is the right one.
+      ACCEPTANCE: pin any view, sketch, extrude — `data-camera-pos` direction
+      (normalised, about the fit target) is unchanged across the extrude, while
+      DISTANCE and target may change, because re-framing is the wanted half.
+      Mutation-verify: reverting the fix must redden it. Extend
+      `axis-flip-probe.spec.ts` into that gate rather than writing a third one;
+      it already drives the flow. NB it currently only PRINTS — it asserts
+      nothing, so it cannot fail as it stands.
+      RELATED, do not confuse: `founder-picking.spec.ts:382` ("FB-1 gate: a
+      rebuild re-frames the body without stealing the viewpoint") passes today,
+      so it is not covering this path — worth understanding why before adding a
+      fourth gate over the same rule.
+      [src: founder 2026-08-14, reproduced by orchestrator]
+
 - [ ] (P1, S) **REV-1 — seven gates in the CI-4 batch cannot fail, and one
       reusable helper reads 12034 on a frame with NO ink** (`apps/web/e2e`,
       `scripts`, `.github/workflows`). Filed 2026-08-13 from the five-lens
