@@ -77,6 +77,21 @@ Audit  →  Groom  →  Build  →  Integrate  →  (next batch)
 - **Integrate** — yours. Merge each green branch, verify the merged tree
   (typecheck + unit + targeted gates), push, read CI, then launch the next batch.
 
+**Builders commit CODE ONLY. The board tick is yours, folded in at
+integration.** The same-commit rule for `docs/ROADMAP.md` + `docs/BACKLOG.md`
+still holds — but three worktrees each editing those two files is a guaranteed
+conflict, and resolving it by hand re-creates the sweeping this loop exists to
+end. So say in every brief: *"commit code and tests only; do NOT touch
+docs/BACKLOG.md or docs/ROADMAP.md."* Then at integration, per item:
+`git cherry-pick <sha>`, write the tick, `git add` the two docs,
+`git commit --amend --no-edit`. The rule is kept (every commit carries its tick)
+and no two agents ever hold the same file. Verified working 2026-08-14 on
+SKETCH-1 (`30a9f3f`) and VP-1 (`43c703c`).
+
+**Push each cherry-pick separately.** GitHub fires one run per push *event*, so
+a batched push leaves the earlier commits with no run at all — not a cancelled
+one, none. Five separate pushes on 2026-08-14 produced five separate runs.
+
 Script: `loft-dev-loop.js`. Docs: `.claude/workflows/autonomous-dev-loop.md`.
 
 **Never barrier shipping on planning.** If an auditor dies, build from the
@@ -140,6 +155,21 @@ agent's output mtime is under 30 minutes.
   matching its own prose, a unit test whose helper did the cleanup it asserted,
   and a `self_test` returning 0 with zero checks because `all([])` is `True`.
   **Standing review question: "can this gate fail? show it failing."**
+- **Testing a probe against a fixture you built to match it.** The loop hook's
+  own in-flight guard globbed `/tmp/claude-0/*/tasks` — one directory shallower
+  than the harness's real path — and its test passed because the fixture was
+  created at the depth the code expected. It could never fire, so the hook was
+  free to dispatch on top of live agents: the exact racing it was written to
+  prevent, shipped 59 minutes after `docs/RETRO.md`. Found by
+  `engineering-auditor` (K7), fixed in `29387da`. **When a probe reads something
+  the environment produces, the positive control must use the environment's own
+  artefact, and the test must REFUSE rather than pass when none exists.**
+  Corollary, earned the same hour: writing the *negative* controls found a
+  second defect the audit had not — `find … | grep -q .` is wrong under
+  `pipefail` (grep exits first, find takes SIGPIPE), so the guard read "nothing
+  in flight" precisely when many outputs were fresh. **The negative control is
+  where the second bug lives.** And size it: 3 fixture files let the broken form
+  pass, 2000 failed it deterministically.
 - **Repeating an inherited claim.** Three false claims reached the record, one
   written *while correcting somebody else's wrong number*. Every number you
   write must be one you measured.

@@ -51,9 +51,29 @@ and does not write the board.**
    **`isolation: 'worktree'`**, owning the slice end to end: implement, review
    its own diff, QA against the real stack, commit only if green, leave the work
    on its branch. Serialize only items that touch the same files.
-4. **Integrate** — the orchestrator merges the green branches, **verifies the
-   merged tree** (typecheck + unit + targeted gates) before pushing, reads CI,
-   then launches the next batch.
+   **Builders commit CODE AND TESTS ONLY.** They do not touch `docs/ROADMAP.md`
+   or `docs/BACKLOG.md`: several worktrees ticking those two files is a
+   guaranteed conflict over exactly the files the collision protocol exists for,
+   which would undo the isolation the worktree just bought. The groomer is the
+   only writer on them during a batch, and the same-commit rule is still kept —
+   see step 5.
+4. **Review, then Verify (per item, pipelined)** — `code-reviewer` on what
+   actually landed, then `qa-tester` against the real running stack. **These are
+   not optional and they were missing from this loop until 2026-08-14**, when
+   the engineering audit (K8) measured the consequence: three of the last five
+   commits landed with no review and no QA, disclosed only in a commit message.
+   A build-only loop cannot produce reviewed work however good the builders are.
+   Pipelined rather than barriered — item A's review starts the moment A's build
+   lands, while B is still building; nothing here needs cross-item context.
+   The reviewer re-runs the builder's mutation evidence itself rather than
+   trusting the report, and checks every factual claim the diff adds to the
+   record.
+5. **Integrate** — the orchestrator cherry-picks each clean branch, **writes the
+   ROADMAP/BACKLOG tick and folds it into that commit** (`git commit --amend
+   --no-edit`), **verifies the merged tree** (typecheck + unit + targeted gates)
+   before pushing, pushes **each commit separately** (GitHub fires one run per
+   push *event*, so a batched push leaves the earlier commits with no run at
+   all), reads CI, then launches the next batch.
 
 ## Guardrails
 
@@ -72,7 +92,8 @@ and does not write the board.**
 
 ```js
 export const meta = { name:'loft-dev-loop',
-  phases:[{title:'Audit'},{title:'Groom'},{title:'Build'},{title:'Integrate'}] }
+  phases:[{title:'Audit'},{title:'Groom'},{title:'Build'},
+          {title:'Review'},{title:'Verify'},{title:'Integrate'}] }
 
 phase('Audit')                       // skippable via args.skipAudit
 await parallel([
@@ -87,15 +108,22 @@ const ready = await agent('Refresh the Ready queue; return the top N DISJOINT '
   + 'items with {id,title,ticket,agentType,territory}.',
   {agentType:'backlog-groomer', schema: READY})
 
-phase('Build')                       // one agent per item, each in a worktree
-const built = await parallel(ready.items.map(it => () =>
-  agent(ticketBrief(it), {agentType: it.agentType, isolation:'worktree',
-                          schema: BUILT})))
+// Build -> Review -> Verify as a PIPELINE, not barriered stages: A's review
+// starts the moment A's build lands, while B is still building.
+const slices = await pipeline(ready.items,
+  it => agent(ticketBrief(it),                 // code+tests only, no doc ticks
+              {phase:'Build', agentType: it.agentType,
+               isolation:'worktree', schema: BUILT}),
+  (build, it) => agent(reviewBrief(it, build), // re-runs the mutation itself
+              {phase:'Review', agentType:'code-reviewer', schema: REVIEWED}),
+  slice   => agent(qaBrief(slice),             // real stack, real browser
+              {phase:'Verify', agentType:'qa-tester', schema: VERIFIED}))
 
 phase('Integrate')                   // orchestrator, by hand, verified
 ```
 
 ## Done when
 
-Green branches are merged, the merged tree passes its gates, CI is green on the
-pushed commit, and the next batch is launched.
+Each branch is clean through **review and QA** — not merely built — the merged
+tree passes its gates, its board tick rode in the same commit, CI is green on
+the pushed commit, and the next batch is launched.

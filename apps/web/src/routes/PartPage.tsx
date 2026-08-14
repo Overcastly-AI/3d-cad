@@ -300,6 +300,8 @@ import {
   type PlaneBasis,
   resolveDatumSceneBasis,
   resolveDatumPlaneOptions,
+  type SketchPlaneRef,
+  type SketchPlaneSpec,
 } from "../sketch/plane";
 import {
   faceOrdinalOfSignature,
@@ -1289,6 +1291,38 @@ export function PartPage() {
   const datumPlaneOptions = useMemo(
     () => resolveDatumPlaneOptions(features),
     [features],
+  );
+  /**
+   * The inverse of `planeRefFromSpec`: a PERSISTED sketch plane ref back to the
+   * viewport spec the sketcher draws and poses its camera with. Re-opening a
+   * saved sketch (SKETCH-1) is the one flow that needs it — every other plane
+   * spec is minted by the pick that chose it.
+   *
+   * The datum branches reuse the ONE datum derivation the plane picker and the
+   * section author already read, plus the `on_face` reconstruction the solved
+   * overlay uses (an on-face datum has no world-frame walk, so
+   * `resolveDatumPlaneOptions` deliberately omits it — its face signature is in
+   * its own params). Null means the plane is genuinely unresolvable client-side
+   * (a rolled-back/deleted datum, or a face-picked midplane side); the caller
+   * says so rather than opening a sketcher on a plane it cannot place.
+   */
+  const specFromPlaneRef = useCallback(
+    (ref: SketchPlaneRef): SketchPlaneSpec | null => {
+      if (ref.kind === "datum_plane")
+        return { kind: "origin", base: ref.plane };
+      const option = datumPlaneOptions.find((o) => o.id === ref.feature_id);
+      if (option !== undefined) return option.spec;
+      const params = datumById.get(ref.feature_id);
+      if (params?.kind === "on_face") {
+        return faceSpecFromDatum(
+          ref.feature_id,
+          params.face.selector.signature,
+          params.offset_mm,
+        );
+      }
+      return null;
+    },
+    [datumPlaneOptions, datumById],
   );
   // Axis line-entity choices per profile sketch — the revolve editor scopes its
   // axis picker to the selected profile's own lines.
@@ -2329,11 +2363,50 @@ export function PartPage() {
           featureId: feature.id,
           initial: formFromDatumParams(feature.feature.params, lengthUnit),
         });
+      } else if (feature.feature.type === "sketch") {
+        // A SAVED SKETCH RE-OPENS IN THE SKETCHER (SKETCH-1). Every other type
+        // above opens a form; a sketch's editor IS the sketcher, so this branch
+        // hydrates the session from the persisted params instead — same plane,
+        // same entities, same constraints, and the SAME feature id, so the next
+        // save PATCHes this sketch rather than minting a second one. Without it
+        // the chain fell through to `setEditor(null)` and the row click was a
+        // silent no-op: a dimension could be authored once and never revised.
+        const params = feature.feature.params;
+        const store = useSketchStore.getState();
+        // Already the open sketch — the row click is a selection, not a reload.
+        // Rehydrating here would throw away the live buffer.
+        if (store.mode === "draw" && store.featureId === feature.id) return;
+        // Another sketch is open with edits the server has not heard yet.
+        // Swapping would discard them with no way back, so refuse and name the
+        // action that ends the session (FB-13: no ambiguous exits).
+        if (store.mode === "draw" && store.revision > lastSynced.current) {
+          setTreeActionError(
+            `Finish the open sketch before editing ${feature.name}.`,
+          );
+          return;
+        }
+        const plane = specFromPlaneRef(params.plane);
+        if (plane === null) {
+          setTreeActionError(
+            `${feature.name} sits on a plane that cannot be resolved here, so it cannot be re-opened.`,
+          );
+          return;
+        }
+        // Sync bookkeeping, exactly as entering a NEW sketch resets it
+        // (`handleNewSketch`): the loaded buffer is revision 0, so the first
+        // live edit after re-opening is correctly seen as unsynced.
+        setTreeActionError(null);
+        lastSynced.current = 0;
+        failedRevision.current = null;
+        setSyncError(null);
+        setEditor(null);
+        setImportError(null);
+        store.beginEdit(feature.id, plane, params.entities, params.constraints);
       } else {
         setEditor(null);
       }
     },
-    [lengthUnit],
+    [lengthUnit, specFromPlaneRef],
   );
 
   // Re-pick repair for a `subshape_unresolved` feature error (FINDINGS #3). The

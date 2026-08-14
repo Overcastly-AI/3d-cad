@@ -290,6 +290,25 @@ export interface SketchState {
 
   /** Enter sketch mode at the plane-pick step. */
   begin: () => void;
+  /**
+   * RE-OPEN an already persisted sketch feature (SKETCH-1). The sibling of
+   * `begin`, and the difference is the whole point: `begin` opens an EMPTY
+   * session at the plane-pick step, so a sketch that had already been saved
+   * could only ever be drawn once — every driving dimension in a part was
+   * write-once, and the solver, the expressions and the topological-naming
+   * survival were reachable on the first pass only.
+   *
+   * `mode` goes straight to `draw` because the plane is already chosen (there
+   * is nothing to pick), and `featureId` carries the EXISTING id, which is what
+   * makes the next save a PATCH of this feature rather than a POST minting a
+   * second one — `persistBuffer` already branches on exactly that.
+   */
+  beginEdit: (
+    featureId: string,
+    plane: SketchPlaneSpec,
+    entities: readonly SketchEntity[],
+    constraints: readonly SketchConstraint[],
+  ) => void;
   /** One-click: sketch on one of the three origin datums (the common case). */
   choosePlane: (plane: DatumPlaneName) => void;
   /** Sketch on an already-resolved plane spec (origin OR authored offset). */
@@ -510,6 +529,27 @@ const freshSession = (state: SketchState) => ({
 });
 
 /**
+ * The first sketch-local id index free above a loaded entity set. Ids are minted
+ * `e1`, `e2`, … (`tools.entityId`), so a re-opened sketch has to resume ABOVE
+ * the highest one it loaded: resuming at 1 — what a fresh session gives a
+ * brand-new sketch — would mint `e1` a second time, and every id-keyed consumer
+ * (constraint refs, `adoptSolved`'s solved-by-id map, picks, the solver's own
+ * entity table) would then address two entities at once.
+ *
+ * Anything that is not `e<digits>` is ignored rather than guessed at: the index
+ * only has to be free, and a foreign id shape contributes no claim on one.
+ */
+const nextIdIndexAfter = (entities: readonly SketchEntity[]): number => {
+  let highest = 0;
+  for (const entity of entities) {
+    const match = /^e(\d+)$/.exec(entity.id);
+    if (match === null) continue;
+    highest = Math.max(highest, Number(match[1]));
+  }
+  return highest + 1;
+};
+
+/**
  * Does this click ADD to the selection, or replace it (FB-14)?
  *
  * Shift or Ctrl/Cmd adds. The store already holds both, live: `axisLock` is
@@ -603,6 +643,17 @@ const createSketchState = (
   ...INITIAL,
 
   begin: () => set((state) => ({ ...freshSession(state), mode: "plane" })),
+  beginEdit: (featureId, plane, entities, constraints) =>
+    set((state) => ({
+      ...freshSession(state),
+      mode: "draw",
+      featureId,
+      plane,
+      entities: [...entities],
+      constraints: [...constraints],
+      // Resume the id counter above what was loaded (never re-mint `e1`).
+      nextIdIndex: nextIdIndexAfter(entities),
+    })),
   choosePlane: (plane) =>
     set({
       mode: "draw",

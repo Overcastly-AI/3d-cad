@@ -1377,3 +1377,115 @@ describe("sketch-local history (founder, 2026-08-02: no undo/redo in the sketche
     expect(store().selection).toEqual([]);
   });
 });
+
+describe("beginEdit — re-opening a SAVED sketch (SKETCH-1)", () => {
+  const store = useSketchStore.getState;
+  const PERSISTED: SketchEntity[] = [
+    {
+      id: "e1",
+      kind: "line",
+      start: { x: 0, y: 0 },
+      end: { x: 20, y: 0 },
+      construction: false,
+    },
+    {
+      id: "e2",
+      kind: "line",
+      start: { x: 20, y: 0 },
+      end: { x: 20, y: 20 },
+      construction: false,
+    },
+  ];
+  const CONSTRAINTS = [
+    { kind: "horizontal", entity: "e1" },
+    { kind: "distance", entity: "e1", value_mm: 20 },
+  ] as const;
+
+  it("hydrates the persisted session and skips the plane-pick step", () => {
+    store().beginEdit(
+      "feat-sketch-1",
+      { kind: "origin", base: "XZ" },
+      PERSISTED,
+      CONSTRAINTS,
+    );
+    expect(store().mode).toBe("draw"); // NOT "plane": the plane is already fixed
+    expect(store().plane).toEqual({ kind: "origin", base: "XZ" });
+    expect(store().entities).toEqual(PERSISTED);
+    expect(store().constraints).toEqual([...CONSTRAINTS]);
+    // The EXISTING id: this is what makes the next save a PATCH, not a create.
+    expect(store().featureId).toBe("feat-sketch-1");
+    // A loaded buffer is not an edit — nothing to save until the user acts.
+    expect(store().revision).toBe(0);
+  });
+
+  it("resumes the id counter ABOVE the loaded entities (never re-mints e1)", () => {
+    store().beginEdit(
+      "feat-sketch-1",
+      { kind: "origin", base: "XY" },
+      PERSISTED,
+      [],
+    );
+    store().setTool("line");
+    store().placeAt({ x: 0, y: 40 });
+    store().placeAt({ x: 10, y: 40 });
+    const ids = store().entities.map((e) => e.id);
+    expect(ids).toEqual(["e1", "e2", "e3"]);
+    expect(new Set(ids).size).toBe(ids.length); // no id addresses two entities
+  });
+
+  it("takes the HIGHEST index numerically, not lexicographically", () => {
+    store().beginEdit(
+      "feat-sketch-1",
+      { kind: "origin", base: "XY" },
+      [
+        {
+          id: "e9",
+          kind: "circle",
+          center: { x: 0, y: 0 },
+          radius: 5,
+          construction: false,
+        },
+        {
+          id: "e10",
+          kind: "circle",
+          center: { x: 30, y: 0 },
+          radius: 5,
+          construction: false,
+        },
+      ],
+      [],
+    );
+    expect(store().nextIdIndex).toBe(11); // not 10 ("e9" > "e10" as strings)
+  });
+
+  it("replaces the previous session rather than merging into it", () => {
+    rectangleAt(); // four entities of an unrelated, unsaved sketch
+    expect(store().entities).toHaveLength(4);
+    store().beginEdit(
+      "feat-sketch-1",
+      { kind: "origin", base: "XY" },
+      PERSISTED,
+      CONSTRAINTS,
+    );
+    expect(store().entities).toEqual(PERSISTED);
+    // …and its history: undo must not reach back into the abandoned session.
+    expect(store().past).toHaveLength(0);
+    expect(store().future).toHaveLength(0);
+    store().undo();
+    expect(store().entities).toEqual(PERSISTED);
+  });
+
+  it("keeps the snap preferences the user chose", () => {
+    store().toggleSnap();
+    store().setSnapStep(0.5);
+    const snapEnabled = store().snapEnabled;
+    store().beginEdit(
+      "feat-sketch-1",
+      { kind: "origin", base: "XY" },
+      PERSISTED,
+      [],
+    );
+    expect(store().snapEnabled).toBe(snapEnabled);
+    expect(store().snapStepMm).toBe(0.5);
+  });
+});

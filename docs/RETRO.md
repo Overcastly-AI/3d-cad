@@ -112,6 +112,23 @@ support `isolation: "worktree"` and we are not using it.** Adopting it would
 retire a large class of defect that discipline has repeatedly failed to prevent.
 Recorded here as the loop's biggest open structural improvement.
 
+**ADOPTED AND MEASURED, 2026-08-14.** The first batch dispatched with
+`isolation: 'worktree'` produced two live worktrees under `.claude/worktrees/`,
+each cut from the branch tip (`5aa981a`) rather than from `origin/main` — the
+base ref was the specific thing worth checking before trusting anything they
+built, and it was right. Two builders worked simultaneously in
+`apps/web/src/sketch/**` and `apps/web/src/viewport/**` with **zero** contact:
+no shared index, no `stage-doc-hunks.py`, no `GIT_INDEX_FILE` dance, nothing to
+reconcile. The whole collision protocol was simply not needed.
+
+One residual seam, and its fix: the same-commit rule requires every commit to
+tick `docs/ROADMAP.md` + `docs/BACKLOG.md`, which would put every worktree back
+in contention over exactly the two files the protocol was written for. So
+**builders now commit CODE ONLY**, and the orchestrator folds the tick in at
+integration (`cherry-pick` -> write the tick -> `commit --amend --no-edit`).
+The rule is kept and the contention is gone. Written into
+`.claude/ORCHESTRATOR.md` §2.
+
 ---
 
 ## 3. Process change, 2026-08-14: the orchestrator hands out tickets
@@ -173,6 +190,26 @@ Claims that were false:
 * Three wrong numbers in a calibration note, written by the orchestrator *while
   correcting somebody else's wrong number*.
 
+A fourth, found 2026-08-14 and worth naming separately because the shape is
+different: **a probe tested against a fixture built to match it.** The loop's
+own Stop hook guarded against dispatching on top of live agents by globbing
+`/tmp/claude-0/*/tasks` — one directory shallower than the path the harness
+actually writes. Its test passed because the test created the fixture at the
+depth the code expected. So the guard could never fire, and the hook was free to
+do the one thing it was written to prevent — shipped 59 minutes after this file
+was written. Found by `engineering-auditor` (K7), reproduced and fixed in
+`29387da`. **When a probe reads something the environment produces, the positive
+control must use the environment's own artefact, and must REFUSE rather than
+pass when there is none.**
+
+And the part that generalises furthest: writing the *negative* controls found a
+SECOND defect in the same two lines that the audit had not seen — `find … |
+grep -q .` is wrong under `pipefail`, because `grep -q` exits at the first match
+and `find` takes SIGPIPE, so the guard reported "nothing in flight" precisely
+when many outputs were fresh. One match hides it. **The negative control is
+where the second bug lives** — and it has to be sized to the failure: three
+fixture files let the broken form pass, two thousand failed it every time.
+
 **Standing review question, earned: "can this gate fail? show it failing."**
 And: every number written into a comment, commit message, ROADMAP or BACKLOG
 entry must be one somebody measured. Inheriting a claim without re-deriving it
@@ -211,9 +248,13 @@ ones that specifically cost the LOOP time.
 
 ## 6. Open
 
-1. **Durable Routine approval** (§1.1) — the one thing a human must do.
-2. **Worktree isolation** (§2) — the biggest structural win available.
-3. **Retry-once-then-skip and write-early** (§1.4) — not implemented.
+1. ~~**Durable Routine approval** (§1.1)~~ — DONE. The founder approved it and
+   an hourly Routine is armed. Known limitation: the sessions it fires have no
+   MCP connectors, so they cannot read CI.
+2. ~~**Worktree isolation** (§2)~~ — DONE and measured, 2026-08-14. See §2.
+3. **Retry-once-then-skip and write-early** (§1.4) — write-early is now in the
+   auditor briefs and worked (both 2026-08-14 audit reports survived the agents'
+   deaths); retry-once-then-skip is still not implemented.
 4. **CI-4**: the e2e suite is not yet trustworthy per-commit. QA7-1
    (`qa-sel7-verify:555`) has failed on two commits whose diffs cannot reach the
    code under test.

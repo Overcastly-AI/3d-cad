@@ -1107,3 +1107,622 @@ reasons are N1, N2, N5, N6 rather than any missing modelling verb.
 - **P3 — Say "feature" when you mean feature** in the dependency-guard message
   (N12); un-clip the ViewCube at 1280/1366 and label or reduce the six view
   buttons; add a contact shadow / matcap pass so bodies sit on the grid (N13).
+
+---
+
+## Pass 2026-08-14 — flow-first audit: can I model, revise and hand off a real part? (HEAD `133a009`)
+
+**Method.** Native boot (no Docker — registry blocked): geometry :8002,
+documents :8001, gateway :8000 on per-agent SQLite files, Vite :5173. Driven
+through a real Chromium via Playwright *as a user*, not via the API, because the
+last two passes' P0s were mostly reachable by API and the standing founder
+directive since 2026-08-01 is that **flow** — what the tool proposes next — is
+the retention mechanic. Job of the day: a **stepped shaft-support bracket**
+(base plate, bored boss, gusset, mounting holes), then *revise it* (the thing
+real engineering actually is), then hand it off (STEP + print).
+
+Ratings are 1–5 daily-driver readiness. Findings are numbered **M1…** this pass
+to avoid collision with the 07-30 pass's N-numbers.
+
+_(appended incrementally as the pass ran)_
+
+### M1 — P1 — The front door is a login card pinned to the bottom-right corner
+
+First screen a stranger who clones this repo sees. Measured on the running app:
+at 1600×1000 the sign-in `SECTION` is at **x=1232, y=692, 320×260** — i.e.
+flush to the bottom-right, with **~86 % of the frame empty grid**. Identical
+behaviour at 1280×800 (`x=912, y=490`). It does not read as an intentional
+asymmetric composition; it reads as a centred panel whose centering broke,
+because nothing else occupies the frame and the logo lives *inside* the card.
+There is also no product framing at all — no "MIT / self-hosted / your data"
+line, no version, no link to the docs — on the one screen every self-hoster
+lands on. The roadmap's current focus is literally "an honest front door";
+this is that front door.
+Screenshots: `01-landing.png`, `02-landing-1280.png` (session scratchpad).
+
+### M2 — P0 — You cannot constrain sketch geometry to the origin. The origin is decoration.
+
+The canonical first move in SolidWorks / Fusion / Onshape / FreeCAD is to tie
+the first sketch entity to the part origin, so the sketch is *located* as well
+as *sized*. In Loft the origin is not a pickable entity: `data-testid=
+"sketch-origin"` resolves to `<span role="img" class="sr-only" aria-label=
+"Sketch origin — Origin">` — a screen-reader label over a canvas glyph, with no
+pick geometry behind it. Measured: clicked at (800,525) and five neighbouring
+pixels around the drawn origin marker, plus the sketch X and Y axis lines at
+four points each; **every one returned `nothing selected`**. Playwright's own
+click on the element times out with "canvas … intercepts pointer events".
+
+Consequence, measured on my own base plate: an 80 × 50 rectangle with the
+rectangle tool's own auto-constraints reports **`DOF 2 · UNDER-CONSTRAINED`**
+and there is no way to remove those two DOF *relationally*. The only grounding
+available is `Fixed` (RELATIONAL → X), which pins a point at absolute
+coordinates. So "this plate is symmetric about the origin" — the intent every
+subsequent feature, mate and drawing datum depends on — is not expressible.
+Downstream this is what makes a revision risky: `Fixed` at (-40,-25) does not
+re-centre when the plate grows to 100 wide, so widening the plate moves the
+datum.
+
+### M3 — P1 — The constraint set is missing midpoint, collinear and angle
+
+Full inventory read off the live menus: GEOMETRIC = Horizontal, Vertical,
+Parallel, Perpendicular, Tangent. RELATIONAL = Coincident, Concentric,
+Symmetric, Fixed. DIMENSIONAL = Distance, Radius, Equal. That is 12.
+
+Missing against the incumbent baseline: **midpoint** (place a hole on the centre
+of an edge — extremely common), **collinear** (two lines on one line, the way
+you keep a stepped profile's faces flush), and an **angular dimension** (a
+gusset at 30°, a draft face at 7° — you can draw the angle but you cannot
+*drive* it, so it drifts on every edit). "Equal" is filed under DIMENSIONAL
+where it is a geometric relation; minor, but it is why I looked in the wrong
+menu twice.
+
+Also: every item in the GEOMETRIC menu renders **enabled with a single point
+selected**, where Horizontal/Vertical/Parallel/Perpendicular/Tangent are all
+inapplicable. Fusion and Onshape grey out or hide inapplicable constraints,
+which is how the palette teaches the vocabulary.
+
+### M4 — P1 — The tool never proposes the next step after a sketch, and it leaves you looking straight down the extrusion axis
+
+Two halves of the same flow break, both measured on my own bracket.
+
+(a) **No proposal.** After `Finish sketch` on a solved, fully-constrained
+profile, the screen offers nothing: no callout, no pre-selected profile chip,
+no "Extrude this" affordance. The Extrude toolbar button silently loses its
+disabled reason and that is the entire signal. Contrast the *empty part* state,
+which does this well ("Start with a Sketch — pick a plane, then draw"), and the
+founder directive: "A solved sketch's likely next action is extrude — present,
+with the profile pre-selected, not hunted for in a toolbar."
+
+(b) **The camera stays normal-on to the sketch plane.** So when the extrude
+command opens with its live preview, you are looking *down the extrusion axis*
+and a 10 mm extrusion is a flat rectangle — the one view in which the preview
+carries no information, including the ADD/CUT and NORMAL/REVERSE choice the
+panel is asking you to make. I had to press `4` manually after every sketch.
+Evidence: `15-extrude-dialog.png`, `26-extrude2-dialog.png` (both top view,
+preview flat), vs `17-plate-iso.png` after a manual iso.
+
+### M5 — P1 — Still no drag handle on extrude. Verified, not assumed.
+
+The founder named this "the single biggest 'does not feel like a modeling tool'
+gap we have, bigger than any missing feature." Measured this pass: the extrude
+preview carries **zero** manipulator DOM (`[data-testid*=handle|drag|gizmo|
+arrow|manip]` → empty), and a 125 px vertical drag straight up the preview face
+left `extrude-distance` at exactly `10`. The numeric field is not the precision
+fallback; it is the only path. Same for fillet radius, shell thickness and hole
+depth as far as I could find.
+
+### M6 — P1 — One solid renders in two different colours, and the colour changes on reload
+
+Measured sequence on a single merged body (`Bodies · 1`, `Shells 1`):
+`17-plate-iso.png` plate = warm brass; enter face-pick, `19-face-hover.png`
+plate = white; leave face-pick and extrude the boss, `27-boss.png` = **brass
+cylinder sitting on a white plate**, one body, two materials-worth of colour
+difference, persisting through Escape and clicking empty space
+(`28-after-escape.png`); reload the page and the whole body is grey
+(`29-after-reload.png`) with the material selector unchanged at "No material".
+So body colour encodes transient client state that outlives the mode that set
+it, and the user cannot tell whether a colour difference means anything about
+the geometry. On a real part this is the difference between "that boss is a
+separate body" and "nothing is wrong."
+
+### M7 — P2 — Body shading is flat, and bodies still do not sit on the grid
+
+Design mandate 3a asks for Plasticity-grade shading and calls debug-gray a
+defect. With `Aluminium 6061` assigned (`30-aluminium.png`) the body is a matte
+single-light diffuse grey: no specular, no environment reflection, no ambient
+occlusion in the boss-to-plate corner, and **no contact shadow**, so the part
+floats over the grid with no cue where it touches. The cylinder reads well
+(gradient across the curvature); the flat faces read as uniform value blocks.
+This is the same residual the 07-24 and 07-30 passes named (N13); it is the
+whole remaining distance to the Fusion/Plasticity look and it is now the most
+visible thing on the screen because everything around it got good.
+
+### M8 — P2 — Sketching on a face silently adds a `Plane1` datum feature to the tree
+
+Pick a model face to sketch on and the feature tree gains **`03 Plane1 datum`**
+before the sketch exists — verified in the live tree and in
+`GET /parts/{id}/features`, where at that moment the tree is
+`Sketch1 / Extrude1 / Plane1` and the circle I had drawn was not yet persisted.
+No incumbent creates a datum plane feature for a face sketch. On a part with a
+dozen face sketches the tree carries a dozen `PlaneN` rows the engineer did not
+author and cannot interpret, and it is not clear what happens to the orphan if
+the sketch is cancelled.
+
+### M9 — P0 — A failed fillet cannot be repaired: editing its radius is rejected with a raw UUID
+
+Reproduced deterministically on the live stack, twice. Sequence:
+
+1. Fillet, `PICK EDGES`, four edges picked by clicking in the viewport,
+   radius 8 → **`FILLET_FAILED` — "Fillet failed in the kernel (ValueError);
+   the radius (8.0 mm) may be too large for an adjacent face."** The failure
+   presentation is genuinely good (red banner, `ERR` on the tree row, `STATUS:
+   Partial — Fillet1 failed · built to Hole5`, export blocked by name).
+2. Click the failed row → `EDIT FILLET` opens with radius 8 and `4 edges
+   picked` correctly round-tripped, brass highlights on the right edges.
+3. Change radius to **4**, Enter → **`Referenced feature
+   1e9971e4-d631-41b1-8d87-2bd910a5fe0f must come strictly earlier in the
+   tree.`** Pressing Enter again gives the identical error. The edit cannot be
+   saved.
+
+`1e9971e4…` **is Fillet1's own id** (confirmed against
+`GET /parts/{id}/features`: `order_index 10, id 1e9971e4…, name Fillet1`),
+while the *persisted* refs all carry `feature_id 2507bce5…` = Hole5,
+`order_index 9` — legal. So the edit path re-stamps the picked-edge refs with
+the feature's own id and the server correctly refuses the self-reference. The
+user's only route out of a failed fillet is to delete it and start the pick
+over.
+
+Two smaller defects ride along: (a) a **raw UUID is shown to the user** with no
+feature name; (b) the kernel message names the radius but not *which* of the
+four edges failed, and one of my four picks had in fact landed on an 80 mm
+bottom edge rather than the corner I aimed at — the panel says only "4 edges
+picked", with no list and no way to remove one (only `CLEAR`).
+
+Credit where due: multi-edge picking works by plain accumulate-click and
+re-clicking an edge deselects it (`4 → 3`). The VISION note "edge selection
+still lacks a compound multi-edge picker" is stale in the good direction.
+
+### M10 — P0 (generalised from M9) — A picked-edge fillet's radius can NEVER be edited, failed or not
+
+M9 was not about the failure state. Re-tested on a **clean, successful** fillet:
+three corner edges at R4, `STATUS: Up to date`, volume 52,241.57 mm³ (closed
+form 52,241.565 — exact). Open it from the tree, change radius 4 → 3, Enter:
+
+> `Referenced feature b11631e6-f0f7-46a7-828e-745eca6f1f27 must come strictly
+> earlier in the tree.`
+
+`b11631e6…` is that fillet's own id. Volume unchanged. So **a picked-edge
+fillet is write-once**: "make those corners R3 instead of R4" — the most
+ordinary parametric edit there is — has no path except delete the feature,
+re-enter the command and re-pick every edge by hand.
+
+Scoped, not assumed: editing a **hole** through the same tree-row route works
+perfectly (Ø6.6 → 7 rebuilt to 52,198.84 mm³, closed form 52,198.8396 — exact),
+so this is the picked-`SubshapeRef` edit path, not feature editing in general.
+Chamfer and shell/draft use the same `SubshapeRef` machinery and are worth
+checking in the same fix.
+
+### M11 — P2 — Delete a feature: only right-click, nowhere else
+
+I spent real time looking for it. The tree row exposes exactly two buttons
+(`feature-select-N`, `feature-suppress-N`); `Delete` and `Backspace` on a
+selected feature do nothing; there is no button anywhere in the DOM matching
+delete/remove. It exists only as `tree-ctx-delete` behind a **right-click**
+context menu (also `tree-ctx-rename`, `tree-ctx-suppress`) on the row or the
+timeline chip — with no chevron, no "⋯", and no hint that a context menu is
+there. Undo is what I actually used to get rid of the failed fillet.
+
+### M12 — P3 — The hole editor calls the hole you are editing an obstruction
+
+Editing `Hole2` (Ø6.6 → 7) shows the live verdict **"Inside the Ø6.6 mm opening
+— move it onto material."** in red-dot styling. The opening it is objecting to
+is the hole under edit. The verdict is excellent when placing a *new* hole; it
+must exclude the feature being edited, or every diameter change reads as an
+error that is about to be rejected (it is not — the edit succeeded).
+
+### M13 — P1 — The print's own title is truncated *in the exported file*, and dimension text collides with the part outline
+
+Measured on the real exported SVG (`ssb-001-shaft-support-bracket.svg`,
+viewBox `0 0 297 210`, i.e. mm), not on screen:
+
+- The title block prints **`SSB-001 Shaft support…`** — a literal U+2026 in the
+  exported file (`'…' in svg → True`). The field is truncated to fit a fixed
+  box, and the truncation is baked into the deliverable, so the PDF a shop
+  receives does not carry the drawing's name. My title is 29 characters; that
+  is a completely ordinary drawing title.
+- Two of **three** dimensions print on top of the part outline. Computing text
+  bounding boxes from the exported `<text>` (`font-size 3.2`, `text-anchor
+  middle`) against the 95 `<line>` elements: `Ø30.000` at
+  (90.12, 85.69)–(104.26, 89.21) is crossed by the top view's left outline at
+  x = 93.93, and `Ø6.600` at (81.97, 76.19)–(94.09, 79.71) is crossed by the
+  same line. No leader dogleg, no text halo/mask, no drag-to-place, no
+  collision avoidance. Three dimensions is not a stress test.
+- Every value prints to **three decimals** (`72.000`, `Ø30.000`, `Ø6.600`) with
+  no per-dimension precision control. `Ø30.000` states a tolerance the part does
+  not have.
+- Title block still carries only TITLE / SCALE / SIZE — no part number,
+  revision, material, finish, general tolerance, sheet *n* of *m*, date or
+  drawn-by, and **no first/third-angle projection symbol** (the layout *is*
+  third angle: TOP above FRONT, RIGHT right of FRONT — the sheet just never
+  says so). This is the 07-30 pass's N5, unchanged.
+- No centre marks or centrelines on any of the five circles.
+
+Credit: the values are model-true and correct — `72.000` is right for that
+edge (the R4 corner fillets take 4 mm off each end of the 80 mm plate), and
+`Ø30.000` / `Ø6.600` are exact. The projection quality (HLR, hidden lines,
+iso) is good.
+
+### M14 — P2 — Part STEP export is now clean; the header still says nothing about Loft
+
+`shaft-support-bracket.step` (55,676 bytes) — filename slugified from the part
+name and `PRODUCT('Shaft support bracket','Shaft support bracket',…)`. The
+07-30 pass's N4 (UUID filenames, `PRODUCT('SOLID')`) is **closed**.
+Independently re-read through OCCT in a fresh interpreter: 1 solid, 16 faces,
+volume **52 198.839631358365 mm³** against the UI's 52 198.84 and the closed
+form 52 198.8396313577 — agreement to 1e-9. Interop for a single part is solid.
+Remaining nit: `FILE_NAME(… ('Author'), ('Open CASCADE'), 'Open CASCADE STEP
+processor 7.9', 'build123d', 'Unknown')` — the author/organisation fields are
+placeholders and the originating system does not name Loft, so a recipient
+cannot tell where the file came from.
+
+### M15 — P0 — **You cannot re-open a sketch. The driving dimensions of every part are write-once.**
+
+This is the finding of the pass. I set out to do the ordinary thing — "the
+plate needs to be 100 wide now, not 80" — and there is no path to it.
+
+Measured, exhaustively, on the running app:
+
+| Route tried | Result |
+|---|---|
+| Click the `Sketch1` row in the feature tree | selects it (body tints brass), no editor |
+| Double-click the row | nothing |
+| Click `Sketch1` in the SKETCHES panel | toggles visibility only |
+| Right-click the row → **`Edit`** | **silent no-op**; 7.3 s later the screen is unchanged, breadcrumb still `PARTS › SHAFT SUPPORT BRACKET`, **zero console output, zero network error, no toast** |
+| Same after rolling the timeline back to chip `01 Sketch1` | same no-op |
+| Right-click the SKETCHES-panel row | no context menu at all |
+| `Delete` / `Backspace` / any button in the DOM | nothing matching edit |
+
+Root cause is visible in the shipped source (read-only, for the record):
+`apps/web/src/routes/PartPage.tsx` `selectFeature()` is a long
+`if (type === "extrude") … else if ("revolve"/"sweep"/"loft"/"pattern"/
+"fillet"/"chamfer"/"shell"/"draft"/"hole"/"mirror"/ four sheet-metal kinds /
+"datum") … else setEditor(null)`. **There is no `"sketch"` branch**, so the
+context menu's `Edit` calls `selectFeature` and lands in `setEditor(null)` —
+which is also why it fails *silently*. Every other feature type is editable.
+
+Consequences, in the order an engineer meets them:
+
+1. A part's fundamental dimensions (plate 80 × 50, boss Ø30) can never be
+   changed. Every downstream capability that exists — the constraint solver,
+   dimension expressions, driving/driven dimensions, the whole
+   topological-naming machinery that survives rebuilds, the drawings
+   re-anchoring work — is reachable only on the *first* pass through a sketch.
+2. Revision means rebuilding the part from scratch. There is a `DUPLICATE` in
+   the register, so "copy it and redo it" is at least possible, but that is a
+   1990s workflow.
+3. It also silently invalidates the strongest row on the VISION scorecard.
+   "Sketching & constraints ✅" is rated on authoring; a sketch you cannot
+   re-enter is not a parametric sketch, it is a one-shot profile.
+4. **No test covers it.** 33 e2e specs call `sketch-save`; none re-opens a
+   saved sketch, and `tree-ctx-edit` appears in zero specs. That is why a
+   silent no-op on the most important verb in the product can sit in `main`.
+
+I could not complete the revision half of this audit because of it, so
+everything below about "what survives an edit" is measured through the routes
+that *do* work (hole diameter, fillet radius — see M10).
+
+### M16 — P0 — **ONE root cause behind M9/M10 and the broken repair: a viewport pick is stamped with the TIP feature's id, so no non-tip feature can ever be re-picked**
+
+Captured the actual response body from the running gateway:
+
+```
+422 PATCH /v1/parts/{part}/features/735bf26b…   (= Hole3, order_index 7)
+{"error":{"code":"reference_not_earlier",
+  "message":"Referenced feature b11631e6-… must come strictly earlier in the tree.",
+  "details":{"slot":"face","feature_id":"b11631e6-…"}}}
+```
+
+`b11631e6…` is **Fillet1, order_index 10 — the tip**. I was repairing Hole3 at
+index 7. The face I clicked in the viewport belongs to the body as currently
+displayed, and the client stamps the pick with the tip feature's id, which by
+construction is never "strictly earlier" than the feature being edited. The
+same mechanism produced M9/M10: editing a fillet stamps its own id.
+
+So the general statement is: **any edit of a non-tip feature that involves a
+pick is impossible.** Scalar-only edits work (hole diameter Ø6.6 → 7 succeeded).
+Anything with a face or edge in it does not.
+
+**And the UI swallows the 422 completely.** In the hole editor I clicked `Save`
+three times over ~35 s; the breadcrumb stayed on `HOLE`, nothing appeared on
+screen, and the only trace was `console.error: Failed to load resource: 422`.
+The fillet editor at least renders the message (with a raw UUID); the hole
+editor renders nothing. A user in this state has no way to learn anything.
+
+### M17 — P0 — Thickening the plate 10 → 14 mm breaks three of four mounting holes
+
+The most ordinary parametric edit on a bracket. Reproduced three times (12 mm
+and 14 mm both, plus the original 14): `Hole3` → `SUBSHAPE_UNRESOLVED`, and
+`Hole4`, `Hole5`, `Fillet1` → `SKIP`. **4 of 11 features red.** Reverting to
+10 mm restores all-OK, so the failure is caused by the thickness change alone,
+not by the earlier Ø6.6 → 7 hole edit.
+
+Mechanism, read off the persisted features — the plate's top-face signature is
+`{surface, normal, centroid, area_mm2}`, and both varying parts are functions of
+what has already been cut into that face *and of where the face is*:
+
+| feature | stored face centroid | stored area mm² |
+|---|---|---|
+| Hole2 | (0, 0, **10**) | 3293.14 |
+| Hole3 | (0.336, 0.199, **10**) | 3258.93 |
+| Hole4 | (0, 0.403, **10**) | 3224.72 |
+| Hole5 | (−0.343, 0.204, **10**) | 3190.51 |
+
+Each is exactly one hole's worth (π·3.3² = 34.21 mm²) smaller than the last, and
+every one carries `z = 10`. Move the face to `z = 14` and the strict signature
+misses; the resilient tier rescued Hole2 and not Hole3/4/5, which is worse than
+a uniform failure because the user cannot form a rule from it.
+
+The recovery offered is **"Re-pick face", once, on Hole3** — and Hole4 and Hole5
+will each need their own round after it. In practice it is not offered at all,
+because the repair is exactly the pick-on-a-non-tip-feature case M16 rejects:
+re-picking the correct top face, restoring the point to (32, −19), and clicking
+`Save` produced two silent 422s and no change to the persisted feature
+(`z:10` and the old signature still on the wire).
+
+Also seen during the repair: **the repair discards the placement.** Re-picking
+the face reset `POINT` to "Centre of face" (0.378, 0.225), which for this part
+lands *inside the Ø30 bore* and is flagged red — and the original (32, −19) is
+nowhere on screen to copy from.
+
+Handled well, and worth saying: the partial-build presentation is excellent.
+`PARTIAL BODY — Showing the last good state — built to Hole2. Hole3 failed, so
+3 features are excluded from it onward. Export is blocked until it builds.
+SHOW HOLE3`, plus per-row `ERR`/`SKIP` and the honest note "the build stops at
+the first failure, even for a feature that does not depend on Hole3". The 07-30
+pass's N3 is genuinely closed. The problem is what happens next.
+
+### M18 — P1 — Tool feel: no orthographic projection, and the ViewCube does not snap to the face you click
+
+Two navigation defects, both measured against a Fusion 360 / Onshape /
+SolidWorks baseline where they are table stakes.
+
+**(a) Every view is perspective.** Pressing `2` (Top view) gives a perspective
+top: the four Ø6.6 bores visibly show their inner walls and the Ø30 bore reads
+as an offset annulus (`77-key-top.png`). There is no orthographic mode — no
+control anywhere in the DOM matches ortho/perspective/projection/camera, and
+the only `orthographic` mentions in the viewport source are a fallback comment
+and a framing-math note. An engineer uses the named views to *check alignment*
+(is this boss concentric, are these holes in line); in perspective, parallel
+edges converge and that check is not available.
+
+**(b) The ViewCube does not snap.** From iso, one click on the cube's `TOP`
+face settles at a ~30° oblique, not the orthographic top (`76-cube-settled.png`
+vs `77-key-top.png` from the `2` key — visibly different poses). The cube is
+interactive and drag-orbits, and its face highlights on hover, so the
+affordance is there; it just doesn't do the one thing a ViewCube is for. A
+17 px move before the click is also enough to be read as a free tumble, which
+left the scene at an angle where the grid renders as diagonal streaks with no
+horizon (`73-cube-click.png`).
+
+**(c) The six view buttons are still six near-identical cube glyphs**
+(`71-viewbar.png`, cropped from the live app): home, fit, front, top, right,
+iso — four of them the same wireframe cube outline, distinguishable only by
+`aria-label` and hover. This is the 07-24 and 07-30 passes' N13, unchanged.
+Not clipped at 1280 or 1366 any more, though — that half is fixed.
+
+### M19 — Performance: much better than I first assumed. Correcting my own measurement.
+
+My early impressions were contaminated by my script's fixed waits. Measured
+properly by waiting for the reported Volume to change on an **11-feature part**
+with novel (uncacheable) parameter values:
+
+| edit | wall clock to new volume |
+|---|---|
+| boss 25 → 29.5 | 844 ms |
+| boss 29.5 → 31.25 | 838 ms |
+| boss 31.25 → 33.125 | 686 ms |
+| boss 33.125 → 24.75 | 767 ms |
+
+Network breakdown of one edit: `PATCH feature 37 ms`, `GET features 20 ms`,
+`POST evaluate 35 ms` ×2, `GET mesh 21 ms`, `POST overlay 42 ms`. Warm sketch
+entry (toolbar → plane picker → sketcher) is **~1.5 s**. Repeat
+`POST /evaluate` on an unchanged tree is **18–28 ms**.
+
+Two real costs remain: (a) **cold start is 32.7 s** — my very first plane pick
+took that long, which is the first thing a stranger who clones the repo
+experiences; (b) every edit fires **two** `POST /evaluate` calls.
+
+### M20 — P2 — Selection is done through a scatter of proxy markers, and it is the biggest departure from the Fusion/Plasticity feel
+
+Every pick mode pre-draws a marker per candidate rather than highlighting what
+is under the cursor:
+
+- **Face pick** (sketch plane, hole, shell, draft): a small square at each face
+  *centroid*.
+- **Edge pick** (fillet, chamfer): a diamond at each edge *midpoint* — ~24 on
+  this part.
+- **Measure**: circles *and* diamonds together — I counted **~60 markers**
+  covering the 11-feature bracket almost edge to edge (`78-measure.png`). The
+  part is barely visible under them.
+
+Three consequences I hit personally:
+
+1. **A centroid is not always on its own face.** The plate's top face is a
+   rectangle minus the boss, so its centroid sits *inside the boss* and its
+   marker is drawn floating over the cylinder. Meanwhile the plate's *bottom*
+   face centroid is drawn over the visible top surface — I clicked what looked
+   like the top and got `Face at 0, 0, 0`.
+2. **No depth cue distinguishes a marker for a hidden face from one for a
+   visible face**, so the two are indistinguishable until you read the panel.
+3. **On a real part it will not scale.** 60 markers on 11 features; a
+   60-feature housing would be a fog.
+
+Direct picking on the geometry does work (clicking the visible top surface away
+from markers correctly returned `Face at 0, 0, 10`), so the markers are
+supplementary — which is the argument for making them *hover-scoped* (draw the
+one under the cursor, plus the picked set) rather than always-on.
+
+### M21 — P3 — Shortcut allocation is inverted against frequency
+
+Read off the live `aria-label`s: **Sweep (S), Loft (L), Pattern (P), Shell (H),
+Draft (D), Hole (O), Mirror (I), Measure (M)** have letters. **Sketch, Extrude,
+Revolve, Fillet, Chamfer have none** — verified by pressing `e`, `E`, `f`, `x`
+with the part focused; the breadcrumb never changes. Extrude and Fillet are the
+two most-used commands in solid modelling and Loft is among the rarest.
+(The *sketcher* is exemplary by contrast: L/R/C/A/S/J/K/F/I/U/B all bound.)
+
+### M22 — P3 — Smaller things I hit, worth one line each
+
+- **"DOF 0 · CONVERGED"** is solver vocabulary. Incumbents say "fully defined /
+  fully constrained", and the difference matters because "converged" does not
+  tell a user the sketch is now safe to build on.
+- **A sketch with no constraints shows no solve state at all** — after placing
+  the boss circle (3 free DOF) the status strip had `x / y / Snap / Plane` and
+  no SOLVE tile. Silence reads as "fine".
+- **The live W/H chip while rubber-banding a rectangle looks like a field but
+  ignores typing**; the same chip becomes typeable only *after* the second
+  click, when it grows the hint "Type a size · Tab switches · Enter applies". I
+  typed `90` into the pre-click chip and nothing happened.
+- **A stale `X AXIS` snap badge stayed on the canvas** after the circle was
+  committed, overlapping the size chip's hint text so both were illegible.
+- **`Centre of mass` and `Centroid` are two adjacent rows with identical
+  values** for a homogeneous body (`-0, 0, 10.36 mm` both).
+- **The parts/drawings registers draw ~18 empty striped rows** below the
+  content, which reads as more rows loading.
+- **"Create first part" opens the part; "Create first drawing" returns you to
+  the register** and you must click the row. Same gesture, different outcome.
+- **Non-viewport screens use ~40 % of a 1600 px frame** (register column is
+  960 px centred on decorative grid) — same family as M1.
+
+### Ratings (1–5 daily-driver readiness; Δ vs the 2026-07-30 pass)
+
+| Capability | Rating | Δ | Note |
+|---|---|---|---|
+| Sketch authoring (draw, snap, size-on-place) | **4** | new split | Fast, keyboard-first, live W/H, exact typed sizes. Held off 5 by no midpoint/collinear/angle and the pre-click chip that ignores typing. |
+| Sketch **constraining** | **2** | **−3** | Origin and axes are not selectable at all (M2), so a sketch cannot be located relationally — `Fixed` at absolute coords is the only ground. 12 constraints, no angle dimension. |
+| Sketch **editing** | **0** | **−5** | You cannot re-open a saved sketch. Silent no-op. (M15) |
+| Part features (extrude/revolve/hole/shell/draft/fillet) | **4** | −1 | Every geometry result exact to the closed form; excellent contextual command panels and failure copy. Docked for the fillet-edit dead end (M10). |
+| Feature **editing / revision** | **1** | **−4** | Scalar edits work (hole Ø exact). Any edit involving a pick is a 422 (M16); thickening the plate 4 mm breaks 3 of 4 holes with no working repair (M17). |
+| Pattern / mirror | **2** | −2 | Pattern is whole-body only — a 4-hole bolt pattern or a bolt circle is not expressible; I placed four holes by hand. |
+| Part interop (STEP two-way) | **5** | **+1** | Slug filename, real `PRODUCT` name, independent OCCT re-read agrees to 1e-9. |
+| Drawings — projection & associativity | **4** | **+2** | Auto re-project on open, all 3 dims survived a model revision, one flagged `RE-ANCHORED` with a `CONFIRM`. N1 and N2 genuinely closed. |
+| Drawings — the printed deliverable | **2** | = | Title truncated *in the export*; 2 of 3 dimension texts print over the part outline; no part no/rev/material/tolerance/projection symbol; no centre marks; 3 decimals everywhere. |
+| Failure diagnosis & recovery | **3** | = | Best-in-class *diagnosis* (`PARTIAL BODY`, per-row ERR/SKIP, typed codes, honest "stops at the first failure"). The *recovery* is broken (M16/M17) and one editor swallows its 422 entirely. |
+| Workspace / document management | **4** | **+3** | Filter, rename, duplicate, move, delete, folders, `/` and `N` shortcuts, slug export names. The 07-30 N9 is largely closed. |
+| Undo / redo | **4** | +1 | Undo cleanly removed a failed fillet in 6.3 s; gates read correctly. Still no named versions. |
+| Performance | **4** | new | ~700–850 ms for a full rebuild+tessellate of an 11-feature part on novel values; ~1.5 s warm sketch entry. Cold start 32.7 s. |
+| Tool feel — viewport | **3** | −1 | Grid to horizon, atmosphere, contextual modality and in-command reasons are genuinely tool-grade. But: no orthographic mode, ViewCube doesn't snap, six identical view glyphs, no contact shadow, flat single-light shading, one body rendering in two colours. |
+| Tool feel — selection | **2** | new | ~60 always-on proxy markers over an 11-feature part; centroid markers that sit off their own face and over other geometry. |
+| Direct manipulation | **0** | = | No drag handle on anything. Verified, not assumed (M5). |
+
+**Answer to the operating question — "would a working engineer model a real part
+in this today?"** For a part that is modelled **once** and leaves as a STEP:
+**yes, and the geometry will be right** — every volume I checked matched the
+closed form to 1e-9, and the STEP re-read in OCCT agreed. For a part that has to
+be **revised** — which is what engineering is — **no, and further from yes than
+the last pass concluded**, because the two operations a revision is made of
+(re-open the sketch, change a picked reference) do not work at all, and the
+third (change a driving thickness) breaks the features downstream of it.
+
+### Scorecard rows — stale check against VISION.md
+
+- **Sketching & constraints ✅ → must drop.** The row is rated on *authoring*.
+  A sketch that cannot be re-opened (M15) and cannot be tied to the origin (M2)
+  is not a parametric sketch. Suggest **➖** at best, with the residual list
+  rewritten: no sketch editing, no origin/axis references, no midpoint /
+  collinear / angular dimension.
+- **Part modeling ✅ → must drop to ➖.** The row's own evidence is about
+  *creating* features. Creating is excellent; *editing* is where it fails —
+  picked-reference edits 422 (M16), fillet radius write-once (M10), and a
+  thickness change breaks downstream holes (M17). The row's note "Two
+  history-editing niceties remain unshipped" understates this by a wide margin.
+- **Drawings ➖ — holds, and the row's leading residuals should change.** N1
+  (dims die on the edit they measure) and N2 (auto-layout overlap) are
+  **verified closed**, with a `RE-ANCHORED`/`CONFIRM` affordance that is better
+  than the incumbents' silence. New leading residuals: title truncated in the
+  export, dimension text over geometry, no title-block fields, no centre marks.
+- **Interop ➖ → candidate for ✅ on the part case.** Filename, PRODUCT name and
+  a 1e-9 independent round-trip all check out. IGES / healing / assembly
+  structure still hold it back, so the row is right, but its *part* half is now
+  the strongest thing in the product.
+- **Workspace & document management ❌ → ➖.** Filter, duplicate, folders,
+  rename, move, delete and slugified exports all ship. The 07-30 row text is
+  stale on every clause.
+- **Performance on real parts ❌** — the row says "no benchmark suite", which is
+  still true, but the *numbers* are good (M19); the row reads more pessimistic
+  than the artefact.
+- **Assemblies / Sheet metal — not exercised this pass**, no opinion.
+
+### Prioritised recommendations (P0–P3, one line each, buildable)
+
+- **P0 — Make a saved sketch re-openable:** add the missing `"sketch"` branch to
+  `selectFeature` so the tree row / `tree-ctx-edit` re-enters the sketcher on
+  that sketch's plane with its entities and constraints loaded (M15).
+- **P0 — Stamp a viewport pick with the feature that OWNS the sub-shape, not the
+  tip:** resolve the picked face/edge back to its originating feature id (the
+  data is already in the signature machinery) so `reference_not_earlier` stops
+  firing on every non-tip edit — this one fix unblocks fillet-radius edits, the
+  `Re-pick face` repair and every future picked-reference edit (M16, M9, M10).
+- **P0 — Never let an editor swallow a 4xx:** surface the typed error envelope
+  in every command panel (the hole editor showed nothing for two 422s), and
+  print the feature *name*, never the raw UUID (M16).
+- **P0 — A planar-face signature must not encode what has been cut into it:**
+  match on plane (normal + signed offset along it) plus a rebuild-invariant
+  anchor, not on `centroid` + `area_mm2`, so drilling hole *n* stops invalidating
+  hole *n+1* and a thickness change stops orphaning every hole in the face
+  (M17).
+- **P0 — Let the sketch reference the origin and the axes:** make the sketch
+  origin point and X/Y axes real, selectable entities so coincident / symmetric /
+  distance can ground a profile relationally instead of `Fixed` at absolute
+  coordinates (M2).
+- **P1 — Drag handles on extrude, and then fillet/shell/hole depth:** an arrow on
+  the preview that sets the value, with the numeric field as the precision
+  fallback — the founder's named #1 gap, still measurably absent (M5).
+- **P1 — Propose the next step after a sketch, and hand the camera back:** a
+  "Extrude this profile" callout on the solved sketch, and restore the pre-sketch
+  3D orientation on finish so the extrude preview is legible (M4).
+- **P1 — Add an orthographic mode and make the ViewCube snap:** clicking a cube
+  face goes to that exact orthographic view; give the six view buttons distinct
+  glyphs or labels (M18).
+- **P1 — Feature-scope pattern:** let Pattern take a feature (or a face set) as
+  its seed, linear and circular, so a 4-hole bolt pattern and a bolt circle are
+  one command (currently whole-body only).
+- **P1 — Fix the printed sheet:** stop truncating the title in the export (wrap
+  or auto-fit), give dimension text a halo/leader dogleg and collision
+  avoidance against geometry, add centre marks, and add part-number / revision /
+  material / general-tolerance / projection-symbol / sheet-*n*-of-*m* fields
+  (M13).
+- **P1 — Only skip what actually depends on the failure:** the UI already admits
+  "the build stops at the first failure, even for a feature that does not depend
+  on Hole3" — make that sentence untrue (M17).
+- **P2 — One body, one colour:** make the brass tint mean exactly one thing
+  (the addressed feature's own faces), clear it when the mode ends, and make it
+  survive a reload identically (M6).
+- **P2 — Hover-scoped pick markers:** draw the marker for the candidate under
+  the cursor plus the picked set, not all ~60 at once, and never place a face
+  marker off its own face (M20).
+- **P2 — Studio shading + contact shadow:** matcap/env pass, AO in concave
+  junctions, and a ground shadow so a body sits on the grid (M7).
+- **P2 — Constraint palette completeness and applicability:** add midpoint,
+  collinear and an angular dimension; grey out constraints that cannot apply to
+  the current selection (M3).
+- **P2 — Show a solve state for every sketch, including an unconstrained one,**
+  and rename `CONVERGED` to "Fully constrained" (M22).
+- **P2 — Discoverable edit/delete:** a visible affordance on the feature row
+  (⋯ or hover icons) rather than right-click-only, and make single-click behave
+  the same for sketches as for every other feature type (M11).
+- **P2 — List the picked edges/faces in the command panel** with per-item remove,
+  instead of "4 edges picked" + `CLEAR` (M9).
+- **P2 — Warm the geometry worker at boot:** 32.7 s on the very first plane pick
+  is the first thing a self-hoster experiences (M19).
+- **P3 — Bind Sketch, Extrude, Revolve, Fillet, Chamfer to keys** — the five
+  unbound commands are the most-used ones (M21).
+- **P3 — Front door:** centre and frame the sign-in screen and say what Loft is
+  (MIT, self-hosted, your data) on it (M1).
+- **P3 — Exclude the feature under edit from the hole placement verdict** (M12);
+  don't create a visible `PlaneN` datum for a face sketch (M8); fill the STEP
+  `FILE_NAME` author/originating-system fields (M14); de-duplicate
+  `Centre of mass` / `Centroid`; clear the stale snap badge; trim the register's
+  empty striped rows (M22).
+
+_End of pass 2026-08-14._

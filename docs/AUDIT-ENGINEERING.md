@@ -2113,3 +2113,604 @@ in a running browser this pass** (no stack was booted; the brief scoped me to
 audit, and four agents were mid-flight). J10 is arithmetic extrapolation from
 one measured data point and is labelled PLAUSIBLE, not confirmed. J11, J13 are
 readings of source that documents its own limits. J14 is captured run output plus a reproduced recovery. **`just test` at HEAD is NOT verified by this pass** — see J14 for exactly what I did and did not establish.
+
+---
+
+## 2026-08-14 — Pass 5: post-CI-4 / REV / FB-20 batch (deep engineering audit)
+
+Scope: re-verified gates at committed HEAD `133a009` (branch
+`claude/branch-review-development-hkbbnb`), then swept the named defect classes,
+security posture, licence hygiene, coverage claims, and loop health. Two threads
+were named in the brief and both are addressed with measurements below:
+`docs/RETRO.md` §4 (gates that cannot fail / claims nobody measured) and
+BACKLOG **CI-4 / QA7-1** (the e2e suite is not trustworthy per-commit).
+
+### Gate re-verification (ran myself, not trusted)
+
+| Gate | Result |
+|---|---|
+| `just lint` | **PASS, exit 0.** ruff check "All checks passed"; `ruff format --check` "336 files already formatted"; `pyright` **0 errors, 0 warnings**; eslint + prettier clean; `tsc --noEmit` clean for ts-client / design / web; `check-licences.py --profile source-env`, `check-build-context.py`, `stage-doc-hunks.py --self-test` all clean. |
+| `just test` | Run in this pass; result recorded at the end of the pass. |
+| Route-auth sweep (mine, scripted) | gateway **87** API routes, 5 unauthenticated (`POST /api/v1/auth/{login,register}`, `/healthz`, `/readyz`, `/metrics`); documents **64** routes, 60 carry `owner_id`, 4 do not (`GET /api/v1/materials` + the 3 infra probes); geometry **27** routes, all unauthenticated by design (internal, unpublished). **Posture is correct. Still no gate.** |
+
+Note for anyone repeating the route sweep: **FastAPI 0.139 no longer flattens
+included routers into `app.routes`** — it inserts `_IncludedRouter` objects whose
+`.routes`/`.router` are `None`. A naive `for r in app.routes: isinstance(r,
+APIRoute)` returns **3** routes for the gateway and reads as "there is nothing to
+check". You must recurse through `_IncludedRouter.original_router.routes`. This
+is itself a gate-cannot-fail trap waiting to happen: the obvious implementation
+of J7's recommended sweep gate would pass vacuously over 3 infra routes.
+
+### K1 — QA7-1's root cause: the spec waits for a string the product never renders. The wait is a **no-op**, and the two arms of its comparison are then sampled at different settle depths. **P1 · CONFIRMED (static, decisive)** · the gate-cannot-fail class
+
+`apps/web/e2e/qa-sel7-verify.spec.ts:596-598`:
+
+```ts
+const status = page.getByTestId("eval-status");
+await expect
+  .poll(() => status.textContent(), { timeout: 60_000 })
+  .not.toBe("Evaluating");
+```
+
+`eval-status` is rendered in exactly one place —
+`apps/web/src/components/FeatureTreePanel.tsx:437` — from `solveSummary(build)`,
+whose complete range is four literals
+(`apps/web/src/features/partBuild.ts:257-268`):
+
+```
+"Solving…" | "—" | "Failed" | "Solved"
+```
+
+**"Evaluating" is not among them, and the string does not occur anywhere in
+`apps/web/src`:**
+
+```
+$ grep -rn "Evaluating" apps/web/src | head
+(no output)
+$ grep -rn "Evaluating" apps/web/e2e
+apps/web/e2e/qa-sel7-verify.spec.ts:598:        .not.toBe("Evaluating");
+```
+
+So the poll's predicate is satisfied by the **first** sample, always. It is a
+wait that does not wait — including on the very first tick, when the value is
+`"Solving…"` or `"—"`. Note the wider evidence that this is an outlier and not a
+convention: of the 148 `eval-status` references in `apps/web/e2e`, **123 assert
+`"Solved"` and 19 assert `"Failed"` positively**; this is the only negative
+predicate, and the only one naming a string that does not exist.
+
+Why this explains QA7-1 rather than merely coexisting with it. The test runs the
+same flow twice and demands the outcomes be `toEqual`:
+
+```ts
+const drawn  = await run(false);
+const hidden = await run(true);
+expect(hidden, "hiding the placement body changes NOTHING about what Create does")
+  .toEqual(drawn);
+```
+
+and `run()` samples `status` and `volumeAfter` **after an `if (hide)` block that
+only the hidden arm executes** (`:601-616`):
+
+```ts
+const errors = await page.locator('[data-testid^="feature-error-"]').allInnerTexts();
+if (hide) {
+  await setBodyMode(page, rows.plate, "solid");
+  await page.getByTestId("view-fit").click();
+  await waitForFrames(page, 6);          // <-- extra settle, hidden arm ONLY
+}
+const volumeAfter = ...
+const outcome: Outcome = { status: (await status.textContent()) ?? "", ... };
+```
+
+With no real wait, the drawn arm samples the solve state essentially the instant
+the `Hole1` row appears, while the hidden arm samples it six frames plus a body
+re-show and a re-fit later. Under load the drawn arm captures `"Solving…"` and
+the hidden arm captures `"Solved"`/`"Failed"`, and `toEqual` fails with exactly
+the reported message. That is a **load-correlated, diff-independent** failure —
+which is precisely the property that made QA7-1 look inexplicable (it failed on
+`de3755f`, a render-clock commit, and on `ee0e8df`, a comment-only commit).
+
+Two corollaries the backlog entry should absorb:
+
+* The backlog frames this as "either visibility leaks into what Create builds
+  (product defect) or the equality is too strict (spec defect)" and warns not to
+  assume the cheap reading. There is a **third** reading, which is the one the
+  evidence supports: the equality is fine, the *synchronisation* is absent, and
+  the two arms are not sampled symmetrically. Fixing it does not weaken the
+  claim.
+* The fix is not "add a settle to the drawn arm" — it is to wait on a state the
+  product can actually be in (`await expect(status).toHaveText(/Solved|Failed/)`,
+  the shape 142 other assertions already use) and to sample both arms at the
+  same point in `run()`, before the arm-specific restore. **Do not fix it with a
+  retry** — CI-4's own entry forbids that, and here a retry would hide a genuine
+  measurement bug in the harness.
+
+Confidence: the vacuity of the wait is proven statically and is not arguable
+(the string does not exist in the app). The causal link to the two observed CI
+failures is a strong inference from the asymmetry, not an observed reproduction
+— I did not run the spec 20× under a burner this pass. That reproduction is the
+one thing left to do, and it should be run **before** the fix so the fix has a
+control.
+
+### K2 — J7 is still open: no route-sweep authn gate exists, and the posture it would protect is now 87 + 64 routes wide. **P2 · CONFIRMED (posture swept by me; no gate in repo)** · gate-cannot-fail
+
+Last pass (J7) recommended a route-sweep authn gate with a literal allowlist.
+Nothing landed:
+
+```
+$ grep -rln "app.routes" services/gateway/tests services/documents/tests
+(nothing)
+$ grep -n "def test_" services/gateway/tests/test_main.py
+test_default_settings / test_healthz / test_readyz_stays_ready_with_geometry_down
+test_unknown_route_uses_error_envelope / test_api_error_renders_envelope
+```
+
+My own sweep (script above) confirms the posture is still correct today: the
+gateway's only unauthenticated routes are `POST /api/v1/auth/login`,
+`POST /api/v1/auth/register`, `/healthz`, `/readyz`, `/metrics`, and documents'
+tenancy parameter `owner_id` is present on 60 of its 64 routes (the four without
+it are `GET /api/v1/materials` — a static library, correct — plus the three
+probes). The finding is unchanged: **a new route shipped without `CurrentUser`
+fails nothing.** Gateway route count has grown from 71 (J7, 2026-07-30) to 87 in
+two weeks, so the unguarded surface is widening at ~1 route/day.
+
+When this is implemented, the gate must recurse through `_IncludedRouter` (see
+the note above) **and carry a count floor** — `all([])` over 3 infra routes is
+the exact `all([]) is True` shape RETRO §4 names.
+
+### K3 — Licence audit: **CLEAN**, but RESEARCH §8 has **no automated gate over the 1 036-package npm tree**. **P2 (gap) · CONFIRMED · licence hygiene**
+
+New dependencies since the last audit pass (`git log --since=2026-07-30 --
+uv.lock '**/pyproject.toml' '**/package.json'` → two commits):
+
+| Dependency | Added by | Licence (verified from the installed package, not the commit message) |
+|---|---|---|
+| `prometheus-client>=0.21` | `0ba93b3` | `Apache-2.0 AND BSD-2-Clause` (read from `importlib.metadata`) |
+| `@testing-library/{dom,jest-dom,react}`, `jsdom` | `0ba93b3` | MIT ×4 (read from each installed `package.json`) |
+
+No GPL/AGPL. `pnpm licenses list --prod` re-run at HEAD reproduces
+`docs/LICENSING.md` §5's table **exactly** — 78 packages, MIT 66 / Apache-2.0 5 /
+ISC 3 / OFL-1.1 2 / BSD-3-Clause 1 / Unlicense 1 — so that section is still true
+two weeks on. `check-licences.py --self-test` and `e2e-shard-audit.py
+--self-test` both pass and both were watched failing on their negative controls
+(`1 violation(s) naming libjbig`; `an empty discovery -> exit 1`).
+
+**The gap.** `scripts/check-licences.py` is excellent and covers the Python
+environment only — its own docstring says so ("the Python environment WE
+assemble"). Nothing scans the JavaScript tree, which is the half we ship to a
+browser. The §5 JS table was produced by a human running `pnpm licenses list`
+once on 2026-07-31; a GPL npm package added tomorrow fails **no gate anywhere**
+— not `just lint`, not `ci.yml`'s `licences` job, not `deploy-path`. Given that
+this repo's P0 licence incident was caused precisely by trusting a one-time
+human read of dependency metadata, the asymmetry is worth closing: `pnpm
+licenses list --prod --json` piped through an allowlist is ~15 lines and belongs
+in the `licences` job beside the Python profile.
+
+Two smaller notes, neither a defect:
+
+* My own sweep of all **1 036** installed `package.json` files (prod + dev)
+  found exactly one with no `license` field, `webgl-constants@1.1.1`; its
+  `LICENSE` file is MIT. It is not in the production closure (it does not appear
+  in the 78). No action beyond knowing why a future automated gate will flag it.
+* **Checked and cleared, so nobody re-derives it:** `GET /api/v1/meshes/{id}` is
+  authenticated but not owner-scoped, and the store is shared and
+  content-addressed, which looks like a cross-tenant existence oracle. It is
+  not usable as one — the address is the SHA-256 of the GLB bytes, so producing
+  the address requires already having evaluated the geometry, which creates the
+  artifact. The path is also traversal-safe: `_content_object_key`
+  (`services/geometry/src/geometry/s3_store.py:85-96`) resolves a non-matching
+  id to `None`, i.e. a miss rather than a key.
+
+### K4 — SSRF, secrets and tenancy: swept, no findings. **(clean — recorded so the groomer can trust it)**
+
+* **SSRF:** every outbound HTTP call in the tree targets a configured upstream
+  base URL (`gateway/upstream.py:92-117`, `gateway/affinity.py:155`,
+  `gateway/main.py:167`). No route accepts a URL from a request body and fetches
+  it. There is no fetch-by-URL import path — STEP import takes bytes.
+* **Tenancy:** 60 of documents' 64 API routes take `owner_id`; the four that do
+  not are `GET /api/v1/materials` (a static library) and the three infra probes.
+* **Compose posture (last pass's J4):** **FIXED and generalised correctly.**
+  `docker-compose.yml:37,60,76-77` bind db/redis/minio to
+  `${BIND_IP:-127.0.0.1}`, and `scripts/check-compose.py:143-153` is now a sweep
+  over *every* base service with the gateway exempt by name — the inversion J4
+  asked for.
+* Residual, P3: the *second* half of that same file
+  (`check-compose.py:156-161`) is still a hand-list — `for name in ("documents",
+  "geometry")` — for the dev-overlay debug ports. A third internal service added
+  to the dev overlay is outside the gate. It does carry a `bool(mappings)` floor,
+  so it is not the `all([])` shape; it is just enumerated where its neighbour is
+  derived.
+
+### K5 — Prior-finding status (re-verified this pass, not taken on trust)
+
+| Prior | Status at HEAD | Evidence |
+|---|---|---|
+| **J1** (`just lint` red at HEAD) | **FIXED.** `just lint` exits 0. The structural fix also landed: `apps/web/tsconfig.json` `include` covers `src` **and** `e2e`, so `tsc --noEmit` in `just lint` typechecks test files — the seam J1 slipped through twice. |
+| **J4** (compose datastores world-published; gate hand-lists services) | **FIXED**, see K4. |
+| **J5** (`face.test.ts` drift guard compares two copies in one package) | Not re-checked this pass. |
+| **J6** (geometry's third copy of the body-affecting set, ungated) | **FIXED**, and well: `services/geometry/tests/test_feature_type_sets.py` locks the two declarations equal, adds a non-vacuity test (`len(...) >= 10`, `extrude` present, `sketch`/`datum` absent) and a registry-derived rename check. This is the shape the rest of the repo's guards should copy. |
+| **J7** (no route-sweep authn gate) | **STILL OPEN** — see K2. |
+| **J8** ("geometry gates" = a 2-file allowlist) | **FIXED.** `scripts/e2e.sh:233-252` now runs `uv run pytest services/geometry/tests` (the whole suite) and its own comment cites J8. |
+| **J12** (licence housekeeping) | See K3. |
+| **J13** (ROADMAP certification sentence stale) | **RECURRED, worse** — see K6. |
+
+### K6 — `docs/ROADMAP.md`'s "Current focus" is 129 commits stale and is factually wrong about its own OPEN item — the third recurrence of this exact finding. **P2 · CONFIRMED (both halves measured)** · process rot
+
+`docs/ROADMAP.md:5-14`:
+
+> **Current focus: OPEN-SOURCE SELF-HOSTED RELEASE READINESS (2026-07-31 …).**
+> … Landed today: … **OPEN: LIC-1**, stripping jbigkit from the geometry image,
+> which is what still blocks publishing it.
+
+Both claims are false at HEAD.
+
+1. **LIC-1 is closed**, and the same file says so 1 965 lines further down:
+   `docs/ROADMAP.md:1977` — "**LIC-1 CLEARED + LIC-3 SHIPPED, 2026-07-31**".
+   `docs/BACKLOG.md:1369` has it as `- [x]`. The strip script and its stub exist
+   (`deploy/docker/licence/{strip-gpl-jbig.sh,jbig-stub.c,verify-kernel.py}`) and
+   I watched the gate fail on the unstripped library and pass on the stripped one
+   (K3). So the ROADMAP contradicts itself within one file, and the wrong half is
+   the header.
+2. **The focus is not the release.** `git log --since=2026-07-31 | wc -l` →
+   **129 commits**, and their subjects are SEL-4…SEL-8 (picking), CI-2/CI-3/CI-4
+   (e2e reliability), REV-1…REV-5 (review findings), FB-20 (camera) and the loop
+   docs — selection/flow/CI work, not backups/observability/licensing.
+
+CLAUDE.md states that this line "must always match `git log`". This is the same
+finding as **H6** (2026-07-25) and **J13** (2026-07-30). Two audits recommended
+the machine-written fix (a `docs/.last-sweep` record); neither was adopted, and
+the hand-written sentence has now been wrong for two weeks. **Recommend
+escalating from "ask the groomer to fix the sentence" to "delete the sentence
+and derive it"**: the focus line should be generated from the newest
+non-docs-only commit's ticket prefix, or removed. A field three audits in a row
+have found stale is not a discipline problem, it is a bad field.
+
+### K7 — The new Stop hook's in-flight guard — the one its own commit calls "the guard that matters" — **cannot fire**: it globs a path one directory too shallow. **P1 · CONFIRMED (reproduced live, with a running task)** · loop health + the gate-cannot-fail class
+
+`scripts/loop-continue.sh:37-41`, landed in `133a009` (HEAD, 2026-08-14 02:51):
+
+```bash
+# 2. Work in flight? Say nothing. The agents will wake the orchestrator when
+#    they finish, and the Routine covers the case where they never do.
+if find /tmp/claude-0/*/tasks -name '*.output' -mmin -30 2>/dev/null | grep -q .; then
+  exit 0
+fi
+```
+
+The real task-output path in this harness has **two** path components under
+`/tmp/claude-0`, not one — `<project-slug>/<session-uuid>/tasks/` :
+
+```
+$ find /tmp/claude-0 -name '*.output' -mmin -30
+/tmp/claude-0/-home-user-3d-cad/ba6b9f44-dd60-5660-aae3-0f92557d4137/tasks/b9bagoy2s.output
+  ...
+
+$ find /tmp/claude-0/*/tasks -name '*.output' -mmin -30      # the script's glob
+find: '/tmp/claude-0/*/tasks': No such file or directory
+find exit=1
+```
+
+Measured against a **live** background task of mine (a `just test` run whose
+output file had been touched 13 minutes earlier, comfortably inside the 30-minute
+window):
+
+```
+--- guard 2, verbatim from loop-continue.sh:39, with a live task output present
+GUARD DOES NOT FIRE -> falls through to dispatch
+--- the same find with the correct depth (/tmp/claude-0/*/*/tasks)
+GUARD WOULD FIRE
+```
+
+`2>/dev/null` swallows the `No such file or directory`, so the guard is silent as
+well as inert. The other three guards are fine — I re-ran guard 4's awk and got
+**42**, matching the commit message's claim — which makes this worse, not
+better: three working guards make the hook look tested.
+
+**Consequence.** The hook is a `Stop` hook that `exit 2`s to hand the
+orchestrator "dispatch ONE batch". With guard 2 dead, the only thing standing
+between a stop event and a dispatch is guard 3, "is the tree dirty / are there
+unpushed commits" — which is exactly the signal CLAUDE.md documents as a
+**false positive while agents are in flight** ("the tree is *supposed* to be
+dirty"). A batch of agents that are running but have not yet written to the tree
+— the first 10-30 minutes of any batch, i.e. planning and reading — presents a
+clean tree and no unpushed commits, so the hook fires and tells the orchestrator
+to dispatch another batch on top of them. The commit message names precisely
+this outcome as the thing the guard exists to prevent: *"a hook that dispatches
+on top of live agents is exactly how the old 15-minute cron came to be 'racing
+before the next cron job kicks off'."*
+
+**This is `docs/RETRO.md` §4's class, committed 59 minutes after RETRO.md
+itself.** The commit says `T4 0 with a fake fresh task output present` — a
+passing test whose fixture must have been created at the depth the code expects
+rather than the depth the harness uses, which is the same "fixture in the wrong
+FORMAT is a gate that cannot fail for the reason you care about" trap CLAUDE.md
+records for `stage-doc-hunks.py --self-test`. The general lesson is the one that
+keeps not sticking: **a fixture you construct to match your code proves your
+code matches your fixture.** The control had to be "does it fire against a task
+output the *harness* produced", which costs one `find /tmp/claude-0 -name
+'*.output'` and would have failed immediately.
+
+Fix (one character class, plus a control): glob `/tmp/claude-0/*/*/tasks`, or
+better `find /tmp/claude-0 -path '*/tasks/*.output' -mmin -30`, which is
+depth-agnostic and cannot rot the same way. Ship it with an assertion that the
+guard fires while a real background task is live.
+
+### K8 — Three of the last five commits landed with **no code review and no QA pass**, disclosed only in the commit message — not in ROADMAP or BACKLOG, where the groomer reads. **P2 · CONFIRMED** · loop health
+
+```
+$ git log -60 --format=%h%n%B | grep -ci "no independent review\|no QA pass\|RECONCILED, NOT AUTHORED"
+6
+```
+
+Three distinct commits, all from 2026-08-14, all reconciliations of agents
+stopped mid-flight:
+
+| SHA | Subject | Disclosure in the commit |
+|---|---|---|
+| `d091112` | `fix(viewport): the extrude stops stealing the camera (FB-20)` | "It has had no independent code review and no QA pass." |
+| `a2bb859` | `fix(gateway): retire a pooled connection before documents can close it (CI-3)` | "No independent review, no QA pass." |
+| `0580f7d` | `fix(e2e): the diagnostics docstring named the wrong field (REV-1d)` | "gates re-run by me, no independent review." |
+
+The reconciliation protocol itself is right (`docs/RETRO.md` §1.2: judge, gate,
+commit with honest provenance, never revert), and the disclosure is exemplary
+*for a commit message*. The defect is where the debt lands. `docs/ROADMAP.md`
+`38-71` writes FB-20 up at length — mutation evidence, measured degrees, the
+companion defect — and **never says it is unreviewed**. `docs/BACKLOG.md` has it
+as `- [x]`. So the two documents the groomer plans from record the item as done
+to the same standard as a reviewed one, and the only trace of the debt is in
+`git log`.
+
+Two supporting measurements:
+
+* There is exactly **one** `CLOSED-PENDING-QA` marker in the whole of
+  `docs/BACKLOG.md` (line 387, SPEC-4) — while `docs/RETRO.md` §6.5 says
+  "*Several* items are marked CLOSED-PENDING-QA". Whichever way that is resolved,
+  one of the two is wrong, and it is a claim about process health written without
+  counting. (`grep -c "CLOSED-PENDING-QA" docs/BACKLOG.md` → 1.)
+* I did spot-check the reconciled work and it is good: FB-20's gate exists and is
+  real (`apps/web/e2e/axis-flip-probe.spec.ts:171-232` — a direction-drift bound
+  via `expectCameraStable`, a `moved > 20` floor so "stable" cannot be satisfied
+  by a camera that never moved, and an iso check `< 3°`), and CI-3's fix ships a
+  286-line test that reproduces the race against a real server and asserts
+  `upstream.resets == 0` / `connections == 2` rather than asserting a config
+  constant. **The finding is not that the work is bad. It is that "unreviewed" is
+  invisible from the board**, so it will never be paid down.
+
+*Fix:* a `- [x] … (UNREVIEWED)` suffix, or a standing `Review debt` list the
+groomer drains. Whatever the marker, it has to live in `docs/BACKLOG.md`.
+
+### K1 (continued) — the second face of the same defect, **with my first prediction corrected by measurement**
+
+> **Correction, and I am leaving the wrong version visible because that is the
+> point of this section.** I first wrote here that the drawn arm samples
+> mid-flight *on the common path*, so the test "mostly compares two `Solving…`
+> snapshots" and proves nothing. **I then ran it, and that is false.** In a quiet
+> window the test passes in **16.3 s** and both arms print a *completed* verdict:
+>
+> ```
+> [SEL-7 QA] Create drawn:  X 30, Y 30 → Failed [HOLE_OFF_BODY …]; volume 38,020.8mm³ → 38,020.8mm³
+> [SEL-7 QA] Create HIDDEN: X 30, Y 30 → Failed [HOLE_OFF_BODY …]; volume 38,020.8mm³ → 38,020.8mm³
+> ✓ 1 e2e/qa-sel7-verify.spec.ts:555:3 … (16.3s)   1 passed (17.9s)
+> ```
+>
+> The rebuild this fixture triggers fails FAST (`HOLE_OFF_BODY`), so on an
+> unloaded machine both arms are past completion before they sample, and the
+> comparison is meaningful. I had reasoned from the code that the evaluate query
+> would still be in flight and had not measured how long it takes. That is
+> `docs/RETRO.md` §4's exact class — a confident claim nobody measured — and it
+> took ~18 s of machine time to catch. The corrected version follows.
+
+The defect is not that the test always samples mid-flight. It is that **nothing
+makes it sample post-flight**, and the two arms have unequal odds of doing so.
+
+Reading the two arms against `partBuild.ts:231-237`:
+
+```ts
+const solve: SolveVerdict = evaluating ? "solving" : evaluation === undefined ? "unknown" : ...
+```
+
+`evaluating` is TanStack's `isFetching` on the evaluate query. The sequence
+after `hole-submit` is: the tree mutation resolves (cheap, a documents write),
+the `Hole1` row renders from the tree query, and only *then* does the evaluate
+query — the expensive OCCT rebuild — settle. The spec's very next statement
+after the `Hole1` row becomes visible is the vacuous poll, so the drawn arm
+samples the panel while the kernel is still working: `status` is
+**`"Solving…"`**, `errors` is **`[]`** (no `feature-error-*` node has rendered),
+and `volumeAfter` is still the **pre-hole** volume.
+
+So on the common path the test compares two mid-flight snapshots and passes.
+Restated: **`Create costs nothing` mostly proves that two runs were equally
+un-finished.** Of its five compared fields, only `promised` (the two coordinate
+inputs, captured before submit) carries real information on that path; `status`,
+`errors`, `volumeBefore` and `volumeAfter` are all pre-completion values. A real
+regression in which hiding the placement body changed the resulting geometry
+would therefore be invisible — the very claim the test was written to establish
+(the docstring: "*No SEL-7 gate ever presses Create, so nothing measured whether
+the withheld state COSTS the command anything*").
+
+And the red path is the mirror: the hidden arm's `if (hide)` restore inserts a
+body re-show, a `view-fit` and `waitForFrames(page, 6)` before its own sample,
+so whenever that extra settle happens to cross the evaluation-complete boundary
+and the drawn arm's did not, the two snapshots differ and the assertion fails
+with `hiding the placement body changes NOTHING about what Create does`. Whether
+the boundary is crossed depends on how long the rebuild takes, i.e. on machine
+load — which is why it reproduced on shard 3 of two commits that cannot reach
+hole placement.
+
+**This is one defect with two faces: usually a gate that cannot fail, sometimes
+a gate that fails for a reason unrelated to its subject.** Both are fixed by the
+same change — wait for a terminal verdict (`toHaveText(/Solved|Failed/)`) and
+sample both arms at the same point in `run()`, before the arm-specific restore.
+
+### K1 (conclusion) — I could NOT reproduce the failure. The vacuous wait is proven; the causal link to the two CI reds is **NOT**.
+
+Ran the spec at HEAD, in isolation, seven times:
+
+| Condition | Runs | Result | Per-run wall |
+|---|---|---|---|
+| Quiet container | 1 | **passed** | 16.3 s |
+| 6 CPU burners, load average 7.2 → 8.5 | 6 | **passed** (all) | 25.2 / 26.5 / 26.9 / 26.2 / … s |
+
+Every run printed a *completed* verdict in both arms (`→ Failed [HOLE_OFF_BODY …]`,
+`volume 38,020.8mm³ → 38,020.8mm³`, identical), so the comparison was meaningful
+each time and the extra settle never straddled the completion boundary. The
+fixture's rebuild fails fast, which is what makes the boundary hard to hit here.
+
+So the honest state of QA7-1 after this pass:
+
+* **CONFIRMED, statically and beyond argument:** the `not.toBe("Evaluating")`
+  poll cannot wait, because `eval-status` has no such value. This is a real
+  defect regardless of whether it caused the CI reds — the test's only
+  synchronisation with the thing it measures is absent, and it is the sole
+  negative-predicate wait among 148 `eval-status` references.
+* **CONFIRMED:** the two arms are sampled at unequal settle depths, so the
+  comparison is not apples-to-apples by construction.
+* **NOT CONFIRMED:** that either of those produced `de3755f` / `ee0e8df`.
+  7 attempts, 0 reproductions. Load alone (×8.5 average, 1.6× slower runs) does
+  not do it on this container.
+
+What I would do next, in order, and why not simply "fix the wait": the fix is
+correct on its own merits and should land, but landing it *also destroys the
+reproduction*, so the diagnosis would be permanently unfalsifiable — the
+`gen-check`-measuring-the-wrong-input trap again. Cheaper and decisive:
+(1) read `e2e-shard-audit.py --timeline` output from the two red runs — it is
+already captured on every run and prints the failing test's ordinal and the
+shard's slowest 10, which answers "did it die late in a loaded shard?" without a
+re-run; (2) if that shows the test running late in a long shard, reproduce by
+running it **after** ~100 other specs rather than in isolation, which is the
+condition I did not replicate. Only then land the fix, with the pre-fix
+reproduction as its control.
+
+**Caveat on my own evidence, recorded because it is the same defect class this
+pass is about.** Before the first run I checked for stale listeners with
+`ss -ltnp 2>/dev/null | grep -E ":(5173|8000|8001|8002)" || echo "no listeners"`
+and it printed "no listeners". **`ss` is not installed in this container**, so
+the pipeline was empty and the `||` branch fired: my pre-flight check could not
+have detected a listener if one existed, and one did. `scripts/e2e.sh` then
+printed `reusing healthy gateway on :8000` and both of my runs used a stack a
+sibling had booted at 02:54:14 — 18 minutes old, but started *after* HEAD
+(`133a009`, 02:51:48) and therefore serving HEAD, and healthy throughout (all 7
+runs green, no `readonly database`). The measurement stands; the pre-flight
+did not. Use `curl -sf -m2 http://127.0.0.1:PORT/healthz` or `ps -eo pid,args`
+— which is what CLAUDE.md's own recipe says — never `ss`. Worth adding to the
+environment recipes: **an absent tool at the head of a `|` pipeline turns a
+safety check into a rubber stamp.**
+
+### K9 — CI ceilings are justified by numbers that are now stale, and the instrument added to refresh them has never been read. **P3 · CONFIRMED (counts measured)** · process
+
+Two related instances, both "we shipped the measurement and then stopped
+measuring":
+
+* `.github/workflows/ci.yml:78-82` sets the `python` job's 30-minute ceiling
+  and argues it from "**~2958 tests**" and a measured 14m31s. At HEAD `just test`
+  reports **3 541 passed, 1 skipped, 5 deselected in 880.73 s (14m40s)** on this
+  container — **+20 % tests** since that note. Locally that is still 14 minutes,
+  but the 14m31s in the comment was measured *on a runner*, so the runner figure
+  today is unknown and the headroom argument no longer rests on anything. This
+  matters because a job killed at the ceiling is reported `cancelled` — the word
+  CLAUDE.md spends four paragraphs teaching people not to misread.
+* `.github/workflows/e2e.yml:88` literally contains
+  `#   per-shard wall on a hosted runner: ____ min (fill in from 'e2e complete')`
+  with the blank unfilled, three days after `--timeline` was added to print
+  exactly that on **every** run, green ones included. The suite has grown again
+  in the meantime: `playwright test --list` at HEAD reports **473 tests in 99
+  files**, against the 467 recorded on 08-11 and the 352 the cost model was
+  written for (+34 %). The decision rule ("past ~30 min per shard, raise the
+  matrix to 6") therefore has no input.
+
+Neither is urgent. Both are one CI read away, and the second one is directly on
+the CI-4 critical path — the timeline is the instrument that would answer
+whether QA7-1 fails late in a loaded shard (see K1's conclusion), and nobody has
+looked at it.
+
+### K10 — Smaller items, filed for completeness
+
+* **No model↔migration drift gate.** `services/gateway` has 1 migration for its
+  1 table and its tests build the schema with `Base.metadata.create_all`
+  (`test_auth.py:62` and 8 more), so a column added to `gateway/db.py` without a
+  migration passes every fast gate. It *is* caught — by `deploy-path`, which
+  migrates from the images and then registers a user — i.e. by the slowest signal
+  we have, which is precisely the argument that produced
+  `scripts/check-build-context.py`. `documents` is fine (its conftest runs the
+  real alembic migrations, 16 of them). An `alembic check` step would make this a
+  fast gate. P3.
+* **`viewport-makeover.spec.ts:373`** is the one surviving instance of GATE-1a's
+  banned shape: `await page.waitForTimeout(1200)` followed by three
+  **non-retrying** numeric assertions (`expect(Math.abs(after[0] - before[0])).toBeLessThan(1e-3)`).
+  It is a *negative* assertion ("the camera never re-fit"), so a too-short sleep
+  makes it pass for the wrong reason rather than flake — a weak gate, not a flake
+  source, which is why it survived the sweep that fixed `view-fit.spec.ts`. Anchor
+  it to a render-tick count like its neighbours. I swept all 21 `waitForTimeout`
+  calls in `apps/web/e2e` for this pattern; this is the only one. P3.
+* **`check-compose.py:156-161`** — the dev-overlay half of the compose gate is
+  still a hand-list (`for name in ("documents", "geometry")`) while the half
+  beside it now sweeps every service. P3, see K4.
+* **The one kernel-boundary crossing in the tree is deliberate and documented:**
+  `services/gateway/tests/test_assembly_import_chain.py:56` imports
+  `build123d.Solid`. It is the 3-service in-process integration gate and its
+  45-line docstring argues the design. Nothing else outside `services/geometry`
+  imports OCP/build123d (`grep '^from OCP\|^from build123d'` over
+  `services packages apps`), no file in `services/geometry` imports
+  sqlalchemy/asyncpg/psycopg, and `apps/web` contains no reference to :8001/:8002.
+  **Service boundaries: clean.**
+* **DRY: clean on the axes CLAUDE.md names.** Zero hand-written duplicates of API
+  types in `apps/web` (every `src/api/*.ts` imports `components` from
+  `@loft/ts-client/gateway`); `just gen-check` passes at HEAD ("contracts +
+  ts-client match generated output"); 7 hex colour literals in all of
+  `apps/web/src`, and the 4 in the viewport are a black→white gradient ramp in
+  `bluingWash.ts`, not palette values.
+* **Typing: clean.** `pyright` strict reports 0 errors over the whole workspace;
+  `tsc --noEmit` clean for all three TS projects; **zero** `as any` / `: any` /
+  `@ts-expect-error` / `eslint-disable` in `apps/web/src` or
+  `packages/design/src`. 175 Python suppressions, dominated by
+  `reportUnknown{Variable,Member}Type` at the OCP seam, which is the expected
+  place for them.
+* **No assertion-free Python tests** worth the name: a scripted scan of every
+  `def test_*` in `services/` and `packages/` found 4 with no `assert`, and 3 of
+  them (`test_ratelimit.py`) are legitimate "must not raise" tests whose comments
+  say so; the 4th records a benchmark table.
+* **Geometry has not changed in 13 days.** `git log --since=2026-08-01 --
+  services/geometry/src` returns 6 commits, the newest of which is the one that
+  last updated `docs/GEOMETRY-QA.md`. So GEOMETRY-QA is *not* stale — but it is
+  worth the groomer noticing that all 129 commits since the "release readiness"
+  focus line was written are web / CI / process, and none is kernel work.
+
+### Prioritized recommendations for the groomer
+
+| # | Sev | Item | Why now |
+|---|-----|------|---------|
+| 1 | **P1** | **K7** — fix `loop-continue.sh:39` to `find /tmp/claude-0 -path '*/tasks/*.output' -mmin -30`, and add a control that asserts the guard fires while a real background task is live | It is at HEAD, unreviewed, and the guard that cannot fire is the one its own commit calls "the guard that matters". The failure mode is dispatching a batch on top of live agents — the collision class most of CLAUDE.md's multi-agent section exists to prevent. One line to fix; the control is the part that must not be skipped, because the existing fixture-based test passes today. |
+| 2 | **P1** | **K1** — QA7-1. Read the `--timeline` output from `de3755f`/`ee0e8df` FIRST (it is already captured); then reproduce with the spec running late in a loaded shard; only then replace the vacuous poll with `toHaveText(/Solved\|Failed/)` and move both arms' sampling before the `if (hide)` restore | The wait is provably a no-op — `eval-status` has no value `"Evaluating"` — so the test's only synchronisation with its subject is missing, in both directions (it can pass without measuring, and it can fail without a defect). Fixing it before reproducing destroys the reproduction, so the order matters. **Do not add a retry**; CI-4 forbids it and here it would hide a harness bug. |
+| 3 | **P2** | **K2** — the route-sweep authn gate (J7, now three passes old). Recurse `_IncludedRouter.original_router`, assert a literal 5-path gateway allowlist and documents' `owner_id` on all but 4, and carry a **count floor** | Highest security coverage per line available, and the surface grew 71 → 87 routes in two weeks. The FastAPI-0.139 trap means the naive version passes vacuously over 3 infra routes — which is why this recommendation now names the implementation, not just the intent. |
+| 4 | **P2** | **K3** — a JS licence gate: `pnpm licenses list --prod --json` through an allowlist, in `ci.yml`'s `licences` job beside the Python profile | The tree is clean today (I re-measured: 78 packages, distribution identical to LICENSING §5). But the JS half is enforced by a human who ran a command once on 2026-07-31, which is the exact enforcement model the OCP wheel proved cannot work. |
+| 5 | **P2** | **K8** — make review/QA debt visible on the board: an `(UNREVIEWED)` marker in `docs/BACKLOG.md` for reconciled commits, or a standing Review-debt list | Three of the last five commits shipped with no review and no QA. The commits say so; ROADMAP and BACKLOG do not, and those are what the groomer plans from. Also correct `docs/RETRO.md` §6.5 — there is **one** `CLOSED-PENDING-QA` marker, not "several". |
+| 6 | **P2** | **K6** — stop hand-writing ROADMAP's "Current focus". Derive it, or delete it | Third audit in a row to find it stale (H6 → J13 → K6), and it is now wrong in the strong direction: it names LIC-1 as OPEN when the same file records it CLEARED 1 965 lines later, and 129 commits have landed since it was written. Two audits recommended a machine-written record; neither was adopted. A field that fails three times is a bad field, not a discipline problem. |
+| 7 | **P3** | **K9** — read one green CI run and fill in `e2e.yml:88`'s blank; re-derive `ci.yml:78-82`'s 30-minute justification against the real test count (2 958 → **3 541**) and the e2e suite's (352 → **473**) | Both are one CI read. The e2e one is on CI-4's critical path — `--timeline` was added specifically to answer QA7-1's question and has never been read. |
+| 8 | **P3** | **K10** batch — `alembic check` as a fast gate for the gateway model↔migration seam; anchor `viewport-makeover.spec.ts:373` to render ticks; sweep the dev-overlay half of `check-compose.py`; add "`ss` is not installed — probe with `curl -sf`, never `ss \| grep`" to CLAUDE.md's environment recipes | Housekeeping, one grooming slice. The `ss` recipe is cheap and I burned a false-negative pre-flight on it during this very pass. |
+
+### Confidence ledger for this pass
+
+* **Ran myself, output captured:** `just lint` (exit 0), `just test` (3 541 py
+  passed / 1 skipped / 5 deselected in 880.73 s; design 77; web 1 598;
+  exit 0), `just gen-check` (clean), `check-licences.py --self-test` (passed,
+  watched failing on its negative control), `e2e-shard-audit.py --self-test`
+  (passed, ditto), `pnpm licenses list --prod` (78, unchanged), the gateway /
+  documents / geometry route-auth sweep (script in this pass's scratch, output
+  quoted), `playwright test --list` (473/99), and `qa-sel7-verify.spec.ts:555`
+  **seven times** (1 quiet + 6 under load average 8.5).
+* **K1** — the vacuous wait is proven statically and is not arguable. The causal
+  link to the two CI reds is **NOT established**; 7 reproduction attempts, 0
+  failures. Stated as unproven rather than rounded up. My first written analysis
+  of the common path was **wrong and is corrected in place**, with the
+  measurement that corrected it.
+* **K7** — reproduced live against a running background task, both the failing
+  glob and the working one, with the `find` exit code and stderr captured.
+* **K2, K3, K4, K5, K6, K8, K9, K10** — confirmed by reading the artifact and, for
+  every number quoted, by running the command that produces it.
+* **Not covered this pass:** J5 (the `face.test.ts` drift guard) was not
+  re-checked; the compose/deploy-path runtime path was not exercised (the Docker
+  registry is blocked here); no full `just e2e` sweep was run — only the single
+  QA7-1 spec — so the browser suite at HEAD is **not** independently verified by
+  me. The stack my e2e runs used was booted by a sibling at 02:54:14, after HEAD,
+  and was healthy throughout; I did not boot a fresh one, and my pre-flight check
+  that claimed no listener existed was itself a false negative (see K1's caveat).

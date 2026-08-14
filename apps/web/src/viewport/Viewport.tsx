@@ -16,7 +16,13 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
-import { PerspectiveCamera, Vector3, type BufferGeometry } from "three";
+import {
+  MOUSE,
+  PerspectiveCamera,
+  TOUCH,
+  Vector3,
+  type BufferGeometry,
+} from "three";
 import type { Box3 } from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 
@@ -598,7 +604,11 @@ export interface ViewportProps {
   children?: ReactNode;
   /** DOM overlays over the canvas (tool strip, DRO) — chrome stays quiet. */
   hud?: ReactNode;
-  /** Orbit rotate lock — off while sketching (pan/zoom stay live). */
+  /**
+   * May orbit own the LEFT button? False while the sketcher is drawing, whose
+   * own gesture is a left press-drag-release. Orbit itself stays available —
+   * it moves to the middle button (VP-1); pan/zoom are untouched either way.
+   */
   rotateEnabled?: boolean;
   /** The world ground grid; the sketch grid replaces it while drawing. */
   groundGrid?: boolean;
@@ -848,6 +858,53 @@ export function Viewport({
     [onContextMenu],
   );
 
+  /**
+   * VP-1 — the orbit rig's button map. `rotateEnabled` says whether orbit may
+   * own the LEFT button; it is false exactly while the sketcher is drawing,
+   * and the sketcher draws with a left press-drag-release.
+   *
+   * That lock used to be spelled `enableRotate={false}`, which took orbit off
+   * EVERY button, so a modeller could not look around mid-sketch (founder
+   * report). Fusion 360 never binds orbit to the drawing button in the first
+   * place, so orbit is always live there. So the lock now MOVES the gesture
+   * rather than removing it: LEFT goes unbound — three-stdlib's `onMouseDown`
+   * reads `mouseButtons.LEFT`, finds nothing, and falls to its `default`
+   * branch (`state = STATE.NONE`, no pointer capture, no `preventDefault`), so
+   * the press reaches the sketcher's own handlers exactly as before — ROTATE
+   * takes MIDDLE, and RIGHT stays PAN (the right-drag pan the context-menu
+   * click-slop gate above depends on). Nothing is lost: MIDDLE was DOLLY, and
+   * the wheel already dollies.
+   *
+   * Unlocked, this map IS three-stdlib's own default
+   * (`LEFT: ROTATE, MIDDLE: DOLLY, RIGHT: PAN`), so 3D navigation outside the
+   * sketcher is unchanged.
+   */
+  const mouseButtons = useMemo(
+    () =>
+      rotateEnabled
+        ? { LEFT: MOUSE.ROTATE, MIDDLE: MOUSE.DOLLY, RIGHT: MOUSE.PAN }
+        : { MIDDLE: MOUSE.ROTATE, RIGHT: MOUSE.PAN },
+    [rotateEnabled],
+  );
+
+  /**
+   * Touch keeps precisely the behaviour it had. `enableRotate` has to be true
+   * now (it gates the rotate MOVE handler as well as the press, so a false
+   * would leave the middle button orbiting nothing), and one finger defaults
+   * to ROTATE — which would newly spin the view under a finger dragged across
+   * a sketch. Unbinding ONE while the lock is on reproduces the old
+   * `enableRotate={false}` outcome for that gesture; TWO is dolly+pan either
+   * way. A touch device has no middle button, so orbit-while-drawing is still
+   * out of reach there (BACKLOG VP-1a).
+   */
+  const touches = useMemo(
+    () =>
+      rotateEnabled
+        ? { ONE: TOUCH.ROTATE, TWO: TOUCH.DOLLY_PAN }
+        : { TWO: TOUCH.DOLLY_PAN },
+    [rotateEnabled],
+  );
+
   /** QA hook: the settled view + camera position, stamped on the container. */
   const handleSettle = useCallback(
     (view: string, position: Vector3, framed: Rect | null) => {
@@ -985,7 +1042,13 @@ export function Viewport({
         <OrbitControls
           makeDefault
           enableDamping={!reducedMotion}
-          enableRotate={rotateEnabled}
+          // Always enabled — `enableRotate` gates the rotate MOVE handler as
+          // well as the press, so the lock lives in `mouseButtons` instead
+          // (see above), where it can move orbit to another button rather
+          // than delete it.
+          enableRotate
+          mouseButtons={mouseButtons}
+          touches={touches}
           zoomToCursor
           rotateSpeed={navigation.rotateSpeed}
           panSpeed={navigation.panSpeed}
