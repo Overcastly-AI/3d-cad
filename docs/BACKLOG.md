@@ -53,6 +53,33 @@ duplication.
 
 ## Ready (top of queue)
 
+- [ ] (P1, S) **QA7-1 — `qa-sel7-verify:555` has now failed TWICE on unrelated
+      commits, and what it asserts is not cosmetic** (`apps/web`). Filed
+      2026-08-14 by the orchestrator from the CI board. The spec is
+      `qa-sel7-verify.spec.ts:555` — "Create costs nothing: the withheld run
+      matches the drawn run" — and its failure message is
+      `hiding the placement body changes NOTHING about what Create does`.
+      OCCURRENCES: `de3755f` (render-clock commit) and `ee0e8df` (a comment-only
+      corrections commit that touched no hole-placement code at all), both on
+      shard 3, both ~17.1-17.2 min. Neither diff can plausibly reach hole
+      placement, which is what makes this interesting rather than dismissible.
+      WHY IT MATTERS: this is not a raster or timing assertion. It claims the
+      hole Create produces the SAME geometry whether the placement body is drawn
+      or hidden. If that is genuinely intermittent, then visibility — a pure
+      VIEW state — is leaking into what the command builds, which would be a
+      real product defect and a nasty one. The alternative is that the spec's
+      equality is too strict (e.g. it compares a volume or an id that legitimately
+      varies), which is a spec defect. BOTH readings are worth an hour; do not
+      assume the second because it is cheaper.
+      FIRST MOVES: read what :555 actually compares before anything else. Then
+      run it in a loop locally (10x quiet, 10x under a 3-core burner — the
+      pattern that settled SPEC-4) and see whether it is load-correlated. If it
+      reproduces, bisect on the COMPARISON, not on the commits: the two failing
+      commits share no relevant code, so commit-bisection will mislead.
+      NOTE it passes at the tip and passed on `c6b6c6d` where it was introduced,
+      so the tree is verified; it is per-commit evidence that is unreliable.
+      [src: orchestrator CI read, 2026-08-14]
+
 - [ ] (P0, S) **FB-20 — the camera is stolen after an extrude, and the guard
       written to stop it has a first-run hole** (`apps/web/src/viewport`).
       FOUNDER REPORT 2026-08-14: "I draw in a plane and then all of a sudden it
