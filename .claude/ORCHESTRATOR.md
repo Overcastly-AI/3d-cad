@@ -62,7 +62,7 @@ Modelled on `Overcastly-AI/next-lane`, which runs this in production. One batch
 per invocation; **chain the next batch on completion.**
 
 ```
-Audit  →  Groom  →  Build  →  Integrate  →  (next batch)
+Audit  →  Groom  →  Build  →  Review  →  Verify  →  Integrate  →  (next batch)
 ```
 
 - **Audit** — `product-auditor` + `engineering-auditor` in parallel, independent,
@@ -74,6 +74,23 @@ Audit  →  Groom  →  Build  →  Integrate  →  (next batch)
 - **Build** — one agent per item, each with **`isolation: 'worktree'`**, owning
   the slice end to end: implement, self-review, QA, commit-if-green, leave it on
   its branch. N≈2–4.
+
+  **A WORKTREE IS SEEDED FROM THE SESSION'S INITIAL REF, NOT THE BRANCH TIP —
+  put the reset in every brief.** Measured 2026-08-14 across both dispatch
+  mechanisms, hours apart, and after `main` had moved: every worktree sat at
+  `5aa981a`. The VP-1a agent's worktree was five commits behind and did not
+  contain VP-1, the commit it was extending — the spec file it was told to edit
+  did not exist. It noticed and reset; an agent that did not would have gated
+  against stale code and produced a commit whose parent reverts its
+  predecessors. Brief line: *"your first act is `git fetch origin <branch> &&
+  git reset --hard origin/<branch>`; state in your report which SHA you built
+  on."*
+- **Review, then Verify** — `code-reviewer` then `qa-tester`, per item,
+  pipelined so an item's review starts the moment its build lands. **These were
+  missing from the loop until 2026-08-14**, when the engineering audit (K8)
+  measured the consequence: three of the last five commits landed with no review
+  and no QA. A build-only loop cannot produce reviewed work however good the
+  builders are. The reviewer re-runs the builder's mutation evidence itself.
 - **Integrate** — yours. Merge each green branch, verify the merged tree
   (typecheck + unit + targeted gates), push, read CI, then launch the next batch.
 

@@ -114,12 +114,35 @@ Recorded here as the loop's biggest open structural improvement.
 
 **ADOPTED AND MEASURED, 2026-08-14.** The first batch dispatched with
 `isolation: 'worktree'` produced two live worktrees under `.claude/worktrees/`,
-each cut from the branch tip (`5aa981a`) rather than from `origin/main` — the
-base ref was the specific thing worth checking before trusting anything they
-built, and it was right. Two builders worked simultaneously in
+both at `5aa981a`. Two builders worked simultaneously in
 `apps/web/src/sketch/**` and `apps/web/src/viewport/**` with **zero** contact:
 no shared index, no `stage-doc-hunks.py`, no `GIT_INDEX_FILE` dance, nothing to
 reconcile. The whole collision protocol was simply not needed.
+
+**CORRECTION, same day, and it is the retro's own §4 class.** I wrote above that
+the worktrees were "cut from the branch tip rather than from `origin/main` — the
+base ref was the specific thing worth checking, and it was right." The check was
+right; the conclusion was not. `5aa981a` happened to be BOTH at that moment, so
+the observation could not distinguish the two hypotheses and I asserted the
+flattering one. Measured properly a few hours later, across two different
+dispatch mechanisms and after `main` had moved on to `5cd7216`: **every** live
+worktree — the Agent-tool ones and the Workflow ones alike — still sits at
+`5aa981a`. The base is the session's initial ref, PINNED. It is not the branch
+tip and it is not current `main`.
+
+Consequence, found by the VP-1a agent rather than by me: its worktree was five
+commits behind and **did not contain VP-1**, the very commit it was extending —
+`apps/web/e2e/sketch-orbit.spec.ts` did not exist in it. It noticed, reset its
+branch to the dev tip, and said so in its report. An agent that did not notice
+would have built against stale code, gated against stale code, and produced a
+commit whose parent silently reverts its predecessors.
+
+**So every worktree brief must now say: your first act is
+`git fetch origin <dev branch> && git reset --hard origin/<dev branch>`, then
+state in your report which SHA you actually built on.** That is cheap, and it is
+the only thing standing between worktree isolation and a silent revert. The
+general lesson is the one this file keeps writing down: a single observation
+consistent with two explanations is not evidence for either.
 
 One residual seam, and its fix: the same-commit rule requires every commit to
 tick `docs/ROADMAP.md` + `docs/BACKLOG.md`, which would put every worktree back
