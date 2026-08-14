@@ -180,6 +180,22 @@ duplication.
       unflagged decoy; the count guard stays FIRST because ALL is vacuous at
       zero. The old guard passes a file whose decoy lost the flag (1/2, exit 0),
       the new one exits 1, and reverting to ANY trips the new probe.
+      PARTIAL 2026-08-14 (REV-1 a/b — the census half; (c)(d) next). (a) The
+      census now measures the ground's own dispersion (per-channel MAD as a
+      vector) and REFUSES a frame where `noise / axisLength >= 0.125`: measured
+      0.0060 healthy and 0.0085 on the depthTest mutant against 0.307 on the
+      inkless lit face, so neither calibrated reading moves (healthy re-measured
+      1168.32/1169.30). It THROWS — false-HIGH means a silent 0 just moves the
+      lie. Three `qa-harness` tests gate it on a synthetic frame via a new
+      `selector` option and carry the pre-REV-1 arithmetic as a control
+      (48 462.74 on bare metal); restoring the old guard reddens them. (b) The
+      `offAxis` assertion is DELETED, not re-based: a total hue swap (whole
+      scribe in brass, via a `tokens.ts` route rewrite) moves it 99 -> 101,
+      because a foreign hue projects short and never passes the 0.25 floor, and
+      `coverage > 400` catches that frame anyway at 257.97. It stays in the
+      attachment. NB the depthTest mutant is a z-fight lottery — 349.48 / 244.09
+      / 194.00 / 154.55 over four runs, not 212.49 — so the floor's margin is
+      1.14x.
 
 - [ ] (P2, XS) **REV-2 — the retries posture guard stops covering a renamed
       Playwright config, silently** (`.github/workflows/e2e.yml:380`). Filed

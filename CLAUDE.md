@@ -2,6 +2,36 @@
 
 Guidance for Claude Code (and other AI agents) working in this repository.
 
+---
+
+## READ THIS BEFORE YOUR FIRST TOOL CALL
+
+**If you are the ORCHESTRATOR, open
+[`.claude/ORCHESTRATOR.md`](./.claude/ORCHESTRATOR.md) now and follow it.**
+It is short. This file is the reference manual; that one is the procedure.
+
+It is placed here, at line 1, because the previous pointer to it sat at line
+338 of a 1017-line file and the process it describes was consequently not
+followed. The founder's summary of what that cost: *"none of the agents are
+being used in the project. You are constantly over writing files and then
+wasting tokens trying to fix and racing before the next cron job kicks off."*
+
+The four rules, so they are in your context even if you read nothing else:
+
+1. **You dispatch and integrate. You do not do the org's job.** The
+   `backlog-groomer` owns `docs/BACKLOG.md`. The auditors own the audit docs.
+   Builders write code; reviewers review; QA exercises the real app. **If you
+   are editing the backlog yourself, you have already gone wrong.**
+2. **Use the agents.** There are fourteen in `.claude/agents/`. On 2026-08-14
+   an audit found eight had never been invoked — the entire direction layer was
+   dead and the orchestrator was doing it by hand, in the most expensive context
+   in the system.
+3. **Builders get their own worktree** (`isolation: 'worktree'`). A shared
+   checkout is the root of every overwrite, and of the staging tool that has
+   failed silently three times.
+4. **Reading CI is yours alone** — `api.github.com` is denied to every
+   subagent. Agents push and stop; you read the run and relay failures back.
+
 ## What this is
 
 An **open-source, cloud-native parametric 3D CAD platform** — Python
@@ -335,6 +365,12 @@ Stale docs are a defect (this rule saved Next-Lane repeatedly; see
 
 ## Work as a dev team
 
+**ORCHESTRATOR: READ [`.claude/ORCHESTRATOR.md`](./.claude/ORCHESTRATOR.md)
+FIRST, EVERY SESSION.** It is the playbook you follow — what is yours, what
+belongs to an agent, the audit -> groom -> build -> integrate loop, and the
+anti-patterns with the evidence that earned them. The short version: you
+dispatch and integrate; you do not write the board, run the audits, or build.
+
 Built by a **team of specialized AI agents**, not one generalist. Default to
 delegating. The tooling lives in [`.claude/`](./.claude/README.md).
 
@@ -356,10 +392,45 @@ models, round-trips, benchmarks → `docs/GEOMETRY-QA.md`), `frontend-qa`
 (`code-reviewer`) → QA (`qa-tester`; `geometry-qa` when kernel-adjacent;
 `frontend-qa` spot-check) → tick ROADMAP/BACKLOG → commit. Workflows in
 `.claude/workflows/` orchestrate this; `autonomous-dev-loop` chains batches
-on completion with a watchdog fallback (`docs/AUTONOMOUS-LOOP.md` §1.4).
+on completion. There is no cron and no watchdog — see `docs/LOOP-MECHANISMS.md`
+for what wakes the loop and what each mechanism survives.
 
 ## Multi-agent orchestration protocol
 
+**READ THIS FIRST — most of the rules below exist because we were not doing the
+two things at the top of this list, and they become far less load-bearing once
+we are.**
+
+- **THE ORCHESTRATOR DISPATCHES AND INTEGRATES. IT DOES NOT DO THE ORG'S JOB.**
+  Audited 2026-08-14 after the founder said "none of the agents are being used":
+  eight of the fourteen agents in `.claude/agents/` had never been invoked, and
+  the orchestrator had been writing `docs/BACKLOG.md` ITSELF — `file CI-4`,
+  `file REV-1..REV-5`, `file QA7-1` are all orchestrator commits. That is the
+  `backlog-groomer`'s entire job, performed in the most expensive context in the
+  system. Every symptom followed from it: two classes of writer on the shared
+  docs (hence overwrites, hence the staging tool below), audits done by hand
+  instead of by `product-auditor`/`engineering-auditor`, and a cron racing its
+  own slices. **The groomer owns the board. The auditors own the audit docs. The
+  builders own their code. The orchestrator hands out tickets, integrates green
+  branches, and reads CI — which is the one thing no subagent can do.**
+- **BUILD IN WORKTREES.** Give every parallel builder `isolation: 'worktree'`.
+  We documented this at `.claude/workflows/autonomous-dev-loop.md` for weeks and
+  never did it, and the cost is most of this section: a shared index is the only
+  reason `git add` can sweep a colleague, the only reason a stale `read-tree`
+  can revert one, and the only reason `stage-doc-hunks.py` exists. Next-Lane
+  runs the same loop with worktrees and has no equivalent script at all.
+- **DOC EDITS ARE THE LAST STEP, STAGED AND COMMITTED IN THE SAME TURN.** This
+  is Next-Lane's actual mitigation for the shared-doc race, and it is cheaper
+  and more reliable than ours. Never leave `docs/ROADMAP.md` / `docs/BACKLOG.md`
+  edits unstaged across other tool calls — that window is the whole hazard. When
+  several agents must touch the same docs, serialize the doc-writers or give one
+  a worktree. `scripts/stage-doc-hunks.py` is now a FALLBACK for the
+  unavoidable shared-tree case, not the default path: it is 905 lines, it has
+  failed silently three times in production (swept a colleague's entry;
+  relocated the author's own entry to the end of the file; truncated an entry to
+  7 lines of 31 while reporting "left 0 hunk(s) unstaged"), and every one of
+  those failures was a cost of sharing a tree rather than a reason to trust the
+  tool. Read `git diff --cached` in full before every commit regardless.
 - **File territories.** Parallel agents get explicitly disjoint territories in
   their briefs (e.g. one holds `services/geometry/**`, another `apps/web/**`).
   Never edit, revert, or commit another agent's in-flight files. Foreign

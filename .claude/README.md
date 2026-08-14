@@ -42,11 +42,11 @@ we use the plugin (network policy permitting) or vendor them later.
 
 | Workflow | Purpose |
 |----------|---------|
-| `build-vertical-slice` | One backlog item: plan → kernel → backend → frontend → review → QA |
+| `build-vertical-slice` | One HANDED-IN ticket: build (in a worktree) → review → QA. Pick and Plan were removed 2026-08-14 |
 | `nightly-build-loop` | Work down the Ready queue unattended; retry-once-then-park |
-| `autonomous-dev-loop` | The org loop: build batch in parallel worktrees + audits/groom side-channel; loops on completion, watchdog-backed |
+| `autonomous-dev-loop` | The org loop: audit → groom → build a batch in parallel worktrees → integrate; chains on completion. No cron, no watchdog |
 
-The loop's survival rules (watchdog, never barrier builds on planning,
+The loop's survival rules (never barrier builds on planning,
 retry-then-skip, write-early, always arm the next iteration) are documented
 in `docs/AUTONOMOUS-LOOP.md` §1.4 — inherited from Next-Lane's retro so we
 don't relearn them the hard way.
