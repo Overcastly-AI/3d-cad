@@ -178,7 +178,7 @@ duplication.
       executed here. **OPEN GAP, now filed below as VP-1a: the founder is on
       a TRACKPAD, which has no middle button, so this does not reach them.**
 
-- [ ] (P0, S) **VP-1a — VP-1's fix does not reach the founder: they are on a
+- [x] (P0, S) **VP-1a — VP-1's fix does not reach the founder: they are on a
       TRACKPAD, which has no middle button.** MECHANISM: `Viewport.tsx`'s
       sketch-mode `mouseButtons` map (shipped by VP-1, c31bd7d) puts ROTATE on
       `MOUSE.MIDDLE`; a trackpad has no middle-click gesture, so the founder's
@@ -199,6 +199,36 @@ duplication.
       [src: founder report (trackpad), VP-1 gap noted 2026-08-14]
       TERRITORY: `apps/web/src/viewport/Viewport.tsx`,
       `apps/web/e2e/sketch-orbit.spec.ts`. agentType: frontend-builder.
+      SHIPPED 289d40c — **Alt (Option) + left-drag**, alongside (not instead of)
+      the MIDDLE binding. Alt was the only free modifier: Ctrl/Cmd feed
+      `resolveSnap`'s `suppressed`, Shift is `axisLock` plus three more
+      surfaces, and three-stdlib's own `onMouseDown` swaps ROTATE/PAN on
+      ctrl/meta/shift, so any of those would mean two things at once. The map is
+      DERIVED at every press from the `altKey` the pointerdown carries, in a
+      capture-phase handler on the viewport container (an ancestor of the
+      canvas, so it runs before three-stdlib's target-phase listener) — no
+      keydown/keyup mirror, so an Alt released over another window cannot leave
+      the rig stuck, and there is nothing to reset on blur. `PointerCatcher`
+      ignores alt-modified press and click, or the same gesture would orbit AND
+      draw. Mutation, three arms: fixed 71.99 deg; binding reverted 0.00 deg
+      (`Expected: > 10 / Received: 0`); sketcher guards removed 71.98 deg but
+      red on `"0 entities"` — the orbit drew a whole rectangle. Each half is
+      independently load-bearing (removing the press guard ALONE was not
+      observable; the click guard still blocked completion). Gates: typecheck
+      clean, 1612 unit tests on the merged tree, e2e 7/7 in a quiet window.
+      NOT yet reviewed or QA'd — dispatched.
+      **THREE THINGS THIS DID NOT CLOSE, for the groomer:** (a) the gesture is
+      UNDISCOVERABLE — `NavCue` renders only when `viewNav` is true, i.e. not
+      while sketching, and its copy ("Drag orbits") would be wrong there anyway;
+      neither VP-1's middle button nor VP-1a's Alt+drag is announced anywhere in
+      the sketcher, so the founder can orbit but cannot learn how. File VP-1b: a
+      sketch-mode cue naming the two real bindings (`components/NavCue.tsx`).
+      (b) TOUCH is still uncovered — a touchscreen has neither a middle button
+      nor a modifier key, so one-finger drag stays unbound while drawing.
+      (c) On Linux WMs that grab Alt+drag for window moves the gesture is eaten;
+      modern GNOME/KDE default to Super, and macOS/Windows — the trackpad-heavy
+      cases — pass Option/Alt+drag to the browser untouched. VP-1's middle
+      button remains the fallback there.
 
 - [ ] (P0, S) **SNAP-1 — founder: "snap points not working." Never reproduced;
       no ticket existed before this pass.** REPRODUCE FIRST, before assuming a

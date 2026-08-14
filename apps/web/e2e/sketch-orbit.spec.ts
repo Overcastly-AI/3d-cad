@@ -15,6 +15,14 @@ import { createPartViaApi, seedSession } from "./support";
  * from the orbit rig, ROTATE takes the MIDDLE button, and RIGHT stays PAN.
  * MIDDLE was DOLLY, which the wheel already does, so nothing is lost.
  *
+ * VP-1a — and then on a TRACKPAD, which is what the founder uses, there is no
+ * middle button, so the complaint stood. Alt(Option)+left-drag is the second
+ * path: the button map is re-derived from the `altKey` the press itself carries
+ * (Viewport's `onPointerDownCapture`), so LEFT rotates for exactly that press
+ * and the sketcher ignores the same event. The map is DERIVED and not tracked,
+ * which is a property with a test: an Alt-orbit must not leave LEFT orbiting
+ * for the plain drag that follows it.
+ *
  * Driven in a real browser against the real stack. The camera is read from the
  * live three.js camera (`installSceneProbe`), NOT from `data-camera-pos`: that
  * attribute is stamped only when the programmatic rig settles a view, so it
@@ -105,6 +113,44 @@ interface Rest {
   position: [number, number, number];
 }
 
+/** How still is still: the largest change tolerated between two samples. */
+interface Stillness {
+  mm: number;
+  deg: number;
+}
+
+/**
+ * Rest tight enough for the RAYCAST test, whose projection maths is only as
+ * good as the camera standing still.
+ *
+ * Derived from what that test's strictest assertion tolerates: entity ends are
+ * compared within 2 screen px, which at the orbit radius here is ~0.25 mm of
+ * plane travel, so residual drift is held five times tighter than the thing it
+ * could corrupt. (It was 0.02 mm, which no run ever reached inside the old 15 s
+ * deadline — the test was red on an idle box before this spec had ever been
+ * executed. Two samples at the moment of that timeout were 0.041 mm apart and
+ * shrinking: the camera was fine, the predicate was asking for stillness no
+ * assertion needed.)
+ */
+const REST_EXACT: Stillness = { mm: 0.05, deg: 0.05 };
+
+/**
+ * Rest for the tests that only ask "did the view TURN, or not?".
+ *
+ * Damping decays the orbit velocity per FRAME, not per second, so the tail of a
+ * coast is unbounded in wall-clock terms on a `frameloop="demand"` scene under
+ * software GL: with three Playwright suites sharing this box (load average 16)
+ * the coast had NOT reached 0.05 mm after 30 s of polling, and five of seven
+ * tests here failed on the wait rather than on an assertion. Exact rest is
+ * therefore not something a contended runner can be asked for.
+ *
+ * These assertions do not need it. They separate ~72 deg from ~0 deg with a
+ * 10 deg threshold, and a coasting sample can only understate the turn (the
+ * coast continues in the direction of the drag), so a loose sample can fail
+ * this class of assertion but never pass it falsely.
+ */
+const REST_COARSE: Stillness = { mm: 1, deg: 0.5 };
+
 /**
  * Wait until the camera stops moving and return its pose.
  *
@@ -114,16 +160,20 @@ interface Rest {
  * which is what a spec comparing a pan against an orbit needs. Damping is on
  * (`enableDamping={!reducedMotion}`), so both gestures coast after mouse-up.
  */
-async function restCamera(page: Page, timeoutMs = 15_000): Promise<Rest> {
+async function restCamera(
+  page: Page,
+  still: Stillness = REST_EXACT,
+  timeoutMs = 60_000,
+): Promise<Rest> {
   const deadline = Date.now() + timeoutMs;
   let previous = await cameraPose(page);
   for (;;) {
     await page.waitForTimeout(120);
     const current = await cameraPose(page);
-    const still =
-      angleBetween(previous.direction, current.direction) <= 0.02 &&
-      distance(previous.position, current.position) <= 0.02;
-    if (still) {
+    const settled =
+      angleBetween(previous.direction, current.direction) <= still.deg &&
+      distance(previous.position, current.position) <= still.mm;
+    if (settled) {
       return { direction: current.direction, position: current.position };
     }
     previous = current;
@@ -315,10 +365,42 @@ async function middleOrbit(
   page: Page,
   from: { x: number; y: number } = { x: 800, y: 500 },
   delta: { dx: number; dy: number } = { dx: 150, dy: -110 },
+  still: Stillness = REST_COARSE,
 ): Promise<{ before: Rest; after: Rest; turnedDeg: number }> {
   const before = await restCamera(page);
   await drag(page, "middle", from, delta.dx, delta.dy);
-  const after = await restCamera(page);
+  const after = await restCamera(page, still);
+  return {
+    before,
+    after,
+    turnedDeg: angleBetween(before.direction, after.direction),
+  };
+}
+
+/**
+ * Orbit with Alt(Option)+left-drag — VP-1a, the gesture a one-button trackpad
+ * can actually produce — and return the angle the view turned through.
+ *
+ * Playwright stamps the modifier state established by `keyboard.down` onto
+ * every mouse event it dispatches afterwards, so the `pointerdown` the rig sees
+ * really carries `altKey: true`; that flag is the whole input to the button-map
+ * override under test. Alt is released in a `finally` so a failed assertion
+ * cannot leak a held modifier into the rest of the test.
+ */
+async function altOrbit(
+  page: Page,
+  from: { x: number; y: number } = { x: 800, y: 500 },
+  delta: { dx: number; dy: number } = { dx: 150, dy: -110 },
+  still: Stillness = REST_COARSE,
+): Promise<{ before: Rest; after: Rest; turnedDeg: number }> {
+  const before = await restCamera(page);
+  await page.keyboard.down("Alt");
+  try {
+    await drag(page, "left", from, delta.dx, delta.dy);
+  } finally {
+    await page.keyboard.up("Alt");
+  }
+  const after = await restCamera(page, still);
   return {
     before,
     after,
@@ -353,6 +435,20 @@ function expectNear(
 const ORBITED_DEG = 10;
 
 test.describe("VP-1 — the camera moves while the sketch is being drawn", () => {
+  /**
+   * Every test here drives a REAL orbit and then waits out the damping coast it
+   * leaves behind, and that coast decays per rendered FRAME — so its wall-clock
+   * length is set by how much CPU the box has, not by anything the spec does.
+   * Measured on this container: 21-45 s per test idle, and 1.0-1.5 min with two
+   * other Playwright suites sharing the machine (load average 15), where the
+   * default 60 s budget turned working tests into opaque `mouse.down: Test
+   * timeout` failures. `test.slow()` (x3) is Playwright's own way to state that;
+   * a test that finishes in 30 s still finishes in 30 s.
+   */
+  test.beforeEach(() => {
+    test.slow();
+  });
+
   test("the left button still draws, and does not move the camera", async ({
     page,
   }) => {
@@ -389,6 +485,60 @@ test.describe("VP-1 — the camera moves while the sketch is being drawn", () =>
     await expect(page.getByTestId("sketch-step")).toHaveText(`On ${PLANE}`);
   });
 
+  test("Alt+left-drag orbits, mid-draw, without drawing anything", async ({
+    page,
+  }) => {
+    // VP-1a — the trackpad path. Same state as the middle-button test above;
+    // the only difference is the gesture, which is the one a machine with a
+    // single button can make.
+    await enterDrawOnXy(page, "Sketch orbit: alt orbits");
+    await armRect(page);
+
+    const { turnedDeg } = await altOrbit(page);
+    expect(turnedDeg).toBeGreaterThan(ORBITED_DEG);
+
+    // A camera gesture only: the press that orbited must not also have placed
+    // the rectangle's first corner, which is what makes this different from
+    // simply binding LEFT to ROTATE.
+    await expect(page.getByTestId("sketch-save")).toContainText("0 entities");
+    await expect(page.getByTestId("tool-rect")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await expect(page.getByTestId("sketch-step")).toHaveText(`On ${PLANE}`);
+  });
+
+  test("a plain left-drag after an Alt-orbit still draws, and does not orbit", async ({
+    page,
+  }) => {
+    // The property that makes VP-1a safe: the button map is DERIVED at each
+    // press from that press's own modifier, never tracked across presses. The
+    // classic keydown/keyup implementation fails exactly here — an Alt released
+    // outside the window, or a missed keyup, leaves LEFT bound to ROTATE and
+    // the next drawing stroke silently spins the view instead of drawing.
+    await enterDrawOnXy(page, "Sketch orbit: alt does not stick");
+    await armRect(page);
+
+    const orbit = await altOrbit(page);
+    expect(orbit.turnedDeg).toBeGreaterThan(ORBITED_DEG);
+
+    const before = await restCamera(page, REST_COARSE);
+    await drag(page, "left", { x: 660, y: 400 }, 300, 200);
+    await expect(page.getByTestId("sketch-save")).toContainText("4 entities");
+
+    // The bounds are an order of magnitude below what a stuck LEFT binding
+    // would produce and an order of magnitude above the residual of the coarse
+    // rest above: the Alt-orbit that precedes this turns ~72 deg and carries
+    // the camera ~172 mm, while a coast still decaying at the coarse threshold
+    // adds well under a degree over the span of one drag.
+    const after = await restCamera(page, REST_COARSE);
+    expect(
+      angleBetween(before.direction, after.direction),
+      "the plain drag drew and did not orbit",
+    ).toBeLessThan(5);
+    expect(distance(before.position, after.position)).toBeLessThan(25);
+  });
+
   test("the right button still pans, and still opens no menu", async ({
     page,
   }) => {
@@ -397,7 +547,10 @@ test.describe("VP-1 — the camera moves while the sketch is being drawn", () =>
     const before = await restCamera(page);
 
     await drag(page, "right", { x: 800, y: 500 }, 170, 110);
-    const after = await restCamera(page);
+    // Coarse rest: both assertions below survive a coasting sample. A pan does
+    // not rotate at all, so the angle bound holds at any point of the coast,
+    // and the distance bound is a LOWER one that a coast can only inflate.
+    const after = await restCamera(page, REST_COARSE);
 
     // A pan translates the camera and leaves the view direction alone — the
     // signature that separates it from the orbit above.
@@ -410,6 +563,11 @@ test.describe("VP-1 — the camera moves while the sketch is being drawn", () =>
   test("after orbiting, the next entity lands where it was drawn", async ({
     page,
   }) => {
+    // The heavy one: it draws, orbits, re-projects and draws again, so it waits
+    // out four separate damping coasts on the only scene in this file with
+    // entities in it (each coast is slower for having more to render), and it
+    // is the only test that needs EXACT rest. Measured 45.5 s end to end on an
+    // idle box — see the `test.slow()` note on the describe block.
     const { partId, token } = await enterDrawOnXy(
       page,
       "Sketch orbit: raycast",
@@ -442,10 +600,15 @@ test.describe("VP-1 — the camera moves while the sketch is being drawn", () =>
     // 2 — orbit away from the plane's normal. A gentler turn than the other
     //     tests use: the sheet has to stay square enough to the camera that a
     //     point beside the rectangle is still on screen to draw at.
+    //     This is the ONE place that needs exact rest: step 3 projects plane
+    //     points through this camera and then dispatches the pointer at those
+    //     pixels, so a camera still coasting between the projection and the
+    //     press would move the target out from under it.
     const orbit = await middleOrbit(
       page,
       { x: 1100, y: 320 },
       { dx: 90, dy: -60 },
+      REST_EXACT,
     );
     expect(orbit.turnedDeg).toBeGreaterThan(ORBITED_DEG);
 
@@ -485,7 +648,7 @@ test.describe("VP-1 — the camera moves while the sketch is being drawn", () =>
     // The camera really was off-axis for that draw — if the sketch rig had
     // snapped back to normal-on when the entity synced, the assertions below
     // would pass for the wrong reason (the old mapping would be correct again).
-    const held = await restCamera(page);
+    const held = await restCamera(page, REST_COARSE);
     expect(
       angleBetween(orbit.before.direction, held.direction),
       "the camera stayed orbited across the draw",
@@ -526,7 +689,7 @@ test.describe("VP-1 — the camera moves while the sketch is being drawn", () =>
 
     const before = await restCamera(page);
     await drag(page, "left", { x: 800, y: 500 }, 150, -110);
-    const after = await restCamera(page);
+    const after = await restCamera(page, REST_COARSE);
     expect(angleBetween(before.direction, after.direction)).toBeGreaterThan(
       ORBITED_DEG,
     );

@@ -54,6 +54,37 @@ thread between the input event and React's restore from a stale render.
 cells uncontrolled. Filed for the next batch — this is plausibly what the
 founder actually hit.
 
+**VP-1a CLOSED (289d40c, 2026-08-14) — orbit while sketching now reaches a
+TRACKPAD, via Alt (Option) + left-drag.** VP-1 put orbit on the middle button,
+which a trackpad does not have, so the founder's complaint stayed open; this
+adds a second path alongside it rather than replacing it. Alt was the only free
+modifier — Ctrl/Cmd feed `resolveSnap`'s `suppressed`, Shift is `axisLock` plus
+three other surfaces, and three-stdlib's own `onMouseDown` already swaps
+ROTATE/PAN on ctrl/meta/shift — and it is the convention Blender and Maya use
+for exactly this hardware gap. The implementation deliberately avoids the usual
+keydown/keyup modifier mirror: the button map is DERIVED at every press from the
+`altKey` the pointerdown itself carries, in a capture-phase handler on the
+viewport container, so an Alt released over another window cannot leave the rig
+stuck and there is nothing to clean up on blur. Mutation ran in three arms —
+fixed 71.99 deg, binding reverted 0.00 deg, sketcher guards removed 71.98 deg
+but drawing a whole rectangle during the orbit — which is what establishes that
+each half of the change is independently load-bearing.
+
+**It also found VP-1's acceptance criterion (2) RED at `43c703c`, before any
+change of its own** — a control run with its source changes stashed reproduced
+the failure with the camera at the same position to two decimals. Cause was not
+the two-rig deadlock the position magnitude resembles: the camera converges
+normally, but `restCamera`'s 0.02 mm stillness predicate was unreachable because
+damping decays per rendered FRAME while each sample costs ~600 ms of round trip;
+the samples at the timeout were 0.041 mm apart and still shrinking. The
+predicate now asks for the stillness each assertion actually needs. **The
+general point for CI-4: VP-1 shipped with one of its own acceptance specs red,
+and nothing caught it** — e2e is a separate workflow from `ci`.
+
+Not closed, and filed rather than hidden: the gesture is undiscoverable (the nav
+cue does not render while sketching), touch is still uncovered, and a Linux WM
+that grabs Alt+drag eats it.
+
 **VP-1 PARTIAL (c31bd7d, 2026-08-14) — orbit works while sketching, on the
 middle button; it does not yet reach a trackpad.** The sketcher draws with a
 left press-drag-release and three.js binds orbit to LEFT, so the app had
