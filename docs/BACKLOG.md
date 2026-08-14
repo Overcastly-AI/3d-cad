@@ -132,7 +132,7 @@ duplication.
       TERRITORY: `apps/web/src/routes/PartPage.tsx`,
       `apps/web/src/sketch/store.ts`, new `apps/web/e2e/sketch-reopen.spec.ts`.
       agentType: frontend-builder.
-      SHIPPED a7f81ba — `beginEdit` hydrates the session from the persisted
+      SHIPPED 30a9f3f — `beginEdit` hydrates the session from the persisted
       params and carries the EXISTING feature id, so the next save PATCHes.
       Gates re-run by the orchestrator after the agent died mid-slice (typecheck
       + 1603 unit tests + prettier); NOT reviewed, NOT QA'd.
@@ -171,7 +171,7 @@ duplication.
       [src: founder report, root-caused by orchestrator 2026-08-14]
       TERRITORY: `apps/web/src/viewport/Viewport.tsx`, new
       `apps/web/e2e/sketch-orbit.spec.ts`. agentType: frontend-builder.
-      SHIPPED c31bd7d — the lock moves the gesture instead of deleting it
+      SHIPPED 43c703c — the lock moves the gesture instead of deleting it
       (LEFT unbound, ROTATE on MIDDLE, RIGHT still PAN). Gates re-run by the
       orchestrator after the agent died mid-slice (typecheck + 1598 unit tests
       + prettier); NOT reviewed, NOT QA'd, and the new e2e spec has NOT been
@@ -180,7 +180,7 @@ duplication.
 
 - [x] (P0, S) **VP-1a — VP-1's fix does not reach the founder: they are on a
       TRACKPAD, which has no middle button.** MECHANISM: `Viewport.tsx`'s
-      sketch-mode `mouseButtons` map (shipped by VP-1, c31bd7d) puts ROTATE on
+      sketch-mode `mouseButtons` map (shipped by VP-1, 43c703c) puts ROTATE on
       `MOUSE.MIDDLE`; a trackpad has no middle-click gesture, so the founder's
       original "no orbit while sketching" complaint is still open for them
       specifically. FIX: add a modifier-plus-left-drag binding reachable from a
@@ -199,7 +199,7 @@ duplication.
       [src: founder report (trackpad), VP-1 gap noted 2026-08-14]
       TERRITORY: `apps/web/src/viewport/Viewport.tsx`,
       `apps/web/e2e/sketch-orbit.spec.ts`. agentType: frontend-builder.
-      SHIPPED 289d40c — **Alt (Option) + left-drag**, alongside (not instead of)
+      SHIPPED 32e5b87 — **Alt (Option) + left-drag**, alongside (not instead of)
       the MIDDLE binding. Alt was the only free modifier: Ctrl/Cmd feed
       `resolveSnap`'s `suppressed`, Shift is `axisLock` plus three more
       surfaces, and three-stdlib's own `onMouseDown` swaps ROTATE/PAN on
@@ -363,7 +363,7 @@ duplication.
       TERRITORY: `apps/web/src/viewport/SketchScene.tsx`,
       `apps/web/src/sketch/**`, new e2e spec. agentType: frontend-builder.
 
-- [x] (P0, S) **FOUNDER — dimensions not assigning.** Founder report, not yet
+- [ ] (P0, S) **FOUNDER — dimensions not assigning.** Founder report, not yet
       reproduced by an auditor. REPRODUCE FIRST: draw a sketch entity, add a
       dimensional constraint (Distance or Radius), type a value into the
       dimension's input field, press Enter — confirm whether the geometry
@@ -383,7 +383,20 @@ duplication.
       [src: founder report 2026-08-14, needs reproduction]
       TERRITORY: `apps/web/src/sketch/**` (exact files TBD by reproduction).
       agentType: frontend-builder.
-      REPRODUCED and SHIPPED 5289694 — branch (i). A draw tool stays armed after
+      **STILL OPEN — re-opened by code review of c449235 (finding 3).** The arm
+      fix below is real and shipped, but this item's OWN acceptance is "type a
+      value into the dimension's input field, press Enter — confirm whether the
+      geometry updates to match the typed value", and the pass that fixed the
+      arming ALSO measured that the value field loses keystrokes at every human
+      typing speed. Ticking this `[x]` was an orchestrator error: it claimed an
+      acceptance criterion that is not met, and buried the probable actual cause
+      inside a closed item where no groom pass would find it. It stays `[ ]`
+      until the keystroke-loss defect below is filed as its own item and fixed.
+      Note the shipped e2e spec CANNOT catch it — `sketch-dimension-pick.spec.ts`
+      types with `fill()`, which bypasses the per-keystroke path entirely
+      (review finding 2); a `pressSequentially` leg would fail today, which is
+      the point.
+      REPRODUCED and PARTIALLY SHIPPED c449235 — branch (i). A draw tool stays armed after
       it draws, so the click meant to select a side is consumed as the NEXT
       rectangle's first corner; the Dimension verb is selection-first only, so
       it demands a step the user cannot perform from where they stand and every

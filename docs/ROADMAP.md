@@ -27,8 +27,8 @@ harness-produced fixture). Groom pass 2026-08-14 (post-VP-1/SKETCH-1) filed
 onto the board; both queue behind the currently-occupied
 `apps/web/src/{viewport,sketch}/**` territories.
 
-**FOUNDER "dimensions not assigning" REPRODUCED and FIXED (5289694,
-2026-08-14).** The report had sat un-reproduced by anyone. The mechanism is a
+**FOUNDER "dimensions not assigning" REPRODUCED and PARTIALLY FIXED (c449235,
+2026-08-14) — the founder's complaint is NOT closed.** The report had sat un-reproduced by anyone. The mechanism is a
 flow defect, not a wrong value: a draw tool stays armed after it draws (Fusion
 does the same), so the click meant to select a side is consumed as the NEXT
 rectangle's first corner — and the Dimension verb is selection-first only, so it
@@ -54,7 +54,7 @@ thread between the input event and React's restore from a stale render.
 cells uncontrolled. Filed for the next batch — this is plausibly what the
 founder actually hit.
 
-**VP-1a CLOSED (289d40c, 2026-08-14) — orbit while sketching now reaches a
+**VP-1a CLOSED (32e5b87, 2026-08-14) — orbit while sketching now reaches a
 TRACKPAD, via Alt (Option) + left-drag.** VP-1 put orbit on the middle button,
 which a trackpad does not have, so the founder's complaint stayed open; this
 adds a second path alongside it rather than replacing it. Alt was the only free
@@ -85,7 +85,7 @@ Not closed, and filed rather than hidden: the gesture is undiscoverable (the nav
 cue does not render while sketching), touch is still uncovered, and a Linux WM
 that grabs Alt+drag eats it.
 
-**VP-1 PARTIAL (c31bd7d, 2026-08-14) — orbit works while sketching, on the
+**VP-1 PARTIAL (43c703c, 2026-08-14) — orbit works while sketching, on the
 middle button; it does not yet reach a trackpad.** The sketcher draws with a
 left press-drag-release and three.js binds orbit to LEFT, so the app had
 resolved the conflict with `enableRotate={false}` — orbit off on every button,
@@ -104,7 +104,7 @@ worktree-isolated agent that died at 04:45 UTC, work reconciled and gates re-run
 by the orchestrator, **not reviewed and not QA'd**, and the new e2e spec has not
 been executed here.
 
-**SKETCH-1 CLOSED (a7f81ba, 2026-08-14) — a saved sketch can now be re-opened,
+**SKETCH-1 CLOSED (30a9f3f, 2026-08-14) — a saved sketch can now be re-opened,
 so driving dimensions stop being write-once.** `selectFeature` had a branch for
 every feature type except `sketch` and fell through to `setEditor(null)`, so the
 tree row and its context-menu `Edit` were both silent no-ops. The new
