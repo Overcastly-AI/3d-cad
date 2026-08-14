@@ -75,8 +75,34 @@ keydown/keyup modifier mirror: the button map is DERIVED at every press from the
 viewport container, so an Alt released over another window cannot leave the rig
 stuck and there is nothing to clean up on blur. Mutation ran in three arms —
 fixed 71.99 deg, binding reverted 0.00 deg, sketcher guards removed 71.98 deg
-but drawing a whole rectangle during the orbit — which is what establishes that
-each half of the change is independently load-bearing.
+but drawing a whole rectangle during the orbit.
+
+**CORRECTED by code review, same day: the three arms establish that the BINDING
+and the guard PAIR are each pinned by the spec, NOT that each guard is
+independently load-bearing.** The builder's own parenthetical said the press
+guard alone was "not observable" and the record then concluded the opposite; the
+reviewer measured both singles — press-guard-alone GREEN, click-guard-alone
+GREEN (the latter never tested by the builder). So a future refactor dropping
+one guard reads a green suite and ships a founder-visible defect. The reviewer
+demonstrated that defect with a probe: with the press guard removed, an Alt
+orbit leaves a stray rectangle anchor in `pending`, so the modeller's very next
+plain left click closes a rectangle from wherever they began looking around —
+`Save sketch0 entities` on the shipped build versus `Save sketch4 entities`
+without it. That is precisely what `SketchScene.tsx:568-571` says the guard
+exists to prevent, shipping green. Filed as a spec gap with the exact
+measured-red assertion; the source needs no change.
+
+Two smaller review corrections to this entry's own wording. "Unreachable" below
+overstates the builder's measurement — 0.041 mm and still shrinking at the
+deadline means *unreached inside 15 s*, and the same change also raised the
+timeout 15 s to 60 s. And the coarse rest predicate's blanket justification
+("a coasting sample can only understate the turn") is true of four of its five
+assertion sites but not of the fifth, which guards against the camera easing
+BACK toward the reference and so can be overstated by an unsettled sample. The
+reviewer bounded that one and found it not exploitable — the ease closes >=63 %
+of the remaining distance per frame, so a 0.5 deg sample delta implies well
+under 1 deg of residual against a 10 deg threshold — but the justification as
+written does not cover it.
 
 **It also found VP-1's acceptance criterion (2) RED at `43c703c`, before any
 change of its own** — a control run with its source changes stashed reproduced

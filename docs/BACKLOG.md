@@ -242,7 +242,7 @@ duplication.
       agentType: frontend-builder (cross-check overlay wiring with
       kernel-architect if the geometry-service response needs a field added).
 
-- [ ] (P0, M) **GEOM-2 (M17) — a planar face's identity signature encodes what
+- [x] (P0, M) **GEOM-2 (M17) — a planar face's identity signature encodes what
       has been CUT into it, so drilling hole *n* invalidates hole *n+1*'s
       match, and a thickness edit orphans every hole on the face** (likely
       `services/documents` or `services/geometry` signature/attribution code —
@@ -270,6 +270,51 @@ duplication.
       `services/documents/src/documents/**` (signature/attribution module —
       builder confirms exact file), geometry test suite.
       agentType: kernel-architect.
+      SHIPPED 8b95dac — and it CORRECTED THIS TICKET'S OWN PREMISE. M17 is not
+      "a thickness edit breaks holes": it takes TWO edits, and the audit's
+      control ("reverting to 10 mm restores all-OK, so the thickness change
+      alone causes it") misread that. Measured: t=10 with a diameter edit is
+      all-OK; t=14 with no diameter edit is all-OK; t=14 AND the diameter edit
+      is where holes 3-5 go `subshape_unresolved`. Tier 2 (coplanar) frees area
+      and in-plane centroid, so at constant thickness the staleness is
+      invisible; move the plane and tier 3 (translated) pins both stale
+      quantities. `docs/design/topological-naming.md` §12 NAMED this case and
+      shipped without it, calling the BOTH case a conservative choice — which
+      it only is if BOTH is rare, and it is the default state of any face
+      carrying more than one feature.
+      FIX: a tier 4 `enclosing_face_match`, reached only on an empty tier-3
+      result, carrying identity on the face's OUTER boundary — the one
+      invariant interior subtraction cannot touch. NO contract change, so no
+      persisted selector is invalidated, and strictly additive: nothing that
+      resolves today can be re-targeted.
+      Mutation, and the second arm is the one that matters: tier 4 removed ->
+      6 tests + 4 golden gates red; the band's LOWER bound removed (the
+      builder's own first draft) -> 6 tests red, because without it three
+      shipped HONEST-ERROR gates silently became resolutions — delete the boss
+      a sketch sits on and the sketch re-anchors to the plate underneath, a
+      visible failure traded for wrong geometry. Correctness, not just
+      liveness: new golden hand-derived at tol 1e-9, volume dev 7.3e-12, area
+      dev 0.0, centroid dev 2.1e-14, topology 9/21/1 exact, and the rescued
+      body byte-identical (sha256 `85563175ea7ffad3...`) to an exact re-pick.
+      Tier-4 cost 0.74 ms on a 200x200 plate with 36 holes, error path only.
+      Gates re-run by the orchestrator on the merged tree: ruff + ruff format +
+      pyright clean on all 6 changed files, targeted geometry slice 65 passed,
+      full golden suite 276 passed. NOT yet reviewed or QA'd — dispatched, and
+      the builder explicitly asked for `code-reviewer` sign-off on the
+      `topological-naming.md` §12a delta because this is a design-doc-first
+      area.
+      **THREE THINGS IT DID NOT CLOSE, for a later groom:** (a) the DURABLE fix
+      is a contract change it deliberately did not make — the signature should
+      store outer-boundary invariants instead of `area_mm2` + area centroid
+      (`PlanarFaceSignature` in `packages/py-kit`); note that change would ALSO
+      need tier 4 for every selector authored before it, so this commit is its
+      prerequisite, not a workaround. (b) Honest limit, stated in the doc and
+      the docstring: the band's width is twice what is currently cut out of the
+      face, so on a heavily perforated face it opens up and tier 4 degrades
+      toward normal-sense + containment — inherent to inferring the missing
+      invariant from three numbers, and the argument for (a). (c) M17's
+      *browser* recovery path ("Re-pick face") is still blocked by PICK-1; this
+      removes the need for it in the measured case but does not touch PICK-1.
 
 - [ ] (P0, M) **SKETCH-2 (M2) — the sketch origin and axes are not selectable
       entities, so a profile cannot be grounded relationally; likely also the
