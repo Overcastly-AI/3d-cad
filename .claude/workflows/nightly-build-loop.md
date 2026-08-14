@@ -40,7 +40,7 @@ doing anything if any are fresh.
 - **The orchestrator does not audit, groom, or write the board.** Those are the
   auditors' and the groomer's jobs, and doing them by hand is what made the
   previous loop expensive and collision-prone. See
-  `.claude/workflows/autonomous-dev-loop.md` for the audit that found nine of
+  `.claude/workflows/autonomous-dev-loop.md` for the audit that found eight of
   fourteen agents had never been invoked.
 
 ## Script outline

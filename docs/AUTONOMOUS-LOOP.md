@@ -61,7 +61,21 @@ Orchestration recipes run with the Claude Code `Workflow` tool:
    isolated git worktree + per-instance DB/ports) → integrate green branches →
    **immediately launch the next batch** (completion-driven, not timed).
 
-### 1.4 The survival layer (from their RETRO — this is the part that actually keeps it looping)
+### 1.4 The survival layer (from their RETRO — SPECIFIED THERE, NOT IMPLEMENTED)
+
+> **PROVENANCE CORRECTION, 2026-08-14.** This section originally read "this is
+> the part that actually keeps it looping", which overstated it. A grep of
+> Next-Lane's repository finds the watchdog **only** in their `docs/RETRO.md`,
+> as an unchecked `- [ ]` action item; their live workflow doc says
+> "re-invoke on completion / `ScheduleWakeup`" with no watchdog at all. Their
+> own agent confirms it independently: the scheduled self-check-in "needed a
+> permission approval that errored out."
+>
+> So this is a **specification they wrote and did not build**, imported here as
+> though it were a working mechanism. The reasoning below is still sound and our
+> own history confirms it — but do not go looking for their implementation, and
+> do not treat "Next Lane does this" as evidence that it works. What actually
+> wakes a loop, measured, is in `docs/LOOP-MECHANISMS.md`.
 
 Their loop initially stalled overnight and needed human restarts. Root causes
 and the fixes, verbatim from `docs/RETRO.md`:

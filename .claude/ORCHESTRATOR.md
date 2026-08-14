@@ -43,11 +43,15 @@ and you are re-creating the failure this playbook was written to end.
 1. `date -u`, `git log -1 --format=%ci`, `git status --short`, `git log --oneline -5`.
 2. Read `docs/RETRO.md` — the loop's own memory, including every way it has
    broken. Then this file's §5.
-3. **If the last commit is much older than now AND the tree is dirty, an agent
-   died** (container reclamation kills them silently; it has happened twice).
-   You are its relauncher: judge the uncommitted work, run the gates yourself,
-   and commit it with honest provenance stating whether Review and Verify ran.
-   **Never revert it.**
+3. **Check for a dead agent.** The old tell was "last commit is old AND the
+   tree is dirty" — that breaks under worktrees, because the main tree stays
+   clean and the work sits in `.claude/worktrees/*` (now gitignored, so it does
+   not even show as untracked). Check all three: `git worktree list`, then
+   `git -C <each worktree> status --short`, then in-flight agents' output
+   mtimes. Anything stale beyond ~30 min with no known long gate is a death.
+   You are its relauncher: judge the work, run the gates yourself, and commit it
+   with honest provenance stating whether Review and Verify ran.
+   **Never revert or discard it** — including the worktree.
 4. Read CI for any pushed SHA without a verdict. Fix red before starting new work.
 
 ---
@@ -86,10 +90,24 @@ Removed by founder directive, 2026-08-14. We had made a 15-minute cron the
 *pacer* against slices lasting three and a half hours — it woke roughly fourteen
 times per slice and each wake did more hand-work. That was the "racing".
 
-The loop chains on completion. It cannot go idle if every batch launches the
-next one. If a stall-recovery net is ever reinstated it must be a genuine no-op
-while agents are live — check in-flight agents' output mtimes and return
-immediately if any are fresh.
+The loop chains on completion, which covers everything *inside* a session.
+
+**It does not cover the case that has actually cost us most.** An earlier
+version of this file said "it cannot go idle if every batch launches the next
+one" — that is false here. In-session chaining dies with the session, and the
+container has been reclaimed twice (16 h 45 m and ~30 h gaps). Removing cron
+fixed the racing and left **zero** recovery paths where there had been one
+flawed one.
+
+What actually wakes this loop, and what each mechanism survives, is in
+`docs/LOOP-MECHANISMS.md`. Short version: the `Stop` hook already continues the
+session (it is the "Stop hook feedback" you keep seeing); only a GitHub Actions
+schedule, a Routine, or a PR webhook survives the container dying, and none is
+currently armed.
+
+If a timer is ever reinstated it must be **stall recovery, never the pacer** —
+its first action is a liveness check that returns immediately if any in-flight
+agent's output mtime is under 30 minutes.
 
 ---
 
@@ -114,9 +132,9 @@ immediately if any are fresh.
 ## 5. Anti-patterns, with the evidence that earned them
 
 - **Doing the groomer's job.** `file CI-4`, `file REV-1..REV-5`, `file QA7-1`
-  are all orchestrator commits. Nine of fourteen agents had never run.
+  are all orchestrator commits. Eight of fourteen agents had never run.
 - **Sharing one checkout across builders.** The entire collision protocol, and
-  `scripts/stage-doc-hunks.py` — 750 lines that failed silently three times —
+  `scripts/stage-doc-hunks.py` — 905 lines that failed silently three times —
   are the cost. Worktrees make them unnecessary.
 - **Trusting a gate nobody has seen fail.** Three shipped in one day: a CI grep
   matching its own prose, a unit test whose helper did the cleanup it asserted,

@@ -392,7 +392,8 @@ models, round-trips, benchmarks → `docs/GEOMETRY-QA.md`), `frontend-qa`
 (`code-reviewer`) → QA (`qa-tester`; `geometry-qa` when kernel-adjacent;
 `frontend-qa` spot-check) → tick ROADMAP/BACKLOG → commit. Workflows in
 `.claude/workflows/` orchestrate this; `autonomous-dev-loop` chains batches
-on completion with a watchdog fallback (`docs/AUTONOMOUS-LOOP.md` §1.4).
+on completion. There is no cron and no watchdog — see `docs/LOOP-MECHANISMS.md`
+for what wakes the loop and what each mechanism survives.
 
 ## Multi-agent orchestration protocol
 
@@ -402,7 +403,7 @@ we are.**
 
 - **THE ORCHESTRATOR DISPATCHES AND INTEGRATES. IT DOES NOT DO THE ORG'S JOB.**
   Audited 2026-08-14 after the founder said "none of the agents are being used":
-  nine of the fourteen agents in `.claude/agents/` had never been invoked, and
+  eight of the fourteen agents in `.claude/agents/` had never been invoked, and
   the orchestrator had been writing `docs/BACKLOG.md` ITSELF — `file CI-4`,
   `file REV-1..REV-5`, `file QA7-1` are all orchestrator commits. That is the
   `backlog-groomer`'s entire job, performed in the most expensive context in the
@@ -424,7 +425,7 @@ we are.**
   edits unstaged across other tool calls — that window is the whole hazard. When
   several agents must touch the same docs, serialize the doc-writers or give one
   a worktree. `scripts/stage-doc-hunks.py` is now a FALLBACK for the
-  unavoidable shared-tree case, not the default path: it is 750 lines, it has
+  unavoidable shared-tree case, not the default path: it is 905 lines, it has
   failed silently three times in production (swept a colleague's entry;
   relocated the author's own entry to the end of the file; truncated an entry to
   7 lines of 31 while reporting "left 0 hunk(s) unstaged"), and every one of

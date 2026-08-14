@@ -24,7 +24,7 @@ completion instead.
 
 ## The rule that makes this work: the orchestrator does not do the org's job
 
-Audited 2026-08-14: nine of the fourteen agents in `.claude/agents/` had never
+Audited 2026-08-14: eight of the fourteen agents in `.claude/agents/` had never
 been invoked, and the orchestrator had been writing `docs/BACKLOG.md` itself —
 `file CI-4`, `file REV-1..REV-5`, `file QA7-1` are all orchestrator commits.
 That is the groomer's whole job, done in the most expensive context available,

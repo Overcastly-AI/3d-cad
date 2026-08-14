@@ -31,3 +31,8 @@ test-results/
 .env
 .env.*
 !.env.example
+
+# Per-agent build worktrees (isolation: worktree). They must never show up as
+# untracked in the parent tree — the orchestrator uses a dirty tree as the
+# tell that an agent died, and this would make it permanently true.
+.claude/worktrees/

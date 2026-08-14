@@ -89,15 +89,15 @@ axis. The probe had simply run in a healthy window.
 ## 2. The collision tax, and the structural fix we have not taken
 
 `docs/AUTONOMOUS-LOOP.md` §1.3 says the blueprint runs each slice **in its own
-git worktree with per-instance DB/ports**, and `.claude/workflows/autonomous-dev-loop.md:33`
+git worktree with per-instance DB/ports**, and `.claude/workflows/autonomous-dev-loop.md`
 repeats it. We do not do this. Every agent shares one checkout.
 
 The cost of that choice is most of `CLAUDE.md`'s multi-agent section, and it is
 not theoretical:
 
-* `scripts/stage-doc-hunks.py` — the tool that exists solely to stop agents
-  overwriting each other in the two shared docs — has now failed **three times
-  in production, silently each time**: a whole-hunk matcher that swept a
+* `scripts/stage-doc-hunks.py` (905 lines) — the tool that exists solely to
+  stop agents overwriting each other in the two shared docs — has now failed
+  **three times in production, silently each time**: a whole-hunk matcher that swept a
   colleague's entry; a mis-derived line number that relocated the author's own
   entry to the end of the file; and a one-directional cross-check that let a
   bold-lead continuation truncate an entry to 7 lines of 31 while reporting
