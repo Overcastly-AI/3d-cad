@@ -378,6 +378,12 @@ test.describe("founder picking reports", () => {
    * auto-fit re-imposed iso on every rebuild, and no spec noticed because every
    * spec asserted the RESULT. One line — record the direction, act, compare —
    * would have caught it, and now does.
+   *
+   * NOT redundant with `axis-flip-probe.spec.ts` (FB-20), and the reason
+   * generalises: `buildBox` above performs the FIRST sketch→extrude before the
+   * measurement window opens, so `framedOnce` is already true here and this
+   * gate has only ever watched the SECOND extrude — a fixture that consumes the
+   * first-run state cannot see first-run bugs.
    */
   test("FB-1 gate: a rebuild re-frames the body without stealing the viewpoint", async ({
     page,

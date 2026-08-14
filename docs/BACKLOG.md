@@ -80,8 +80,10 @@ duplication.
       so the tree is verified; it is per-commit evidence that is unreliable.
       [src: orchestrator CI read, 2026-08-14]
 
-- [ ] (P0, S) **FB-20 — the camera is stolen after an extrude, and the guard
-      written to stop it has a first-run hole** (`apps/web/src/viewport`).
+- [x] (P0, S) **FB-20 (the CAMERA one — NB there are two live FB-20s, the
+      other is the P0/L flow overhaul below) — the camera is stolen after an
+      extrude, and the guard written to stop it has a first-run hole**
+      (`apps/web/src/viewport`).
       FOUNDER REPORT 2026-08-14: "I draw in a plane and then all of a sudden it
       switches after an extrude." REPRODUCED AND MEASURED by the orchestrator,
       not inferred — `apps/web/e2e/axis-flip-probe.spec.ts` samples `data-view`
@@ -128,6 +130,21 @@ duplication.
       so it is not covering this path — worth understanding why before adding a
       fourth gate over the same rule.
       [src: founder 2026-08-14, reproduced by orchestrator]
+      SHIPPED 2026-08-14 exactly as prescribed: `framedOnce` now means "this
+      scene has a viewpoint worth keeping" and is set by the view-command effect
+      (one assignment covering snaps/fit/cube picks) and by the camera handover
+      to the sketcher, which poses it normal-on to the plane the user chose. The
+      `first` branch stays as the unposed/degenerate default. Measured on the
+      founder's own flow: drift **0.000°** across the first extrude with the
+      position moving **276.5** (350 -> 74 as the fit solves against the body),
+      and reverting the two assignments reddens it at **67.96°** — the exact iso
+      snap he reported. Companion, and the fix is what makes it reachable: sketch
+      exit leaves |up·dir| ≈ 0.9996, so `framePose`'s `right = up × dir` was
+      collapsing and the roll was rounding-decided; `safeUp` (with `upFor`, now
+      shared in `viewCommands.ts` + unit-tested) substitutes the axis convention.
+      The `axis-flip-probe` spec is the gate now — it also asserts the position
+      DID change and that a reloaded, unposed scene still opens iso (0.90°), so
+      "delete the `first` branch" cannot pass it.
 
 - [ ] (P1, S) **REV-1 — seven gates in the CI-4 batch cannot fail, and one
       reusable helper reads 12034 on a frame with NO ink** (`apps/web/e2e`,

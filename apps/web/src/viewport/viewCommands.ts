@@ -6,6 +6,7 @@
  * camera math lives in the rig.
  */
 import { useEffect } from "react";
+import { Vector3 } from "three";
 import { create } from "zustand";
 
 import { isTypingTarget } from "../lib/isTypingTarget";
@@ -52,6 +53,46 @@ export const VIEW_DIRECTIONS = {
   top: [0, 1, 0],
   right: [1, 0, 0],
 } as const;
+
+/**
+ * How parallel a view direction and an up vector may be before the pair is
+ * degenerate. cos 8.1° — well clear of any attitude a hand on a trackpad
+ * produces, and tight enough that the substitution only fires on a genuinely
+ * axis-aligned pose.
+ */
+const PARALLEL_DOT = 0.99;
+
+/**
+ * Camera up for a view direction — top/bottom need a non-parallel up.
+ *
+ * `dir` points from the target TO the camera (the convention every pose in the
+ * viewport uses). Looking straight down, +Y is parallel to the view, so the
+ * convention is up = −Z: kernel +y then reads up-screen in plan.
+ */
+export function upFor(dir: Vector3): Vector3 {
+  return Math.abs(dir.y) > PARALLEL_DOT
+    ? new Vector3(0, 0, dir.y > 0 ? -1 : 1)
+    : new Vector3(0, 1, 0);
+}
+
+/**
+ * The live camera's up, unless it is parallel to where the camera is looking —
+ * in which case the axis convention above.
+ *
+ * A pose only needs an up to build a camera basis: `right = up × dir`. When the
+ * two are parallel that cross product collapses, and long before it reaches
+ * zero its DIRECTION is decided by rounding error — so the roll of the framing
+ * is arbitrary and can differ between two runs of the same flow.
+ *
+ * Reachable in one line of the product: leaving the sketcher parks the camera
+ * normal-on to the plane just drawn and restores world up (+Y), which for a
+ * sketch on XY is |up · dir| ≈ 0.9996. The next fit adopts the live up and
+ * hands `framePose` exactly that pair. Both arguments are expected to be unit
+ * length; the live `up` is returned as-is (not cloned) when it is usable.
+ */
+export function safeUp(dir: Vector3, up: Vector3): Vector3 {
+  return Math.abs(up.dot(dir)) > PARALLEL_DOT ? upFor(dir) : up;
+}
 
 /** Keyboard accelerators for the view rail (one numeric vocabulary). */
 export const VIEW_SHORTCUTS: Record<

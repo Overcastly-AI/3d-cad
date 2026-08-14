@@ -1,28 +1,55 @@
 /**
- * FOUNDER REPORT (2026-08-14): "I draw in a plane and then all of a sudden it
- * switches after an extrude."
+ * FB-20 — THE GATE ON THE FIRST EXTRUDE.
  *
- * OBSERVATION FIRST — this file does not assert a fix, it MEASURES the axis at
- * every step of the founder's own flow so the switch can be seen rather than
- * theorised about. It prints one JSON line per observation; run with
+ * Founder report (2026-08-14): "I draw in a plane and then all of a sudden it
+ * switches after an extrude." This file began life as a pure probe — it printed
+ * the camera at every step of that flow and asserted nothing, which is how the
+ * cause was found: `framedOnce` meant "has the auto-fit run", not "does this
+ * scene have a viewpoint", so the FIRST body to appear in a session was framed
+ * as if nobody had ever posed the camera, whatever the user had pinned.
+ *
+ * It now ASSERTS that. The printing stayed, because the per-step table is what
+ * made the bug legible in the first place; run it with
  *
  *   scripts/e2e.sh --web-only -- e2e/axis-flip-probe.spec.ts --reporter=list
  *
- * What is sampled at each step:
- *   view        `data-view`     — the named view the camera settled into
- *   cameraPos   `data-camera-pos` — where the camera actually is
- *   up          the camera's UP vector, read from the live three camera
- *   forward     the direction it looks, ditto
+ * Three assertions, in the order they matter:
+ *
+ *   1. DIRECTION HOLDS across the first extrude (`expectCameraStable`) — the
+ *      defect.
+ *   2. POSITION MOVES across it — the WANTED half. Pre-extrude there are no
+ *      bounds, so the fit sits at the empty-scene radius (200 × 1.75 = 350);
+ *      post-extrude it is solved against the body's projected extents. A gate
+ *      that only forbade movement would pass just as happily on a camera that
+ *      had stopped re-framing altogether.
+ *   3. A FRESH SCENE STILL OPENS ISO (after `reload`) — because the cheap
+ *      "fix" is to delete the first-run branch, and an empty part with no prior
+ *      pose does need a default.
+ *
+ * What each step samples:
+ *   view        `data-view`        — the named view the camera settled into
+ *   cameraPos   `data-camera-pos`  — where the camera actually is
+ *   up/forward  the live three camera, via the shared scene probe
  *   sketchStep  the sketcher's own statement of which plane it is on
  *
- * The camera's own up/forward are read from the r3f scene rather than inferred
- * from `cameraPos`, because a position alone cannot distinguish a camera that
- * ORBITED from one whose UP AXIS CHANGED — and the founder's report is about
- * the latter. That distinction is the whole point of this probe.
+ * The live camera is read through `./invariants` (`cameraPose`), not through a
+ * bespoke `__r3f` reader: one maintained camera-reading path, and every sample
+ * carries `agreesWithStamp` so a probe that latched onto the reference cube's
+ * HUD camera cannot quietly report health.
  */
 import { expect, test } from "./fixtures";
+import {
+  angleBetween,
+  cameraPose,
+  expectCameraStable,
+  installSceneProbe,
+  waitForCameraRest,
+} from "./invariants";
 import { enterSketch } from "./planeMap";
-import { createPartViaApi, seedSession } from "./support";
+import { createPartViaApi, distinctCanvasColors, seedSession } from "./support";
+
+/** The direction the shell opens with (`VIEW_DIRECTIONS.iso`, normalised). */
+const ISO_FORWARD: [number, number, number] = [-0.5518, -0.3752, -0.7449];
 
 interface AxisSample {
   step: string;
@@ -30,52 +57,13 @@ interface AxisSample {
   cameraPos: string | null;
   up: [number, number, number] | null;
   forward: [number, number, number] | null;
+  agreesWithStamp: boolean;
   sketchStep: string | null;
 }
 
-/**
- * Read the camera's basis out of the live scene.
- *
- * r3f keeps the camera on the root state; drei's controls mutate it in place,
- * so reading it after a settle gives the orientation the user is actually
- * looking through. Rounded to 3 dp: we are looking for axis SWAPS (a 1 becoming
- * a 0 in a different slot), not for sub-degree drift.
- */
-async function readCameraBasis(page: import("@playwright/test").Page): Promise<{
-  up: [number, number, number] | null;
-  forward: [number, number, number] | null;
-}> {
-  return page.evaluate(() => {
-    // r3f keeps its store on the canvas element as `__r3f`. Reaching for it is
-    // deliberate: adding a production global for a diagnostic is what put a
-    // `RenderProbe` in shipped code, and this probe is meant to be deleted.
-    const canvas = document.querySelector<HTMLCanvasElement>(
-      '[data-testid="viewport"] canvas',
-    );
-    const root = (
-      canvas as unknown as {
-        __r3f?: { root?: { getState?: () => { camera?: unknown } } };
-      } | null
-    )?.__r3f?.root;
-    const state = root?.getState?.();
-    const cam = state?.camera as
-      | {
-          up: { x: number; y: number; z: number };
-          getWorldDirection: (v: unknown) => {
-            x: number;
-            y: number;
-            z: number;
-          };
-        }
-      | undefined;
-    if (!cam) return { up: null, forward: null };
-    const r = (n: number) => Math.round(n * 1000) / 1000;
-    const dir = cam.getWorldDirection({ x: 0, y: 0, z: 0 });
-    return {
-      up: [r(cam.up.x), r(cam.up.y), r(cam.up.z)] as [number, number, number],
-      forward: [r(dir.x), r(dir.y), r(dir.z)] as [number, number, number],
-    };
-  });
+function round3(v: readonly number[]): [number, number, number] {
+  const r = (n: number): number => Math.round(n * 1000) / 1000;
+  return [r(v[0] ?? 0), r(v[1] ?? 0), r(v[2] ?? 0)];
 }
 
 async function sample(
@@ -90,7 +78,7 @@ async function sample(
   // trying to observe.
   await page.waitForTimeout(400);
   const viewport = page.getByTestId("viewport");
-  const basis = await readCameraBasis(page);
+  const pose = await cameraPose(page);
   // AN EXPLICIT TIMEOUT, because `.catch()` cannot save you from a promise
   // that never settles. `sketch-step` does not exist outside the sketcher, and
   // this project leaves Playwright's `actionTimeout` unset — which means NO
@@ -105,18 +93,36 @@ async function sample(
     step,
     view: await viewport.getAttribute("data-view"),
     cameraPos: await viewport.getAttribute("data-camera-pos"),
-    up: basis.up,
-    forward: basis.forward,
+    up: round3(pose.up),
+    forward: round3(pose.direction),
+    agreesWithStamp: pose.agreesWithStamp,
     sketchStep,
   };
   console.log(`[AXIS] ${JSON.stringify(s)}`);
   return s;
 }
 
-test.describe("FOUNDER — the axis switches after an extrude", () => {
-  test("observe the axis through draw -> save -> extrude", async ({ page }) => {
+/** `data-camera-pos` as numbers — the settled position, to 0.1. */
+function posOf(sample: AxisSample): [number, number, number] {
+  const parts = (sample.cameraPos ?? "").split(",").map(Number);
+  expect(parts, `no data-camera-pos at ${sample.step}`).toHaveLength(3);
+  return round3(parts);
+}
+
+function distance(
+  a: readonly [number, number, number],
+  b: readonly [number, number, number],
+): number {
+  return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+}
+
+test.describe("FB-20 — the FIRST extrude re-frames the body without stealing the viewpoint", () => {
+  test("pin a view, sketch, extrude: direction holds, distance re-fits", async ({
+    page,
+  }) => {
     test.setTimeout(180_000);
 
+    await installSceneProbe(page); // before goto: it hooks three.js construction
     const account = await seedSession(page);
     const part = await createPartViaApi(page, account.token, "Axis probe");
     await page.goto(`/parts/${part.id}`);
@@ -152,29 +158,77 @@ test.describe("FOUNDER — the axis switches after an extrude", () => {
 
     await page.getByTestId("new-extrude").click();
     await expect(page.getByTestId("extrude-editor")).toBeVisible();
-    samples.push(await sample(page, "06-extrude-editor-open"));
+    const before = await sample(page, "06-extrude-editor-open");
+    samples.push(before);
+    expect(
+      before.agreesWithStamp,
+      "probe locked onto the model camera, not the reference cube's HUD",
+    ).toBe(true);
 
-    await page.getByTestId("extrude-distance").press("Enter");
-    await expect(page.getByTestId("body-inspector")).toBeVisible({
-      timeout: 30_000,
-    });
-    samples.push(await sample(page, "07-after-extrude"));
+    // THE GATE. `expectCameraStable` samples at REST either side (orbit damping
+    // and the settle ease both coast), so the comparison is between two static
+    // poses rather than between a moving camera and a still one.
+    const drift = await expectCameraStable(
+      page,
+      async () => {
+        await page.getByTestId("extrude-distance").press("Enter");
+        await expect(page.getByTestId("body-inspector")).toBeVisible({
+          timeout: 30_000,
+        });
+        // Not just the panel: the MESH. Without this the gate would pass on a
+        // body that never rendered, since a camera nothing re-framed is the
+        // most stable camera there is.
+        await expect
+          .poll(() => distinctCanvasColors(page), { timeout: 30_000 })
+          .toBeGreaterThan(24);
+      },
+      { maxDegrees: 1 },
+    );
+
+    const after = await sample(page, "07-after-extrude");
+    samples.push(after);
+
+    // THE WANTED HALF. Pre-extrude the fit had no bounds and parked at the
+    // empty-scene radius (200 × 1.75 = 350); post-extrude it is solved against
+    // the body. Re-framing is the whole reason the auto-fit exists, so a gate
+    // that only forbids motion is half a gate.
+    const moved = distance(posOf(before), posOf(after));
+    expect(
+      moved,
+      `the fit did not re-frame: ${before.cameraPos} -> ${after.cameraPos}`,
+    ).toBeGreaterThan(20);
 
     await page.screenshot({
       path: "docs/screenshots/axis-probe-after-extrude.png",
     });
 
-    // THE OBSERVATION. Not a pass/fail on the founder's behalf — a printed
-    // table, plus the one comparison that says whether an AXIS changed rather
-    // than the camera merely having moved.
     console.log(`[AXIS-TABLE] ${JSON.stringify(samples, null, 2)}`);
-
-    const pinned = samples.find((s) => s.step === "02-iso-pinned");
-    const after = samples.find((s) => s.step === "07-after-extrude");
     console.log(
-      `[AXIS-VERDICT] up before=${JSON.stringify(pinned?.up)} after=${JSON.stringify(after?.up)} | ` +
-        `view before=${pinned?.view} after=${after?.view} | ` +
-        `forward before=${JSON.stringify(pinned?.forward)} after=${JSON.stringify(after?.forward)}`,
+      `[AXIS-VERDICT] drift=${drift.toFixed(3)}° moved=${moved.toFixed(1)} | ` +
+        `view before=${before.view} after=${after.view} | ` +
+        `forward before=${JSON.stringify(before.forward)} after=${JSON.stringify(after.forward)}`,
     );
+
+    // FIRST-RUN DEFAULT, kept honest. The framing above is preserved because
+    // the scene HAS a pose; a scene that has none must still open iso, so
+    // "delete the first-run branch" is not a fix. A reload is a genuinely
+    // unposed scene with geometry already in it.
+    await page.reload();
+    await expect(page.getByTestId("body-inspector")).toBeVisible({
+      timeout: 30_000,
+    });
+    await expect
+      .poll(() => distinctCanvasColors(page), { timeout: 30_000 })
+      .toBeGreaterThan(24);
+    const reopened = await waitForCameraRest(page);
+    const fromIso = angleBetween(reopened.direction, ISO_FORWARD);
+    console.log(
+      `[AXIS-RELOAD] forward=${JSON.stringify(round3(reopened.direction))} ` +
+        `iso-delta=${fromIso.toFixed(2)}°`,
+    );
+    expect(
+      fromIso,
+      `a freshly opened part must still frame iso (was ${JSON.stringify(round3(reopened.direction))})`,
+    ).toBeLessThan(3);
   });
 });

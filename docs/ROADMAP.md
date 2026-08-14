@@ -42,6 +42,34 @@ not. Also recorded: the depthTest mutant is a Z-FIGHT LOTTERY, not 212.49 —
 four runs gave 349.48/244.09/194.00/154.55, so the floor's honest margin is
 1.14x, not 1.88x.
 
+**FB-20 (the CAMERA item — the id collides with a P0/L flow item, groomer
+please renumber) CLOSED 2026-08-14 — the first extrude of every session stole
+the viewpoint, because the guard against it counted FITS, not POSES.**
+`framedOnce` was set in exactly one place, inside the auto-fit, so a user framed
+by the view rail or by saving a sketch was still "first" when their geometry
+appeared and got snapped to iso once per session — which is the whole of the
+founder's "I draw in a plane and then all of a sudden it switches after an
+extrude". It now means "this scene has a viewpoint worth keeping" and every path
+that poses the camera sets it: the view-command effect (one assignment, so a
+branch added later inherits it) and the handover to the sketcher, which parks
+the camera normal-on to the plane the user picked. The `first` branch stays —
+an unposed empty part does need a default, and the gate proves a reloaded scene
+still opens iso (0.90° off `VIEW_DIRECTIONS.iso`), so the tempting "just delete
+it" fix fails. MEASURED on the founder's flow: **0.000° of drift** across the
+first extrude while the position moves **276.5** (the empty-scene radius 350
+down to 74 as the fit solves against the body) — direction held, distance
+re-fitted, which is the acceptance wording verbatim. MUTATION-VERIFIED: reverting
+the two assignments reddens the gate at **67.96°**, the exact iso snap reported.
+Companion defect the fix makes reachable: leaving the sketcher restores world up
+while looking straight down, so `framePose`'s `right = up × dir` collapsed and
+the framing's roll was decided by rounding — `safeUp`/`upFor` now live in
+`viewCommands.ts` (one source for both rigs, unit-tested) and substitute the
+plan-view convention inside the parallel band. `axis-flip-probe.spec.ts` stops
+being a printer and becomes the gate; `founder-picking.spec.ts:382` could never
+have caught this because its fixture builds a box before the measurement window
+opens, so it has only ever watched the SECOND extrude — a fixture that consumes
+the first-run state cannot see first-run bugs.
+
 **REV-1 (e)(f)(g) PARTIAL 2026-08-14 — two self-tests returned 0 on an EMPTY
 check list, and the flaky-flag guard needed only ONE audit invocation to carry
 the flag.** The scripts/workflow half of REV-1; (a)-(d) are the e2e-helper half
