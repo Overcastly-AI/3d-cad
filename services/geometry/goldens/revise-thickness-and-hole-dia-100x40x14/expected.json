@@ -1,0 +1,26 @@
+{
+  "description": "THE COMBINED-REVISION GOLDEN (M17, product audit 2026-08-14, docs/design/topological-naming.md §12a). A 100x40 plate, 14 mm thick, with a Ø30 central bore and two mounting holes on its top (+Z) face: Ø7 at (18, 20) and Ø6.6 at (82, 20). The tree is stored in exactly the state a document is left in after TWO ordinary edits — Hole1's diameter was retyped 6.6 -> 7, and then Extrude1's distance 10 -> 14 — so every stored face signature still says z = 10, AND Hole2's stored signature still describes the face as it was when Hole1 was Ø6.6 (centroid x = 50.335933053394236, area 3258.929708944704 mm^2, the audit's own numbers to 4 dp). Neither edit alone breaks anything: at constant thickness the tier-2 coplanar re-match absorbs the stale area, and with no diameter edit the tier-3 translated re-match absorbs the moved plane. TOGETHER they defeated all three tiers and the audit measured 4 of 11 features red on this shape — the P0 this golden locks. Hole2 resolves through the tier-4 enclosing re-match (geometry.kernel.faces.enclosing_face_match), whose anchor is the face's OUTER boundary, the one invariant an interior hole edit cannot touch. Note the stored centroid it re-anchors from is INSIDE the Ø30 bore, i.e. not on the face at all, which is why the containment test is against the outer boundary and not against the face.",
+  "derivation": [
+    "Plate: 100 x 40 x 14 = 56000 mm^3.",
+    "Three through-bores removed, each the full 14 mm depth: pi*14*(15^2 + 3.5^2 + 3.3^2) = pi*14*248.14 = 3473.96*pi mm^3.",
+    "Volume = 56000 - 3473.96*pi = 45086.2327851352 mm^3 (measured deviation 7.3e-12).",
+    "Surface area: plate faces 2*(100*40) + 2*(100*14) + 2*(40*14) = 11920 mm^2; the top and bottom faces each lose the three discs pi*248.14, so -496.28*pi; the three bores add lateral cylinders 2*pi*14*(15 + 3.5 + 3.3) = 610.4*pi. Area = 11920 + 114.12*pi = 12278.518553627668 mm^2 (measured deviation 0.0).",
+    "Centroid: y = 20 and z = 7 by symmetry (all three bores sit on the plate's y centreline and run its full depth). x is NOT 50 and that is the point of the part: the two mounting holes are symmetric about x = 50 in POSITION but not in SIZE (Ø7 at x=18 against Ø6.6 at x=82), so the x centroid is a single number that moves the moment either hole is drilled anywhere but at its picked station. x = (56000*50 - 14*pi*(225*50 + 12.25*18 + 10.89*82)) / (56000 - 3473.96*pi) = 50.04245441354795 mm (measured deviation 2.1e-14).",
+    "AABB unchanged by the bores: (0,0,0)-(100,40,14). As the sibling revision golden notes, a hole drilled from the STALE z=10 plane would still reach the bottom under through_all, so the bbox alone cannot catch a mis-anchored drill — the x centroid can, and does.",
+    "Topology: 6 plate planar faces + 3 cylindrical bore faces = 9 faces; 12 plate edges + 3 per bore (top circle, bottom circle, cylindrical seam) = 21 edges; 1 shell.",
+    "Mesh (linear_deflection 0.1): 1542 vertices / 1536 triangles. INDEPENDENTLY CROSS-CHECKED rather than recorded: the same tree with all three face signatures and hole positions authored at the CURRENT state (centroid z = 14, Hole2's face described with Hole1 already at Ø7 — a tier-1 STRICT match that never reaches any resilient tier) produces byte-identical GLB (sha256 85563175ea7ffad3...), identical topology, identical mesh counts and identical mass properties. So the tier-4 rescue lands on exactly the body an exact re-pick would have made, which is the claim this golden exists to make."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "Every bore is a pure boolean cut of a right cylinder from a box, so GProp integrates the analytic quadrics exactly; measured deviation from the closed forms above is 7.3e-12 mm^3 (volume), 0.0 mm^2 (area) and 2.1e-14 mm (centroid) — machine precision. The 1e-9 ceiling matches the sibling revise-thickness-hole-on-moved-face-60x40x16 and hole-through-r5-40x25x10 goldens and the kernel's 1e-7 m linear posture; it is 2-3 orders of magnitude above the observed residual and orders of magnitude below any mis-anchoring this golden exists to catch (drilling Hole2 at the face's area centroid, x = 50.37838219699429, instead of at its picked station moves the part's x centroid by 3.4e-1 mm, eight orders of magnitude outside it).",
+  "properties": {
+    "volume": 45086.2327851352,
+    "surface_area": 12278.518553627668,
+    "centroid": { "x": 50.04245441354795, "y": 20.0, "z": 7.0 },
+    "bounding_box": {
+      "min": { "x": 0.0, "y": 0.0, "z": 0.0 },
+      "max": { "x": 100.0, "y": 40.0, "z": 14.0 }
+    }
+  },
+  "topology": { "faces": 9, "edges": 21, "shells": 1 },
+  "mesh": { "vertices": 1542, "triangles": 1536 }
+}

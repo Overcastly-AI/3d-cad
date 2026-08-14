@@ -1131,6 +1131,163 @@ deliberate — they resolve one kind of reference and should not disagree about 
 it means — and it is the same posture §11 took for edges.
 
 **Measured (docs/GEOMETRY-QA.md 2026-07-30).** The QA-2 bracket rebuilds at 16 mm
-instead of stranding; golden `revise-thickness-hole-on-face-40x25x16` locks the
-analytic volume of the revised plate against a hand-derived closed form, and
+instead of stranding; golden `revise-thickness-hole-on-moved-face-60x40x16` locks
+the analytic volume of the revised plate against a hand-derived closed form, and
 `test_faces.py` gates the three refusals above by name.
+
+## 12a. The "conservative choice on purpose" was the P0 — tier 4 (2026-08-14)
+
+**§12 named this defect and shipped without it.** Its own words: *"An edit that
+does BOTH matches neither tier and stays an honest `subshape_unresolved`; that is
+the conservative choice on purpose."* The 2026-08-14 product audit (M17) then hit
+exactly that case on the most ordinary parametric edit there is, and rated it P0:
+thickening a bracket's plate 10 → 14 mm left **4 of 11 features red** (`Hole3` →
+`subshape_unresolved`, `Hole4`/`Hole5`/`Fillet1` stranded by the strict-prefix
+rule). The conservative choice is only conservative when the "BOTH" case is rare.
+It is not rare — it is the *default* state of any face that more than one feature
+was picked on.
+
+**Root cause, reproduced (`test_faces_m17_revision.py`).** A face's stored
+signature is `{normal, centroid, area_mm2}`, and both `centroid` and `area_mm2`
+are functions of **what has been cut into the face**, not of the face's identity.
+So on a plate whose top face carries four mounting holes, hole *n*'s stored area
+is one hole's worth smaller than hole *n−1*'s — measured 3293.1417, 3258.9297,
+3224.7178, 3190.5058 mm² for Ø6.6 holes, each exactly π·3.3² = 34.2119 mm² apart,
+reproducing the audit's table to 4 dp. Every one of those numbers goes STALE the
+moment any earlier hole on that face is resized, moved, or inserted — and the
+signature has no way to say so. Tier 2 hides this (it frees area and in-plane
+centroid), which is why the part keeps working at constant thickness. Retype the
+thickness and tier 2 stops applying; tier 3 takes over and pins both stale
+quantities, so the reference dies. The audit's own reading — *"the failure is
+caused by the thickness change alone, not by the earlier Ø6.6 → 7 hole edit"* —
+is half right: reverting either edit fixes it, because it takes **both** to defeat
+the tier stack. Measured control, same tree, three trees deep:
+
+| tree | `Hole2` | `Hole3` | `Hole4` | `Hole5` |
+|---|---|---|---|---|
+| t = 10, Ø6.6 → 7 on `Hole2` (in-plane only) | ok | ok | ok | ok |
+| t = 14, no diameter edit (plane move only) | ok | ok | ok | ok |
+| t = 14 **and** Ø6.6 → 7 (both) | ok | **subshape_unresolved** | skipped | skipped |
+
+`Hole2` survives in the failing tree for the reason the audit noticed and could
+not explain: its stored signature predates every mounting hole, so nothing has
+been cut into the face since — it is the one reference on that face whose area is
+still true.
+
+**Decision: a fourth tier, anchored on the face's OUTER BOUNDARY.** The property
+the first three tiers lack is one that is invariant under *interior subtraction*.
+The face's outer wire is exactly that: drilling, enlarging, moving or adding a hole
+in the interior of a face cannot change the region its outer boundary encloses.
+`geometry.kernel.faces.enclosing_face_match`, reached only when tiers 1, 2 and 3 all
+find NOTHING:
+
+| quantity | tier 1 strict | tier 2 coplanar | tier 3 translated | tier 4 enclosing |
+|---|---|---|---|---|
+| same-sense normal | required | required | required | **required** |
+| plane offset `centroid · n` | required | required | FREE | **FREE** |
+| area | required | free | required | **FREE** |
+| centroid position in the plane | required | free | required | **FREE** |
+| stored centroid inside the candidate's OUTER boundary | — | — | — | **required** |
+| stored area in `[2·candidate area − outer area, outer area]` | — | — | — | **required** |
+
+Tier 4 therefore models "this face moved AND its boundary changed", which is every
+revision of a face that carries more than one feature.
+
+**Why the anchor is the outer boundary and not the picked point on the face.** The
+stored `centroid` is the face's AREA centroid, which for a plate with a central
+bore is a point **inside the bore — not on the face at all** (measured: the M17
+plate's top-face centroid is (0, 0, z), dead centre of its own Ø30 hole). A
+containment test against the face itself would reject the very case this tier
+exists for. Against the outer boundary region it is inside, and stays inside under
+any interior edit.
+
+**What tier 4 must NOT match.** It frees three of the four stored quantities, so
+the guards carry more weight than in §12:
+
+1. **The opposite face is still excluded by the NORMAL SENSE** — §12's guard 1,
+   unchanged and still the load-bearing one. A plate's bottom face is a full flip
+   away, so a hole drilled in the top can never re-anchor to the bottom.
+2. **A face that VANISHED does not re-anchor onto whatever larger face happens to
+   contain the point — the AREA BAND is what stops it, and both of its ends are
+   derived.** This is the guard the first draft of tier 4 got wrong, and the cost
+   was measured rather than argued: with only the obvious `stored ≤ outer` subset
+   bound, three of `test_faces.py`'s honest-error gates went from red to
+   silently-resolving, including the "the plane is gone" one. Delete the boss a
+   sketch was placed on and the sketch would have re-anchored to the plate top
+   underneath it — silent wrong geometry replacing a visible failure, which is the
+   trade §12 refused and this section is not entitled to make either. The band is
+   `2·candidate_area − outer_area ≤ stored_area ≤ outer_area`. The upper end is the
+   subset argument: the stored face was a subset of the region its own outer wire
+   enclosed. The lower end is the *attribution* argument: the difference between
+   the stored area and the candidate's current area has to be explainable by the
+   interior boundaries the candidate actually HAS, whose total area is
+   `outer_area − candidate_area`. Consequences, all of them the safe direction:
+   a face with nothing cut into it admits only `stored == outer` (so a plain
+   plate top rescues nothing that is not itself); a hole that was widened, moved
+   or added still matches; a face whose only hole was DELETED, or whose holes
+   changed by more than the total currently subtracted, is refused.
+3. **Two candidates that pass are an honest `subshape_ambiguous`**, never a
+   nearest/smallest guess — §12's guard 3, unchanged.
+4. **Tier 4 is strictly ADDITIVE and cannot change any resolution that works
+   today.** It runs only when tiers 1–3 return an empty list, so the set of
+   references that resolve can only grow; a reference that resolves now resolves
+   to the same face, with the same tier flag, at the same anchored origin. That
+   property is what makes a P0 fix safe to land in the shared
+   `_match_face_records` that hole placement, `on_face` datums, shell and the
+   sheet-metal base-face split all go through. Evidence rather than assertion: the
+   22 pre-existing `test_faces.py` gates — every strict, coplanar, translated,
+   ambiguity and honest-error case — pass unchanged, and the golden suite is
+   byte-identical.
+
+**Honest limits (§7.3 posture, one degree wider again).** A CONCAVE face whose
+area centroid falls outside its own outer boundary (a deep U-shaped face) is not
+rescued — tier 4 fails honestly, exactly as today. A face that grew in-plane in the
+same revision that moved it (the base sketch was enlarged AND the thickness
+retyped) is refused by the band's lower end, which is the price of guard 2. And the
+general stage-1 caveat stands: a drastic model change can still land on a
+coincidentally-plausible face.
+
+**The band is only as strong as the face is SOLID, and that is worth saying out
+loud.** Its width is `2·(outer_area − candidate_area)` — twice what is currently
+cut out of the face — so on a heavily perforated face it opens up, and in the limit
+of a face that is half holes it admits any stored area at all, leaving tier 4 with
+only the normal sense and the containment test. That is inherent to inferring the
+missing invariant from the three numbers the signature actually stores, and it is
+the strongest argument for the `PlanarFaceSignature` change below rather than a
+reason to prefer no fix: the alternative on offer is a P0 that strands features on
+every multi-feature face.
+
+**One existing negative control moved, and it is worth knowing which.** A synthetic
+"this face is gone" fixture in `test_assembly_evaluate.py` stated a −Z face 99 mm
+away with an area 10 % off the real one. With the offset freed by tier 3 and the
+area freed within the band by tier 4, that now reads as a plausible hole edit and
+resolves — correctly, on the tier's own terms. The fixture was retuned to an area
+no edit to that face's interior could produce; the test's subject (a per-mate
+`subshape_unresolved` is reported and dropped, never a crash) is unchanged. No
+other gate in the ~2 900-test geometry suite moved.
+
+**Cost.** Tier 4 is the only tier that touches the B-rep beyond the signatures it
+is handed — it builds one face per candidate from that candidate's outer wire. It
+is on the RESCUE path only (tiers 1–3 all missed), and it skips any candidate that
+fails the cheap normal test first, so a clean rebuild pays nothing. Measured on a
+200 × 200 plate with 36 through-holes: a full four-tier MISS over its planar faces
+costs **0.74 ms**, and only same-sense-normal candidates ever build a region — one,
+on that part. Note a machined plate has few PLANAR faces however much is drilled
+into it (holes contribute cylinders), so the candidate set stays small in practice.
+
+**The stored signature is still wrong, and this does not fix that.** The real fix
+for "a face's identity encodes what has been cut into it" is to stop storing area
+and the area centroid as identity and store outer-boundary invariants instead —
+which changes `PlanarFaceSignature`, a `packages/py-kit` contract shared with the
+document service and every persisted part. Tier 4 buys the correctness now,
+without a migration and without invalidating a single stored selector, and leaves
+that contract change as a separate, sequenced piece of work (see
+`docs/BACKLOG.md`). Note the contract change would ALSO need tier 4's containment
+logic for every selector authored before it, so this is the prerequisite, not a
+workaround.
+
+**Measured (docs/GEOMETRY-QA.md 2026-08-14).** The M17 bracket rebuilds all-ok
+after the combined edit; golden `revise-thickness-and-hole-dia-100x40x14` locks the
+revised part's hand-derived closed form and is cross-checked byte-for-byte against
+the same tree with signatures authored at the current state (a tier-1 match), so
+the rescued body is provably the body an exact pick would have made.

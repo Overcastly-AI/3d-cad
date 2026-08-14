@@ -299,9 +299,15 @@ def test_empty_faces_is_no_draft_faces() -> None:
 def test_picked_face_that_no_longer_exists_is_subshape_unresolved() -> None:
     """A picked face signature that matches no current face is an honest
     per-feature ``subshape_unresolved`` (topo-naming §5), never a 500 and never a
-    silent wrong-face retarget. The +X plane is shifted to x=999 (``centroid.x``,
-    the component ALONG the normal), so no face lives on it — neither the strict
-    signature nor the resilient coplanar re-match (FINDINGS #3) resolves it."""
+    silent wrong-face retarget.
+
+    The fixture has to state a face that is GENUINELY absent, and since tier 3 (QA-2)
+    and tier 4 (M17, §12a) that is a higher bar than it looks: the offset along the
+    normal is free, and so is the in-plane station within the face's outer boundary.
+    A +X plane pushed out to x=999 with the RIGHT area is therefore the same face,
+    re-anchored, and resolves — correctly. The area is what makes this one absent:
+    this box's +X face is 800 mm² of solid plane with nothing cut into it, so no
+    interior edit can produce a 300 mm² face there, at any offset."""
     result = _post(
         _request(
             [
@@ -310,7 +316,7 @@ def test_picked_face_that_no_longer_exists_is_subshape_unresolved() -> None:
                 draft_input(
                     DRAFT_ID,
                     5.0,
-                    [_face_ref(EXTRUDE_ID, (1.0, 0.0, 0.0), (999.0, 20.0, 0.0), 800.0)],
+                    [_face_ref(EXTRUDE_ID, (1.0, 0.0, 0.0), (999.0, 20.0, 0.0), 300.0)],
                 ),
             ]
         )

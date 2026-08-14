@@ -12,6 +12,7 @@ Tolerances are the documented kernel bound, never ad-hoc epsilons: a box is
 planar-exact in OCCT, so deviation from analytic is round-off only.
 """
 
+import math
 from typing import Any
 
 import pytest
@@ -23,9 +24,12 @@ from geometry.kernel import (
     resolve_face_plane,
     selection_overlay,
 )
+from geometry.kernel import faces as faces_module
 from geometry.kernel.faces import (
+    CENTROID_TOL_MM,
     PlanarFaceRecord,
     coplanar_signatures_match,
+    enclosing_face_match,
     face_signature_dto,
     planar_face_signature,
     planar_signatures_match,
@@ -356,15 +360,242 @@ def test_two_stacked_congruent_faces_are_ambiguous_not_a_nearest_guess() -> None
         resolve_face_plane(stacked, stored, 0.0)
 
 
-def test_a_face_that_moved_AND_changed_shape_stays_an_honest_error() -> None:
-    """The documented conservative limit: each tier frees exactly what its edit
-    changes. An edit that BOTH translates the plane AND alters the face (thicken the
-    plate and enlarge it in x) matches no tier, and inventing a match across two
-    simultaneous changes is where a matcher starts guessing. Honest error."""
+def test_a_face_that_moved_AND_GREW_stays_an_honest_error() -> None:
+    """The limit that SURVIVES tier 4 (§12a honest limits). Thickening the plate and
+    enlarging it in x moves the plane AND changes the face's OUTER boundary — so
+    even the outer-boundary tier has nothing invariant left to hold onto, and the
+    area band refuses it (the grown top has no interior boundaries at all, so the
+    band collapses to ``stored == outer``: 2400 is not 3200). Honest error, and the
+    conservative direction on purpose."""
     stored = _plate_top_signature(10.0)
     grown = Solid.make_box(80.0, 40.0, 16.0)
     with pytest.raises(SubshapeUnresolvedError):
         resolve_face_plane(grown, stored, 0.0)
+
+
+# --- tier 4: the plane MOVED and the boundary CHANGED (M17, §12a) ----------------
+
+#: The M17 bracket base — a 100x40 plate with a Ø30 central bore at (50, 20) and two
+#: mounting holes at (18, 20) and (82, 20). Every number below is analytic, so the
+#: fixtures state hand-derived signatures rather than recording the kernel's output.
+_PLATE_W, _PLATE_H = 100.0, 40.0
+_BORE_R, _HOLE_B_R = 15.0, 3.3
+_BORE_XY, _HOLE_A_XY, _HOLE_B_XY = (50.0, 20.0), (18.0, 20.0), (82.0, 20.0)
+
+
+def _m17_plate(thickness: float, hole_a_radius: float) -> BodyShape:
+    """The bracket at *thickness* with its first mounting hole at *hole_a_radius*.
+
+    Drilled through the product's own :func:`bore_hole`, not a raw boolean, so the
+    fixture is the body the feature path builds."""
+    plate: BodyShape = Solid.make_box(_PLATE_W, _PLATE_H, thickness)
+    for (x, y), radius in (
+        (_BORE_XY, _BORE_R),
+        (_HOLE_A_XY, hole_a_radius),
+        (_HOLE_B_XY, _HOLE_B_R),
+    ):
+        top = next(r.plane for r in planar_faces(plate) if r.plane.z_dir.Z > 0.5)
+        plate = bore_hole(
+            plate,
+            top,
+            (x, y, thickness),
+            radius * 2.0,
+            through_all=True,
+            depth_mm=None,
+        )
+    return plate
+
+
+def _m17_stored_signature() -> PlanarFaceSignature:
+    """Hole2's face signature as the DOCUMENT stored it: the top face at z = 10,
+    described with the bore cut and Hole1 still at its original Ø6.6.
+
+    Both of its varying fields are functions of what had been cut into the face at
+    the moment of the pick, which is the defect M17 is about — after Hole1 is
+    retyped to Ø7 and the plate to 14 mm, neither field describes any face of the
+    current body."""
+    bored = _PLATE_W * _PLATE_H - math.pi * _BORE_R**2
+    hole_a_old = math.pi * _HOLE_B_R**2  # Hole1 was Ø6.6 too, before the edit
+    area = bored - hole_a_old
+    centroid_x = (bored * 50.0 - hole_a_old * _HOLE_A_XY[0]) / area
+    return PlanarFaceSignature(
+        normal=Vec3(x=0.0, y=0.0, z=1.0),
+        centroid=Vec3(x=centroid_x, y=20.0, z=10.0),
+        area_mm2=area,
+    )
+
+
+def _top_record(body: BodyShape) -> PlanarFaceRecord:
+    return next(r for r in planar_faces(body) if r.signature.normal.z > 0.5)
+
+
+def test_a_face_reference_survives_the_plane_MOVING_AND_the_boundary_CHANGING() -> None:
+    """THE M17 gate at the resolver. Two ordinary edits — Hole1 Ø6.6 → 7, then the
+    plate 10 → 14 mm — leave Hole2's stored signature wrong in BOTH of its varying
+    fields at once, which is the state any face carrying more than one feature ends
+    up in. Each edit alone is absorbed (tier 2 for the diameter, tier 3 for the
+    thickness); together they defeated all three tiers and stranded 4 of 11 features
+    on the audit's bracket. Tier 4 resolves it on the face's OUTER boundary, the one
+    invariant an interior hole edit cannot touch."""
+    stored = _m17_stored_signature()
+    revised = _m17_plate(14.0, 3.5)
+    record = _top_record(revised)
+
+    # Not one of the three shipped tiers can see it.
+    assert not planar_signatures_match(record.signature, stored)
+    assert not coplanar_signatures_match(record.signature, stored)
+    assert not translated_signatures_match(record.signature, stored)
+    # Tier 4 does — and it resolves at the face's NEW plane, at the stored station.
+    assert enclosing_face_match(record, stored)
+    plane = resolve_face_plane(revised, stored, 0.0)
+    assert tuple(plane.z_dir) == pytest.approx((0.0, 0.0, 1.0), abs=TOL)
+    assert tuple(plane.origin) == pytest.approx(
+        (stored.centroid.x, stored.centroid.y, 14.0), abs=TOL
+    )
+
+
+def test_the_tier4_anchor_point_is_not_even_ON_the_face() -> None:
+    """Why the anchor is the OUTER boundary and not the face. The stored centroid is
+    an AREA centroid, and on a plate with a central bore it lands INSIDE that bore —
+    a point the face does not contain. A containment test against the face itself
+    would reject the very case tier 4 exists for; against the outer region it is
+    comfortably inside."""
+    stored = _m17_stored_signature()
+    record = _top_record(_m17_plate(14.0, 3.5))
+    on_plane = (stored.centroid.x, stored.centroid.y, 14.0)
+    assert not record.face.is_inside(on_plane, tolerance=CENTROID_TOL_MM)
+    assert enclosing_face_match(record, stored)
+
+
+def test_a_tier4_reference_NEVER_lands_on_the_OPPOSITE_face() -> None:
+    """§12's guard 1, still load-bearing with three of the four stored quantities
+    freed: a plate's bottom face encloses the IDENTICAL outer region as its top and
+    would pass the area band and the containment test alike. Only the sense of the
+    normal separates them, so a hole drilled in the top can never re-anchor to the
+    bottom."""
+    stored = _m17_stored_signature()
+    revised = _m17_plate(14.0, 3.5)
+    bottom = next(r for r in planar_faces(revised) if r.signature.normal.z < -0.5)
+    assert not enclosing_face_match(bottom, stored)
+    assert tuple(resolve_face_plane(revised, stored, 0.0).z_dir) == pytest.approx(
+        (0.0, 0.0, 1.0), abs=TOL
+    )
+
+
+def test_a_VANISHED_face_is_still_an_honest_error_under_tier4() -> None:
+    """The guard that cost the first draft of tier 4 its correctness. Delete the boss
+    a reference was picked on and the plate top underneath it contains the stored
+    point and is larger — so a tier that only checked containment would silently
+    re-anchor the reference onto the plate, replacing a visible failure with wrong
+    geometry. The area band's LOWER end refuses it: the plate top's 775 mm² of
+    interior holes cannot account for a 2825 mm² difference."""
+    boss_top = PlanarFaceSignature(
+        normal=Vec3(x=0.0, y=0.0, z=1.0),
+        centroid=Vec3(x=30.0, y=20.0, z=15.0),
+        area_mm2=400.0,  # a 20x20 boss top, now deleted
+    )
+    without_the_boss = _m17_plate(14.0, 3.3)
+    record = _top_record(without_the_boss)
+    assert record.face.is_inside((30.0, 20.0, 14.0), tolerance=CENTROID_TOL_MM)
+    assert not enclosing_face_match(record, boss_top)
+    with pytest.raises(SubshapeUnresolvedError):
+        resolve_face_plane(without_the_boss, boss_top, 0.0)
+
+
+def test_tier4_refuses_a_stored_point_outside_the_outer_boundary() -> None:
+    """The in-plane half of the anchor. An area inside the band is not enough — the
+    stored centroid must land inside the candidate's outer boundary, so a reference
+    authored somewhere else in the model does not adopt this face."""
+    stored = _m17_stored_signature()
+    elsewhere = PlanarFaceSignature(
+        normal=stored.normal,
+        centroid=Vec3(x=250.0, y=20.0, z=10.0),  # 150 mm clear of the plate
+        area_mm2=stored.area_mm2,
+    )
+    record = _top_record(_m17_plate(14.0, 3.5))
+    assert enclosing_face_match(record, stored)  # the control
+    assert not enclosing_face_match(record, elsewhere)
+
+
+def test_the_tier4_area_band_is_derived_from_the_candidates_own_holes() -> None:
+    """Both ends of the band, stated as numbers so the derivation is checkable. The
+    candidate is the revised plate top: outer region 4000 mm^2, current area
+    4000 - pi * (15^2 + 3.5^2 + 3.3^2) mm^2. Upper end = the outer region (the
+    stored face was a subset of it); lower end = 2 * current - outer (the shrinkage
+    must be
+    attributable to the interior boundaries the candidate actually has). A stored
+    area a hair outside either end is refused."""
+    record = _top_record(_m17_plate(14.0, 3.5))
+    outer = _PLATE_W * _PLATE_H
+    current = outer - math.pi * (_BORE_R**2 + 3.5**2 + _HOLE_B_R**2)
+    assert record.signature.area_mm2 == pytest.approx(current, abs=1e-9)
+    lower = 2.0 * current - outer
+    stored = _m17_stored_signature()
+    assert lower < stored.area_mm2 < outer  # the M17 case sits inside the band
+
+    def _with_area(area: float) -> PlanarFaceSignature:
+        return PlanarFaceSignature(
+            normal=stored.normal, centroid=stored.centroid, area_mm2=area
+        )
+
+    assert enclosing_face_match(record, _with_area(outer))
+    assert enclosing_face_match(record, _with_area(lower))
+    assert not enclosing_face_match(record, _with_area(outer * 1.001))
+    assert not enclosing_face_match(record, _with_area(lower - outer * 0.001))
+
+
+def test_a_plain_face_with_nothing_cut_into_it_rescues_only_itself() -> None:
+    """The band's degenerate case, and the reason a plain plate cannot swallow a
+    reference. With no interior boundaries the band collapses to ``stored == outer``
+    — there is nothing to attribute a difference to — so tier 4 adds exactly zero
+    reach on an unmachined face."""
+    plain = _top_record(Solid.make_box(_PLATE_W, _PLATE_H, 14.0))
+    at_area = PlanarFaceSignature(
+        normal=Vec3(x=0.0, y=0.0, z=1.0),
+        centroid=Vec3(x=50.0, y=20.0, z=10.0),
+        area_mm2=_PLATE_W * _PLATE_H,
+    )
+    smaller = PlanarFaceSignature(
+        normal=at_area.normal, centroid=at_area.centroid, area_mm2=3000.0
+    )
+    assert enclosing_face_match(plain, at_area)
+    assert not enclosing_face_match(plain, smaller)
+
+
+def test_two_tier4_candidates_are_ambiguous_not_a_smallest_region_guess() -> None:
+    """Refuse to guess (§7.2), carried into tier 4. Two identical machined plates
+    stacked in a compound both pass the normal, the band and the containment test
+    for one stored signature; the resolver must error rather than prefer the nearer
+    or the smaller."""
+    stored = _m17_stored_signature()
+    lower = _m17_plate(14.0, 3.5)
+    upper = _m17_plate(14.0, 3.5).translate((0.0, 0.0, 40.0))
+    stacked = Compound([lower, upper])
+    with pytest.raises(SubshapeAmbiguousError):
+        resolve_face_plane(stacked, stored, 0.0)
+
+
+def test_tier4_is_never_consulted_when_an_earlier_tier_matches(
+    monkeypatch: Any,
+) -> None:
+    """The ADDITIVE property (§12a guard 4), asserted rather than argued: tier 4 runs
+    only on an empty result from tier 3, so no reference that resolves today can be
+    re-targeted by it. A strict match and a translated match must both complete
+    without the outer-boundary tier ever being asked."""
+    calls: list[str] = []
+    real = faces_module.enclosing_face_match
+
+    def _spy(candidate: PlanarFaceRecord, target: PlanarFaceSignature) -> bool:
+        calls.append("called")
+        return real(candidate, target)
+
+    monkeypatch.setattr(faces_module, "enclosing_face_match", _spy)
+    resolve_face_plane(_box(), _top_face_signature(), 0.0)  # tier 1
+    resolve_face_plane(_plate(16.0), _plate_top_signature(10.0), 0.0)  # tier 3
+    assert calls == []
+    # ... and it IS reached (so the spy is wired) when nothing above it matches.
+    resolve_face_plane(_m17_plate(14.0, 3.5), _m17_stored_signature(), 0.0)
+    assert calls != []
 
 
 def test_two_matching_faces_is_subshape_ambiguous(monkeypatch: Any) -> None:

@@ -7,6 +7,129 @@ not "do the tests pass" but **"is the geometry RIGHT?"** (RESEARCH §9,
 decisions recorded here AND in the golden's `expected.json` — never a way to
 go green.
 
+## 2026-08-14 — GEOM-2 / M17: a face's identity encoded what had been DRILLED into it (kernel-architect)
+
+The audit's P0: thicken a bracket's plate 10 → 14 mm and **4 of 11 features go
+red** (`Hole3` → `subshape_unresolved`, `Hole4`/`Hole5`/`Fillet1` stranded by the
+strict-prefix rule). Reproduced from the audit's numbers alone, to 4 dp.
+
+### The mechanism, measured
+
+A planar face's stored signature is `{normal, centroid, area_mm2}`, and two of the
+three are functions of **what has been cut into the face**, not of its identity. On
+a 100×40 plate with a Ø30 bore and four Ø6.6 mounting holes, the four stored areas
+come out one hole's worth apart:
+
+| pick | stored area mm² | Δ from previous | π·3.3² |
+|---|---|---|---|
+| Hole2 | 3293.1417 | — | — |
+| Hole3 | 3258.9297 | 34.2119 | 34.2119 |
+| Hole4 | 3224.7178 | 34.2119 | 34.2119 |
+| Hole5 | 3190.5058 | 34.2119 | 34.2119 |
+
+(The audit reported 3293.14 / 3258.93 / 3224.72 / 3190.51 — the shape is a 4000 mm²
+outline with a Ø30 bore, recovered from those four numbers.) Every one of them goes
+stale the moment any earlier hole on that face is resized, moved or inserted.
+
+**The audit's reading was half right, and the control is what shows it.** Neither
+edit alone breaks anything — it takes both:
+
+| tree | Hole2 | Hole3 | Hole4 | Hole5 |
+|---|---|---|---|---|
+| t = 10, Ø6.6 → 7 on Hole2 (in-plane only) | ok | ok | ok | ok |
+| t = 14, no diameter edit (plane move only) | ok | ok | ok | ok |
+| t = 14 **and** Ø6.6 → 7 | ok | **subshape_unresolved** | skipped | skipped |
+
+Tier 2 (coplanar) frees the area and absorbs the first; tier 3 (translated) frees
+the offset and absorbs the second; tier 3 *pins* the area and the in-plane centroid,
+so the combination defeated the whole stack. `topological-naming.md` §12 named this
+case and called the refusal "the conservative choice on purpose" — M17 is the
+measurement that it is not an edge case but the default state of any face carrying
+more than one feature. Hole2 survives because its signature predates every mounting
+hole: nothing has been cut into that face since, so its area is still true.
+
+### The fix — tier 4, anchored on the face's OUTER BOUNDARY
+
+`geometry.kernel.faces.enclosing_face_match` (§12a), reached only on an empty
+result from tier 3. Same-sense normal, everything else free, identity carried by the
+one quantity interior subtraction cannot touch: the region the outer wire encloses.
+Two conditions, both derived — the stored centroid (projected onto the candidate's
+plane) inside that region, and the stored area inside
+`[2·candidate_area − outer_area, outer_area]`, whose ends are the subset argument and
+the attribution argument respectively. **No contract change**: `PlanarFaceSignature`
+is untouched, so no persisted selector is invalidated.
+
+The anchor point is not even on the face — the M17 plate's top-face area centroid
+sits inside its own Ø30 bore. A containment test against the *face* would reject the
+case the tier exists for; against the outer region it is comfortably inside.
+
+### Golden `revise-thickness-and-hole-dia-100x40x14`, hand-derived, tolerance 1e-9
+
+A 100×40×14 plate, Ø30 bore at (50, 20), Ø7 at (18, 20) and Ø6.6 at (82, 20), stored
+in the state a document is left in after BOTH edits (every signature still z = 10,
+Hole2's still describing Hole1 at Ø6.6).
+
+| quantity | analytic | measured deviation |
+|---|---|---|
+| volume | 56000 − 3473.96π = **45,086.2327851352 mm³** | 7.3e-12 |
+| surface area | 11920 + 114.12π = **12,278.518553627668 mm²** | 0.0 |
+| centroid x (Ø7 at 18 vs Ø6.6 at 82 — asymmetric in SIZE) | **50.04245441354795 mm** | 2.1e-14 |
+| topology | 9 faces / 21 edges / 1 shell | exact |
+
+The size asymmetry is the load-bearing part: it makes the x centroid the assertion
+that both holes went back to their picked stations. Drilling Hole2 at the face's
+area centroid (x = 50.378…) instead moves it **3.4e-1 mm**, eight orders of
+magnitude outside the tolerance.
+
+**Mesh counts cross-checked, not recorded.** The same tree with every signature
+authored at the CURRENT state (a tier-1 strict match that never reaches a resilient
+tier) produces **byte-identical GLB** (sha256 `85563175ea7ffad3…`), identical
+topology, identical mesh counts and identical mass properties. So the tier-4 rescue
+lands on exactly the body an exact re-pick would have made. Same claim, same method,
+at the tree level in `tests/test_faces_m17_revision.py`.
+
+### Mutation evidence — the gates can fail, shown failing
+
+| mutation | result |
+|---|---|
+| tier 4 removed from `_match_face_records` | **6 tests + 4 golden gates red**, incl. `test_the_bracket_rebuilds_when_the_plate_is_thickened_after_a_hole_edit` and the golden's `subshape_unresolved` on `…d105` |
+| the area band's LOWER end removed (the first draft) | **6 tests red**, incl. `test_a_VANISHED_face_is_still_an_honest_error_under_tier4`, `test_resilient_rematch_still_fails_honestly_when_the_plane_is_gone` and `test_unmatched_signature_is_subshape_unresolved` |
+
+The second mutation is the one worth keeping. The first draft of tier 4 had only the
+obvious subset bound (`stored ≤ outer`), and it turned three shipped honest-error
+gates into silent resolutions: delete the boss a sketch was placed on and the sketch
+re-anchors to the plate top underneath it. That is a visible failure traded for
+wrong geometry — the trade §12 refused — and only the band's lower end prevents it.
+
+### Three negative controls moved, and the same lesson as QA-2
+
+Three shipped tests expressed "this face is gone" as a face that is plainly still
+there, with only its OFFSET wrong — the quantity tier 3 already frees — plus an area
+close enough that the band now reads it as a plausible hole edit:
+
+| test | stated "gone" as | re-fixtured to |
+|---|---|---|
+| `test_assembly_evaluate::test_unresolvable_mate_is_a_per_mate_error_and_dropped` | −Z face at z=99, 760.7 mm² (real: 842.9 of a 1000 mm² outline) | 100 mm² |
+| `test_assembly_resolve::test_stale_face_signature_is_assembly_definition_error` | +Z face at z=99, 760.7 mm² | 100 mm² |
+| `test_draft::test_picked_face_that_no_longer_exists_is_subshape_unresolved` | +X face at x=999 with the face's EXACT 800 mm² | 300 mm² |
+
+Each test's subject — a typed per-feature / per-mate error, never a crash — is
+unchanged; only the fixture had to become genuinely unmatchable. This is exactly the
+suite-level finding QA-2 recorded (four tests then encoded "gone" as *the same face
+at a different z*): the codebase's canonical example of an unresolvable reference
+keeps turning out to be a reference the user's ordinary edits produce. **Three**
+fixtures moved out of ~2 900 tests; nothing else in the suite changed.
+
+### What is NOT fixed
+
+The stored signature still encodes what has been cut into the face. Tier 4 infers
+the missing invariant instead of storing it, and the inference is weakest exactly
+where the face is most perforated (the band's width is twice what is currently cut
+out). The durable fix is outer-boundary invariants in `PlanarFaceSignature` — a
+`packages/py-kit` contract change touching every persisted selector, filed for
+separate sequencing. Note it would ALSO need tier 4 for every selector authored
+before it, so this is the prerequisite, not a workaround.
+
 ## 2026-07-31 — N8/N4/#50: an assembly STEP now INSTANCES its parts, and what leaves the tool says what it is (kernel-architect)
 
 The interop half of the product audit's N4–N13 cluster. The model was fine; what
