@@ -19,6 +19,25 @@ write-once; a viewport pick is stamped with the tip feature's id rather than
 the one that owns the sub-shape). See `docs/BACKLOG.md` Ready:
 SKETCH-1/SKETCH-2/PICK-1/GEOM-2/VP-1 are the next batch.
 
+**VP-1 PARTIAL (c31bd7d, 2026-08-14) — orbit works while sketching, on the
+middle button; it does not yet reach a trackpad.** The sketcher draws with a
+left press-drag-release and three.js binds orbit to LEFT, so the app had
+resolved the conflict with `enableRotate={false}` — orbit off on every button,
+not just the one in conflict. The lock now moves the gesture: LEFT unbound from
+the orbit rig (three-stdlib falls to `STATE.NONE`, so the press reaches the
+sketcher untouched), ROTATE on MIDDLE, RIGHT still PAN. Unlocked, the map is
+three-stdlib's own default, so 3D navigation outside the sketcher is unchanged.
+The spec reads the LIVE three.js camera rather than `data-camera-pos` — that
+attribute is stamped only when the programmatic rig settles a view, so it does
+not move for a mouse gesture and an assertion on it would be green whatever the
+buttons did. Threshold 10 deg against measured runs: fixed build 72.01 deg,
+pre-fix build 0.00 deg. **PARTIAL because the founder is on a trackpad, which
+has no middle button** — the reported complaint is not yet closed for them;
+a modifier-plus-drag binding is the follow-up. Same provenance as SKETCH-1:
+worktree-isolated agent that died at 04:45 UTC, work reconciled and gates re-run
+by the orchestrator, **not reviewed and not QA'd**, and the new e2e spec has not
+been executed here.
+
 **SKETCH-1 CLOSED (a7f81ba, 2026-08-14) — a saved sketch can now be re-opened,
 so driving dimensions stop being write-once.** `selectFeature` had a branch for
 every feature type except `sketch` and fell through to `setEditor(null)`, so the

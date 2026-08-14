@@ -130,9 +130,9 @@ duplication.
       SHIPPED a7f81ba — `beginEdit` hydrates the session from the persisted
       params and carries the EXISTING feature id, so the next save PATCHes.
       Gates re-run by the orchestrator after the agent died mid-slice (typecheck
-      + 1603 unit tests + prettier); NOT reviewed, NOT QA'"'"'d.
+      + 1603 unit tests + prettier); NOT reviewed, NOT QA'd.
 
-- [ ] (P0, S) **VP-1 — no orbit while sketching (founder complaint, root-caused
+- [x] (P0, S) **VP-1 — no orbit while sketching (founder complaint, root-caused
       this pass)** (`apps/web/src/viewport/Viewport.tsx`). Founder: cannot
       orbit the camera while actively drawing a sketch. CONFIRMED in source:
       `PartPage.tsx:4015` passes `rotateEnabled={mode !== "draw"}` to
@@ -166,6 +166,14 @@ duplication.
       [src: founder report, root-caused by orchestrator 2026-08-14]
       TERRITORY: `apps/web/src/viewport/Viewport.tsx`, new
       `apps/web/e2e/sketch-orbit.spec.ts`. agentType: frontend-builder.
+      SHIPPED c31bd7d — the lock moves the gesture instead of deleting it
+      (LEFT unbound, ROTATE on MIDDLE, RIGHT still PAN). Gates re-run by the
+      orchestrator after the agent died mid-slice (typecheck + 1598 unit tests
+      + prettier); NOT reviewed, NOT QA'd, and the new e2e spec has NOT been
+      executed here. **OPEN GAP for the groomer to file as VP-1a: the founder
+      is on a TRACKPAD, which has no middle button, so this does not reach
+      them.** A modifier-plus-left-drag binding is the follow-up, and until it
+      lands the founder's original complaint stands.
 
 - [ ] (P0, M) **PICK-1 (M16) — a viewport pick is stamped with the TIP
       feature's id, not the feature that owns the sub-shape, so no non-tip
