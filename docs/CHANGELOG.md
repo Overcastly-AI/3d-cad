@@ -5,6 +5,19 @@ section each grooming pass (one-line-per-entry there; detail preserved
 here). Newest first. Evidence for shipped items also lives in the Done
 archive (`BACKLOG.md`) and per-item commits.
 
+## 2026-08-14 (audit-driven groom passes 1-2, pre-c449235-review)
+
+- **Groom + hygiene sweep (backlog-groomer):** Ready had grown to 145 items /
+  ~2,850 lines (104 already shipped, sitting unarchived). Archived the 104,
+  curated a 10-item Ready from two fresh audit passes (M1-22 product, K1-8
+  engineering) plus founder reports. ROADMAP "Current focus" fixed (K6).
+- **Groom pass 2 (backlog-groomer):** ticked K7 shipped (29387da); filed
+  VP-1a (trackpad orbit — VP-1's stated gap) and SNAP-1 (founder "snap points
+  not working," never previously reproduced), both queued behind the occupied
+  `viewport/sketch` territories; pruned older Changelog entries into
+  `docs/CHANGELOG.md`. Dispatched disjoint from live work (viewport/sketch/
+  geometry occupied): QA7-1 (e2e wait fix) + FB-19 (chrome density).
+
 ## 2026-08-08 to 2026-08-11 (CI-4 fixes, SEL-4/6/6b)
 
 - 2026-08-11 — CI-4 review fix (backend-builder): `--fail-on-flaky` guard
@@ -35,6 +48,196 @@ archive (`BACKLOG.md`) and per-item commits.
   (frontend-builder): 24px screen-space corridor with occlusion test.
 - 2026-08-08 — SEL-4 (1/5) one pick hit-test, shared (frontend-builder):
   `PickSurface`/`FacePatch`/`useViewportPickStamp`/`edgeBand` extracted.
+
+## 2026-07-22 to 2026-08-01 (Escape/select rework, drill-anywhere, drawing
+re-anchoring, concurrency, observability, mirror/hole/assembly-import
+features, sheet-metal fold-back, groom passes)
+
+- 2026-08-01 — **Escape no longer ends your sketch, and a click no longer piles
+  up (frontend-builder):** FB-13/FB-14 — the cascade unwinds and then stops (it
+  still backs out of a sketch holding no work); plain click replaces, Shift or
+  Ctrl/Cmd adds. `e2e/sketch-escape-select.spec.ts` is red on the old behaviour.
+- 2026-08-01 — **You can drill where you want (frontend-builder):** QA3-1 —
+  numeric X/Y in the picked face's STATED frame, a per-keystroke material check
+  that names the opening you are in, and concentric snaps to every circular edge
+  on the face.
+- 2026-08-01 — **Dogfooding pass #3, the imported-STEP remix (qa-tester):** a
+  NEMA 17 vendor plate imported, remixed and re-revved through the real stack.
+  Seven closed-form comparisons exact (rev-B/rev-C swaps re-anchored five
+  downstream features to 12 s.f.); six defects filed QA3-1..6, two P1 —
+  you cannot drill where you want, and a sketch on an imported face has no
+  reference to the import (measured: a 0.065111070 mm eccentric register).
+- 2026-08-01 — **The drawing says on screen what it said on the print
+  (frontend-builder):** N1/N2's frontend half — a sheet check strip for
+  `layout_issues` (with the Auto-place that fixes each pair), a RE-ANCHORED badge
+  + one-click Confirm for a `durable` anchor, and the typed reason beside an
+  unresolved dimension. e2e resizes a dimensioned part and reads 120.000 in-app.
+- 2026-08-01 — **CONC-1/2/3: more than one person can use it now
+  (backend-builder):** gateway session affinity over a comma-separated
+  `GEOMETRY_URL` (sticky 30.6 s vs random 64.9 s wall, hit 0.40 vs 0.10), a
+  bounded FIFO admission queue on the OCCT routes (0 of 16 -> 11 of 16 delivered
+  inside a 30 s deadline), and a timeout that says 504 "still working" instead
+  of 502 "unreachable". `docs/OPERATIONS.md` §6.
+- 2026-08-01 — **GATE-1: CI drives a browser now (platform-builder):** the full
+  Playwright suite on every code push, sharded 4 ways, with a reconcile job that
+  fails unless the shards covered `playwright test --list` exactly once. Proven
+  by pushing the stale assertion back and watching CI reject it.
+- 2026-07-31 — **OBS-1: the stack can be watched (backend-builder):** Prometheus
+  `/metrics` from py-kit for all three services — rebuild histogram by cache ×
+  tree size, cache hit rate, feature errors by code, STEP refusals; +30 µs/req
+  measured; fail-closed outside dev. `docs/OBSERVABILITY.md`.
+- 2026-07-31 — **UI-W2 part half + the two framing defects (frontend-builder):**
+  Origin / Sketches / Bodies get the assembly's eye vocabulary; origin planes and
+  axes render for the first time; "Fit model" frames the unobstructed rect at a
+  distance solved from the part's real projection, and the ViewCube clears its
+  own corner. Asserted on canvas pixels, mutation-verified.
+- 2026-07-31 — **What LEAVES the tool now says what it is (kernel-architect):**
+  audit N8 — an assembly STEP instances its parts (21 instances / 2 parts:
+  21 B-reps + 504 KB -> **2 B-reps + 58 KB**; `located()` was a deep geometric
+  copy, so no writer could see the instancing); N4 — part/assembly exports are
+  named after the document in both the filename and the PRODUCT, and
+  `assembly.step` no longer overwrites itself; #50 — the tapped-hole callout
+  reaches SVG/PDF/DXF; N5 (part) — the exported page is white, not grey.
+- 2026-07-31 — **Three surfaces stopped over-claiming, and settings exist
+  (frontend-builder, 2026-07-31):** the register no longer calls a rolled-back
+  prefix "Clean" (J3b), the assembly panel earns the words COMBINED MASS (and can
+  finally compute one — the browser never sent the parts' materials), a lost
+  dimension prints its reason on the sheet as well as in the export (QA-4b), and
+  `/settings` ships with five wired rows including invert-scroll.
+- 2026-07-30 — **The drawing survives the revision (kernel-architect):** audit N1 —
+  edges get the two-tier resolver faces have (`drawings/anchor.py`) so a widened
+  plate's dimension re-measures 120.000 instead of dying; N2 — iso anchors clear by
+  construction (24 mm at any size) and a colliding sheet stamps a banner, never
+  exports silently. (Ready-queue entries for both landed early in `3f5fc98`, which
+  swept this agent's in-flight BACKLOG hunks.)
+- 2026-07-30 — **UI-W1 bottom timeline (frontend-builder):** rollback is now a
+  docked machine way with a draggable/keyboard travel stop, verb-glyph op chips and
+  a dashed way past the stop; one shared `VERB_GLYPHS` map serves band + timeline.
+- 2026-07-30 — **UI-W3/W4 pre-selection + pinned references (frontend-builder):**
+  a viewport pick outlives its command and seeds the next one (hole/datum/sketch/
+  shell/draft/fillet/chamfer), the hole's face pick arms on open, and its
+  references sit in a pinned anchor block on the right rail. UI-REVIEW P1 (export
+  strip under the fold) fixed by pinning it, not by trimming copy.
+- 2026-07-30 — **UI-W2 visibility/opacity/isolate, assembly half (frontend-builder):**
+  every component row gets an eye, the addressed one a SOLID · GHOST · HIDE control,
+  isolate a right-click verb with `V`/`⇧V` and an `ISOLATED` stamp as the way back.
+  Asserted on canvas PIXELS, not aria state (mandate 3c).
+- 2026-07-31 — **UI-W5 entity snapping (frontend-builder):** endpoint / midpoint /
+  centre / intersection / tangent / perpendicular snap by default; Ctrl-Cmd
+  SUPPRESSES (inverted on purpose), Shift axis-locks, `G` still owns the grid.
+  A named mark says which snap you get before the click.
+- 2026-07-30 — **Last-evaluate record on the part row (backend-builder):**
+  migration `0012` + derived `eval_state` (`never`/`ok`/`failed`/`stale`), written
+  by the gateway post-evaluate; staleness derived from `tree_version`, not guessed.
+- 2026-07-25 — **Tapped-hole authoring (frontend-builder):** `Tapped` checkbox +
+  ISO designation picker in `HoleEditor` derives the tap drill without locking
+  it; the tree row carries `hole · M10x1.5` — the only place a tap is visible.
+- 2026-07-25 — **TAPPED holes, cosmetic threads (kernel-architect):** `thread:
+  IsoMetricThread | None` on `HoleParamsV1` cuts the ISO tap drill `D - P` and
+  carries the callout; typed `hole_thread_unsupported`/`hole_thread_mismatch`.
+- 2026-07-25 — **jsdom component-test tier (frontend-builder):** `apps/web` +
+  `packages/design` now run two vitest projects (`*.test.ts` node, `*.test.tsx`
+  jsdom+Testing Library); 46 tests pin the three burn-down UI defects. 882 web.
+- 2026-07-25 — **Burn-down code-review fixes, frontend (frontend-builder):**
+  right-drag pan no longer opens the viewport context menu (click-slop gate,
+  press- and release-fired `contextmenu`); the extrude ghost honours
+  `operation` (cut = cold dark void, not a brass solid); the assembly inspector
+  and readout precision are unit-aware; `ContextMenu` restores focus on close.
+- 2026-07-24 — **Drawings #4 SLICE 2 — gateway gate-removal + documents resolution
+  (backend-builder):** `assembly_views_unsupported` gone; documents
+  `GET /assemblies/{id}/evaluation-request` resolves the graph; gateway threads it as
+  additive `ComposeDrawingRequest.assembly`. Geometry compose branch next (Ready).
+- 2026-07-23 — **Mirror feature WEB AUTHORING (frontend-builder):** Modify-band
+  Mirror command (shortcut I) + `MirrorEditor` in the shared editor seat, reusing
+  the sketch/section plane picker (origin XY/XZ/YZ radios + datum FeatureRef);
+  `mirror` added to frontend `BODY_AFFECTING_FEATURE_TYPES` + drift guard;
+  `friendlyFeatureError` gains the mirror codes; e2e `mirror.spec.ts` mirrors a
+  real body (Z-extent + volume double about XY, `MirrorN` Solved). Mirror is now
+  end-to-end.
+- 2026-07-23 — **Mirror feature GEOMETRY + DTO (kernel-architect):**
+  `MirrorFeature`/`MirrorParamsV1` reflect the current body about a plane (origin
+  datum or `datum` feature — the SAME `GeomRef` a sketch uses) and union the
+  reflection in (pattern semantics; disjoint reflection → valid 2-lump body).
+  Golden `mirror-triangle-prism-2x` (analytic 2V + centroid-on-plane reflection
+  proof), typed degradation, wired across every feature-registry arm. Web-authoring
+  slice remains.
+- 2026-07-23 — **Assembly import response-amplification DoS CLOSED
+  (kernel-architect):** bounded the untrusted parse's OUTPUT at the geometry
+  source — occurrence-count cap aborts the walk in the CPU-bounded child
+  (`import_too_many_products`), total-`body_step`-byte cap (32 MiB) rejects a big
+  body instanced many times before materialisation (`import_response_too_large`);
+  both typed 422s. Filed P2 follow-ups: body_step-once-per-id reshape + permanent
+  3-service integration test.
+- 2026-07-23 — **Assembly STEP import SLICE 2a — reader hardened + editable body
+  (kernel-architect):** DoS parse-bound WIRED to the XCAF reader (untrusted
+  `ReadFile`/`Transfer` + walk now in the single-body reader's killable
+  `RLIMIT_CPU` + wall-clock subprocess → `import_parse_timeout`); walk/tessellate/
+  measure/export phase guarded (degenerate-but-transferable solid → typed 422, not
+  a raw 500); `ImportedProduct` gains `body_step` (LOCAL-frame STEP fragment the
+  single-body `import` feature ingests verbatim) + `body_step_id` (content-address
+  dedup key). Slice 2b (documents assembly creation + gateway upload) can now land
+  on a proven-safe reader.
+- 2026-07-23 — **Dedicated Hole feature SLICE 1 (kernel-architect):** first-class
+  `HoleFeature`/`HoleParamsV1` (face `SubshapeRef` + world point + diameter +
+  through-all|blind) wired across every registry arm + `kernel/hole.py`
+  (`bore_hole`, auto inward cut direction); golden `hole-through-r5-40x25x10`
+  proves analytic volume parity (10000−250π) AND sketch+extrude-cut parity; typed
+  degradation (`hole_off_body`/`hole_too_deep`). Slice 2 (counterbore/countersink/
+  tapped + drill tables) + web authoring remain.
+- 2026-07-23 — **Hole SLICE 1 WEB authoring (frontend-builder):** Hole command
+  (Modify band + `O`) → `HoleEditor`; face pick REUSES `FacePickOverlay`, point
+  pick REUSES the measure `PickNode` affordance (`HolePointOverlay` — centre +
+  coplanar corners), Ø + through-all|blind. Typed rebuild errors → guidance
+  (`friendlyFeatureError`). e2e drills through-all + blind in the UI; 13 units.
+  Hole slice 1 is now end-to-end; slice 2 (counterbore/countersink) remains.
+- 2026-07-23 — **Assembly STEP import SLICE 1 — geometry XCAF reader
+  (kernel-architect):** `POST /api/v1/assembly/import` + `kernel/step_assembly.py`
+  (XDE `STEPCAFControl_Reader` walk, mirror of the export composer) →
+  `StepAssemblyImportResult{has_assembly_structure, products}`; export↔import
+  round-trip recovers N products/placements/PRODUCT-names (off-axis rotation +
+  repeated part), flat STEP → false-flag (MB-4b path intact). Slice 2 (documents
+  assembly creation + gateway upload + fallback wiring) remains.
+- 2026-07-23 — **E1a — Section views END-TO-END wire (kernel-architect):**
+  per-view `section_params` map (`dict[int, SectionViewParams]`) on the geometry
+  evaluate/compose wire; gateway `_compose_request` threads each persisted view's
+  datum; geometry end-to-end + gateway-threading guard tests; E1b (web authoring)
+  deferred. Non-section sheets byte-identical.
+- 2026-07-23 — **Groom + restock (backlog-groomer):** reconciled BACKLOG +
+  ROADMAP against `a6a5814..0ed9f74` (18 Ready items archived as one-liners);
+  formalized the fresh product-audit findings into 3 P0/P1 assembly-interop
+  Ready items + Hole/suppress/mirror P2 items; marked section-views v1 IN
+  FLIGHT (kernel-architect, uncommitted); pruned pre-07-22 entries here into
+  `CHANGELOG.md`.
+- 2026-07-23 — **Product audit — "the assembly is a one-way street":** a
+  bolted assembly builds+solves but has no STEP export, no interference
+  check, no product-structure import; filed as the new P0/P1 Ready trio.
+  Also named suppress/mirror/dedicated-Hole as the top everyday-ergonomics gaps.
+- 2026-07-23 — **Drawings dead-capability drain (D1-D4) + engineering-audit
+  sweep:** title-block, first-angle, dimension-placement, and the
+  assembly-view 404 all wired/gated; sweep found 6 orphans total (D1-D6),
+  D5/D6 + the process-guard tail remain.
+- 2026-07-23 — **Drawings note-render, DE-4 artifact cache, sheet-size
+  picker, MB-4c wire/frontend tail, e2e hardening** (raster-format fix +
+  CPU-contention timeouts) — see Done archive for one-liners.
+- 2026-07-22 — **WF-1 fold-back coaxial fix (kernel-architect, code review):**
+  fold-back invariant now measures each bend FACE once (dedup by identity,
+  `resolve.live_bend_face_widths`) + `find_cylindrical_face` disambiguates by span;
+  two coaxial equal-radius flanges on collinear segments develop instead of
+  false-rejecting. Golden `coaxial-two-segment-flange-unfold`; §5 note corrected.
+- 2026-07-22 — **WF-1 layer 2 + PB-1 (kernel-architect):** edge-flange width
+  extents (`width_mm`/`offset_mm`) + auto bend-end relief + partial-width
+  development (design §4.5); founder 50×50-flange case golden-gated; PB-1 fell out.
+- 2026-07-22 — **WF-1 layer 1 (kernel-architect):** runtime fold-back invariant
+  in `unfold_sheet_metal` — live coaxial bend widths vs developed fold widths;
+  cut-after-fold now typed-rejects. Goldens byte-unchanged; layer 2 stays open.
+- 2026-07-22 — **Founder dogfooding — WF-1 (50-wide flange on a 100 mm edge
+  via fold-then-trim):** 3D exact; flat pattern SILENTLY WRONG (full-width
+  blank, no error) — the first dishonest failure found. Filed P0 (runtime
+  fold-back invariant → typed reject, then trimmed/width-extent development).
+- 2026-07-22 — **Founder dogfooding — PB-1 (partial folds + viewport
+  rotation):** 3 fold widths (70 partial / 200 / 120) on a notched base — 3D
+  exact to closed form; flat pattern typed-rejects (filed P2, matrix row
+  upgraded). Snap views, real-pointer orbit, pick-after-rotate all pass.
 
 ## 2026-07-19 to 2026-07-20 (sheet-metal v2 + corner relief + hem v1 +
 STEP hardening + WB-64/TB-1 dogfooding)

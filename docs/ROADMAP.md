@@ -16,8 +16,16 @@ A fresh, still-uncommitted audit pass (product M1-22 + engineering K1-8,
 2026-08-14) found the next real gap: sketch and feature EDITING is broken
 (a saved sketch cannot be re-opened at all; a picked-edge fillet's radius is
 write-once; a viewport pick is stamped with the tip feature's id rather than
-the one that owns the sub-shape). See `docs/BACKLOG.md` Ready:
-SKETCH-1/SKETCH-2/PICK-1/GEOM-2/VP-1 are the next batch.
+the one that owns the sub-shape). SKETCH-1/VP-1/VP-1a shipped (below) but are
+**unreviewed and unQA'd**, and a code review of the dimension-arm fix
+(c449235) found the founder's "dimensions not assigning" report is STILL
+open: the value field drops keystrokes at every human typing speed (DIM-1,
+now the top P0). **`e2e` CI has been RED for TEN consecutive commits** (last
+green `a34382b`); two causes, QA7-1 and QAH-1 (both filed, see BACKLOG
+Ready). See `docs/BACKLOG.md` Ready: DIM-1/QAH-1/SNAP-1/PICK-1/GEOM-2/
+SKETCH-2 are the next batch. (The flow-overhaul item formerly numbered FB-20
+was renamed FLOW-1 — that id collided with the camera-stolen-after-extrude
+fix, also FB-20, closed below.)
 
 **K7 CLOSED (29387da, 2026-08-14)** — Stop hook in-flight guard fixed
 (depth-agnostic `find`, no `pipefail`-breaking pipe, self-test against a
@@ -150,9 +158,10 @@ not. Also recorded: the depthTest mutant is a Z-FIGHT LOTTERY, not 212.49 —
 four runs gave 349.48/244.09/194.00/154.55, so the floor's honest margin is
 1.14x, not 1.88x.
 
-**FB-20 (the CAMERA item — the id collides with a P0/L flow item, groomer
-please renumber) CLOSED 2026-08-14 — the first extrude of every session stole
-the viewpoint, because the guard against it counted FITS, not POSES.**
+**FB-20 (the CAMERA item — RENUMBERED 2026-08-14: the open flow item that
+collided with this id is now FLOW-1 in `docs/BACKLOG.md`) CLOSED 2026-08-14 —
+the first extrude of every session stole the viewpoint, because the guard
+against it counted FITS, not POSES.**
 `framedOnce` was set in exactly one place, inside the auto-fit, so a user framed
 by the view rail or by saving a sketch was still "first" when their geometry
 appeared and got snapped to iso once per session — which is the whole of the

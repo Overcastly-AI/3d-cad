@@ -37,7 +37,17 @@ duplication.
   than duplicated here.
 - **✅ rows, now qualified:** Price/freedom holds. Sketching & constraints and
   Part modeling are creation-only ✅ — the audit above found editing/revision
-  broken on both; treat as ➖ until SKETCH-1/SKETCH-2/PICK-1/GEOM-2 land.
+  broken on both; treat as ➖ until SKETCH-2/PICK-1/GEOM-2 land and SKETCH-1
+  (shipped `30a9f3f`, still unreviewed/unQA'd) is verified. The founder's
+  "dimensions not assigning" report is STILL not closed even with SKETCH-1 and
+  the arm-fix (c449235) shipped — code review found the value field drops
+  keystrokes at every human typing speed (DIM-1, P0, top of Ready); that is
+  plausibly the actual daily-driver-blocking experience behind the report.
+- **Process note, not a scorecard row:** `e2e` CI has been RED for TEN
+  consecutive commits (last green `a34382b`); one cause is filed (QA7-1), the
+  other (`qa-harness.spec.ts:968`, orbit-probe renders) is newly filed this
+  pass as QAH-1. Until it's green again, treat every "shipped, gates green
+  locally" claim on `apps/web` as CI-unverified.
 - **➖ rows (usable, short of incumbent parity):** Assemblies (export +
   interference shipped; import, exploded views, recursive BOM, part-version
   pinning still missing). Interop (part STEP round-trips to 1e-9 against an
@@ -91,144 +101,78 @@ duplication.
       DISPATCHED 2026-08-14 alongside FB-19 (disjoint territories — no
       viewport/sketch/geometry files touched by either).
 
-- [x] (P0, M) **SKETCH-1 (M15) — a saved sketch can never be re-opened; every
-      driving dimension in the product is write-once** (`apps/web/src/routes/
-      PartPage.tsx`, `apps/web/src/sketch/store.ts`). MEASURED exhaustively:
-      clicking the `Sketch1` tree row selects but opens no editor; the
-      tree-row context menu's `Edit` (`tree-ctx-edit`) is a SILENT no-op — 7.3 s
-      later, zero console output, zero network call, no toast. Root cause:
-      `selectFeature`'s long `if (type === "extrude") … else if (…)` chain
-      (`PartPage.tsx:2198+`) has no `"sketch"` branch, so it falls through to
-      `setEditor(null)`. This is not cosmetic: the constraint solver, driving
-      dimensions, topological-naming survival across rebuilds and the drawings
-      re-anchoring work are all reachable only on the FIRST pass through a
-      sketch — "the plate needs to be 100 wide, not 80" has no path today.
-      MECHANISM (confirmed by reading the persistence chain, `PartPage.tsx:
-      708-850`): `useSketchStore` already supports updating an EXISTING sketch
-      feature — `persistBuffer` picks `runUpdate` over `runCreate` whenever
-      `state.featureId !== null`, which is exactly how the debounced live-save
-      of a freshly-created, already-bound sketch works today. The missing
-      piece is HYDRATION: `begin()` (`sketch/store.ts:605`) always resets to
-      `{...freshSession(state), mode: "plane"}` for a brand-new sketch. Add a
-      sibling action, e.g. `beginEdit(featureId, plane, entities, constraints)`,
-      that resets to `{...freshSession(state), mode: "draw", featureId, plane,
-      entities, constraints}` — mode goes straight to "draw" (the plane is
-      already fixed, skip plane-pick), `featureId` is the EXISTING id so the
-      next save is an update. In `PartPage.tsx`, add the missing `"sketch"`
-      branch to `selectFeature`: read the sketch feature's persisted `plane` /
-      `entities` / `constraints` from `feature.feature.params` and call
-      `beginEdit`; also reset `lastSynced.current = 0` and
-      `failedRevision.current = null` (mirror what `handleNewSketch` does) so
-      the first live edit is correctly treated as unsynced.
-      ACCEPTANCE: (1) create a sketch, extrude it, re-open the sketch via
-      `tree-ctx-edit`, verify all entities/constraints render exactly as drawn;
-      (2) change a dimension, finish — the SAME sketch feature id persists
-      (PATCH, not a new `Sketch2`), and the extrude rebuilds against the new
-      profile; (3) new e2e spec `apps/web/e2e/sketch-reopen.spec.ts` covering
-      both, plus a mutation check (revert the `beginEdit` hydration — the
-      re-opened sketch must show 0 entities, not the saved ones — confirms the
-      gate actually exercises hydration, not just editor-opens-at-all).
-      [src: product-auditor pass 2026-08-14 (M15)]
+- [ ] (P0, S) **QAH-1 — e2e CI has been RED for TEN consecutive commits (last
+      green `a34382b`, red from `221a7ca`, itself a docs-only commit);
+      `qa-harness.spec.ts:968` is one of the two failing specs at HEAD and was
+      filed nowhere until this pass.** `"the probe window must see renders
+      while the scene is orbiting"` — `Expected > 0, Received 0`. The sibling
+      failure, `qa-sel7-verify.spec.ts:555`, is QA7-1 below (already filed,
+      already dispatched) — this is the OTHER cause nobody had named.
+      HYPOTHESIS to verify, not assume: VP-1a's Alt+drag orbit binding
+      (`Viewport.tsx`, shipped 32e5b87) is a capture-phase pointerdown handler
+      on the viewport container; if it or a sketcher guard suppresses the
+      demand-mode render loop while orbiting, the probe's render counter would
+      legitimately read 0 even though the camera visibly moves. Root-cause
+      against the ACTUAL commit range (bisect if unclear whether the failure
+      predates 32e5b87 — CI has been red since a docs-only commit, which rules
+      out THAT commit but not one shipped between `a34382b` and `221a7ca`).
+      ACCEPTANCE: mechanism named, fix, spec green 10x quiet + 10x under load;
+      if the cause is unrelated to VP-1a, say so explicitly rather than leaving
+      the coincidence unexplained.
+      [src: orchestrator dispatch 2026-08-14 — CI status relayed by the
+      orchestrator; subagents cannot read CI themselves]
+      TERRITORY: TBD by root-cause — likely `apps/web/e2e/qa-harness.spec.ts`
+      and/or `apps/web/src/viewport/Viewport.tsx`. agentType: frontend-builder.
+
+- [ ] (P1, S) **DIM-3 — the Dimension verb's ARMED state (c449235) is
+      invisible, and a wrong-kind pick prints the exact sentence the arm-fix
+      exists to eliminate** (`apps/web/src/sketch/store.ts`). Two related
+      defects found reviewing c449235. (a) armed state is surfaced ONLY
+      through `hint`, and two ordinary actions null the hint while leaving the
+      verb armed — `selectConstraint` (`store.ts:1305`) and `togglePick`
+      (`store.ts:909`) — so the next canvas click can open a dimension editor
+      with no visible cause. (b) a wrong-kind pick while armed (e.g. a circle
+      under Distance) prints `"Select one line to dimension."` (`store.ts:
+      890-895`) — the exact pre-fix refusal sentence, and FALSE while armed
+      (the user clicked, they did not select — "select" describes the OLD
+      selection-first flow); the committed test enshrines this wrong string.
+      FIX: (a) an armed-state affordance that survives `selectConstraint`/
+      `togglePick` (don't null `hint` while `dimensionPick` is set, or add a
+      dedicated indicator); (b) a wrong-kind message that doesn't reuse the
+      refusal sentence, e.g. names the picked kind. ACCEPTANCE: (1) arm
+      Dimension, call `selectConstraint`/`togglePick`, confirm the armed
+      affordance still shows before the next click; (2) wrong-kind pick while
+      armed shows a message that is not "Select one line to dimension." and
+      stays armed; new/updated `store.test.ts` cases for both. Mutation check:
+      reverting either half reddens its own assertion only.
+      [src: code review of c449235, orchestrator dispatch 2026-08-14]
+      TERRITORY: `apps/web/src/sketch/store.ts`,
+      `apps/web/src/sketch/store.test.ts`. agentType: frontend-builder.
+
+- [ ] (P1, S) **ESC-2 — two implementations of the Escape cascade disagree
+      about SAVE vs DISCARD for the same rung, kept apart only by an omitted
+      default argument — a latent FB-13 landmine.** `PartPage.tsx:1046`
+      re-derives the cascade with its own `escapeAction(...)` call, mapping
+      `"exit"` to `finishSketch()` (SAVES); `store.ts:1467` maps the SAME verb
+      to `freshSession()` (DISCARDS). They cannot disagree TODAY only because
+      `PartPage.tsx` omits `escapeAction`'s 5th argument, so `unstarted`
+      defaults false and `"exit"` is unreachable there — `finishSketch()` at
+      that call site is dead code. This is exactly the "a key that sometimes
+      saves and sometimes discards" defect CLAUDE.md's flow mandate names
+      (FB-13's class), lying dormant: any future change that makes `unstarted`
+      reachable from `PartPage.tsx` reintroduces FB-13 silently, because the
+      two cascades are two separate implementations. FIX (DRY — CLAUDE.md
+      non-negotiable): ONE cascade, owned by `sketch/store.ts` (already
+      exercised by tests); `PartPage.tsx` calls it instead of re-deriving
+      `escapeAction`. ACCEPTANCE: `PartPage.tsx`'s escape handling calls the
+      SAME function `store.ts` uses; a new test exercises the `"exit"` rung
+      reachable from `PartPage.tsx`'s entry point (armed pick, empty/unstarted
+      sketch) and asserts it DISCARDS, matching `store.ts`'s existing
+      semantics. Mutation check: reintroducing a second independent mapping
+      reddens the new test.
+      [src: code review of c449235, orchestrator dispatch 2026-08-14]
       TERRITORY: `apps/web/src/routes/PartPage.tsx`,
-      `apps/web/src/sketch/store.ts`, new `apps/web/e2e/sketch-reopen.spec.ts`.
-      agentType: frontend-builder.
-      SHIPPED 30a9f3f — `beginEdit` hydrates the session from the persisted
-      params and carries the EXISTING feature id, so the next save PATCHes.
-      Gates re-run by the orchestrator after the agent died mid-slice (typecheck
-      + 1603 unit tests + prettier); NOT reviewed, NOT QA'd.
-
-- [x] (P0, S) **VP-1 — no orbit while sketching (founder complaint, root-caused
-      this pass)** (`apps/web/src/viewport/Viewport.tsx`). Founder: cannot
-      orbit the camera while actively drawing a sketch. CONFIRMED in source:
-      `PartPage.tsx:4015` passes `rotateEnabled={mode !== "draw"}` to
-      `Viewport`, and `Viewport.tsx:988` wires that straight to
-      `<OrbitControls enableRotate={rotateEnabled} …>` with no
-      `mouseButtons` override — three.js's OrbitControls default binds
-      ROTATE to the LEFT button, which the sketcher also uses to draw, so
-      orbit is disabled OUTRIGHT for the whole sketch session rather than
-      relocated to a non-conflicting gesture. RIGHT is already PAN (see the
-      `handleContextMenu` click-slop comment at `Viewport.tsx:786`) and MIDDLE
-      is currently DOLLY, which the scroll wheel already provides — so MIDDLE
-      is free to repurpose with no capability lost. FIX, confined to
-      `Viewport.tsx` alone (no caller change needed — keep the `rotateEnabled`
-      prop's existing meaning): when `rotateEnabled` is false (i.e. the caller
-      is in a mode where LEFT must stay reserved), pass OrbitControls
-      `enableRotate={true}` always, plus a `mouseButtons` map putting ROTATE on
-      MIDDLE and PAN on RIGHT (LEFT stays unbound to OrbitControls, free for
-      drawing); when `rotateEnabled` is true, keep today's defaults (LEFT
-      rotate) unchanged. ACCEPTANCE: (1) new
-      `apps/web/e2e/sketch-orbit.spec.ts` — enter sketch draw mode,
-      left-drag still draws a rectangle (regression, existing behaviour
-      unchanged); middle-mouse-drag rotates the camera (`data-camera-pos`
-      dataset attribute changes across the drag); right-drag still pans
-      (regression); (2) after a mid-sketch orbit, draw a second entity and
-      assert its persisted plane coordinates are correct (the screen→plane
-      raycast must still work from a non-normal angle); (3) outside sketch
-      mode, orbit behaviour (LEFT button) is byte-for-byte unchanged — run the
-      existing view-nav specs unmodified. Mutation check: reverting the
-      `mouseButtons` override (back to plain `enableRotate={false}`) must
-      redden the new middle-drag assertion.
-      [src: founder report, root-caused by orchestrator 2026-08-14]
-      TERRITORY: `apps/web/src/viewport/Viewport.tsx`, new
-      `apps/web/e2e/sketch-orbit.spec.ts`. agentType: frontend-builder.
-      SHIPPED 43c703c — the lock moves the gesture instead of deleting it
-      (LEFT unbound, ROTATE on MIDDLE, RIGHT still PAN). Gates re-run by the
-      orchestrator after the agent died mid-slice (typecheck + 1598 unit tests
-      + prettier); NOT reviewed, NOT QA'd, and the new e2e spec has NOT been
-      executed here. **OPEN GAP, now filed below as VP-1a: the founder is on
-      a TRACKPAD, which has no middle button, so this does not reach them.**
-
-- [x] (P0, S) **VP-1a — VP-1's fix does not reach the founder: they are on a
-      TRACKPAD, which has no middle button.** MECHANISM: `Viewport.tsx`'s
-      sketch-mode `mouseButtons` map (shipped by VP-1, 43c703c) puts ROTATE on
-      `MOUSE.MIDDLE`; a trackpad has no middle-click gesture, so the founder's
-      original "no orbit while sketching" complaint is still open for them
-      specifically. FIX: add a modifier-plus-left-drag binding reachable from a
-      trackpad (e.g. Space+drag or Alt/Option+drag, matching Fusion/Blender
-      convention — confirm which modifier three-stdlib's `OrbitControls` can
-      take over LEFT without fighting the sketcher's own left-press-drag-draw)
-      that rotates while sketching, alongside (not instead of) the existing
-      MIDDLE binding. ACCEPTANCE: extend `apps/web/e2e/sketch-orbit.spec.ts`
-      (or add a sibling spec) — modifier+left-drag rotates the camera in draw
-      mode (`data-camera-pos` or live three.js camera state changes across the
-      drag, per VP-1's fix for why `data-camera-pos` alone is insufficient);
-      plain left-drag still draws (regression); MIDDLE-drag still rotates
-      (regression, VP-1's original fix untouched). Mutation check: reverting
-      the new modifier binding must redden the new assertion only.
-      DISPATCHED 2026-08-14 — territory occupied this batch, do not reassign.
-      [src: founder report (trackpad), VP-1 gap noted 2026-08-14]
-      TERRITORY: `apps/web/src/viewport/Viewport.tsx`,
-      `apps/web/e2e/sketch-orbit.spec.ts`. agentType: frontend-builder.
-      SHIPPED 32e5b87 — **Alt (Option) + left-drag**, alongside (not instead of)
-      the MIDDLE binding. Alt was the only free modifier: Ctrl/Cmd feed
-      `resolveSnap`'s `suppressed`, Shift is `axisLock` plus three more
-      surfaces, and three-stdlib's own `onMouseDown` swaps ROTATE/PAN on
-      ctrl/meta/shift, so any of those would mean two things at once. The map is
-      DERIVED at every press from the `altKey` the pointerdown carries, in a
-      capture-phase handler on the viewport container (an ancestor of the
-      canvas, so it runs before three-stdlib's target-phase listener) — no
-      keydown/keyup mirror, so an Alt released over another window cannot leave
-      the rig stuck, and there is nothing to reset on blur. `PointerCatcher`
-      ignores alt-modified press and click, or the same gesture would orbit AND
-      draw. Mutation, three arms: fixed 71.99 deg; binding reverted 0.00 deg
-      (`Expected: > 10 / Received: 0`); sketcher guards removed 71.98 deg but
-      red on `"0 entities"` — the orbit drew a whole rectangle. Each half is
-      independently load-bearing (removing the press guard ALONE was not
-      observable; the click guard still blocked completion). Gates: typecheck
-      clean, 1612 unit tests on the merged tree, e2e 7/7 in a quiet window.
-      NOT yet reviewed or QA'd — dispatched.
-      **THREE THINGS THIS DID NOT CLOSE, for the groomer:** (a) the gesture is
-      UNDISCOVERABLE — `NavCue` renders only when `viewNav` is true, i.e. not
-      while sketching, and its copy ("Drag orbits") would be wrong there anyway;
-      neither VP-1's middle button nor VP-1a's Alt+drag is announced anywhere in
-      the sketcher, so the founder can orbit but cannot learn how. File VP-1b: a
-      sketch-mode cue naming the two real bindings (`components/NavCue.tsx`).
-      (b) TOUCH is still uncovered — a touchscreen has neither a middle button
-      nor a modifier key, so one-finger drag stays unbound while drawing.
-      (c) On Linux WMs that grab Alt+drag for window moves the gesture is eaten;
-      modern GNOME/KDE default to Super, and macOS/Windows — the trackpad-heavy
-      cases — pass Option/Alt+drag to the browser untouched. VP-1's middle
-      button remains the fallback there.
+      `apps/web/src/sketch/store.ts`. agentType: frontend-builder.
 
 - [ ] (P0, S) **SNAP-1 — founder: "snap points not working." Never reproduced;
       no ticket existed before this pass.** REPRODUCE FIRST, before assuming a
@@ -363,64 +307,45 @@ duplication.
       TERRITORY: `apps/web/src/viewport/SketchScene.tsx`,
       `apps/web/src/sketch/**`, new e2e spec. agentType: frontend-builder.
 
-- [ ] (P0, S) **FOUNDER — dimensions not assigning.** Founder report, not yet
-      reproduced by an auditor. REPRODUCE FIRST: draw a sketch entity, add a
-      dimensional constraint (Distance or Radius), type a value into the
-      dimension's input field, press Enter — confirm whether the geometry
-      updates to match the typed value. Two known-adjacent findings worth
-      ruling in/out while reproducing: (a) M22 (product-audit pass 2026-08-14)
-      measured that the live W/H chip shown WHILE rubber-banding a rectangle
-      "looks like a field but ignores typing" — typing `90` into it does
-      nothing, and it only becomes typeable after the second click; (b) FB-16
-      ("dimensions typed as you draw") shipped 2026-08-01 and may have a
-      regression. ACCEPTANCE: either (i) reproduced — root-cause against
-      `apps/web/src/sketch/**`'s dimension-apply path and fix, with an e2e
-      spec that fails on the reverted fix; or (ii) NOT reproduced on current
-      HEAD after trying the rubber-band chip, the post-second-click dimension
-      input, and editing an EXISTING dimension's value — close with the exact
-      steps tried and their results, so the report is falsified rather than
-      shelved.
-      [src: founder report 2026-08-14, needs reproduction]
-      TERRITORY: `apps/web/src/sketch/**` (exact files TBD by reproduction).
-      agentType: frontend-builder.
-      **STILL OPEN — re-opened by code review of c449235 (finding 3).** The arm
-      fix below is real and shipped, but this item's OWN acceptance is "type a
-      value into the dimension's input field, press Enter — confirm whether the
-      geometry updates to match the typed value", and the pass that fixed the
-      arming ALSO measured that the value field loses keystrokes at every human
-      typing speed. Ticking this `[x]` was an orchestrator error: it claimed an
-      acceptance criterion that is not met, and buried the probable actual cause
-      inside a closed item where no groom pass would find it. It stays `[ ]`
-      until the keystroke-loss defect below is filed as its own item and fixed.
-      Note the shipped e2e spec CANNOT catch it — `sketch-dimension-pick.spec.ts`
-      types with `fill()`, which bypasses the per-keystroke path entirely
-      (review finding 2); a `pressSequentially` leg would fail today, which is
-      the point.
-      REPRODUCED and PARTIALLY SHIPPED c449235 — branch (i). A draw tool stays armed after
-      it draws, so the click meant to select a side is consumed as the NEXT
-      rectangle's first corner; the Dimension verb is selection-first only, so
-      it demands a step the user cannot perform from where they stand and every
-      retry repeats it. `D` was worse: `resolveSketchKey("d", false)` returned
-      null, so it did literally nothing with an empty selection. The verb now
-      ARMS instead of refusing. Mutation: spec 2 failed / 0 passed reverted vs
-      2 passed; units 9 failed / 137 passed reverted vs 146 passed. Gates
-      re-run on the merged tree by the orchestrator (typecheck clean, 1612 unit
-      tests). NOT yet reviewed or QA'd — dispatched.
-      **TWO ADJACENT FINDINGS the agent measured and did NOT touch (outside its
-      territory), both for the groomer to file:** (a) P0 — the dimension VALUE
-      field loses keystrokes typed at human speed. `ConstraintGlyphs.tsx` is a
-      CONTROLLED React input inside the r3f canvas via drei `<Html>`; typing
-      `125` into a field pre-filled `43` yields `435` at every inter-key delay
-      from 0 to 120 ms and only survives at 200 ms. Event trace: `[input]
-      value="1"` -> 86 ms blocked main thread -> `macro value="43"` (React
-      restores from a stale render). `SketchScene.tsx` documents this SAME
-      defect and fixed it by making the FB-16 draw cells UNCONTROLLED; the same
-      remedy applies. This is plausibly the founder's actual experience.
-      (b) M22 confirmed as designed: before the second click `draw-dimensions`
-      is `data-state="live"` with ZERO input cells, so the live W/H chip is
-      indistinguishable from a field and typing does nothing.
+- [ ] (P0, S) **DIM-1 (was "FOUNDER — dimensions not assigning") — the
+      dimension VALUE field loses keystrokes typed at human speed; this is
+      plausibly the founder's whole actual experience of the report.**
+      REPRODUCED in two layers, the second by code review of c449235 (branch
+      (i), the arming half, shipped — see the Done archive). MECHANISM
+      (structurally verified by the reviewer; the delay numbers below are NOT
+      independently re-verified by this pass — re-derive them when building):
+      `apps/web/src/viewport/ConstraintGlyphs.tsx:218-228` is a CONTROLLED
+      `ExpressionField` rendered inside the r3f canvas via drei `<Html>`.
+      Typing `125` into a field pre-filled `43` produced `435` at inter-key
+      delays of 0/20/40/60/80/120 ms, and only survived at 200 ms/key. Event
+      trace: `[input] value="1"` -> ~86 ms of blocked main thread ->
+      `macro value="43"` (React restoring the DOM from a stale render) —
+      `apps/web/src/viewport/SketchScene.tsx:916` documents this IDENTICAL
+      defect for the FB-16 draw-time cells and fixed it by making them
+      UNCONTROLLED; that is the remedy to point at, not a novel fix. FIX: make
+      `ConstraintGlyphs.tsx`'s value field uncontrolled the same way
+      (ref-backed local input, commit on blur/Enter, no React-driven `value`
+      fighting the DOM mid-keystroke). ACCEPTANCE: (1) a component/unit test
+      typing "125" over a pre-filled "43" at 0 ms/key (the adversarial case)
+      yields "125", not "435"; (2) `apps/web/e2e/sketch-dimension-pick.spec.ts`
+      gains a `pressSequentially` leg — today's `:187`/`:249` use `.fill()`,
+      which bypasses the per-keystroke path entirely and cannot catch this;
+      the new leg MUST fail on current HEAD and pass after the fix; (3) this
+      item's original acceptance (type a value, press Enter, geometry updates)
+      re-verified end to end. Mutation check: reverting the uncontrolled-input
+      change reddens both the new unit test and the new e2e leg.
+      Also settled while reproducing (M22, product-audit pass 2026-08-14,
+      confirmed as designed not a bug): before the second click of a
+      rubber-band draw, `draw-dimensions` is `data-state="live"` with ZERO
+      input cells, so the live W/H chip is indistinguishable from a field and
+      typing into it does nothing — a separate, smaller UX gap, not this bug.
       FB-16 is NOT regressed and SKETCH-1 is not implicated — editing an
-      existing dimension works end to end (measured 60 then 25).
+      EXISTING dimension already works end to end (measured 60 then 25).
+      [src: founder report 2026-08-14; root-caused by code review of c449235]
+      TERRITORY: `apps/web/src/viewport/ConstraintGlyphs.tsx`,
+      `apps/web/e2e/sketch-dimension-pick.spec.ts` (append the
+      `pressSequentially` leg only — do not touch the existing `.fill()` legs).
+      agentType: frontend-builder.
 
 - [ ] (P0, M) **FB-21 — the origin axis glyphs are labelled in KERNEL space but
       drawn in SCENE space, which the GLB rotation has already turned.**
@@ -492,6 +417,8 @@ duplication.
       DISPATCHED 2026-08-14 alongside QA7-1 (disjoint territories — no
       viewport/sketch/geometry files touched by either).
 
+## Next (P2)
+
 - [ ] (P1, M) **FOUNDER — no Fusion-style hover-a-face-to-sketch.** Founder
       complaint: today, starting a sketch requires clicking the Sketch
       command FIRST, then picking a plane/face; Fusion lets you hover an
@@ -501,7 +428,7 @@ duplication.
       "Extrude this" either — both are instances of the same flow principle
       (CLAUDE.md design mandate: "the tool proposes, the user disposes").
       Scope this item to the HOVER-TO-SKETCH half only (the extrude-proposal
-      half is a separate, larger item — see the FB-20 flow umbrella in Next).
+      half is a separate, larger item — see the FLOW-1 flow umbrella below).
       MECHANISM: when no command is active and the body is interactive
       (`mode === "off"`, per `PartPage.tsx`'s `bodyInteractive` computation),
       hovering a face should show a small in-viewport sketch affordance (icon
@@ -516,9 +443,52 @@ duplication.
       cross-ref product-auditor M4(a)]
       TERRITORY: `apps/web/src/routes/PartPage.tsx`,
       `apps/web/src/viewport/**` (hover affordance rendering), new e2e spec.
-      agentType: frontend-builder.
+      agentType: frontend-builder. DEMOTED from Ready 2026-08-14 (queue-thinning
+      groom pass — pure flow polish, no correctness defect, not yet dispatched).
 
-## Next (P2)
+- [ ] (P1, XS) **QA-VERIFY-1 — two shipped e2e specs have never been executed
+      anywhere: `sketch-orbit.spec.ts` (VP-1) and `sketch-reopen.spec.ts`
+      (SKETCH-1).** Both commits (43c703c, 30a9f3f) say so explicitly — the
+      agents died mid-slice and the orchestrator reconciled + re-ran
+      typecheck/unit/prettier only, never e2e. Both are runnable NATIVELY in
+      this container per CLAUDE.md's environment recipes (no Docker needed).
+      ACCEPTANCE: run both specs; if green, note the run against the ROADMAP
+      entries for VP-1/SKETCH-1; if red, root-cause and file a follow-up (do
+      not retry into green).
+      [src: code review of c449235, orchestrator dispatch 2026-08-14]
+      TERRITORY: read-only verification; no code changes expected unless a
+      spec is found red. agentType: frontend-builder or qa-tester.
+
+- [ ] (P2, XS) **ESC-3 — the one scenario where c449235's Escape-disarm rung
+      actually prevents an exit (armed Dimension in an EMPTY sketch) is
+      covered by no test, unit or e2e.** The shipped `store.test.ts` "Escape
+      disarms it and does NOT exit the sketch" asserts `mode === "draw"`,
+      which passes even with the rung ABLATED, because with 4 entities in the
+      sketch the `unstarted` branch is unreachable — a tautology w.r.t. the
+      fix under test. MEASURED by ablation: armed with 4 entities and the rung
+      removed, Escape leaves `mode: "draw"` (existing test stays green); armed
+      with ZERO entities and the rung removed, Escape gives `mode: "off"` —
+      the sketch is gone. FIX: add a test that arms Dimension in an EMPTY
+      sketch and asserts Escape disarms without exiting; keep the 4-entity
+      test as a secondary regression, not the only one. Mutation check:
+      reverting the disarm rung reddens the NEW empty-sketch test.
+      [src: code review of c449235, orchestrator dispatch 2026-08-14]
+      TERRITORY: `apps/web/src/sketch/store.test.ts`. agentType: frontend-builder.
+
+- [ ] (P2, S) **VP-1b — orbit-while-sketching is undiscoverable; neither VP-1's
+      MIDDLE button nor VP-1a's Alt+drag is announced anywhere in the
+      sketcher.** `NavCue` (`apps/web/src/components/NavCue.tsx`) renders only
+      when `viewNav` is true, which is false while sketching, and its copy
+      ("Drag orbits") would be wrong there anyway (LEFT is reserved for
+      drawing). FIX: a sketch-mode variant naming the two real bindings
+      (MIDDLE-drag rotates; Alt/Option+drag rotates). Note TOUCH remains
+      uncovered separately (a touchscreen has neither a middle button nor a
+      modifier key) — file separately if this item doesn't absorb it.
+      ACCEPTANCE: entering sketch draw mode shows a cue naming both bindings;
+      test asserts the cue text differs from the non-sketch `viewNav` cue.
+      [src: VP-1a follow-up noted 2026-08-14, filed this pass]
+      TERRITORY: `apps/web/src/components/NavCue.tsx`,
+      `apps/web/src/viewport/**` (wiring). agentType: frontend-builder.
 
 - [x] (P1, S) **K7 — Stop hook in-flight guard fixed. SHIPPED 29387da
       2026-08-14.** Depth-agnostic `find -path '*/tasks/*.output' -mmin -30`,
@@ -726,8 +696,10 @@ duplication.
       §CONCURRENCY). Acceptance: the 50x case named as a benchmark with its
       measured cost and where the time goes, then the fix that measurement
       implies. [src: founder 2026-08-01]
-- [ ] (P0, L) **FB-20 — the FLOW from sketch to feature, and the parts page,
-      both need an overhaul.** Founder: "we need to fine tune the flow from
+- [ ] (P0, L) **FLOW-1 (was FB-20 — renumbered 2026-08-14, id collided with the
+      camera-stolen-after-extrude fix also called FB-20, `d091112`; see the
+      archive) — the FLOW from sketch to feature, and the parts page, both need
+      an overhaul.** Founder: "we need to fine tune the flow from
       drawing the sketch. Also, the main pages for selecting parts... Flow is
       critical for users. Think about it as you build. How should we direct the
       user? Hopefully in a way to leave fusion and go OS." Now a standing rule in
@@ -1902,6 +1874,29 @@ so it is the pre-`5bd4c46` camera snap or a stale Codespace bundle (see FB-11).
 
 ## Done — archive
 
+### Reconciled from Ready — c449235 review groom pass (2026-08-14, backlog-groomer)
+
+- **SKETCH-1 (M15)** — a saved sketch can be re-opened via `beginEdit`
+  hydration; SHIPPED `30a9f3f`. UNREVIEWED, UNQA'D — see QA-VERIFY-1
+  (`sketch-reopen.spec.ts` never executed).
+- **VP-1** — orbit while sketching on MIDDLE button; SHIPPED `43c703c`.
+  UNREVIEWED, UNQA'D — see QA-VERIFY-1 (`sketch-orbit.spec.ts` never
+  executed). Fragile mechanism, noted not filed as its own item: the
+  sketch-mode `mouseButtons` binding relies on r3f REPLACING rather than
+  merging the `mouseButtons` object prop (`Viewport.tsx:880-887`) — if a
+  future three-fiber/drei upgrade ever merges instead, LEFT silently regains
+  ROTATE and the sketcher's press-drag starts orbiting. Watch this on any
+  r3f/drei version bump.
+- **VP-1a** — Alt(Option)+left-drag orbit reaches trackpads; SHIPPED
+  `32e5b87`. UNREVIEWED, UNQA'D. Follow-ups filed: VP-1b (undiscoverable
+  gesture, Next) and QAH-1 (possible CI orbit-probe regression, Ready).
+- **c449235 (Dimension verb arms instead of dead-ending)** — SHIPPED,
+  reviewed (`d6fc92b` corrected two integration errors from this pass:
+  stale worktree SHA citations, and this item's parent left `[x]` while its
+  own acceptance was unmet). Follow-ups filed: DIM-1 (P0, keystroke loss —
+  the probable real founder experience), DIM-3 (armed-state flow bugs),
+  ESC-2 (FB-13 landmine in a duplicate Escape cascade), ESC-3 (test gap).
+
 ### Reconciled from Ready — backlog hygiene sweep (2026-08-14, backlog-groomer)
 
 104 items were sitting checked `[x]` (or, for CI-3, shipped but never ticked)
@@ -2570,217 +2565,11 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
-- 2026-08-14 — **Groom + hygiene sweep (backlog-groomer):** Ready had grown to
-  145 items / ~2,850 lines (104 already shipped, sitting unarchived). Archived
-  the 104, curated a 10-item Ready from two fresh audit passes (M1-22 product,
-  K1-8 engineering) plus founder reports. ROADMAP "Current focus" fixed (K6).
-- 2026-08-14 — **Groom pass 2 (backlog-groomer):** ticked K7 shipped (29387da);
-  filed VP-1a (trackpad orbit — VP-1's stated gap) and SNAP-1 (founder "snap
-  points not working," never previously reproduced), both queued behind the
-  occupied `viewport/sketch` territories; pruned older Changelog entries into
-  `docs/CHANGELOG.md`. Dispatched disjoint from live work (viewport/sketch/
-  geometry occupied): QA7-1 (e2e wait fix) + FB-19 (chrome density).
+- 2026-08-14 — **Groom pass 3 — c449235 review triage (backlog-groomer):**
+  filed DIM-1 (P0, dimension-field keystroke loss — the probable real founder
+  bug), DIM-3/ESC-2/ESC-3 (armed-state flow + FB-13-class landmine + test
+  gap), QAH-1 (P0, unfiled e2e CI-red cause) and QA-VERIFY-1/VP-1b; archived
+  SKETCH-1/VP-1/VP-1a as shipped-unreviewed; renamed the FB-20 id collision to
+  FLOW-1; deduped a stale full-detail Changelog tail into `CHANGELOG.md`.
 
 Older entries: see `docs/CHANGELOG.md`.
-
-- 2026-08-01 — **Escape no longer ends your sketch, and a click no longer piles
-  up (frontend-builder):** FB-13/FB-14 — the cascade unwinds and then stops (it
-  still backs out of a sketch holding no work); plain click replaces, Shift or
-  Ctrl/Cmd adds. `e2e/sketch-escape-select.spec.ts` is red on the old behaviour.
-
-- 2026-08-01 — **You can drill where you want (frontend-builder):** QA3-1 —
-  numeric X/Y in the picked face's STATED frame, a per-keystroke material check
-  that names the opening you are in, and concentric snaps to every circular edge
-  on the face.
-
-- 2026-08-01 — **Dogfooding pass #3, the imported-STEP remix (qa-tester):** a
-  NEMA 17 vendor plate imported, remixed and re-revved through the real stack.
-  Seven closed-form comparisons exact (rev-B/rev-C swaps re-anchored five
-  downstream features to 12 s.f.); six defects filed QA3-1..6, two P1 —
-  you cannot drill where you want, and a sketch on an imported face has no
-  reference to the import (measured: a 0.065111070 mm eccentric register).
-
-- 2026-08-01 — **The drawing says on screen what it said on the print
-  (frontend-builder):** N1/N2's frontend half — a sheet check strip for
-  `layout_issues` (with the Auto-place that fixes each pair), a RE-ANCHORED badge
-  + one-click Confirm for a `durable` anchor, and the typed reason beside an
-  unresolved dimension. e2e resizes a dimensioned part and reads 120.000 in-app.
-
-- 2026-08-01 — **CONC-1/2/3: more than one person can use it now
-  (backend-builder):** gateway session affinity over a comma-separated
-  `GEOMETRY_URL` (sticky 30.6 s vs random 64.9 s wall, hit 0.40 vs 0.10), a
-  bounded FIFO admission queue on the OCCT routes (0 of 16 -> 11 of 16 delivered
-  inside a 30 s deadline), and a timeout that says 504 "still working" instead
-  of 502 "unreachable". `docs/OPERATIONS.md` §6.
-
-- 2026-08-01 — **GATE-1: CI drives a browser now (platform-builder):** the full
-  Playwright suite on every code push, sharded 4 ways, with a reconcile job that
-  fails unless the shards covered `playwright test --list` exactly once. Proven
-  by pushing the stale assertion back and watching CI reject it.
-
-- 2026-07-31 — **OBS-1: the stack can be watched (backend-builder):** Prometheus
-  `/metrics` from py-kit for all three services — rebuild histogram by cache ×
-  tree size, cache hit rate, feature errors by code, STEP refusals; +30 µs/req
-  measured; fail-closed outside dev. `docs/OBSERVABILITY.md`.
-
-- 2026-07-31 — **UI-W2 part half + the two framing defects (frontend-builder):**
-  Origin / Sketches / Bodies get the assembly's eye vocabulary; origin planes and
-  axes render for the first time; "Fit model" frames the unobstructed rect at a
-  distance solved from the part's real projection, and the ViewCube clears its
-  own corner. Asserted on canvas pixels, mutation-verified.
-
-- 2026-07-31 — **What LEAVES the tool now says what it is (kernel-architect):**
-  audit N8 — an assembly STEP instances its parts (21 instances / 2 parts:
-  21 B-reps + 504 KB -> **2 B-reps + 58 KB**; `located()` was a deep geometric
-  copy, so no writer could see the instancing); N4 — part/assembly exports are
-  named after the document in both the filename and the PRODUCT, and
-  `assembly.step` no longer overwrites itself; #50 — the tapped-hole callout
-  reaches SVG/PDF/DXF; N5 (part) — the exported page is white, not grey.
-
-- 2026-07-31 — **Three surfaces stopped over-claiming, and settings exist
-  (frontend-builder, 2026-07-31):** the register no longer calls a rolled-back
-  prefix "Clean" (J3b), the assembly panel earns the words COMBINED MASS (and can
-  finally compute one — the browser never sent the parts' materials), a lost
-  dimension prints its reason on the sheet as well as in the export (QA-4b), and
-  `/settings` ships with five wired rows including invert-scroll.
-
-- 2026-07-30 — **The drawing survives the revision (kernel-architect):** audit N1 —
-  edges get the two-tier resolver faces have (`drawings/anchor.py`) so a widened
-  plate's dimension re-measures 120.000 instead of dying; N2 — iso anchors clear by
-  construction (24 mm at any size) and a colliding sheet stamps a banner, never
-  exports silently. (Ready-queue entries for both landed early in `3f5fc98`, which
-  swept this agent's in-flight BACKLOG hunks.)
-
-- 2026-07-30 — **UI-W1 bottom timeline (frontend-builder):** rollback is now a
-  docked machine way with a draggable/keyboard travel stop, verb-glyph op chips and
-  a dashed way past the stop; one shared `VERB_GLYPHS` map serves band + timeline.
-
-- 2026-07-30 — **UI-W3/W4 pre-selection + pinned references (frontend-builder):**
-  a viewport pick outlives its command and seeds the next one (hole/datum/sketch/
-  shell/draft/fillet/chamfer), the hole's face pick arms on open, and its
-  references sit in a pinned anchor block on the right rail. UI-REVIEW P1 (export
-  strip under the fold) fixed by pinning it, not by trimming copy.
-
-- 2026-07-30 — **UI-W2 visibility/opacity/isolate, assembly half (frontend-builder):**
-  every component row gets an eye, the addressed one a SOLID · GHOST · HIDE control,
-  isolate a right-click verb with `V`/`⇧V` and an `ISOLATED` stamp as the way back.
-  Asserted on canvas PIXELS, not aria state (mandate 3c).
-
-- 2026-07-31 — **UI-W5 entity snapping (frontend-builder):** endpoint / midpoint /
-  centre / intersection / tangent / perpendicular snap by default; Ctrl-Cmd
-  SUPPRESSES (inverted on purpose), Shift axis-locks, `G` still owns the grid.
-  A named mark says which snap you get before the click.
-
-- 2026-07-30 — **Last-evaluate record on the part row (backend-builder):**
-  migration `0012` + derived `eval_state` (`never`/`ok`/`failed`/`stale`), written
-  by the gateway post-evaluate; staleness derived from `tree_version`, not guessed.
-- 2026-07-25 — **Tapped-hole authoring (frontend-builder):** `Tapped` checkbox +
-  ISO designation picker in `HoleEditor` derives the tap drill without locking
-  it; the tree row carries `hole · M10x1.5` — the only place a tap is visible.
-- 2026-07-25 — **TAPPED holes, cosmetic threads (kernel-architect):** `thread:
-  IsoMetricThread | None` on `HoleParamsV1` cuts the ISO tap drill `D - P` and
-  carries the callout; typed `hole_thread_unsupported`/`hole_thread_mismatch`.
-- 2026-07-25 — **jsdom component-test tier (frontend-builder):** `apps/web` +
-  `packages/design` now run two vitest projects (`*.test.ts` node, `*.test.tsx`
-  jsdom+Testing Library); 46 tests pin the three burn-down UI defects. 882 web.
-- 2026-07-25 — **Burn-down code-review fixes, frontend (frontend-builder):**
-  right-drag pan no longer opens the viewport context menu (click-slop gate,
-  press- and release-fired `contextmenu`); the extrude ghost honours
-  `operation` (cut = cold dark void, not a brass solid); the assembly inspector
-  and readout precision are unit-aware; `ContextMenu` restores focus on close.
-- 2026-07-24 — **Drawings #4 SLICE 2 — gateway gate-removal + documents resolution
-  (backend-builder):** `assembly_views_unsupported` gone; documents
-  `GET /assemblies/{id}/evaluation-request` resolves the graph; gateway threads it as
-  additive `ComposeDrawingRequest.assembly`. Geometry compose branch next (Ready).
-- 2026-07-23 — **Mirror feature WEB AUTHORING (frontend-builder):** Modify-band
-  Mirror command (shortcut I) + `MirrorEditor` in the shared editor seat, reusing
-  the sketch/section plane picker (origin XY/XZ/YZ radios + datum FeatureRef);
-  `mirror` added to frontend `BODY_AFFECTING_FEATURE_TYPES` + drift guard;
-  `friendlyFeatureError` gains the mirror codes; e2e `mirror.spec.ts` mirrors a
-  real body (Z-extent + volume double about XY, `MirrorN` Solved). Mirror is now
-  end-to-end.
-- 2026-07-23 — **Mirror feature GEOMETRY + DTO (kernel-architect):**
-  `MirrorFeature`/`MirrorParamsV1` reflect the current body about a plane (origin
-  datum or `datum` feature — the SAME `GeomRef` a sketch uses) and union the
-  reflection in (pattern semantics; disjoint reflection → valid 2-lump body).
-  Golden `mirror-triangle-prism-2x` (analytic 2V + centroid-on-plane reflection
-  proof), typed degradation, wired across every feature-registry arm. Web-authoring
-  slice remains.
-- 2026-07-23 — **Assembly import response-amplification DoS CLOSED
-  (kernel-architect):** bounded the untrusted parse's OUTPUT at the geometry
-  source — occurrence-count cap aborts the walk in the CPU-bounded child
-  (`import_too_many_products`), total-`body_step`-byte cap (32 MiB) rejects a big
-  body instanced many times before materialisation (`import_response_too_large`);
-  both typed 422s. Filed P2 follow-ups: body_step-once-per-id reshape + permanent
-  3-service integration test.
-- 2026-07-23 — **Assembly STEP import SLICE 2a — reader hardened + editable body
-  (kernel-architect):** DoS parse-bound WIRED to the XCAF reader (untrusted
-  `ReadFile`/`Transfer` + walk now in the single-body reader's killable
-  `RLIMIT_CPU` + wall-clock subprocess → `import_parse_timeout`); walk/tessellate/
-  measure/export phase guarded (degenerate-but-transferable solid → typed 422, not
-  a raw 500); `ImportedProduct` gains `body_step` (LOCAL-frame STEP fragment the
-  single-body `import` feature ingests verbatim) + `body_step_id` (content-address
-  dedup key). Slice 2b (documents assembly creation + gateway upload) can now land
-  on a proven-safe reader.
-- 2026-07-23 — **Dedicated Hole feature SLICE 1 (kernel-architect):** first-class
-  `HoleFeature`/`HoleParamsV1` (face `SubshapeRef` + world point + diameter +
-  through-all|blind) wired across every registry arm + `kernel/hole.py`
-  (`bore_hole`, auto inward cut direction); golden `hole-through-r5-40x25x10`
-  proves analytic volume parity (10000−250π) AND sketch+extrude-cut parity; typed
-  degradation (`hole_off_body`/`hole_too_deep`). Slice 2 (counterbore/countersink/
-  tapped + drill tables) + web authoring remain.
-- 2026-07-23 — **Hole SLICE 1 WEB authoring (frontend-builder):** Hole command
-  (Modify band + `O`) → `HoleEditor`; face pick REUSES `FacePickOverlay`, point
-  pick REUSES the measure `PickNode` affordance (`HolePointOverlay` — centre +
-  coplanar corners), Ø + through-all|blind. Typed rebuild errors → guidance
-  (`friendlyFeatureError`). e2e drills through-all + blind in the UI; 13 units.
-  Hole slice 1 is now end-to-end; slice 2 (counterbore/countersink) remains.
-- 2026-07-23 — **Assembly STEP import SLICE 1 — geometry XCAF reader
-  (kernel-architect):** `POST /api/v1/assembly/import` + `kernel/step_assembly.py`
-  (XDE `STEPCAFControl_Reader` walk, mirror of the export composer) →
-  `StepAssemblyImportResult{has_assembly_structure, products}`; export↔import
-  round-trip recovers N products/placements/PRODUCT-names (off-axis rotation +
-  repeated part), flat STEP → false-flag (MB-4b path intact). Slice 2 (documents
-  assembly creation + gateway upload + fallback wiring) remains.
-- 2026-07-23 — **E1a — Section views END-TO-END wire (kernel-architect):**
-  per-view `section_params` map (`dict[int, SectionViewParams]`) on the geometry
-  evaluate/compose wire; gateway `_compose_request` threads each persisted view's
-  datum; geometry end-to-end + gateway-threading guard tests; E1b (web authoring)
-  deferred. Non-section sheets byte-identical.
-- 2026-07-23 — **Groom + restock (backlog-groomer):** reconciled BACKLOG +
-  ROADMAP against `a6a5814..0ed9f74` (18 Ready items archived as one-liners);
-  formalized the fresh product-audit findings into 3 P0/P1 assembly-interop
-  Ready items + Hole/suppress/mirror P2 items; marked section-views v1 IN
-  FLIGHT (kernel-architect, uncommitted); pruned pre-07-22 entries here into
-  `CHANGELOG.md`.
-- 2026-07-23 — **Product audit — "the assembly is a one-way street":** a
-  bolted assembly builds+solves but has no STEP export, no interference
-  check, no product-structure import; filed as the new P0/P1 Ready trio.
-  Also named suppress/mirror/dedicated-Hole as the top everyday-ergonomics gaps.
-- 2026-07-23 — **Drawings dead-capability drain (D1-D4) + engineering-audit
-  sweep:** title-block, first-angle, dimension-placement, and the
-  assembly-view 404 all wired/gated; sweep found 6 orphans total (D1-D6),
-  D5/D6 + the process-guard tail remain.
-- 2026-07-23 — **Drawings note-render, DE-4 artifact cache, sheet-size
-  picker, MB-4c wire/frontend tail, e2e hardening** (raster-format fix +
-  CPU-contention timeouts) — see Done archive for one-liners.
-- 2026-07-22 — **WF-1 fold-back coaxial fix (kernel-architect, code review):**
-  fold-back invariant now measures each bend FACE once (dedup by identity,
-  `resolve.live_bend_face_widths`) + `find_cylindrical_face` disambiguates by span;
-  two coaxial equal-radius flanges on collinear segments develop instead of
-  false-rejecting. Golden `coaxial-two-segment-flange-unfold`; §5 note corrected.
-- 2026-07-22 — **WF-1 layer 2 + PB-1 (kernel-architect):** edge-flange width
-  extents (`width_mm`/`offset_mm`) + auto bend-end relief + partial-width
-  development (design §4.5); founder 50×50-flange case golden-gated; PB-1 fell out.
-- 2026-07-22 — **WF-1 layer 1 (kernel-architect):** runtime fold-back invariant
-  in `unfold_sheet_metal` — live coaxial bend widths vs developed fold widths;
-  cut-after-fold now typed-rejects. Goldens byte-unchanged; layer 2 stays open.
-- 2026-07-22 — **Founder dogfooding — WF-1 (50-wide flange on a 100 mm edge
-  via fold-then-trim):** 3D exact; flat pattern SILENTLY WRONG (full-width
-  blank, no error) — the first dishonest failure found. Filed P0 (runtime
-  fold-back invariant → typed reject, then trimmed/width-extent development).
-- 2026-07-22 — **Founder dogfooding — PB-1 (partial folds + viewport
-  rotation):** 3 fold widths (70 partial / 200 / 120) on a notched base — 3D
-  exact to closed form; flat pattern typed-rejects (filed P2, matrix row
-  upgraded). Snap views, real-pointer orbit, pick-after-rotate all pass.
-Entries before 2026-07-22 live in `CHANGELOG.md`.
