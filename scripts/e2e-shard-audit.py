@@ -306,6 +306,14 @@ def main(argv: list[str] | None = None) -> int:
 # reporting/verdict separation explicitly, not just the happy path.
 
 
+#: How many checks `self_test` is supposed to append. A count floor exists
+#: because the verdict is `all(ok for ok, _ in checks)` and `all([])` is True:
+#: a `checks.append` lost to a refactor removes coverage silently and the
+#: self-test still prints "the gate can fail". `<`, not `!=`, so ADDING checks
+#: needs no edit here — only losing them is an error.
+EXPECTED_CHECKS = 14
+
+
 def _spec(
     spec_id: str,
     title: str,
@@ -417,6 +425,12 @@ def self_test() -> int:
 
     for ok, label in checks:
         print(f"  {'ok  ' if ok else 'FAIL'} {label}")
+    if len(checks) < EXPECTED_CHECKS:
+        print(
+            f"\ne2e-shard-audit: SELF-TEST RAN {len(checks)} of {EXPECTED_CHECKS} "
+            "checks — the self-test lost coverage; it proves nothing."
+        )
+        return 1
     if all(ok for ok, _ in checks):
         print("\ne2e-shard-audit: self-test passed — the gate can fail.")
         return 0

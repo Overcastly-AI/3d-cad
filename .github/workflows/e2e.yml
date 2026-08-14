@@ -402,13 +402,28 @@ jobs:
               grep -E '^[[:space:]]*python3[[:space:]]+.*e2e-shard-audit\.py' |
               grep -vF -e '--self-test' || true
           }
-          has_flag() {
-            audit_cmd "$1" | grep -qE -e "(^|[[:space:]])${flag}([[:space:]]|\$)"
+          # ALL-semantics, not ANY. `grep -q` is satisfied by ONE matching line,
+          # so with two audit invocations in this file the guard would pass
+          # while the REAL one had lost the flag — a decoy step (even one under
+          # `if: false`) or a second shard-set audit is all it takes. Only one
+          # invocation exists today, so nothing is masked yet; the point is that
+          # adding a second must not silently disarm the guard. So: count the
+          # invocations, count the flagged ones, and demand they are equal.
+          flagged_count() {
+            audit_cmd "$1" |
+              grep -cE -e "(^|[[:space:]])${flag}([[:space:]]|\$)" || true
+          }
+          all_flagged() {
+            local n
+            n="$(audit_cmd "$1" | wc -l)"
+            [[ "$n" -ge 1 && "$(flagged_count "$1")" -eq "$n" ]]
           }
           # The guard's own probes, as the retries guard above has: one
           # synthetic invocation that carries the flag (must match), one that
-          # lost it (must not), and one where the flag appears ONLY in prose —
-          # the exact defect this replaces (must not).
+          # lost it (must not), one where the flag appears ONLY in prose — the
+          # first defect this replaces (must not) — and one where SOME
+          # invocations carry it and some do not, which is the defect
+          # ALL-semantics exists for (must not).
           probe="$(mktemp -d)"
           {
             echo "          python3 scripts/e2e-shard-audit.py \\"
@@ -423,29 +438,48 @@ jobs:
             echo "          python3 scripts/e2e-shard-audit.py \\"
             echo "            shard-reports/*.json"
           } >"$probe/prose-only.yml"
-          if ! has_flag "$probe/with.yml"; then
+          { cat "$probe/with.yml"
+            echo "        - name: decoy"
+            echo "          if: false"
+            echo "          run: |"
+            echo "            python3 scripts/e2e-shard-audit.py \\"
+            echo "              shard-reports/*.json"
+          } >"$probe/mixed.yml"
+          if ! all_flagged "$probe/with.yml"; then
             echo "::error::the flaky guard cannot see the flag on a real invocation"
             exit 1
           fi
-          if has_flag "$probe/without.yml"; then
+          if all_flagged "$probe/without.yml"; then
             echo "::error::the flaky guard passes an invocation that lost the flag"
             exit 1
           fi
-          if has_flag "$probe/prose-only.yml"; then
+          if all_flagged "$probe/prose-only.yml"; then
             echo "::error::the flaky guard is matching prose, not the invocation"
             exit 1
           fi
+          if all_flagged "$probe/mixed.yml"; then
+            echo "::error::the flaky guard passes when only SOME audit invocations carry the flag"
+            exit 1
+          fi
           rm -rf "$probe"
+          # ORDER MATTERS: this stays FIRST and is now load-bearing, not
+          # belt-and-braces. Under ALL-semantics "every invocation carries the
+          # flag" is vacuously true of zero invocations, so without a count
+          # floor a rename of the script — or a `run:` shape audit_cmd cannot
+          # parse — would make the guard pass by finding nothing at all. Same
+          # `all([]) is True` shape the two --self-tests just grew floors for.
           invocations="$(audit_cmd .github/workflows/e2e.yml | wc -l)"
           if [[ "$invocations" -lt 1 ]]; then
             echo "::error::no audit invocation found — the flaky guard has nothing to check"
             exit 1
           fi
-          if ! has_flag .github/workflows/e2e.yml; then
-            echo "::error::the audit no longer runs with $flag"
+          if ! all_flagged .github/workflows/e2e.yml; then
+            echo "::error::not every audit invocation runs with $flag"
+            audit_cmd .github/workflows/e2e.yml
             exit 1
           fi
-          echo "posture: no retries, $flag intact ($invocations audit invocation(s))"
+          flagged="$(flagged_count .github/workflows/e2e.yml)"
+          echo "posture: no retries, $flag intact ($flagged/$invocations audit invocation(s))"
           shards='${{ needs.playwright.result }}'
           audit='${{ steps.audit.outcome }}'
           echo "playwright shards: $shards"

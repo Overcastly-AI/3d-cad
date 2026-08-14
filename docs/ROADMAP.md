@@ -13,6 +13,33 @@ library and cleared two of three images to publish (`c7f23dd`). OPEN: LIC-1,
 stripping jbigkit from the geometry image, which is what still blocks
 publishing it.
 
+**REV-1 (e)(f)(g) PARTIAL 2026-08-14 — two self-tests returned 0 on an EMPTY
+check list, and the flaky-flag guard needed only ONE audit invocation to carry
+the flag.** The scripts/workflow half of REV-1; (a)-(d) are the e2e-helper half
+and stay open. Both `--self-test`s verdicted on `all(ok for ok, _ in checks)`,
+and `all([])` is True — the repo's recurring vacuous-pass shape — so a
+`checks.append` lost to a refactor removes coverage while the gate still prints
+"the gate can fail". Fixed with a count floor (`e2e-shard-audit` 14,
+`stage-doc-hunks` 19, `<` so adding checks is free) and MEASURED by mutation:
+neutering every append now prints "RAN 0 of 14" and exits 1. `stage-doc-hunks`'
+`blanks != seen` cross-check is documented honestly for the first time: with the
+context rule live, `entry_heads` yields exactly one head per added paragraph, so
+`seen == blanks` IDENTICALLY on bold-lead docs and the check CANNOT fire for the
+bold question the 2026-08-11 fix credits it with — it arbitrates list-item
+shapes (measured: blanks=1/seen=2 for two items in one paragraph, blanks=2/seen=1
+with a plain paragraph) and is the BACKSTOP if the context rule is ever dropped.
+Bold is protected by that rule plus the byte-for-byte `git show :FILE` compare,
+and the identity is now PINNED by a self-test check: (2,2) on both ROADMAP
+fixtures today, (2,4) the instant `heads.append(prev_blank)` becomes
+`heads.append(True)`. In `e2e.yml` the flaky guard went ANY -> ALL over audit
+invocations with a fourth probe whose decoy step (under `if: false`) carries no
+flag; the invocation-count guard stays FIRST and is now load-bearing, because
+"every invocation is flagged" is vacuously true of zero. Negative controls, run
+against copies of the workflow: the old ANY guard prints "1/2 … intact" and
+exits 0 with the real invocation unflagged; the new one exits 1, a renamed script
+trips the count floor, and reverting to ANY trips the new probe on the clean
+file.
+
 **SPEC-4 CLOSED-PENDING-REVIEW 2026-08-12/13 (`0983935`) — the scribe census is
 measured by coverage now, and the review that followed corrected four of this
 entry's own numbers.** `sketch-visibility`'s exact-token census was a sub-pixel

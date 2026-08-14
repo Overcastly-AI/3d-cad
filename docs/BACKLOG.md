@@ -140,6 +140,19 @@ duplication.
       invocation has lost it. One-line hardening using the invocation count
       already computed.
       [src: ultracode review, 2026-08-13]
+      PARTIAL 2026-08-14 (REV-1 e/f/g — the scripts/workflow half; (a)-(d), the
+      e2e helpers, stay open). (e) Count floors on both self-tests (14 and 19,
+      `<` not `!=`): with every `checks.append` neutered the audit self-test now
+      exits 1 saying "RAN 0 of 14" where it printed "the gate can fail" and
+      exited 0. (f) Doc-only: the cross-check is structurally dead for bold-lead
+      docs (`seen == blanks` identically) and is a BACKSTOP there, not the
+      protection — the context rule in `entry_heads` plus `--self-test`'s
+      byte-for-byte tree compare is. Now PINNED by a check that reads (2,2) on
+      both ROADMAP fixtures and (2,4) the moment the context rule is dropped.
+      (g) ANY -> ALL over audit invocations, plus a fourth probe carrying an
+      unflagged decoy; the count guard stays FIRST because ALL is vacuous at
+      zero. The old guard passes a file whose decoy lost the flag (1/2, exit 0),
+      the new one exits 1, and reverting to ANY trips the new probe.
 
 - [ ] (P2, XS) **REV-2 — the retries posture guard stops covering a renamed
       Playwright config, silently** (`.github/workflows/e2e.yml:380`). Filed
