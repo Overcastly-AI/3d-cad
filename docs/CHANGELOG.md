@@ -5,6 +5,37 @@ section each grooming pass (one-line-per-entry there; detail preserved
 here). Newest first. Evidence for shipped items also lives in the Done
 archive (`BACKLOG.md`) and per-item commits.
 
+## 2026-08-08 to 2026-08-11 (CI-4 fixes, SEL-4/6/6b)
+
+- 2026-08-11 — CI-4 review fix (backend-builder): `--fail-on-flaky` guard
+  matched its own text; flag literal now assembled in pieces, 3 probes, 4
+  mutations verified (`aea990a`).
+- 2026-08-11 — CI-4 frontend slice (frontend-builder): `waitForRenders`
+  counts r3f renders, throws with count achieved; `sketch-visibility` ink=0
+  reproduced 5/10 locally, an AA phase lottery not a regression (SPEC-4).
+- 2026-08-11 — SEL-6/6b independent QA verdict: PASS (qa-tester) — occluded
+  plate 94.8% with occluder hidden (was 8.5%), names near face; 5 mutations
+  red.
+- 2026-08-08 — SEL-6b (frontend-builder): `hiddenPicks.ts` withholds a
+  hidden body's edges/faces/snap points; 24 edge marks -> 12, 12 face -> 6.
+- 2026-08-08 — SEL-6 (frontend-builder): `pickRaycast.ts` filters hidden
+  triangles; shell reachability with wall hidden 7.4% -> 96.3%.
+- 2026-08-08 — SEL-4 independent QA verdict: PASS (qa-tester) — 25 e2e green,
+  10 checks the shipped gate didn't express (draft, refusals, recede, touch).
+- 2026-08-08 — SEL-4 review follow-up (frontend-builder): hidden body stops
+  occluding edge band; mate picks 8.9% -> ≥50%; one owner for mate hover.
+- 2026-08-08 — SEL-4 (5/5) dense-hole gate (frontend-builder): anisotropy not
+  area for edges, mutation-verified on all three conversions.
+- 2026-08-08 — SEL-4 (4/5) drill anywhere on the face (frontend-builder):
+  free placement by raycast + plane projection.
+- 2026-08-08 — SEL-4 (3/5) shell/draft/mates address geometry
+  (frontend-builder): surface raycast + edge band; shell reachability
+  1.7% -> 95.6%.
+- 2026-08-08 — SEL-4 (2/5) fillet/chamfer/measure pick the edge
+  (frontend-builder): 24px screen-space corridor with occlusion test.
+- 2026-08-08 — SEL-4 (1/5) one pick hit-test, shared (frontend-builder):
+  `PickSurface`/`FacePatch`/`useViewportPickStamp`/`edgeBand` extracted.
+
 ## 2026-07-19 to 2026-07-20 (sheet-metal v2 + corner relief + hem v1 +
 STEP hardening + WB-64/TB-1 dogfooding)
 

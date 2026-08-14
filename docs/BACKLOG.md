@@ -85,6 +85,11 @@ duplication.
       instead assert by code inspection that no `expect.poll` in the file names
       a string absent from `partBuild.ts`'s status union (grep gate is fine).
       [src: engineering-auditor pass 5, 2026-08-14 (K1)]
+      TERRITORY: `apps/web/e2e/qa-sel7-verify.spec.ts` only — read-only on
+      `partBuild.ts` (cite its status union, do not change it).
+      agentType: frontend-builder.
+      DISPATCHED 2026-08-14 alongside FB-19 (disjoint territories — no
+      viewport/sketch/geometry files touched by either).
 
 - [x] (P0, M) **SKETCH-1 (M15) — a saved sketch can never be re-opened; every
       driving dimension in the product is write-once** (`apps/web/src/routes/
@@ -170,10 +175,54 @@ duplication.
       (LEFT unbound, ROTATE on MIDDLE, RIGHT still PAN). Gates re-run by the
       orchestrator after the agent died mid-slice (typecheck + 1598 unit tests
       + prettier); NOT reviewed, NOT QA'd, and the new e2e spec has NOT been
-      executed here. **OPEN GAP for the groomer to file as VP-1a: the founder
-      is on a TRACKPAD, which has no middle button, so this does not reach
-      them.** A modifier-plus-left-drag binding is the follow-up, and until it
-      lands the founder's original complaint stands.
+      executed here. **OPEN GAP, now filed below as VP-1a: the founder is on
+      a TRACKPAD, which has no middle button, so this does not reach them.**
+
+- [ ] (P0, S) **VP-1a — VP-1's fix does not reach the founder: they are on a
+      TRACKPAD, which has no middle button.** MECHANISM: `Viewport.tsx`'s
+      sketch-mode `mouseButtons` map (shipped by VP-1, c31bd7d) puts ROTATE on
+      `MOUSE.MIDDLE`; a trackpad has no middle-click gesture, so the founder's
+      original "no orbit while sketching" complaint is still open for them
+      specifically. FIX: add a modifier-plus-left-drag binding reachable from a
+      trackpad (e.g. Space+drag or Alt/Option+drag, matching Fusion/Blender
+      convention — confirm which modifier three-stdlib's `OrbitControls` can
+      take over LEFT without fighting the sketcher's own left-press-drag-draw)
+      that rotates while sketching, alongside (not instead of) the existing
+      MIDDLE binding. ACCEPTANCE: extend `apps/web/e2e/sketch-orbit.spec.ts`
+      (or add a sibling spec) — modifier+left-drag rotates the camera in draw
+      mode (`data-camera-pos` or live three.js camera state changes across the
+      drag, per VP-1's fix for why `data-camera-pos` alone is insufficient);
+      plain left-drag still draws (regression); MIDDLE-drag still rotates
+      (regression, VP-1's original fix untouched). Mutation check: reverting
+      the new modifier binding must redden the new assertion only.
+      DISPATCHED 2026-08-14 — territory occupied this batch, do not reassign.
+      [src: founder report (trackpad), VP-1 gap noted 2026-08-14]
+      TERRITORY: `apps/web/src/viewport/Viewport.tsx`,
+      `apps/web/e2e/sketch-orbit.spec.ts`. agentType: frontend-builder.
+
+- [ ] (P0, S) **SNAP-1 — founder: "snap points not working." Never reproduced;
+      no ticket existed before this pass.** REPRODUCE FIRST, before assuming a
+      root cause: start a sketch, draw near an existing endpoint/midpoint/the
+      origin with snapping on; check whether the snap badge/glyph fires
+      (`sketch/snap.ts`, `SNAP_MARKS`, shipped FB-22/UI-W5) and whether the
+      drawn point lands exactly on the target vs. some pixels off. Two
+      candidate causes to rule in/out while reproducing, NOT assumed: (a) a
+      regression in the snap-detection radius/priority logic itself
+      (`sketch/snap.ts`); (b) the founder means "I can't select origin/axes to
+      constrain to" — that is SKETCH-2 (M2), a different code path
+      (constraint-target selectability, not snap detection) — if reproduction
+      points there instead, close this as a duplicate of SKETCH-2 rather than
+      building a second fix for the same symptom. ACCEPTANCE: either (i)
+      reproduced as a genuine snap-detection bug — root-cause against
+      `apps/web/src/sketch/snap.ts` and fix, with an e2e spec that fails on
+      the reverted fix; or (ii) NOT reproduced / found to be SKETCH-2's
+      selectability gap — close with the exact steps tried and result, so the
+      report is falsified or correctly merged rather than left open twice.
+      TERRITORY: `apps/web/src/sketch/**` (occupied this batch by the
+      dimensions-not-assigning reproduction — cannot run concurrently with
+      it; queue for the next batch once that territory frees up).
+      [src: founder report 2026-08-14, needs reproduction]
+      agentType: frontend-builder.
 
 - [ ] (P0, M) **PICK-1 (M16) — a viewport pick is stamped with the TIP
       feature's id, not the feature that owns the sub-shape, so no non-tip
@@ -344,6 +393,37 @@ duplication.
       TERRITORY: TBD by reproduction — likely `apps/web/src/viewport/**` or
       `apps/web/src/sketch/plane.ts`. agentType: frontend-builder.
 
+- [ ] (P1, M) **FB-19 — the chrome is too sparse; compact it.** Founder,
+      2026-08-01, and distinct from FB-7: FB-7 stops panels COVERING the model,
+      this makes them worth the pixels they take. Note UI-W4 already did one pass
+      ("feature editors stop being 12-row web forms") and the founder still says
+      it is not dense enough — so treat the previous pass as insufficient rather
+      than done. Evidence is the founder's own photo: `EDIT EXTRUDE` spends six
+      full-width rows on Profile / Distance / Operation / Direction / Merge /
+      actions, every label stacked ABOVE its control, plus a permanently-visible
+      helper sentence ("Fuse into the touching body."); the left panel spends six
+      rows listing XY/XZ/YZ + X/Y/Z axis. Concrete levers, in order of return:
+      label BESIDE control instead of above (halves row height on a form that is
+      almost all short values); the two 2-state toggles (Operation, Direction)
+      onto one row as segmented controls; helper prose behind an info affordance
+      rather than permanently resident; the origin list as a 3x2 grid, not six
+      rows. THE FLOOR, which is not negotiable and must be stated in the commit:
+      WCAG 2.5.8 24px minimum target size (`PickNode` already cites it), visible
+      focus, AA contrast, and the touch specs still green — a panel compacted
+      into unusability on a laptop trackpad is a worse defect than a tall one.
+      Judge it the way the design mandate says: screenshots side by side against
+      a Fusion/Plasticity reference at 1600 AND 1280, and measure the viewport
+      pixels reclaimed rather than asserting it feels tighter. [src: founder
+      2026-08-01]
+      TERRITORY: `apps/web/src/components/ExtrudeEditor.tsx`,
+      `apps/web/src/components/FeatureTreePanel.tsx` (origin plane/axis list),
+      `packages/design/**` (only if a new dense-row/segmented-control
+      primitive is needed — fix the primitive, don't one-off it), new
+      screenshots under `docs/screenshots/`. Use the `frontend-design` skill
+      per CLAUDE.md's design mandate. agentType: frontend-builder.
+      DISPATCHED 2026-08-14 alongside QA7-1 (disjoint territories — no
+      viewport/sketch/geometry files touched by either).
+
 - [ ] (P1, M) **FOUNDER — no Fusion-style hover-a-face-to-sketch.** Founder
       complaint: today, starting a sketch requires clicking the Sketch
       command FIRST, then picking a plane/face; Fusion lets you hover an
@@ -372,25 +452,11 @@ duplication.
 
 ## Next (P2)
 
-- [ ] (P1, S) **K7 — the Stop hook's in-flight guard globs one directory too
-      shallow and can never fire** (`scripts/loop-continue.sh:37-41`). The real
-      task-output path has TWO components under `/tmp/claude-0`
-      (`<project-slug>/<session-uuid>/tasks/`), not one; the guard globs
-      `/tmp/claude-0/*/tasks` and `2>/dev/null` silently swallows the "No such
-      file or directory". REPRODUCED against a live background task (output
-      touched 13 min earlier, inside the 30-min window): the guard does not
-      fire; the depth-corrected glob does. Consequence: the only thing left
-      standing between a Stop event and a "dispatch one more batch" is the
-      dirty-tree/unpushed-commits guard, which CLAUDE.md documents as a FALSE
-      POSITIVE during the first 10-30 min of any batch (reading/planning, tree
-      clean, nothing pushed yet) — exactly the window a working guard exists to
-      protect. FIX: `find /tmp/claude-0 -path '*/tasks/*.output' -mmin -30`
-      (depth-agnostic). SHIP WITH A CONTROL: assert the guard fires against a
-      task-output path the harness itself produces, not a hand-built fixture
-      at the depth the code assumes (the class of bug that let this ship in
-      the first place — three OTHER guards in the same hook are fine and
-      passing, which is what made this one look tested).
-      [src: engineering-auditor pass 5, 2026-08-14 (K7)]
+- [x] (P1, S) **K7 — Stop hook in-flight guard fixed. SHIPPED 29387da
+      2026-08-14.** Depth-agnostic `find -path '*/tasks/*.output' -mmin -30`,
+      `-print -quit` (the piped `grep -q` form was also wrong under
+      `pipefail`), `--self-test` against a harness-produced fixture with 4
+      negative controls. [src: engineering-auditor pass 5, 2026-08-14 (K7)]
 
 - [ ] (P2, S) **K2 — no route-sweep authn gate exists; the gateway's
       unauthenticated surface has grown from 71 to 87 routes in two weeks with
@@ -592,28 +658,6 @@ duplication.
       §CONCURRENCY). Acceptance: the 50x case named as a benchmark with its
       measured cost and where the time goes, then the fix that measurement
       implies. [src: founder 2026-08-01]
-- [ ] (P1, M) **FB-19 — the chrome is too sparse; compact it.** Founder,
-      2026-08-01, and distinct from FB-7: FB-7 stops panels COVERING the model,
-      this makes them worth the pixels they take. Note UI-W4 already did one pass
-      ("feature editors stop being 12-row web forms") and the founder still says
-      it is not dense enough — so treat the previous pass as insufficient rather
-      than done. Evidence is the founder's own photo: `EDIT EXTRUDE` spends six
-      full-width rows on Profile / Distance / Operation / Direction / Merge /
-      actions, every label stacked ABOVE its control, plus a permanently-visible
-      helper sentence ("Fuse into the touching body."); the left panel spends six
-      rows listing XY/XZ/YZ + X/Y/Z axis. Concrete levers, in order of return:
-      label BESIDE control instead of above (halves row height on a form that is
-      almost all short values); the two 2-state toggles (Operation, Direction)
-      onto one row as segmented controls; helper prose behind an info affordance
-      rather than permanently resident; the origin list as a 3x2 grid, not six
-      rows. THE FLOOR, which is not negotiable and must be stated in the commit:
-      WCAG 2.5.8 24px minimum target size (`PickNode` already cites it), visible
-      focus, AA contrast, and the touch specs still green — a panel compacted
-      into unusability on a laptop trackpad is a worse defect than a tall one.
-      Judge it the way the design mandate says: screenshots side by side against
-      a Fusion/Plasticity reference at 1600 AND 1280, and measure the viewport
-      pixels reclaimed rather than asserting it feels tighter. [src: founder
-      2026-08-01]
 - [ ] (P0, L) **FB-20 — the FLOW from sketch to feature, and the parts page,
       both need an overhaul.** Founder: "we need to fine tune the flow from
       drawing the sketch. Also, the main pages for selecting parts... Flow is
@@ -2460,62 +2504,16 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 - 2026-08-14 — **Groom + hygiene sweep (backlog-groomer):** Ready had grown to
   145 items / ~2,850 lines (104 already shipped, sitting unarchived). Archived
-  the 104 as one-liners, relocated 37 still-open items into Next/Later, and
-  curated a 10-item Ready from two fresh, still-uncommitted audit passes (M1-22
-  product, K1-8 engineering) plus the founder's live P0 camera report and four
-  sketcher complaints: SKETCH-1 (sketch re-open dead, M15), VP-1 (no orbit
-  while sketching, root-caused to a left-button gesture conflict), PICK-1
-  (pick stamped with the tip feature not the owner, M16 — root cause of the
-  fillet-edit and thickness-edit-breaks-holes bugs), GEOM-2 (face signature
-  encodes cut history, M17), SKETCH-2 (origin/axes not selectable, M2),
-  QA7-1 rewritten with K1's full diagnosis, plus dimensions-not-assigning and
-  hover-to-sketch founder items filed for reproduction. ROADMAP's "Current
-  focus" line fixed (K6 — third recurrence of this exact staleness).
+  the 104, curated a 10-item Ready from two fresh audit passes (M1-22 product,
+  K1-8 engineering) plus founder reports. ROADMAP "Current focus" fixed (K6).
+- 2026-08-14 — **Groom pass 2 (backlog-groomer):** ticked K7 shipped (29387da);
+  filed VP-1a (trackpad orbit — VP-1's stated gap) and SNAP-1 (founder "snap
+  points not working," never previously reproduced), both queued behind the
+  occupied `viewport/sketch` territories; pruned older Changelog entries into
+  `docs/CHANGELOG.md`. Dispatched disjoint from live work (viewport/sketch/
+  geometry occupied): QA7-1 (e2e wait fix) + FB-19 (chrome density).
 
-
-- 2026-08-11 — **CI-4 review fix — the `--fail-on-flaky` guard matched its own
-  text (backend-builder):** flag literal now assembled in pieces and scoped to
-  the audit's real invocation, with three probes; 4 mutations verified. Also
-  dates `aea990a`, the one fix on this branch that shipped with no doc tick.
-- 2026-08-11 — **CI-4 frontend slice — the e2e render clock
-  (frontend-builder):** `waitForRenders` counts r3f renders (demand loop: 92
-  animation frames, 0 renders) and throws with the count achieved; reds attach
-  the viewport readback. `sketch-visibility` ink = 0 reproduced 5/10 locally —
-  an AA phase lottery, not a regression (SPEC-4).
-- 2026-08-11 — **SEL-6/6b independent QA verdict: PASS (qa-tester):** the
-  occluded plate answers 94.8 % with the occluder hidden (8.5 % before) and
-  names its NEAR face; `e2e/qa-sel6-verify.spec.ts`, five mutations each red.
-- 2026-08-08 — **SEL-6b a hidden body stops OFFERING picks too
-  (frontend-builder):** `hiddenPicks.ts` withholds a switched-off body's edges,
-  faces and snap points; 24 edge marks -> 12, 12 face marks -> 6, wall hidden.
-- 2026-08-08 — **SEL-6 a hidden body stops eating the pick behind it
-  (frontend-builder):** `pickRaycast.ts` filters hidden triangles inside
-  `raycast`; shell reachability with the wall hidden 7.4 % -> 96.3 %.
-- 2026-08-08 — **SEL-4 independent QA verdict: PASS (qa-tester):** 25 e2e green
-  on the real stack, `e2e/qa-sel4-verify.spec.ts` adding the 10 checks the
-  shipped gate did not express (draft, refusals, recede, mount audit, touch).
-- 2026-08-08 — **SEL-4 review follow-up 2026-08-08 (frontend-builder):** a
-  hidden body stops occluding the edge band (`resolveBandIntersections` +
-  `PickTriangle`); mate picks gated (8.9 % -> ≥50 %); one owner for mate hover.
-- 2026-08-08 — **SEL-4 (5/5) the dense-hole gate A2 asked for
-  (frontend-builder):** `seedDenseHolePlate` + `e2e/pick-affordance.spec.ts`,
-  anisotropy not area for edges, mutation-verified on all three conversions.
-
-- 2026-08-08 — **SEL-4 (4/5) drill anywhere on the face (frontend-builder):**
-  free placement by raycast + plane projection; the snap nodes still win inside
-  their 24 px because they are DOM above the canvas. Behaviour change.
-
-- 2026-08-08 — **SEL-4 (3/5) shell, draft and mates address the geometry
-  (frontend-builder):** surface raycast + edge band + the hover highlight
-  neither had. Shell reachability measured 1.7 % -> 95.6 % of the lit body.
-
-- 2026-08-08 — **SEL-4 (2/5) fillet/chamfer/measure pick the EDGE
-  (frontend-builder):** a 24 px screen-space `LineSegments2` corridor with an
-  occlusion test. Measured 13 px in every direction -> 40–130 px along.
-
-- 2026-08-08 — **SEL-4 (1/5) one pick hit-test, shared (frontend-builder):**
-  `PickSurface` / `FacePatch` / `useViewportPickStamp` / `edgeBand` (pure,
-  unit-tested) extracted from `FacePickOverlay`, plus `sceneToOcctTuple`.
+Older entries: see `docs/CHANGELOG.md`.
 
 - 2026-08-01 — **Escape no longer ends your sketch, and a click no longer piles
   up (frontend-builder):** FB-13/FB-14 — the cascade unwinds and then stops (it

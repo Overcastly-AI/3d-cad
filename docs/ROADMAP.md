@@ -19,6 +19,14 @@ write-once; a viewport pick is stamped with the tip feature's id rather than
 the one that owns the sub-shape). See `docs/BACKLOG.md` Ready:
 SKETCH-1/SKETCH-2/PICK-1/GEOM-2/VP-1 are the next batch.
 
+**K7 CLOSED (29387da, 2026-08-14)** — Stop hook in-flight guard fixed
+(depth-agnostic `find`, no `pipefail`-breaking pipe, self-test against a
+harness-produced fixture). Groom pass 2026-08-14 (post-VP-1/SKETCH-1) filed
+**VP-1a** (trackpad-reachable orbit — the gap VP-1 left open, below) and
+**SNAP-1** (founder "snap points not working," never reproduced before now)
+onto the board; both queue behind the currently-occupied
+`apps/web/src/{viewport,sketch}/**` territories.
+
 **VP-1 PARTIAL (c31bd7d, 2026-08-14) — orbit works while sketching, on the
 middle button; it does not yet reach a trackpad.** The sketcher draws with a
 left press-drag-release and three.js binds orbit to LEFT, so the app had
