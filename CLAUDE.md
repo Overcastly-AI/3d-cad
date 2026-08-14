@@ -335,6 +335,12 @@ Stale docs are a defect (this rule saved Next-Lane repeatedly; see
 
 ## Work as a dev team
 
+**ORCHESTRATOR: READ [`.claude/ORCHESTRATOR.md`](./.claude/ORCHESTRATOR.md)
+FIRST, EVERY SESSION.** It is the playbook you follow — what is yours, what
+belongs to an agent, the audit -> groom -> build -> integrate loop, and the
+anti-patterns with the evidence that earned them. The short version: you
+dispatch and integrate; you do not write the board, run the audits, or build.
+
 Built by a **team of specialized AI agents**, not one generalist. Default to
 delegating. The tooling lives in [`.claude/`](./.claude/README.md).
 
