@@ -1,10 +1,14 @@
 /**
  * The edge-pick overlay inside the WebGL viewport — the "Pick edges" step of
- * the Fillet / Chamfer editors. Every B-rep edge of the current body gets a
- * DOM-in-canvas `PickNode` diamond (drei `Html`) at its true mid-span, so
- * picking is keyboard-navigable, screen-reader named, and e2e-drivable — the
- * same posture as the measurement overlay's edge marks. Clicking toggles that
+ * the Fillet / Chamfer / edge-flange / hem editors. The EDGE ITSELF is the
+ * hit-test: an invisible screen-space band follows every polyline
+ * (`EdgeBandLayer`, SEL-4), so a click anywhere along an edge picks it. Every
+ * edge also carries a DOM-in-canvas `PickNode` diamond (drei `Html`) at its
+ * true mid-span, which is now the keyboard focus target, the screen-reader name
+ * and the touch tap target rather than the way you aim. Clicking toggles that
  * edge into the picked set; the fillet/chamfer then rounds ONLY those edges.
+ * Edges of a SWITCHED-OFF body are not offered at all (`hiddenPicks.ts`) —
+ * neither corridor, nor mark, nor highlight.
  *
  * The highlight draws (selected = brass, hover = brass-hover) reuse the shared
  * `measure` tokens and the shared `Segments` layer — one selection palette, one
@@ -17,7 +21,7 @@ import { PickNode } from "@loft/design";
 import { measure } from "@loft/design/tokens";
 import { Html } from "@react-three/drei";
 import { useThree } from "@react-three/fiber";
-import { useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 
 import type { Vec3 } from "../api/measure";
 import { edgeSignatureKey } from "../features/edge";
@@ -27,7 +31,11 @@ import {
   polylineMidpoint,
   polylineSegments,
 } from "../measure/geometry";
+import { EdgeBandLayer } from "./EdgeBandLayer";
+import type { EdgeBandInput } from "./edgeBand";
+import { useHiddenPicks } from "./hiddenPicks";
 import { concatPositions, Segments } from "./overlaySegments";
+import { useViewportPickStamp } from "./pickStamp";
 
 /** Edge marks sit just under the HUD strips (same band as measurement edges). */
 const EDGE_Z_RANGE: [number, number] = [17, 0];
@@ -45,48 +53,100 @@ export function EdgePickOverlay() {
   const toggle = useEdgePickStore((s) => s.toggle);
   const setHoverEdge = useEdgePickStore((s) => s.setHoverEdge);
   const invalidate = useThree((s) => s.invalidate);
+  const hiddenPicks = useHiddenPicks();
 
-  // frameloop="demand": redraw when the pick/hover set changes.
-  useEffect(() => {
-    invalidate();
-  }, [overlay, picked, hoverEdge, invalidate]);
+  /** QA hook: which edge the armed pick is addressing (SEL-4 / A2). */
+  useViewportPickStamp("edgePickHover", hoverEdge);
 
   const pickedKeys = useMemo(
     () => new Set(picked.map(edgeSignatureKey)),
     [picked],
   );
 
-  const selectedPositions = useMemo(() => {
-    if (overlay === null) return new Float32Array(0);
-    return concatPositions(
-      overlay.edges
-        .filter((edge) => pickedKeys.has(edgeSignatureKey(edge.signature)))
-        .map((edge) => polylineSegments(edge.polyline)),
+  /**
+   * The edges ON OFFER — every edge of a DRAWN body, each keeping its overlay
+   * index (that index is the pick's identity, so filtering may thin the list
+   * but must never renumber it). A switched-off body's edges leave the offer
+   * entirely: SEL-6's first half stopped a hidden body eating the pick behind
+   * it, and this is its mirror — an edge you cannot see must not be hoverable
+   * through the band's 24 px corridor, nor paint a brass highlight over the
+   * empty space where its body used to be.
+   */
+  const offered = useMemo(() => {
+    if (overlay === null) return [];
+    return overlay.edges.flatMap((edge, index) =>
+      hiddenPicks.isHiddenEdge(edge.polyline) ? [] : [{ edge, index }],
     );
-  }, [overlay, pickedKeys]);
+  }, [overlay, hiddenPicks]);
+
+  // frameloop="demand": redraw when the offer / pick / hover set changes —
+  // switching a body off changes what is drawn here, not just what is pickable.
+  useEffect(() => {
+    invalidate();
+  }, [offered, picked, hoverEdge, invalidate]);
+
+  /** Every offered edge is bandable — the picked set is a choice, not a filter. */
+  const bandEdges = useMemo<EdgeBandInput[]>(
+    () =>
+      offered.map(({ edge, index }) => ({
+        index,
+        polyline: edge.polyline,
+      })),
+    [offered],
+  );
+
+  const pickBandEdge = useCallback(
+    (index: number) => {
+      const edge = overlay?.edges[index];
+      if (edge !== undefined) toggle(edge.signature);
+    },
+    [overlay, toggle],
+  );
+
+  // Highlights follow the OFFER, not the store: hiding a body does not unpick
+  // its edges (the pick survives showing it again), but their brass must not
+  // keep drawing where the body no longer is.
+  const selectedPositions = useMemo(
+    () =>
+      concatPositions(
+        offered
+          .filter(({ edge }) =>
+            pickedKeys.has(edgeSignatureKey(edge.signature)),
+          )
+          .map(({ edge }) => polylineSegments(edge.polyline)),
+      ),
+    [offered, pickedKeys],
+  );
 
   const hoveredPositions = useMemo(() => {
-    if (overlay === null || hoverEdge === null) return new Float32Array(0);
-    const edge = overlay.edges[hoverEdge];
+    if (hoverEdge === null) return new Float32Array(0);
+    const hit = offered.find(({ index }) => index === hoverEdge);
     if (
-      edge === undefined ||
-      pickedKeys.has(edgeSignatureKey(edge.signature))
+      hit === undefined ||
+      pickedKeys.has(edgeSignatureKey(hit.edge.signature))
     ) {
       return new Float32Array(0);
     }
-    return polylineSegments(edge.polyline);
-  }, [overlay, hoverEdge, pickedKeys]);
+    return polylineSegments(hit.edge.polyline);
+  }, [offered, hoverEdge, pickedKeys]);
 
   if (overlay === null) return null;
 
   return (
     <group>
+      {/* The hit-test: a 24 px screen-space corridor along every edge. */}
+      <EdgeBandLayer
+        edges={bandEdges}
+        onHover={setHoverEdge}
+        onPick={pickBandEdge}
+      />
+
       {/* Highlights (hover under selection), brass token — one palette. */}
       <Segments positions={hoveredPositions} color={measure.edgeHover} />
       <Segments positions={selectedPositions} color={measure.edgeSelected} />
 
       {/* Pickable edges — a diamond mark at each edge's true mid-span. */}
-      {overlay.edges.map((edge, index) => {
+      {offered.map(({ edge, index }) => {
         const midpoint = polylineMidpoint(edge.polyline);
         return (
           <Html
@@ -97,6 +157,10 @@ export function EdgePickOverlay() {
           >
             <PickNode
               shape="edge"
+              // A7's recession: the edge band is this pick's primary hit-test
+              // now, so the mark is the keyboard/touch fallback and may rest
+              // quiet.
+              recede
               selected={pickedKeys.has(edgeSignatureKey(edge.signature))}
               data-testid={`edge-pick-${index}`}
               aria-label={edgeLabel(index, edge.kind, midpoint)}

@@ -127,6 +127,229 @@ export async function seedAllEdgeFillet(
 }
 
 /**
+ * A 60 mm plate with SEVEN bores on a Ø40 bolt circle — the dense-hole fixture
+ * spec A2 names (`docs/design/pre-selection.md` §6) and the shipped SEL-1 gate
+ * did not have.
+ *
+ * Why it has to exist: a six-face box cannot show a MIS-RESOLVED ordinal. Every
+ * face of a box is metres apart in ordinal space and centimetres apart on
+ * screen, so a pick model that quietly answers "the face next door" scores
+ * perfectly on it. Seven bores put ~14 circular edges and 7 snap centres within
+ * a few millimetres of one another, which is where a widened pick corridor
+ * either stays a corridor or becomes a blanket.
+ *
+ * Two features, not eight: ONE sketch carries all seven circles and ONE cut
+ * extrude drills them, so the fixture costs two kernel evaluations. The circles
+ * are deliberately NON-overlapping (17.4 mm apart on a Ø40 circle, Ø6 bores) —
+ * overlapping profiles would fuse into a single face and destroy the very
+ * ordinal crowding the fixture exists to create.
+ */
+export function boltCircleSketch(
+  count: number,
+  centre: { x: number; y: number },
+  pitchRadiusMm: number,
+  boreRadiusMm: number,
+) {
+  return {
+    plane: { kind: "datum_plane", plane: "XY" },
+    entities: Array.from({ length: count }, (_unused, i) => {
+      const angle = (2 * Math.PI * i) / count;
+      return {
+        id: `c${i + 1}`,
+        kind: "circle",
+        center: {
+          x: centre.x + pitchRadiusMm * Math.cos(angle),
+          y: centre.y + pitchRadiusMm * Math.sin(angle),
+        },
+        radius: boreRadiusMm,
+      };
+    }),
+    constraints: [],
+  };
+}
+
+/** Sketch + extrude the plate, then sketch + cut the bolt circle. */
+export async function seedDenseHolePlate(
+  page: Page,
+  token: string,
+  partId: string,
+): Promise<number> {
+  const plate = await createFeature(page, token, partId, {
+    name: "Plate",
+    feature: {
+      type: "sketch",
+      version: 1,
+      params: rectangleSketch(0, 0, 60, 60),
+    },
+    expected_tree_version: 0,
+  });
+  const solid = await createFeature(page, token, partId, {
+    name: "Extrude1",
+    feature: {
+      type: "extrude",
+      version: 1,
+      params: {
+        profile: { kind: "feature", feature_id: plate.feature.id },
+        distance_mm: 10,
+        operation: "add",
+        direction: "normal",
+      },
+    },
+    expected_tree_version: plate.tree_version,
+  });
+  const bores = await createFeature(page, token, partId, {
+    name: "Bolt circle",
+    feature: {
+      type: "sketch",
+      version: 1,
+      params: boltCircleSketch(7, { x: 30, y: 30 }, 20, 3),
+    },
+    expected_tree_version: solid.tree_version,
+  });
+  const cut = await createFeature(page, token, partId, {
+    name: "Bores",
+    feature: {
+      type: "extrude",
+      version: 1,
+      params: {
+        profile: { kind: "feature", feature_id: bores.feature.id },
+        distance_mm: 10,
+        operation: "cut",
+        direction: "normal",
+      },
+    },
+    expected_tree_version: bores.tree_version,
+  });
+  return cut.tree_version;
+}
+
+/**
+ * THE BORED PLATE, PLUS A SECOND BODY THAT CAN BE SWITCHED OFF INDEPENDENTLY —
+ * the fixture for "what does hiding a body do to the hole PLACEMENT overlay"
+ * (SEL-7).
+ *
+ * That question needs three things at once, and no existing fixture has all
+ * three. `seedDenseHolePlate` has the snap density — the plate's top face
+ * carries 1 centre + 4 corners + 7 bore centres = 12 snap nodes — but it is ONE
+ * body, and `BodiesPanel` offers a per-body eye only while the fused mesh
+ * PARTITIONS, so there is nothing to hide. `seedOccludedEdgePlate` has two
+ * bodies but is two plain boxes: zero circular edges, so it cannot show the
+ * `-circle-N` snaps at all, and it pins screen pixels for the SEL-6 specs, so
+ * widening it would move measurements those specs report in fixed units.
+ *
+ * So: the dense plate exactly as it is, plus a disjoint 20 × 20 × 10 block at
+ * y = 80…100 (`merge: false` starts the second body), well clear of the 60 × 60
+ * plate so the partition can never be ambiguous. Two body rows, `partitioned`,
+ * and every snap kind on a face whose body can be switched off while the other
+ * stays drawn — which is what makes the CONTROL possible too: hiding the OTHER
+ * body must change nothing.
+ */
+export async function seedBoredPlateAndBlock(
+  page: Page,
+  token: string,
+  partId: string,
+): Promise<number> {
+  const platedVersion = await seedDenseHolePlate(page, token, partId);
+  const block = await createFeature(page, token, partId, {
+    name: "Block sketch",
+    feature: {
+      type: "sketch",
+      version: 1,
+      params: rectangleSketch(0, 80, 20, 20),
+    },
+    expected_tree_version: platedVersion,
+  });
+  const blockSolid = await createFeature(page, token, partId, {
+    name: "Block",
+    feature: {
+      type: "extrude",
+      version: 1,
+      params: {
+        profile: { kind: "feature", feature_id: block.feature.id },
+        distance_mm: 10,
+        operation: "add",
+        direction: "normal",
+        merge: false,
+      },
+    },
+    expected_tree_version: block.tree_version,
+  });
+  return blockSolid.tree_version;
+}
+
+/**
+ * TWO BODIES, ONE BEHIND THE OTHER in the FRONT view — the fixture for "hide a
+ * body to reach the geometry behind it".
+ *
+ * Body 1 (the blocker) is a 40×20 wall standing 40 mm tall at y∈[0,20];
+ * body 2 (the target) is a 60×20 plate 10 mm thick at y∈[30,50], so the two
+ * never touch (`merge: false` starts the second body). `occtToSceneTuple` maps
+ * OCCT y to scene −z and the front view puts the camera on scene +z, so SMALLER
+ * OCCT y is NEARER: the wall stands directly in front of the plate, and the
+ * plate's top-front edge — mid-span at OCCT (30, 30, 10) — is squarely behind
+ * it, with the wall's own nearest edge 10 mm away in the view plane.
+ *
+ * A one-body fixture cannot pose this question at all: the occlusion test is
+ * only wrong when the material in front is material the modeller has switched
+ * OFF, which takes two bodies and a visibility toggle.
+ */
+export async function seedOccludedEdgePlate(
+  page: Page,
+  token: string,
+  partId: string,
+): Promise<number> {
+  const wall = await createFeature(page, token, partId, {
+    name: "Wall sketch",
+    feature: {
+      type: "sketch",
+      version: 1,
+      params: rectangleSketch(10, 0, 40, 20),
+    },
+    expected_tree_version: 0,
+  });
+  const wallSolid = await createFeature(page, token, partId, {
+    name: "Wall",
+    feature: {
+      type: "extrude",
+      version: 1,
+      params: {
+        profile: { kind: "feature", feature_id: wall.feature.id },
+        distance_mm: 40,
+        operation: "add",
+        direction: "normal",
+        merge: true,
+      },
+    },
+    expected_tree_version: wall.tree_version,
+  });
+  const plate = await createFeature(page, token, partId, {
+    name: "Plate sketch",
+    feature: {
+      type: "sketch",
+      version: 1,
+      params: rectangleSketch(0, 30, 60, 20),
+    },
+    expected_tree_version: wallSolid.tree_version,
+  });
+  const plateSolid = await createFeature(page, token, partId, {
+    name: "Plate",
+    feature: {
+      type: "extrude",
+      version: 1,
+      params: {
+        profile: { kind: "feature", feature_id: plate.feature.id },
+        distance_mm: 10,
+        operation: "add",
+        direction: "normal",
+        merge: false,
+      },
+    },
+    expected_tree_version: plate.tree_version,
+  });
+  return plateSolid.tree_version;
+}
+
+/**
  * Park the travel stop on `featureId` (null = tip) through the gateway — the
  * API half of the timeline's drag, for specs that need a part whose evaluate
  * genuinely covers only a PREFIX. Resolves with the new tree version.

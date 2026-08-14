@@ -16,6 +16,7 @@ import { isParametricMate, useMateAuthoringStore } from "../assembly/mateStore";
 import { mateToolLabel, parseMateValue } from "../assembly/mates";
 import { useDocumentLengthUnit } from "../units/documentUnit";
 import { lengthInputValue } from "../units/length";
+import { RailDock } from "./ChromeRail";
 
 const FIRST: Record<string, string> = {
   coincident: "Pick a flat face on the first part.",
@@ -99,60 +100,62 @@ export function MateHud({ submitError, submitting, onCommit }: MateHudProps) {
   const unit = isDistance ? docUnit : "°";
 
   return (
-    <div
-      role="status"
-      data-testid="mate-hud"
-      data-mate-tool={tool}
-      className="absolute left-editor top-3 max-w-sm border border-brass bg-anvil px-3 py-2"
-    >
-      <span className="block font-display text-2xs uppercase tracking-[0.18em] text-brass">
-        {`${mateToolLabel(tool)} mate`}
-      </span>
-      {needsValue && !submitting ? (
-        <div className="mt-2 flex items-end gap-2">
-          <NumberField
-            label={mateToolLabel(tool)}
-            unit={unit}
-            className="w-[7rem]"
-            data-testid="mate-value"
-            autoFocus
-            value={draft}
-            onChange={(event) => onDraftChange(event.target.value)}
-            onFocus={(event) => event.currentTarget.select()}
-            onKeyDown={onFieldKeyDown}
-          />
-          <Button
-            variant="solid"
-            data-testid="mate-commit"
-            disabled={value === null}
-            onClick={onCommit}
+    <RailDock side="left">
+      <div
+        role="status"
+        data-testid="mate-hud"
+        data-mate-tool={tool}
+        className="border border-brass bg-anvil px-3 py-2"
+      >
+        <span className="block font-display text-2xs uppercase tracking-[0.18em] text-brass">
+          {`${mateToolLabel(tool)} mate`}
+        </span>
+        {needsValue && !submitting ? (
+          <div className="mt-2 flex items-end gap-2">
+            <NumberField
+              label={mateToolLabel(tool)}
+              unit={unit}
+              className="w-[7rem]"
+              data-testid="mate-value"
+              autoFocus
+              value={draft}
+              onChange={(event) => onDraftChange(event.target.value)}
+              onFocus={(event) => event.currentTarget.select()}
+              onKeyDown={onFieldKeyDown}
+            />
+            <Button
+              variant="solid"
+              data-testid="mate-commit"
+              disabled={value === null}
+              onClick={onCommit}
+            >
+              Add mate
+            </Button>
+          </div>
+        ) : (
+          <span className="mt-1 block font-body text-xs text-mist">
+            {submitting ? "Solving the assembly…" : prompt}
+          </span>
+        )}
+        {error ? (
+          <span
+            role="alert"
+            className="mt-1 block font-body text-xs text-flag"
+            data-testid="mate-hud-error"
           >
-            Add mate
-          </Button>
-        </div>
-      ) : (
-        <span className="mt-1 block font-body text-xs text-mist">
-          {submitting ? "Solving the assembly…" : prompt}
-        </span>
-      )}
-      {error ? (
-        <span
-          role="alert"
-          className="mt-1 block font-body text-xs text-flag"
-          data-testid="mate-hud-error"
-        >
-          {error}
-        </span>
-      ) : null}
-      {submitError ? (
-        <span
-          role="alert"
-          className="mt-1 block font-body text-xs text-flag"
-          data-testid="mate-submit-error"
-        >
-          {submitError}
-        </span>
-      ) : null}
-    </div>
+            {error}
+          </span>
+        ) : null}
+        {submitError ? (
+          <span
+            role="alert"
+            className="mt-1 block font-body text-xs text-flag"
+            data-testid="mate-submit-error"
+          >
+            {submitError}
+          </span>
+        ) : null}
+      </div>
+    </RailDock>
   );
 }

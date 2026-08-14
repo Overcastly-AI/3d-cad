@@ -12,6 +12,7 @@ import type {
 import {
   BODY_AFFECTING_FEATURE_TYPES,
   faceLabel,
+  faceOrdinalOfSignature,
   faceSignatureKey,
   faceSubshapeRef,
   isFacePicked,
@@ -275,5 +276,45 @@ describe("isFacePicked", () => {
   it("reports membership by signature identity", () => {
     expect(isFacePicked([SIGNATURE], { ...SIGNATURE })).toBe(true);
     expect(isFacePicked([SIGNATURE], SIGNATURE_B)).toBe(false);
+  });
+});
+
+describe("faceOrdinalOfSignature", () => {
+  // `OverlayFace.index` IS the mesh's face ordinal, and it is NOT the array
+  // position — the overlay lists only the faces it can describe, so a fixture
+  // whose indices matched their slots could not tell the two apart.
+  const faces: OverlayFace[] = [
+    { index: 4, planar: true, signature: SIGNATURE },
+    { index: 7, planar: false, signature: null },
+    { index: 9, planar: true, signature: SIGNATURE_B },
+  ];
+
+  it("resolves the ordinal the overlay carries, not the array slot", () => {
+    expect(faceOrdinalOfSignature(SIGNATURE, faces)).toBe(4);
+    expect(faceOrdinalOfSignature(SIGNATURE_B, faces)).toBe(9);
+  });
+
+  it("matches by signature identity, not by object reference", () => {
+    expect(faceOrdinalOfSignature({ ...SIGNATURE }, faces)).toBe(4);
+  });
+
+  it("answers null when nothing is asked, or nothing is loaded", () => {
+    expect(faceOrdinalOfSignature(null, faces)).toBeNull();
+    expect(faceOrdinalOfSignature(SIGNATURE, null)).toBeNull();
+    expect(faceOrdinalOfSignature(null, null)).toBeNull();
+  });
+
+  it("answers null for a signature no listed face carries", () => {
+    const other: PlanarFaceSignature = { ...SIGNATURE, area_mm2: 999 };
+    expect(faceOrdinalOfSignature(other, faces)).toBeNull();
+  });
+
+  it("skips an unpickable face even if it somehow carries the signature", () => {
+    // Defence in depth against the null-signature branch: a face the overlay
+    // marked non-planar is not a placement target whatever else it says.
+    const odd: OverlayFace[] = [
+      { index: 2, planar: false, signature: SIGNATURE },
+    ];
+    expect(faceOrdinalOfSignature(SIGNATURE, odd)).toBeNull();
   });
 });

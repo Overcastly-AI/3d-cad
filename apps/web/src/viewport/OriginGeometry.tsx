@@ -49,7 +49,7 @@ import {
 } from "three";
 
 import {
-  originBasis,
+  sceneOriginBasis,
   planeToWorld,
   type DatumPlaneName,
   type PlaneBasis,
@@ -124,7 +124,7 @@ function OriginPlane({
   plane: DatumPlaneName;
   extentMm: number;
 }) {
-  const basis = useMemo(() => originBasis(plane), [plane]);
+  const basis = useMemo(() => sceneOriginBasis(plane), [plane]);
   const quaternion = useMemo(() => planeQuaternion(basis), [basis]);
   const border = useMemo(() => {
     const s = extentMm / 2;

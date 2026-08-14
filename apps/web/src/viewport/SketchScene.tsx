@@ -14,6 +14,9 @@ import {
   SnapEndpointIcon,
   SnapIntersectionIcon,
   SnapMidpointIcon,
+  SnapOriginIcon,
+  SnapXAxisIcon,
+  SnapYAxisIcon,
   TangentIcon,
   HorizontalIcon,
   VerticalIcon,
@@ -59,10 +62,19 @@ import {
   type DrawDimensionKey,
   type DrawDimensionValues,
 } from "../sketch/drawDimensions";
+import {
+  ORIGIN_AXIS_FRACTION,
+  ORIGIN_DASH_FRACTION,
+  ORIGIN_GAP_FRACTION,
+  ORIGIN_RING_FRACTION,
+  originAxisSpans,
+  originIdentity,
+  originRingSegments,
+} from "../sketch/origin";
 import { pickCandidates, samePick, PICK_TOLERANCE_PX } from "../sketch/pick";
 import {
   DATUM_PLANES,
-  originBasis,
+  sceneOriginBasis,
   planeCameraPose,
   planeToWorld,
   resolveSpecBasis,
@@ -133,6 +145,12 @@ import { sketchIsDrawn, usePartViewStore } from "./partView";
 const ACTIVE_INK_RENDER_ORDER = 900;
 /** Defining-point dots ride one step above their own lines. */
 const ACTIVE_POINT_RENDER_ORDER = 901;
+/**
+ * The plane's own frame (origin + axes) draws over the solid like the rest of
+ * the active layer, but one step UNDER the ink: it is the paper, not what is
+ * written on it, so a line drawn along the X axis must cover the axis.
+ */
+const PLANE_FRAME_RENDER_ORDER = 899;
 
 /**
  * Coplanar-decal depth bias for the sketcher's sheet meshes. Polygon offset is
@@ -219,6 +237,27 @@ function gridQuaternion(basis: PlaneBasis): Quaternion {
   );
 }
 
+/**
+ * The scene camera's vertical field of view, with the orthographic fallback the
+ * three call sites here all need (an ortho camera frames by zoom, not fov).
+ */
+function cameraFov(camera: Camera): number {
+  return "fov" in camera && typeof camera.fov === "number" ? camera.fov : 40;
+}
+
+/** Plane-mm segment pairs → a world-space positions buffer on this basis. */
+function segmentPositions(
+  basis: PlaneBasis,
+  segments: ReadonlyArray<readonly [Point2D, Point2D]>,
+): Float32Array {
+  const out = new Float32Array(segments.length * 6);
+  segments.forEach(([a, b], i) => {
+    out.set(planeToWorld(basis, a), i * 6);
+    out.set(planeToWorld(basis, b), i * 6 + 3);
+  });
+  return out;
+}
+
 /** Shared geometry plumbing: a positions buffer with disposal. */
 function usePositionsGeometry(positions: Float32Array): BufferGeometry {
   const geometry = useMemo(() => {
@@ -242,6 +281,8 @@ interface InkSegmentsProps {
    * Off by default so committed/solved ink keeps ordinary occlusion.
    */
   onTop?: boolean;
+  /** Order WITHIN the on-top layer; defaults to the ink's own step. */
+  order?: number;
 }
 
 /** One layer of sketch ink — a single LineSegments draw call. */
@@ -252,6 +293,7 @@ function InkSegments({
   dashSize = sketch.previewDashMm,
   gapSize = sketch.previewGapMm,
   onTop = false,
+  order = ACTIVE_INK_RENDER_ORDER,
 }: InkSegmentsProps) {
   const ref = useRef<LineSegments>(null);
   const geometry = usePositionsGeometry(positions);
@@ -271,7 +313,7 @@ function InkSegments({
       ref={ref}
       geometry={geometry}
       frustumCulled={false}
-      renderOrder={onTop ? ACTIVE_INK_RENDER_ORDER : 0}
+      renderOrder={onTop ? order : 0}
     >
       {dashed ? (
         <lineDashedMaterial
@@ -345,7 +387,7 @@ function DatumSheet({ plane }: { plane: DatumPlaneName }) {
   useCursor(pointerOver);
   const hovered = hoveredPlane === plane;
 
-  const basis = useMemo(() => originBasis(plane), [plane]);
+  const basis = useMemo(() => sceneOriginBasis(plane), [plane]);
   const quaternion = useMemo(() => planeQuaternion(basis), [basis]);
   const edgePositions = useMemo(() => {
     const s = PLANE_SIZE_MM / 2;
@@ -435,11 +477,8 @@ function PointerCatcher({ basis }: { basis: PlaneBasis }) {
   ) => worldToPlane(basis, [e.point.x, e.point.y, e.point.z]);
 
   /** One screen pixel in plane mm at this event's depth (perspective camera). */
-  const worldPerPx = (e: ThreeEvent<PointerEvent> | ThreeEvent<MouseEvent>) => {
-    const fov =
-      "fov" in camera && typeof camera.fov === "number" ? camera.fov : 40;
-    return (2 * e.distance * Math.tan((fov * Math.PI) / 360)) / heightPx;
-  };
+  const worldPerPx = (e: ThreeEvent<PointerEvent> | ThreeEvent<MouseEvent>) =>
+    (2 * e.distance * Math.tan((cameraFov(camera) * Math.PI) / 360)) / heightPx;
   const toleranceMm = (e: ThreeEvent<PointerEvent> | ThreeEvent<MouseEvent>) =>
     PICK_TOLERANCE_PX * worldPerPx(e);
   /** The snap magnet is a hair wider than the pick tolerance (see snap.ts). */
@@ -685,6 +724,9 @@ const SNAP_MARKS: Record<SnapKind, (props: IconProps) => ReactElement> = {
   intersection: SnapIntersectionIcon,
   tangent: TangentIcon,
   perpendicular: PerpendicularIcon,
+  origin: SnapOriginIcon,
+  "x-axis": SnapXAxisIcon,
+  "y-axis": SnapYAxisIcon,
   "axis-h": HorizontalIcon,
   "axis-v": VerticalIcon,
 };
@@ -709,9 +751,16 @@ const SNAP_MARKS: Record<SnapKind, (props: IconProps) => ReactElement> = {
  */
 function SnapMarker({ basis }: { basis: PlaneBasis }) {
   const candidate = useSketchStore((state) => state.snapCandidate);
+  const plane = useSketchStore((state) => state.plane);
   if (candidate === null) return null;
   const Mark = SNAP_MARKS[candidate.kind];
-  const label = SNAP_LABELS[candidate.kind];
+  // The candidate's OWN word wins where it carries one: the origin's honest
+  // name depends on what this plane's zero is (`sketch/origin.ts`).
+  const label = candidate.label ?? SNAP_LABELS[candidate.kind];
+  // …and where that zero can MOVE — a seated face's area centroid — the caveat
+  // rides the accessible name, so the one surface that states it is the one the
+  // user is reading at the moment they take it.
+  const note = candidate.kind === "origin" ? originIdentity(plane).note : null;
   return (
     <Html
       position={planeToWorld(basis, candidate.at)}
@@ -729,7 +778,11 @@ function SnapMarker({ basis }: { basis: PlaneBasis }) {
             : undefined
         }
         role="img"
-        aria-label={`Snapping to ${label.toLowerCase()}`}
+        aria-label={
+          note === null
+            ? `Snapping to ${label.toLowerCase()}`
+            : `Snapping to ${label.toLowerCase()} — ${note}`
+        }
       >
         <Mark size={SNAP_MARK_PX} className="block text-brass-hover" />
         {/* The word is a callout, offset clear of the mark's own strokes —
@@ -1037,6 +1090,139 @@ function SketchGrid({ basis }: { basis: PlaneBasis }) {
       sectionColor={viewport.gridMajor}
       coplanar
     />
+  );
+}
+
+/** Keep the axis letters under the HUD strips, like the constraint glyphs. */
+const AXIS_LABEL_Z_RANGE: [number, number] = [20, 0];
+
+/**
+ * THE ORIGIN OF THE SHEET — where (0,0) is, drawn.
+ *
+ * Founder, 2026-08-02: *"there isn't an origin to start a drawing from."* The
+ * snap layer now offers it (`sketch/snap.ts`); this is the half you can SEE,
+ * and the two are the same point by construction — plane (0,0), which
+ * `planeToWorld` maps to the basis origin. Nothing here names a world axis, so
+ * a change of world convention cannot rotate this mark off its own zero.
+ *
+ * The drawing, in one sentence: a centre-punch ring at zero with the plane's
+ * two axes running out of it, solid on the positive half and phantom on the
+ * negative, the letter engraved at the positive end. That axis encoding is not
+ * invented here — `viewport/OriginGeometry` already draws the WORLD triad that
+ * way, and dashed-means-absent is this product's language throughout — so the
+ * sketcher and the world speak one axis dialect and the line itself says which
+ * way +X runs, with no legend. The ring is the one addition: the axes already
+ * cross at zero, so the composite reads as a drafting centre mark without a
+ * second element being drawn, and the ring alone still marks the spot.
+ *
+ * Ink is `sketch.constructionInk` — the token that already means "reference
+ * geometry, not profile", which is exactly what the plane's own frame is. It
+ * sits deliberately between the grid (quiet) and the scribe (bright): the frame
+ * must out-read the grid it lies on and must never compete with the ink you
+ * draw. Brass is spent on the parametric handles and on the snap mark that
+ * fires when you take this point — never on standing chrome.
+ */
+function SketchOrigin({
+  basis,
+  plane,
+  frameHalfHeightMm,
+}: {
+  basis: PlaneBasis;
+  plane: SketchPlaneSpec;
+  frameHalfHeightMm: number;
+}) {
+  const identity = originIdentity(plane);
+  const axisLengthMm = frameHalfHeightMm * ORIGIN_AXIS_FRACTION;
+  const spans = useMemo(() => originAxisSpans(axisLengthMm), [axisLengthMm]);
+
+  const ring = useMemo(
+    () =>
+      segmentPositions(
+        basis,
+        originRingSegments(frameHalfHeightMm * ORIGIN_RING_FRACTION),
+      ),
+    [basis, frameHalfHeightMm],
+  );
+  const positive = useMemo(
+    () =>
+      segmentPositions(
+        basis,
+        spans.map((span) => span.positive),
+      ),
+    [basis, spans],
+  );
+  const negative = useMemo(
+    () =>
+      segmentPositions(
+        basis,
+        spans.map((span) => span.negative),
+      ),
+    [basis, spans],
+  );
+
+  return (
+    <group>
+      <InkSegments
+        positions={positive}
+        color={sketch.constructionInk}
+        onTop
+        order={PLANE_FRAME_RENDER_ORDER}
+      />
+      <InkSegments
+        positions={negative}
+        color={sketch.constructionInk}
+        dashed
+        dashSize={axisLengthMm * ORIGIN_DASH_FRACTION}
+        gapSize={axisLengthMm * ORIGIN_GAP_FRACTION}
+        onTop
+        order={PLANE_FRAME_RENDER_ORDER}
+      />
+      <InkSegments
+        positions={ring}
+        color={sketch.constructionInk}
+        onTop
+        order={PLANE_FRAME_RENDER_ORDER}
+      />
+      {spans.map((span) => (
+        <Html
+          key={span.key}
+          position={planeToWorld(basis, span.tip)}
+          center
+          zIndexRange={AXIS_LABEL_Z_RANGE}
+          style={{ pointerEvents: "none" }}
+        >
+          <span
+            data-testid={`sketch-axis-label-${span.key}`}
+            className="font-data text-2xs tracking-[0.18em] text-gauge"
+          >
+            {span.label}
+          </span>
+        </Html>
+      ))}
+      {/* The mark's own name, for anyone who cannot see it — and the QA hook
+          that says WHICH origin this plane has. Not painted into the viewport:
+          standing text at zero would be chrome repeating itself on every frame,
+          and the snap mark already says the word at the moment it matters.
+          Pointer-inert, because the one click this must never eat is the click
+          that places a point exactly here. */}
+      <Html
+        position={planeToWorld(basis, { x: 0, y: 0 })}
+        center
+        style={{ pointerEvents: "none" }}
+      >
+        <span
+          className="sr-only"
+          role="img"
+          data-testid="sketch-origin"
+          data-origin-label={identity.label}
+          aria-label={
+            identity.note === null
+              ? `Sketch origin — ${identity.label}`
+              : `Sketch origin — ${identity.label}. ${identity.note}`
+          }
+        />
+      </Html>
+    </group>
   );
 }
 
@@ -1413,11 +1599,27 @@ function sketchCameraDistanceMm(
   const span = Math.sqrt(Math.max(plane.signature.area_mm2, 0));
   if (!(span > 0)) return SKETCH_CAMERA_DISTANCE_MM;
   // Perspective only; an ortho sketch camera would frame by zoom, not distance.
-  const fov =
-    "fov" in camera && typeof camera.fov === "number" ? camera.fov : 40;
   const distance =
-    (span * FACE_FRAME_MARGIN) / 2 / Math.tan((fov * Math.PI) / 360);
+    (span * FACE_FRAME_MARGIN) /
+    2 /
+    Math.tan((cameraFov(camera) * Math.PI) / 360);
   return Math.max(MIN_FACE_CAMERA_MM, distance);
+}
+
+/**
+ * Half-height (mm) of the frame the sketch camera parks in — the plane's own
+ * frame is sized from THIS, the same number the camera rig uses, so the axes
+ * always span the view a sketch opens at whether that is a fixed datum sheet or
+ * a 400 mm face. One derivation, two consumers.
+ */
+function sketchFrameHalfHeightMm(
+  plane: SketchPlaneSpec,
+  camera: Camera,
+): number {
+  return (
+    sketchCameraDistanceMm(plane, camera) *
+    Math.tan((cameraFov(camera) * Math.PI) / 360)
+  );
 }
 
 /**
@@ -1525,9 +1727,17 @@ export function SketchScene({ solved, facePicking = false }: SketchSceneProps) {
   const plane = useSketchStore((state) => state.plane);
   const partView = usePartViewStore((state) => state.view);
   const bodyPresent = usePartViewStore((state) => state.bodyPresent);
+  const camera = useThree((state) => state.camera);
   const basis = useMemo(
     () => (plane === null ? null : resolveSpecBasis(plane)),
     [plane],
+  );
+  // Sized once per plane from the frame the camera parks in (see
+  // `sketchFrameHalfHeightMm`) — not per frame: the mark is the sheet's own
+  // datum, not a zoom-tracking HUD element.
+  const frameHalfHeightMm = useMemo(
+    () => (plane === null ? 0 : sketchFrameHalfHeightMm(plane, camera)),
+    [plane, camera],
   );
   // WHICH solved sketches are drawn (UI-W2, part half). The rule used to be a
   // hard one-liner in the workspace — "a body exists, so draw no sketch ink at
@@ -1556,6 +1766,11 @@ export function SketchScene({ solved, facePicking = false }: SketchSceneProps) {
             <FaceBluing basis={basis} areaMm2={plane.signature.area_mm2} />
           ) : null}
           <SketchGrid basis={basis} />
+          <SketchOrigin
+            basis={basis}
+            plane={plane}
+            frameHalfHeightMm={frameHalfHeightMm}
+          />
           <PointerCatcher basis={basis} />
           <DrawLayer basis={basis} />
         </group>

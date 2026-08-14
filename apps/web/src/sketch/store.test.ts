@@ -1246,3 +1246,134 @@ describe("draw-time dimensions", () => {
     ]);
   });
 });
+
+describe("sketch-local history (founder, 2026-08-02: no undo/redo in the sketcher)", () => {
+  const store = useSketchStore.getState;
+
+  it("undoes the last DRAWN shape and redoes it, without touching the plane", () => {
+    rectangleAt(); // 4 lines, one placement batch
+    store().setTool("circle");
+    store().placeAt({ x: 60, y: 0 });
+    store().placeAt({ x: 65, y: 0 });
+    expect(store().entities).toHaveLength(5);
+
+    store().undo();
+    expect(store().entities).toHaveLength(4);
+    expect(store().entities.every((e) => e.kind === "line")).toBe(true);
+    // The sketch itself survives: undo reverses an EDIT, not the session.
+    expect(store().mode).toBe("draw");
+    expect(store().plane).toEqual({ kind: "origin", base: "XY" });
+
+    store().redo();
+    expect(store().entities).toHaveLength(5);
+    expect(store().entities[4]?.kind).toBe("circle");
+  });
+
+  it("restores the id counter, so a redrawn entity cannot collide", () => {
+    rectangleAt();
+    const before = store().nextIdIndex;
+    store().setTool("circle");
+    store().placeAt({ x: 60, y: 0 });
+    store().placeAt({ x: 65, y: 0 });
+    expect(store().nextIdIndex).toBeGreaterThan(before);
+    store().undo();
+    expect(store().nextIdIndex).toBe(before);
+  });
+
+  it("undoes a CONSTRAINT — a sketch edit is not only geometry", () => {
+    rectangleAt();
+    store().selectAt({ x: 20, y: 0 }, 2);
+    store().applyConstraint("horizontal");
+    expect(store().constraints).toHaveLength(1);
+    store().undo();
+    expect(store().constraints).toHaveLength(0);
+    store().redo();
+    expect(store().constraints).toHaveLength(1);
+  });
+
+  it("re-solves and re-saves: every step bumps the revision the sync loop watches", () => {
+    // Undo is not a local rewind the server never hears about. If this ever
+    // stops bumping, a bound sketch would show the undone state and persist the
+    // undone-away one.
+    rectangleAt();
+    const drawn = store().revision;
+    store().undo();
+    expect(store().revision).toBe(drawn + 1);
+    store().redo();
+    expect(store().revision).toBe(drawn + 2);
+  });
+
+  it("is empty at the top and the bottom of the stack — the buttons' honest gates", () => {
+    store().begin();
+    store().choosePlane("XY");
+    expect(store().past).toHaveLength(0); // "Nothing drawn yet"
+    expect(store().future).toHaveLength(0);
+    rectangleAt();
+    expect(store().past).toHaveLength(1);
+    store().undo();
+    expect(store().past).toHaveLength(0);
+    expect(store().future).toHaveLength(1);
+    // A no-op at the floor, not a throw and not a wrap-around.
+    store().undo();
+    expect(store().entities).toHaveLength(0);
+    expect(store().future).toHaveLength(1);
+  });
+
+  it("forks the timeline: drawing after an undo drops the redo", () => {
+    rectangleAt();
+    store().undo();
+    expect(store().future).toHaveLength(1);
+    store().setTool("circle");
+    store().placeAt({ x: 0, y: 0 });
+    store().placeAt({ x: 5, y: 0 });
+    expect(store().future).toHaveLength(0);
+  });
+
+  it("never records a transient: tool, selection, cursor and solved geometry", () => {
+    rectangleAt();
+    const depth = store().past.length;
+    store().setTool("line");
+    store().selectAt({ x: 20, y: 0 }, 2);
+    store().aim({ x: 3, y: 3 }, 1, { suppressed: false, axisLock: false });
+    store().adoptSolved(
+      store().entities.map((e) => ({ ...e })),
+      { status: "converged", dof: 0, conflicting: [], redundant: [] },
+    );
+    expect(store().past).toHaveLength(depth);
+  });
+
+  it("holds while a geometry edit is in flight — the result must land on what it saw", () => {
+    rectangleAt();
+    store().setTool("trim");
+    store().requestEdit("trim", "e1", { x: 20, y: 0 });
+    expect(store().editBusy).toBe(true);
+    const entities = store().entities.length;
+    store().undo();
+    expect(store().entities).toHaveLength(entities);
+  });
+
+  it("starts a fresh sketch with an EMPTY stack — no reaching into the last session", () => {
+    rectangleAt();
+    expect(store().past.length).toBeGreaterThan(0);
+    store().exit();
+    expect(store().past).toHaveLength(0);
+    expect(store().future).toHaveLength(0);
+    store().begin();
+    store().choosePlane("XY");
+    store().undo();
+    expect(store().entities).toHaveLength(0);
+  });
+
+  it("hands back the drafts that pointed at what it replaced", () => {
+    rectangleAt();
+    store().setTool("rect");
+    store().placeAt({ x: 60, y: 0 });
+    store().placeAt({ x: 80, y: 20 });
+    // The just-drawn shape's size cells are open and name those entity ids.
+    expect(store().drawDimension).not.toBeNull();
+    store().undo();
+    expect(store().drawDimension).toBeNull();
+    expect(store().pending).toEqual([]);
+    expect(store().selection).toEqual([]);
+  });
+});

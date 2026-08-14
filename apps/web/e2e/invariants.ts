@@ -251,10 +251,14 @@ export interface ChromeRect extends ScreenBox {
  *
  * `extraSelectors` exists because "it forgot the attribute" is not a hole in
  * this gate, it is a FINDING. Measured 2026-08-01: the feature editors
- * (`[data-testid="extrude-editor"]` et al.) float over the viewport at
- * x 344–664 and carry NO `data-viewport-chrome`, so the app's own free-rect fit
- * cannot see them either — which is a large part of why FB-7 happens at all.
- * Naming such a panel here gates it anyway; the attribute is still the fix.
+ * (`[data-testid="extrude-editor"]` et al.) floated over the viewport at
+ * x 344–664 carrying NO `data-viewport-chrome`, so the app's own free-rect fit
+ * could not see them either — which was a large part of why FB-7 happened at
+ * all. FIXED 2026-08-06: the editors dock into a `ChromeRail`, which declares
+ * itself as chrome, and the FB-7 case passes NO `extraSelectors`. The parameter
+ * stays for the next panel that forgets (its calibration lives in
+ * `qa-harness.spec.ts`); naming a panel here gates it anyway, and declaring the
+ * attribute — or docking — is still the fix.
  */
 export async function chromeRects(
   page: Page,

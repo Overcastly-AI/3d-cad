@@ -50,6 +50,7 @@ function renderEditor(
     unit?: LengthUnit;
     activePick?: HolePickTarget | null;
     onTogglePick?: (target: HolePickTarget) => void;
+    placementHidden?: boolean;
     edges?: readonly OverlayEdge[] | null;
   } = {},
 ) {
@@ -69,6 +70,7 @@ function renderEditor(
         facePick={null}
         pointPick={null}
         pickError={null}
+        placementHidden={overrides.placementHidden ?? false}
         edges={overrides.edges ?? null}
         onPreviewChange={vi.fn()}
       />
@@ -167,6 +169,90 @@ describe("HoleEditor — the pinned anchor block (UI-W3 / UI-W4)", () => {
     const anchor = screen.getByTestId("hole-anchor");
     const params = screen.getByTestId("hole-editor");
     expect(params.contains(anchor)).toBe(false);
+  });
+});
+
+describe("HoleEditor — the placement body is switched off (SEL-7)", () => {
+  it("says WHY the crosshair vanished, in the position row and a quiet note", () => {
+    // The viewport withholds the whole placement overlay while the face's body
+    // is hidden. Emptying the frame mid-command without a word is an ambiguous
+    // exit, so the row stops instructing a click that cannot land and names the
+    // view state instead.
+    renderEditor({
+      initial: placed(),
+      activePick: "point",
+      placementHidden: true,
+    });
+    expect(screen.getByTestId("hole-position")).toHaveTextContent(
+      "Body hidden",
+    );
+    expect(screen.getByTestId("hole-placement-hidden-note")).toHaveTextContent(
+      /Show that body in the Bodies panel/,
+    );
+  });
+
+  it("is a VIEW state, not an error — nothing alerts", () => {
+    // `hole-pick-error` is role="alert" in flag red. A body you switched off
+    // yourself is not a failure, and crying wolf there would devalue the slot
+    // that reports a real one.
+    renderEditor({
+      initial: placed(),
+      activePick: "point",
+      placementHidden: true,
+    });
+    expect(screen.queryByTestId("hole-pick-error")).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("keeps the pick armed and Create reachable — no dead end, no over-reach", () => {
+    // Auto-disarming would cost the user a click they never asked for when the
+    // body comes back, and a hole is legitimate geometry whose visibility is a
+    // view decision: blocking the write would be the tool overruling the
+    // modeller about their own part.
+    const { onSubmit } = renderEditor({
+      initial: placed(),
+      activePick: "point",
+      placementHidden: true,
+    });
+    expect(screen.getByTestId("hole-point-pick")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(submitted(onSubmit).position).toEqual({ x: 5, y: 5, z: 10 });
+  });
+
+  it("restores the coordinate readout when the body comes back", () => {
+    const view = renderEditor({ initial: placed(), placementHidden: true });
+    expect(screen.getByTestId("hole-position")).toHaveTextContent(
+      "Body hidden",
+    );
+    view.rerender(
+      <DocumentUnitProvider unit="mm">
+        <HoleEditor
+          mode="create"
+          initial={placed()}
+          onSubmit={vi.fn()}
+          onCancel={vi.fn()}
+          saving={false}
+          error={null}
+          canPickFace
+          activePick={null}
+          onTogglePick={vi.fn()}
+          facePick={null}
+          pointPick={null}
+          pickError={null}
+          placementHidden={false}
+          edges={null}
+          onPreviewChange={vi.fn()}
+        />
+      </DocumentUnitProvider>,
+    );
+    expect(screen.getByTestId("hole-position")).toHaveTextContent(
+      "Centre of face",
+    );
+    expect(
+      screen.queryByTestId("hole-placement-hidden-note"),
+    ).not.toBeInTheDocument();
   });
 });
 

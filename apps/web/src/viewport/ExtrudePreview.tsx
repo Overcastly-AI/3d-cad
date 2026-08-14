@@ -30,18 +30,15 @@ import {
   EdgesGeometry,
   ExtrudeGeometry,
   LineBasicMaterial,
-  Matrix4,
   MeshMatcapMaterial,
   Path,
-  Quaternion,
   Shape,
   Vector2,
-  Vector3,
 } from "three";
 
 import type { ExtrudeDirection, ExtrudeOperation } from "../features/extrude";
 import type { SolvedSketchLayer } from "./SketchScene";
-import { extrudeGhostAppearance } from "./extrudeGhost";
+import { extrudeGhostAppearance, extrudeGhostPose } from "./extrudeGhost";
 import { profileRegions } from "./profileLoops";
 import { studioMatcap } from "./studioMatcap";
 
@@ -117,31 +114,38 @@ export function ExtrudePreview({
     [geometries],
   );
 
-  // Orient local plane space onto the sketch basis: local X→u, Y→v, Z→normal,
-  // placed at the plane origin (shared with the sketch ink — one plane-math
-  // source). Recomputed only when the basis changes.
-  const { position, quaternion } = useMemo(() => {
-    const { u, v, normal, origin } = layer.basis;
-    const matrix = new Matrix4().makeBasis(
-      new Vector3(...u),
-      new Vector3(...v),
-      new Vector3(...normal),
-    );
-    return {
-      position: new Vector3(...origin),
-      quaternion: new Quaternion().setFromRotationMatrix(matrix),
-    };
-  }, [layer.basis]);
+  // Orient local plane space onto the sketch basis — the pure seam beside the
+  // appearance one, so "the ghost sits ON the plane it was drawn on" is a node
+  // assertion rather than something only a browser can see (FB-7c).
+  const { position, quaternion } = useMemo(
+    () => extrudeGhostPose(layer.basis),
+    [layer.basis],
+  );
 
   // ADD paints warm, bright metal about to exist; CUT paints the void it
   // removes — the cavity's far walls only (BackSide), shaded cold and dark, so
   // the ghost reads as a hole rather than a body. Every value is a token.
+  //
+  // `depthTest: false` — the ghost is an X-RAY, and it has to be. The swept
+  // volume of the interesting operations lies INSIDE the body: a pocket cut
+  // into a plate is entirely under its top face, and so is a boss added into
+  // existing material. With depth testing on, the one preview a modeler most
+  // needs — "which way does this cut go, and where does it land?" (FB-4) — is
+  // occluded by the very solid it is about to change, and the viewport is
+  // edit-blind exactly when it matters.
+  //
+  // This was hidden until FB-7c. The ghost used to be drawn from a basis in the
+  // kernel's Z-up frame while the scene renders Y-up, so it stood 90° off the
+  // body and was visible for the wrong reason — floating in mid-air beside the
+  // part rather than showing through it. Fixing the frame put it where it
+  // belongs and revealed that the depth read had never been decided.
   const surfaceMaterial = useMemo(() => {
     const material = new MeshMatcapMaterial({ matcap: studioMatcap() });
     material.color.set(appearance.surfaceTint);
     material.transparent = true;
     material.opacity = appearance.surfaceOpacity;
     material.depthWrite = false;
+    material.depthTest = false;
     material.side = appearance.surfaceSide;
     return material;
   }, [appearance]);
@@ -150,6 +154,7 @@ export function ExtrudePreview({
     material.transparent = true;
     material.opacity = appearance.edgeOpacity;
     material.depthWrite = false;
+    material.depthTest = false;
     return material;
   }, [appearance]);
 

@@ -16,9 +16,17 @@
  * `@loft/design` token; no hex literal lives in the viewport.
  */
 import { viewport } from "@loft/design/tokens";
-import { BackSide, FrontSide, type Side } from "three";
+import {
+  BackSide,
+  FrontSide,
+  Matrix4,
+  Quaternion,
+  Vector3,
+  type Side,
+} from "three";
 
 import type { ExtrudeOperation } from "../features/extrude";
+import type { PlaneBasis } from "../sketch/plane";
 
 export interface ExtrudeGhostAppearance {
   /** Swept-surface tint. */
@@ -53,5 +61,43 @@ export function extrudeGhostAppearance(
     surfaceSide: FrontSide,
     edgeColor: viewport.preview.edge,
     edgeOpacity: viewport.preview.edgeOpacity,
+  };
+}
+
+/** Where the ghost group sits and how it is turned, for a sketch `basis`. */
+export interface ExtrudeGhostPose {
+  position: Vector3;
+  quaternion: Quaternion;
+}
+
+/**
+ * Orient the ghost's own space onto the sketch plane: `ExtrudeGeometry` builds
+ * the profile in local XY and sweeps toward local +Z, so local X→u, Y→v, Z→the
+ * plane NORMAL, placed at the plane origin.
+ *
+ * The APPEARANCE seam above exists because a decision buried in a `useMemo`
+ * inside a WebGL-only component is invisible below a full browser run. This is
+ * the same lesson applied to PLACEMENT, and it was needed for the same reason:
+ * the ghost was drawn from a basis stated in the KERNEL's Z-up frame while the
+ * body renders in the scene's Y-up frame, so re-opening an unmodified 10 mm
+ * extrude on XY drew its ghost lying through the ground grid and 152 px below
+ * the body it was supposed to coincide with (FB-7c / FB-9). Measured, not
+ * inferred: body at scene y∈[0,10] z∈[−15.4,16.6], ghost at y∈[−16.6,15.4]
+ * z∈[0,10] — the same solid, minus the frame rotation.
+ *
+ * Hand it a SCENE-frame basis (`sceneOriginBasis` / `resolveSpecBasis` /
+ * `faceBasis`); pass a kernel-frame one and the ghost is wrong by 90°, which is
+ * exactly what `extrudeGhost.test.ts` now pins.
+ */
+export function extrudeGhostPose(basis: PlaneBasis): ExtrudeGhostPose {
+  const { u, v, normal, origin } = basis;
+  const matrix = new Matrix4().makeBasis(
+    new Vector3(...u),
+    new Vector3(...v),
+    new Vector3(...normal),
+  );
+  return {
+    position: new Vector3(...origin),
+    quaternion: new Quaternion().setFromRotationMatrix(matrix),
   };
 }

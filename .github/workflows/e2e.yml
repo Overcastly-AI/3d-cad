@@ -73,6 +73,31 @@
 # runner-minutes ≈ T + 4N, so past N≈6 setup dominates and below N≈3 the shard
 # risks the 45-minute job ceiling.
 #
+# ── Headroom, re-measured 2026-08-11 (docs/BACKLOG.md CI-4 B4) ───────────────
+#
+# The paragraphs above were written against **352** tests. `playwright test
+# --list` at HEAD reports **467 / 119 + 115 + 117 + 116** across the four
+# shards — +33% in ten days, from a gate that grows by design. Extrapolating the
+# measured 12.7 min / 86 tests puts a shard near 17 min on THIS container, and a
+# hosted runner has fewer cores for a software-GL suite, so the true number is
+# unknown and is the thing to write down here rather than estimate again.
+#
+# It is now captured automatically: `e2e-shard-audit.py --timeline` prints each
+# shard's wall clock in the reconcile job on EVERY run, green ones included.
+# Read it off the next green run and record it below.
+#   per-shard wall on a hosted runner: ____ min (fill in from `e2e complete`)
+# Decision rule, so this does not need re-arguing: past ~30 min per shard, raise
+# the matrix to 6 (wall drops ~⅓, runner-minutes rise ~8). Do not raise it on a
+# guess — N=6 also means 7 concurrent jobs per push from this workflow alone.
+#
+# The 45-minute JOB ceiling is deliberately no longer the first thing a slow
+# shard hits: the Playwright step carries its own 40-minute `timeout-minutes`.
+# A job-level timeout is reported as `cancelled` — the same word GitHub uses for
+# a concurrency eviction, which this repo has already lost time to twice — and
+# it kills the `if: always()` upload steps with it, destroying the very
+# artifacts that would show WHY the shard was slow. A step-level timeout fails
+# the step, names it, and lets the uploads run.
+#
 # `paths-ignore` below removes the 30% of commits (measured over the last 100)
 # that are markdown-only, since a .md file cannot change what a browser does.
 # Consequence to know when reading CI: a SHA with NO e2e run is a docs-only
@@ -175,8 +200,24 @@ jobs:
       # docs/screenshots writes behind it, so the render still happens and the
       # committed founder PNGs are left alone. The tree check below proves it.
       - name: Playwright shard ${{ matrix.shard }}/4
+        # 40 < the job's 45 ON PURPOSE — see the headroom note at the top: a
+        # step timeout is a `failure` that keeps the artifacts, a job timeout is
+        # a `cancelled` that destroys them and looks like an eviction.
+        timeout-minutes: 40
         env:
           E2E_JSON_REPORT: ${{ runner.temp }}/playwright-shard-${{ matrix.shard }}.json
+          # The three service logs, kept past the run. Without this they live in
+          # a mktemp dir that scripts/e2e.sh's exit trap removes, which is how
+          # `aea990a` shipped a red shard whose only evidence of a gateway 502
+          # was the browser's side of it (docs/BACKLOG.md CI-3/CI-4). Under
+          # runner.temp, so the "must not have dirtied the tree" check below
+          # still means what it says.
+          E2E_LOG_DIR: ${{ runner.temp }}/e2e-logs-shard-${{ matrix.shard }}
+          # Host load + per-process RSS/CPU every 2s for the whole browser leg.
+          # Uploaded from GREEN runs too: the CI-4 hypothesis is resource
+          # pressure, and a pressure reading with no baseline to compare it
+          # against proves nothing either way.
+          E2E_METRICS_DIR: ${{ runner.temp }}/e2e-metrics-shard-${{ matrix.shard }}
         # --forbid-only: a committed `test.only` narrows the suite to one test
         # and every job still reports success — the same "gate that quietly
         # stopped covering" shape, arriving by accident rather than by design.
@@ -233,6 +274,21 @@ jobs:
             apps/web/playwright-report
           if-no-files-found: ignore
           retention-days: 7
+      # ALWAYS, and alongside the traces rather than instead of them: a trace
+      # shows what the browser saw, and the question these logs answer is what
+      # the SERVER did — which is the half CI-3 needed and did not have. The
+      # script also tails 60 lines of each into the job log on failure, because
+      # an artifact nobody downloads is not evidence anybody reads.
+      - name: Upload the service logs and the resource samples
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-diagnostics-shard-${{ matrix.shard }}
+          path: |
+            ${{ runner.temp }}/e2e-logs-shard-${{ matrix.shard }}
+            ${{ runner.temp }}/e2e-metrics-shard-${{ matrix.shard }}
+          if-no-files-found: warn
+          retention-days: 7
 
   # The control that keeps the sharding honest, and the single job to read.
   #
@@ -282,6 +338,17 @@ jobs:
       # into "e2e is a bit flaky, re-run it", which is the habit this gate
       # exists to prevent; failing on it keeps the no-retry posture enforced by
       # the workflow rather than by memory.
+      # The gate that guards the evidence needs its own guard: ~0.1s, stdlib
+      # only, and it proves the audit can still FAIL (missing test, duplicate,
+      # flaky-with-the-flag, empty listing) and that --timeline reports without
+      # voting. Same discipline as `just licence-selftest`.
+      - name: The audit must be able to fail
+        run: python3 scripts/e2e-shard-audit.py --self-test
+      # --timeline: prints each shard's tests in execution order with their
+      # offset into the shard, the failing test's ordinal, the slowest 10 and
+      # the per-shard wall. Costs no new capture — it reads the reports already
+      # downloaded above — and answers "did it die late in a loaded shard?"
+      # (docs/BACKLOG.md CI-4) for every red from now on, with no re-run.
       - name: Every discovered test must have been executed exactly once
         id: audit
         continue-on-error: true
@@ -289,10 +356,130 @@ jobs:
           python3 scripts/e2e-shard-audit.py \
             --discovered discovered.json \
             --fail-on-flaky \
+            --timeline \
             shard-reports/playwright-shard-*.json
       - name: Verdict
         run: |
           set -euo pipefail
+          # The no-retry posture, enforced by the workflow instead of by memory.
+          # CI-4's own backlog entry has to say "DO NOT fix this by adding
+          # retries" because that is the obvious move under pressure, and it
+          # would convert a real intermittent product defect (CI-3 was one) into
+          # a green board. Two claims, both checkable in a second: nothing
+          # reintroduces retries, and --fail-on-flaky is still passed.
+          # A guard that greps a file it lives in will match ITSELF, so both the
+          # pattern and its negative control are spelled in pieces: the pattern
+          # as [-][-]retries, the control assembled from two string literals.
+          # (Measured: the first version failed on its own probe line.)
+          pattern='[-][-]retries|retries[[:space:]]*[:=]'
+          flag="--""retries"
+          if ! printf '%s\n' "playwright test ${flag}=1" | grep -qE "$pattern"; then
+            echo "::error::the no-retry guard's own pattern no longer matches a retry flag"
+            exit 1
+          fi
+          hits="$(grep -nE "$pattern" \
+                    .github/workflows/e2e.yml apps/web/playwright.config.ts \
+                  | grep -vE '^[^:]+:[0-9]+:[[:space:]]*(#|//|\*)' || true)"
+          if [[ -n "$hits" ]]; then
+            echo "::error::retries are back in the e2e gate (GATE-1a says no):"
+            echo "$hits"
+            exit 1
+          fi
+          # Same disease, second half of the step: a `grep -q -- '--fail-on-
+          # flaky' e2e.yml` matched its OWN text, so the guard passed with the
+          # real argument deleted (mutation-proved: 7 occurrences in this file,
+          # exactly one of them is the argument). So the flag literal is
+          # assembled from two pieces AND the search is scoped to the audit's
+          # actual command line: continuation lines are joined, comments
+          # dropped, and only a line that really invokes `python3
+          # …e2e-shard-audit.py` (excluding the --self-test step) counts.
+          flag="--""fail-on-flaky"
+          audit_cmd() {
+            grep -v '^[[:space:]]*#' "$1" |
+              awk '{ buf = buf $0
+                     if (buf ~ /\\[[:space:]]*$/) { sub(/\\[[:space:]]*$/, "", buf); next }
+                     print buf; buf = "" }' |
+              grep -E '^[[:space:]]*python3[[:space:]]+.*e2e-shard-audit\.py' |
+              grep -vF -e '--self-test' || true
+          }
+          # ALL-semantics, not ANY. `grep -q` is satisfied by ONE matching line,
+          # so with two audit invocations in this file the guard would pass
+          # while the REAL one had lost the flag — a decoy step (even one under
+          # `if: false`) or a second shard-set audit is all it takes. Only one
+          # invocation exists today, so nothing is masked yet; the point is that
+          # adding a second must not silently disarm the guard. So: count the
+          # invocations, count the flagged ones, and demand they are equal.
+          flagged_count() {
+            audit_cmd "$1" |
+              grep -cE -e "(^|[[:space:]])${flag}([[:space:]]|\$)" || true
+          }
+          all_flagged() {
+            local n
+            n="$(audit_cmd "$1" | wc -l)"
+            [[ "$n" -ge 1 && "$(flagged_count "$1")" -eq "$n" ]]
+          }
+          # The guard's own probes, as the retries guard above has: one
+          # synthetic invocation that carries the flag (must match), one that
+          # lost it (must not), one where the flag appears ONLY in prose — the
+          # first defect this replaces (must not) — and one where SOME
+          # invocations carry it and some do not, which is the defect
+          # ALL-semantics exists for (must not).
+          probe="$(mktemp -d)"
+          {
+            echo "          python3 scripts/e2e-shard-audit.py \\"
+            echo "            --discovered discovered.json \\"
+            echo "            $flag \\"
+            echo "            shard-reports/*.json"
+          } >"$probe/with.yml"
+          sed "/$flag/d" "$probe/with.yml" >"$probe/without.yml"
+          {
+            echo "          # $flag: the shards run with no retries, so ..."
+            echo "          if ! grep -q -- '$flag' .github/workflows/e2e.yml; then :; fi"
+            echo "          python3 scripts/e2e-shard-audit.py \\"
+            echo "            shard-reports/*.json"
+          } >"$probe/prose-only.yml"
+          { cat "$probe/with.yml"
+            echo "        - name: decoy"
+            echo "          if: false"
+            echo "          run: |"
+            echo "            python3 scripts/e2e-shard-audit.py \\"
+            echo "              shard-reports/*.json"
+          } >"$probe/mixed.yml"
+          if ! all_flagged "$probe/with.yml"; then
+            echo "::error::the flaky guard cannot see the flag on a real invocation"
+            exit 1
+          fi
+          if all_flagged "$probe/without.yml"; then
+            echo "::error::the flaky guard passes an invocation that lost the flag"
+            exit 1
+          fi
+          if all_flagged "$probe/prose-only.yml"; then
+            echo "::error::the flaky guard is matching prose, not the invocation"
+            exit 1
+          fi
+          if all_flagged "$probe/mixed.yml"; then
+            echo "::error::the flaky guard passes when only SOME audit invocations carry the flag"
+            exit 1
+          fi
+          rm -rf "$probe"
+          # ORDER MATTERS: this stays FIRST and is now load-bearing, not
+          # belt-and-braces. Under ALL-semantics "every invocation carries the
+          # flag" is vacuously true of zero invocations, so without a count
+          # floor a rename of the script — or a `run:` shape audit_cmd cannot
+          # parse — would make the guard pass by finding nothing at all. Same
+          # `all([]) is True` shape the two --self-tests just grew floors for.
+          invocations="$(audit_cmd .github/workflows/e2e.yml | wc -l)"
+          if [[ "$invocations" -lt 1 ]]; then
+            echo "::error::no audit invocation found — the flaky guard has nothing to check"
+            exit 1
+          fi
+          if ! all_flagged .github/workflows/e2e.yml; then
+            echo "::error::not every audit invocation runs with $flag"
+            audit_cmd .github/workflows/e2e.yml
+            exit 1
+          fi
+          flagged="$(flagged_count .github/workflows/e2e.yml)"
+          echo "posture: no retries, $flag intact ($flagged/$invocations audit invocation(s))"
           shards='${{ needs.playwright.result }}'
           audit='${{ steps.audit.outcome }}'
           echo "playwright shards: $shards"

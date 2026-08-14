@@ -53,6 +53,554 @@ duplication.
 
 ## Ready (top of queue)
 
+- [ ] (P1, S) **QA7-1 — `qa-sel7-verify:555` has now failed TWICE on unrelated
+      commits, and what it asserts is not cosmetic** (`apps/web`). Filed
+      2026-08-14 by the orchestrator from the CI board. The spec is
+      `qa-sel7-verify.spec.ts:555` — "Create costs nothing: the withheld run
+      matches the drawn run" — and its failure message is
+      `hiding the placement body changes NOTHING about what Create does`.
+      OCCURRENCES: `de3755f` (render-clock commit) and `ee0e8df` (a comment-only
+      corrections commit that touched no hole-placement code at all), both on
+      shard 3, both ~17.1-17.2 min. Neither diff can plausibly reach hole
+      placement, which is what makes this interesting rather than dismissible.
+      WHY IT MATTERS: this is not a raster or timing assertion. It claims the
+      hole Create produces the SAME geometry whether the placement body is drawn
+      or hidden. If that is genuinely intermittent, then visibility — a pure
+      VIEW state — is leaking into what the command builds, which would be a
+      real product defect and a nasty one. The alternative is that the spec's
+      equality is too strict (e.g. it compares a volume or an id that legitimately
+      varies), which is a spec defect. BOTH readings are worth an hour; do not
+      assume the second because it is cheaper.
+      FIRST MOVES: read what :555 actually compares before anything else. Then
+      run it in a loop locally (10x quiet, 10x under a 3-core burner — the
+      pattern that settled SPEC-4) and see whether it is load-correlated. If it
+      reproduces, bisect on the COMPARISON, not on the commits: the two failing
+      commits share no relevant code, so commit-bisection will mislead.
+      NOTE it passes at the tip and passed on `c6b6c6d` where it was introduced,
+      so the tree is verified; it is per-commit evidence that is unreliable.
+      [src: orchestrator CI read, 2026-08-14]
+
+- [ ] (P0, S) **FB-20 — the camera is stolen after an extrude, and the guard
+      written to stop it has a first-run hole** (`apps/web/src/viewport`).
+      FOUNDER REPORT 2026-08-14: "I draw in a plane and then all of a sudden it
+      switches after an extrude." REPRODUCED AND MEASURED by the orchestrator,
+      not inferred — `apps/web/e2e/axis-flip-probe.spec.ts` samples `data-view`
+      and `data-camera-pos` at every step of the founder's own flow —
+      `02-iso-pinned` view=iso pos=173.5,124.9,278.4;
+      `03-in-sketch-on-XY` iso, unchanged; `04-rectangle-drawn` iso, unchanged;
+      `05-sketch-saved` view=**fit** pos=**-9.5,350.0,8.6** (first move);
+      `06-extrude-editor-open` fit, unchanged;
+      `07-after-extrude` view=**fit-auto** pos=**46.4,33.5,61.0** (the theft).
+      Note the camera moves TWICE and the first move is at SAVE, not extrude.
+      Saving frames you normal-on to the sketch you just drew (-9.5, 350, 8.6 is
+      straight down scene +Y onto the XY sketch), which is defensible. The
+      complaint is 07: the extrude throws that away and lands on an iso-ish
+      direction the user never asked for.
+      ROOT CAUSE, read from the source and consistent with every number above:
+      `Viewport.tsx:296-332`. The auto-fit effect already carries the rule —
+      "RE-FRAME, DO NOT RE-ORIENT", added after the founder reported this once
+      before ("after the extrude it flipped to xy") — and preserves the current
+      direction and up on every run EXCEPT the first, where it uses `ISO_DIR`
+      and `up = +Y` outright. The hole is that `framedOnce` is set in exactly
+      ONE place, line 304, INSIDE that same effect. No view command sets it, and
+      neither does the sketch-save fit (which stamps `view: "fit"`, a different
+      path). So a user whose framing came from the view rail or from saving a
+      sketch is still `first` when geometry first appears, and the extrude
+      re-orients them exactly once — which is precisely what the founder sees,
+      because the extrude IS the first geometry.
+      Same line discards `userMoved`: `if (first) userMoved.current = false`
+      throws away the fact that the user had deliberately orbited (set at :414).
+      FIX: `framedOnce` must mean "this scene has a framing the user could have
+      chosen", so every path that poses the camera sets it — the view commands
+      at :366/:371 and the sketch-save fit, not just the auto-fit. Then the
+      `first` branch only fires on a genuinely unposed scene. Do NOT fix it by
+      deleting the `first` branch: an empty part with no prior pose does need a
+      default, and ISO is the right one.
+      ACCEPTANCE: pin any view, sketch, extrude — `data-camera-pos` direction
+      (normalised, about the fit target) is unchanged across the extrude, while
+      DISTANCE and target may change, because re-framing is the wanted half.
+      Mutation-verify: reverting the fix must redden it. Extend
+      `axis-flip-probe.spec.ts` into that gate rather than writing a third one;
+      it already drives the flow. NB it currently only PRINTS — it asserts
+      nothing, so it cannot fail as it stands.
+      RELATED, do not confuse: `founder-picking.spec.ts:382` ("FB-1 gate: a
+      rebuild re-frames the body without stealing the viewpoint") passes today,
+      so it is not covering this path — worth understanding why before adding a
+      fourth gate over the same rule.
+      [src: founder 2026-08-14, reproduced by orchestrator]
+
+- [ ] (P1, S) **REV-1 — seven gates in the CI-4 batch cannot fail, and one
+      reusable helper reads 12034 on a frame with NO ink** (`apps/web/e2e`,
+      `scripts`, `.github/workflows`). Filed 2026-08-13 from the five-lens
+      ultracode review. None is masking a defect today; all will be counted as
+      coverage by the next reader unless closed.
+      (a) `support.ts:406` — THE SERIOUS ONE. The only degeneracy guard is
+      `axisLengthSq < 1`. On an inkless lit-aluminium frame (ground 197,199,200)
+      the axis is short, +/-25 of shading noise inflates `t`, and the census
+      returns **12034** against a 400 floor. That is the founder defect this
+      spec exists for ("bluing missing, I couldn't see the sketch") reading
+      GREEN. Backstopped inside `sketch-visibility` by the separate contrast
+      assertion, but latent in a REUSABLE helper. Needs a ground-vs-token
+      separation floor, not just a length check.
+      (b) `sketch-visibility.spec.ts:341` — `offAxis < pixels` is implied by
+      `coverage > 400`; firing needs >400 foreign bright pixels against a
+      measured baseline of 99, and the only known mutation moves it the WRONG
+      way (99 -> 65). Use an absolute ceiling derived from the recorded 99, or
+      demote it to an attachment.
+      (c) `qa-harness.spec.ts:730` — `/achieved 0 render\(s\)/` is tautological:
+      the error only exists when observed < 1. Same at :704-706, where three
+      asserted values are guaranteed by construction after a non-throwing call.
+      (d) `diagnostics.ts:19-20` — the advertised third discriminator ("ink 0
+      with a ZERO render-tick delta") returns the DEFECT value on a healthy
+      scene, because the delta is collected at teardown when a `demand` scene is
+      idle. Asserted once in the repo, as `toBeNull()`, never `> 0`.
+      (e) `e2e-shard-audit.py:420` — `self_test()` with zero checks returns 0 and
+      prints "the gate can fail" (`all([])` is True — the repo's recurring
+      shape). Close with `if len(checks) < 14: return 1`.
+      (f) `stage-doc-hunks.py:389` — the `blanks != seen` cross-check is
+      structurally DEAD for the bold-lead question it was added to arbitrate: a
+      bold line is a head iff it starts a paragraph, so `seen == blanks` by
+      construction there. It still works for list-item docs; the docstring's
+      justification no longer holds in the bold direction and should say so.
+      (g) `e2e.yml:405` — `has_flag` is ANY-not-ALL over audit invocations: a
+      decoy step under `if: false` carrying the flag passes while the real
+      invocation has lost it. One-line hardening using the invocation count
+      already computed.
+      [src: ultracode review, 2026-08-13]
+      PARTIAL 2026-08-14 (REV-1 e/f/g — the scripts/workflow half; (a)-(d), the
+      e2e helpers, stay open). (e) Count floors on both self-tests (14 and 19,
+      `<` not `!=`): with every `checks.append` neutered the audit self-test now
+      exits 1 saying "RAN 0 of 14" where it printed "the gate can fail" and
+      exited 0. (f) Doc-only: the cross-check is structurally dead for bold-lead
+      docs (`seen == blanks` identically) and is a BACKSTOP there, not the
+      protection — the context rule in `entry_heads` plus `--self-test`'s
+      byte-for-byte tree compare is. Now PINNED by a check that reads (2,2) on
+      both ROADMAP fixtures and (2,4) the moment the context rule is dropped.
+      (g) ANY -> ALL over audit invocations, plus a fourth probe carrying an
+      unflagged decoy; the count guard stays FIRST because ALL is vacuous at
+      zero. The old guard passes a file whose decoy lost the flag (1/2, exit 0),
+      the new one exits 1, and reverting to ANY trips the new probe.
+
+- [ ] (P2, XS) **REV-2 — the retries posture guard stops covering a renamed
+      Playwright config, silently** (`.github/workflows/e2e.yml:380`). Filed
+      2026-08-13; PROVEN BY EXECUTION in the review. `grep ... || true` absorbs
+      grep's exit 2 (no such file) as well as exit 1 (no match), so renaming
+      `apps/web/playwright.config.ts` to `.mts` — which Playwright still
+      auto-discovers — with `retries: 2` injected prints
+      `posture: no retries, --fail-on-flaky intact` and exits 0. The only trace
+      is one swallowed stderr line. Exactly the "enumerated gate that quietly
+      stops covering" shape the same file's prose condemns 200 lines above.
+      Not higher priority because `--fail-on-flaky` remains a genuine
+      independent backstop: a retry that actually FIRES still reddens the
+      reconcile job. It is the posture CLAIM that is falsifiable-in-name-only.
+      FIX (3 lines, before the greps): assert each file the guard enumerates
+      exists, and fail naming it when it does not.
+      [src: ultracode review, 2026-08-13]
+
+- [ ] (P3, XS) **REV-3 — FB-7's collapsed rail tab aligns to the wrong edge on
+      the RIGHT rail** (`apps/web/components/FloatingPanel.tsx:94-95`). Filed
+      2026-08-13; MEASURED in Chromium against the repo's real Tailwind build.
+      `railed ? "shrink-0 self-start"` has no side branch, unlike every other
+      side-aware clause in the file. At 1280x650 with a 320px card docked above:
+      rail `right=1268`, tab `right=1049.8` — 218 px of empty column to the
+      right of a tab on a `right-3`-anchored rail, and a behaviour change from
+      the floating case, which pinned it to `right-3`. Reachable in the shipped
+      flow: `HoleEditor` is unconditionally `seat="right"` and the inspector is
+      mounted during hole editing.
+      FIX: `railed ? cx("shrink-0", side === "right" ? "self-end" : "self-start")`.
+      Cosmetic — the tab stays visible and clickable — but one line, and it sits
+      in the flow FB-7 exists to fix. Also note (a) of the same lens: collapsing
+      the inspector leaves ~91 px of measured dead column; worth a note, not a
+      restructure.
+      [src: ultracode review, 2026-08-13]
+
+- [ ] (P3, S) **REV-4 — six more untrue statements in comments and docs, plus
+      two dead code paths** (`apps/web`, `scripts`). Filed 2026-08-13 from the
+      review's claims audit. Each is small; batched so they are fixed once.
+      (a) `support.ts:550-552` — "NEVER SLOWER THAN ITS PREDECESSOR" is false and
+      self-contradicting two clauses later. The predecessor raced n rAFs against
+      a 2 s timeout; the successor has a 15 s ceiling and no shortcut. MEASURED:
+      `waitForFrames(page, 30)` took **2317.7 ms** in a quiet window. Correct
+      form: never waits fewer FRAMES; wall clock can be longer, by design.
+      (b) `ChromeRail.tsx:53-59` — the stated reason for context-over-ref is
+      wrong in both halves: the shipped `useState`+`useEffect` path is ALSO null
+      on first commit, and a plain ref would float forever, not "for one frame".
+      The code is right; the reason is not.
+      (c) `support.ts:292` — constants "exported so a spec can state what it
+      calibrated against"; no spec imports them and the calibration comment
+      never names 0.25 or 24.
+      (d) `e2e-shard-audit.py` — the `"timedOut" in self.statuses` branch is dead
+      (Playwright's JSON reporter serialises a timeout as `unexpected`, already
+      covered); harmless, but say so or delete it.
+      (e) `e2e-shard-audit.py` timeline — "N tests" / "% of the way through"
+      counts only tests that RAN; skipped tests have `results: []` and vanish.
+      (f) `e2e.yml:204` — "a job timeout kills the `if: always()` upload steps"
+      is REASONING ONLY and unmeasurable from this container; GitHub documents
+      `always()` as running on cancellation. The step-timeout change is right for
+      its other stated reason, so nothing needs reverting — soften the sentence
+      or check it against one real timed-out job.
+      (g) `ChromeRail.test.tsx:54` — the second case's assertion is byte-identical
+      to the first's and its title claims a `data-viewport-chrome` check it does
+      not make. It can fail, so it is not dead; it adds zero coverage.
+      [src: ultracode review, 2026-08-13]
+
+- [ ] (P2, S) **REV-5 — the two instruments that could close the stale-readback
+      and context-loss exposures are exercised only by themselves**
+      (`apps/web`). Filed 2026-08-13.
+      (a) `requireRenders` — the strict mode `de3755f` shipped precisely to stop
+      a census sampling a stale buffer — has ZERO product consumers. All three
+      call sites are in `qa-harness.spec.ts`, the gate that tests it. Note the
+      review's warning before wiring it in: `waitForRenders` counts renders
+      since the WAIT starts, so `requireRenders: true` at a census site throws
+      whenever the render already landed, which is the common case. Wiring it up
+      needs a different shape, not a flag flip.
+      (b) `qa-harness.spec.ts:756` asserts `glEvents` is EMPTY, i.e. that the
+      `webglcontextrestored` path was never taken — so the `invalidate()` fix at
+      `Viewport.tsx:505`, sold as a real product fix, is exercised by nothing.
+      `WEBGL_lose_context` is available in headless Chromium, so the mutation is
+      cheap: lose, restore, assert the scene repaints with no user input, and
+      assert it FAILS with the `invalidate()` removed.
+      [src: ultracode review, 2026-08-13]
+
+- [ ] (P1, M) **CI-4 — the e2e suite has gone systemically unstable: THREE
+      mechanisms in FOUR consecutive runs, so no commit's CI signal can be
+      trusted right now** (`apps/web`, `.github/workflows`). Filed 2026-08-11 by
+      the orchestrator. This is the umbrella over CI-3 and SPEC-3; it outranks
+      both, because the rule "every commit green on its own" is unenforceable
+      while the suite fails for a different reason every other run.
+      THE BOARD: `45c8592` FAIL, `7ffac16` PASS, `aea990a` FAIL, `688539d` PASS,
+      `c6b6c6d` FAIL. Always exactly ONE spec of 115-116, never the same one.
+      (a) `45c8592` — `interaction-depth.spec.ts:40`, colour count 316 vs > 336;
+      the ghost's raster-independent marker PASSED (see SPEC-3).
+      (b) `aea990a` — `sketch-drag-draw.spec.ts:258`, dying in `createPartViaApi`
+      with `502 upstream_unavailable / reason: ReadError`, on a commit holding
+      only a python script and `CLAUDE.md` (see CI-3).
+      (c) `c6b6c6d` — `sketch-visibility.spec.ts:164`, `countTokenPixels(page,
+      "#E9F1F8")` = ZERO against a floor of 120. Qualitatively different from a
+      thin margin: no scribe pixels at all. The `frame.pxPerMm < 40` assertion
+      immediately above it passed, so the frame WAS fitted.
+      WHY AN UMBRELLA AND NOT THREE SPEC PATCHES: three unrelated assertions
+      failing one-at-a-time across consecutive runs, including on a commit whose
+      diff cannot reach the app, is the signature of a shared substrate problem
+      — most likely resource pressure on the runner over a ~12 min shard —
+      rather than three independent spec bugs. Patching each assertion would
+      raise the pass rate while leaving the cause, which is the outcome this
+      repo's "no hand-waving" rule exists to prevent.
+      FIRST MOVES, in order: (1) instrument rather than guess — have the shard
+      record wall-clock, RSS and CPU alongside each spec, and capture the three
+      services' logs as artifacts on failure (the gateway log would settle CI-3
+      immediately); (2) check whether failures cluster late in a shard;
+      (3) `sketch-visibility` ink = 0 must be reproduced LOCALLY at HEAD before
+      being called environmental — SEL-6 changed `pickSurface.tsx` and
+      `ModelMesh.tsx`, so a real sketch-on-face rendering regression is NOT ruled
+      out by CI alone, even though `7ffac16` and `688539d` (both carrying SEL-6)
+      ran that spec green.
+      DO NOT "fix" this by adding Playwright retries: `e2e complete` runs
+      `--fail-on-flaky` deliberately, and a retry would convert a real
+      intermittent product defect (CI-3 is one) into a green board.
+      PLATFORM SLICE SHIPPED 2026-08-11 (this commit) — move (1) and (2) are
+      done and the no-retry posture is now enforced by the workflow: service
+      logs survive the run (`E2E_LOG_DIR`, uploaded `if: always()`, tailed into
+      the job log on a red — the trap used to delete them before upload), a 2 s
+      resource sampler runs on green and red alike, `e2e-shard-audit.py
+      --timeline` prints where in the shard each test ran, and the verdict step
+      greps for retries. STILL OPEN: CI-3's gateway fix.
+      Re-derive shard ordinals per-SHA; the suite is 467 tests today.
+      FRONTEND SLICE SHIPPED 2026-08-11 (this commit) — F1/F2 landed and move
+      (3) is DONE: `waitForFrames` counted browser animation frames against a
+      silent 2 s valve while the viewport is `frameloop="demand"` (an idle page
+      ticks 92 frames in 1.5 s with ZERO renders), so it now waits on a real
+      r3f render counter and THROWS with the count achieved; every non-passing
+      test attaches the viewport readback + substrate. And ink = 0 REPRODUCES
+      locally at HEAD (5 of 10 runs) with the ink plainly on screen at 0.74
+      coverage — an anti-aliasing phase lottery in the census, not a rendering
+      regression, and not the runner. See SPEC-4.
+      [src: orchestrator CI root-cause, 2026-08-11]
+
+- [ ] (P1, S) **CI-3 — a dropped keep-alive to documents becomes a user-visible
+      502, because only the GEOMETRY path retries** (`services/gateway`). Filed
+      2026-08-11 by the orchestrator, root-caused from a CI red. A PRODUCT
+      defect that the suite happened to find, not a test-only flake.
+      EVIDENCE: `aea990a`'s e2e went red on
+      `sketch-drag-draw.spec.ts:258 › FB-16`, failing inside `createPartViaApi`
+      (`support.ts:161`) with `502 {"code":"upstream_unavailable","message":
+      "Documents service is unreachable","details":{"reason":"ReadError"}}`.
+      That commit changed ONLY `scripts/stage-doc-hunks.py` and `CLAUDE.md`, so
+      its diff cannot reach the app — the failure is independent of app code.
+      MECHANISM: `httpx.ReadError` on a pooled connection is the idle keep-alive
+      race — the server closes an idle connection just as the client sends on
+      it. The gateway already KNOWS this failure: the geometry path lists
+      `httpx.ReadError` in `_WORKER_DOWN` (`affinity.py:198-205`) and fails over
+      once, with the reasoning written out. The documents path gets none of it —
+      `parts.py:80` uses the plain client from `create_upstream_client`
+      (`upstream.py:69`), so the same transport failure leaves as a 502. The
+      asymmetry reads as accidental rather than decided.
+      FIX — prefer closing the race over retrying, and note why:
+      (a) set `keepalive_expiry` on the pool BELOW the server's keep-alive
+      timeout (uvicorn defaults to 5 s; httpx's pool default is also 5.0 s,
+      which is exactly the race), so the CLIENT retires a connection before the
+      server can. No retry-safety question arises.
+      (b) a one-shot retry is the fallback and must NOT be copied blindly from
+      the geometry path: documents is a single instance, so there is no other
+      worker to fail over TO, and `ReadError` means the request WAS transmitted
+      — blindly retrying a POST risks a DUPLICATE part. Restrict any retry to
+      requests known not to have been transmitted, or to idempotent methods.
+      ACCEPTANCE: a documents upstream that closes idle keep-alive connections
+      aggressively (drive it with a transport that closes after one response)
+      yields no 502 at the gateway. Mutation-verify the gate goes red against
+      today's client config.
+      [src: orchestrator CI root-cause, 2026-08-11]
+
+- [x] (P1, XS) **SPEC-4 (CLOSED-PENDING-QA) — `sketch-visibility`'s exact-token ink census is a
+      sub-pixel lottery: ~50 % red at HEAD, locally, with the product correct**
+      (`apps/web/e2e`). Filed 2026-08-11 by frontend-builder from CI-4's
+      instrumented runs — this is what CI-4 move (3) actually found, and it
+      retires "resource pressure on the runner" as the explanation for (c).
+      MEASURED at HEAD, no mutation: `sketch-visibility.spec.ts:164` fails 2 of
+      5 runs in a quiet window and 3 of 5 under a 3-core burner, always with
+      `ink === 0` — the full mutation signature. The attached readback shows the
+      rectangle plainly drawn over the solid: its pixels land at (190,197,204),
+      i.e. the `#E9F1F8` token blended at ~0.74 coverage against the blued face,
+      which is a 1 px GL line straddling the pixel grid rather than filling it.
+      Pixels within ±48 of the token: **736 on a pass, 734 on a fail** — the same
+      ink, a different sub-pixel phase. `pxPerMm` is 26.625 in both.
+      WHY IT MATTERS BEYOND THIS SPEC: an exact-hex census of an anti-aliased
+      1 px line cannot distinguish "the ink lost the depth fight" (0 near the
+      token too) from "the line moved a third of a pixel" (hundreds near it), so
+      the gate's headline power — hundreds vs ZERO — is real for the defect and
+      also fires on nothing at all. `countTokenPixels(hex, 6)` has the same
+      exposure wherever it censuses LINES; area fills are unaffected.
+      FIX: census the ink by coverage, not by exact equality — count pixels
+      within a tolerance that admits the AA blend (±48 measured here), or sum
+      estimated coverage along the token↔ground axis, and re-derive the floor
+      from that instrument. `inkNearToken` is already recorded on every run
+      (`scribe-census.json`) so the new floor can be calibrated from history.
+      ACCEPTANCE: 10 consecutive local runs green, and the `depthTest: false` ->
+      `true` mutation still red (it must give ~0 under the new census too, since
+      the ink is then absent rather than blended). Do NOT relax the 120 floor as
+      a substitute — that is the move CI-4's F5 forbids.
+      CLOSED 2026-08-12 by the orchestrator, reconciling the CI-4 workflow's
+      uncommitted work after a container restart killed it mid-run.
+      `measureInkCoverage` sums per-pixel coverage on the ground->token axis
+      (AA conserves it) and rejects off-axis pixels so `scribeSolved` cannot be
+      counted as `scribe`; the ground is measured per-run, not hard-coded. The
+      floor went UP, 120 -> 400, because coverage reads higher than the exact
+      count on the same frame.
+      VERIFIED: 11 local runs of this spec, all green — 5 in a quiet window, 3
+      under a 3-core burner at load average 6.5 (the condition where the old
+      census failed 3 of 5), 1 census-logging run, and 2 more after the comment
+      correction below. Plus 1 deliberately mutated run, red. The old instrument
+      failed 5 of 10 on this same machine.
+      ONE PREDICTION IN THIS ENTRY WAS WRONG AND IS CORRECTED RATHER THAN
+      QUIETLY DROPPED: the mutation does NOT give ~0. Measured healthy
+      coverage 1168.32 vs mutant 212.49 (`ink` and `inkNearToken` DO both go to
+      0 in the mutant). A coplanar sketch under `depthTest: true` z-fights
+      instead of vanishing, so about a fifth of the ink still lands.
+      CORRECTED AGAIN 2026-08-13 by the five-lens ultracode review, which caught
+      three further wrong numbers in the paragraph above — written by the
+      orchestrator while correcting somebody else's wrong number, which is its
+      own lesson. (a) The floor is NOT "~2.9x clear either side": 1168.32/400 =
+      2.92 ABOVE, 400/212.49 = 1.88 BELOW; centred would be 498. (b) "any floor
+      below ~250 would pass the mutant" is wrong — the mutant is 212.49, so 230
+      still reddens; the number to quote is ~213. (c) The "floor went UP,
+      120 -> 400" framing compares an exact-token COUNT with a coverage SUM; as
+      a fraction of healthy it FELL, 49% -> 34%. That comparison is now dropped
+      rather than re-argued.
+      AND THE INSTRUMENT DOES NOT DO WHAT ITS DOCSTRING CLAIMED. "Rejects
+      off-axis pixels so `scribeSolved` cannot be counted as `scribe`" is FALSE
+      and was repeated into `0983935`'s commit message. Verified independently
+      against the measured ground (72,75,78): `scribeSolved` (#C4D2DE) projects
+      to t = 0.81 with residual **9.0**, `constructionInk` to t = 0.53 residual
+      **19.3**, both inside `INK_AXIS_TOLERANCE = 24`, so both are COUNTED. It
+      is structural, not tuning: those tokens differ from `scribe` almost purely
+      in LUMINANCE and luminance is the axis, and a foreign token's residual
+      scales with coverage, so rejecting one would need coverage > tol/distance,
+      which exceeds 1 for both. A rectangle drawn ENTIRELY in the wrong token
+      clears the 400 floor. The helper answers "is there ink of roughly this hue
+      here", never "is this ink this exact token" — corrected in the docstring;
+      the commit message stands as history with this entry as its annotation.
+      [src: CI-4 frontend slice, 2026-08-11]
+
+- [ ] (P3, XS) **SPEC-3 — the live-extrude-ghost gate is a thin statistical
+      margin, and it fails on framing rather than on the ghost** (`apps/web`).
+      Filed 2026-08-11 by the orchestrator. `45c8592`'s e2e went red on
+      `interaction-depth.spec.ts:40` at `Expected > 336, Received 316`; the
+      assertion is `distinctCanvasColors(page) > inkColors + 8`.
+      WHY THE GATE AND NOT THE FEATURE: the raster-INDEPENDENT hook asserted
+      immediately above it — `extrude-preview-active` attached with
+      `data-distance-mm="10"` — PASSED, so the ghost was present. The descendant
+      `7ffac16` then ran the same spec GREEN on the same tree.
+      WHY IT IS FRAGILE: `distinctCanvasColors` (`support.ts:345`) samples every
+      16th pixel and counts distinct RGB, so it is an AA- and framing-sensitive
+      statistic. The assertion is a NET — colours the ghost ADDS minus any the
+      extrude editor REMOVES (sketch grid/plane) — and +8 is a thin margin on a
+      difference. The spec's comment calls a bare sketch "relatively few shades"
+      while the measured baseline was 328, so the premise no longer describes
+      the scene it runs in.
+      FIX: assert on something the ghost alone controls (its own pixels inside a
+      known rect, or a token-coloured sample), or restate the floor around a
+      margin measured across runs instead of a hardcoded +8. Same class as the
+      CI-1 fix — pin the claim to hundreds-vs-zero, not to a framing-specific
+      ratio.
+      [src: orchestrator CI root-cause, 2026-08-11]
+
+- [x] (P2, S) **SEL-7 — hole placement is the one overlay that still drills
+      into a body nobody can see** (`apps/web`). Filed 2026-08-08 by the
+      orchestrator from the SEL-6 review (amber, confirmed real by the
+      reviewer). SEL-6 closed the raycast half everywhere and SEL-6b closed the
+      offer half for the marks, the band corridor and the FacePatch — but
+      `HolePointOverlay.tsx:333` mounts its DOM snap nodes (`hole-point-center`,
+      `-vertex-N`, `-circle-N`) and the datum crosshair on EDITOR state only
+      (`PartPage.tsx:4474`), never on visibility. Its `PickSurface` is covered;
+      the DOM buttons are not. Hide the body mid-command and diamonds float in
+      empty air that still drills a real hole into geometry the user cannot see.
+      Exactly the class SEL-6b named — "a PickNode is a DOM button that never
+      asked the scene" — one overlay short of a clean sweep.
+      FIX: gate the armed block on `useHiddenPicks().isHiddenFace(placementOrdinal)`,
+      or `isHiddenPoint` per snap. The hook already exists; this is wiring.
+      ACCEPTANCE: with the target body hidden, no hole-point DOM node is
+      mounted and no crosshair is drawn; unhiding restores every one of them at
+      its previous ordinal. Mutation-verify the gate goes red on today's code.
+      SHIPPED 2026-08-11 (this commit): ONE early return withholds the WHOLE
+      overlay — snap nodes, `PickSurface`, all three crosshairs and the frame
+      labels — off `useIsHiddenFaceOrdinal`, a new ordinal-only hook that reads
+      the hidden set without the weld pass `useHiddenPicks` would have cost.
+      The editor says why (`hole-placement-hidden-note`), stays armed and does
+      not gate Create. MEASURED on a new two-body bored-plate fixture: 23 snap
+      nodes -> 0 and 124 px of crosshair ink -> 0 with the plate hidden, all 23
+      back at their previous ordinals on show; hiding the OTHER body changes
+      nothing. Mutation-verified both halves (gate reverted: 23 nodes + 319 px
+      of ink over the void; editor prop forced false: the row never says why).
+      Shots: `docs/screenshots/sel7-hole-placement-hidden-{before,after}.png`.
+      REVIEW FOLLOW-UP 2026-08-11 — both findings real, both fixed: `ModelMesh`
+      now clears `pickHiddenFaces` on unmount (a stale ordinal set outlived its
+      mesh) AND `useIsHiddenFaceOrdinal` takes the null-geometry guard its two
+      sibling consumers already had; the spec's `setBodyMode`/`labelCentroid`
+      copies now import from `occludedPlate.ts`. CORRECTION (SEL-7 review round
+      2, 2026-08-11): this note claimed both were "mutation-verified
+      independently". True of the READER half only — deleting the clear from
+      `ModelMesh` left all 1584 tests green, because the test's own helper did
+      the clearing. Now really gated: `releasePickSubject()` releases mesh +
+      ordinals in one store action, `ModelMesh.unmount.test.tsx` renders and
+      unmounts the REAL component, and both mutations redden (call site dropped
+      -> 1 red; store action stripped -> 3 red). 1588 unit tests green.
+      [src: code-reviewer, SEL-6 slice 2026-08-08]
+
+- [ ] (P3, XS) **SEL-8 — SEL-6 aftercare: five loose ends the review logged
+      green** (`apps/web`). Filed 2026-08-08 by the orchestrator. None blocks
+      anything; batched so they are fixed once rather than rediscovered five
+      times. (a) `pickRaycast.ts:6` — the evidence numbers DISAGREE for the same
+      pre-fix census: the commit message and `docs/ROADMAP.md` say 7.4% -> 96.3%
+      (control 96.7%), the module header and `pick-affordance.spec.ts:601` say
+      8.5% (27/317, control 98.0%). Probably pre/post the unlit luminance-proxy
+      correction, but this repo's standard is measured numbers that AGREE — name
+      the run each came from or reconcile them. (b) `ModelMesh.tsx:207` — a
+      fifth copy of the stale reason survived the four-copy sweep; the comment
+      still credits a pointer-handler refusal SEL-6 deleted, and the
+      `!bodyFaceState.hidden.has(hoveredFace)` guard at :220 is now dead (
+      harmless as defence-in-depth, but say so). (c) `hiddenPicks.ts:83` — every
+      mounting overlay builds its own weld-bucket Map, so two live overlays mean
+      duplicate O(V) passes with string allocation; free today via the
+      OFFER_EVERYTHING short-circuit, but derive it once beside
+      `pickHiddenFaces` in `partView.ts` if it shows on a heavy part.
+      (d) `EdgePickOverlay.tsx:56` — `FacePickOverlay` drops its hover when the
+      offer changes; `EdgePickOverlay`, `ShellFaceOverlay` and `MeasureOverlay`
+      do not, so the QA stamps the e2e gates read can carry a withheld entity's
+      index for one frame. Fails toward a false RED, so robustness only.
+      (e) `partView.ts:163` — only `hidden` feeds `pickHiddenFaces`, so a
+      GHOSTED body still both eats and offers picks. Defensible and pre-existing
+      (Fusion keeps translucent bodies selectable), but now that the hidden case
+      is spelled out at length the omission reads as an oversight; one explicit
+      line in the module doc.
+      [src: code-reviewer, SEL-6 slice 2026-08-08]
+
+- [ ] (P2, XS) **CI-2 — `deploy-path` never got the per-SHA concurrency fix, so
+      it is still evicting runs** (`.github/workflows`). Filed 2026-08-08 by the
+      orchestrator from the CI board. `ci.yml` and `e2e.yml` both key their PUSH
+      concurrency group on `github.sha`; `deploy-path.yml:39-41` still reads
+      `group: deploy-path-${{ github.ref }}` with `cancel-in-progress: false`,
+      and its header comment justifies that with "Runs QUEUE instead, so one
+      always completes." That reasoning is the exact one CLAUDE.md records as
+      false: a group admits one RUNNING plus one PENDING run, and a newer
+      arrival evicts the pending one no matter what `cancel-in-progress` says —
+      which only governs runs already holding a runner.
+      EVIDENCE: `207d36c` (run 31237861400) and `e53e4e4` (run 31237776502) both
+      came back `cancelled` on `deploy-path` while their `ci` and `e2e` runs
+      completed. `list_workflow_jobs` on 31237861400 returns
+      `{"total_count": 0}` — no job ever started, which is the eviction
+      signature, not the `timeout-minutes` one (a timeout kills ONE job near its
+      ceiling and leaves siblings green).
+      FIX: mirror `ci.yml`'s expression — per-SHA group on `push`, per-ref on
+      `pull_request` — and correct the stale comment in the same commit so the
+      next reader does not re-derive the wrong model. Cheap: deploy-path is the
+      86 s job, so per-commit runs cost little.
+      ACCEPTANCE: two commits pushed back-to-back each get a completed
+      `deploy-path` run; no `cancelled` with zero jobs.
+      [src: orchestrator CI read, 2026-08-08]
+
+- [x] (P1, M) **SEL-4 — the armed EDGE and shell/draft picks are still 24 px
+      dots; only the FACE pick got its raycast** (`apps/web`). SHIPPED
+      2026-08-08 (`757ca9f` `e53e4e4` `8cb7700` `207d36c` + this commit): all
+      five converted onto ONE shared implementation (`pickSurface` /
+      `facePatch` / `pickStamp` / `edgeBand` + `EdgeBandLayer`), each passing
+      `recede`; edges get a 24 px `LineSegments2` corridor with a unit-tested
+      occlusion decision; hole placement becomes FREE placement with snap
+      (behaviour change, flagged to the founder). Dense-hole fixture
+      (`seedDenseHolePlate`, seven Ø6 bores on a Ø40 bolt circle) + gate
+      `e2e/pick-affordance.spec.ts`, mutation-verified on all three
+      conversions. MEASURED: edges 13 px in every direction -> 40–130 px along
+      and ≤13 px across; shell reachability 1.7 % -> 95.6 %. NB the item id is
+      AMBIGUOUS — there is a second "SEL-4" (hovered-face normal arrow) further
+      down this file, and a duplicate "SEL-5" pair as well; flagged for the
+      groomer to renumber. Review follow-up 2026-08-08: a HIDDEN body no longer
+      occludes the edge band behind it (the reason you hide one), the mate
+      conversion got the census gate it shipped without, and the mate hover has
+      one owner instead of N writers on one stamp. SEL-1 A2 made
+      the drawn surface the primary hit-test for `FacePickOverlay` and lifted
+      reachability 9.9 % -> 84.6 %. `EdgePickOverlay` (fillet, chamfer),
+      `ShellFaceOverlay` (shell, draft), `MeasureOverlay`, `InstanceMateOverlay`
+      and `HolePointOverlay` were NOT converted: `PickNode` is still their sole
+      hit-test, so the founder's "picking is very difficult" is unfixed the
+      moment the tool is fillet rather than sketch-on-face. Edges need a
+      screen-space tolerance band around the polyline rather than a triangle
+      raycast, which is why they were deferred and why this is M not S. Two
+      riders, both from the 2026-08-06 review: each overlay passes `recede` to
+      `PickNode` as it converts (the prop exists and defaults OFF precisely so
+      an unconverted surface keeps its aim affordance at full strength); and
+      A2's acceptance names a DENSE-HOLE-PATTERN fixture, which the shipped
+      gate does not have — the six-face box cannot show a mis-resolved ordinal
+      the way seven overlapping bores can. Acceptance A2:
+      `docs/design/pre-selection.md` §6. [src: code review 2026-08-06]
+
+- [ ] (P2, S) **SEL-5 — no gate proves the addressed face's trace respects
+      OCCLUSION** (`apps/web`). The 2026-08-06 fix (depth-tested `Line2` +
+      faint x-ray pass) is evidenced by founder screenshots
+      (`docs/screenshots/sel1-bore-trace-*`) and nothing else, because every
+      instrument we own for this is a pixel census and the honest direction
+      here is FEWER lit pixels — exactly the "a census can reward the broken
+      screen" trap FB-17d records. Wanted: an assertion tied to WHERE the brass
+      lands (inside the hole's silhouette vs across the plate) rather than to
+      how much of it there is. The bored-plate fixture and the island-finding
+      sweep that addresses its bore wall already exist in
+      `e2e/face-hover.spec.ts`. [src: code review 2026-08-06]
+
+- [x] (P0, S) **CI-1 — `sketch-visibility` gate red since `6d8a8dd`, which never
+      got a CI run.** Found 2026-08-06 by reading the e2e run for a SEL-1 push.
+      `6d8a8dd` and `be8a2a5` were pushed together; GitHub builds only a push's
+      HEAD commit, so the breaking one was never built and left no row to notice.
+      FIXED: the gate's 30 % ink floor was calibrated to a framing FB-22 has
+      since improved (the sketch camera now rests over the face centre, which is
+      wider — 35.5 -> 26.6 px/mm), and its stated model was backwards. Floor
+      restated around what the gate actually discriminates (hundreds vs ZERO)
+      and mutation-verified at 0. AMENDED 2026-08-06 (code review): the first
+      cut kept BOTH a 12 % ratio and a 120 px floor, and at the shipped framing
+      the ratio computes to 128 — so it decided nothing and left the gate
+      framing-coupled, which is the very fault it was fixing. One instrument
+      now (the absolute count), preceded by a `pxPerMm` band so the next
+      re-framing fails at the calibration line with a message. Two wrong
+      hypotheses were measured away first (snap-corrupted DRO calibration;
+      unsettled camera ease) — both recorded in ROADMAP so nobody re-derives them.
+
 ### FOUNDER SESSION FEEDBACK 2026-08-01 — eleven reports from one evening of real use
 
 The founder modelled in the app and reported the following. These outrank the
@@ -88,14 +636,14 @@ about to hit).
       a feathered `carbide` wash laid on the picked face (the metaphor the token
       file already claimed), taking the scribe to **5.9:1**. Gated by
       `e2e/sketch-visibility.spec.ts`, which fails on the parent commit.
-- [ ] (P0, M) **FB-2 — a sketch line will not select at all**, so it cannot be
+- [x] (P0, M) **FB-2 — a sketch line will not select at all**, so it cannot be
       dimensioned ("I try to click on a line to [assign] height"). Pick path, not
       discoverability: `applyConstraintAction("distance")` needs exactly one LINE
       and `pick.ts` states "Points win within tolerance because they are the finer
       target" (`PICK_TOLERANCE_PX = 8`) — a click near a line may resolve to an
       endpoint POINT with nothing on screen saying so. Bisect vs `d8a4126`
       (PERF-4b fused per-face primitives + changed draw groups) in flight.
-- [ ] (P0, M) **FB-3 — picking a FACE is "very difficult"** — finicky rather than
+- [x] (P0, M) **FB-3 — picking a FACE is "very difficult"** — finicky rather than
       dead. Wants a measured hit region, small-vs-large faces, zoom and grazing
       angle, not an impression. Likely the same defect as FB-2.
 - [x] (P0, M) **FB-4 — a cut extrudes AWAY from the material and removes
@@ -113,17 +661,23 @@ about to hit).
       renders for face-seated sketches (their `on_face` basis was missing from
       the solved-layer walk) and the editor says where the sweep goes. Closed
       form in `e2e/extrude-cut-direction.spec.ts`: 8 000 mm³ → 7 500 mm³.
-- [ ] (P1, M) **FB-5 — cannot attach a sketch to a face; hovering a face should
+- [x] (P1, M) **FB-5 — cannot attach a sketch to a face; hovering a face should
       offer it.** The capability exists but only as `ctx-sketch-on-face` in a
       right-click Tools menu, which then enters a face-pick mode (so FB-3 may
       also block it). "New sketch" offers base planes only, so concluding it is
       impossible is the correct reading of the UI.
-- [ ] (P1, S) **FB-6 — sketch ink is invisible on the face it sits on.**
+- [x] (P1, S) **FB-6 — sketch ink is invisible on the face it sits on.**
       `SketchScene.tsx` sets `depthWrite={false}` but leaves depth TESTING on and
       has no `renderOrder`/`polygonOffset`; a sketch on a face is coplanar with it
       by construction, so the ink z-fights away. Also check scribe contrast on a
-      bright aluminium face, not just the dark void. IN FLIGHT.
-- [ ] (P1, L) **FB-7 — editor panels cover the model and cannot be moved**
+      bright aluminium face, not just the dark void.
+      BOXES TICKED 2026-08-06 while landing FB-7: FB-2/FB-3/FB-5/FB-6 were all
+      closed by shipped work and only the checkboxes were stale — FB-2 never
+      reproduced (its real causes shipped as FB-12 `b6d2f2d` and FB-14
+      `d2e2162`), FB-3/FB-5 by SEL-1 A2 (`8b693f5`, affordance 9.9 % → 84.6 %
+      against a 50 % floor), FB-6 three ways in `SketchScene.tsx` by FB-1b
+      (`b6d2f2d`). No new work; the record was lying about what was open.
+- [x] (P1, L) **FB-7 — editor panels cover the model and cannot be moved**
       (Feature tree > new Datum plane; photographed). `Viewport.tsx:733` already
       measures chrome obstructions into a FREE rect and `framePose` already fills
       it — but `framing()` is only consulted during a fit, and the auto-fit runs
@@ -132,6 +686,23 @@ about to hit).
       free-rect fit for residual floating chrome (safe only since `5bd4c46`),
       THEN compact as a separate density pass. Compaction alone is not the fix —
       a smaller panel still covers the part.
+      DONE 2026-08-06 (frontend-builder): editors DOCK. `ChromeRail` is one
+      column per side at the seat the tree/inspector already hold, and
+      `EditorCard` portals into it — one shell, so all 17 editors moved at once
+      and the workspaces with no rail keep floating. Overlap is now structurally
+      impossible, not merely smaller, and the charged inset is unchanged, so the
+      free rect stays `356,24,888,758` and the camera never moves. The residual
+      1.2 % offender was NOT chrome: the extrude ghost drew on the far side of
+      the sketch plane because the origin-datum bases were kernel-frame (Z-up)
+      while the scene renders Y-up — measured body y∈[0,10] z∈[−15.4,16.6] vs
+      ghost y∈[−16.6,15.4] z∈[0,10]. That is FB-9's mechanism too, fixed in
+      `sketch/plane.ts` (`sceneOriginBasis`/`resolveDatumSceneBasis`; the kernel
+      algebra is untouched so client and server still agree on (u,v)). Two
+      latent bugs surfaced with it: two camera rigs deadlocked over one camera
+      (fixed — the part rig releases its ease when the sketcher takes over), and
+      the ghost needed `depthTest:false` to be visible at all now that it lands
+      INSIDE the body. `founder-picking.spec.ts` FB-7 is a plain `test` with no
+      `extraSelectors`, mutation-verified red both ways.
 - [ ] (P0, L) **FB-8 — "too many [points] to see what you are clicking"; wants
       Fusion/Plasticity pre-selection** — a snapping pointer, the FACE (not the
       body) highlighting under the cursor, and a small axis showing direction.
@@ -161,12 +732,17 @@ about to hit).
       `DimensionNotParallelError` → typed `dimension_not_parallel`, NO value, for a
       converging/skew/degenerate pair. E2e `drawing-wall-thickness.spec.ts` reads
       5.000 off a real housing wall and proves the refusal.
-- [ ] (P2, S) **FB-11 — nothing in the app says which BUILD it is.** The founder
+- [x] (P2, S) **FB-11 — nothing in the app says which BUILD it is.** The founder
       tests from a GitHub Codespace, so a report cannot be tied to a commit and
       "already fixed or still broken" is unanswerable. Inject the git SHA + build
       time via Vite `define`, surface it quietly with a `data-testid`. Small, but
       it removes a whole class of wasted round-trip — two fixes landed mid-session
       and neither side can say whether the last report included them.
+      SHIPPED 2026-08-04: `vite.config.ts` injects `__BUILD_SHA__`/`__BUILD_TIME__`
+      (`-dirty` suffix when the tree is), read through `src/lib/build.ts`, printed
+      in the `?` key card's footer — reachable everywhere, costing the viewport
+      nothing. Falls back to `unknown` with no git; 4 tests cover the fallback so
+      it can never render `Build undefined`.
 - [x] (P0, S) **FB-12 — a click that drifts 5 px is silently discarded, which is
       what "the line wouldn't even select" actually is** (qa-tester, measured
       2026-08-01; `docs/QA-REVIEW.md` "founder session: the picking reports").
@@ -355,6 +931,81 @@ about to hit).
       every FB-1..FB-19 report was a flow failure rather than a missing
       capability, so this is the root the others are symptoms of. [src: founder
       2026-08-01]
+- [ ] (P0, M) **FB-21 — the origin axis glyphs are labelled in KERNEL space but
+      drawn in SCENE space, which the GLB rotation has already turned.** Founder,
+      2026-08-02: *"check the axis. Turn on the axis and compare them to the view
+      cube."* MEASURED, not inferred. A 40x20 rectangle on Plane.XY extruded
+      10 mm gives GLB mesh-local extents X 0.04 / Y 0.02 / **Z 0.01** — the
+      extrude is along kernel +Z, correct — and the glTF node carries rotation
+      `[-0.7071, 0, 0, 0.7071]`, a -90 deg turn about X, so **kernel +Z maps to
+      scene +Y** (and kernel +Y to scene -Z). `glbGeometry.ts` states it bakes
+      that node matrix into the merged buffer, and no compensating rotation
+      exists on the model mesh or the origin group (checked). But
+      `OriginGeometry.AXIS_DIRECTION` draws X/Y/Z at scene
+      `[1,0,0]/[0,1,0]/[0,0,1]` — an identity. So the glyph labelled **Z** points
+      along scene +Z, which is where the kernel's **-Y** lives, while the part's
+      height runs along scene +Y where the glyph labelled **Y** is drawn. Y and Z
+      read as swapped against the model. `Viewport.tsx` compounds it: camera
+      `up` is `(0,1,0)` and `upFor()` detects top/bottom with
+      `Math.abs(dir.y) > 0.99` — Y-up — so the ViewCube's TOP looks down the
+      part's true height while the axis captioned Z points sideways. That is the
+      disagreement the founder asked us to check.
+      **NOT yet established, and the next step:** whether `sketch/plane.ts`'s
+      bases (XY normal `[0,0,1]`, stated as build123d's kernel triples) are
+      likewise un-rotated — if so the PLANE glyphs mislead the same way, and the
+      plane a user picks is not the plane they see. Settle it by rendering, not
+      by reading: turn the axes on, screenshot against the ViewCube at a named
+      view, and compare with a body of known dimensions. Do NOT "fix" the labels
+      before that — geometry is verified exact (FB-9), so this is a naming/render
+      frame bug and swapping constants blind could break the half that is right.
+      Acceptance: one stated frame convention, documented; axis glyph, plane
+      glyph, ViewCube and model agree; a gate asserting the labelled Z glyph is
+      parallel to the extrude direction of an XY sketch. [src: founder 2026-08-02]
+
+- [x] (P0, M) **FB-22 — the sheet now says where zero is, and you can start
+      there** (founder 2026-08-02: *"there isn't an origin to start a drawing
+      from."*). `sketch/snap.ts` offered four kinds, every one derived from
+      geometry already drawn, so the FIRST point of a sketch could hold onto
+      nothing but the grid — and nothing on screen marked (0,0). Shipped: the
+      plane's own frame, drawn (`sketch/origin.ts` + `SketchOrigin` — a
+      centre-punch ring at zero with both axes, solid on the positive half and
+      phantom on the negative, letter engraved on the positive half; the
+      OriginGeometry dialect, in plane (u,v) so it survives a world-frame
+      change) and SNAPPABLE (`origin` / `x-axis` / `y-axis` kinds, ranked with
+      endpoints and yielding to a corner drawn at zero, the axes last of all).
+      Named honestly per plane kind: a datum's zero is "Origin", a face-seated
+      sketch's is "Face centre" with the caveat that it MOVES — the QA3-2
+      mechanism, now stated where the user reads it. Gates:
+      `e2e/sketch-origin.spec.ts` draws a rectangle from a 6 px-off aim with the
+      grid OFF and asserts the persisted corner is exactly (0,0). [src: founder
+      2026-08-02]
+- [x] (P0, M) **FB-23 — undo and redo, in the sketcher, on the SKETCH's own
+      stack** (founder 2026-08-02: *"there are no undo or redo buttons."*).
+      `HistoryGroup` was rendered by the part and assembly bands and not by
+      `SketchStrip`, so entering the sketcher removed undo exactly where the
+      work is most reversible. The trap was wiring the familiar chrome to the
+      familiar handler: part history undoes FEATURES, and a sketch in progress
+      is not yet a feature. So the store grew its own `past`/`future`, RECORDED
+      BY DERIVATION — the `set` wrapper snapshots any transition that bumps
+      `revision`, which is already the definition of a persisted sketch edit, so
+      a new action is undoable by construction. Undo bumps `revision` too, so a
+      restored sketch saves and re-solves. Same shared `HistoryGroup`, same
+      Ctrl+Z grammar, plus a `scope` caption naming what one step reverses.
+      Gate: `e2e/sketch-origin.spec.ts` asserts the feature tree and the 8,000
+      mm³ body are UNTOUCHED across sketch undo/redo. [src: founder 2026-08-02]
+- [ ] (P2, S) **A bound sketch undone to ZERO entities cannot persist that
+      state** (`apps/web`). `PartPage.persistBuffer` early-returns when
+      `entities.length === 0`, which predates sketch undo (nothing could shrink
+      the buffer before FB-23), so undoing the last entity of a SAVED sketch
+      shows an empty sheet while the server keeps the last geometry — and
+      Finish then closes without reconciling them. Fix in the sync loop, not the
+      store: an empty bound sketch is a legal state to save. [src: FB-23
+      as-built]
+- [ ] (P3, XS) **Fold the two private `calibratePlane` copies into
+      `e2e/planeMap.ts`** (`apps/web`). `constraints.spec.ts` and
+      `sketch-snap.spec.ts` each carry their own copy of the plane→screen
+      calibration; the shared module landed with FB-22 rather than adding a
+      third. Next time either spec is opened, import it. [src: FB-22 as-built]
 
 **QA verdicts on the founder block (qa-tester, 2026-08-01, HEAD + bisect):**
 `d8a4126` (PERF-4b) is **EXONERATED — do not revert**: face picking uses drei
@@ -388,6 +1039,11 @@ so it is the pre-`5bd4c46` camera snap or a stale Codespace bundle (see FB-11).
       circular-edge centres + straight edges of the sketched face), snappable and
       dimensionable; and the sketch frame's origin drawn and named against the
       part. [docs/QA-REVIEW.md 2026-08-01 QA3-2]
+      PARTIAL 2026-08-02 (FB-22): the origin half is DONE — the sketch frame's
+      zero is drawn, snappable, and named per plane kind, so a face-seated
+      sketch's origin now says "Face centre" and that it moves. What remains is
+      the projection half: body edges/hole centres projected into the sketch,
+      snappable and dimensionable.
 
 - [ ] (P1, M) **SEL-1 — default hover lights the whole body; a working
       engineer needs the FACE** (`apps/web`). `ModelMesh.tsx`'s pointer handler
@@ -403,6 +1059,66 @@ so it is the pre-`5bd4c46` camera snap or a stale Codespace bundle (see FB-11).
       `PickNode`'s fixed 24px centroid/midpoint button to a keyboard/touch
       fallback. Design + acceptance A1/A2/A7: `docs/design/pre-selection.md`
       §1, §6. [src: founder]
+      **A1 SHIPPED 2026-08-05 — the pointer now addresses a FACE.** Hover
+      resolves the ordinal under the cursor and routes it to its own draw group
+      (`setFaceMaterials` slot 4) with its boundary traced by `subsetEdges`;
+      the whole-body glow survives as the fallback for a mesh that cannot be
+      face-partitioned, or a single-face body. Gated by `e2e/face-hover.spec
+      .ts` (5 specs), mutation-verified: deleting `onPointerMove` turns "the
+      addressed face FOLLOWS the cursor" red (distinct ordinals seen across a
+      grid sweep 2+ -> 1) while the arrival case stays green — r3f re-fires
+      `onPointerOver` only on mesh ENTRY, never between faces of one fused
+      mesh, which is the whole defect. Two deviations from the spec, both
+      forced by the founder capture rather than by taste: the surface tint is a
+      NEW token (`facePick.hoverTint` #EFD6AE) because the reused
+      `hoverSurfaceTint` is ~5 % off white — invisible once localized to one
+      face, i.e. a cue that does not cue; and the traced boundary draws
+      `depthTest:false`, because its segments are numerically identical to the
+      body-wide edge overlay's and the two came out STIPPLED. A2 (raycast as
+      the primary hit-test for armed picks — the 9.9 %-vs-50 % reachability
+      floor) and A7 remain OPEN; this ships the hover cue, not the hit-test.
+      **A2 SHIPPED 2026-08-05 — the drawn face IS the target: 9.9 % -> 84.6 %.**
+      `ModelMesh` publishes its geometry through `partView`; `FacePickOverlay`
+      raycasts it and resolves the struck triangle to a B-rep ordinal, which is
+      already `OverlayFace.index`, so there is no mapping table to drift. All
+      three armed-pick call sites (sketch-on-face, datum, hole) get it for free.
+      `PickNode` is unchanged and demoted to what §5 asks: keyboard focus,
+      screen-reader name, touch target. A hit on a NON-pickable (non-planar)
+      face is ignored rather than snapped to a neighbour. Both FB-3/FB-5
+      `test.fail`s in `founder-picking.spec.ts` flipped to real assertions —
+      and BOTH needed their measurement repaired first, which is the reusable
+      lesson: the affordance case hit-tested the DOM, and `elementFromPoint`
+      answers "the canvas" for a raycast handler, so it would have stayed at
+      9.9 % with the defect fully fixed; the seat case clicked a hardcoded
+      coordinate that is 40 px OFF the body, so it had never once failed for
+      the reason it claimed.
+      **A7 SHIPPED 2026-08-05 — the reticles stop out-shouting the model.**
+      `PickNode`'s mark rests dimmed and returns to full on hover,
+      focus-visible and selected; the 24 px hit area (WCAG 2.5.8) is untouched,
+      because trading "too many to see" for "cannot hit it" would be the worse
+      defect. It follows A2: once the drawn surface is the primary hit-test,
+      these marks are the keyboard/touch fallback rather than how you aim. NOTE
+      the acceptance asked for a pixel census and it is not deliverable — every
+      census in `e2e/support.ts` reads the WebGL canvas, and a `PickNode` is a
+      drei `Html` DOM node that puts ZERO pixels on it. That blindness is
+      itself the finding: it is why the "DOM-square blanket" survived every
+      pixel gate we own. Gated instead on the property that decides it
+      (`PickNode.test.tsx`), which is exact and cannot be satisfied by
+      degrading anything else. Shots at 1600 AND 1280 under
+      `docs/screenshots/sel1-pick-reticles-*`.
+      **STATUS 2026-08-06 (code review) — A1 / A2(face) / A7 shipped; the item
+      is NOT complete.** An earlier note here said it was, which the unticked
+      box already contradicted. What remains, and is now SEL-4: the armed
+      EDGE and shell/draft picks (fillet, chamfer, shell, draft) still hang
+      their only hit-test on a 24 px `PickNode`, so the reachability floor A2
+      measured for faces is untouched on them; and A2's stated acceptance names
+      a dense-hole-pattern fixture, where the shipped gate uses a six-face box.
+      Two review findings fixed in the same pass: A7's recession was GLOBAL, so
+      it dimmed the aim affordance on the five overlays A2 never converted (it
+      is now opt-in per surface, and 50 % was under the WCAG 1.4.11 non-text
+      floor at 2.98:1 — 60 % measures 3.86:1); and the addressed face's traced
+      boundary drew with no depth test, so a bore's far circle painted a bright
+      ellipse across the outside of the plate.
 
 - [ ] (P1, S) **SEL-2 — a sketch pick never names what it's about to select**
       (`apps/web`). `sketch/pick.ts` resolves a winning candidate silently;
@@ -2132,6 +2848,31 @@ frame refactor are v2/§11. Spike de-collected.
       documents seam assertion; additive ts-client, `gen-check` clean.
       [src: FINDINGS #7 / AUDIT-PRODUCT.md]
 
+- [ ] (P1, M) **MB-HOLE — Hole only ever drills the ACTIVE body, while the face
+      pick offers every body's faces, so a hole on any earlier body dies at
+      Create with `HOLE_OFF_BODY`** (`services/geometry`, `apps/web`). Found
+      2026-08-11 by qa-tester while verifying SEL-7 on the two-body
+      `seedBoredPlateAndBlock` fixture; NOT a SEL-7 regression — measured with
+      the body drawn and hidden, identical either way. MEASURED, three runs, same
+      face each time (`plane-pick-face-4`, the plate's top at OCCT 30, 30, 10):
+      one-body dense plate -> **Solved**, volume 34 020.8 -> 33 738.05 mm³
+      (Δ 282.7 = Ø6 x 10); the SAME plate as body 1 of a two-body part ->
+      **Failed / HOLE_OFF_BODY**, volume unchanged at 38 020.8; the second body's
+      own top face -> **Solved**, 38 020.8 -> 37 738.05. The plate's BOTTOM face
+      fails too, so it is the BODY that is unreachable, not a face-normal case.
+      Mechanism (read-only): `evaluate.py:_hole` drills `state.active_body`, and a
+      `merge: false` extrude makes the NEW body active — every modifying feature
+      inherits this, so Fillet/Chamfer/Shell on an earlier body are very likely
+      the same defect and should be measured in the same pass. FLOW: the pick
+      offers a target the command cannot act on, and the refusal arrives only
+      AFTER Create, as a red tree row ("no dead ends, no ambiguous exits").
+      FIX candidates: derive the target body from the picked FACE rather than
+      from `active_body_id`, or withhold the faces of non-active bodies in the
+      pick (worse — it makes the model invisible instead of wrong). ACCEPTANCE: a
+      hole placed on any body's face drills THAT body; e2e on the two-body
+      fixture asserting Solved + the Δ-volume for a hole on body 1.
+      [src: qa-tester, SEL-7 verification 2026-08-11]
+
 ## Next (P2)
 
 - [x] (P2, M) **QA3-3 — selecting a Ø3 hole lit the whole plate; a feature now owns
@@ -2681,6 +3422,16 @@ frame refactor are v2/§11. Spike de-collected.
       near-term pillar, does not compete with Phase 4b/5 for attention.
       [src: founder]
 
+- [ ] (P3, XS) **SPEC-2 — `qa-sel4-verify.spec.ts`'s hidden-body leg sits on its
+      own timeout ceiling** (`apps/web/e2e`). Found 2026-08-11 by qa-tester: the
+      test declares `test.setTimeout(180_000)` and measured 2.5 m and 2.9 m in
+      isolation and 3.0 m in a five-spec run, where it FAILED on the ceiling —
+      i.e. ~17 % headroom on a gate whose cost grows with the canvas sweep. Not a
+      product defect (it passes alone, twice), but a red CI shard waiting for a
+      slower runner. FIX: raise the budget or thin the sweep; same class as the
+      contention-robustness hardening already applied to the founder-flow specs.
+      [src: qa-tester, SEL-7 verification 2026-08-11]
+
 ## Blocked (environment/timing — not build-blocked)
 
 - [x] (P2, S) Verify full `docker compose up` runtime — **DONE 2026-07-25**
@@ -2702,6 +3453,30 @@ frame refactor are v2/§11. Spike de-collected.
 
 Full narrative evidence lives in `docs/ROADMAP.md` (Phase 4/4b sections) and
 `CHANGELOG.md`; one line per item below per token economy.
+
+### Recently shipped (2026-08-08)
+
+- **SEL-6b — a hidden body stops OFFERING picks, not only eating them.** The
+  mirror half, raised by review: `/overlay` has no notion of visibility, so a
+  switched-off body's edges stayed hoverable along the whole 24 px band corridor
+  and its faces selectable via their centroid marks. New pure
+  `apps/web/src/viewport/hiddenPicks.ts` decides the offer once for every overlay
+  — faces from `pickHiddenFaces`, edges/points by weld bucket (shared `weldKey`
+  with `bodyPartition.ts`), ambiguity always resolving to OFFER. Wall hidden on
+  `seedOccludedEdgePlate`: **24 edge marks -> 12, 12 face marks -> 6**, drawn
+  body unmoved, and none of the wall's edges answer over the space it vacated
+  (13 did). Mutation-verified three ways, including marks-filtered-but-band-not.
+- **SEL-6 — a hidden body in front no longer eats the pick for the body behind
+  it.** The SEL-4 guard could only REFUSE the hidden triangle, never see past it:
+  three never reads `material.visible` (only `material.side`), and r3f keeps one
+  hit per object, so the drawn face behind was never offered. New pure
+  `apps/web/src/viewport/pickRaycast.ts` drops hidden triangles inside `raycast`,
+  before r3f dedupes — one change for every overlay plus `ModelMesh`'s own face
+  hover, and `PickTriangle`'s `hidden` kind and `edgeBand`'s `surfaceOccludes`
+  both go away. Shell reachability with the wall hidden: **7.4 % -> 96.3 %**,
+  controls unmoved; the occlusion test starts applying again behind a hidden
+  body (a buried edge answered before the fix, not after). Three e2e legs plus
+  the node-side two-quad raycast case, all mutation-verified.
 
 ### Recently shipped (2026-08-01)
 
@@ -3265,6 +4040,50 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
       engineering-audit debt items closed. [src: engineering-auditor]
 
 ## Changelog
+
+- 2026-08-11 — **CI-4 review fix — the `--fail-on-flaky` guard matched its own
+  text (backend-builder):** flag literal now assembled in pieces and scoped to
+  the audit's real invocation, with three probes; 4 mutations verified. Also
+  dates `aea990a`, the one fix on this branch that shipped with no doc tick.
+- 2026-08-11 — **CI-4 frontend slice — the e2e render clock
+  (frontend-builder):** `waitForRenders` counts r3f renders (demand loop: 92
+  animation frames, 0 renders) and throws with the count achieved; reds attach
+  the viewport readback. `sketch-visibility` ink = 0 reproduced 5/10 locally —
+  an AA phase lottery, not a regression (SPEC-4).
+- 2026-08-11 — **SEL-6/6b independent QA verdict: PASS (qa-tester):** the
+  occluded plate answers 94.8 % with the occluder hidden (8.5 % before) and
+  names its NEAR face; `e2e/qa-sel6-verify.spec.ts`, five mutations each red.
+- 2026-08-08 — **SEL-6b a hidden body stops OFFERING picks too
+  (frontend-builder):** `hiddenPicks.ts` withholds a switched-off body's edges,
+  faces and snap points; 24 edge marks -> 12, 12 face marks -> 6, wall hidden.
+- 2026-08-08 — **SEL-6 a hidden body stops eating the pick behind it
+  (frontend-builder):** `pickRaycast.ts` filters hidden triangles inside
+  `raycast`; shell reachability with the wall hidden 7.4 % -> 96.3 %.
+- 2026-08-08 — **SEL-4 independent QA verdict: PASS (qa-tester):** 25 e2e green
+  on the real stack, `e2e/qa-sel4-verify.spec.ts` adding the 10 checks the
+  shipped gate did not express (draft, refusals, recede, mount audit, touch).
+- 2026-08-08 — **SEL-4 review follow-up 2026-08-08 (frontend-builder):** a
+  hidden body stops occluding the edge band (`resolveBandIntersections` +
+  `PickTriangle`); mate picks gated (8.9 % -> ≥50 %); one owner for mate hover.
+- 2026-08-08 — **SEL-4 (5/5) the dense-hole gate A2 asked for
+  (frontend-builder):** `seedDenseHolePlate` + `e2e/pick-affordance.spec.ts`,
+  anisotropy not area for edges, mutation-verified on all three conversions.
+
+- 2026-08-08 — **SEL-4 (4/5) drill anywhere on the face (frontend-builder):**
+  free placement by raycast + plane projection; the snap nodes still win inside
+  their 24 px because they are DOM above the canvas. Behaviour change.
+
+- 2026-08-08 — **SEL-4 (3/5) shell, draft and mates address the geometry
+  (frontend-builder):** surface raycast + edge band + the hover highlight
+  neither had. Shell reachability measured 1.7 % -> 95.6 % of the lit body.
+
+- 2026-08-08 — **SEL-4 (2/5) fillet/chamfer/measure pick the EDGE
+  (frontend-builder):** a 24 px screen-space `LineSegments2` corridor with an
+  occlusion test. Measured 13 px in every direction -> 40–130 px along.
+
+- 2026-08-08 — **SEL-4 (1/5) one pick hit-test, shared (frontend-builder):**
+  `PickSurface` / `FacePatch` / `useViewportPickStamp` / `edgeBand` (pure,
+  unit-tested) extracted from `FacePickOverlay`, plus `sceneToOcctTuple`.
 
 - 2026-08-01 — **Escape no longer ends your sketch, and a click no longer piles
   up (frontend-builder):** FB-13/FB-14 — the cascade unwinds and then stops (it

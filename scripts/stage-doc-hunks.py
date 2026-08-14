@@ -75,7 +75,44 @@ def split_hunks(diff: str) -> tuple[list[str], list[str]]:
 #: and the tool staged 31 lines where 16 were mine — reporting "left 0 hunk(s)
 #: unstaged for their author" while it did. Note `[-*]\s` cannot match `**bold`
 #: anyway: `[-*]` takes the first star and `\s` then fails on the second.
-ENTRY_START = re.compile(r"^\+(?:\s*[-*]\s|#{1,6}\s|>\s*ATTRIBUTION|\*\*)")
+#:
+#: A list item, a heading or the attribution marker opens an entry wherever it
+#: appears — nothing else in these docs starts a line that way.
+ENTRY_START_ANYWHERE = re.compile(r"^\+(?:\s*[-*]\s|#{1,6}\s|>\s*ATTRIBUTION)")
+
+#: A bold lead, which is ROADMAP's entry format AND an ordinary way to open a
+#: sentence INSIDE an entry ("**94.8 %**, every answer naming the near face").
+#: Treating it as an entry start unconditionally is the MIRROR of the defect
+#: above: instead of MISSING a boundary it INVENTS one, splitting a single entry
+#: in two. The marker then matches only the first half, the second half is
+#: attributed to a colleague who does not exist, and `mine_only_subhunks` drops
+#: it — so the tool truncates the author's OWN entry while reporting "left 0
+#: hunk(s) unstaged for their author". Measured 2026-08-11 by the SEL-6 QA agent:
+#: 7 lines staged of a 31-line ROADMAP entry, caught only because it read
+#: `git diff --cached` in full. Hence the context rule in `entry_heads`: a bold
+#: lead opens an entry only where an entry CAN begin — at the top of the run or
+#: after a blank line. Both docs separate entries with a blank line, so this
+#: keeps the ROADMAP fix the unconditional form was added for.
+BOLD_LEAD = re.compile(r"^\+\s*\*\*")
+
+
+def entry_heads(added: list[str]) -> list[bool]:
+    """Which of *added* (in order) open a new entry — bold leads read IN CONTEXT.
+
+    ONE derivation, used by attribution and by reporting alike, so "where an
+    entry begins" cannot come to mean two different things in two places.
+    """
+    heads: list[bool] = []
+    prev_blank = True  # the first added line can only be a beginning
+    for ln in added:
+        if ENTRY_START_ANYWHERE.match(ln):
+            heads.append(True)
+        elif BOLD_LEAD.match(ln):
+            heads.append(prev_blank)
+        else:
+            heads.append(False)
+        prev_blank = ln.strip() == "+"
+    return heads
 
 
 def added_lines(hunk: str) -> list[str]:
@@ -103,9 +140,10 @@ def foreign_entries(hunk: str, markers: list[str]) -> list[str]:
     so there is no correct automatic answer, only a visible failure or a silent
     sweep.
     """
+    added = added_lines(hunk)
     entries: list[tuple[str, list[str]]] = []
-    for ln in added_lines(hunk):
-        if ENTRY_START.match(ln) or not entries:
+    for is_head, ln in zip(entry_heads(added), added, strict=True):
+        if is_head or not entries:
             entries.append((ln, [ln]))
         else:
             entries[-1][1].append(ln)
@@ -155,10 +193,16 @@ def mine_only_subhunks(hunk: str, markers: list[str]) -> list[str]:
     owner: dict[int, bool] = {}
     current_is_mine = False
     pending: list[int] = []
+    # Same head derivation as foreign_entries, over the added lines in the same
+    # order, so the two cannot disagree about where an entry starts.
+    added_idx = [i for i, ln in enumerate(lines[1:], start=1) if ln.startswith("+")]
+    head_of = dict(
+        zip(added_idx, entry_heads([lines[i] for i in added_idx]), strict=True),
+    )
     for idx, ln in enumerate(lines[1:], start=1):
         if not ln.startswith("+"):
             continue
-        if ENTRY_START.match(ln) or not pending:
+        if head_of[idx] or not pending:
             for i in pending:
                 owner[i] = current_is_mine
             pending, current_is_mine = [], any(m in ln for m in markers)
@@ -227,11 +271,32 @@ def entry_count_by_blank_line(hunk: str) -> int:
     paragraphs). Adding the missing alternative fixes that instance; it does
     nothing for the next format.
 
-    This counts a different way — added lines separated by an added BLANK line —
-    so the two disagree exactly when one of them has missed a boundary. It is not
-    better than `ENTRY_START` and is not used for attribution; it is used to
-    refuse when the two do not agree, because a disagreement means the tool
-    cannot tell whose lines these are, and guessing is what does the damage.
+    This counts a different way — runs of added non-blank lines, i.e. added
+    PARAGRAPHS — so the two disagree exactly when one of them has missed a
+    boundary. It is not better than `ENTRY_START` and is not used for
+    attribution; it is used to refuse when the two do not agree, because a
+    disagreement means the tool cannot tell whose lines these are, and guessing
+    is what does the damage.
+
+    WHAT IT CAN AND CANNOT ARBITRATE — say this precisely, because the obvious
+    reading is wrong. Since `entry_heads` treats a BOLD_LEAD as a head only when
+    it is at the top of a run or follows an added blank line, a bold-lead doc
+    has exactly ONE head per paragraph and `seen == blanks` IDENTICALLY. So this
+    cross-check CANNOT fire on the bold question at all, and it is not what
+    protects that direction — the context rule in `entry_heads` is, backed by
+    `--self-test`'s byte-for-byte `git show :FILE` comparison, which is the only
+    check that catches a truncated-but-exit-0 run.
+
+    What it does arbitrate is the list-item/other shapes, where the two
+    derivations genuinely come apart (both measured): two `- [ ]` items inside
+    one paragraph, no blank line between them, give blanks=1 seen=2; a paragraph
+    opening with neither a bold run nor a list marker contributes to blanks and
+    not to seen, e.g. a list item plus one plain paragraph gives blanks=2 seen=1
+    (a hunk of nothing BUT such a paragraph is the one case the caller's
+    `max(..., 1)` floor papers over). And it is the BACKSTOP that reactivates
+    the moment a future edit drops the context rule from BOLD_LEAD — that is
+    exactly what the recorded negative control "bold lead unconditional ->
+    REFUSES 2 vs 4" measures.
 
     NB this is why `verify_staged` alone is not enough: that check compares the
     result against what attribution CLAIMED, so a wrong claim verifies happily.
@@ -289,8 +354,10 @@ def verify_staged(
     theirs = Counter(
         ln[1:]
         for hunk in matched
-        for ln in added_lines(hunk)
-        if ENTRY_START.match(ln) and not any(m in ln for m in markers)
+        for is_head, ln in zip(
+            entry_heads(added_lines(hunk)), added_lines(hunk), strict=True
+        )
+        if is_head and not any(m in ln for m in markers)
     )  # entry-start lines that are definitely NOT mine
 
     problems: list[str] = []
@@ -340,11 +407,34 @@ def stage(path: str, markers: list[str], cwd: Path | None = None) -> int:
     disagree: list[str] = []
     filtered: list[str] = []
     for hunk in mine:
-        seen = len([ln for ln in added_lines(hunk) if ENTRY_START.match(ln)])
+        seen = max(sum(entry_heads(added_lines(hunk))), 1)
         blanks = entry_count_by_blank_line(hunk)
-        if blanks > max(seen, 1):
+        # BOTH DIRECTIONS, because a guard written against one failure tends to
+        # encode that failure's DIRECTION: the original read `blanks > seen`,
+        # which catches ENTRY_START MISSING a boundary (two entries read as one
+        # -> a colleague gets swept) and is blind to it INVENTING one (one entry
+        # read as two -> the author's own entry gets truncated).
+        #
+        # BUT DO NOT READ THIS AS THE THING THAT PROTECTS THE BOLD DIRECTION —
+        # it is not, and believing it is would let someone weaken the real
+        # protection. With BOLD_LEAD counted as a head only in context (top of
+        # run, or after an added blank), a bold-lead doc has exactly one head per
+        # paragraph, so `seen == blanks` identically and this branch is
+        # unreachable for it. The 2026-08-11 truncation is prevented by that
+        # context rule in `entry_heads`, and caught — if it ever returns — by
+        # --self-test's byte-for-byte `git show :FILE` comparison, which is the
+        # only check that fails on an exit-0 truncation.
+        #
+        # What this branch really arbitrates: list-item docs, where two `- [ ]`
+        # items can share one paragraph (seen > blanks) or a paragraph can open
+        # with neither marker (seen < blanks after the max floor) — and it is the
+        # BACKSTOP that reactivates the moment a future edit drops the context
+        # rule from BOLD_LEAD (measured: it then refuses, "2 vs 4"). A
+        # disagreement either way means the tool cannot tell whose lines these
+        # are, and guessing is the whole failure mode — so refuse either way.
+        if blanks != seen:
             disagree.append(
-                f"{blanks} entries by blank-line separation, but only {seen} "
+                f"{blanks} entries by blank-line separation, but {seen} "
                 "recognised entry-start line(s)"
             )
             continue
@@ -436,8 +526,10 @@ def stage(path: str, markers: list[str], cwd: Path | None = None) -> int:
     staged_entries = [
         ln.rstrip()
         for hunk in filtered
-        for ln in added_lines(hunk)
-        if ENTRY_START.match(ln)
+        for is_head, ln in zip(
+            entry_heads(added_lines(hunk)), added_lines(hunk), strict=True
+        )
+        if is_head
     ]
     print(
         f"stage-doc-hunks: staged {len(mine)} hunk(s) of {path} matching {markers!r}; "
@@ -448,6 +540,15 @@ def stage(path: str, markers: list[str], cwd: Path | None = None) -> int:
         for head in staged_entries:
             print(f"    {head}")
     return 0
+
+
+#: How many checks `self_test` is supposed to run (4 per `_case` x 3 fixtures,
+#: 1 per `_identity_case` x 2, 5 from `_twice_case`). A count floor exists
+#: because the verdict is `all(ok for ok, _ in checks)` and `all([])` is True:
+#: a case dropped in a refactor removes coverage silently and the self-test
+#: still prints "passed". `<`, not `!=`, so ADDING checks needs no edit here —
+#: only losing them is an error.
+EXPECTED_CHECKS = 19
 
 
 #: The exact shape that broke it: a colleague's in-flight entry directly ABOVE
@@ -518,6 +619,43 @@ _ROADMAP_EXPECTED = _ROADMAP_BASE.replace(
 )
 
 
+#: THE MIRROR SHAPE: my entry contains a CONTINUATION line that opens with a
+#: bold run — "**94.8 %**, every answer…" — which is how anyone writes a measured
+#: result, and is what a QA agent actually wrote on 2026-08-11. An unconditional
+#: `\*\*` entry-start reads that line as a second entry, the marker matches only
+#: the text above it, and everything from there down is dropped as "somebody
+#: else's" — 7 lines staged of 31, reported as a clean run.
+#:
+#: The colleague's entry is here too so the case proves BOTH properties at once:
+#: my entry must arrive WHOLE, and theirs must still not be swept.
+_CONT_BASE = """# Roadmap
+
+Status legend.
+
+**An older entry that was already here.** Its second line of prose.
+"""
+
+_CONT_MINE = (
+    "**MY ROADMAP ENTRY marker-phrase — the headline.** Body prose\n"
+    "that runs on for a line.\n"
+    "**94.8 %** of points answered, every one of them naming the near\n"
+    "face — the continuation line that used to end the entry early.\n"
+    "**Mutation-verified**: reverting the fix turns this red.\n"
+)
+
+_CONT_DIRTY = _CONT_BASE.replace(
+    "**An older entry",
+    "**THEIR ENTRY (colleague) — a headline.** Their body prose,\n"
+    "which continues for a second line.\n"
+    "\n" + _CONT_MINE + "\n**An older entry",
+)
+
+_CONT_EXPECTED = _CONT_BASE.replace(
+    "**An older entry",
+    _CONT_MINE + "\n**An older entry",
+)
+
+
 def _case(
     name: str, doc_name: str, base: str, dirty: str, expected: str, marker: str
 ) -> list[tuple[bool, str]]:
@@ -555,6 +693,50 @@ def _case(
         print("--- expected ---")
         print(expected)
     return checks
+
+
+def _identity_case(
+    name: str, doc_name: str, base: str, dirty: str
+) -> list[tuple[bool, str]]:
+    """PIN the claim that the cross-check cannot fire on a bold-lead doc.
+
+    The docstrings above now state that `entry_heads`' context rule gives exactly
+    one head per added paragraph, so `entry_count_by_blank_line` and
+    `max(sum(entry_heads(...)), 1)` agree IDENTICALLY on ROADMAP-shaped docs and
+    the `blanks != seen` branch is unreachable there. A prose claim about a
+    guard's reach is exactly the kind of thing that rots silently, so it is
+    measured here on the real diff of the real fixtures rather than asserted.
+    """
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp)
+        doc = repo / doc_name
+        for args in (
+            ["git", "init", "-q", "."],
+            ["git", "config", "user.email", "self-test@loft.invalid"],
+            ["git", "config", "user.name", "self-test"],
+        ):
+            run(args, cwd=repo)
+        doc.write_text(base)
+        run(["git", "add", doc_name], cwd=repo)
+        run(["git", "commit", "-qm", "base"], cwd=repo)
+        doc.write_text(dirty)
+        diff = run(["git", "diff", "--", doc_name], cwd=repo).stdout
+
+    _, hunks = split_hunks(diff)
+    pairs = [
+        (entry_count_by_blank_line(h), max(sum(entry_heads(added_lines(h))), 1))
+        for h in hunks
+    ]
+    ok = bool(pairs) and all(blanks == seen for blanks, seen in pairs)
+    return [
+        (
+            ok,
+            f"{name}: blank-line and entry-head counts AGREE on every hunk "
+            f"(the cross-check cannot fire here) {pairs}",
+        )
+    ]
 
 
 def _twice_case() -> list[tuple[bool, str]]:
@@ -619,10 +801,49 @@ def self_test() -> int:
     reading the resulting tree does, so this compares `git show :FILE`
     byte-for-byte.
 
-    TWO fixtures, in the two formats these docs actually use, because the first
-    version of this self-test had only the BACKLOG one and therefore passed while
-    the tool swept a colleague's ROADMAP entry hours later. A gate is only as good
-    as the shapes it feeds itself.
+    THREE fixtures, because each was added the day the tool failed for a shape
+    the previous fixtures could not express:
+
+      backlog            list items — the original.
+      roadmap            bold-lead PARAGRAPHS. Added 2026-08-01 after the
+                         BACKLOG-only self-test passed while the tool swept a
+                         colleague's ROADMAP entry hours later.
+      bold-continuation  a bold run OPENING A LINE INSIDE my own entry. Added
+                         2026-08-11 after the tool staged 7 lines of a 31-line
+                         entry and called it clean.
+
+    The two ROADMAP cases pull in opposite directions and that is the point: one
+    fails if a boundary is MISSED, the other if a boundary is INVENTED. A fixture
+    in the wrong shape is a gate that cannot fail for the reason you care about.
+
+    NEGATIVE CONTROLS — each was RUN, and what each actually does is written
+    down here rather than what it was expected to do:
+
+      * bold lead unconditional (`heads.append(True)` in `entry_heads`)
+        -> bold-continuation REFUSES: "2 entries by blank-line separation, but
+        4 recognised entry-start line(s)". Loud, so nothing is lost. That is the
+        cross-check acting as a BACKSTOP for a regressed regex — not as the live
+        protection, see below.
+      * the same, PLUS the cross-check reverted to `blanks > seen`
+        -> bold-continuation EXITS 0, leaves the colleague alone, and stages a
+        truncated entry. The shipped 2026-08-11 defect, reproduced exactly —
+        and note only the byte-for-byte tree check catches it. An exit-code
+        assertion passes here, which is why this self-test compares the tree.
+      * bold NEVER a head (`heads.append(False)`, the pre-2026-08-01 blindness)
+        -> roadmap AND bold-continuation both refuse. Worth stating plainly:
+        that shape used to SWEEP a colleague silently, and it no longer can,
+        because the cross-check fires in the missed-boundary direction even when
+        the regex is blind.
+
+    WHAT PROTECTS THE BOLD DIRECTION IS NOT THE CROSS-CHECK. With the context
+    rule live, `entry_heads` yields exactly one head per added paragraph, so
+    `blanks == seen` IDENTICALLY on both ROADMAP fixtures and the `blanks !=
+    seen` branch is unreachable for them. Bold is protected by that context rule
+    plus the byte-for-byte `git show :FILE` comparison here; the cross-check only
+    reactivates if a future edit removes the rule. `_identity_case` PINS that
+    identity so the claim is measured rather than asserted — if a change makes
+    the two derivations diverge on a bold-lead doc, this self-test says so
+    instead of the docstring quietly becoming false.
     """
     checks = (
         _case(
@@ -641,11 +862,27 @@ def self_test() -> int:
             _ROADMAP_EXPECTED,
             "MY ROADMAP ENTRY marker-phrase",
         )
+        + _case(
+            "bold-continuation",
+            "ROADMAP.md",
+            _CONT_BASE,
+            _CONT_DIRTY,
+            _CONT_EXPECTED,
+            "MY ROADMAP ENTRY marker-phrase",
+        )
+        + _identity_case("roadmap", "ROADMAP.md", _ROADMAP_BASE, _ROADMAP_DIRTY)
+        + _identity_case("bold-continuation", "ROADMAP.md", _CONT_BASE, _CONT_DIRTY)
         + _twice_case()
     )
 
     for ok, label in checks:
         print(f"  {'ok  ' if ok else 'FAIL'} {label}")
+    if len(checks) < EXPECTED_CHECKS:
+        print(
+            f"\nstage-doc-hunks: SELF-TEST RAN {len(checks)} of {EXPECTED_CHECKS} "
+            "checks — the self-test lost coverage; it proves nothing."
+        )
+        return 1
     if all(ok for ok, _ in checks):
         print("\nstage-doc-hunks: self-test passed.")
         return 0

@@ -19,6 +19,32 @@
  *   XZ: u=+X v=+Z normal=−Y
  *   YZ: u=+Y v=+Z normal=+X
  *
+ * TWO FRAMES, AND WHICH FUNCTION HANDS YOU WHICH (FB-7c / FB-9, 2026-08-06).
+ * A `PlaneBasis` is just four vectors; it does not say what space they are in,
+ * and this module produces BOTH:
+ *
+ *  · the OCCT / build123d world frame (Z-up, millimetres) — what the kernel
+ *    evaluates, and the only frame in which the datum algebra below can mirror
+ *    `geometry.kernel.datum` exactly; and
+ *  · the SCENE frame (three.js, Y-up) — where the body actually renders,
+ *    because the GLB bakes OCCT's Z-up→Y-up rotation ({@link occtToSceneTuple}).
+ *
+ * The origin/offset/midplane bases were OCCT and `faceBasis` was scene, and
+ * nothing in the type said so — so the sketch ink, the origin datum sheets and
+ * the live extrude ghost for a sketch on XY all rendered rotated 90° away from
+ * the body they belong to. Measured in a real browser: a 10 mm box on XY put
+ * the BODY at scene y∈[0,10], z∈[−15.4,16.6] and its own extrude GHOST at
+ * y∈[−16.6,15.4], z∈[0,10] — the same solid, un-rotated, hanging through the
+ * ground grid and into the bottom view rail.
+ *
+ * The rule, now enforced by naming rather than by memory: **anything that
+ * renders takes a `scene*` entry point** ({@link sceneOriginBasis},
+ * {@link resolveSpecBasis}, {@link resolveDatumSceneBasis}, {@link faceBasis});
+ * the un-prefixed algebra ({@link originBasis}, {@link offsetBasis},
+ * {@link offsetFromBasis}, {@link midplaneBasis}, {@link resolveDatumBasis}) is
+ * the KERNEL frame and exists so the client's plane math stays byte-comparable
+ * with the server's. One rotation, applied once, at the boundary.
+ *
  * Pure math, no three.js imports — unit-testable in node.
  */
 import type { components } from "@loft/ts-client/gateway";
@@ -129,7 +155,12 @@ export type SketchPlaneSpec =
       datumFeatureId: string;
       /** A short readout label (the datum feature's name). */
       label: string;
-      /** The datum's resolved sketch basis (world build123d frame). */
+      /**
+       * The datum's resolved sketch basis, in SCENE coordinates (Y-up) — it is
+       * carried so the sketcher and camera can place the sheet without
+       * re-walking the datum table, and both of those draw. Minted by
+       * {@link resolveDatumSceneBasis}.
+       */
       basis: PlaneBasis;
     };
 
@@ -287,6 +318,21 @@ export function resolveDatumBasis(
   }
 }
 
+/**
+ * {@link resolveDatumBasis}, rotated into SCENE coordinates — the renderer's
+ * entry point for a datum FeatureRef. The walk itself stays in the kernel frame
+ * (it has to: `deterministicXDir` picks a WORLD axis, and the client's choice
+ * must equal the server's or a midplane-seated sketch's u/v would mean
+ * something different at each end).
+ */
+export function resolveDatumSceneBasis(
+  datumFeatureId: string,
+  byId: ReadonlyMap<string, AnyDatumParams>,
+): PlaneBasis | null {
+  const basis = resolveDatumBasis(datumFeatureId, byId);
+  return basis === null ? null : occtToSceneBasis(basis);
+}
+
 /** One side of a midplane (an origin datum, an earlier datum, or a face). */
 type MidplaneSide = components["schemas"]["DatumMidplaneParams"]["a"];
 
@@ -382,6 +428,53 @@ export function occtToSceneTuple(v: Vec3Tuple): Vec3Tuple {
 }
 
 /**
+ * The INVERSE of {@link occtToSceneTuple}: three.js scene (Y-up) → OCCT world-mm
+ * (Z-up), `(x, y, z) → (x, −z, y)`.
+ *
+ * It lives here, beside its forward twin, because this file is THE one
+ * OCCT↔scene rotation and a second copy of a frame transform is how a hole ends
+ * up 0.065 mm out (CLAUDE.md DRY rule). Needed the moment a pick reports a
+ * point in the SCENE — hole free placement raycasts the drawn surface, and the
+ * hit point has to come back to the kernel's frame before it can be written as
+ * a `HoleParamsV1.position`.
+ */
+export function sceneToOcctTuple(v: Vec3Tuple): Vec3Tuple {
+  return [v[0], v[2] === 0 ? 0 : -v[2], v[1]];
+}
+
+/**
+ * A whole basis, rotated OCCT (Z-up) → scene (Y-up). The rotation is linear and
+ * proper (det +1), so it carries u/v/normal as directions and `origin` as a
+ * point, and a right-handed basis stays right-handed — which the extrude ghost
+ * depends on, since it orients local +Z onto `normal`.
+ *
+ * THE one place the kernel-frame datum algebra becomes something a renderer may
+ * use. Everything a mesh, a line or a camera is built from goes through here
+ * (or through {@link faceBasis}, which converts its own result).
+ */
+export function occtToSceneBasis(basis: PlaneBasis): PlaneBasis {
+  return {
+    u: occtToSceneTuple(basis.u),
+    v: occtToSceneTuple(basis.v),
+    normal: occtToSceneTuple(basis.normal),
+    origin: occtToSceneTuple(basis.origin),
+  };
+}
+
+/**
+ * The origin datum's basis IN SCENE COORDINATES — what every renderer wants.
+ *
+ * `originBasis("XY")` is the kernel's XY: normal +Z in a Z-up world. On screen
+ * that plane is the GROUND (the adaptive grid's own plane), so its scene normal
+ * is +Y. Drawing an XY sheet — or an XY sketch's ink, or its extrude ghost —
+ * from the un-rotated basis stands it up vertically, at right angles to the
+ * body the same sketch produced.
+ */
+export function sceneOriginBasis(base: DatumPlaneName): PlaneBasis {
+  return occtToSceneBasis(originBasis(base));
+}
+
+/**
  * The scene-frame basis of a sketch seated on a picked planar face. Mirrors the
  * kernel's `resolve_face_plane`: origin = centroid + normal·offset, z = normal,
  * x = {@link deterministicXDir}, y = z × x — computed in OCCT coordinates so the
@@ -417,16 +510,25 @@ export function faceBasis(
   };
 }
 
-/** Resolve a viewport plane spec to its placed basis (scene frame for faces). */
+/**
+ * Resolve a viewport plane spec to its placed basis IN SCENE COORDINATES — the
+ * renderer's entry point (sketch ink, grid, pointer catcher, camera pose).
+ *
+ * This function used to mix frames: `on_face` came back in scene coordinates
+ * and the other three in the kernel's, so the same call site got a basis 90°
+ * apart depending on which plane the user had picked (FB-9). Every branch is
+ * the scene frame now; the kernel-frame algebra is one call in.
+ */
 export function resolveSpecBasis(spec: SketchPlaneSpec): PlaneBasis {
   switch (spec.kind) {
     case "origin":
-      return originBasis(spec.base);
+      return sceneOriginBasis(spec.base);
     case "offset":
-      return offsetBasis(spec.base, spec.offsetMm, spec.flip);
+      return occtToSceneBasis(offsetBasis(spec.base, spec.offsetMm, spec.flip));
     case "on_face":
       return faceBasis(spec.signature, spec.offsetMm);
     case "datum":
+      // Already scene-frame: `resolveDatumSceneBasis` is what mints it.
       return spec.basis;
   }
 }
@@ -524,7 +626,9 @@ export function resolveDatumPlaneOptions(
       });
       continue;
     }
-    const basis = resolveDatumBasis(feature.id, byId);
+    // Scene frame: the spec's `basis` is carried straight to the sketcher and
+    // the section author, both of which draw with it.
+    const basis = resolveDatumSceneBasis(feature.id, byId);
     if (basis === null) continue;
     options.push({
       id: feature.id,

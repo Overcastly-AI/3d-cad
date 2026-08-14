@@ -163,6 +163,19 @@ export interface HoleEditorProps {
   /** Why a pick can't happen right now (no body / no anchor), or null. */
   pickError: string | null;
   /**
+   * The picked face's own body is switched OFF, so the viewport is withholding
+   * the whole placement overlay (SEL-7 — `viewport/HolePointOverlay`).
+   *
+   * The editor's job here is to say WHY. Emptying the viewport mid-command
+   * without a word is the "ambiguous exit" the design mandate treats as a defect
+   * in its own right — and it is a VIEW state, not an error, so it reads in the
+   * position row and a quiet note rather than in the `role="alert"` pick-error
+   * slot. The pick stays armed and Create stays reachable: a hole is legitimate
+   * geometry whose visibility is a view decision, and disarming would cost the
+   * user a click they never asked for when they show the body again.
+   */
+  placementHidden: boolean;
+  /**
    * The evaluated body's B-rep edges (from the overlay), or null before it
    * arrives. The ones lying in the picked face's plane are its outline and the
    * mouths of everything bored through it — which is what makes the live
@@ -189,6 +202,7 @@ function AnchorRow({
   filled,
   armed,
   hint,
+  hintTestId,
   pickTestId,
   pickAriaLabel,
   onPick,
@@ -204,6 +218,8 @@ function AnchorRow({
   armed: boolean;
   /** A quiet line under the row (what a click will do now), or null. */
   hint: string | null;
+  /** Test id of the hint line; defaults to `${pickTestId}-hint`. */
+  hintTestId?: string;
   pickTestId: string;
   pickAriaLabel: string;
   onPick: () => void;
@@ -258,7 +274,9 @@ function AnchorRow({
       {note !== null ? (
         <p
           data-testid={
-            hint !== null ? `${pickTestId}-hint` : `${pickTestId}-reason`
+            hint !== null
+              ? (hintTestId ?? `${pickTestId}-hint`)
+              : `${pickTestId}-reason`
           }
           className="pl-12 font-body text-xs text-gauge"
         >
@@ -321,6 +339,7 @@ export function HoleEditor({
   facePick,
   pointPick,
   pickError,
+  placementHidden,
   edges,
   onPreviewChange,
 }: HoleEditorProps) {
@@ -405,8 +424,15 @@ export function HoleEditor({
             // gated Create cell carries the full sentence.
             "Click a face"
           : "No face chosen";
-  const pointValue =
-    form.position === null && activePick === "point"
+  // …and when the face's body is switched off there is nothing on screen to
+  // click, so the row names the view state instead of an instruction it cannot
+  // honour. TWO WORDS, for the same reason `faceValue` above is short: the
+  // value column shares its line with the pick button and truncates, and a
+  // truncated explanation ("Body hidden — show i…") explains nothing. The row
+  // says WHAT, the note under it says what to do about it.
+  const pointValue = placementHidden
+    ? "Body hidden"
+    : form.position === null && activePick === "point"
       ? "Click a point"
       : positionReadout(form);
   /**
@@ -596,12 +622,17 @@ export function HoleEditor({
               label="Point"
               value={pointValue}
               valueTestId="hole-position"
-              filled={form.position !== null}
+              filled={form.position !== null && !placementHidden}
               armed={activePick === "point"}
               hint={
-                activePick === "point" && form.position !== null
-                  ? "Click a corner, a bore centre, or the face centre."
-                  : null
+                placementHidden
+                  ? "This face is on a body you have hidden. Show that body in the Bodies panel — the point you already set is kept."
+                  : activePick === "point" && form.position !== null
+                    ? "Click a corner, a bore centre, or the face centre."
+                    : null
+              }
+              hintTestId={
+                placementHidden ? "hole-placement-hidden-note" : undefined
               }
               pickTestId="hole-point-pick"
               pickAriaLabel="Pick the drill point on the face"

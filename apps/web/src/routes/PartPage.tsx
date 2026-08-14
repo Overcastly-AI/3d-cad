@@ -134,6 +134,11 @@ import { BodiesPanel } from "../components/BodiesPanel";
 import { ChamferEditor } from "../components/ChamferEditor";
 import { CombineEditor } from "../components/CombineEditor";
 import { CreateStrip } from "../components/CreateStrip";
+import {
+  ChromeRail,
+  ChromeRailProvider,
+  RailDock,
+} from "../components/ChromeRail";
 import { FloatingPanel } from "../components/FloatingPanel";
 import { DatumEditor } from "../components/DatumEditor";
 import { DraftEditor } from "../components/DraftEditor";
@@ -290,18 +295,20 @@ import {
   faceBasis,
   faceSpecFromDatum,
   offsetSpecFromDatum,
-  originBasis,
+  sceneOriginBasis,
   planeRefFromSpec,
   type PlaneBasis,
-  resolveDatumBasis,
+  resolveDatumSceneBasis,
   resolveDatumPlaneOptions,
 } from "../sketch/plane";
 import {
+  faceOrdinalOfSignature,
   faceSignatureKey,
   isPickableFace,
   lastBodyFeatureId,
   onFaceDatumParams,
 } from "../features/face";
+import { useIsHiddenFaceOrdinal } from "../viewport/hiddenPicks";
 import { isTypingTarget } from "../lib/isTypingTarget";
 import { executeHistoryStep } from "../lib/historyStep";
 import {
@@ -955,7 +962,7 @@ export function PartPage() {
   const datumBasisById = useMemo(() => {
     const map = new Map<string, PlaneBasis>();
     for (const id of datumById.keys()) {
-      const basis = resolveDatumBasis(id, datumById);
+      const basis = resolveDatumSceneBasis(id, datumById);
       if (basis !== null) map.set(id, basis);
     }
     return map;
@@ -980,7 +987,7 @@ export function PartPage() {
       const plane = feature.feature.params.plane;
       let basis: PlaneBasis | null = null;
       if (plane.kind === "datum_plane") {
-        basis = originBasis(plane.plane);
+        basis = sceneOriginBasis(plane.plane);
       } else {
         basis = datumBasisById.get(plane.feature_id) ?? null;
         if (basis === null) {
@@ -1399,8 +1406,19 @@ export function PartPage() {
   });
   const holePickableFaces =
     holePick === "face" ? (holeOverlayQuery.data?.faces ?? null) : null;
+  const holeOverlayFaces = holeOverlayQuery.data?.faces ?? null;
   const holeOverlayVertices = holeOverlayQuery.data?.vertices ?? null;
   const holeOverlayEdges = holeOverlayQuery.data?.edges ?? null;
+  /**
+   * Is the placement face's own body switched OFF (SEL-7)? The viewport
+   * withholds the whole placement overlay in that state; the EDITOR has to say
+   * why, or the crosshair just vanishes mid-command and the pick becomes a dead
+   * end. Ordinal-only — a set membership, no weld pass — and the hook reads the
+   * store, so it is safe out here outside the r3f `Canvas`.
+   */
+  const holePlacementHidden = useIsHiddenFaceOrdinal(
+    faceOrdinalOfSignature(holePreview?.signature ?? null, holeOverlayFaces),
+  );
 
   // ---------------------------------------------------------------------
   // Fillet/Chamfer edge picking. The anchor for a picked edge's `SubshapeRef`
@@ -3984,588 +4002,612 @@ export function PartPage() {
           FLOAT over it as collapsible instruments (Batch 1 makeover, P0-4) —
           no more columns subtracted from the viewport. */}
         <main className="relative min-h-0 grow">
-          <Viewport
-            glb={body.data}
-            onContextMenu={openViewportMenu}
-            rotateEnabled={mode !== "draw"}
-            groundGrid={mode !== "draw"}
-            viewNav={mode === "off"}
-            bodyInteractive={
-              mode === "off" && editor === null && !measureActive
-            }
-            bodySelected={
-              mode === "off" &&
-              !measureActive &&
-              (selectedFeatureId !== null || preselectedFaceIndices !== null)
-            }
-            bodySelectedFaces={selectedFaceIndices ?? preselectedFaceIndices}
-            hud={
-              <>
-                <SketchDro solving={syncPending || evaluation.isFetching} />
-                <SolveDiagnostic />
-                <MeasureReadout />
-                {/* Inert DOM signal that the live extrude ghost is on screen
+          {/* One column per side, shared by the feature editors and the panels
+              they were opened from — so an editor can never be opened on top of
+              the model it is editing (FB-7). The editors' JSX stays where it is
+              inside the HUD; they relocate themselves into the rail by portal,
+              which keeps the ~400-line editor switch out of this diff and keeps
+              them working unchanged on the surfaces that have no rail. */}
+          <ChromeRailProvider>
+            <Viewport
+              glb={body.data}
+              onContextMenu={openViewportMenu}
+              rotateEnabled={mode !== "draw"}
+              groundGrid={mode !== "draw"}
+              viewNav={mode === "off"}
+              bodyInteractive={
+                mode === "off" && editor === null && !measureActive
+              }
+              bodySelected={
+                mode === "off" &&
+                !measureActive &&
+                (selectedFeatureId !== null || preselectedFaceIndices !== null)
+              }
+              bodySelectedFaces={selectedFaceIndices ?? preselectedFaceIndices}
+              hud={
+                <>
+                  <SketchDro solving={syncPending || evaluation.isFetching} />
+                  <SolveDiagnostic />
+                  <MeasureReadout />
+                  {/* Inert DOM signal that the live extrude ghost is on screen
                     (the ghost itself is WebGL) — a raster-independent hook QA
                     drives the "preview responds before Save" assertion from. */}
-                {showExtrudeGhost && extrudePreview !== null ? (
-                  <span
-                    hidden
-                    data-testid="extrude-preview-active"
-                    data-distance-mm={extrudePreview.distanceMm}
-                    data-direction={extrudePreview.direction}
-                    data-operation={extrudePreview.operation}
-                  />
-                ) : null}
-                {isEmptyPart ? (
-                  <div
-                    data-testid="empty-viewport-hint"
-                    className="pointer-events-none absolute left-1/2 top-[42%] flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-1 text-center"
-                  >
-                    <span className="font-display text-2xs uppercase tracking-[0.24em] text-gauge">
-                      Empty part
-                    </span>
-                    <span className="font-body text-sm text-mist">
-                      Start with a <span className="text-brass">Sketch</span> —
-                      pick a plane, then draw.
-                    </span>
-                    <span className="font-body text-xs text-gauge">
-                      Or Import a STEP solid as the base body.
-                    </span>
-                  </div>
-                ) : null}
-                {mode === "off" && editor !== null ? (
-                  editor.kind === "extrude" ? (
-                    <ExtrudeEditor
-                      mode={editor.mode}
-                      profiles={sketchProfiles}
-                      initial={editor.initial}
-                      onSubmit={submitExtrude}
-                      onCancel={closeEditor}
-                      saving={editorSaving}
-                      error={editorError}
-                      onPreviewChange={setExtrudePreview}
+                  {showExtrudeGhost && extrudePreview !== null ? (
+                    <span
+                      hidden
+                      data-testid="extrude-preview-active"
+                      data-distance-mm={extrudePreview.distanceMm}
+                      data-direction={extrudePreview.direction}
+                      data-operation={extrudePreview.operation}
                     />
-                  ) : editor.kind === "revolve" ? (
-                    <RevolveEditor
-                      mode={editor.mode}
-                      profiles={sketchProfiles}
-                      axesByProfile={axesByProfile}
-                      initial={editor.initial}
-                      onSubmit={submitRevolve}
-                      onCancel={closeEditor}
-                      saving={editorSaving}
-                      error={editorError}
-                    />
-                  ) : editor.kind === "sweep" ? (
-                    <SweepEditor
-                      mode={editor.mode}
-                      profiles={sketchProfiles}
-                      pathsByProfile={pathsByProfile}
-                      initial={editor.initial}
-                      onSubmit={submitSweep}
-                      onCancel={closeEditor}
-                      saving={editorSaving}
-                      error={editorError}
-                    />
-                  ) : editor.kind === "loft" ? (
-                    <LoftEditor
-                      mode={editor.mode}
-                      sections={sketchProfiles}
-                      initial={editor.initial}
-                      onSubmit={submitLoft}
-                      onCancel={closeEditor}
-                      saving={editorSaving}
-                      error={editorError}
-                    />
-                  ) : editor.kind === "pattern" ? (
-                    <PatternEditor
-                      mode={editor.mode}
-                      initial={editor.initial}
-                      onSubmit={submitPattern}
-                      onCancel={closeEditor}
-                      saving={editorSaving}
-                      error={editorError}
-                    />
-                  ) : editor.kind === "fillet" ? (
-                    <FilletEditor
-                      mode={editor.mode}
-                      initial={editor.initial}
-                      bodyFeatureId={bodyFeatureId}
-                      onSubmit={submitFillet}
-                      onCancel={closeEditor}
-                      saving={editorSaving}
-                      error={editorError}
-                    />
-                  ) : editor.kind === "chamfer" ? (
-                    <ChamferEditor
-                      mode={editor.mode}
-                      initial={editor.initial}
-                      bodyFeatureId={bodyFeatureId}
-                      onSubmit={submitChamfer}
-                      onCancel={closeEditor}
-                      saving={editorSaving}
-                      error={editorError}
-                    />
-                  ) : editor.kind === "shell" ? (
-                    <ShellEditor
-                      mode={editor.mode}
-                      initial={editor.initial}
-                      bodyFeatureId={bodyFeatureId}
-                      onSubmit={submitShell}
-                      onCancel={closeEditor}
-                      saving={editorSaving}
-                      error={editorError}
-                    />
-                  ) : editor.kind === "draft" ? (
-                    <DraftEditor
-                      mode={editor.mode}
-                      initial={editor.initial}
-                      bodyFeatureId={bodyFeatureId}
-                      onSubmit={submitDraft}
-                      onCancel={closeEditor}
-                      saving={editorSaving}
-                      error={editorError}
-                    />
-                  ) : editor.kind === "hole" ? (
-                    <HoleEditor
-                      mode={editor.mode}
-                      initial={editor.initial}
-                      onSubmit={submitHole}
-                      onCancel={closeEditor}
-                      saving={editorSaving}
-                      error={editorError}
-                      canPickFace={hasBody}
-                      activePick={holePick}
-                      onTogglePick={toggleHolePick}
-                      facePick={holeFacePicked}
-                      pointPick={holePointPicked}
-                      pickError={holePickError}
-                      edges={holeOverlayEdges}
-                      onPreviewChange={onHolePreviewChange}
-                    />
-                  ) : editor.kind === "baseFlange" ? (
-                    <BaseFlangeEditor
-                      mode={editor.mode}
-                      profiles={sketchProfiles}
-                      initial={editor.initial}
-                      onSubmit={submitBaseFlange}
-                      onCancel={closeEditor}
-                      saving={editorSaving}
-                      error={editorError}
-                    />
-                  ) : editor.kind === "edgeFlange" ? (
-                    <EdgeFlangeEditor
-                      mode={editor.mode}
-                      initial={editor.initial}
-                      bodyFeatureId={bodyFeatureId}
-                      defaults={smDefaults}
-                      onSubmit={submitEdgeFlange}
-                      onCancel={closeEditor}
-                      saving={editorSaving}
-                      error={editorError}
-                      onSpanChange={onEdgeFlangeSpanChange}
-                    />
-                  ) : editor.kind === "hem" ? (
-                    <HemEditor
-                      mode={editor.mode}
-                      initial={editor.initial}
-                      bodyFeatureId={bodyFeatureId}
-                      defaults={smDefaults}
-                      onSubmit={submitHem}
-                      onCancel={closeEditor}
-                      saving={editorSaving}
-                      error={editorError}
-                    />
-                  ) : editor.kind === "cornerRelief" ? (
-                    <CornerReliefEditor
-                      mode={editor.mode}
-                      initial={editor.initial}
-                      edgeFlanges={edgeFlangeOpts}
-                      defaults={smDefaults}
-                      onSubmit={submitCornerRelief}
-                      onCancel={closeEditor}
-                      saving={editorSaving}
-                      error={editorError}
-                      onBendsChange={onReliefBendsChange}
-                    />
-                  ) : editor.kind === "mirror" ? (
-                    <MirrorEditor
-                      mode={editor.mode}
-                      initial={editor.initial}
-                      datumPlanes={datumPlaneOptions}
-                      onSubmit={submitMirror}
-                      onCancel={closeEditor}
-                      saving={editorSaving}
-                      error={editorError}
-                    />
-                  ) : editor.kind === "datum" ? (
-                    <DatumEditor
-                      mode={editor.mode}
-                      initial={editor.initial}
-                      datumRefs={datumEditorRefs}
-                      onSubmit={submitDatum}
-                      onCancel={closeEditor}
-                      saving={editorSaving}
-                      error={editorError}
-                      canPickFace={hasBody}
-                      activeFacePickSlot={datumFacePick}
-                      onToggleFacePick={toggleDatumFacePick}
-                      facePick={datumFacePicked}
-                      facePickError={datumFacePickError}
-                    />
-                  ) : (
-                    <CombineEditor
-                      bodies={bodies}
-                      initial={editor.initial}
-                      onSubmit={submitCombine}
-                      onCancel={closeEditor}
-                      saving={editorSaving}
-                      error={editorError}
-                    />
-                  )
-                ) : null}
-                {importing ? (
-                  <div
-                    role="status"
-                    data-testid="import-step-status"
-                    className="absolute bottom-3 left-3 rounded-sm border border-hairline bg-anvil px-3 py-2"
-                  >
-                    <span className="block font-display text-2xs uppercase tracking-[0.18em] text-gauge">
-                      Importing STEP
-                    </span>
-                    <span className="mt-1 block font-body text-xs text-mist">
-                      Reading the solid and building the base body.
-                    </span>
-                  </div>
-                ) : importError !== null ? (
-                  <div
-                    role="alert"
-                    data-testid="import-step-error"
-                    className="absolute bottom-3 left-3 max-w-sm rounded-sm border border-flag bg-anvil px-3 py-2"
-                  >
-                    <span className="block font-display text-2xs uppercase tracking-[0.18em] text-flag">
-                      Import failed
-                    </span>
-                    <span className="mt-1 block font-body text-xs text-mist">
-                      {importError}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setImportError(null)}
-                      data-testid="import-step-dismiss"
-                      className="mt-2 font-display text-2xs uppercase tracking-[0.14em] text-brass focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
+                  ) : null}
+                  {isEmptyPart ? (
+                    <div
+                      data-testid="empty-viewport-hint"
+                      className="pointer-events-none absolute left-1/2 top-[42%] flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-1 text-center"
                     >
-                      Dismiss
-                    </button>
-                  </div>
-                ) : null}
-                {flatPatternBusy ? (
-                  <div
-                    role="status"
-                    data-testid="flat-pattern-status"
-                    className="absolute bottom-3 left-3 rounded-sm border border-hairline bg-anvil px-3 py-2"
-                  >
-                    <span className="block font-display text-2xs uppercase tracking-[0.18em] text-gauge">
-                      Unfolding flat pattern
-                    </span>
-                    <span className="mt-1 block font-body text-xs text-mist">
-                      Laying the blank onto a drawing sheet.
-                    </span>
-                  </div>
-                ) : flatPatternError !== null ? (
-                  <div
-                    role="alert"
-                    data-testid="flat-pattern-error"
-                    className="absolute bottom-3 left-3 max-w-sm rounded-sm border border-flag bg-anvil px-3 py-2"
-                  >
-                    <span className="block font-display text-2xs uppercase tracking-[0.18em] text-flag">
-                      Flat pattern failed
-                    </span>
-                    <span className="mt-1 block font-body text-xs text-mist">
-                      {flatPatternError}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setFlatPatternError(null)}
-                      data-testid="flat-pattern-dismiss"
-                      className="mt-2 font-display text-2xs uppercase tracking-[0.14em] text-brass focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
+                      <span className="font-display text-2xs uppercase tracking-[0.24em] text-gauge">
+                        Empty part
+                      </span>
+                      <span className="font-body text-sm text-mist">
+                        Start with a <span className="text-brass">Sketch</span>{" "}
+                        — pick a plane, then draw.
+                      </span>
+                      <span className="font-body text-xs text-gauge">
+                        Or Import a STEP solid as the base body.
+                      </span>
+                    </div>
+                  ) : null}
+                  {mode === "off" && editor !== null ? (
+                    editor.kind === "extrude" ? (
+                      <ExtrudeEditor
+                        mode={editor.mode}
+                        profiles={sketchProfiles}
+                        initial={editor.initial}
+                        onSubmit={submitExtrude}
+                        onCancel={closeEditor}
+                        saving={editorSaving}
+                        error={editorError}
+                        onPreviewChange={setExtrudePreview}
+                      />
+                    ) : editor.kind === "revolve" ? (
+                      <RevolveEditor
+                        mode={editor.mode}
+                        profiles={sketchProfiles}
+                        axesByProfile={axesByProfile}
+                        initial={editor.initial}
+                        onSubmit={submitRevolve}
+                        onCancel={closeEditor}
+                        saving={editorSaving}
+                        error={editorError}
+                      />
+                    ) : editor.kind === "sweep" ? (
+                      <SweepEditor
+                        mode={editor.mode}
+                        profiles={sketchProfiles}
+                        pathsByProfile={pathsByProfile}
+                        initial={editor.initial}
+                        onSubmit={submitSweep}
+                        onCancel={closeEditor}
+                        saving={editorSaving}
+                        error={editorError}
+                      />
+                    ) : editor.kind === "loft" ? (
+                      <LoftEditor
+                        mode={editor.mode}
+                        sections={sketchProfiles}
+                        initial={editor.initial}
+                        onSubmit={submitLoft}
+                        onCancel={closeEditor}
+                        saving={editorSaving}
+                        error={editorError}
+                      />
+                    ) : editor.kind === "pattern" ? (
+                      <PatternEditor
+                        mode={editor.mode}
+                        initial={editor.initial}
+                        onSubmit={submitPattern}
+                        onCancel={closeEditor}
+                        saving={editorSaving}
+                        error={editorError}
+                      />
+                    ) : editor.kind === "fillet" ? (
+                      <FilletEditor
+                        mode={editor.mode}
+                        initial={editor.initial}
+                        bodyFeatureId={bodyFeatureId}
+                        onSubmit={submitFillet}
+                        onCancel={closeEditor}
+                        saving={editorSaving}
+                        error={editorError}
+                      />
+                    ) : editor.kind === "chamfer" ? (
+                      <ChamferEditor
+                        mode={editor.mode}
+                        initial={editor.initial}
+                        bodyFeatureId={bodyFeatureId}
+                        onSubmit={submitChamfer}
+                        onCancel={closeEditor}
+                        saving={editorSaving}
+                        error={editorError}
+                      />
+                    ) : editor.kind === "shell" ? (
+                      <ShellEditor
+                        mode={editor.mode}
+                        initial={editor.initial}
+                        bodyFeatureId={bodyFeatureId}
+                        onSubmit={submitShell}
+                        onCancel={closeEditor}
+                        saving={editorSaving}
+                        error={editorError}
+                      />
+                    ) : editor.kind === "draft" ? (
+                      <DraftEditor
+                        mode={editor.mode}
+                        initial={editor.initial}
+                        bodyFeatureId={bodyFeatureId}
+                        onSubmit={submitDraft}
+                        onCancel={closeEditor}
+                        saving={editorSaving}
+                        error={editorError}
+                      />
+                    ) : editor.kind === "hole" ? (
+                      <HoleEditor
+                        mode={editor.mode}
+                        initial={editor.initial}
+                        onSubmit={submitHole}
+                        onCancel={closeEditor}
+                        saving={editorSaving}
+                        error={editorError}
+                        canPickFace={hasBody}
+                        activePick={holePick}
+                        onTogglePick={toggleHolePick}
+                        facePick={holeFacePicked}
+                        pointPick={holePointPicked}
+                        pickError={holePickError}
+                        placementHidden={holePlacementHidden}
+                        edges={holeOverlayEdges}
+                        onPreviewChange={onHolePreviewChange}
+                      />
+                    ) : editor.kind === "baseFlange" ? (
+                      <BaseFlangeEditor
+                        mode={editor.mode}
+                        profiles={sketchProfiles}
+                        initial={editor.initial}
+                        onSubmit={submitBaseFlange}
+                        onCancel={closeEditor}
+                        saving={editorSaving}
+                        error={editorError}
+                      />
+                    ) : editor.kind === "edgeFlange" ? (
+                      <EdgeFlangeEditor
+                        mode={editor.mode}
+                        initial={editor.initial}
+                        bodyFeatureId={bodyFeatureId}
+                        defaults={smDefaults}
+                        onSubmit={submitEdgeFlange}
+                        onCancel={closeEditor}
+                        saving={editorSaving}
+                        error={editorError}
+                        onSpanChange={onEdgeFlangeSpanChange}
+                      />
+                    ) : editor.kind === "hem" ? (
+                      <HemEditor
+                        mode={editor.mode}
+                        initial={editor.initial}
+                        bodyFeatureId={bodyFeatureId}
+                        defaults={smDefaults}
+                        onSubmit={submitHem}
+                        onCancel={closeEditor}
+                        saving={editorSaving}
+                        error={editorError}
+                      />
+                    ) : editor.kind === "cornerRelief" ? (
+                      <CornerReliefEditor
+                        mode={editor.mode}
+                        initial={editor.initial}
+                        edgeFlanges={edgeFlangeOpts}
+                        defaults={smDefaults}
+                        onSubmit={submitCornerRelief}
+                        onCancel={closeEditor}
+                        saving={editorSaving}
+                        error={editorError}
+                        onBendsChange={onReliefBendsChange}
+                      />
+                    ) : editor.kind === "mirror" ? (
+                      <MirrorEditor
+                        mode={editor.mode}
+                        initial={editor.initial}
+                        datumPlanes={datumPlaneOptions}
+                        onSubmit={submitMirror}
+                        onCancel={closeEditor}
+                        saving={editorSaving}
+                        error={editorError}
+                      />
+                    ) : editor.kind === "datum" ? (
+                      <DatumEditor
+                        mode={editor.mode}
+                        initial={editor.initial}
+                        datumRefs={datumEditorRefs}
+                        onSubmit={submitDatum}
+                        onCancel={closeEditor}
+                        saving={editorSaving}
+                        error={editorError}
+                        canPickFace={hasBody}
+                        activeFacePickSlot={datumFacePick}
+                        onToggleFacePick={toggleDatumFacePick}
+                        facePick={datumFacePicked}
+                        facePickError={datumFacePickError}
+                      />
+                    ) : (
+                      <CombineEditor
+                        bodies={bodies}
+                        initial={editor.initial}
+                        onSubmit={submitCombine}
+                        onCancel={closeEditor}
+                        saving={editorSaving}
+                        error={editorError}
+                      />
+                    )
+                  ) : null}
+                  {importing ? (
+                    <div
+                      role="status"
+                      data-testid="import-step-status"
+                      className="absolute bottom-3 left-3 rounded-sm border border-hairline bg-anvil px-3 py-2"
                     >
-                      Dismiss
-                    </button>
-                  </div>
-                ) : null}
-                <HistoryErrorAlert
-                  error={historyError}
-                  onDismiss={() => setHistoryError(null)}
-                />
-                {regenerating ? (
-                  <div
-                    role="status"
-                    data-testid="body-regenerating"
-                    className="absolute left-editor top-3 rounded-sm border border-hairline bg-anvil px-3 py-2"
-                  >
-                    <span className="block font-display text-2xs uppercase tracking-[0.18em] text-gauge">
-                      Regenerating body
-                    </span>
-                    <span className="mt-1 block font-body text-xs text-mist">
-                      The mesh expired from the cache — re-evaluating the tree.
-                    </span>
-                  </div>
-                ) : regenFailed ? (
-                  <div
-                    role="alert"
-                    data-testid="body-regen-failed"
-                    className="absolute left-editor top-3 max-w-sm rounded-sm border border-flag bg-anvil px-3 py-2"
-                  >
-                    <span className="block font-display text-2xs uppercase tracking-[0.18em] text-flag">
-                      Body unavailable
-                    </span>
-                    <span className="mt-1 block font-body text-xs text-mist">
-                      The body mesh could not be regenerated.
-                    </span>
-                    <button
-                      type="button"
-                      onClick={retryBody}
-                      className="mt-2 font-display text-2xs uppercase tracking-[0.14em] text-brass focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
+                      <span className="block font-display text-2xs uppercase tracking-[0.18em] text-gauge">
+                        Importing STEP
+                      </span>
+                      <span className="mt-1 block font-body text-xs text-mist">
+                        Reading the solid and building the base body.
+                      </span>
+                    </div>
+                  ) : importError !== null ? (
+                    <div
+                      role="alert"
+                      data-testid="import-step-error"
+                      className="absolute bottom-3 left-3 max-w-sm rounded-sm border border-flag bg-anvil px-3 py-2"
                     >
-                      Re-evaluate
-                    </button>
-                  </div>
-                ) : editor === null && rebuildNotice !== null ? (
-                  <div
-                    role="alert"
-                    data-testid="rebuild-notice"
-                    className="absolute left-editor top-3 max-w-sm rounded-sm border border-flag bg-anvil px-3 py-2"
-                  >
-                    <span className="block font-display text-2xs uppercase tracking-[0.18em] text-flag">
-                      This feature couldn't build
-                    </span>
-                    <span className="mt-1 block font-body text-xs text-mist">
-                      {rebuildNotice}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setRebuildNoticeDismissed(true)}
-                      data-testid="rebuild-notice-dismiss"
-                      className="mt-2 font-display text-2xs uppercase tracking-[0.14em] text-brass focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
-                    >
-                      Dismiss
-                    </button>
-                  </div>
-                ) : editor === null && build.failed && build.hasBody ? (
-                  // WHAT YOU ARE LOOKING AT (AUDIT-PRODUCT N3). The strict-prefix
-                  // rule renders the last-good PREFIX, so one bad pick can turn a
-                  // modelled bracket into a bare brick — and until now nothing on
-                  // screen said the solid was not the part. `last_good_feature_id`
-                  // was on the wire and unused; it names the state being shown.
-                  // NOT dismissible: it describes a live condition, and it leaves
-                  // when the condition does.
-                  <div
-                    role="status"
-                    data-testid="partial-body-notice"
-                    className="absolute left-editor top-3 max-w-sm rounded-sm border border-flag bg-anvil px-3 py-2"
-                  >
-                    <span className="block font-display text-2xs uppercase tracking-[0.18em] text-flag">
-                      Partial body
-                    </span>
-                    <span className="mt-1 block font-body text-xs text-mist">
-                      {partialBodySentence(build)}
-                    </span>
-                    {build.failure !== null ? (
+                      <span className="block font-display text-2xs uppercase tracking-[0.18em] text-flag">
+                        Import failed
+                      </span>
+                      <span className="mt-1 block font-body text-xs text-mist">
+                        {importError}
+                      </span>
                       <button
                         type="button"
-                        onClick={() => {
-                          const failed = features.find(
-                            (f) => f.id === build.failure?.id,
-                          );
-                          if (failed !== undefined) selectFeature(failed);
-                        }}
-                        data-testid="partial-body-show-failure"
+                        onClick={() => setImportError(null)}
+                        data-testid="import-step-dismiss"
                         className="mt-2 font-display text-2xs uppercase tracking-[0.14em] text-brass focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
                       >
-                        Show {build.failure.name}
+                        Dismiss
                       </button>
+                    </div>
+                  ) : null}
+                  {flatPatternBusy ? (
+                    <div
+                      role="status"
+                      data-testid="flat-pattern-status"
+                      className="absolute bottom-3 left-3 rounded-sm border border-hairline bg-anvil px-3 py-2"
+                    >
+                      <span className="block font-display text-2xs uppercase tracking-[0.18em] text-gauge">
+                        Unfolding flat pattern
+                      </span>
+                      <span className="mt-1 block font-body text-xs text-mist">
+                        Laying the blank onto a drawing sheet.
+                      </span>
+                    </div>
+                  ) : flatPatternError !== null ? (
+                    <div
+                      role="alert"
+                      data-testid="flat-pattern-error"
+                      className="absolute bottom-3 left-3 max-w-sm rounded-sm border border-flag bg-anvil px-3 py-2"
+                    >
+                      <span className="block font-display text-2xs uppercase tracking-[0.18em] text-flag">
+                        Flat pattern failed
+                      </span>
+                      <span className="mt-1 block font-body text-xs text-mist">
+                        {flatPatternError}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setFlatPatternError(null)}
+                        data-testid="flat-pattern-dismiss"
+                        className="mt-2 font-display text-2xs uppercase tracking-[0.14em] text-brass focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                  ) : null}
+                  <HistoryErrorAlert
+                    error={historyError}
+                    onDismiss={() => setHistoryError(null)}
+                  />
+                  {/* The regeneration / rebuild / partial-body notices take the
+                    SAME seat the feature editors do, so they dock the same way
+                    — otherwise FB-7 would have been fixed for one surface and
+                    left standing on four. */}
+                  <RailDock side="left">
+                    {regenerating ? (
+                      <div
+                        role="status"
+                        data-testid="body-regenerating"
+                        className="rounded-sm border border-hairline bg-anvil px-3 py-2"
+                      >
+                        <span className="block font-display text-2xs uppercase tracking-[0.18em] text-gauge">
+                          Regenerating body
+                        </span>
+                        <span className="mt-1 block font-body text-xs text-mist">
+                          The mesh expired from the cache — re-evaluating the
+                          tree.
+                        </span>
+                      </div>
+                    ) : regenFailed ? (
+                      <div
+                        role="alert"
+                        data-testid="body-regen-failed"
+                        className="rounded-sm border border-flag bg-anvil px-3 py-2"
+                      >
+                        <span className="block font-display text-2xs uppercase tracking-[0.18em] text-flag">
+                          Body unavailable
+                        </span>
+                        <span className="mt-1 block font-body text-xs text-mist">
+                          The body mesh could not be regenerated.
+                        </span>
+                        <button
+                          type="button"
+                          onClick={retryBody}
+                          className="mt-2 font-display text-2xs uppercase tracking-[0.14em] text-brass focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
+                        >
+                          Re-evaluate
+                        </button>
+                      </div>
+                    ) : editor === null && rebuildNotice !== null ? (
+                      <div
+                        role="alert"
+                        data-testid="rebuild-notice"
+                        className="rounded-sm border border-flag bg-anvil px-3 py-2"
+                      >
+                        <span className="block font-display text-2xs uppercase tracking-[0.18em] text-flag">
+                          This feature couldn't build
+                        </span>
+                        <span className="mt-1 block font-body text-xs text-mist">
+                          {rebuildNotice}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setRebuildNoticeDismissed(true)}
+                          data-testid="rebuild-notice-dismiss"
+                          className="mt-2 font-display text-2xs uppercase tracking-[0.14em] text-brass focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
+                        >
+                          Dismiss
+                        </button>
+                      </div>
+                    ) : editor === null && build.failed && build.hasBody ? (
+                      // WHAT YOU ARE LOOKING AT (AUDIT-PRODUCT N3). The strict-prefix
+                      // rule renders the last-good PREFIX, so one bad pick can turn a
+                      // modelled bracket into a bare brick — and until now nothing on
+                      // screen said the solid was not the part. `last_good_feature_id`
+                      // was on the wire and unused; it names the state being shown.
+                      // NOT dismissible: it describes a live condition, and it leaves
+                      // when the condition does.
+                      <div
+                        role="status"
+                        data-testid="partial-body-notice"
+                        className="rounded-sm border border-flag bg-anvil px-3 py-2"
+                      >
+                        <span className="block font-display text-2xs uppercase tracking-[0.18em] text-flag">
+                          Partial body
+                        </span>
+                        <span className="mt-1 block font-body text-xs text-mist">
+                          {partialBodySentence(build)}
+                        </span>
+                        {build.failure !== null ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const failed = features.find(
+                                (f) => f.id === build.failure?.id,
+                              );
+                              if (failed !== undefined) selectFeature(failed);
+                            }}
+                            data-testid="partial-body-show-failure"
+                            className="mt-2 font-display text-2xs uppercase tracking-[0.14em] text-brass focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
+                          >
+                            Show {build.failure.name}
+                          </button>
+                        ) : null}
+                      </div>
                     ) : null}
-                  </div>
-                ) : null}
-              </>
-            }
-          >
-            <SketchScene solved={solved} facePicking={facePicking} />
-            {showExtrudeGhost &&
-            extrudeGhostLayer !== null &&
-            extrudePreview ? (
-              <ExtrudePreview
-                layer={extrudeGhostLayer}
-                distanceMm={extrudePreview.distanceMm}
-                direction={extrudePreview.direction}
-                operation={extrudePreview.operation}
-              />
-            ) : null}
-            <MeasureOverlay />
-            {mode === "off" && edgePicking ? <EdgePickOverlay /> : null}
-            {mode === "off" && reliefBendHighlights.length > 0 ? (
-              <BendHighlightOverlay bends={reliefBendHighlights} />
-            ) : null}
-            {mode === "off" &&
-            editor?.kind === "edgeFlange" &&
-            edgeFlangeSpan !== null ? (
-              <FlangeSpanOverlay
-                span={edgeFlangeSpan}
-                label={edgeFlangeSpanLabel}
-              />
-            ) : null}
-            {mode === "off" && shellPicking ? (
-              <ShellFaceOverlay
-                testIdPrefix={
-                  editor?.kind === "draft" ? "draft-face" : "shell-face"
-                }
-              />
-            ) : null}
-            {mode === "plane" && facePicking ? (
-              <FacePickOverlay
-                faces={pickableFaces}
-                onPick={authorFacePlane}
-                pendingIndex={pendingFaceIndex}
-              />
-            ) : null}
-            {mode === "off" &&
-            editor?.kind === "datum" &&
-            datumFacePick !== null ? (
-              <FacePickOverlay
-                faces={datumPickableFaces}
-                onPick={pickDatumFace}
-                pendingIndex={null}
-              />
-            ) : null}
-            {mode === "off" &&
-            editor?.kind === "hole" &&
-            holePick === "face" ? (
-              <FacePickOverlay
-                faces={holePickableFaces}
-                onPick={pickHoleFace}
-                pendingIndex={null}
-              />
-            ) : null}
-            {/* The placement overlay shows from the moment a face exists, not
+                  </RailDock>
+                </>
+              }
+            >
+              <SketchScene solved={solved} facePicking={facePicking} />
+              {showExtrudeGhost &&
+              extrudeGhostLayer !== null &&
+              extrudePreview ? (
+                <ExtrudePreview
+                  layer={extrudeGhostLayer}
+                  distanceMm={extrudePreview.distanceMm}
+                  direction={extrudePreview.direction}
+                  operation={extrudePreview.operation}
+                />
+              ) : null}
+              <MeasureOverlay />
+              {mode === "off" && edgePicking ? <EdgePickOverlay /> : null}
+              {mode === "off" && reliefBendHighlights.length > 0 ? (
+                <BendHighlightOverlay bends={reliefBendHighlights} />
+              ) : null}
+              {mode === "off" &&
+              editor?.kind === "edgeFlange" &&
+              edgeFlangeSpan !== null ? (
+                <FlangeSpanOverlay
+                  span={edgeFlangeSpan}
+                  label={edgeFlangeSpanLabel}
+                />
+              ) : null}
+              {mode === "off" && shellPicking ? (
+                <ShellFaceOverlay
+                  testIdPrefix={
+                    editor?.kind === "draft" ? "draft-face" : "shell-face"
+                  }
+                />
+              ) : null}
+              {mode === "plane" && facePicking ? (
+                <FacePickOverlay
+                  faces={pickableFaces}
+                  onPick={authorFacePlane}
+                  pendingIndex={pendingFaceIndex}
+                />
+              ) : null}
+              {mode === "off" &&
+              editor?.kind === "datum" &&
+              datumFacePick !== null ? (
+                <FacePickOverlay
+                  faces={datumPickableFaces}
+                  onPick={pickDatumFace}
+                  pendingIndex={null}
+                />
+              ) : null}
+              {mode === "off" &&
+              editor?.kind === "hole" &&
+              holePick === "face" ? (
+                <FacePickOverlay
+                  faces={holePickableFaces}
+                  onPick={pickHoleFace}
+                  pendingIndex={null}
+                />
+              ) : null}
+              {/* The placement overlay shows from the moment a face exists, not
                 only while the point pick is armed: the datum crosshair is what
                 says where the editor's X/Y cells count from, and it has to be
                 on screen while they are being typed (QA3-1). */}
-            {mode === "off" &&
-            editor?.kind === "hole" &&
-            holePreview?.signature != null ? (
-              <HolePointOverlay
-                signature={holePreview.signature}
-                vertices={holeOverlayVertices}
-                edges={holeOverlayEdges}
-                position={holePreview.position}
-                armed={holePick === "point"}
-                onPick={pickHolePoint}
-              />
-            ) : null}
-          </Viewport>
-          <FloatingPanel side="left" title="Feature tree" id="tree">
-            <div className="flex flex-col gap-3">
-              <FeatureTreePanel
-                tree={tree.data}
-                treeError={tree.error}
-                evaluation={evaluation.data}
-                build={build}
-                selectedFeatureId={selectedFeatureId}
-                onSelectFeature={selectFeature}
-                onKeepAsOneBody={keepAsOneBody}
-                recoveringDisjoint={disjointRecovering}
-                onRepickFace={repickFace}
-                onToggleSuppress={toggleSuppress}
-                suppressingId={suppressingId}
-                onRowContextMenu={openTreeMenu}
-                renamingId={renamingId}
-                onCommitRename={commitRename}
-                onCancelRename={() => setRenamingId(null)}
-              />
-              {bodies.length > 0 ? (
-                <BodiesPanel
-                  bodies={bodies}
-                  lumpsByFeature={lumpsByFeature}
-                  selectedFeatureId={selectedFeatureId}
-                  onSelectBody={selectBody}
+              {mode === "off" &&
+              editor?.kind === "hole" &&
+              holePreview?.signature != null ? (
+                <HolePointOverlay
+                  signature={holePreview.signature}
+                  // Not `holePickableFaces`, which is gated on the FACE pick
+                  // being armed — the point pick needs the same list to resolve
+                  // its placement face's ordinal for the free-placement raycast.
+                  faces={holeOverlayFaces}
+                  vertices={holeOverlayVertices}
+                  edges={holeOverlayEdges}
+                  position={holePreview.position}
+                  armed={holePick === "point"}
+                  onPick={pickHolePoint}
                 />
               ) : null}
-            </div>
-          </FloatingPanel>
-          {showInspector ? (
-            // The EXPORT strip is PINNED under the panel, not trailing the
-            // scrolling readouts: the panel's height is clamped (it clears the
-            // reference cube), so whatever sits last in the column is whatever
-            // goes under the fold — and on a 1366x768 frame that was the strip
-            // plus the sentence warning that the file will be marked *partial*
-            // (UI-REVIEW 2026-07-30 P1, a regression of the 48px timeline).
-            // Mass properties scroll; the actions never move.
-            <FloatingPanel
-              side="right"
-              title="Inspector"
-              id="inspector"
-              footer={
-                <Panel className="border-t-0">
-                  <PartExportControls partId={partId} build={build} />
-                </Panel>
-              }
-            >
-              <BodyInspector
-                properties={bodyProperties}
-                build={build}
-                material={materialControls}
+            </Viewport>
+            <ChromeRail side="left">
+              <FloatingPanel side="left" title="Feature tree" id="tree">
+                <div className="flex flex-col gap-3">
+                  <FeatureTreePanel
+                    tree={tree.data}
+                    treeError={tree.error}
+                    evaluation={evaluation.data}
+                    build={build}
+                    selectedFeatureId={selectedFeatureId}
+                    onSelectFeature={selectFeature}
+                    onKeepAsOneBody={keepAsOneBody}
+                    recoveringDisjoint={disjointRecovering}
+                    onRepickFace={repickFace}
+                    onToggleSuppress={toggleSuppress}
+                    suppressingId={suppressingId}
+                    onRowContextMenu={openTreeMenu}
+                    renamingId={renamingId}
+                    onCommitRename={commitRename}
+                    onCancelRename={() => setRenamingId(null)}
+                  />
+                  {bodies.length > 0 ? (
+                    <BodiesPanel
+                      bodies={bodies}
+                      lumpsByFeature={lumpsByFeature}
+                      selectedFeatureId={selectedFeatureId}
+                      onSelectBody={selectBody}
+                    />
+                  ) : null}
+                </div>
+              </FloatingPanel>
+            </ChromeRail>
+            <ChromeRail side="right">
+              {showInspector ? (
+                // The EXPORT strip is PINNED under the panel, not trailing the
+                // scrolling readouts: the panel's height is clamped (it clears the
+                // reference cube), so whatever sits last in the column is whatever
+                // goes under the fold — and on a 1366x768 frame that was the strip
+                // plus the sentence warning that the file will be marked *partial*
+                // (UI-REVIEW 2026-07-30 P1, a regression of the 48px timeline).
+                // Mass properties scroll; the actions never move.
+                <FloatingPanel
+                  side="right"
+                  title="Inspector"
+                  id="inspector"
+                  footer={
+                    <Panel className="border-t-0">
+                      <PartExportControls partId={partId} build={build} />
+                    </Panel>
+                  }
+                >
+                  <BodyInspector
+                    properties={bodyProperties}
+                    build={build}
+                    material={materialControls}
+                  />
+                </FloatingPanel>
+              ) : showExportOnly ? (
+                // No body yet (a sketch-only or rolled-back tree), but the part is
+                // modeled enough to have a tree — offer the EXPORT strip in its
+                // honest disabled state so the affordance is discoverable.
+                <FloatingPanel side="right" title="Export" id="inspector">
+                  <aside
+                    className="w-full"
+                    aria-label="Part export"
+                    data-testid="part-export-idle"
+                  >
+                    <Panel>
+                      <PartExportControls partId={partId} build={build} />
+                    </Panel>
+                  </aside>
+                </FloatingPanel>
+              ) : null}
+            </ChromeRail>
+            {/* What breaks if this feature goes — asked before it does (F3). */}
+            {deleteIntent !== null ? (
+              <FeatureDeleteConfirm
+                featureName={deleteIntent.feature.name}
+                dependents={deleteIntent.dependents}
+                pending={deletingId === deleteIntent.feature.id}
+                onCancel={() => setDeleteIntent(null)}
+                onConfirm={() => deleteFeatureAction(deleteIntent.feature)}
               />
-            </FloatingPanel>
-          ) : showExportOnly ? (
-            // No body yet (a sketch-only or rolled-back tree), but the part is
-            // modeled enough to have a tree — offer the EXPORT strip in its
-            // honest disabled state so the affordance is discoverable.
-            <FloatingPanel side="right" title="Export" id="inspector">
-              <aside
-                className="w-full"
-                aria-label="Part export"
-                data-testid="part-export-idle"
+            ) : null}
+            {/* Tree-action failure (rename/delete) — honest, dismissible chrome. */}
+            {treeActionError !== null ? (
+              <div
+                role="alert"
+                data-testid="tree-action-error"
+                className="absolute bottom-3 left-3 z-hud max-w-sm rounded-sm border border-flag bg-anvil px-3 py-2"
               >
-                <Panel>
-                  <PartExportControls partId={partId} build={build} />
-                </Panel>
-              </aside>
-            </FloatingPanel>
-          ) : null}
-          {/* What breaks if this feature goes — asked before it does (F3). */}
-          {deleteIntent !== null ? (
-            <FeatureDeleteConfirm
-              featureName={deleteIntent.feature.name}
-              dependents={deleteIntent.dependents}
-              pending={deletingId === deleteIntent.feature.id}
-              onCancel={() => setDeleteIntent(null)}
-              onConfirm={() => deleteFeatureAction(deleteIntent.feature)}
-            />
-          ) : null}
-          {/* Tree-action failure (rename/delete) — honest, dismissible chrome. */}
-          {treeActionError !== null ? (
-            <div
-              role="alert"
-              data-testid="tree-action-error"
-              className="absolute bottom-3 left-3 z-hud max-w-sm rounded-sm border border-flag bg-anvil px-3 py-2"
-            >
-              <span className="block font-display text-2xs uppercase tracking-[0.18em] text-flag">
-                Action failed
-              </span>
-              <span className="mt-1 block font-body text-xs text-mist">
-                {treeActionError}
-              </span>
-              <button
-                type="button"
-                onClick={() => setTreeActionError(null)}
-                data-testid="tree-action-error-dismiss"
-                className="mt-2 font-display text-2xs uppercase tracking-[0.14em] text-brass focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
-              >
-                Dismiss
-              </button>
-            </div>
-          ) : null}
+                <span className="block font-display text-2xs uppercase tracking-[0.18em] text-flag">
+                  Action failed
+                </span>
+                <span className="mt-1 block font-body text-xs text-mist">
+                  {treeActionError}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setTreeActionError(null)}
+                  data-testid="tree-action-error-dismiss"
+                  className="mt-2 font-display text-2xs uppercase tracking-[0.14em] text-brass focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass"
+                >
+                  Dismiss
+                </button>
+              </div>
+            ) : null}
+          </ChromeRailProvider>
         </main>
         {/* THE TIMELINE — docked along the bottom of the frame, the way the
             build travels (UI-W1, founder-directed). In flow, not floating: the

@@ -83,4 +83,16 @@ describe("what it draws", () => {
       "Show this reference",
     );
   });
+
+  // FB-11. The founder tests from a Codespace, so "is that fixed in the build
+  // you were on?" is currently unanswerable from either side. Assert the stamp
+  // is REACHABLE and READABLE — a stamp that renders "Build undefined" answers
+  // the question wrongly, which is worse than not shipping one.
+  it("carries a readable build stamp", () => {
+    render(<ShortcutSheetHost />);
+    pressQuestionMark();
+    const stamp = screen.getByTestId("build-stamp");
+    expect(stamp).toHaveTextContent(/^Build \S/);
+    expect(stamp.textContent).not.toMatch(/undefined|null|NaN/);
+  });
 });

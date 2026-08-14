@@ -152,6 +152,40 @@ export const viewport = {
     selected: color.brass,
     hoverOpacity: 0.16,
     selectedOpacity: 0.3,
+    /**
+     * Surface tint of the face UNDER THE CURSOR in the default select tool
+     * (SEL-1). It multiplies the studio matcap exactly as the other surface
+     * tints do, and it sits deliberately between them:
+     *
+     *   restSurfaceTint        #FFFFFF  untinted machined aluminium
+     *   facePick.hoverTint     #EFD6AE  <- addressed, not yet committed
+     *   featureSelect.faceTint #E4BE85  committed selection
+     *
+     * The design spec expected `hoverSurfaceTint` to carry this, and the first
+     * build did use it — then the screenshot said no. That token was chosen to
+     * wash the WHOLE body, so it is only ~5 % off white; spread over every
+     * face that is a tasteful glow, but landed on ONE face it is invisible,
+     * which makes it a cue that does not cue. Localising the highlight is
+     * exactly what buys the room to state it louder, so this is a new value
+     * rather than a reused one — while staying a clear step below the
+     * selection brass, because hover must never read as committed.
+     */
+    hoverTint: "#EFD6AE",
+    /**
+     * The addressed face's TRACED boundary (SEL-1). Drawn as a screen-space
+     * ribbon rather than a GL line so it can carry width and a depth bias:
+     * the trace is numerically coincident with the body's own B-rep edge
+     * overlay, and two 1 px lines at identical depth come out stippled.
+     *
+     * `xrayOpacity` is the strength of the part of the loop that is BEHIND the
+     * body — a cylindrical face's far seam, a bore's bottom circle. It is
+     * drawn, faintly, because the boundary of the face you are addressing does
+     * genuinely wrap out of sight and saying so is information; it is drawn
+     * FAINTLY because at full strength it paints over the face in front of it
+     * and stops being a trace of anything (code review, 2026-08-06).
+     */
+    hoverEdgeWidthPx: 2,
+    hoverEdgeXrayOpacity: 0.22,
   },
   /** The view reference cube (orientation gizmo) — a machinist's block. */
   gizmo: {
@@ -766,6 +800,19 @@ export const layout = {
    * the picks it was reporting on.
    */
   hudLaneBottom: spacing["3"] + 34 + spacing["3"],
+  /**
+   * The least a co-resident panel may be squeezed to in a chrome RAIL — the
+   * column where a feature editor and the feature tree share one seat instead
+   * of the editor floating over the model (FB-7).
+   *
+   * A floor, not a height: the editor is the instrument being operated, so it
+   * takes the room it needs, but the tree it was opened FROM must never be
+   * squeezed to a sliver — about three rows plus its heading, still scrollable.
+   * Auto-collapsing the neighbour instead was rejected: a panel that vanishes
+   * when you open an editor is its own flow defect (and specs read the tree
+   * while editors are open).
+   */
+  railPanelFloor: 120,
   /**
    * Bottom band occupied by the in-canvas reference cube (drei GizmoHelper,
    * bottom-RIGHT). A right-side panel clamps above it so a table-stakes nav

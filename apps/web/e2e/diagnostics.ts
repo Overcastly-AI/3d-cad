@@ -1,0 +1,236 @@
+import type { Page, TestInfo } from "@playwright/test";
+
+import { distinctCanvasColors } from "./support";
+
+/**
+ * WHAT THE SHARD REFUSED TO TELL US (CI-4).
+ *
+ * Four consecutive e2e runs failed on three DIFFERENT single specs, and each
+ * one was diagnosed by argument rather than by evidence, because a failed pixel
+ * census reports one number and destroys the context that would explain it.
+ * `c6b6c6d` is the case in point: `countTokenPixels(page, "#E9F1F8") === 0` is
+ * consistent with three unrelated causes, and the run held nothing that could
+ * separate them:
+ *
+ *  · ink 0 with ~300 distinct canvas colours  → the frame rendered, the INK
+ *    specifically is missing (a product/depth-order regression).
+ *  · ink 0 with ~1 distinct colour            → the readback is blank (lost
+ *    context, zero-sized drawing buffer, a substrate failure).
+ *  · ink 0 with a ZERO render-tick delta      → nothing rendered at all before
+ *    the sample; the wait returned early (the CI-4 F1(a) defect).
+ *
+ * So this attaches the discriminators to every non-passing test, from ONE seam
+ * in `fixtures.ts` — the 85 census call sites get it without being touched.
+ * The PNG is the census's OWN readback (the WebGL canvas copied through a 2D
+ * canvas), not `page.screenshot`: the compositor's picture of a canvas and the
+ * drawing buffer a spec reads can differ, and when they do, that difference is
+ * the finding.
+ */
+export interface ViewportDiagnostics {
+  /** False when the page has no viewport canvas (nothing else is meaningful). */
+  canvasPresent: boolean;
+  /** `window.__loftRenderTick` — r3f renders since load. `null` = no probe. */
+  renderTick: number | null;
+  /** Renders observed across a short probe window, taken right now. */
+  rendersInProbeWindow: number | null;
+  /** Browser animation frames across that same window (demand-loop contrast). */
+  framesInProbeWindow: number;
+  /** WebGL context loss/restore events, in order. */
+  glEvents: { kind: string; at: number }[];
+  /** True if the context is lost AT THE MOMENT of collection. */
+  contextLost: boolean | null;
+  /** Distinct colours in the readback — ~1 means a blank frame. */
+  distinctColors: number;
+  /** Drawing-buffer size in device px (what a census indexes). */
+  drawingBuffer: { width: number; height: number } | null;
+  /** CSS size in layout px. */
+  cssSize: { width: number; height: number } | null;
+  /** Unmasked GL renderer, e.g. the SwiftShader string on a hosted runner. */
+  renderer: string | null;
+  /** V8 heap, MB (Chromium only). */
+  heapMB: number | null;
+  /** Viewport-relevant DOM stamps that make a blank frame attributable. */
+  stamps: Record<string, string>;
+}
+
+interface Collected {
+  diagnostics: ViewportDiagnostics;
+  /** Base64 PNG of the readback, or null when there is no canvas. */
+  readbackPng: string | null;
+}
+
+const CANVAS_SELECTOR = '[data-testid="viewport"] canvas';
+/** Animation frames sampled to measure the live render rate. Cheap by design. */
+const PROBE_FRAMES = 10;
+/** Nothing here may extend a failing test's teardown by more than this. */
+const COLLECT_TIMEOUT_MS = 10_000;
+
+/**
+ * Read the viewport's substrate state, right now.
+ *
+ * Exported (and gated in `qa-harness.spec.ts`) rather than inlined in the
+ * fixture, because a diagnostic that is only exercised on failure is a
+ * diagnostic nobody has ever seen work — the shape that turned four CI reds
+ * into four arguments.
+ */
+export async function collectViewportDiagnostics(
+  page: Page,
+): Promise<Collected> {
+  const base = await page.evaluate(
+    async (input: { selector: string; probeFrames: number }) => {
+      const canvas = document.querySelector<HTMLCanvasElement>(input.selector);
+      const w = window as {
+        __loftRenderTick?: number;
+        __loftGlEvents?: { kind: string; at: number }[];
+        // Non-standard, Chromium-only; absent elsewhere, hence the guard below.
+        performance: Performance & { memory?: { usedJSHeapSize: number } };
+      };
+      const tickOf = (): number | null =>
+        typeof w.__loftRenderTick === "number" ? w.__loftRenderTick : null;
+
+      const before = tickOf();
+      let frames = 0;
+      for (let i = 0; i < input.probeFrames; i += 1) {
+        const painted = await new Promise<boolean>((resolve) => {
+          let settled = false;
+          const finish = (viaRaf: boolean): void => {
+            if (settled) return;
+            settled = true;
+            resolve(viaRaf);
+          };
+          requestAnimationFrame(() => finish(true));
+          setTimeout(() => finish(false), 250);
+        });
+        if (painted) frames += 1;
+      }
+      const after = tickOf();
+
+      const stampNames = [
+        "data-camera-pos",
+        "data-fit-rect",
+        "data-nav-rotate-speed",
+      ];
+      const host = document.querySelector('[data-testid="viewport"]');
+      const stamps: Record<string, string> = {};
+      for (const name of stampNames) {
+        const value = host?.getAttribute(name);
+        if (value !== null && value !== undefined) stamps[name] = value;
+      }
+      for (const id of [
+        "tessellation-status",
+        "eval-status",
+        "sketch-step",
+        "viewport-error",
+      ]) {
+        const node = document.querySelector(`[data-testid="${id}"]`);
+        if (node) stamps[id] = (node.textContent ?? "").trim().slice(0, 120);
+      }
+
+      // Everything that is true with or without a canvas, stated once.
+      const common = {
+        renderTick: after,
+        rendersInProbeWindow:
+          after === null || before === null ? null : after - before,
+        framesInProbeWindow: frames,
+        glEvents: w.__loftGlEvents ?? [],
+        heapMB:
+          w.performance.memory === undefined
+            ? null
+            : Math.round(w.performance.memory.usedJSHeapSize / 1e5) / 10,
+        stamps,
+      };
+
+      if (!canvas) {
+        return {
+          ...common,
+          canvasPresent: false,
+          contextLost: null,
+          drawingBuffer: null,
+          cssSize: null,
+          renderer: null,
+          readbackPng: null,
+        };
+      }
+
+      const gl =
+        canvas.getContext("webgl2", { preserveDrawingBuffer: true }) ??
+        canvas.getContext("webgl", { preserveDrawingBuffer: true });
+      let renderer: string | null = null;
+      let contextLost: boolean | null = null;
+      if (gl) {
+        contextLost = gl.isContextLost();
+        const info = gl.getExtension("WEBGL_debug_renderer_info");
+        renderer = info
+          ? String(gl.getParameter(info.UNMASKED_RENDERER_WEBGL))
+          : String(gl.getParameter(gl.RENDERER));
+      }
+
+      // The census's own path: WebGL canvas -> 2D canvas -> PNG.
+      const probe = document.createElement("canvas");
+      probe.width = canvas.width;
+      probe.height = canvas.height;
+      const ctx = probe.getContext("2d");
+      let readbackPng: string | null = null;
+      if (ctx && probe.width > 0 && probe.height > 0) {
+        ctx.drawImage(canvas, 0, 0);
+        readbackPng = probe.toDataURL("image/png").split(",")[1] ?? null;
+      }
+      const rect = canvas.getBoundingClientRect();
+
+      return {
+        ...common,
+        canvasPresent: true,
+        contextLost,
+        drawingBuffer: { width: canvas.width, height: canvas.height },
+        cssSize: { width: rect.width, height: rect.height },
+        renderer,
+        readbackPng,
+      };
+    },
+    { selector: CANVAS_SELECTOR, probeFrames: PROBE_FRAMES },
+  );
+
+  const { readbackPng, ...rest } = base;
+  const distinctColors = base.canvasPresent
+    ? await distinctCanvasColors(page)
+    : 0;
+  return {
+    diagnostics: { ...rest, distinctColors },
+    readbackPng,
+  };
+}
+
+/**
+ * Attach the substrate evidence to a non-passing test. Never throws and never
+ * blocks teardown for long: a diagnostic that can fail a run, or that can turn
+ * a 60 s timeout into a hung shard, is a liability rather than evidence.
+ */
+export async function attachViewportDiagnostics(
+  page: Page,
+  testInfo: TestInfo,
+): Promise<void> {
+  if (page.isClosed()) return;
+  try {
+    const collected = await Promise.race([
+      collectViewportDiagnostics(page),
+      new Promise<null>((resolve) =>
+        setTimeout(() => resolve(null), COLLECT_TIMEOUT_MS),
+      ),
+    ]);
+    if (collected === null) return;
+    await testInfo.attach("viewport-diagnostics.json", {
+      body: JSON.stringify(collected.diagnostics, null, 2),
+      contentType: "application/json",
+    });
+    if (collected.readbackPng !== null) {
+      await testInfo.attach("viewport-readback.png", {
+        body: Buffer.from(collected.readbackPng, "base64"),
+        contentType: "image/png",
+      });
+    }
+  } catch {
+    // A page that crashed or navigated mid-teardown cannot be probed. The
+    // trace and the service logs still land; swallowing here keeps the
+    // ORIGINAL failure the reported one.
+  }
+}

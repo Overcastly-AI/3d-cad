@@ -15,6 +15,7 @@ import {
   Vector3,
 } from "three";
 import { useThree, type ThreeEvent } from "@react-three/fiber";
+import { Line } from "@react-three/drei";
 
 import { bodyFaceSets, faceLumps } from "./bodyPartition";
 import {
@@ -27,6 +28,7 @@ import {
 } from "./glbGeometry";
 import { instanceView } from "./instanceVisibility";
 import { usePartViewStore } from "./partView";
+import { drawnSurfaceRaycast, hiddenTriangleTest } from "./pickRaycast";
 import { studioMatcap } from "./studioMatcap";
 
 /**
@@ -69,6 +71,14 @@ export interface ModelMeshProps {
   /** Report the current highlight so the viewport can stamp a QA hook. */
   onHighlightChange?: (highlight: BodyHighlight) => void;
   /**
+   * Report the face ordinal under the cursor and the body's total face count
+   * (SEL-1 / spec A1). Null when nothing is addressed, or when the mesh could
+   * not be face-partitioned and hover fell back to the whole-body glow — so a
+   * QA gate can prove "exactly ONE face lights" as a number, not as pixels,
+   * the same posture `onFaceSelectionChange` already takes for selection.
+   */
+  onFaceHoverChange?: (ordinal: number | null, total: number) => void;
+  /**
    * Report the highlighted face count and the body's total face count, so QA
    * can prove the highlight is a PROPER subset (matcap preserved on the rest)
    * without reading pixels. `selected` is 0 when nothing is lit.
@@ -104,12 +114,15 @@ export function ModelMesh({
   selectedFaceIndices = null,
   onHighlightChange,
   onFaceSelectionChange,
+  onFaceHoverChange,
   onVisibleBounds,
   onBodyViewChange,
 }: ModelMeshProps) {
   const invalidate = useThree((state) => state.invalidate);
   const [geometry, setGeometry] = useState<BufferGeometry | null>(null);
   const [hovered, setHovered] = useState(false);
+  /** The B-rep face ordinal under the cursor, or null when none is addressed. */
+  const [hoveredFace, setHoveredFace] = useState<number | null>(null);
   const partBodies = usePartViewStore((state) => state.bodies);
   const partView = usePartViewStore((state) => state.view);
 
@@ -179,6 +192,35 @@ export function ModelMesh({
         ? "hover"
         : "none";
 
+  /**
+   * SEL-1 / spec A1 — the face under the cursor, not the whole solid. Hover
+   * granularity matches the finest thing the raycast can resolve, so a mis-aim
+   * becomes visible and free instead of invisible and expensive (FB-8: "too
+   * many to see what you are clicking"; FB-3: "picking a face is very
+   * difficult"). Null means fall back to today's whole-body glow, which is the
+   * honest answer in exactly three cases:
+   *
+   *   - the pointer is not on the body at all;
+   *   - the mesh carries a single B-rep face (a sphere), so "one face" and
+   *     "the whole body" are the same set and the localized path would only
+   *     cost draw groups;
+   *   - the hovered face is HIDDEN, which the pointer handler already declines
+   *     to address so the click falls through to what is genuinely behind it.
+   *
+   * A face-grain hover deliberately does NOT suppress the `"hover"` highlight
+   * it reports upward: the body IS hovered, and that hook is the body-grain
+   * statement. What changes is where the tint LANDS — see the base-material
+   * effect, which stays at rest so the body does not glow as a whole.
+   */
+  const faceHover: number | null =
+    interactive &&
+    hovered &&
+    hoveredFace !== null &&
+    totalFaces > 1 &&
+    !bodyFaceState.hidden.has(hoveredFace)
+      ? hoveredFace
+      : null;
+
   // Materials are created once and shared across re-tessellations. The studio
   // matcap ("machined aluminum under shop lights") carries the whole lighting
   // rig — the scene needs no lights, and the body reads its curvature at every
@@ -199,6 +241,60 @@ export function ModelMesh({
   );
   const featureEdgeMaterial = useMemo(
     () => new LineBasicMaterial({ color: viewport.featureSelect.edge }),
+    [],
+  );
+  /**
+   * The addressed face's pair (SEL-1): `facePick.hoverTint` on the surface,
+   * `viewport.hover` brass on its boundary. Both stay a step below the
+   * full-strength brass of `featureSelect`, which is the hover-vs-selected
+   * contrast §1 requires, and the studio matcap survives underneath because
+   * the tint multiplies it exactly as every other state does.
+   *
+   * ## Why the boundary is drawn twice
+   *
+   * The first cut drew it ONCE, with `depthTest: false`. The problem that
+   * bought was real — the trace is numerically coincident with the body-wide
+   * `edges` overlay, and two 1 px GL lines at identical depth fight per
+   * fragment and come out stippled, which reads as a rendering fault rather
+   * than an affordance. The cure was too wide, and a cylindrical face is the
+   * counter-example (code review, 2026-08-06): `subsetEdges` feeds
+   * `EdgesGeometry` only the hovered face's triangles, and `EdgesGeometry`
+   * emits every UNMATCHED edge, so the whole topological boundary comes out —
+   * including the half that faces away. On a bore that is the top circle AND
+   * the bottom one, and with no depth test the bottom circle paints over the
+   * top face of the part. The raycast proves the HIT POINT is front-facing; it
+   * proves nothing about the loop.
+   *
+   * So: two passes, with the depth test back on for the one that matters.
+   *
+   *  - `faceHoverEdgeXrayMaterial` — the whole loop, no depth test, drawn at
+   *    `hoverEdgeXrayOpacity`. Faint enough not to compete with the surface in
+   *    front of it, present enough to say the face wraps out of sight, which is
+   *    information a modeller on a bore actually wants.
+   *  - the front pass — a drei `Line` (`LineSegments2`), NOT a `lineSegments`.
+   *    That is what lets the depth test come back: a `Line2` is instanced
+   *    QUADS, so it has width in screen space and, unlike a GL line,
+   *    `polygonOffset` genuinely applies to it. Biased a hair toward the camera
+   *    it wins the coincident-depth fight outright instead of stippling, and
+   *    being 2 px wide it covers the graphite edge underneath rather than
+   *    dithering with it.
+   *
+   * `depthWrite` stays off on both so neither pass leaves anything behind for
+   * the next frame.
+   */
+  const faceHoverMaterial = useMemo(
+    () => new MeshMatcapMaterial({ matcap: studioMatcap() }),
+    [],
+  );
+  const faceHoverEdgeXrayMaterial = useMemo(
+    () =>
+      new LineBasicMaterial({
+        color: viewport.hover,
+        depthTest: false,
+        depthWrite: false,
+        transparent: true,
+        opacity: viewport.facePick.hoverEdgeXrayOpacity,
+      }),
     [],
   );
   // GHOST and HIDE (UI-W2, part half). The ghost strengths are the product's
@@ -242,6 +338,8 @@ export function ModelMesh({
       ghostMaterial.dispose();
       hiddenMaterial.dispose();
       ghostEdgeMaterial.dispose();
+      faceHoverMaterial.dispose();
+      faceHoverEdgeXrayMaterial.dispose();
     },
     [
       baseMaterial,
@@ -251,6 +349,8 @@ export function ModelMesh({
       ghostMaterial,
       hiddenMaterial,
       ghostEdgeMaterial,
+      faceHoverMaterial,
+      faceHoverEdgeXrayMaterial,
     ],
   );
 
@@ -260,36 +360,56 @@ export function ModelMesh({
   // only the selected group carry the deeper brass tint; hover gives a QUIET
   // warm-up. Matcap tint multiplies the studio sphere — the machined read is
   // preserved in every state.
+  // SEL-1: when the hover has landed on ONE face, the body-wide warm-up is
+  // exactly the defect ("hovering glows the whole solid"), so the base drops
+  // back to rest and the tint rides the hovered face's own draw group instead.
   useEffect(() => {
+    const bodyWideHover = highlight === "hover" && faceHover === null;
     baseMaterial.color.set(
       highlight === "selected"
         ? viewport.selectedSurfaceTint
-        : highlight === "hover"
+        : bodyWideHover
           ? viewport.hoverSurfaceTint
-          : // "feature" and "none" keep the matcap identity on the base faces.
+          : // "feature", "none", and a face-grain hover all keep the matcap
+            // identity on the base faces.
             viewport.restSurfaceTint,
     );
     featureMaterial.color.set(viewport.featureSelect.faceTint);
+    faceHoverMaterial.color.set(viewport.facePick.hoverTint);
     edgeMaterial.color.set(
       highlight === "selected"
         ? viewport.selection
-        : highlight === "hover"
+        : bodyWideHover
           ? viewport.hover
-          : // "feature" leaves the base edges quiet; the brass emphasis rides
-            // the separate subset lineSegments below.
+          : // "feature" and a face-grain hover leave the base edges quiet; the
+            // emphasis rides the separate subset lineSegments below.
             viewport.modelEdge,
     );
     invalidate();
-  }, [highlight, baseMaterial, featureMaterial, edgeMaterial, invalidate]);
+  }, [
+    highlight,
+    faceHover,
+    baseMaterial,
+    featureMaterial,
+    faceHoverMaterial,
+    edgeMaterial,
+    invalidate,
+  ]);
 
-  // Route each B-rep face to the base (0), selected (1), ghost (2) or hidden
-  // (3) material. `setFaceMaterials` lays down the MINIMUM number of draw
-  // groups that expresses the assignment (one per run of consecutive faces
-  // sharing a material) — three.js emits one render item per group whenever the
-  // mesh has a material array, so per-face groups cost one draw call per B-rep
-  // face the moment a body is ghosted, hidden or feature-selected. Layout
-  // effect so the assignment lands before the demanded frame paints (a
-  // multi-material mesh with stale groups would drop faces).
+  // Route each B-rep face to the base (0), selected (1), ghost (2), hidden
+  // (3) or hovered (4) material. `setFaceMaterials` lays down the MINIMUM
+  // number of draw groups that expresses the assignment (one per run of
+  // consecutive faces sharing a material) — three.js emits one render item per
+  // group whenever the mesh has a material array, so per-face groups cost one
+  // draw call per B-rep face the moment a body is ghosted, hidden,
+  // feature-selected or hovered. Layout effect so the assignment lands before
+  // the demanded frame paints (a multi-material mesh with stale groups would
+  // drop faces).
+  //
+  // Precedence, strongest first: hidden > ghosted > feature-selected > hovered
+  // > base. Selection beating hover is the rule §1 states — a face you have
+  // COMMITTED to outranks the one you are merely addressing — and it is what
+  // keeps a hover from quietly dimming a selected face as the pointer crosses.
   useLayoutEffect(() => {
     if (geometry === null) return;
     setFaceMaterials(geometry, (ordinal) =>
@@ -299,10 +419,12 @@ export function ModelMesh({
           ? 2
           : localized && faceSet !== null && faceSet.has(ordinal)
             ? 1
-            : 0,
+            : faceHover === ordinal
+              ? 4
+              : 0,
     );
     invalidate();
-  }, [geometry, localized, faceSet, bodyFaceState, invalidate]);
+  }, [geometry, localized, faceSet, bodyFaceState, faceHover, invalidate]);
 
   // Report the highlight + face selection up so the viewport can stamp QA hooks.
   useEffect(() => {
@@ -318,19 +440,48 @@ export function ModelMesh({
     onFaceSelectionChange?.(lit, totalFaces);
   }, [highlight, faceSet, totalFaces, onFaceSelectionChange]);
 
+  // SEL-1 / A1: the addressed face, as a number, so a gate can prove exactly
+  // ONE face lights without reading WebGL pixels. Null while the fallback
+  // whole-body glow is what is on screen, so the hook distinguishes "one face"
+  // from "the whole body" rather than conflating them.
+  useEffect(() => {
+    onFaceHoverChange?.(faceHover, totalFaces);
+  }, [faceHover, totalFaces, onFaceHoverChange]);
+
   // Leaving interactive mode drops a stale hover (e.g. arming Measure while the
   // pointer rests on the body) so the body never sticks lit.
   useEffect(() => {
     if (!interactive && hovered) setHovered(false);
-  }, [interactive, hovered]);
+    if (!interactive && hoveredFace !== null) setHoveredFace(null);
+  }, [interactive, hovered, hoveredFace]);
+
+  // A re-tessellation renumbers the faces, so an ordinal captured against the
+  // OLD mesh addresses an unrelated face on the new one — drop it and let the
+  // next pointer move re-resolve against the geometry actually on screen.
+  //
+  // The BODY hover is dropped with it. Clearing only the ordinal leaves
+  // `hovered` true with `hoveredFace` null, which is precisely the input that
+  // makes `highlight` read "hover" with `faceHover` null — the whole-body glow
+  // A1 exists to remove, transiently restored by a re-solve under a resting
+  // pointer. The next `onPointerMove` re-arms both within a frame, so nothing
+  // is lost by dropping them together.
+  useEffect(() => {
+    setHovered(false);
+    setHoveredFace(null);
+  }, [geometry]);
 
   /**
-   * Hidden means NOTHING drawn — including no pick target. `Mesh.raycast` walks
-   * every draw group regardless of its material's `visible`, so a hidden body
-   * would still light the hover state from under the parts you can see. The
-   * intersected triangle is resolved back to a B-rep face ordinal and dropped
-   * when that face is hidden, which also lets the pointer fall THROUGH to
-   * whatever is genuinely behind it.
+   * Hidden means NOTHING drawn — including no pick target.
+   *
+   * `Mesh.raycast` walks every draw group regardless of its material's
+   * `visible` (three 0.185's `checkIntersection()` reads only `material.side`),
+   * so a hidden body would otherwise light the hover from under the parts you
+   * can see. Refusing that hit in THIS handler was not enough and could not be:
+   * r3f dedupes to one hit per object, so the drawn face behind the hidden one
+   * was never offered and the pointer went dead over that whole region rather
+   * than falling through it. The filter now runs inside `raycast` — see
+   * {@link drawnSurfaceRaycast} — so what arrives here is the nearest DRAWN
+   * triangle and there is nothing left for the handler to refuse (SEL-6).
    */
   const faceOrdinalOf = useCallback(
     (event: ThreeEvent<PointerEvent>): number | null => {
@@ -347,13 +498,35 @@ export function ModelMesh({
     (event: ThreeEvent<PointerEvent>) => {
       if (!interactive) return;
       const ordinal = faceOrdinalOf(event);
-      if (ordinal !== null && bodyFaceState.hidden.has(ordinal)) return;
       event.stopPropagation();
       setHovered(true);
+      setHoveredFace(ordinal);
     },
-    [interactive, faceOrdinalOf, bodyFaceState],
+    [interactive, faceOrdinalOf],
   );
-  const onPointerOut = useCallback(() => setHovered(false), []);
+  /**
+   * SEL-1: r3f re-fires `onPointerOver` only when the pointer ENTERS the mesh,
+   * never when it crosses from one face to another of the SAME mesh — and our
+   * whole part is one fused mesh, so `onPointerOver` alone can only ever
+   * address the face you happened to arrive on. Tracking `onPointerMove` is
+   * what makes the addressed face follow the cursor.
+   */
+  const onPointerMove = useCallback(
+    (event: ThreeEvent<PointerEvent>) => {
+      if (!interactive) return;
+      const ordinal = faceOrdinalOf(event);
+      event.stopPropagation();
+      setHovered(true);
+      // Re-render only when the addressed face actually changes; a pointer move
+      // across one face fires this handler every frame.
+      setHoveredFace((current) => (current === ordinal ? current : ordinal));
+    },
+    [interactive, faceOrdinalOf],
+  );
+  const onPointerOut = useCallback(() => {
+    setHovered(false);
+    setHoveredFace(null);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -403,13 +576,16 @@ export function ModelMesh({
     [geometry, bodyFaceState],
   );
   useEffect(() => () => ghostEdges?.dispose(), [ghostEdges]);
-  useEffect(
-    () => () => {
-      geometry?.dispose();
-      edges?.dispose();
-    },
-    [geometry, edges],
-  );
+  // Each GPU resource is freed on ITS OWN lifetime. They used to share one
+  // effect keyed `[geometry, edges]`, and `edges` is rebuilt on every ghost or
+  // hide toggle — so toggling a body's eye ran the cleanup and disposed the
+  // STILL-CURRENT geometry, while `setPickGeometry` (keyed on `geometry`
+  // alone) did not re-run and left the store and the pick overlay holding the
+  // disposed object. It self-healed, because three.js re-uploads from the
+  // retained CPU-side attributes, which is exactly why nothing ever looked
+  // wrong: the cost was three silent re-uploads per toggle, not a black frame.
+  useEffect(() => () => geometry?.dispose(), [geometry]);
+  useEffect(() => () => edges?.dispose(), [edges]);
 
   // Bounds of what is DRAWN — the camera fit's subject (a hidden body is out).
   useEffect(() => {
@@ -454,21 +630,74 @@ export function ModelMesh({
   // its eye on exactly this).
   const setBodyPresent = usePartViewStore((state) => state.setBodyPresent);
   const setPartitioned = usePartViewStore((state) => state.setPartitioned);
+  const setPickGeometry = usePartViewStore((state) => state.setPickGeometry);
+  const setPickHiddenFaces = usePartViewStore(
+    (state) => state.setPickHiddenFaces,
+  );
+  const releasePickSubject = usePartViewStore(
+    (state) => state.releasePickSubject,
+  );
   useEffect(() => {
     setBodyPresent(geometry !== null);
   }, [geometry, setBodyPresent]);
+  /**
+   * SEL-1 / A2: publish the drawn mesh so an armed pick overlay can raycast the
+   * real surface instead of its 24 px centroid buttons.
+   *
+   * The safety property is that this effect and the `geometry?.dispose()`
+   * cleanup are keyed on the SAME dependency, so React runs them in one
+   * synchronous commit: within that commit the store is repointed and the old
+   * object is freed, and no frame can be drawn between the two. It is NOT an
+   * ordering guarantee — effects destroy in declaration order, so the dispose
+   * cleanup above actually runs FIRST — and an earlier note here claimed the
+   * opposite, which would have been a real bug had anything read the store
+   * between the two cleanups. Nothing can; same flush.
+   */
+  useEffect(() => {
+    setPickGeometry(geometry);
+    return () => setPickGeometry(null);
+  }, [geometry, setPickGeometry]);
+  /**
+   * …and, with it, which of that mesh's face ordinals are switched off — the
+   * FOURTH copy of the reason SEL-6 corrected, missed when the other three were
+   * fixed. `Mesh.raycast` ignores `material.visible` FULL STOP (it consults only
+   * `material.side`, array branch included), so a hidden body is raycast exactly
+   * like a drawn one and nothing downstream can work its state out from the
+   * geometry alone. Both halves of the fix read this set: `pickRaycast.ts` so a
+   * hidden body in front cannot absorb the ray, and `hiddenPicks.ts` so a hidden
+   * body's own faces and edges leave the offer.
+   */
+  useEffect(() => {
+    setPickHiddenFaces(bodyFaceState.hidden);
+  }, [bodyFaceState, setPickHiddenFaces]);
   useEffect(() => {
     setPartitioned(perBodyFaces !== null);
   }, [perBodyFaces, setPartitioned]);
   // Unmounting means the part has no mesh at all (a sketch-only tree, a
   // rollback below the first solid) — the sketch layer's default flips back to
   // "show the ink", which is the only thing left to look at.
+  //
+  // The pick subject goes with them, and the hidden-ordinal half of it was
+  // MISSED (code review, 2026-08-11). `Viewport` mounts this component
+  // conditionally on the GLB, so unmounting with a body switched off used to
+  // leave `pickHiddenFaces` populated and `pickGeometry` null — a state
+  // describing a mesh that no longer exists, in which `useIsHiddenFaceOrdinal`
+  // could answer "hidden" for it. Every other reader of the set already
+  // survives that (`hiddenPickFilter` and `usePickSurfaceTarget` both fall back
+  // to offering everything on a null geometry); the fix is to stop publishing
+  // the contradiction at its source.
+  //
+  // `releasePickSubject` releases BOTH in one write, so the half that was
+  // forgotten here is no longer a separate call anyone can forget again — and
+  // the clearing is store code the unit tier can invoke rather than imitate
+  // (the second SEL-7 review round: the imitation could not redden).
   useEffect(
     () => () => {
       setBodyPresent(false);
       setPartitioned(false);
+      releasePickSubject();
     },
-    [setBodyPresent, setPartitioned],
+    [setBodyPresent, setPartitioned, releasePickSubject],
   );
 
   // QA hook: the drawn / ghosted / hidden face census.
@@ -491,6 +720,56 @@ export function ModelMesh({
   );
   useEffect(() => () => featureEdges?.dispose(), [featureEdges]);
 
+  // SEL-1: the addressed face TRACED — its own boundary, the real topology,
+  // not a bounding box. This is what makes a face read as a face rather than
+  // as a patch of tint, and it is the same `subsetEdges` machinery the
+  // feature-selected state already uses, one ordinal wide.
+  //
+  // It obeys the SAME precedence the material assignment does (hidden >
+  // ghosted > feature-selected > hovered): a face already lit as part of the
+  // selected feature keeps its `featureEdges` trace and takes no hover trace
+  // on top. Otherwise the surface would say "committed" while the outline said
+  // "merely addressed" — reachable any time a feature is selected in the tree
+  // with no editor open, and the two statements are not allowed to disagree.
+  const faceHoverEdges = useMemo<EdgesGeometry | null>(
+    () =>
+      geometry !== null &&
+      faceHover !== null &&
+      !(localized && faceSet !== null && faceSet.has(faceHover))
+        ? subsetEdges(geometry, new Set([faceHover]))
+        : null,
+    [geometry, faceHover, localized, faceSet],
+  );
+  useEffect(() => () => faceHoverEdges?.dispose(), [faceHoverEdges]);
+  /**
+   * The same loop as a flat point list, for the depth-tested `Line2` pass —
+   * `LineSegmentsGeometry` takes positions, not a `BufferGeometry`. Built here
+   * rather than in the JSX so it changes only when the traced face does.
+   */
+  const faceHoverPoints = useMemo<[number, number, number][] | null>(() => {
+    if (faceHoverEdges === null) return null;
+    const position = faceHoverEdges.getAttribute("position");
+    if (position === undefined) return null;
+    const points: [number, number, number][] = [];
+    for (let i = 0; i < position.count; i += 1) {
+      points.push([position.getX(i), position.getY(i), position.getZ(i)]);
+    }
+    return points.length > 0 ? points : null;
+  }, [faceHoverEdges]);
+
+  /**
+   * The SEL-6 filter for the DRAWN mesh's own hover (SEL-1 A1). Same defect,
+   * one more surface: without it the nearest triangle wins even when its body
+   * is switched off, so the drawn face behind a hidden one is never offered and
+   * the default face-grain hover dies over that whole region instead of naming
+   * the face you can actually see there.
+   */
+  const raycast = useMemo(
+    () =>
+      drawnSurfaceRaycast(hiddenTriangleTest(geometry, bodyFaceState.hidden)),
+    [geometry, bodyFaceState],
+  );
+
   if (geometry === null) {
     return null;
   }
@@ -499,13 +778,26 @@ export function ModelMesh({
       <mesh
         geometry={geometry}
         material={
-          bodyStatesActive
-            ? [baseMaterial, featureMaterial, ghostMaterial, hiddenMaterial]
+          // Index order is FIXED (base 0, feature 1, ghost 2, hidden 3, hover
+          // 4) so `setFaceMaterials` can name a slot without knowing which
+          // states happen to be live. The shortest array that still contains
+          // every index in play is chosen — a plain resting body stays a
+          // single-material mesh and pays no draw-group cost at all.
+          bodyStatesActive || faceHover !== null
+            ? [
+                baseMaterial,
+                featureMaterial,
+                ghostMaterial,
+                hiddenMaterial,
+                faceHoverMaterial,
+              ]
             : localized
               ? [baseMaterial, featureMaterial]
               : baseMaterial
         }
+        raycast={raycast}
         onPointerOver={interactive ? onPointerOver : undefined}
+        onPointerMove={interactive ? onPointerMove : undefined}
         onPointerOut={interactive ? onPointerOut : undefined}
       />
       {edges !== null ? (
@@ -516,6 +808,33 @@ export function ModelMesh({
       ) : null}
       {featureEdges !== null ? (
         <lineSegments geometry={featureEdges} material={featureEdgeMaterial} />
+      ) : null}
+      {/* The occluded half of the traced loop — an x-ray hint, drawn under the
+          real trace so the front pass paints over it wherever the face is
+          actually visible. */}
+      {faceHoverEdges !== null ? (
+        <lineSegments
+          geometry={faceHoverEdges}
+          material={faceHoverEdgeXrayMaterial}
+          renderOrder={1}
+        />
+      ) : null}
+      {/* The trace itself: depth-tested, so a bore's far circle stays behind
+          the material in front of it, and biased toward the camera so the
+          coincident B-rep edge underneath cannot stipple it. */}
+      {faceHoverPoints !== null ? (
+        <Line
+          points={faceHoverPoints}
+          segments
+          color={viewport.hover}
+          lineWidth={viewport.facePick.hoverEdgeWidthPx}
+          toneMapped={false}
+          depthWrite={false}
+          polygonOffset
+          polygonOffsetFactor={-4}
+          polygonOffsetUnits={-4}
+          renderOrder={2}
+        />
       ) : null}
     </group>
   );

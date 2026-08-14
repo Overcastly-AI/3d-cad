@@ -1,6 +1,7 @@
 import { formatChord, Kbd } from "@loft/design";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { BUILD_SHA, buildLabel } from "../lib/build";
 import { isTypingTarget } from "../lib/isTypingTarget";
 import {
   KEY_SHORTCUT_SHEET,
@@ -131,6 +132,23 @@ export function ShortcutSheet({ onClose }: { onClose: () => void }) {
             <Group key={group.title} group={group} />
           ))}
         </div>
+
+        {/* WHICH BUILD IS THIS (FB-11). Here rather than in the app chrome
+            because the viewport is the hero and a permanent version stamp is
+            chrome that earns nothing 99% of the time — but the key card is
+            already mounted on every authed surface and is one keystroke (`?`)
+            away, so the answer is always reachable without taking a pixel from
+            the model. Selectable, monospace: it exists to be read out or pasted
+            into a bug report. */}
+        <footer className="border-t border-hairline px-4 py-2">
+          <p
+            data-testid="build-stamp"
+            data-build-sha={BUILD_SHA}
+            className="select-text font-data text-2xs text-gauge"
+          >
+            Build {buildLabel()}
+          </p>
+        </footer>
       </div>
     </div>
   );

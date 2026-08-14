@@ -29,7 +29,17 @@ import type { BufferGeometry } from "three";
 import { faceStarts } from "./glbGeometry";
 
 /** Weld tolerance for "these two faces touch" (mm). */
-const WELD_MM = 1e-4;
+export const WELD_MM = 1e-4;
+
+/**
+ * A mesh position as a WELD-BUCKET key — the identity "same point" is decided
+ * by here and nowhere else, so the lump split and the hidden-pick filter
+ * (`hiddenPicks.ts`) can never disagree about which body a point belongs to.
+ */
+export function weldKey(x: number, y: number, z: number): string {
+  const quantize = (value: number): number => Math.round(value / WELD_MM);
+  return `${quantize(x)},${quantize(y)},${quantize(z)}`;
+}
 
 /**
  * Connected components of a face-partitioned geometry, each the sorted list of
@@ -71,14 +81,15 @@ export function faceLumps(geometry: BufferGeometry): number[][] | null {
 
   const owner = new Map<string, number>();
   const idx = index.array;
-  const quantize = (value: number): number => Math.round(value / WELD_MM);
   for (let ordinal = 0; ordinal < faceCount; ordinal += 1) {
     const end = starts[ordinal + 1] as number;
     for (let i = starts[ordinal] as number; i < end; i += 1) {
       const vertex = idx[i] as number;
-      const key = `${quantize(position.getX(vertex))},${quantize(
+      const key = weldKey(
+        position.getX(vertex),
         position.getY(vertex),
-      )},${quantize(position.getZ(vertex))}`;
+        position.getZ(vertex),
+      );
       const seen = owner.get(key);
       if (seen === undefined) owner.set(key, ordinal);
       else union(seen, ordinal);

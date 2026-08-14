@@ -17,6 +17,9 @@ import {
   SnapEndpointIcon,
   SnapIntersectionIcon,
   SnapMidpointIcon,
+  SnapOriginIcon,
+  SnapXAxisIcon,
+  SnapYAxisIcon,
 } from "./icons";
 
 /**
@@ -48,6 +51,15 @@ const MARKS = {
   midpoint: <SnapMidpointIcon />,
   center: <SnapCenterIcon />,
   intersection: <SnapIntersectionIcon />,
+  // The sketch PLANE's own frame joined the set once the sheet got a visible,
+  // snappable origin. They compete in the same ranked list as the four object
+  // snaps and are drawn at the same size in the same place, so they are held to
+  // the same contract — and the pair most at risk of converging is X-axis vs
+  // Y-axis, which differ ONLY by rotation. That is a whole-stroke difference in
+  // a line's direction (the one axis a 90° rotation cannot hide), not a fill.
+  origin: <SnapOriginIcon />,
+  "x-axis": <SnapXAxisIcon />,
+  "y-axis": <SnapYAxisIcon />,
 } as const;
 
 describe("sketch snap marks", () => {
@@ -59,8 +71,10 @@ describe("sketch snap marks", () => {
       return [kind, signature(svg as Element)] as const;
     });
     // endpoint = one rect · midpoint = one closed path · centre = circle +
-    // cross · intersection = one two-stroke path. The set must be pairwise
-    // distinct, or two snaps look the same and the mark stops being honest.
+    // cross · intersection = one two-stroke path · origin = one bent corner ·
+    // the two axes = three-stroke centrelines, level vs upright. The set must
+    // be pairwise distinct, or two snaps look the same and the mark stops being
+    // honest.
     const distinct = new Set(signatures.map(([, sig]) => sig));
     expect(distinct.size, JSON.stringify(signatures)).toBe(signatures.length);
   });

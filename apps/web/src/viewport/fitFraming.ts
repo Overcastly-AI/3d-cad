@@ -140,6 +140,32 @@ export function insetsFor(canvas: Rect, obstruction: Rect): Insets {
 }
 
 /**
+ * Did a side-docked obstruction move in a way the FIT can see?
+ *
+ * A rail charges exactly one vertical edge, so only its `x` and `width` reach
+ * `unobstructedRect` — its height does not, and that asymmetry is the whole
+ * point. A feature editor docked in the rail grows a row every time the user
+ * reveals a field or types into a list; observing raw size changes there would
+ * re-frame the scene under their hands on every keystroke, which is precisely
+ * the lurching FB-1 was fixed to stop. Collapsing the panel, or a card that
+ * widens the column, DOES give (or take) frame the fit should answer to.
+ *
+ * `previous === null` (the first measurement) is not a change: the rail is
+ * mounting into a frame the fit has already solved for.
+ */
+export function chargedInsetChanged(
+  previous: Rect | null,
+  next: Rect,
+  epsilonPx = 0.5,
+): boolean {
+  if (previous === null) return false;
+  return (
+    Math.abs(previous.x - next.x) > epsilonPx ||
+    Math.abs(previous.width - next.width) > epsilonPx
+  );
+}
+
+/**
  * The unobstructed rect: the canvas minus the deepest bite taken out of each
  * edge, minus a uniform margin. Never returns a degenerate rect — a frame so
  * crowded that nothing is left falls back to the canvas, because a fit that

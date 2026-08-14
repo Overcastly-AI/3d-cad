@@ -38,12 +38,25 @@
  */
 import { cx } from "@loft/design";
 import type { HTMLAttributes, ReactNode } from "react";
+import { createPortal } from "react-dom";
+
+import { useRailSlot } from "./ChromeRail";
 
 export interface EditorCardProps extends HTMLAttributes<HTMLDivElement> {
   /**
-   * Which seat the card takes. `left` is the title-block seat clearing the
-   * feature tree; `right` is used while a viewport pick is armed, so the card
-   * never covers the face the user must click.
+   * WHICH RAIL the card takes. `left` is the title-block seat, sharing the
+   * feature tree's column; `right` is used while a viewport pick is armed, so
+   * the card never covers the face the user must click.
+   *
+   * Where a `ChromeRail` is mounted for that side the card DOCKS into it — the
+   * fix for FB-7, the founder's photograph of an editor sitting on the model it
+   * was editing. Measured at HEAD on a 1600x1000 frame: the extrude card covered
+   * 50 069 px2, 9.0 % of the body's screen box. Docking makes that overlap
+   * structurally impossible rather than merely smaller, which is why compaction
+   * was rejected as the fix: a smaller panel still covers the part.
+   *
+   * With no rail in context (the assembly and drawing workspaces, and component
+   * unit tests) the card floats exactly as it always has.
    */
   seat?: "left" | "right";
   /**
@@ -68,20 +81,33 @@ export function EditorCard({
   children,
   ...rest
 }: EditorCardProps) {
-  return (
+  const rail = useRailSlot(seat);
+  const card = (
     <div
       className={cx(
         // `shadow-float` is the floating-instrument language `FloatingPanel`
         // already speaks: a card that shares a rail with a panel has to read as
         // LIFTED OVER it, or the two run together into one impossible column.
-        "absolute top-3 flex w-editor max-w-full flex-col shadow-float",
-        // Seat-aware clearance, the same pair `FloatingPanel` uses: a card on
-        // the RIGHT rail must also clear the in-canvas reference cube, because
-        // covering the view gizmo is a mandate-3a defect (measured: a
-        // right-seated hole editor drew its footer straight over the cube).
-        seat === "right"
-          ? "right-3 max-h-cube-card"
-          : "left-editor max-h-hud-card",
+        "flex w-editor max-w-full flex-col shadow-float",
+        rail !== null
+          ? // Docked: a flow child of the rail, and the one that gets its way.
+            // `shrink-0` because the card is the instrument being OPERATED — a
+            // 591px feature tree must not scroll the Operation row out of an
+            // open extrude (measured: it took 71px). `max-h-rail-card` is what
+            // keeps that safe: the tallest card still leaves the panel its
+            // floor, so the column can never overflow into the HUD lane. Both
+            // resolve because the rail's height is definite.
+            "pointer-events-auto max-h-rail-card min-h-0 shrink-0"
+          : // Floating: seat-aware clearance, the same pair `FloatingPanel`
+            // uses. A card on the RIGHT must also clear the in-canvas reference
+            // cube, because covering the view gizmo is a mandate-3a defect
+            // (measured: a right-seated hole editor drew its footer over it).
+            cx(
+              "absolute top-3",
+              seat === "right"
+                ? "right-3 max-h-cube-card"
+                : "left-editor max-h-hud-card",
+            ),
         className,
       )}
       {...rest}
@@ -91,4 +117,5 @@ export function EditorCard({
       {footer !== undefined ? <div className="shrink-0">{footer}</div> : null}
     </div>
   );
+  return rail === null ? card : createPortal(card, rail);
 }

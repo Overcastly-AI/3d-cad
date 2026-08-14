@@ -6,6 +6,7 @@ import {
   countTokenPixels,
   createPartViaApi,
   distinctCanvasColors,
+  measureInkCoverage,
   seedSession,
   waitForFrames,
 } from "./support";
@@ -175,8 +176,8 @@ test.describe("a sketch on a model face is visible while you draw it", () => {
     await expect(page.getByTestId("sketch-step")).toHaveText("On Face", {
       timeout: 30_000,
     });
-    // The camera eases normal-on to the picked face; sample after it paints.
-    await waitForFrames(page, 30);
+    // The camera eases normal-on to the picked face; sample after it renders.
+    const eased = await waitForFrames(page, 30);
 
     const frame = await measurePlaneFrame(page);
     const half = RECT_HALF_MM * frame.pxPerMm;
@@ -195,18 +196,163 @@ test.describe("a sketch on a model face is visible while you draw it", () => {
     // Park the pointer well off the rectangle so the crosshair and the hover
     // affordance are not part of what gets counted.
     await page.mouse.move(centre.x + half * 3, centre.y - half * 3);
-    await waitForFrames(page, 20);
+    const settled = await waitForFrames(page, 20);
 
-    // (1) DEPTH — the ink is on screen at its exact token hex. Scored against
-    // the perimeter actually drawn, so the bar holds at any zoom: a 1 px GL
-    // line lands on the exact token only where it covers a whole pixel (MSAA
-    // blends the rest into the ground), which measures 49% of the perimeter at
-    // a 40 px/mm frame and 93% at 6.9 px/mm. 30% is the floor, against ZERO on
-    // the pre-fix build — coplanar ink lost the depth test against the face it
-    // sits on, everywhere.
-    const perimeterPx = 8 * half;
+    // (1) DEPTH — the ink is on screen at its exact token hex.
+    //
+    // THE FLOOR WAS 30%, AND THE MODEL BEHIND IT WAS WRONG. The original note
+    // claimed the exact-token fraction RISES as the view widens (49% at
+    // 40 px/mm, 93% at 6.9 px/mm). Measured on this spec, it falls: **37.1% at
+    // 35.5 px/mm, 22.9% at 26.6 px/mm**. The reason is that two of the three
+    // things eating the count do not scale with zoom. A 1 px GL line lands on
+    // the exact token only where it covers a WHOLE pixel — MSAA blends the rest
+    // into the ground, and how much survives is a sub-pixel alignment lottery
+    // that changes with every framing. On top of that the sheet's 1 mm grid is
+    // fixed in MODEL space, so this 10 mm square is crossed at 40 points no
+    // matter the zoom; each crossing blends a slice of scribe away, and 40
+    // fixed crossings are a larger share of a SHORTER perimeter. Widening the
+    // view therefore costs the count twice.
+    //
+    // That is why `6d8a8dd` (FB-22, the sketch origin) turned this red without
+    // breaking anything: it settles the sketch camera squarely over the face
+    // centre instead of off to one side, which is a BETTER framing and a wider
+    // one — 35.5 px/mm before, 26.6 after. Nothing about the ink got worse.
+    //
+    // So the floor is restated around what this gate can actually discriminate.
+    // Its power is not 23% vs 30%; it is HUNDREDS vs **ZERO**, which is what
+    // the build measures the moment coplanar ink loses the depth test against
+    // the face it sits on — everywhere, not dimly.
+    //
+    // ONE INSTRUMENT, AND A CALIBRATION GUARD (code review, 2026-08-06). This
+    // used to assert BOTH an absolute floor of 120 and `perimeterPx * 0.12`,
+    // which at the framing that actually ships is 128 — so the ratio decided
+    // nothing the floor had not already decided, and the "12 %" model was
+    // decoration on an absolute number. Worse, the ratio is what made the gate
+    // framing-COUPLED, and the framing is deliberately free here: `6d8a8dd`
+    // (FB-22) improved the sketch camera and turned this red without breaking
+    // anything, because a better framing is a wider one and a wider one prints
+    // less exact-token ink.
+    //
+    // The fix is to say out loud what the floor is calibrated AGAINST. The
+    // scale is asserted first, in a band, so the next framing change fails HERE
+    // with a message naming the reason instead of failing below as a
+    // mysteriously thin scribe. Inside the band the absolute count is the whole
+    // instrument, and it is the honest one: it is what the defect drives to
+    // zero.
+    //
+    // MEASURED 2026-08-06 on the real stack at 1600x1000: 26.63 px/mm, a
+    // 1 065 px perimeter, ink = 244. The mutation — the served
+    // `SketchScene.tsx` module rewritten in flight so the active ink's
+    // `depthTest: false` becomes `true` — gives **ink = 0**, not the "single
+    // digits" an earlier note here claimed. Zero is also what the commit
+    // message and the roadmap entry said; this comment was the odd one out.
+    expect(
+      frame.pxPerMm,
+      "the sketch camera re-framed: this gate's ink floor is calibrated for " +
+        "~20-40 px/mm (26.6 measured 2026-08-06). Re-measure the floor above " +
+        "rather than relaxing this band.",
+    ).toBeGreaterThan(20);
+    expect(frame.pxPerMm).toBeLessThan(40);
+    // THE CENSUS IS BY COVERAGE, NOT BY EXACT EQUALITY (SPEC-4). `ink` below
+    // is the exact-token count this gate used to assert on, kept only as
+    // evidence: measured 10 times at HEAD on 2026-08-11 it came back ZERO on 5
+    // of them with the scribe plainly on screen, because a 1 px GL line lands
+    // on its literal token only where it happens to cover a whole pixel. The
+    // assertion now sums estimated coverage along the ground→token axis, which
+    // anti-aliasing conserves — see `measureInkCoverage`. The box is the
+    // rectangle the modeler just drew, so what is counted is ink ON the picked
+    // face and nothing else on the canvas.
     const ink = await countTokenPixels(page, "#E9F1F8");
-    expect(ink).toBeGreaterThan(perimeterPx * 0.3);
+    const margin = half * 1.15;
+    const scribeBox = {
+      x: Math.round(frame.originCanvas.x - margin),
+      y: Math.round(frame.originCanvas.y - margin),
+      width: Math.round(margin * 2),
+      height: Math.round(margin * 2),
+    };
+    const scribe = await measureInkCoverage(page, "#E9F1F8", {
+      box: scribeBox,
+    });
+
+    // INSTRUMENT, NOT DECORATION (CI-4). This census came back ZERO on CI
+    // `c6b6c6d` and the run held nothing that could say WHY: ink = 0 with
+    // hundreds of canvas colours is a rendering defect, ink = 0 with ~1 colour
+    // is a blank readback, and ink = 0 with no renders behind the waits is the
+    // harness sampling early. Every number is now recorded on every run — green
+    // ones included, because a reading with no baseline proves nothing.
+    //
+    // `inkNearToken` is the fourth discriminator, and it is the one that
+    // settles THIS assertion. Reproduced locally at HEAD on 2026-08-11, 2 runs
+    // in 5 in a quiet window: exact-token ink = 0 while the scribe is plainly
+    // drawn over the solid, its pixels landing at (190,197,204) — the token
+    // blended at ~0.74 coverage over the blued face, i.e. a 1 px GL line that
+    // straddles the pixel grid instead of filling it. So a zero here has TWO
+    // causes that look identical: the ink losing the depth fight (nothing near
+    // the token either) and an anti-aliasing phase miss (hundreds near it).
+    // Recording both makes a future red say which, instead of being argued.
+    // `ink` and `inkNearToken` stay recorded now that the ASSERTION has moved
+    // to `scribe.coverage`: they are the history the new floor was calibrated
+    // from, and the pair is what proves a future zero is a phase miss.
+    const census = {
+      pxPerMm: frame.pxPerMm,
+      ink,
+      inkNearToken: await countTokenPixels(page, "#E9F1F8", 48),
+      scribe,
+      distinctColors: await distinctCanvasColors(page),
+      easeWait: eased,
+      settleWait: settled,
+    };
+    await test.info().attach("scribe-census.json", {
+      body: JSON.stringify(census, null, 2),
+      contentType: "application/json",
+    });
+    if (process.env.LOFT_CENSUS_LOG) console.log(JSON.stringify(census));
+
+    // THE FLOOR, stated only in the units it was measured in. An earlier draft
+    // argued "120 -> 400, so the floor went UP and is NOT relaxed": that
+    // compares incommensurable numbers (an exact-token pixel COUNT against a
+    // coverage SUM) and, taken as a fraction of the healthy reading, it went
+    // the other way — 120/244 = 49 % becomes 400/1168 = 34 %. The comparison is
+    // dropped rather than re-argued, because the old floor's apparent
+    // strictness was noise anyway: it returned 0 on 5 of 10 HEALTHY runs. The
+    // honest argument for this floor is the mutant separation below, nothing else.
+    //
+    // THE MUTANT IS NOT ZERO, AND THE FIRST DRAFT OF THIS COMMENT SAID IT WAS.
+    // Measured 2026-08-12 by flipping BOTH `depthTest: false` sites in
+    // `SketchScene.tsx` to `true` and running this spec against the real stack:
+    //
+    //   healthy   coverage 1168.32   (ink 244, inkNearToken 736, offAxis  99)
+    //   depthTest coverage  212.49   (ink   0, inkNearToken   0, offAxis  65)
+    //
+    // So the exact census and the near-token count BOTH collapse to 0, but
+    // coverage does NOT: about a fifth of the ink still reaches the frame,
+    // because a coplanar sketch under `depthTest: true` z-fights rather than
+    // disappearing, and some fragments win. The separation this gate actually
+    // has is 1168 vs 212 — 5.5x end to end — not the "hundreds versus zero" the
+    // exact census had.
+    //
+    // THE FLOOR IS NOT CENTRED, AND A PREVIOUS VERSION OF THIS COMMENT SAID IT
+    // WAS ("~2.9x clear of each side", "below ~250 would pass the mutant").
+    // Both numbers were wrong. 1168.32 / 400 = 2.92 above; 400 / 212.49 = 1.88
+    // below. Geometrically centred would be 498. And the number that matters to
+    // a re-calibrator is the MUTANT, 212.49: anything below ~213 passes it, so
+    // a 230 floor would still redden. Quote 213, not 250.
+    //
+    // The floor stays correctly SIGNED across the whole 20-40 px/mm band this
+    // spec permits (at 40: mutant ~319 < 400 < healthy ~1755; at 20: 160 < 400
+    // < 877), but the margin on the mutant side is only ~1.25x at the top of
+    // that band. That is reachable solely by editing source, so it is a
+    // calibration note rather than a defect — but do not tighten the band
+    // without re-deriving this.
+    expect(
+      scribe.coverage,
+      `the scribe is not on the picked face: ${JSON.stringify(census)}`,
+    ).toBeGreaterThan(400);
+    // The box caught a colour that is not this ink — a neighbouring token, or
+    // the face coming through un-blued. The count is ink-bright pixels OFF the
+    // ground→token axis, so a handful is AA at a grid crossing and a flood is
+    // the census measuring the wrong thing.
+    expect(scribe.offAxis).toBeLessThan(scribe.pixels);
 
     // (2) CONTRAST — the face under the sketch is blued, so the scribe has a
     // dark ground rather than a 1.32:1 one. Measured strictly INSIDE the
@@ -228,25 +374,45 @@ test.describe("a sketch on a model face is visible while you draw it", () => {
   }) => {
     // The other half of the rule: drawing the ACTIVE sketch on top must not
     // turn the viewport into stacked ghost profiles. `Sketch1` made this body,
-    // so bringing it back puts it on the base face, under 20 mm of aluminum —
-    // it may peek at the silhouette and no more.
+    // so bringing it back puts it on the base face, under 20 mm of aluminum.
+    //
+    // IT IS NOW FULLY HIDDEN, AND THAT IS THE FIX, NOT A REGRESSION (FB-7c,
+    // 2026-08-06). This used to assert `shown > hidden + 50` — a "silhouette
+    // peek" — and the peek was the DEFECT: the origin-datum plane bases were
+    // stated in the kernel's Z-up frame while the scene renders Y-up, so
+    // Sketch1's ink stood VERTICALLY through the body it had made instead of
+    // lying on its base face, and the part sticking out was what this counted.
+    // With the frames reconciled the ink is exactly coplanar with the bottom
+    // face, which the solid covers completely: 0 px, every time.
+    //
+    // So the control's non-vacuity is proven where it is actually visible —
+    // with the body out of the way — instead of by an artefact of a bug.
     await openCubePart(page);
     const row = page.getByTestId(/^sketch-visibility-/).first();
     await row.click();
     await expect(row).toHaveAttribute("aria-pressed", "true");
     await waitForFrames(page);
 
-    const shown = await countTokenPixels(page, "#C4D2DE");
+    // (1) OCCLUDED: under 20 mm of aluminum, a 20 mm profile prints nothing.
+    const overSolid = await countTokenPixels(page, "#C4D2DE");
+    expect(overSolid).toBeLessThan(1500);
+
+    // (2) DRAWN: hide the body and the same ink is right there. Without this
+    // the assertion above would pass just as happily on a row that does
+    // nothing at all.
+    await page.getByTestId("body-visibility-0").click();
+    await waitForFrames(page);
+    const uncovered = await countTokenPixels(page, "#C4D2DE");
+    expect(uncovered).toBeGreaterThan(overSolid + 50);
+
+    // (3) …and it is THIS row that draws it: turn the sketch off with the body
+    // still hidden and the ink goes with it.
     await row.click();
     await expect(row).toHaveAttribute("aria-pressed", "false");
     await waitForFrames(page);
-    const hidden = await countTokenPixels(page, "#C4D2DE");
-
-    // It is drawn (the control works)…
-    expect(shown).toBeGreaterThan(hidden + 50);
-    // …and it is still OCCLUDED: a 20 mm square profile drawn unclipped over
-    // this framing is thousands of pixels of ink; a silhouette peek is not.
-    expect(shown).toBeLessThan(1500);
+    expect(await countTokenPixels(page, "#C4D2DE")).toBeLessThan(
+      uncovered - 50,
+    );
   });
 });
 
@@ -264,7 +430,10 @@ test.describe("a sketch on a model face is visible while you draw it", () => {
  * the argument FOR `depthTest: false`, not a reason to gate on the tie.)
  *
  *  · Assertion 1 (depth): pre-fix `ink = 0` of a 1 600 px perimeter; post-fix
- *    784, three runs identical. Floor 480.
+ *    784, three runs identical. (Floor was 480 at THAT framing; the sketch
+ *    camera has since been improved and widened — see the calibration guard in
+ *    the test. Re-measured 2026-08-06 at 26.63 px/mm: post-fix 244, and the
+ *    depth-test mutation still gives exactly 0. Floor 120.)
  *  · Assertion 2 (contrast): pre-fix 56 728 lit px inside the 57 600 px
  *    interior box — the face stays bare aluminum end to end; post-fix 0, three
  *    runs identical. Ceiling 2 880.

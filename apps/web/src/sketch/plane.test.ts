@@ -19,6 +19,8 @@ import {
   resolveDatumBasis,
   resolveDatumPlaneOptions,
   resolveSpecBasis,
+  sceneOriginBasis,
+  sceneToOcctTuple,
   snapPoint,
   snapValue,
   worldToPlane,
@@ -110,7 +112,14 @@ describe("plane spec ↔ wire ref", () => {
     ]).toEqual([0, 0, 0]);
   });
 
-  it("resolves an offset spec to its placed basis", () => {
+  // SCENE frame, not the kernel's: `resolveSpecBasis` is the RENDERER's entry
+  // point, and everything it feeds (sketch ink, grid, pointer catcher, camera,
+  // extrude ghost) draws into a Y-up scene. An XY sketch 25 mm up therefore
+  // sits at scene y=25 — the direction the body it makes will grow. Before
+  // FB-7c this branch returned the kernel's [0,0,25] while the `on_face` branch
+  // returned scene coordinates, so the same call site got a basis 90° apart
+  // depending on which plane the user had picked (FB-9).
+  it("resolves an offset spec to its placed basis, in SCENE coordinates", () => {
     const basis = resolveSpecBasis({
       kind: "offset",
       base: "XY",
@@ -118,7 +127,10 @@ describe("plane spec ↔ wire ref", () => {
       flip: false,
       datumFeatureId: "f-1",
     });
-    expect([...basis.origin]).toEqual([0, 0, 25]);
+    expect([...basis.origin]).toEqual([0, 25, 0]);
+    expect([...basis.normal]).toEqual([0, 1, 0]);
+    // The kernel-frame algebra is untouched — one call in, one rotation out.
+    expect([...offsetBasis("XY", 25, false).origin]).toEqual([0, 0, 25]);
   });
 
   it("builds a datum_plane ref for an origin spec", () => {
@@ -205,6 +217,89 @@ describe("occtToSceneTuple — the one OCCT(Z-up)→scene(Y-up) rotation", () =>
   it("never emits -0 for a zero Y", () => {
     const [, , z] = occtToSceneTuple([5, 0, 7]);
     expect(Object.is(z, 0)).toBe(true);
+  });
+});
+
+describe("sceneToOcctTuple — the inverse, for a pick that lands in the scene", () => {
+  it("maps (x, y, z) → (x, −z, y)", () => {
+    expect([...sceneToOcctTuple([1, 3, -2])]).toEqual([1, 2, 3]);
+    expect([...sceneToOcctTuple([0, 1, 0])]).toEqual([0, 0, 1]); // up → +Z
+  });
+
+  it("round-trips every axis, in both directions", () => {
+    // A hole placed by raycasting the drawn surface goes scene → OCCT; the
+    // crosshair that confirms it goes back OCCT → scene. A frame transform that
+    // is not its own inverse puts the drill where the mark is not.
+    const samples: [number, number, number][] = [
+      [1, 2, 3],
+      [-4.5, 0, 7.25],
+      [0, 0, 0],
+      [1e-6, -1e-6, 1e6],
+    ];
+    for (const v of samples) {
+      expect([...sceneToOcctTuple(occtToSceneTuple(v))]).toEqual(v);
+      expect([...occtToSceneTuple(sceneToOcctTuple(v))]).toEqual(v);
+    }
+  });
+
+  it("never emits -0 for a zero scene Z", () => {
+    const [, y] = sceneToOcctTuple([5, 7, 0]);
+    expect(Object.is(y, 0)).toBe(true);
+  });
+});
+
+describe("scene-frame bases — the frame every renderer must draw from", () => {
+  // THE regression pin for FB-7c / FB-9. The GLB bakes OCCT's Z-up→Y-up
+  // rotation, so the body renders in a Y-up scene while the datum algebra is
+  // stated in the kernel's Z-up frame. Drawing from the un-rotated basis stood
+  // an XY sketch (and its ink, its sheet and its live extrude ghost) VERTICAL,
+  // at right angles to the body the same sketch had just produced. Measured in
+  // a real browser before the fix: body at scene y∈[0,10] z∈[−15.4,16.6], its
+  // own ghost at y∈[−16.6,15.4] z∈[0,10].
+  it("puts XY on the ground plane, not standing up", () => {
+    const scene = sceneOriginBasis("XY");
+    // The adaptive ground grid IS the XY plane; its normal is scene up.
+    expect([...scene.normal]).toEqual([0, 1, 0]);
+    expect([...scene.u]).toEqual([1, 0, 0]);
+    expect([...scene.v]).toEqual([0, 0, -1]);
+    // The kernel-frame basis is deliberately unchanged (it mirrors build123d).
+    expect([...originBasis("XY").normal]).toEqual([0, 0, 1]);
+  });
+
+  it("keeps every scene basis right-handed (normal = u × v)", () => {
+    // `extrudeGhostPose` orients local +Z onto `normal` via a rotation matrix;
+    // a left-handed basis would silently produce a mirrored quaternion.
+    for (const plane of DATUM_PLANES) {
+      const { u, v, normal } = sceneOriginBasis(plane);
+      expect(
+        [
+          u[1] * v[2] - u[2] * v[1],
+          u[2] * v[0] - u[0] * v[2],
+          u[0] * v[1] - u[1] * v[0],
+          // `+ 0` folds a -0 term (0 * -1) so the triple compares cleanly.
+        ].map((component) => component + 0),
+      ).toEqual([...normal]);
+    }
+  });
+
+  it("preserves the (u,v) meaning the server resolves", () => {
+    // The rotation is a change of coordinates, not of geometry: a plane point
+    // maps to the same physical place, so sketch entities on the wire (which
+    // are (u,v) mm) mean exactly what they did before.
+    for (const plane of DATUM_PLANES) {
+      const point = { x: 7, y: -3 };
+      expect([...planeToWorld(sceneOriginBasis(plane), point)]).toEqual([
+        ...occtToSceneTuple(planeToWorld(originBasis(plane), point)),
+      ]);
+    }
+  });
+
+  it("agrees with faceBasis, which was already scene-frame", () => {
+    // A sketch on a box's top face and a sketch on XY are the same plane, one
+    // resolved through the face signature and one through the datum table.
+    // They disagreed by 90° before the fix — the whole defect in one line.
+    const top = faceBasis(signature([0, 0, 1], [0, 0, 0]), 0);
+    expect([...top.normal]).toEqual([...sceneOriginBasis("XY").normal]);
   });
 });
 
@@ -483,9 +578,11 @@ describe("resolveDatumPlaneOptions", () => {
     const child = options.find((o) => o.id === "child");
     expect(child?.spec.kind).toBe("datum");
     if (child?.spec.kind === "datum") {
-      // Chained offset lands at 10 + 15 = 25 along +Z (an axis-aligned normal).
-      expect([...child.spec.basis.origin]).toEqual([0, 0, 25]);
-      expect([...child.spec.basis.normal]).toEqual([0, 0, 1]);
+      // Chained offset lands at 10 + 15 = 25 along the base normal. The spec's
+      // basis is SCENE frame (the sketcher and the section author draw with
+      // it), so the kernel's +Z arrives as scene +Y.
+      expect([...child.spec.basis.origin]).toEqual([0, 25, 0]);
+      expect([...child.spec.basis.normal]).toEqual([0, 1, 0]);
     }
   });
 

@@ -16,6 +16,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { expectGated } from "../test/gated";
 import { useSketchStore } from "../sketch/store";
 import { SketchStrip } from "./SketchStrip";
 
@@ -158,5 +159,108 @@ describe("the prompt is derived, so it cannot outlive what it warns about", () =
     expect(screen.getByTestId("sketch-exit").textContent).toContain(
       "keeps saved edits",
     );
+  });
+});
+
+/**
+ * FOUNDER, 2026-08-02: *"there are no undo or redo buttons."* True — the shared
+ * `HistoryGroup` was rendered by the part and assembly bands and NOT by this
+ * one, so entering the sketcher removed undo exactly where the work is most
+ * reversible and most error-prone.
+ *
+ * The trap while fixing it was to wire the familiar chrome to the familiar
+ * handler. The part band's undo pops the server's FEATURE ring; a sketch in
+ * progress is not a feature, so that pairing would have produced a button
+ * captioned like sketch undo which silently rolls back the extrude you did
+ * before opening the sketcher — the caption-vs-binding defect (UI-REVIEW F1,
+ * FB-13) with a destructive twist. So what is asserted here is the BINDING and
+ * the SCOPE, not the presence of two icons.
+ */
+describe("the sketcher's history buttons hold the SKETCH's stack", () => {
+  it("renders the shared History group while drawing", () => {
+    drawUnsavedRectangle();
+    render(<SketchStrip onSave={vi.fn()} saving={false} saveError={null} />);
+
+    expect(screen.getByTestId("undo-button")).toBeInTheDocument();
+    expect(screen.getByTestId("redo-button")).toBeInTheDocument();
+    // One control, one name, across all three workspaces.
+    expect(screen.getByRole("button", { name: "Undo" })).toBeInTheDocument();
+  });
+
+  it("un-draws the last shape — it does not touch the feature tree", () => {
+    drawUnsavedRectangle();
+    render(<SketchStrip onSave={vi.fn()} saving={false} saveError={null} />);
+
+    fireEvent.click(screen.getByTestId("undo-button"));
+
+    const state = useSketchStore.getState();
+    expect(state.entities).toHaveLength(0);
+    // Still in the sketch, still on the plane: a sketch edit was reversed, not
+    // the session and certainly not a feature.
+    expect(state.mode).toBe("draw");
+    expect(state.plane).toEqual({ kind: "origin", base: "XY" });
+  });
+
+  it("redoes it back", () => {
+    drawUnsavedRectangle();
+    render(<SketchStrip onSave={vi.fn()} saving={false} saveError={null} />);
+
+    fireEvent.click(screen.getByTestId("undo-button"));
+    fireEvent.click(screen.getByTestId("redo-button"));
+
+    expect(useSketchStore.getState().entities).toHaveLength(4);
+  });
+
+  it("says what one step reverses, so the scope is never implied", () => {
+    drawUnsavedRectangle();
+    render(<SketchStrip onSave={vi.fn()} saving={false} saveError={null} />);
+
+    // The tooltip's second line on a READY button: this pair is scoped, and a
+    // scoped pair is never silent about its scope.
+    expect(screen.getByTestId("undo-button").textContent).toContain(
+      "the last sketch edit",
+    );
+  });
+
+  it("is honestly disabled with nothing drawn, and says why in sketch terms", () => {
+    const store = () => useSketchStore.getState();
+    store().begin();
+    store().choosePlane("XY");
+    render(<SketchStrip onSave={vi.fn()} saving={false} saveError={null} />);
+
+    const undo = screen.getByTestId("undo-button");
+    expectGated(undo);
+    // NOT "Nothing to undo": there may well be features to undo, and this
+    // button is not the one that would do it.
+    expect(undo.textContent).toContain("Nothing drawn yet");
+  });
+
+  it("keeps Ctrl+Z on the sketch's own stack", () => {
+    drawUnsavedRectangle();
+    render(<SketchStrip onSave={vi.fn()} saving={false} saveError={null} />);
+
+    fireEvent.keyDown(window, { key: "z", ctrlKey: true });
+    expect(useSketchStore.getState().entities).toHaveLength(0);
+
+    fireEvent.keyDown(window, { key: "z", ctrlKey: true, shiftKey: true });
+    expect(useSketchStore.getState().entities).toHaveLength(4);
+  });
+
+  it("leaves a focused field's native undo alone", () => {
+    drawUnsavedRectangle();
+    render(<SketchStrip onSave={vi.fn()} saving={false} saveError={null} />);
+
+    const field = document.createElement("input");
+    document.body.appendChild(field);
+    fireEvent.keyDown(field, { key: "z", ctrlKey: true, bubbles: true });
+    expect(useSketchStore.getState().entities).toHaveLength(4);
+    field.remove();
+  });
+
+  it("offers no history during the plane pick — there is nothing to reverse yet", () => {
+    useSketchStore.getState().begin();
+    render(<SketchStrip onSave={vi.fn()} saving={false} saveError={null} />);
+
+    expect(screen.queryByTestId("undo-button")).toBeNull();
   });
 });

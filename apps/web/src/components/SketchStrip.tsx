@@ -54,9 +54,12 @@ import {
   ToolGroup,
   VerticalIcon,
 } from "@loft/design";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 
 import type { DatumOffsetParams } from "../api/parts";
+import { HistoryGroup } from "./HistoryGroup";
+import { isTypingTarget } from "../lib/isTypingTarget";
+import { undoRedoStep } from "../lib/undoRedoShortcut";
 import {
   describeSelection,
   dimensionVerbHint,
@@ -751,6 +754,40 @@ export function SketchStrip({
   const advanceMirror = useSketchStore((state) => state.advanceMirror);
   const bound = useSketchStore((state) => state.featureId !== null);
   const exit = useSketchStore((state) => state.exit);
+  // Sketch-local history. `canUndo` is the stack itself, not a claim about it.
+  const canUndo = useSketchStore((state) => state.past.length > 0);
+  const canRedo = useSketchStore((state) => state.future.length > 0);
+  const editBusy = useSketchStore((state) => state.editBusy);
+  const undo = useSketchStore((state) => state.undo);
+  const redo = useSketchStore((state) => state.redo);
+
+  /*
+   * Ctrl/⌘+Z, Ctrl/⌘+Shift+Z, Ctrl+Y — the SAME grammar the part and assembly
+   * workspaces use (`undoRedoStep`), pointed at the sketch's own stack.
+   *
+   * It lives here rather than in `PartPage` because the binding belongs with
+   * the buttons that show its state: PartPage's history effect deliberately
+   * stands down while `mode !== "off"`, so in the sketcher this key did
+   * nothing at all — and the one thing it must never do is what it would have
+   * done by default, which is undo a FEATURE. Draw step only: during the
+   * plane pick there is nothing yet to reverse. A focused text field (a
+   * dimension cell) keeps its native undo — the typing guard is resolved
+   * inside the pure grammar helper.
+   */
+  useEffect(() => {
+    if (mode !== "draw") return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      const step = undoRedoStep(event, isTypingTarget(event.target));
+      if (step === null) return;
+      // Ours in the sketcher even at a stack bound — swallow it so the browser
+      // never runs its own undo behind the tool.
+      event.preventDefault();
+      if (step === "undo") undo();
+      else redo();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [mode, undo, redo]);
 
   // Exit-with-unsaved-work confirm (F1). Derived rather than trusted: the prompt
   // only renders while it is still TRUE that discarding would destroy something,
@@ -905,6 +942,27 @@ export function SketchStrip({
 
         {mode === "draw" ? (
           <>
+            {/* History leads the TOOLS here, exactly as it leads the part band
+                — same group, same glyphs, same chord, same position relative to
+                the tools, so the reflex transfers straight into the sketcher.
+                What it holds is different (this sketch's edits, not the feature
+                ring), and `scope` is what says so out loud. The status cell
+                keeps the far-left slot: it is a readout, not a tool. */}
+            <HistoryGroup
+              ready
+              canUndo={canUndo}
+              canRedo={canRedo}
+              hold={null}
+              holdReason={editBusy ? "Finishing the last edit…" : null}
+              scope={{
+                step: "the last sketch edit",
+                undoEmpty: "Nothing drawn yet",
+                redoEmpty: "Nothing to redo in this sketch",
+              }}
+              onUndo={undo}
+              onRedo={redo}
+            />
+
             <ToolGroup eyebrow="Draw" aria-label="Sketch tools">
               {TOOLS.map(({ tool: t, keyHint, name, icon }) => (
                 <ToolButton

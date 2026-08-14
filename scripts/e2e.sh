@@ -33,6 +33,20 @@
 #                                        (CI reconciles the executed test count
 #                                        against the discovered one, so a shard
 #                                        that silently ran nothing cannot pass)
+#         E2E_LOG_DIR                    write the three service logs HERE and
+#                                        do NOT delete them on exit. Without it
+#                                        the logs live in a mktemp dir the exit
+#                                        trap removes, which is why a red CI
+#                                        shard could report a gateway 502 with
+#                                        no gateway log to read (docs/BACKLOG.md
+#                                        CI-3/CI-4) — the evidence was destroyed
+#                                        seconds before the upload step ran.
+#         E2E_METRICS_DIR                sample host load + per-process RSS/CPU
+#                                        into resources.csv here for the whole
+#                                        browser leg (scripts/e2e-sample-
+#                                        resources.sh). Joins to per-test timing
+#                                        by timestamp — see `e2e-shard-audit.py
+#                                        --timeline`.
 #         CI                             when set, NEVER reuse a listener: every
 #                                        port must be free and this script must
 #                                        boot the stack itself. Reuse exists so
@@ -70,10 +84,24 @@ DOCUMENTS_PORT="${DOCUMENTS_PORT:-8001}"
 GEOMETRY_PORT="${GEOMETRY_PORT:-8002}"
 VITE_PORT=5173
 RUN_DIR="$(mktemp -d -t loft-e2e.XXXXXX)"
+# Service logs go to E2E_LOG_DIR when it is set, and that directory SURVIVES the
+# run; RUN_DIR (sqlite stores, preflight scratch) is still removed. Splitting
+# them is the whole point: the trap below used to delete the service logs on
+# EXIT, so a shard that died on a gateway 502 uploaded traces and screenshots
+# showing the browser's side of a failure whose cause was in a log that no
+# longer existed.
+LOG_DIR="${E2E_LOG_DIR:-$RUN_DIR}"
+mkdir -p "$LOG_DIR"
+SERVICES=(geometry documents gateway)
 STARTED_PIDS=()
+SAMPLER_PID=""
 
 cleanup() {
   local pid
+  if [[ -n "$SAMPLER_PID" ]]; then
+    kill "$SAMPLER_PID" 2>/dev/null || true
+    wait "$SAMPLER_PID" 2>/dev/null || true
+  fi
   for pid in "${STARTED_PIDS[@]-}"; do
     [[ -n "$pid" ]] || continue
     kill "$pid" 2>/dev/null || true
@@ -85,6 +113,22 @@ cleanup() {
   rm -rf "$RUN_DIR"
 }
 trap cleanup EXIT
+
+# Tail every service log to the job output. Called when the browser leg fails,
+# because an artifact nobody downloads is not evidence anybody reads: the point
+# of a CI log is that the failure explains itself in the page you are already
+# looking at. The full logs are in E2E_LOG_DIR when it is set.
+dump_service_logs() {
+  local name log
+  for name in "${SERVICES[@]}"; do
+    log="${LOG_DIR}/${name}.log"
+    [[ -f "$log" ]] || continue
+    echo >&2
+    echo "e2e: ──── ${name}.log (last 60 lines) ────" >&2
+    tail -n 60 "$log" >&2 || true
+  done
+  echo >&2
+}
 
 # HTTP code for a URL ("000" = no connection), never fails the script.
 # NB: curl -w prints "000" itself on connection failure (and exits non-zero),
@@ -110,7 +154,7 @@ probe() {
 # wrong, the log says so in one line instead of costing another round trip.
 # Side benefit: it warms node_modules/.vite before the timed webServer start.
 preflight_vite() {
-  local port=5199 log="${RUN_DIR}/vite-preflight.log" pid attempt v4 v6
+  local port=5199 log="${LOG_DIR}/vite-preflight.log" pid attempt v4 v6
   echo "e2e: preflight — proving Vite serves the app on ${HOST}"
   pnpm --filter @loft/web exec vite --host "$HOST" --port "$port" --strictPort \
     >"$log" 2>&1 &
@@ -169,9 +213,9 @@ start_service() {
     echo "e2e: free the port (or set ${name^^}_PORT) and re-run." >&2
     return 1
   fi
-  echo "e2e: starting ${name} on :${port} (log: ${RUN_DIR}/${name}.log)"
+  echo "e2e: starting ${name} on :${port} (log: ${LOG_DIR}/${name}.log)"
   uv run uvicorn "${app}" --host "$HOST" --port "$port" \
-    >"${RUN_DIR}/${name}.log" 2>&1 &
+    >"${LOG_DIR}/${name}.log" 2>&1 &
   pid=$!
   STARTED_PIDS+=("$pid")
   for ((attempt = 1; attempt <= 30; attempt++)); do
@@ -180,7 +224,7 @@ start_service() {
     sleep 1
   done
   echo "e2e: ${name} failed to become ready on :${port} — log tail:" >&2
-  tail -n 40 "${RUN_DIR}/${name}.log" >&2 || true
+  tail -n 40 "${LOG_DIR}/${name}.log" >&2 || true
   return 1
 }
 
@@ -287,13 +331,42 @@ if [[ -n "${E2E_JSON_REPORT:-}" ]]; then
   export PLAYWRIGHT_JSON_OUTPUT_NAME="$E2E_JSON_REPORT"
   PLAYWRIGHT_ARGS+=(--reporter=list,json)
 fi
+# Resource sampling covers the browser leg only — the stack is up, so the CSV's
+# first row is already the steady state the specs run against, and everything
+# after it is attributable to the suite. Killed by the exit trap.
+if [[ -n "${E2E_METRICS_DIR:-}" ]]; then
+  mkdir -p "$E2E_METRICS_DIR"
+  scripts/e2e-sample-resources.sh "${E2E_METRICS_DIR}/resources.csv" \
+    "${E2E_METRICS_INTERVAL:-2}" &
+  SAMPLER_PID=$!
+  echo "e2e: sampling resources every ${E2E_METRICS_INTERVAL:-2}s -> ${E2E_METRICS_DIR}/resources.csv"
+fi
+
 # NB `"${ARR[@]-}"` on an EMPTY array expands to one empty word, not zero
 # (measured, bash 5.2), and playwright would read that empty string as a
 # match-everything file filter. Branch on the length instead.
+#
+# `set -e` would abort here before the logs are tailed, so take the status by
+# hand: a failing browser leg is exactly when the service logs are worth
+# printing, and the script used to tail them only when a service failed to
+# become READY — i.e. never in the case anybody has actually had to debug.
+playwright_status=0
 if ((${#PLAYWRIGHT_ARGS[@]} > 0)); then
-  pnpm --filter @loft/web exec playwright test "${PLAYWRIGHT_ARGS[@]}"
+  pnpm --filter @loft/web exec playwright test "${PLAYWRIGHT_ARGS[@]}" || playwright_status=$?
 else
-  pnpm --filter @loft/web exec playwright test
+  pnpm --filter @loft/web exec playwright test || playwright_status=$?
+fi
+
+if ((playwright_status != 0)); then
+  echo >&2
+  echo "e2e: playwright exited ${playwright_status} — service logs follow." >&2
+  dump_service_logs
+  if [[ -n "${E2E_LOG_DIR:-}" ]]; then
+    echo "e2e: full service logs kept in ${E2E_LOG_DIR}" >&2
+  else
+    echo "e2e: set E2E_LOG_DIR to keep the full logs past this run." >&2
+  fi
+  exit "$playwright_status"
 fi
 
 echo

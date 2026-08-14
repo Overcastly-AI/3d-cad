@@ -55,6 +55,7 @@
  */
 import { useEffect } from "react";
 import { create } from "zustand";
+import type { BufferGeometry } from "three";
 
 import { isTypingTarget } from "../lib/isTypingTarget";
 import {
@@ -111,6 +112,18 @@ export interface PartBodyView {
   readonly lumps: number;
 }
 
+/**
+ * Shared empty set — a stable identity, so "nothing hidden" costs no render.
+ *
+ * Exported because it is the value the store resets to (`setSubject`,
+ * `releasePickSubject` — the latter is what `ModelMesh` calls as it unmounts)
+ * and every non-part consumer substitutes (`pickSurface.tsx`, whose
+ * assembly instances carry their own geometry and no hidden ordinals). A
+ * private copy per consumer is one more identity the store's `sameOrdinals`
+ * guard has to walk instead of short-circuiting on `a === b`.
+ */
+export const NO_HIDDEN_FACES: ReadonlySet<number> = new Set<number>();
+
 /** Every origin key, seeded hidden — the resting state of a fresh part. */
 function seededOriginState(): VisibilityState {
   const seed: Record<string, { hidden: boolean; ghost: boolean }> = {};
@@ -144,11 +157,58 @@ interface PartViewState {
   partitioned: boolean;
   /** The row `V` / `⇧V` act on — the browser's addressed entity. */
   addressedKey: string | null;
+  /**
+   * The drawn mesh, published by `ModelMesh` so an armed pick overlay can
+   * RAYCAST it (SEL-1 / spec A2) instead of relying on its 24 px centroid
+   * buttons. The mesh is the only component that owns this object's lifetime,
+   * so it publishes null before disposing — a consumer must treat null as "no
+   * raycast target", never as "not loaded yet".
+   */
+  pickGeometry: BufferGeometry | null;
+  /**
+   * B-rep face ordinals of `pickGeometry` that are NOT drawn, because the body
+   * owning them is hidden. Published together with the geometry and by the same
+   * component, because they are one fact: *what a raycast against this mesh is
+   * allowed to answer*.
+   *
+   * It has to be published rather than re-derived, and the reason is a three.js
+   * detail worth writing down CORRECTLY — an earlier version of this comment
+   * blamed the pick mesh's single material, which is wrong (SEL-6, read in the
+   * vendored source). A hidden body is expressed as a draw group whose material
+   * has `visible: false`; the renderer skips it, so nothing is drawn.
+   * `Mesh.raycast` does not skip it, and the material-ARRAY branch does not
+   * either: three 0.185's `checkIntersection()` consults only `material.side`
+   * and never `material.visible`, so every triangle of the fused mesh is tested
+   * whatever its body's state. A hidden body in FRONT would therefore swallow
+   * the ray, and — since r3f keeps one hit per object — the drawn face behind it
+   * would never be offered at all. `pickRaycast.ts` turns this set into the
+   * filter that runs inside `raycast`, for the overlays and for `ModelMesh`'s
+   * own hover alike, so the rule exists once rather than per consumer.
+   *
+   * It answers the MIRROR question too, in `hiddenPicks.ts`: an overlay lists
+   * `/overlay`'s entities for the whole part, so without this set a
+   * switched-off body's faces stay clickable through their centroid marks and
+   * its edges through the band corridor. Same fact, both directions.
+   */
+  pickHiddenFaces: ReadonlySet<number>;
 
   setSubject: (subjectId: string) => void;
   setBodies: (bodies: readonly PartBodyView[]) => void;
   setBodyPresent: (present: boolean) => void;
   setPartitioned: (partitioned: boolean) => void;
+  setPickGeometry: (geometry: BufferGeometry | null) => void;
+  setPickHiddenFaces: (ordinals: ReadonlySet<number>) => void;
+  /**
+   * The publisher is going away: drop the mesh AND the ordinals that index it,
+   * in one write.
+   *
+   * It exists as an ACTION rather than as two calls at the call site because
+   * the two fields are one fact (see `pickHiddenFaces`), and a publisher that
+   * released only half of it left a state describing a mesh that no longer
+   * exists — the SEL-7 review defect. As one action there is no half to forget,
+   * and the clearing itself is app code a test can invoke instead of imitating.
+   */
+  releasePickSubject: () => void;
   setAddressed: (key: string | null) => void;
   toggle: (key: string) => void;
   setMode: (key: string, mode: VisibilityMode) => void;
@@ -163,6 +223,8 @@ export const usePartViewStore = create<PartViewState>((set, get) => ({
   bodyPresent: false,
   partitioned: false,
   addressedKey: null,
+  pickGeometry: null,
+  pickHiddenFaces: NO_HIDDEN_FACES,
 
   setSubject: (subjectId) => {
     if (get().subjectId === subjectId) return;
@@ -173,6 +235,8 @@ export const usePartViewStore = create<PartViewState>((set, get) => ({
       bodyPresent: false,
       partitioned: false,
       addressedKey: null,
+      pickGeometry: null,
+      pickHiddenFaces: NO_HIDDEN_FACES,
     });
   },
   setBodies: (bodies) => {
@@ -187,6 +251,19 @@ export const usePartViewStore = create<PartViewState>((set, get) => ({
   setPartitioned: (partitioned) => {
     if (get().partitioned === partitioned) return;
     set({ partitioned });
+  },
+  setPickGeometry: (pickGeometry) => {
+    if (get().pickGeometry === pickGeometry) return;
+    set({ pickGeometry });
+  },
+  setPickHiddenFaces: (pickHiddenFaces) => {
+    if (sameOrdinals(get().pickHiddenFaces, pickHiddenFaces)) return;
+    set({ pickHiddenFaces });
+  },
+  releasePickSubject: () => {
+    const { pickGeometry, pickHiddenFaces } = get();
+    if (pickGeometry === null && pickHiddenFaces.size === 0) return;
+    set({ pickGeometry: null, pickHiddenFaces: NO_HIDDEN_FACES });
   },
   setAddressed: (addressedKey) => {
     if (get().addressedKey === addressedKey) return;
@@ -228,6 +305,14 @@ function sameBodies(
       other.lumps === body.lumps
     );
   });
+}
+
+/** Set equality — avoids a store write (and a scene re-render) per re-derive. */
+function sameOrdinals(a: ReadonlySet<number>, b: ReadonlySet<number>): boolean {
+  if (a === b) return true;
+  if (a.size !== b.size) return false;
+  for (const ordinal of a) if (!b.has(ordinal)) return false;
+  return true;
 }
 
 /**
