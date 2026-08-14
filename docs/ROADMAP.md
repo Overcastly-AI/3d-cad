@@ -2,16 +2,22 @@
 
 Status legend: ✅ done · 🚧 in progress · ⬜ planned
 
-**Current focus: OPEN-SOURCE SELF-HOSTED RELEASE READINESS (2026-07-31,
-founder-directed: "Yes open sourced self hosted").** The bar is a stranger
-cloning this and modelling something, so the work is backups, observability,
-licensing and an honest front door — not features. Landed today: a tested
-restore that destroys the volumes and demands the rebuilt part match to the
-byte (`a40bf31`), `/metrics` instrumented for CAD failure modes rather than
-generic HTTP (`0ba93b3`), and a licensing audit that found we ship a GPL
-library and cleared two of three images to publish (`c7f23dd`). OPEN: LIC-1,
-stripping jbigkit from the geometry image, which is what still blocks
-publishing it.
+**Current focus, corrected 2026-08-14 (K6 — this line was 129 commits and two
+weeks stale, and had drifted to claim LIC-1 open when line 1977 of this same
+file says CLOSED; third recurrence of this exact staleness, see H6/J13/K6):
+SELECTION/PICK RELIABILITY + E2E/CI STABILITY, now pivoting to SKETCH- AND
+FEATURE-EDIT CORRECTNESS.** The open-source-release push (backups,
+`/metrics`, licensing) landed 2026-07-31 and LIC-1 (GPL `jbigkit` in the
+geometry image) closed the same day (`c7f23dd`/LIC-1+LIC-3, see line ~1977).
+Since then the work has been SEL-1..8 (viewport picking through hidden/
+occluded geometry), CI-1..4 + REV-1..5 (e2e gate reliability, a five-lens
+ultracode review), and FB-20 (camera stolen after extrude, closed 2026-08-14).
+A fresh, still-uncommitted audit pass (product M1-22 + engineering K1-8,
+2026-08-14) found the next real gap: sketch and feature EDITING is broken
+(a saved sketch cannot be re-opened at all; a picked-edge fillet's radius is
+write-once; a viewport pick is stamped with the tip feature's id rather than
+the one that owns the sub-shape). See `docs/BACKLOG.md` Ready:
+SKETCH-1/SKETCH-2/PICK-1/GEOM-2/VP-1 are the next batch.
 
 **REV-1 (a)(b) PARTIAL 2026-08-14 — the scribe census counted 48 462 of ink on a
 frame with NO INK ON IT, and the assertion beside it could not be reddened by a
