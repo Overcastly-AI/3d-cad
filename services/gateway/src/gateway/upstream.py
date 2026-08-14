@@ -25,7 +25,7 @@ error. Raw stacks never reach the client.
 """
 
 import math
-from typing import Any, NoReturn
+from typing import Any, Final, NoReturn
 
 import httpx2 as httpx
 from fastapi import Request
@@ -40,6 +40,48 @@ from py_kit import (
 #: read off the transport. Small on purpose: the upstream is still working and
 #: banking its checkpoint, so a prompt retry is the useful advice.
 DEFAULT_TIMEOUT_RETRY_AFTER_S = 5
+
+#: How long a pooled connection may sit idle here before we retire it (CI-3).
+#:
+#: This number's only job is to be **strictly below the upstream's own
+#: keep-alive timeout**, and the margin is the whole fix. Both Loft upstreams
+#: are uvicorn with no ``--timeout-keep-alive`` (docker-compose.dev.yml,
+#: deploy/docker/service.Dockerfile), so they close an idle connection after
+#: uvicorn's default of **5 s** — and httpx's own pool default is **5.0 s**
+#: too. Equal timeouts are the idle keep-alive race: the client believes a
+#: connection is reusable at the same instant the server is closing it, the
+#: request lands on a socket the peer has already torn down, and the kernel
+#: answers the unread bytes with RST. httpx surfaces that as ``ReadError``,
+#: :func:`transport_failure` maps it to 502 ``upstream_unavailable``, and a
+#: modeler is told "Documents service is unreachable" about a healthy service.
+#: Measured on 2026-08-11 (commit aea990a, whose diff touches only
+#: scripts/stage-doc-hunks.py and CLAUDE.md): e2e sketch-drag-draw died in
+#: ``createPartViaApi`` with exactly that envelope, ``details.reason``
+#: ``"ReadError"``.
+#:
+#: Retiring first CLOSES the race instead of papering over it, which is why
+#: this is not the geometry treatment. :data:`gateway.affinity._WORKER_DOWN`
+#: fails a ``ReadError`` over to another worker, and that is only sound
+#: because geometry is a fan-out of interchangeable stateless processes.
+#: Documents is a SINGLE instance with no peer to fail over to, and a
+#: ``ReadError`` means the request WAS transmitted — so retrying a
+#: ``POST /api/v1/parts`` would risk a duplicate part. Deliberately no retry
+#: here: the client simply never offers the transport a stale connection.
+#:
+#: The cost of the margin is a fresh TCP handshake for connections idle
+#: longer than this, on a link that is loopback in compose and intra-cluster
+#: in k8s. Bursty traffic — a modeler editing features — keeps reusing.
+UPSTREAM_KEEPALIVE_EXPIRY_S: Final = 2.0
+
+#: httpx's pool defaults, with the expiry above swapped in. The two ceilings
+#: are httpx's own documented defaults (100 / 20) and are pinned against the
+#: library in tests/test_documents_keepalive.py, so a library change shows up
+#: as a failing assertion rather than as a silently different pool.
+UPSTREAM_LIMITS: Final = httpx.Limits(
+    max_connections=100,
+    max_keepalive_connections=20,
+    keepalive_expiry=UPSTREAM_KEEPALIVE_EXPIRY_S,
+)
 
 
 def create_upstream_client(
@@ -65,11 +107,18 @@ def create_upstream_client(
     compression is unaffected: py-kit's ``GZipMiddleware`` still gzips the
     gateway's OWN response, which is the hop that faces the wire that matters.
     See docs/PERF.md PERF-4.
+
+    **Retires idle pooled connections early** (:data:`UPSTREAM_LIMITS`) so a
+    request is never written onto a keep-alive connection the upstream is
+    closing at that moment — CI-3, the 502 ``upstream_unavailable`` that
+    modelers saw about a healthy documents service. ``limits`` is ignored when
+    a ``transport`` is injected: a ``MockTransport`` has no connection pool.
     """
     return httpx.AsyncClient(
         base_url=base_url,
         timeout=timeout_s,
         transport=transport,
+        limits=UPSTREAM_LIMITS,
         headers={"accept-encoding": "identity"},
     )
 

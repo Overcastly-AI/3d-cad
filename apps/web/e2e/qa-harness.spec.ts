@@ -877,6 +877,67 @@ test.describe("harness: the render clock (support.ts + Viewport RenderProbe)", (
   }
 
   /**
+   * The render clock read from OUTSIDE the code under test (REV-1(c)).
+   *
+   * `window.__loftRenderTick` is the product's own cumulative counter, and it
+   * is the only number in this test that `waitForRenders` does not compute. A
+   * wait that miscounts, exits early, or reports work it never observed can
+   * satisfy its own return value; it cannot satisfy this one.
+   */
+  async function readRenderTick(page: Page): Promise<number> {
+    return page.evaluate(
+      () => (window as { __loftRenderTick?: number }).__loftRenderTick ?? -1,
+    );
+  }
+
+  /** A window of wall time, measured two ways at once. */
+  interface QuietWindow {
+    /** Browser animation frames that arrived in it. */
+    frames: number;
+    /** `__loftRenderTick` movement across the SAME window. */
+    tickDelta: number;
+  }
+
+  /**
+   * Measure frames and renders over one window, IN ONE MESSAGE (REV-1(c)).
+   *
+   * Deliberately independent of `waitForRenders`: it re-derives the two numbers
+   * the demand-loop claim rests on, so a wait that miscounts cannot make this
+   * agree with it. Atomic on purpose — bracketing a wait with two `evaluate`
+   * round trips from Node measures the gaps as well as the window, which is not
+   * the same claim (measured: it reported a tick delta of 3 across a window the
+   * wait correctly called quiet, because damping renders landed in the gap).
+   */
+  async function measureWindow(
+    page: Page,
+    windowMs = 1_000,
+  ): Promise<QuietWindow> {
+    return page.evaluate(async (ms: number) => {
+      const read = (): number => {
+        const tick = (window as { __loftRenderTick?: number }).__loftRenderTick;
+        return typeof tick === "number" ? tick : -1;
+      };
+      const before = read();
+      const start = performance.now();
+      let frames = 0;
+      while (performance.now() - start < ms) {
+        const painted = await new Promise<boolean>((resolve) => {
+          let settled = false;
+          const finish = (viaRaf: boolean): void => {
+            if (settled) return;
+            settled = true;
+            resolve(viaRaf);
+          };
+          requestAnimationFrame(() => finish(true));
+          setTimeout(() => finish(false), 250);
+        });
+        if (painted) frames += 1;
+      }
+      return { frames, tickDelta: read() - before };
+    }, windowMs);
+  }
+
+  /**
    * Settle the scene the only way a `demand` loop can be settled: demand a
    * render and keep demanding until one FAILS to arrive. The rejection is the
    * measurement — it carries the frames that went by with nothing behind them —
@@ -886,6 +947,7 @@ test.describe("harness: the render clock (support.ts + Viewport RenderProbe)", (
    * is a coin flip on whether OrbitControls is still damping, which is exactly
    * how this gate first went red (2026-08-11): it read "the wait did not throw"
    * as a broken instrument when the scene was simply still moving.
+   *
    */
   async function waitForQuiet(page: Page, deadlineMs = 20_000): Promise<Error> {
     const until = Date.now() + deadlineMs;
@@ -906,6 +968,12 @@ test.describe("harness: the render clock (support.ts + Viewport RenderProbe)", (
   test("it counts RENDERS not animation frames, and reports what it achieved", async ({
     page,
   }) => {
+    // This test is a stack of REAL waiting: a seeded part, an orbit, a settle
+    // loop, a 1.5 s unreachable demand, a 1 s quiet window and two orbit+probe
+    // windows. It measured ~45 s in a quiet container and timed out at the 60 s
+    // default once under sibling load — a budget, not a hang, so it gets one
+    // rather than losing a measurement.
+    test.setTimeout(150_000);
     const { token } = await seedSession(page);
     const part = await createPartViaApi(page, token, "Render clock");
     await seedCube(page, token, part.id);
@@ -932,13 +1000,36 @@ test.describe("harness: the render clock (support.ts + Viewport RenderProbe)", (
 
     // (1) SATISFIED: renders happening while the wait runs are counted, and
     // the wait returns on the RENDER count, not on a clock.
+    //
+    // MEASURED FROM OUTSIDE (REV-1(c)). The three assertions this replaces —
+    // `probe === "live"`, `renders >= 5`, `settled === false` — were all
+    // guaranteed by construction: with `requireRenders: true` the ONLY
+    // non-throwing return in `waitForRenders` is the `observed >= want` branch,
+    // which forces all three (a non-zero `observed` implies `baseline !== null`,
+    // hence a live probe). They could not fail after a call that did not throw,
+    // so they asserted the type, not the behaviour.
+    //
+    // The product's own cumulative tick is read either side of the whole
+    // orbit-and-wait instead. Two claims that the code under test cannot
+    // manufacture: the scene really rendered at least the 5 renders that were
+    // demanded, and the wait did not report renders it never observed — its
+    // window is nested inside this one, so `renders <= outerDelta` always,
+    // unless it is counting something other than this clock (frames, or a
+    // budget exit dressed up as a render count).
+    const tickBefore = await readRenderTick(page);
     const [moving] = await Promise.all([
       waitForRenders(page, 5, { requireRenders: true, timeoutMs: 20_000 }),
       orbit(page),
     ]);
-    expect(moving.probe).toBe("live");
-    expect(moving.renders).toBeGreaterThanOrEqual(5);
-    expect(moving.settled).toBe(false);
+    const outerDelta = (await readRenderTick(page)) - tickBefore;
+    expect(
+      outerDelta,
+      `the orbit must actually render: ${JSON.stringify(moving)}`,
+    ).toBeGreaterThanOrEqual(5);
+    expect(
+      moving.renders,
+      `the wait may not report renders it did not observe: ${outerDelta} outside, ${moving.renders} reported`,
+    ).toBeLessThanOrEqual(outerDelta);
 
     // (2) THE FRAME BUDGET: ask for more renders than a settled scene will
     // ever produce, and the wait must still return — on frames, capped —
@@ -961,6 +1052,15 @@ test.describe("harness: the render clock (support.ts + Viewport RenderProbe)", (
     // this assertion and the budget one. The falsification here is the
     // arithmetic — 0 renders against several frames — plus mutation (3),
     // which is what actually catches a wait that stops reporting.
+    //
+    // AND THE LOAD-BEARING CLAIM IS NOW THE OUTER ONE (REV-1(c)). Matching
+    // `/achieved 0 render\(s\)/` against the message is tautological: that
+    // message only EXISTS on the `requireRenders` path with `want = 1`, so
+    // `achieved` can only ever be 0 in it. The match is kept — a `waitForQuiet`
+    // that stopped rejecting would be a real regression, and the match pins
+    // WHICH failure arrived — but the claim now rests on `measureWindow`
+    // below, which re-derives both numbers in ONE message without consulting
+    // `waitForRenders` at all.
     const report = String(await waitForQuiet(page));
     expect(report).toMatch(/achieved 0 render\(s\)/);
     const painted = Number(/(\d+) animation frame/.exec(report)?.[1] ?? 0);
@@ -971,6 +1071,24 @@ test.describe("harness: the render clock (support.ts + Viewport RenderProbe)", (
       painted,
       `the page must keep painting while the scene does not render: ${report}`,
     ).toBeGreaterThan(5);
+
+    // The divergence itself, measured independently over a fresh second: the
+    // page keeps painting and the product's own CUMULATIVE render counter does
+    // not move. This is what makes `preserveDrawingBuffer` able to serve a
+    // valid STALE readback, i.e. why counting rAFs was unsound (F1(b)).
+    const quiet = await measureWindow(page);
+    expect(
+      quiet.frames,
+      `a settled scene must still paint: ${JSON.stringify(quiet)}`,
+    ).toBeGreaterThan(5);
+    expect(
+      quiet.tickDelta,
+      `__loftRenderTick moved in a window with no demand: ${JSON.stringify(quiet)}`,
+    ).toBe(0);
+
+    // (The same instrument over a MOVING window reports a non-zero delta —
+    // asserted in (5), which has to come last because everything between here
+    // and there requires a SETTLED scene.)
 
     // (3) NEGATIVE CONTROL — the CI-4 F1(a) defect itself. The predecessor
     // raced the frame loop against `setTimeout(2000)` and RESOLVED SILENTLY
@@ -993,11 +1111,54 @@ test.describe("harness: the render clock (support.ts + Viewport RenderProbe)", (
     expect(live.diagnostics.drawingBuffer?.height ?? 0).toBeGreaterThan(0);
     expect(live.diagnostics.renderTick ?? 0).toBeGreaterThan(0);
     expect(live.diagnostics.framesInProbeWindow).toBeGreaterThan(0);
+    // A SETTLED demand scene renders zero times in the probe window, and that
+    // is the HEALTHY reading — see the next block, and `diagnostics.ts`, whose
+    // docstring advertised the opposite until REV-1(d).
+    expect(live.diagnostics.rendersInProbeWindow).toBe(0);
     // The discriminator: a rendered frame is hundreds of colours. This is the
     // reading that separates "the ink is missing" from "the readback is blank".
     expect(live.diagnostics.distinctColors).toBeGreaterThan(24);
     expect(live.diagnostics.renderer ?? "").not.toBe("");
     expect((live.readbackPng ?? "").length).toBeGreaterThan(1_000);
+
+    // (5) `rendersInProbeWindow` ON A MOVING SCENE (REV-1(d)). Until this
+    // landed the field was asserted exactly once in the repo — `toBeNull()`,
+    // on a page with no probe — so "it counts renders" was never measured at
+    // all, and a collector that returned a constant 0 would have satisfied
+    // every gate we had while reading identically to a dead scene.
+    //
+    // Collected CONCURRENTLY with an orbit, because the probe is a 10-frame
+    // window taken NOW: on a settled scene the honest answer is 0 (asserted
+    // above), so the only frame that can falsify a broken collector is one
+    // where the scene is demonstrably rendering. Polled rather than asserted
+    // once — the orbit and the probe window are two independent clocks under
+    // software GL, and their overlap is not guaranteed on a contended runner.
+    await expect
+      .poll(
+        async () => {
+          const [collected] = await Promise.all([
+            collectViewportDiagnostics(page),
+            orbit(page),
+          ]);
+          return collected.diagnostics.rendersInProbeWindow ?? -1;
+        },
+        {
+          timeout: 30_000,
+          message:
+            "the probe window must see renders while the scene is orbiting",
+        },
+      )
+      .toBeGreaterThan(0);
+
+    // …and `measureWindow`'s own zero from (2b) is a measurement rather than a
+    // constant: the SAME instrument over a moving window reports movement. A
+    // render probe that stopped incrementing, or a helper that returned 0
+    // unconditionally, would have read as perfect health up there.
+    const [busy] = await Promise.all([measureWindow(page, 700), orbit(page)]);
+    expect(
+      busy.tickDelta,
+      `the same window must move while the scene orbits: ${JSON.stringify(busy)}`,
+    ).toBeGreaterThan(0);
   });
 
   test("the diagnostics separate a blank readback from a missing render", async ({
