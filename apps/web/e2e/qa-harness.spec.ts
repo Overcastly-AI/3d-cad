@@ -28,6 +28,9 @@ import {
 import {
   createPartViaApi,
   distinctCanvasColors,
+  INK_MIN_COVERAGE,
+  INK_SEPARATION_MARGIN,
+  measureInkCoverage,
   seedSession,
   waitForRenders,
 } from "./support";
@@ -331,6 +334,238 @@ test.describe("harness: perceptibility (perception.ts)", () => {
     expect(measured.box.right).toBeCloseTo(499, 0);
     expect(measured.box.bottom).toBeCloseTo(359, 0);
     expect(measured.pixels).toBe(400 * 300);
+  });
+});
+
+test.describe("harness: the coverage census (support.ts measureInkCoverage)", () => {
+  /** The sketcher's layout bluing — the ground the scribe is meant to have. */
+  const BLUED: [number, number, number] = [72, 75, 78];
+  /** A lit machined-aluminium face — the ground it has when the bluing fails. */
+  const LIT: [number, number, number] = [197, 199, 200];
+  /** Shading noise amplitude, per the measured frames: ±25 on all channels. */
+  const SHADE = 25;
+
+  /**
+   * Paint a SHADED surface: a base colour plus deterministic per-pixel noise,
+   * which is what a lit face actually is in the buffer — a flat fill is the one
+   * frame this census can never get wrong. Luminance noise (the same offset on
+   * all three channels) because that is what shading is.
+   *
+   * Seeded xorshift, so every number asserted below is reproducible on any
+   * machine rather than being whatever this run happened to draw.
+   */
+  async function paintShaded(
+    page: Page,
+    base: [number, number, number],
+    ink: string | null,
+  ): Promise<void> {
+    await paintSynthetic(page, []);
+    await page.evaluate(
+      ({
+        base,
+        amplitude,
+        ink,
+        w,
+        h,
+      }: {
+        base: [number, number, number];
+        amplitude: number;
+        ink: string | null;
+        w: number;
+        h: number;
+      }) => {
+        const canvas = document.querySelector<HTMLCanvasElement>("#synthetic");
+        const ctx = canvas?.getContext("2d");
+        if (!ctx) throw new Error("no 2d context");
+        let seed = 0x2545f491;
+        const next = (): number => {
+          seed ^= seed << 13;
+          seed ^= seed >>> 17;
+          seed ^= seed << 5;
+          return (seed >>> 0) / 0x1_0000_0000;
+        };
+        const clamp = (v: number): number => Math.max(0, Math.min(255, v));
+        const image = ctx.createImageData(w, h);
+        for (let p = 0; p < w * h; p += 1) {
+          const shade = Math.round((next() * 2 - 1) * amplitude);
+          image.data[p * 4] = clamp(base[0] + shade);
+          image.data[p * 4 + 1] = clamp(base[1] + shade);
+          image.data[p * 4 + 2] = clamp(base[2] + shade);
+          image.data[p * 4 + 3] = 255;
+        }
+        ctx.putImageData(image, 0, 0);
+        if (ink !== null) {
+          ctx.fillStyle = ink;
+          for (let i = 0; i < 24; i += 1)
+            ctx.fillRect(120, 80 + i * 12, 360, 2);
+        }
+      },
+      { base, amplitude: SHADE, ink, w: SYNTHETIC_WIDTH, h: SYNTHETIC_HEIGHT },
+    );
+  }
+
+  /**
+   * The census AS IT WAS before the separation floor (REV-1(a)): identical
+   * arithmetic, guarded only by `axisLengthSq < 1`. Copied rather than imported
+   * on purpose — this is the negative control, and a control that follows the
+   * code under test controls nothing.
+   */
+  async function legacyCoverage(page: Page, hex: string): Promise<number> {
+    return page.evaluate(
+      ({
+        hex,
+        selector,
+        minCoverage,
+        axisTolerance,
+      }: {
+        hex: string;
+        selector: string;
+        minCoverage: number;
+        axisTolerance: number;
+      }) => {
+        const canvas = document.querySelector<HTMLCanvasElement>(selector);
+        const probe = document.createElement("canvas");
+        probe.width = canvas?.width ?? 0;
+        probe.height = canvas?.height ?? 0;
+        const ctx = probe.getContext("2d");
+        if (!canvas || !ctx) return -1;
+        ctx.drawImage(canvas, 0, 0);
+        const { data } = ctx.getImageData(0, 0, probe.width, probe.height);
+        const total = data.length / 4;
+        const ground: number[] = [0, 0, 0];
+        for (let channel = 0; channel < 3; channel += 1) {
+          const histogram = new Uint32Array(256);
+          for (let i = 0; i < data.length; i += 4) {
+            const bin = data[i + channel] ?? 0;
+            histogram[bin] = (histogram[bin] ?? 0) + 1;
+          }
+          let seen = 0;
+          for (let value = 0; value < 256; value += 1) {
+            seen += histogram[value] ?? 0;
+            if (seen * 2 >= total) {
+              ground[channel] = value;
+              break;
+            }
+          }
+        }
+        const token = Number.parseInt(hex.slice(1), 16);
+        const axis = [
+          ((token >> 16) & 255) - (ground[0] ?? 0),
+          ((token >> 8) & 255) - (ground[1] ?? 0),
+          (token & 255) - (ground[2] ?? 0),
+        ];
+        const axisLengthSq =
+          (axis[0] ?? 0) ** 2 + (axis[1] ?? 0) ** 2 + (axis[2] ?? 0) ** 2;
+        if (axisLengthSq < 1) return 0;
+        let coverage = 0;
+        for (let i = 0; i < data.length; i += 4) {
+          const v0 = (data[i] ?? 0) - (ground[0] ?? 0);
+          const v1 = (data[i + 1] ?? 0) - (ground[1] ?? 0);
+          const v2 = (data[i + 2] ?? 0) - (ground[2] ?? 0);
+          const t =
+            (v0 * (axis[0] ?? 0) + v1 * (axis[1] ?? 0) + v2 * (axis[2] ?? 0)) /
+            axisLengthSq;
+          if (t < minCoverage) continue;
+          const r0 = v0 - t * (axis[0] ?? 0);
+          const r1 = v1 - t * (axis[1] ?? 0);
+          const r2 = v2 - t * (axis[2] ?? 0);
+          if (Math.hypot(r0, r1, r2) > axisTolerance) continue;
+          coverage += Math.min(t, 1);
+        }
+        return Math.round(coverage * 100) / 100;
+      },
+      {
+        hex: hex,
+        selector: SYNTHETIC_CANVAS,
+        minCoverage: INK_MIN_COVERAGE,
+        axisTolerance: 24,
+      },
+    );
+  }
+
+  test("ink over its own bluing is measured, and the ground's noise is reported", async ({
+    page,
+  }) => {
+    await paintShaded(page, BLUED, INK);
+    const scribe = await measureInkCoverage(page, INK, {
+      selector: SYNTHETIC_CANVAS,
+    });
+
+    // The frame is derivable on paper: 24 lines × 360 × 2 px of solid token, so
+    // the coverage sum is the painted area to within the noise the ground adds.
+    expect(scribe.pixels).toBeGreaterThan(17_000);
+    expect(scribe.coverage).toBeGreaterThan(16_000);
+    // Nothing foreign is in frame, so nothing may be reported as foreign.
+    expect(scribe.offAxis).toBe(0);
+    // The ground is FOUND, not assumed — the median of a ±25 shaded face is the
+    // face. ±1 for the integer histogram bin.
+    expect(scribe.ground[0]).toBeGreaterThan(BLUED[0] - 2);
+    expect(scribe.ground[0]).toBeLessThan(BLUED[0] + 2);
+
+    // THE SEPARATION READING, which is what the floor gates on. Measured on
+    // this fixture: axis 285.28, noise 22.52, noiseT **0.0789** — i.e. bare
+    // ground manufactures 0.08 of coverage per pixel where real ink is 1.0, so
+    // the floor (0.125) clears it by 1.6x. The REAL blued frame measures
+    // 0.0060; ±25 uniform noise on every channel is deliberately harsher than
+    // the shipped wash, so this fixture is the PESSIMISTIC end of "healthy".
+    expect(scribe.axisLength).toBeGreaterThan(280);
+    expect(scribe.noise).toBeGreaterThan(15);
+    expect(scribe.noiseT).toBeLessThan(
+      INK_MIN_COVERAGE / INK_SEPARATION_MARGIN,
+    );
+  });
+
+  test("a lit face with NO ink on it throws instead of reading thousands", async ({
+    page,
+  }) => {
+    // THE REV-1(a) DEFECT, painted. This is the founder's screen — the layout
+    // bluing never landed, so the scribe box is bare shaded aluminium — and
+    // there is not one pixel of ink in it.
+    await paintShaded(page, LIT, null);
+
+    // The census as it shipped: 73.2 of axis, ±25 of shading, and a +25 pixel
+    // projects to t = 0.59 (past `INK_MIN_COVERAGE`) with a residual of 5.05,
+    // comfortably inside the ±24 tolerance — so it is COUNTED, at 0.59 weight.
+    // Measured on this fixture: coverage **48 462.74** against the 400 floor
+    // `sketch-visibility` asserts. THAT is what this gate exists to make
+    // impossible: the missing-bluing defect reading 121x green on bare metal.
+    const legacy = await legacyCoverage(page, INK);
+    expect(
+      legacy,
+      "the pre-REV-1 census counts bare aluminium as ink",
+    ).toBeGreaterThan(400);
+
+    // The census now: it refuses the frame, and says why in the units it
+    // decided in. A silent 0 was rejected as a fix — the failure direction is
+    // false-HIGH, so returning zero only moves the lie.
+    await expect(
+      measureInkCoverage(page, INK, { selector: SYNTHETIC_CANVAS }),
+    ).rejects.toThrow(/separation floor/);
+    await expect(
+      measureInkCoverage(page, INK, { selector: SYNTHETIC_CANVAS }),
+    ).rejects.toThrow(/rgb\(19[5-9],19[7-9],\d+\)/);
+  });
+
+  test("the floor is about SEPARATION, not about a short axis", async ({
+    page,
+  }) => {
+    // The distinction the first draft of this guard got wrong, and the reason
+    // the floor is a RATIO. A dim construction line over the bench has an axis
+    // of 60.9 — SHORTER than the 73.2 that made the lit face degenerate — and
+    // it is perfectly measurable, because the bench is smooth: noise 0, so
+    // noiseT 0. A length-only guard would have to reject this frame to reject
+    // that one.
+    await paintSynthetic(page, [
+      fill(BENCH),
+      ...inkLines("#2A3138"), // a dim construction line over #0B0E11
+    ]);
+    const dim = await measureInkCoverage(page, "#2A3138", {
+      selector: SYNTHETIC_CANVAS,
+    });
+    expect(dim.axisLength).toBeLessThan(73.2);
+    expect(dim.noise).toBe(0);
+    expect(dim.noiseT).toBe(0);
+    expect(dim.coverage).toBe(24 * 360 * 2);
   });
 });
 

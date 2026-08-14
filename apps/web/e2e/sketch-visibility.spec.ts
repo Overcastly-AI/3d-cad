@@ -293,6 +293,16 @@ test.describe("a sketch on a model face is visible while you draw it", () => {
     // `ink` and `inkNearToken` stay recorded now that the ASSERTION has moved
     // to `scribe.coverage`: they are the history the new floor was calibrated
     // from, and the pair is what proves a future zero is a phase miss.
+    //
+    // `scribe` now also carries `axisLength` / `noise` / `noiseT` (REV-1(a)) —
+    // the SEPARATION between the ground this box actually has and the token,
+    // measured on the same frame. A green run records them for the same reason
+    // it records everything else here: noiseT 0.0060 on the blued face is the
+    // baseline that makes a future 0.3 legible as "the bluing never landed"
+    // instead of an argument (bare lit aluminium measures 0.307 on the harness
+    // fixture). `measureInkCoverage` throws above 0.125, so a red run on
+    // that path never reaches this attachment — the numbers below are the
+    // healthy history it will be read against.
     const census = {
       pxPerMm: frame.pxPerMm,
       ink,
@@ -344,15 +354,58 @@ test.describe("a sketch on a model face is visible while you draw it", () => {
     // that band. That is reachable solely by editing source, so it is a
     // calibration note rather than a defect — but do not tighten the band
     // without re-deriving this.
+    //
+    // AND THE MUTANT IS NOT ONE NUMBER — IT IS A LOTTERY, re-measured 2026-08-13
+    // while landing REV-1(a). Four fresh runs at the SAME 26.625 px/mm, mutated
+    // by rewriting the served `SketchScene.tsx` in flight (`page.route`, both
+    // `depthTest: false` sites → `true`):
+    //
+    //   coverage 349.48 / 244.09 / 194.00 / 154.55   (offAxis 58 / 65 / 33 / 67)
+    //
+    // — with 154.55 measured under the PRE-REV-1 helper, i.e. the spread is the
+    // product's, not the instrument's. A z-fight decides per fragment which
+    // surface wins, and that is not stable run to run, so 212.49 was one draw
+    // from this distribution rather than "the mutant reading". The floor still
+    // separates every draw (400 / 349.48 = 1.14x at the worst one), but the
+    // honest margin is 1.14x, not 1.88x. Healthy re-measured twice on the same
+    // day and the same stack: **1168.32** and 1169.30 — the 2026-08-12 record
+    // to 0.08 %, which is what proves the separation floor `measureInkCoverage`
+    // now applies changed no reading here (it reads noiseT 0.006 on this frame
+    // against a 0.125 floor, i.e. it is 20x from firing).
+    // Do not quote a single mutant number; quote the worst draw, ~350.
     expect(
       scribe.coverage,
       `the scribe is not on the picked face: ${JSON.stringify(census)}`,
     ).toBeGreaterThan(400);
-    // The box caught a colour that is not this ink — a neighbouring token, or
-    // the face coming through un-blued. The count is ink-bright pixels OFF the
-    // ground→token axis, so a handful is AA at a grid crossing and a flood is
-    // the census measuring the wrong thing.
-    expect(scribe.offAxis).toBeLessThan(scribe.pixels);
+    // THERE IS NO `offAxis` ASSERTION HERE ANY MORE, AND THAT IS THE FIX
+    // (REV-1(b)). This line used to read
+    // `expect(scribe.offAxis).toBeLessThan(scribe.pixels)`, which cannot fire:
+    // `pixels` is many hundreds whenever `coverage > 400` passes above, and
+    // `offAxis` measures 99 on a healthy frame. An `expect` that no reachable
+    // frame can redden is not coverage — it is a line the next reader COUNTS as
+    // coverage, which is worse than nothing.
+    //
+    // An absolute ceiling (400, ~4x the healthy 99) was tried in its place and
+    // ALSO failed falsification, so it is not here either. Measured 2026-08-13
+    // on the real stack, mutating the served `tokens.ts` in flight so the whole
+    // scribe draws in brass (#E9F1F8 → #C08A2E) — precisely the "a foreign hue
+    // got into the box" defect such a ceiling would defend against:
+    //
+    //   healthy         offAxis  99   coverage 1168.32
+    //   brass scribe    offAxis 101   coverage  257.97   ← the WHOLE ink foreign
+    //   depthTest x4    offAxis 33-67
+    //
+    // 101. A TOTAL hue swap moves the number by two, because `offAxis` only
+    // counts pixels that project past `INK_MIN_COVERAGE` along the ground→token
+    // axis, and a foreign hue projects SHORT: brass lands at t = 0.295 at full
+    // pixel coverage, so every antialiased pixel of it falls under the 0.25
+    // floor and is never examined at all. A ceiling low enough to catch that
+    // (~150) would sit inside healthy run-to-run noise. And the frame is caught
+    // regardless — by `coverage > 400`, at 257.97 — so the ceiling would have
+    // been decoration on an assertion that already fires.
+    //
+    // `offAxis` stays in the census attachment above, where an unfalsifiable
+    // number is honest evidence rather than a gate that cannot fail.
 
     // (2) CONTRAST — the face under the sketch is blued, so the scribe has a
     // dark ground rather than a 1.32:1 one. Measured strictly INSIDE the

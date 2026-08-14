@@ -277,6 +277,24 @@ export interface InkCoverage {
    * it is reported so a census can say so instead of quietly counting it.
    */
   offAxis: number;
+  /**
+   * `|token − ground|` in RGB units — the length of the axis coverage is
+   * projected onto, and the scale that turns a colour difference into a `t`.
+   */
+  axisLength: number;
+  /**
+   * The ground's OWN dispersion in the same units: the vector magnitude of the
+   * per-channel MAD (median absolute deviation from the measured ground).
+   * Median-based because the ink is a minority of the box and must not inflate
+   * the estimate of the surface it is drawn on.
+   */
+  noise: number;
+  /**
+   * `noise / axisLength` — the ground's dispersion expressed in COVERAGE units,
+   * i.e. how much apparent ink a bare, noisy surface manufactures on its own.
+   * This is the number the separation floor gates on; see the docstring.
+   */
+  noiseT: number;
 }
 
 export interface InkCoverageOptions {
@@ -286,11 +304,24 @@ export interface InkCoverageOptions {
   axisTolerance?: number;
   /** Restrict to this canvas rectangle. */
   box?: CanvasBox;
+  /**
+   * Which canvas to read. Defaults to the viewport's; a harness paints a known
+   * frame elsewhere and points this at it (same precedent as `measureInk`).
+   */
+  selector?: string;
 }
 
 /** Defaults, exported so a spec can state what it calibrated against. */
 export const INK_MIN_COVERAGE = 0.25;
 export const INK_AXIS_TOLERANCE = 24;
+/**
+ * How far below `minCoverage` the ground's own noise must sit before a census
+ * is meaningful: `noiseT < minCoverage / INK_SEPARATION_MARGIN`. At the
+ * defaults that threshold is 0.125. Exported so a spec can state what it
+ * calibrated against — see the "SEPARATION FLOOR" paragraph below for the two
+ * measurements it sits between.
+ */
+export const INK_SEPARATION_MARGIN = 2;
 
 /**
  * Measure ink by COVERAGE rather than by exact token equality (SPEC-4).
@@ -332,6 +363,51 @@ export const INK_AXIS_TOLERANCE = 24;
  * What the residual DOES reject is a genuinely different hue — the un-blued
  * face, or brass UI at residual ~100. That is what `offAxis` is for.
  *
+ * AND — the third thing, the one that made this helper report 12034 on a frame
+ * with NO INK ON IT (REV-1(a)) — the residual is SCALE-FREE. It measures the
+ * DIRECTION a pixel departs the ground in, never the distance, so it is blind
+ * to a ground that is merely CLOSE to the token: shrink `|token − ground|` and
+ * every projection `t` grows in proportion while the residual does not move.
+ * On a lit but UN-BLUED face (ground 197,199,200) the axis to `#E9F1F8` is only
+ * **73.2** long, so ±25 of ordinary shading noise projects to t = 0.59 — past
+ * `INK_MIN_COVERAGE` — with a residual of **5.05**, comfortably inside the
+ * tolerance. Every such pixel is counted at 0.59 weight. Measured, not argued:
+ * the pre-REV-1 arithmetic on such a frame returns coverage **48 462.74**
+ * (`qa-harness.spec.ts`, an 800×500 fixture; the review that filed this saw
+ * 12 034 on a ~93 000 px scribe box) against a floor of 400. That is the
+ * founder defect this census exists to catch ("bluing missing, I couldn't see
+ * the sketch") reading GREEN by two orders of magnitude. No residual tolerance
+ * can fix it, because nothing is off-axis: the FRAME is the wrong frame.
+ *
+ * THE SEPARATION FLOOR is therefore a precondition, not a tolerance, and it is
+ * checked before any pixel is counted. The discriminator is not axis length in
+ * absolute terms — a legitimately dim ink has a short axis too — but the axis
+ * measured against the ground's OWN dispersion: `noise` (the vector magnitude
+ * of the per-channel MAD, median-based so the ink cannot inflate it) over
+ * `axisLength`. Measured 2026-08-13, real stack and harness fixture:
+ *
+ *   REAL blued face, healthy ink        axis 287.0  noise 1.73  noiseT 0.0060
+ *   REAL blued face, depthTest mutant   axis 287.6  noise 2.45  noiseT 0.0085
+ *   synthetic blued face, ±25 shading   axis 285.3  noise 22.5  noiseT 0.0789
+ *   synthetic LIT face, ±25, NO INK     axis  73.2  noise 22.5  noiseT 0.307 ✗
+ *
+ * So the floor `noiseT < minCoverage / INK_SEPARATION_MARGIN` = 0.125 sits 2.5x
+ * below the degenerate frame and — the property that made it shippable — it is
+ * essentially identical on the healthy frame and on the depthTest mutant, so it
+ * cannot touch either of the two readings `sketch-visibility` is calibrated on
+ * (re-measured after this landed: healthy 1168.32 then 1169.30, against a
+ * 1168.32 record — the instrument moved nothing). The shipped
+ * bluing is far smoother than the ±25 the fixture paints, hence 0.006 against
+ * the fixture's 0.079; the fixture is deliberately the pessimistic end of
+ * healthy, and even IT clears the floor by 1.6x. (p90 of the deviation was
+ * tried first and rejected by measurement: it lands at 0.122 against a 0.125
+ * threshold on a blued ground, i.e. no margin at all.)
+ *
+ * It THROWS rather than returning zero. The failure direction here is
+ * false-HIGH, and this is a reusable helper: a silent 0 would only move the lie
+ * from "there is ink" to "there is none", and the one call site that cannot
+ * measure its ground deserves to say so with the numbers in hand.
+ *
  * The ground is MEASURED from the frame (per-channel median of the box), not
  * passed in: the sketcher's bluing is a feathered wash over a shaded face, so
  * there is no constant to hard-code, and a census that hard-codes its own
@@ -358,20 +434,23 @@ export async function measureInkCoverage(
     minCoverage = INK_MIN_COVERAGE,
     axisTolerance = INK_AXIS_TOLERANCE,
     box,
+    selector = '[data-testid="viewport"] canvas',
   } = options;
-  return page.evaluate(
-    ({ hex, minCoverage, axisTolerance, box }) => {
+  const measured = await page.evaluate(
+    ({ hex, minCoverage, axisTolerance, separationMargin, box, selector }) => {
       // The annotation is erased before this function crosses into the page;
       // only the value travels.
-      const empty: InkCoverage = {
+      const empty: InkCoverage & { degenerate: boolean } = {
         coverage: 0,
         pixels: 0,
         ground: [0, 0, 0],
         offAxis: 0,
+        axisLength: 0,
+        noise: 0,
+        noiseT: 0,
+        degenerate: false,
       };
-      const canvas = document.querySelector<HTMLCanvasElement>(
-        '[data-testid="viewport"] canvas',
-      );
+      const canvas = document.querySelector<HTMLCanvasElement>(selector);
       if (!canvas) return empty;
       const probe = document.createElement("canvas");
       probe.width = canvas.width;
@@ -395,6 +474,16 @@ export async function measureInkCoverage(
       const total = data.length / 4;
       if (total === 0) return empty;
 
+      /** Median of a 256-bin histogram over `total` samples. */
+      const medianOf = (histogram: Uint32Array): number => {
+        let seen = 0;
+        for (let value = 0; value < 256; value += 1) {
+          seen += histogram[value] ?? 0;
+          if (seen * 2 >= total) return value;
+        }
+        return 255;
+      };
+
       // The ground: per-channel median of the box. The ink is a thin minority
       // of a box that is mostly the surface it is drawn on, so the median is
       // that surface — and unlike a mean it is untouched by the ink itself.
@@ -405,15 +494,24 @@ export async function measureInkCoverage(
           const bin = data[i + channel] ?? 0;
           histogram[bin] = (histogram[bin] ?? 0) + 1;
         }
-        let seen = 0;
-        for (let value = 0; value < 256; value += 1) {
-          seen += histogram[value] ?? 0;
-          if (seen * 2 >= total) {
-            ground[channel] = value;
-            break;
-          }
-        }
+        ground[channel] = medianOf(histogram);
       }
+
+      // The ground's own DISPERSION, from the same frame: per-channel MAD
+      // (median of |pixel − ground|), combined as a vector magnitude. Median
+      // again for the same reason — the ink is ~1 % of the box and must not be
+      // allowed to describe the surface it sits on.
+      const deviation: [number, number, number] = [0, 0, 0];
+      for (let channel = 0; channel < 3; channel += 1) {
+        const centre = ground[channel] ?? 0;
+        const histogram = new Uint32Array(256);
+        for (let i = 0; i < data.length; i += 4) {
+          const bin = Math.abs((data[i + channel] ?? 0) - centre);
+          histogram[bin] = (histogram[bin] ?? 0) + 1;
+        }
+        deviation[channel] = medianOf(histogram);
+      }
+      const noise = Math.hypot(deviation[0], deviation[1], deviation[2]);
 
       const token = Number.parseInt(hex.slice(1), 16);
       const axis: [number, number, number] = [
@@ -423,9 +521,16 @@ export async function measureInkCoverage(
       ];
       const axisLengthSq =
         axis[0] * axis[0] + axis[1] * axis[1] + axis[2] * axis[2];
-      // Ink indistinguishable from its ground: no coverage is measurable, and
-      // saying zero is honest where dividing by it would not be.
-      if (axisLengthSq < 1) return { ...empty, ground };
+      const axisLength = Math.sqrt(axisLengthSq);
+      // THE SEPARATION FLOOR (REV-1(a)), replacing an `axisLength < 1` check
+      // that only caught the exactly-degenerate case. A ground merely CLOSE to
+      // the token turns its own shading noise into coverage, and nothing
+      // downstream can tell that apart from ink. Reported either way; the
+      // caller throws on it, because zero would be a different lie.
+      const noiseT = axisLength === 0 ? Number.MAX_VALUE : noise / axisLength;
+      const degenerate = !(noiseT < minCoverage / separationMargin);
+      const scale = { ground, axisLength, noise, noiseT, degenerate };
+      if (degenerate) return { ...empty, ...scale };
 
       let coverage = 0;
       let pixels = 0;
@@ -451,10 +556,38 @@ export async function measureInkCoverage(
         pixels,
         ground,
         offAxis,
+        axisLength,
+        noise,
+        noiseT,
+        degenerate,
       };
     },
-    { hex, minCoverage, axisTolerance, box },
+    {
+      hex,
+      minCoverage,
+      axisTolerance,
+      separationMargin: INK_SEPARATION_MARGIN,
+      box,
+      selector,
+    },
   );
+  const { degenerate, ...coverage } = measured;
+  if (degenerate) {
+    const threshold = minCoverage / INK_SEPARATION_MARGIN;
+    throw new Error(
+      `measureInkCoverage: this frame cannot be censused for ${hex}. Its ` +
+        `ground rgb(${coverage.ground.join(",")}) is only ` +
+        `${coverage.axisLength.toFixed(1)} from the token, while the ground's ` +
+        `own dispersion is ${coverage.noise.toFixed(1)} — so bare surface ` +
+        `projects to noiseT ${coverage.noiseT.toFixed(3)}, at or above the ` +
+        `separation floor of ${threshold.toFixed(3)} ` +
+        `(minCoverage ${minCoverage} / margin ${INK_SEPARATION_MARGIN}). ` +
+        `Shading noise alone would be counted as ink here: the usual cause is ` +
+        `the surface never got its layout bluing, not a tolerance that needs ` +
+        `widening. Do NOT read a coverage number off this frame.`,
+    );
+  }
+  return coverage;
 }
 
 /**

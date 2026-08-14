@@ -13,6 +13,35 @@ library and cleared two of three images to publish (`c7f23dd`). OPEN: LIC-1,
 stripping jbigkit from the geometry image, which is what still blocks
 publishing it.
 
+**REV-1 (a)(b) PARTIAL 2026-08-14 — the scribe census counted 48 462 of ink on a
+frame with NO INK ON IT, and the assertion beside it could not be reddened by a
+TOTAL hue swap.** (a) `measureInkCoverage`'s only degeneracy guard was
+`axisLength < 1`, which misses the case that matters: the residual is
+SCALE-FREE, so a ground merely CLOSE to the token (an un-blued lit face, axis
+73.2) turns its own +/-25 shading noise into t = 0.59 with a residual of 5.05 —
+counted, at 0.59 weight. That is the founder defect the spec exists for reading
+121x green. Fixed with a separation floor measured on the same frame: per-channel
+MAD as a vector (`noise`) over `axisLength` must sit below
+`INK_MIN_COVERAGE / INK_SEPARATION_MARGIN` = 0.125, and it THROWS rather than
+returning 0 because the failure direction is false-HIGH. Measured: real blued
+face 0.0060 healthy and 0.0085 on the depthTest mutant (20x from firing, so
+neither calibrated reading moves), synthetic +/-25 blued 0.079, inkless lit
+0.307. p90 was tried and rejected — 0.122 against 0.125. Gated on a SYNTHETIC
+frame (new `selector` option, `perception.ts`'s precedent) by three
+`qa-harness` tests carrying the pre-REV-1 arithmetic as an in-file control:
+48 462.74 then, a throw now; mutation-verified by restoring the old guard
+(`rejects.toThrow` -> "promise resolved"). Headlines re-measured on the real
+stack: healthy 1168.32/1169.30 vs the 1168.32 record. (b) `offAxis < pixels`
+DELETED, not replaced: an absolute ceiling failed falsification too. Mutating
+the served `tokens.ts` so the entire scribe draws in brass moves offAxis 99 ->
+**101**, because a foreign hue projects SHORT (t = 0.295 at full coverage) and
+its antialiased pixels never pass the 0.25 floor to be examined; the frame is
+caught anyway by `coverage > 400` at 257.97. `offAxis` stays in the census
+attachment, which is an honest instrument where an unfalsifiable `expect` is
+not. Also recorded: the depthTest mutant is a Z-FIGHT LOTTERY, not 212.49 —
+four runs gave 349.48/244.09/194.00/154.55, so the floor's honest margin is
+1.14x, not 1.88x.
+
 **REV-1 (e)(f)(g) PARTIAL 2026-08-14 — two self-tests returned 0 on an EMPTY
 check list, and the flaky-flag guard needed only ONE audit invocation to carry
 the flag.** The scripts/workflow half of REV-1; (a)-(d) are the e2e-helper half
