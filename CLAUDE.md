@@ -2,6 +2,36 @@
 
 Guidance for Claude Code (and other AI agents) working in this repository.
 
+---
+
+## READ THIS BEFORE YOUR FIRST TOOL CALL
+
+**If you are the ORCHESTRATOR, open
+[`.claude/ORCHESTRATOR.md`](./.claude/ORCHESTRATOR.md) now and follow it.**
+It is short. This file is the reference manual; that one is the procedure.
+
+It is placed here, at line 1, because the previous pointer to it sat at line
+338 of a 1017-line file and the process it describes was consequently not
+followed. The founder's summary of what that cost: *"none of the agents are
+being used in the project. You are constantly over writing files and then
+wasting tokens trying to fix and racing before the next cron job kicks off."*
+
+The four rules, so they are in your context even if you read nothing else:
+
+1. **You dispatch and integrate. You do not do the org's job.** The
+   `backlog-groomer` owns `docs/BACKLOG.md`. The auditors own the audit docs.
+   Builders write code; reviewers review; QA exercises the real app. **If you
+   are editing the backlog yourself, you have already gone wrong.**
+2. **Use the agents.** There are fourteen in `.claude/agents/`. On 2026-08-14
+   an audit found eight had never been invoked — the entire direction layer was
+   dead and the orchestrator was doing it by hand, in the most expensive context
+   in the system.
+3. **Builders get their own worktree** (`isolation: 'worktree'`). A shared
+   checkout is the root of every overwrite, and of the staging tool that has
+   failed silently three times.
+4. **Reading CI is yours alone** — `api.github.com` is denied to every
+   subagent. Agents push and stop; you read the run and relay failures back.
+
 ## What this is
 
 An **open-source, cloud-native parametric 3D CAD platform** — Python
