@@ -19,15 +19,24 @@ flagged for the orchestrator, not a product defect.
 the origin/axis copies the coordinate but authors no constraint, so a
 grounded-looking corner silently drifts on its first later re-drive — same
 silent-trust-violation class DIM-1 was, correct now, wrong only later.
-**CORRECTING AN ERROR IN THIS ROADMAP'S OWN PRIOR VERSION: QAH-1 has NOT
-shipped.** An earlier line here (and the dispatch brief that launched this
-pass) listed it among items closed alongside DIM-1/SNAP-1/SKETCH-2; re-derived
-from `git log`, no commit touches its assertion
-(`qa-harness.spec.ts`, "renders while orbiting"). The CI-4 substrate pass
-(`8d5be24`) fixed a DIFFERENT camera-probe race in a different spec with an
-unrelated mechanism and explicitly did not touch this one. QAH-1 stays open
-in `docs/BACKLOG.md` Ready; whether CI is currently green is unverified by
-this pass regardless (the groomer cannot read CI — orchestrator to confirm).
+**QAH-1 IS CLOSED — a range error in this pass briefly said otherwise, and
+that is now corrected.** This pass first searched only `a658db4..HEAD` (the
+window its dispatch brief specified), found no commit touching the
+`qa-harness.spec.ts` "renders while orbiting" assertion, and wrongly
+concluded QAH-1 was still open. The actual fix, `c3019b6`, is an ANCESTOR of
+`a658db4` (`git merge-base --is-ancestor c3019b6 a658db4` -> yes) — invisible
+to that range, ticked nowhere because the groomer held the board when it
+shipped and its author didn't contend for the file. Verified independently:
+`diagnostics.ts:193` carried a mutation-test constant
+(`rendersInProbeWindow: … ? null : 0, // MUTANT: always 0`) committed as
+product code by `0580f7d`'s reconciliation of a stopped agent's work, whose
+own e2e gate was never run; `c3019b6` removed it, with a live measurement
+(38-48 renders / ~18 units of camera motion while the collector reported 0,
+pre-fix) and ablations in both directions. This is a DIFFERENT defect from
+`8d5be24`'s `cameraPose: no camera captured` race (different spec, different
+mechanism) — that distinction was correct throughout and stands. See
+`docs/BACKLOG.md` Done archive for the full evidence and the process note on
+why a range-scoped re-derivation is only as trustworthy as the range.
 Also credited this pass: the mutation/debug-marker CI gate (`56297d2`,
 `docs/RETRO.md` §4b's ask, shipped with no BACKLOG ticket tracking it before
 now). New items filed: SNAP-2 (P0), SKETCH-3 (reserved-id hydration guard,

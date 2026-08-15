@@ -40,11 +40,18 @@ duplication.
   named failures (the camera-probe race) is root-caused and fixed with a
   0/12-after ablation; the other (`sketch-on-face` screenshot variants)
   could not be reproduced in 35 starved runs and stays filed, not fixed.
-  **QAH-1 (`qa-harness.spec.ts`, "renders while orbiting") is a DIFFERENT
-  assertion that this substrate work did not touch** — it is still open
-  despite being listed as shipped in this pass's dispatch brief; corrected
-  below. Whether CI is currently green is unverified by this pass (the
-  groomer cannot read CI).
+  **QAH-1 is CLOSED — `c3019b6`, an ANCESTOR of `a658db4` (verified:
+  `git merge-base --is-ancestor c3019b6 a658db4` -> yes).** This groom pass
+  first searched only `a658db4..HEAD` (the range the dispatch brief gave)
+  and, finding nothing there, wrongly corrected the brief's "already shipped"
+  claim to "still open" — a real error, caught by the orchestrator re-pointing
+  at the right range, not by re-deriving harder inside the wrong one. `c3019b6`
+  is a genuinely different fix from `8d5be24`'s camera-probe race (that
+  distinction stands and is worth keeping apart): QAH-1 was a mutation-test
+  constant — `diagnostics.ts:193`, `rendersInProbeWindow: … ? null : 0, //
+  MUTANT: always 0` — left in the tree by `0580f7d`'s reconciliation of a
+  stopped agent's work, whose own e2e gate was never run. See the archived
+  entry for the evidence.
 - **➖ rows (usable, short of incumbent parity):** Assemblies (export +
   interference shipped; import, exploded views, recursive BOM, part-version
   pinning still missing). Interop (part STEP round-trips to 1e-9 against an
@@ -81,41 +88,7 @@ currently Ready, so it can run alongside GEOM-3 (kernel-architect territory)
 without contention; PICK-1 and SNAP-2 do NOT share territory either
 (`PartPage.tsx`/editor components vs. `sketch/store.ts`/`snap.ts`) so up to
 three of GEOM-3/PICK-1/SNAP-2 can be dispatched in parallel this batch.
-QAH-1 is CI-reliability debt, not a product defect — dispatch it independent
-of the above three; nothing blocks running all four at once.
-
-- [ ] (P0, S) **QAH-1 — e2e CI has been RED for TEN consecutive commits (last
-      green `a34382b`, red from `221a7ca`, itself a docs-only commit);
-      `qa-harness.spec.ts:968` is one of the two failing specs at HEAD and was
-      filed nowhere until this pass.** `"the probe window must see renders
-      while the scene is orbiting"` — `Expected > 0, Received 0`. The sibling
-      failure, `qa-sel7-verify.spec.ts:555`, is QA7-1 below (already filed,
-      already dispatched) — this is the OTHER cause nobody had named.
-      HYPOTHESIS to verify, not assume: VP-1a's Alt+drag orbit binding
-      (`Viewport.tsx`, shipped 32e5b87) is a capture-phase pointerdown handler
-      on the viewport container; if it or a sketcher guard suppresses the
-      demand-mode render loop while orbiting, the probe's render counter would
-      legitimately read 0 even though the camera visibly moves. Root-cause
-      against the ACTUAL commit range (bisect if unclear whether the failure
-      predates 32e5b87 — CI has been red since a docs-only commit, which rules
-      out THAT commit but not one shipped between `a34382b` and `221a7ca`).
-      ACCEPTANCE: mechanism named, fix, spec green 10x quiet + 10x under load;
-      if the cause is unrelated to VP-1a, say so explicitly rather than leaving
-      the coincidence unexplained.
-      **STILL OPEN — correcting a dispatch-brief claim, this pass (2026-08-15).**
-      The brief that launched this groom listed QAH-1 as already shipped and
-      ticked; it is not, and re-derivation from `git log a658db4..HEAD` found
-      no commit touching this assertion. The adjacent CI-4 substrate pass
-      (`8d5be24`) fixed a DIFFERENT camera-probe race (`cameraPose: no camera
-      captured`, in `sketch-orbit.spec.ts`/`invariants.ts`) with an unrelated
-      mechanism (the probe throwing before the scene's first render, not a
-      render-count-while-orbiting question) and explicitly did not touch this
-      spec. Root-cause and fix remain to do; the hypothesis above is
-      unverified either way.
-      [src: orchestrator dispatch 2026-08-14 — CI status relayed by the
-      orchestrator; subagents cannot read CI themselves]
-      TERRITORY: TBD by root-cause — likely `apps/web/e2e/qa-harness.spec.ts`
-      and/or `apps/web/src/viewport/Viewport.tsx`. agentType: frontend-builder.
+QAH-1 (CI-reliability debt) is CLOSED as of this pass — see Done archive.
 
 - [ ] (P1, S) **DIM-3 — the Dimension verb's ARMED state (c449235) is
       invisible, and a wrong-kind pick prints the exact sentence the arm-fix
@@ -759,8 +732,9 @@ of the above three; nothing blocks running all four at once.
       root-caused and fixed (`c7d3f2a`, SPEC-5) — see the note on
       `measureReach`'s sibling exposure, filed separately below. NOT the same
       ticket as QAH-1 (`qa-harness.spec.ts`, "renders while orbiting") —
-      different assertion, different mechanism, still open; see QAH-1 in
-      Ready.
+      different assertion, different mechanism, and QAH-1 was already CLOSED
+      before this substrate pass (`c3019b6`, an ancestor of `a658db4` outside
+      the window this pass first searched — see Done archive).
       [src: orchestrator CI root-cause, 2026-08-11; substrate pass 2026-08-15]
 
 - [x] (P2, XS) **CI-2 — `deploy-path` never got the per-SHA concurrency fix, so
@@ -2056,6 +2030,39 @@ so it is the pre-`5bd4c46` camera snap or a stale Codespace bundle (see FB-11).
 
 ## Done — archive
 
+### QAH-1 CLOSED — found outside the range this groom pass first searched (2026-08-15 evening, backlog-groomer, corrected by the orchestrator)
+
+- **QAH-1** — e2e CI's "renders while orbiting" failure
+  (`qa-harness.spec.ts`, `Expected > 0, Received 0`). ROOT CAUSE: the
+  render-clock COLLECTOR, not the product — `diagnostics.ts:193` read
+  `rendersInProbeWindow: … ? null : 0, // MUTANT: always 0`, a mutation-test
+  constant `0580f7d` committed as product code while reconciling a stopped
+  agent's work without running its own e2e gate. FIXED `c3019b6`: measured
+  live, the scene rendered 38-48 times and the camera moved ~18 units while
+  the collector reported 0; post-fix the same window reads 9-of-9 frames
+  backed by a render. Ablated both directions (constant 0 -> red at the
+  orbiting assertion with CI's exact message; constant positive -> red at
+  the settled-scene assertion) and CI itself shows the target assertion
+  passing at `c3019b6`. A second, independent defect found while verifying
+  (`waitForQuiet`'s 20s wall-clock budget failing deterministically under
+  load, unrelated to the collector) fixed in the same commit.
+  **NOT the same defect as `8d5be24`'s `cameraPose: no camera captured`
+  race** (a different spec, a different mechanism — the probe reading before
+  the scene's first render vs. a broken render counter) — kept apart
+  correctly by this pass even while the range error below was live.
+  **PROCESS NOTE, the reason this needed a second look:** `c3019b6` is an
+  ANCESTOR of `a658db4` (`git merge-base --is-ancestor c3019b6 a658db4` ->
+  yes), so it was invisible to `git log a658db4..HEAD` — the range this
+  groom pass's dispatch brief specified. Re-deriving *inside* the given
+  range found nothing and produced a confident, well-evidenced, WRONG
+  conclusion ("no commit touches this assertion") — re-deriving is only as
+  good as the window it searches, and a truncated window can make "found
+  nothing" look identical to "there was nothing to find." The brief itself
+  was also wrong in a smaller way (QAH-1 was never ticked, because the
+  groomer held the board when it shipped and the fix's author chose not to
+  contend for it). Caught by the orchestrator re-reading `git log` against
+  the correct range, not by anything this pass did differently.
+
 ### Reconciled from Ready — the founder's four 2026-08-01 sketcher reports all now answered (2026-08-15 evening, backlog-groomer)
 
 - **DIM-1** — dimension VALUE field silently wrote wrong geometry (`125` over
@@ -2829,12 +2836,13 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 - 2026-08-15 evening — **Groom pass 5 (backlog-groomer):** all four founder
   2026-08-01 sketcher reports now answered; archived DIM-1/SNAP-1/SKETCH-2 +
   the SKETCH-2 follow-up fix (`8f00dec`, closes the blocking symmetric-datum
-  bug + QA-SK2-1/2). **Corrected a dispatch-brief overclaim: QAH-1 is still
-  open** (the CI-4 substrate pass fixed a different camera-probe race, not
-  this assertion). Filed SNAP-2 (P0 — snap infers no constraint, silent
-  drift on redrive), SKETCH-3 (reserved-id hydration guard, gated on Phase
-  5), TOUCH-2 (9px frame grab disc), QA-SK2-3, SPEC-6/SPEC-7 (pick-affordance
-  zero-settle risk + one unattributed CI observation — both flagged
-  possibly-already-covered by a concurrent sweep). Credited the
-  mutation-marker CI gate (`56297d2`) with a Done entry; it had none.
-  PICK-1 and GEOM-3 remain the top undispatched P0s — see their entries.
+  bug + QA-SK2-1/2). Filed SNAP-2 (P0 — snap infers no constraint, silent
+  drift on redrive), SKETCH-3, TOUCH-2, QA-SK2-3, SPEC-6/SPEC-7. Credited the
+  mutation-marker CI gate (`56297d2`) with a Done entry it had none of.
+  Wrongly concluded QAH-1 still open — corrected below, same evening.
+- 2026-08-15 evening — **Groom pass 5 correction (orchestrator-caught):**
+  pass 5 searched only `a658db4..HEAD` (the brief's range) and found nothing
+  touching QAH-1's assertion; the fix (`c3019b6`) is an ANCESTOR of
+  `a658db4`, invisible to that window. **QAH-1 is CLOSED** — see Done
+  archive for the evidence. Re-deriving from git log is only as good as the
+  range it searches.
