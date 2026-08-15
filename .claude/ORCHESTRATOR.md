@@ -232,5 +232,16 @@ Full list in `CLAUDE.md`. The ones that cost the loop most:
   Grep the agent transcript for `permission handler returned updatedInput`; if
   present it is an intermittent harness fault — relaunch fresh, do not resume
   (the cached failure replays) and do not touch the schema.
+  **REFINEMENT, 2026-08-15: count the faults per agent before relaunching, and
+  send ONE canary rather than the whole batch.** A three-agent workflow lost all
+  three in five minutes — 10, 11 and 24 occurrences respectively; both auditors
+  returned EMPTY having written nothing despite write-early, and the groomer hit
+  the cap. When the fault is hitting EVERY agent, "relaunch fresh" re-buys the
+  same failure at full batch cost. Instead dispatch one agent on a real ticket
+  and let it double as the probe — tell it the fault exists, that it is not its
+  mistake, to retry once or twice and then stop and report rather than working
+  around it. Count the occurrences with
+  `grep -c 'permission handler returned updatedInput' <transcript>.jsonl`; a
+  clean canary means the batch is safe to send.
 - **Playwright's `actionTimeout` is unset**, meaning *no* timeout. A `.catch()`
   cannot save you from a promise that never settles; pass explicit timeouts.
