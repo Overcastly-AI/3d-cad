@@ -2,39 +2,43 @@
 
 Status legend: ✅ done · 🚧 in progress · ⬜ planned
 
-**Current focus, corrected 2026-08-15 (backlog-groomer reconciliation pass —
-QA7-1/CI-2/FB-19 had shipped without a ROADMAP update; see the entries below):
-SKETCH- AND FEATURE-EDIT CORRECTNESS, with DIM-1 now the top P0 on evidence,
-not suspicion.** The open-source-release push (backups, `/metrics`, licensing)
-landed 2026-07-31; SEL-1..8 (viewport picking) and CI-1..4/REV-1..5 (e2e gate
-reliability) closed through 2026-08-14. A fresh audit pass (product M1-22 +
-engineering K1-8, 2026-08-14) found sketch and feature EDITING broken (a saved
-sketch could not be re-opened at all; a picked-edge fillet's radius write-once;
-a viewport pick stamped with the tip feature's id rather than the one that
-owns the sub-shape). SKETCH-1/VP-1/VP-1a shipped and are now **QA'd green**
-(`6df1170`, 2026-08-15 — `sketch-orbit.spec.ts` 7/7, `sketch-reopen.spec.ts`
-pass plus a new round trip) but still **unreviewed by `code-reviewer`**.
-**DIM-1 escalated**: a code review of the dimension-arm fix (c449235) first
-found the value field drops keystrokes at human typing speed; independent QA
-(`6df1170`) then confirmed against the production bundle that it goes further
-— it **silently writes wrong geometry** (`125` typed over `43` commits `435`
-to the solver, no error). That is now the top P0 on the board, above every
-other item, per the "wrong geometry is always P0" rule.
-**QA7-1 CLOSED** (`07c4005`, reviewed non-blocking) and **CI-2 fixed a second
-time** (`43a4efd` — see the CI-2 entry near line ~1977 for the recurrence);
-QAH-1, the OTHER named cause of the ten-consecutive-red streak, is still open.
-Whether the streak has actually broken is **unverified as of this pass** — the
-groomer cannot read CI; the orchestrator should confirm on the next CI read.
-**FB-19 shipped** (`f7c41d9`, chrome density) but is unreviewed, unQA'd, and
-its screenshots have not been sent to the founder — tracked as FB-19b.
-GEOM-2's tier 4 shipped (`8b95dac`) and closed M17's control case, then a code
-review (`57711c4`) quantified its honest limit: at r>=~25% open area on a
-face, tier 4 can silently re-target a deleted feature's sketch onto the wrong
-face — filed as GEOM-3 (P0, the durable fix), GEOM-4/GEOM-5 (smaller
-follow-ups). See `docs/BACKLOG.md` Ready. DIM-1, QAH-1, SNAP-1 and SKETCH-2 have
-since SHIPPED (entries below); PICK-1 and GEOM-3 remain. (The flow-overhaul item formerly numbered FB-20
-was renamed FLOW-1 — that id collided with the camera-stolen-after-extrude
-fix, also FB-20, closed below.)
+**Current focus, corrected 2026-08-15 evening (backlog-groomer reconciliation
+pass 5): FEATURE-EDIT CORRECTNESS — GEOM-3 and PICK-1, the two P0s that have
+sat Ready longest, are next; GEOM-3 first (silent wrong-geometry outranks
+PICK-1's loud 422).** All four of the founder's 2026-08-01 sketcher reports
+now have answers: dimensions assign correctly (DIM-1, gate flipped to
+positive `810d9fb`), orbit-while-sketching reaches a trackpad (VP-1/VP-1a),
+a saved sketch re-opens (SKETCH-1), and "snap points do not work" resolved
+through SNAP-1 -> SKETCH-2 -> a follow-up fix (`8f00dec`/`09cec01`) that
+closed a blocking review finding (symmetric-about-a-datum-axis reported
+OVER-CONSTRAINED pointing at an invisible, undeletable pin) plus two QA
+defects in the original SKETCH-2 fixture. **None of DIM-1/SKETCH-1/VP-1/
+VP-1a/SKETCH-2 have an independent `code-reviewer` pass** — process debt,
+flagged for the orchestrator, not a product defect.
+**Sharper reading found by QA, now the top new item (SNAP-2, P0):** a snap to
+the origin/axis copies the coordinate but authors no constraint, so a
+grounded-looking corner silently drifts on its first later re-drive — same
+silent-trust-violation class DIM-1 was, correct now, wrong only later.
+**CORRECTING AN ERROR IN THIS ROADMAP'S OWN PRIOR VERSION: QAH-1 has NOT
+shipped.** An earlier line here (and the dispatch brief that launched this
+pass) listed it among items closed alongside DIM-1/SNAP-1/SKETCH-2; re-derived
+from `git log`, no commit touches its assertion
+(`qa-harness.spec.ts`, "renders while orbiting"). The CI-4 substrate pass
+(`8d5be24`) fixed a DIFFERENT camera-probe race in a different spec with an
+unrelated mechanism and explicitly did not touch this one. QAH-1 stays open
+in `docs/BACKLOG.md` Ready; whether CI is currently green is unverified by
+this pass regardless (the groomer cannot read CI — orchestrator to confirm).
+Also credited this pass: the mutation/debug-marker CI gate (`56297d2`,
+`docs/RETRO.md` §4b's ask, shipped with no BACKLOG ticket tracking it before
+now). New items filed: SNAP-2 (P0), SKETCH-3 (reserved-id hydration guard,
+gated on Phase 5), TOUCH-2, QA-SK2-3, SPEC-6/SPEC-7 (both flagged
+possibly-already-covered by a concurrent sweep of `pick-affordance.spec.ts` —
+check before duplicating). GEOM-2's tier 4 shipped (`8b95dac`) and closed
+M17's control case; a code review (`57711c4`) quantified its honest limit —
+GEOM-3 (P0, the durable fix) remains, plus GEOM-4/GEOM-5 (smaller
+follow-ups). See `docs/BACKLOG.md` Ready. (The flow-overhaul item formerly
+numbered FB-20 was renamed FLOW-1 — collided with the camera-stolen-after-
+extrude fix, also FB-20, closed below.)
 
 **QA7-1 CLOSED (`db144d7`, reviewed non-blocking `07c4005`) — the SEL-7
 Create-costs-nothing e2e wait wasn't waiting.** `expect.poll(...).not.toBe(
