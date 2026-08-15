@@ -94,7 +94,16 @@ export function resolveSketchKey(
     const action = CONSTRAINT_SHORTCUTS[lower];
     return action === undefined ? null : { type: "constraint", action };
   }
-  return TOOL_SHORTCUTS[lower] !== undefined ? { type: "tool" } : null;
+  if (TOOL_SHORTCUTS[lower] !== undefined) return { type: "tool" };
+  // D WITH NOTHING SELECTED IS NOT A NO-OP ANY MORE. It used to fall through
+  // to null — no tool owns `d` — so the one key the strip advertises for
+  // dimensioning did literally nothing at the moment a user reaches for it
+  // (right after drawing, when there is no selection and no way to make one
+  // while the draw tool holds the clicks). It now hands `distance` to the
+  // store, which ARMS the verb and takes the next entity click. Radius keeps
+  // its selection-first path only: `r` is the Rectangle tool with an empty
+  // selection, and a drawing key must never turn into a dimension key.
+  return lower === "d" ? { type: "constraint", action: "distance" } : null;
 }
 
 // ---------------------------------------------------------------------------

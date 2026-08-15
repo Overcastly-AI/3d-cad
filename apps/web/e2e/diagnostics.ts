@@ -190,7 +190,15 @@ export async function collectViewportDiagnostics(
       // Everything that is true with or without a canvas, stated once.
       const common = {
         renderTick: after,
-        rendersInProbeWindow: after === null || before === null ? null : 0, // MUTANT: always 0
+        // NOT a constant. `0` here was a MUTATION left in the tree by
+        // `0580f7d` — the very commit that added the assertion written to
+        // catch it (`qa-harness.spec.ts` (5), "the probe window must see
+        // renders while the scene is orbiting"). It read as healthy on every
+        // SETTLED scene, which is every census call site, and turned the e2e
+        // workflow red for ten commits. The delta is the measurement; a
+        // literal here is the defect.
+        rendersInProbeWindow:
+          after === null || before === null ? null : after - before,
         framesInProbeWindow: frames,
         glEvents: w.__loftGlEvents ?? [],
         heapMB:

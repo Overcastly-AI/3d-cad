@@ -69,6 +69,25 @@ lint:
     # failure out of local reach entirely — it surfaced only in `deploy-path`,
     # the slowest signal we have (2026-08-01, scripts/corresponding_source.py).
     python3 scripts/check-build-context.py
+    # ~60ms (mostly the PyYAML cross-check), same class of problem: a
+    # concurrency expression cannot be exercised locally and only misbehaves
+    # when two pushes land close together, so deploy-path.yml sat ref-keyed for
+    # two weeks after ci/e2e were fixed, risking the only image-build evidence
+    # a commit can have (CI-2, 2026-08-15). Asserts all three workflows agree
+    # on the per-SHA push / per-ref PR shape.
+    python3 scripts/check-workflow-concurrency.py --self-test
+    python3 scripts/check-workflow-concurrency.py
+    # ~900ms for both, over 877 tracked source files. Closes the class that put
+    # a stopped agent's mutation-test constant into product code on 2026-08-14:
+    # a `// <marker>: always 0` in apps/web/e2e/diagnostics.ts survived lint,
+    # pyright and 1598 unit tests, because the only gate that could see it was
+    # the e2e — and the e2e was the gate that got skipped. It then failed on
+    # every commit for the next ten (docs/RETRO.md §4b). It flags markers that
+    # LABEL code, never the word in prose: the four legitimate mentions in
+    # apps/web/e2e/** must keep passing, and the self-test is what proves both
+    # halves still hold.
+    python3 scripts/check-mutation-markers.py --self-test
+    python3 scripts/check-mutation-markers.py
     # ~150ms. stage-doc-hunks.py is the control EVERY agent uses on the shared
     # docs, and it had no test until it silently relocated an author's own entry
     # to the end of BACKLOG.md while printing success (2026-08-01, found by the

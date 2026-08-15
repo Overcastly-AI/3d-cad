@@ -598,6 +598,33 @@ function ReferenceCube() {
   );
 }
 
+/**
+ * The orbit rig's button maps (VP-1, VP-1a). One of these three is on the
+ * controls at every press; which one is decided by the press itself, in
+ * {@link Viewport}'s `onPointerDownCapture`.
+ *
+ * `unlocked` IS three-stdlib's own default, so 3D navigation outside the
+ * sketcher is unchanged. The two `drawing` maps leave the sketcher's own
+ * gesture alone: three-stdlib's `onMouseDown` reads `mouseButtons.LEFT`, and an
+ * absent entry falls to its `default` branch (`state = STATE.NONE`, no pointer
+ * capture, no `preventDefault`), so the press reaches the sketcher untouched.
+ *
+ * NB `MOUSE.ROTATE` is what three-stdlib swaps to PAN when ctrl/meta/shift is
+ * down — Alt is not in that list, so `drawingAltOrbit`'s LEFT really rotates.
+ */
+const ORBIT_BUTTONS: Record<
+  "unlocked" | "drawing" | "drawingAltOrbit",
+  Partial<Record<"LEFT" | "MIDDLE" | "RIGHT", MOUSE>>
+> = {
+  unlocked: { LEFT: MOUSE.ROTATE, MIDDLE: MOUSE.DOLLY, RIGHT: MOUSE.PAN },
+  drawing: { MIDDLE: MOUSE.ROTATE, RIGHT: MOUSE.PAN },
+  drawingAltOrbit: {
+    LEFT: MOUSE.ROTATE,
+    MIDDLE: MOUSE.ROTATE,
+    RIGHT: MOUSE.PAN,
+  },
+};
+
 export interface ViewportProps {
   glb?: ArrayBuffer | undefined;
   /** Extra scene content rendered inside the Canvas (e.g. the sketch layer). */
@@ -607,7 +634,8 @@ export interface ViewportProps {
   /**
    * May orbit own the LEFT button? False while the sketcher is drawing, whose
    * own gesture is a left press-drag-release. Orbit itself stays available —
-   * it moves to the middle button (VP-1); pan/zoom are untouched either way.
+   * it moves to the middle button (VP-1) and to Alt+left (VP-1a, the gesture a
+   * trackpad can produce); pan/zoom are untouched either way.
    */
   rotateEnabled?: boolean;
   /** The world ground grid; the sketch grid replaces it while drawing. */
@@ -687,6 +715,8 @@ export function Viewport({
   // serves both the modelling scene and the sketch layer rendered into it.
   const navigation = navigationControls(usePreferences());
   const containerRef = useRef<HTMLDivElement>(null);
+  /** The orbit rig, so a press can pick its button map (VP-1a, below). */
+  const orbitRef = useRef<OrbitControlsImpl>(null);
   const [geometry, setGeometry] = useState<BufferGeometry | null>(null);
   const [visibleBounds, setVisibleBounds] = useState<Box3 | null>(null);
   const [parseError, setParseError] = useState<Error | null>(null);
@@ -867,23 +897,58 @@ export function Viewport({
    * EVERY button, so a modeller could not look around mid-sketch (founder
    * report). Fusion 360 never binds orbit to the drawing button in the first
    * place, so orbit is always live there. So the lock now MOVES the gesture
-   * rather than removing it: LEFT goes unbound — three-stdlib's `onMouseDown`
-   * reads `mouseButtons.LEFT`, finds nothing, and falls to its `default`
-   * branch (`state = STATE.NONE`, no pointer capture, no `preventDefault`), so
-   * the press reaches the sketcher's own handlers exactly as before — ROTATE
-   * takes MIDDLE, and RIGHT stays PAN (the right-drag pan the context-menu
-   * click-slop gate above depends on). Nothing is lost: MIDDLE was DOLLY, and
-   * the wheel already dollies.
+   * rather than removing it: LEFT goes unbound, ROTATE takes MIDDLE, and RIGHT
+   * stays PAN (the right-drag pan the context-menu click-slop gate above
+   * depends on). Nothing is lost: MIDDLE was DOLLY, and the wheel already
+   * dollies. See {@link ORBIT_BUTTONS} for why an absent LEFT is inert.
    *
-   * Unlocked, this map IS three-stdlib's own default
-   * (`LEFT: ROTATE, MIDDLE: DOLLY, RIGHT: PAN`), so 3D navigation outside the
-   * sketcher is unchanged.
+   * This is the map React hands the rig; the press-time override below can
+   * swap it for the Alt one before three-stdlib reads it.
    */
-  const mouseButtons = useMemo(
-    () =>
-      rotateEnabled
-        ? { LEFT: MOUSE.ROTATE, MIDDLE: MOUSE.DOLLY, RIGHT: MOUSE.PAN }
-        : { MIDDLE: MOUSE.ROTATE, RIGHT: MOUSE.PAN },
+  const mouseButtons = rotateEnabled
+    ? ORBIT_BUTTONS.unlocked
+    : ORBIT_BUTTONS.drawing;
+
+  /**
+   * VP-1a — Alt(Option)+left-drag ALSO orbits while the sketcher owns LEFT,
+   * because a trackpad has no middle button and VP-1's gesture therefore never
+   * reached the founder, who reported the original complaint.
+   *
+   * Why Alt: it is the only modifier free here. Ctrl/Cmd suppresses snapping
+   * and Shift locks the aim to an axis inside the sketcher (`SketchScene`'s
+   * `modifiers`), and three-stdlib itself reads ctrl/meta/shift at mousedown to
+   * swap ROTATE for PAN, so either of those would mean two things at once.
+   * Alt+left is also what Blender ("emulate 3 button mouse") and Maya bind
+   * tumble to, i.e. the convention for exactly this hardware gap.
+   *
+   * Why a press-time override rather than a modifier-tracking `useState`:
+   * three-stdlib has no modifier support in `mouseButtons`, so the usual
+   * technique swaps the map on keydown/keyup — which stores a copy of keyboard
+   * state that a repaint can lag, and that an Alt released over another window
+   * leaves stuck ON (hence the customary blur/visibilitychange cleanup). Here
+   * the map is instead DERIVED, at every press, from the modifier the press
+   * itself carries: `altKey` on the very pointerdown three-stdlib is about to
+   * handle. There is no copy of the keyboard to go stale, nothing to reset on
+   * blur, and no keydown that can be missed. It is the same argument
+   * `SketchScene`'s `modifiers` already makes for reading Ctrl/Shift off the
+   * event rather than off a tracked flag.
+   *
+   * Ordering is what makes it work: the capture phase runs at this container
+   * (an ancestor of the canvas) before the target-phase `pointerdown` listener
+   * three-stdlib registered on the canvas, so the assignment always lands
+   * first. The handler is TOTAL — every branch assigns — so the rig can never
+   * be left holding the previous press's map.
+   */
+  const handlePointerDownCapture = useCallback(
+    (event: ReactPointerEvent) => {
+      const controls = orbitRef.current;
+      if (controls === null) return;
+      controls.mouseButtons = rotateEnabled
+        ? ORBIT_BUTTONS.unlocked
+        : event.altKey
+          ? ORBIT_BUTTONS.drawingAltOrbit
+          : ORBIT_BUTTONS.drawing;
+    },
     [rotateEnabled],
   );
 
@@ -894,8 +959,9 @@ export function Viewport({
    * to ROTATE — which would newly spin the view under a finger dragged across
    * a sketch. Unbinding ONE while the lock is on reproduces the old
    * `enableRotate={false}` outcome for that gesture; TWO is dolly+pan either
-   * way. A touch device has no middle button, so orbit-while-drawing is still
-   * out of reach there (BACKLOG VP-1a).
+   * way. VP-1a reaches a TRACKPAD (whose click-drag is a mouse pointer with a
+   * modifier), not a touchscreen, which has neither a middle button nor a
+   * modifier key — orbit-while-drawing is still out of reach there.
    */
   const touches = useMemo(
     () =>
@@ -961,6 +1027,7 @@ export function Viewport({
       data-nav-rotate-speed={navigation.rotateSpeed}
       data-nav-pan-speed={navigation.panSpeed}
       data-nav-zoom-speed={navigation.zoomSpeed}
+      onPointerDownCapture={handlePointerDownCapture}
       onPointerDown={handlePointerDown}
       onPointerUp={handlePointerUp}
       onContextMenu={handleContextMenu}
@@ -1040,6 +1107,7 @@ export function Viewport({
         />
         {viewNav ? <ReferenceCube /> : null}
         <OrbitControls
+          ref={orbitRef}
           makeDefault
           enableDamping={!reducedMotion}
           // Always enabled — `enableRotate` gates the rotate MOVE handler as

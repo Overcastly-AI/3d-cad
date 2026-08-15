@@ -1,21 +1,30 @@
 /**
- * The extrude editor — a title-block strip anchored top-left of the viewport,
- * the same seat the sketch strip uses (you author a sketch OR a feature, never
+ * The extrude editor — a title-block strip docked in the left chrome rail, the
+ * same seat the sketch strip uses (you author a sketch OR a feature, never
  * both, so they share one "authoring lives here" anchor and the viewport keeps
  * the pixels). Keyboard-first: the distance field autofocuses, Enter commits,
  * Escape cancels — the sketcher's dimension grammar. Distance wears brass
  * because it is THE parametric handle of the feature, matching the sketcher's
  * driving dimensions.
+ *
+ * DENSITY (FB-19, founder photo 2026-08-01: "chrome is too sparse"). This card
+ * spent six full-width rows on five short values — every caption stacked over
+ * its control, the two 2-state toggles a caption line each, and a helper
+ * sentence permanently resident under Direction. The anatomy is now the title
+ * block's own: caption BESIDE control (`FieldRow`), the two toggles sharing one
+ * label-less row (their segments name themselves), and the sweep note behind a
+ * balloon affordance — except when it warns, which is never hidden.
+ *
+ * Nothing was compacted below the product's floor: every control on the card is
+ * a 24px target (`target.dense`, WCAG 2.2 SC 2.5.8) and Distance keeps the 32px
+ * comfortable target it earns as the one thing the modeller came to type.
  */
 import {
-  AddIcon,
   Checkbox,
-  CutIcon,
-  NormalIcon,
+  FieldRow,
   NumberField,
   Panel,
   PanelActionCell,
-  ReverseIcon,
   SegmentedControl,
   type SegmentOption,
   SelectField,
@@ -36,6 +45,7 @@ import {
   extrudePreviewState,
   optionProvenance,
   parseDistanceMm,
+  type PlaneProvenance,
   type ProfileOption,
   withDirection,
   withOperation,
@@ -64,18 +74,20 @@ export interface ExtrudeEditorProps {
   onPreviewChange?: (preview: ExtrudePreviewState | null) => void;
 }
 
+// No `icon` on these four: they render in a DENSE segmented control, which
+// spends the glyph's width on the word instead (see `SegmentedControl`, and the
+// 46.1px-in-45.5px measurement that decided it). Passing one anyway would be
+// configuration nothing reads.
 const OPERATIONS: ReadonlyArray<SegmentOption<ExtrudeOperation>> = [
   {
     value: "add",
     label: "Add",
-    icon: <AddIcon />,
     "data-testid": "extrude-op-add",
     "aria-label": "Operation: Add",
   },
   {
     value: "cut",
     label: "Cut",
-    icon: <CutIcon />,
     "data-testid": "extrude-op-cut",
     "aria-label": "Operation: Cut",
   },
@@ -85,18 +97,36 @@ const DIRECTIONS: ReadonlyArray<SegmentOption<ExtrudeDirection>> = [
   {
     value: "normal",
     label: "Normal",
-    icon: <NormalIcon />,
     "data-testid": "extrude-dir-normal",
     "aria-label": "Direction: Normal",
   },
   {
     value: "reverse",
     label: "Reverse",
-    icon: <ReverseIcon />,
     "data-testid": "extrude-dir-reverse",
     "aria-label": "Direction: Reverse",
   },
 ];
+
+/**
+ * The one sweep state that is a WARNING rather than a description: a CUT
+ * running along a face-seated sketch's normal leaves the solid immediately and
+ * removes nothing (FB-4 — "I select a sketch do a cut it somehow misses
+ * everything going a different way"). A warning is never hidden behind the note
+ * affordance, so the row has to be able to tell the two apart.
+ *
+ * Derived from the same three inputs as {@link describeExtrudeDirection} rather
+ * than by sniffing its sentence, and pinned to it by
+ * `ExtrudeEditor.test.tsx` over all eight combinations — so the day the wording
+ * changes, the test says so instead of the warning silently going quiet.
+ */
+export function sweepRemovesNothing(
+  operation: ExtrudeOperation,
+  direction: ExtrudeDirection,
+  provenance: PlaneProvenance,
+): boolean {
+  return provenance === "face" && operation === "cut" && direction === "normal";
+}
 
 export function ExtrudeEditor({
   mode,
@@ -153,18 +183,29 @@ export function ExtrudeEditor({
   useCommandBridge(submit, canSubmit);
   const profileName =
     profiles.find((p) => p.id === form.profileFeatureId)?.name ?? "—";
+  const sweepNote = describeExtrudeDirection(
+    form.operation,
+    form.direction,
+    provenance,
+  );
+  const sweepWarns = sweepRemovesNothing(
+    form.operation,
+    form.direction,
+    provenance,
+  );
 
   return (
     <EditorCard onKeyDown={onKeyDown}>
       <Panel aria-label="Extrude" data-testid="extrude-editor">
         <div className="border-b border-hairline">
-          <h2 className="px-3 pb-1 pt-3 font-display text-2xs uppercase tracking-[0.18em] text-gauge">
+          <h2 className="px-3 pb-1 pt-2 font-display text-2xs uppercase tracking-[0.18em] text-gauge">
             {mode === "create" ? "New extrude" : "Edit extrude"}
           </h2>
-          <div className="flex flex-col gap-2 px-3 pb-3 pt-1">
+          <div className="pb-1">
             {profiles.length > 1 ? (
               <SelectField
                 label="Profile"
+                layout="inline"
                 data-testid="extrude-profile"
                 value={form.profileFeatureId}
                 options={profiles.map((p) => ({ value: p.id, label: p.name }))}
@@ -176,19 +217,22 @@ export function ExtrudeEditor({
                 }}
               />
             ) : (
-              <div className="flex flex-col gap-0.5">
-                <span className="font-body text-xs text-gauge">Profile</span>
+              // One profile is not a choice, so it is not a control: a stamped
+              // value cell in the same row shape the picker would take.
+              <FieldRow label="Profile">
                 <span
-                  className="font-data text-md text-mist"
+                  className="truncate font-data text-md text-mist"
                   data-testid="extrude-profile"
                 >
                   {profileName}
                 </span>
-              </div>
+              </FieldRow>
             )}
 
             <NumberField
               label="Distance"
+              layout="inline"
+              emphasis="primary"
               unit={unit}
               data-testid="extrude-distance"
               autoFocus
@@ -200,52 +244,60 @@ export function ExtrudeEditor({
               onFocus={(e) => e.currentTarget.select()}
             />
 
-            <SegmentedControl
-              label="Operation"
-              value={form.operation}
-              options={OPERATIONS}
-              onChange={(operation) =>
-                setForm((f) => withOperation(f, operation, provenance))
-              }
-            />
-
-            <div className="flex flex-col gap-1">
+            {/*
+              THE SWEEP ROW. Operation and Direction are both 2-state and both
+              name themselves in their segments, so they share one label-less
+              row: four words instead of two captions and two control lines.
+              Each group keeps its `aria-label`, and every segment's accessible
+              name still carries the group ("Operation: Add"), which is also its
+              tooltip — the caption is gone from the screen, not from the
+              product.
+            */}
+            <FieldRow
+              note={sweepNote}
+              noteTone={sweepWarns ? "flag" : "quiet"}
+              noteLabel="About the sweep direction"
+              noteTestId="extrude-direction-hint"
+            >
+              <SegmentedControl
+                label="Operation"
+                hideLabel
+                size="dense"
+                value={form.operation}
+                options={OPERATIONS}
+                onChange={(operation) =>
+                  setForm((f) => withOperation(f, operation, provenance))
+                }
+              />
               <SegmentedControl
                 label="Direction"
+                hideLabel
+                size="dense"
                 value={form.direction}
                 options={DIRECTIONS}
                 onChange={(direction) =>
                   setForm((f) => withDirection(f, direction))
                 }
               />
-              {/* Where the sweep goes, before Save — the ghost shows it in the
-                  viewport, this says it in words for the case the ghost is
-                  off-screen or occluded (FB-4: a cut that leaves the solid used
-                  to be discoverable only by failing). */}
-              <span
-                data-testid="extrude-direction-hint"
-                className="font-body text-xs text-gauge"
-              >
-                {describeExtrudeDirection(
-                  form.operation,
-                  form.direction,
-                  provenance,
-                )}
-              </span>
-            </div>
+            </FieldRow>
 
             {form.operation === "add" ? (
-              <Checkbox
-                label="Merge result"
-                data-testid="extrude-merge"
-                checked={form.merge}
-                onChange={(merge) => setForm((f) => ({ ...f, merge }))}
-                description={
-                  form.merge
-                    ? "Fuse into the touching body."
-                    : "Start a new body."
-                }
-              />
+              // The old cell was "Merge result" plus a permanently-resident
+              // sentence saying what the current state means. One element, one
+              // job: the checkbox's own label IS the outcome, so the sentence
+              // has nowhere to be redundant from.
+              <FieldRow label="Merge">
+                <Checkbox
+                  label={
+                    form.merge
+                      ? "Fuse into the touching body"
+                      : "Start a new body"
+                  }
+                  data-testid="extrude-merge"
+                  checked={form.merge}
+                  onChange={(merge) => setForm((f) => ({ ...f, merge }))}
+                />
+              </FieldRow>
             ) : null}
           </div>
         </div>

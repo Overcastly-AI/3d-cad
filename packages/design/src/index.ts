@@ -74,6 +74,7 @@ export {
 } from "./primitives/BandActionCell";
 export { SketchGlyph, type SketchGlyphProps } from "./primitives/SketchGlyph";
 export { PickNode, type PickNodeProps } from "./primitives/PickNode";
+export { FieldRow, type FieldRowProps } from "./primitives/FieldRow";
 export { NumberField, type NumberFieldProps } from "./primitives/NumberField";
 export {
   ExpressionField,

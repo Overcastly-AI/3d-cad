@@ -29,11 +29,13 @@ import {
 import { sketch } from "@loft/design/tokens";
 import { Html } from "@react-three/drei";
 import {
-  useEffect,
   useMemo,
+  useRef,
   useState,
+  type ChangeEvent,
   type FormEvent,
   type KeyboardEvent,
+  type RefObject,
 } from "react";
 
 import {
@@ -46,6 +48,7 @@ import {
 import {
   classifyDimensionValue,
   dimensionNameError,
+  type DimensionValue,
 } from "../sketch/dimensionExpr";
 import { cornerPoint } from "../sketch/corner";
 import { entityAnchor } from "../sketch/geometry";
@@ -54,6 +57,101 @@ import { useSketchStore } from "../sketch/store";
 
 /** Keep annotation overlays under the HUD strips (Viewport hud sits at z-40). */
 const GLYPH_Z_RANGE: [number, number] = [20, 0];
+
+/**
+ * Local editor state that belongs to ONE target and dies with it: `null` means
+ * "nothing typed yet — use the target's own value". The reset happens DURING
+ * render (React's documented "adjust state when a prop changes" pattern), not
+ * in an effect, because the cells below read it to build `defaultValue`: a
+ * reset that landed one commit later would re-mount a cell still holding the
+ * PREVIOUS dimension's text, which is a wrong-number bug rather than a slow one.
+ */
+function useRetargetedDraft<T>(
+  resetKey: string | null,
+): [T | null, (next: T | null) => void] {
+  const [draft, setDraft] = useState<{ key: string | null; value: T | null }>({
+    key: resetKey,
+    value: null,
+  });
+  const current =
+    draft.key === resetKey ? draft : { key: resetKey, value: null };
+  if (current !== draft) setDraft(current);
+  return [current.value, (value) => setDraft({ key: resetKey, value })];
+}
+
+/** A cell whose text the BROWSER owns — see {@link useTypedField}. */
+interface TypedField {
+  /** Attach to the design-system cell (the primitive forwards it to its input). */
+  ref: RefObject<HTMLInputElement | null>;
+  /** What React last SAW. Drives the live error/echo — never the cell's text. */
+  text: string;
+  /** Mount-time text. Only a retarget (or a programmatic write) moves it. */
+  defaultValue: string;
+  /** What the cell ACTUALLY holds right now — the only value a commit may use. */
+  read: () => string;
+  /** Write the cell from code (e.g. "Flip side") — DOM and shadow together. */
+  write: (next: string) => void;
+  onChange: (event: ChangeEvent<HTMLInputElement>) => void;
+}
+
+/**
+ * THE IN-CANVAS VALUE CELLS ARE UNCONTROLLED, and that is the fix for a P0
+ * (DIM-1), not a style preference.
+ *
+ * A CONTROLLED cell round-trips every keystroke through React before the DOM is
+ * allowed to keep it, and these cells live inside the r3f canvas via `Html` —
+ * so a commit here can take tens of milliseconds, and the keystrokes that land
+ * inside that window are overwritten when React finally re-renders from state
+ * that predates them. Measured against the real browser on this build, typing
+ * "125" over a pre-filled "43": the cell ended at **"43"** — every character
+ * lost — at 0/20/40/60/80 ms per key, and only survived from 120 ms. That is
+ * inside ordinary human typing speed, which is exactly the founder's report
+ * ("I still cannot click dimension and actually have it assign a dimension").
+ *
+ * `SketchScene.tsx`'s draw-time cells (FB-16) hit the identical defect and fixed
+ * it the same way; this is that remedy applied to the dimension/offset/corner
+ * editors. The browser owns the text; React keeps a SHADOW copy purely so the
+ * live error and the resolved-value echo can render, and every commit reads the
+ * node (`read()`), never the shadow — the shadow is allowed to lag, the number
+ * that gets solved is not.
+ */
+function useTypedField(resetKey: string | null, initial: string): TypedField {
+  const ref = useRef<HTMLInputElement | null>(null);
+  const [typed, setTyped] = useRetargetedDraft<string>(resetKey);
+  const text = typed ?? initial;
+  return {
+    ref,
+    text,
+    // Safe to move per keystroke: changing `defaultValue` sets the input's
+    // value ATTRIBUTE, which the HTML spec ignores once the field is dirty —
+    // so it re-prefills on a retarget and never fights the typist.
+    defaultValue: text,
+    read: () => ref.current?.value ?? text,
+    write: (next) => {
+      if (ref.current !== null) ref.current.value = next;
+      setTyped(next);
+    },
+    onChange: (event) => setTyped(event.target.value),
+  };
+}
+
+/**
+ * The value cell's rule in ONE place: the render reads it for the live error,
+ * and the commit re-reads it against the DOM's own text (which can be ahead of
+ * anything React has seen). A driven dimension is measured, so it is read-only
+ * and always valid; a driving EXPRESSION is the server's to validate.
+ */
+function dimensionValueError(
+  isDriving: boolean,
+  parsed: DimensionValue,
+): string | null {
+  if (!isDriving) return null;
+  if (parsed.kind === "empty") return "Enter a value or an expression.";
+  if (parsed.kind === "literal" && !(parsed.valueMm > 0)) {
+    return "Enter a value above 0.";
+  }
+  return null;
+}
 
 function glyphAria(glyph: ConstraintGlyph): string {
   switch (glyph.kind) {
@@ -104,9 +202,6 @@ function DimensionEditor({ basis }: { basis: PlaneBasis }) {
   const commitDimension = useSketchStore((state) => state.commitDimension);
   const cancelDimension = useSketchStore((state) => state.cancelDimension);
   const removeConstraint = useSketchStore((state) => state.removeConstraint);
-  const [value, setValue] = useState<string | null>(null);
-  const [name, setName] = useState<string | null>(null);
-  const [driving, setDriving] = useState<boolean | null>(null);
 
   const anchor = useMemo(
     () =>
@@ -125,37 +220,31 @@ function DimensionEditor({ basis }: { basis: PlaneBasis }) {
           (d) => d.constraint_index === target.constraintIndex,
         );
 
-  // Reset the local draft whenever the editor retargets a different constraint.
+  // One identity per edited constraint: it re-prefills the cells, so opening a
+  // second dimension never inherits the first one's text.
   const editKey =
     target === null
       ? null
       : `${target.constraintIndex ?? "new"}:${target.entity}`;
-  useEffect(() => {
-    setValue(null);
-    setName(null);
-    setDriving(null);
-  }, [editKey]);
+  const valueField = useTypedField(
+    editKey,
+    target === null
+      ? ""
+      : (target.initialExpression ?? formatDimensionMm(target.initialMm)),
+  );
+  const nameField = useTypedField(editKey, target?.initialName ?? "");
+  const [driving, setDriving] = useRetargetedDraft<boolean>(editKey);
 
   if (target === null || anchor === null) return null;
 
   const noun = target.kind === "distance" ? "Distance" : "Radius";
   const isDriving = driving ?? target.initialDriving;
-  const valueText =
-    value ?? target.initialExpression ?? formatDimensionMm(target.initialMm);
-  const nameText = name ?? target.initialName ?? "";
+  const valueText = valueField.text;
+  const nameText = nameField.text;
 
   const parsedValue = classifyDimensionValue(valueText);
   const nameError = dimensionNameError(nameText);
-  // A driving literal must be > 0; a driving expression is the server's to
-  // validate (accepted here). A driven dim is measured — its cell is read-only,
-  // always valid, and commits the last measured/placeholder value.
-  const valueError = !isDriving
-    ? null
-    : parsedValue.kind === "empty"
-      ? "Enter a value or an expression."
-      : parsedValue.kind === "literal" && !(parsedValue.valueMm > 0)
-        ? "Enter a value above 0."
-        : null;
+  const valueError = dimensionValueError(isDriving, parsedValue);
   const valid = valueError === null && nameError === null;
 
   // The positive `value_mm` sent to the wire: the literal itself, or — while an
@@ -173,27 +262,36 @@ function DimensionEditor({ basis }: { basis: PlaneBasis }) {
       ? `= ${formatDimensionMm(solved.value_mm)} mm`
       : null;
 
-  const trimmedName = nameText.trim();
   const close = (commit: boolean) => {
-    if (commit && valid) {
-      commitDimension({
-        valueMm:
-          isDriving && parsedValue.kind === "literal"
-            ? parsedValue.valueMm
-            : placeholderMm,
-        expression:
-          isDriving && parsedValue.kind === "expression"
-            ? parsedValue.expression
-            : null,
-        name: trimmedName === "" ? null : trimmedName,
-        driving: isDriving,
-      });
-    } else {
+    if (!commit) {
       cancelDimension();
+      return;
     }
-    setValue(null);
-    setName(null);
-    setDriving(null);
+    // Read the CELLS, not React's shadow of them. At typing speed the DOM is
+    // ahead of the last render, and committing the render's value is precisely
+    // how "125" got solved as 43 (DIM-1).
+    const typedValue = valueField.read();
+    const typedName = nameField.read();
+    const parsed = classifyDimensionValue(typedValue);
+    const errors =
+      dimensionValueError(isDriving, parsed) ?? dimensionNameError(typedName);
+    if (errors !== null) {
+      // Stay open, showing the error against what was actually typed. Enter used
+      // to fall through to cancelDimension() here — a key that sometimes applies
+      // and sometimes discards is the FB-13 defect, not a validation strategy.
+      valueField.write(typedValue);
+      nameField.write(typedName);
+      return;
+    }
+    const trimmedName = typedName.trim();
+    commitDimension({
+      valueMm:
+        isDriving && parsed.kind === "literal" ? parsed.valueMm : placeholderMm,
+      expression:
+        isDriving && parsed.kind === "expression" ? parsed.expression : null,
+      name: trimmedName === "" ? null : trimmedName,
+      driving: isDriving,
+    });
   };
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();
@@ -216,12 +314,19 @@ function DimensionEditor({ basis }: { basis: PlaneBasis }) {
         <form onSubmit={onSubmit} className="space-y-2">
           {isDriving ? (
             <ExpressionField
+              // Keyed on the target so a retarget REMOUNTS the cell. Moving
+              // `defaultValue` is not enough on its own: it sets the value
+              // ATTRIBUTE, which the HTML spec ignores once the field is dirty
+              // — so clicking a second glyph mid-edit would leave the first
+              // dimension's text sitting in the second one's cell.
+              key={`value:${editKey ?? ""}`}
               label={noun}
               unit="mm"
-              value={valueText}
+              ref={valueField.ref}
+              defaultValue={valueField.defaultValue}
               error={valueError}
               resolved={resolved}
-              onChange={(event) => setValue(event.target.value)}
+              onChange={valueField.onChange}
               onKeyDown={onKeyDown}
               autoFocus
               onFocus={(event) => event.target.select()}
@@ -241,11 +346,13 @@ function DimensionEditor({ basis }: { basis: PlaneBasis }) {
             />
           )}
           <TextField
+            key={`name:${editKey ?? ""}`}
             label="Name"
-            value={nameText}
+            ref={nameField.ref}
+            defaultValue={nameField.defaultValue}
             error={nameError}
             placeholder="optional, e.g. width"
-            onChange={(event) => setName(event.target.value)}
+            onChange={nameField.onChange}
             onKeyDown={onKeyDown}
             data-testid="dimension-name"
             aria-label={`${noun} name (optional, for expressions)`}
@@ -326,7 +433,8 @@ function OffsetEditor({ basis }: { basis: PlaneBasis }) {
   const entities = useSketchStore((state) => state.entities);
   const armOffset = useSketchStore((state) => state.armOffset);
   const cancelOffset = useSketchStore((state) => state.cancelOffset);
-  const [text, setText] = useState<string | null>(null);
+  // Uncontrolled for the same reason as the dimension cell above (DIM-1).
+  const field = useTypedField(draft?.target ?? null, String(DEFAULT_OFFSET_MM));
 
   const target =
     draft === null
@@ -337,26 +445,24 @@ function OffsetEditor({ basis }: { basis: PlaneBasis }) {
     [target],
   );
 
-  // Reset the field to its default whenever the editor closes or retargets, so
-  // a fresh pick never inherits the previous curve's typed value.
-  useEffect(() => {
-    setText(null);
-  }, [draft?.target]);
-
   if (draft === null || target === null || anchor === null) return null;
 
-  const value = text ?? String(DEFAULT_OFFSET_MM);
-  const parsed = Number.parseFloat(value);
+  const parsed = Number.parseFloat(field.text);
   const valid = Number.isFinite(parsed) && parsed !== 0;
 
   const apply = () => {
-    if (valid) {
-      armOffset(parsed);
-      setText(null);
+    // The cell, not the shadow — the last digit of "12.5" may not have reached
+    // React yet, and offsetting by 12 instead is a wrong part, not a slow one.
+    const typed = Number.parseFloat(field.read());
+    if (!Number.isFinite(typed) || typed === 0) {
+      field.write(field.read()); // surface the error against what was typed
+      return;
     }
+    armOffset(typed);
   };
   const flip = () => {
-    if (Number.isFinite(parsed)) setText(formatDimensionMm(-parsed));
+    const typed = Number.parseFloat(field.read());
+    if (Number.isFinite(typed)) field.write(formatDimensionMm(-typed));
   };
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();
@@ -366,7 +472,6 @@ function OffsetEditor({ basis }: { basis: PlaneBasis }) {
     if (event.key === "Escape") {
       event.stopPropagation();
       cancelOffset();
-      setText(null);
     }
   };
 
@@ -379,11 +484,13 @@ function OffsetEditor({ basis }: { basis: PlaneBasis }) {
       <Panel className="w-[12rem] p-2" data-testid="offset-editor">
         <form onSubmit={onSubmit}>
           <NumberField
+            key={draft.target}
             label="Offset"
             unit="mm"
-            value={value}
+            ref={field.ref}
+            defaultValue={field.defaultValue}
             error={valid ? null : "Enter a nonzero distance."}
-            onChange={(event) => setText(event.target.value)}
+            onChange={field.onChange}
             onKeyDown={onKeyDown}
             autoFocus
             onFocus={(event) => event.target.select()}
@@ -434,7 +541,6 @@ function CornerEditor({ basis }: { basis: PlaneBasis }) {
   const entities = useSketchStore((state) => state.entities);
   const armCorner = useSketchStore((state) => state.armCorner);
   const cancelCorner = useSketchStore((state) => state.cancelCorner);
-  const [text, setText] = useState<string | null>(null);
 
   const open = corner !== null && corner.picks.length === 2;
   const legA = open
@@ -451,26 +557,25 @@ function CornerEditor({ basis }: { basis: PlaneBasis }) {
     [legA, legB],
   );
 
-  // Reset to the default whenever the picks change, so a fresh corner never
-  // inherits the previous one's typed value.
-  const picksKey = corner?.picks.join(",");
-  useEffect(() => {
-    setText(null);
-  }, [picksKey]);
+  // A fresh corner never inherits the previous one's typed value: the picks are
+  // the cell's identity. Uncontrolled, as the dimension cell above (DIM-1).
+  const picksKey = corner?.picks.join(",") ?? null;
+  const field = useTypedField(picksKey, String(DEFAULT_CORNER_MM));
 
   if (!open || corner === null || anchor === null) return null;
 
   const isFillet = corner.op === "fillet";
-  const value = text ?? String(DEFAULT_CORNER_MM);
-  const parsed = Number.parseFloat(value);
+  const parsed = Number.parseFloat(field.text);
   const valid = Number.isFinite(parsed) && parsed > 0;
   const label = isFillet ? "Radius" : "Distance";
 
   const apply = () => {
-    if (valid) {
-      armCorner(parsed);
-      setText(null);
+    const typed = Number.parseFloat(field.read());
+    if (!Number.isFinite(typed) || typed <= 0) {
+      field.write(field.read()); // surface the error against what was typed
+      return;
     }
+    armCorner(typed);
   };
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();
@@ -480,7 +585,6 @@ function CornerEditor({ basis }: { basis: PlaneBasis }) {
     if (event.key === "Escape") {
       event.stopPropagation();
       cancelCorner();
-      setText(null);
     }
   };
 
@@ -493,11 +597,13 @@ function CornerEditor({ basis }: { basis: PlaneBasis }) {
       <Panel className="w-[12rem] p-2" data-testid="corner-editor">
         <form onSubmit={onSubmit}>
           <NumberField
+            key={picksKey ?? ""}
             label={isFillet ? "Fillet radius" : "Chamfer distance"}
             unit="mm"
-            value={value}
+            ref={field.ref}
+            defaultValue={field.defaultValue}
             error={valid ? null : "Enter a value above 0."}
-            onChange={(event) => setText(event.target.value)}
+            onChange={field.onChange}
             onKeyDown={onKeyDown}
             autoFocus
             onFocus={(event) => event.target.select()}

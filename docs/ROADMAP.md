@@ -2,24 +2,190 @@
 
 Status legend: ✅ done · 🚧 in progress · ⬜ planned
 
-**Current focus, corrected 2026-08-14 (K6 — this line was 129 commits and two
-weeks stale, and had drifted to claim LIC-1 open when line 1977 of this same
-file says CLOSED; third recurrence of this exact staleness, see H6/J13/K6):
-SELECTION/PICK RELIABILITY + E2E/CI STABILITY, now pivoting to SKETCH- AND
-FEATURE-EDIT CORRECTNESS.** The open-source-release push (backups,
-`/metrics`, licensing) landed 2026-07-31 and LIC-1 (GPL `jbigkit` in the
-geometry image) closed the same day (`c7f23dd`/LIC-1+LIC-3, see line ~1977).
-Since then the work has been SEL-1..8 (viewport picking through hidden/
-occluded geometry), CI-1..4 + REV-1..5 (e2e gate reliability, a five-lens
-ultracode review), and FB-20 (camera stolen after extrude, closed 2026-08-14).
-A fresh, still-uncommitted audit pass (product M1-22 + engineering K1-8,
-2026-08-14) found the next real gap: sketch and feature EDITING is broken
-(a saved sketch cannot be re-opened at all; a picked-edge fillet's radius is
-write-once; a viewport pick is stamped with the tip feature's id rather than
-the one that owns the sub-shape). See `docs/BACKLOG.md` Ready:
-SKETCH-1/SKETCH-2/PICK-1/GEOM-2/VP-1 are the next batch.
+**Current focus, corrected 2026-08-15 (backlog-groomer reconciliation pass —
+QA7-1/CI-2/FB-19 had shipped without a ROADMAP update; see the entries below):
+SKETCH- AND FEATURE-EDIT CORRECTNESS, with DIM-1 now the top P0 on evidence,
+not suspicion.** The open-source-release push (backups, `/metrics`, licensing)
+landed 2026-07-31; SEL-1..8 (viewport picking) and CI-1..4/REV-1..5 (e2e gate
+reliability) closed through 2026-08-14. A fresh audit pass (product M1-22 +
+engineering K1-8, 2026-08-14) found sketch and feature EDITING broken (a saved
+sketch could not be re-opened at all; a picked-edge fillet's radius write-once;
+a viewport pick stamped with the tip feature's id rather than the one that
+owns the sub-shape). SKETCH-1/VP-1/VP-1a shipped and are now **QA'd green**
+(`6df1170`, 2026-08-15 — `sketch-orbit.spec.ts` 7/7, `sketch-reopen.spec.ts`
+pass plus a new round trip) but still **unreviewed by `code-reviewer`**.
+**DIM-1 escalated**: a code review of the dimension-arm fix (c449235) first
+found the value field drops keystrokes at human typing speed; independent QA
+(`6df1170`) then confirmed against the production bundle that it goes further
+— it **silently writes wrong geometry** (`125` typed over `43` commits `435`
+to the solver, no error). That is now the top P0 on the board, above every
+other item, per the "wrong geometry is always P0" rule.
+**QA7-1 CLOSED** (`07c4005`, reviewed non-blocking) and **CI-2 fixed a second
+time** (`43a4efd` — see the CI-2 entry near line ~1977 for the recurrence);
+QAH-1, the OTHER named cause of the ten-consecutive-red streak, is still open.
+Whether the streak has actually broken is **unverified as of this pass** — the
+groomer cannot read CI; the orchestrator should confirm on the next CI read.
+**FB-19 shipped** (`f7c41d9`, chrome density) but is unreviewed, unQA'd, and
+its screenshots have not been sent to the founder — tracked as FB-19b.
+GEOM-2's tier 4 shipped (`8b95dac`) and closed M17's control case, then a code
+review (`57711c4`) quantified its honest limit: at r>=~25% open area on a
+face, tier 4 can silently re-target a deleted feature's sketch onto the wrong
+face — filed as GEOM-3 (P0, the durable fix), GEOM-4/GEOM-5 (smaller
+follow-ups). See `docs/BACKLOG.md` Ready: DIM-1/QAH-1/SNAP-1/PICK-1/GEOM-3/
+SKETCH-2 are the next batch. (The flow-overhaul item formerly numbered FB-20
+was renamed FLOW-1 — that id collided with the camera-stolen-after-extrude
+fix, also FB-20, closed below.)
 
-**VP-1 PARTIAL (c31bd7d, 2026-08-14) — orbit works while sketching, on the
+**QA7-1 CLOSED (`db144d7`, reviewed non-blocking `07c4005`) — the SEL-7
+Create-costs-nothing e2e wait wasn't waiting.** `expect.poll(...).not.toBe(
+"Evaluating")` was satisfied by its first sample ("Evaluating" occurs nowhere
+in the product's status vocabulary), so the two comparison arms sampled at
+different settle depths under load, producing QA7-1's reported flake. Fixed
+by waiting on a state the product can actually be in and sampling both arms
+at the same point; a static gate now checks every SOLVE-cell assertion in the
+spec against `solveSummary`'s real vocabulary. Amber follow-up (scanner
+recognition gap + one-file scope) filed as QA7-1b, `docs/BACKLOG.md` Next.
+
+**CI-2 fixed a SECOND time (`43a4efd`) — `deploy-path.yml` had reverted to
+ref-keyed concurrency and was evicting runs again.** First fixed `2076de4`;
+recurred, measured on `8d386ab` (`cancelled`, 81s wall clock, `total_jobs: 0`
+— the eviction signature, not a timeout). Re-fixed to per-SHA push
+concurrency (matching `ci.yml`/`e2e.yml`) and gated so it cannot silently
+regress a third time: `scripts/check-workflow-concurrency.py`, wired into
+`just lint` and CI's `compose` job, asserts every workflow's concurrency
+expression by POSITION (not just "contains github.sha") and that group
+prefixes are unique across workflows. Verified against the real pre-fix file
+(exits 1 naming the bad expression) and an 8-fixture self-test.
+
+**FB-19 SHIPPED (`f7c41d9`) — chrome density, but not DONE.** The
+label-beside-control `FieldRow` primitive compacts `NumberField`/
+`SelectField`/`Checkbox`/`SegmentedControl`; measured origin block
+212.0px->95.0px, extrude editor card 368.3px->219.5px, tree panel
+591.0px->474.0px, each against a stated ceiling, with a WCAG 2.5.8 24px
+target-size gate. Provenance: the building agent died on a session limit
+before its own e2e gate (`fb19-chrome-density.spec.ts`) ran even once; work
+was preserved and re-gated at the unit level only (typecheck, 1618 web + 86
+design unit tests). Not reviewed, not QA'd, and the founder has not seen the
+before/after screenshots (CLAUDE.md's design mandate: "surfaced" means sent
+in chat) — tracked as FB-19b, `docs/BACKLOG.md` Ready.
+
+**K7 CLOSED (29387da, 2026-08-14)** — Stop hook in-flight guard fixed
+(depth-agnostic `find`, no `pipefail`-breaking pipe, self-test against a
+harness-produced fixture). Groom pass 2026-08-14 (post-VP-1/SKETCH-1) filed
+**VP-1a** (trackpad-reachable orbit — the gap VP-1 left open, below) and
+**SNAP-1** (founder "snap points not working," never reproduced before now)
+onto the board; both queue behind the currently-occupied
+`apps/web/src/{viewport,sketch}/**` territories.
+
+**DIM-1 — THE FOUNDER'S DIMENSION COMPLAINT IS NOT CLOSED, AND THE REMAINING
+HALF SILENTLY WRITES WRONG GEOMETRY (QA 2026-08-15, `6df1170`).** Independent QA
+against the production bundle and a real stack answered the question directly:
+the founder can now REACH the dimension editor — `c449235`'s arming half genuinely
+works — and then the number he types is corrupted before it reaches the solver.
+Type `125` into a cell pre-filled `43` and a 43 mm edge becomes **435 mm**, with
+the glyph, the field and the evaluated geometry all agreeing on the wrong value.
+No error is raised.
+
+This is a data-integrity defect in a CAD tool, not a UI annoyance, and three
+measured properties are why: it is silent; it is **not monotonic in typing
+speed** (~155 ms key gaps survive, 0.2-0.7 s corrupt, 0.8 s+ survive), so
+"type slower" is not a workaround anyone could discover; and the corrupted band
+**widens under load**, so it is worst on a busy machine. Ruled out as
+environmental by measurement: two `longtask` entries per keystroke and **zero
+network requests**, on a page holding 180 frames / 3 s. React work, not
+rasterisation, not a round trip.
+
+The same pass executed two specs that had never been run anywhere —
+`sketch-orbit.spec.ts` (VP-1) 7/7, and `sketch-reopen.spec.ts` (SKETCH-1) plus a
+new save/reload/re-open round trip — and reported honestly that its own green
+arming gate types at 2.5 s/key deliberately, so it must not be read as "typing
+works". A fix is in flight.
+
+**FOUNDER "dimensions not assigning" REPRODUCED and PARTIALLY FIXED (c449235,
+2026-08-14) — the founder's complaint is NOT closed.** The report had sat un-reproduced by anyone. The mechanism is a
+flow defect, not a wrong value: a draw tool stays armed after it draws (Fusion
+does the same), so the click meant to select a side is consumed as the NEXT
+rectangle's first corner — and the Dimension verb is selection-first only, so it
+answers "nothing selected / Select one line to dimension." and every retry
+repeats it. A closed loop the user cannot leave. The keyboard half was worse:
+`resolveSketchKey("d", false)` returned null, so `D` did literally nothing with
+an empty selection, which is exactly when a user reaches for it. The verb now
+ARMS instead of refusing — drops the draw tool, clears the size cells, asks
+"Click a line to dimension it."; the next entity click opens that entity's
+editor. Escape disarms as a new most-local rung; without it the cascade fell
+through and would have EXITED the sketch. Mutation, both directions: the new
+spec is 2 failed / 0 passed with the fix reverted and 2 passed with it in; the
+unit suites are 9 failed / 137 passed reverted and 146 passed in place.
+
+The same pass measured a second, probably-more-important defect it correctly
+did NOT touch because the file belongs to a live sibling: **the dimension VALUE
+field loses keystrokes typed at human speed** (`ConstraintGlyphs.tsx`, a
+controlled React input inside the r3f canvas via drei `<Html>`). Typing `125`
+into a field pre-filled `43` yields `435` at every inter-key delay from 0 to
+120 ms and only survives at 200 ms; the event trace shows an 86 ms blocked main
+thread between the input event and React's restore from a stale render.
+`SketchScene.tsx` already documents and fixed this same defect by making its
+cells uncontrolled. Filed for the next batch — this is plausibly what the
+founder actually hit.
+
+**VP-1a CLOSED (32e5b87, 2026-08-14) — orbit while sketching now reaches a
+TRACKPAD, via Alt (Option) + left-drag.** VP-1 put orbit on the middle button,
+which a trackpad does not have, so the founder's complaint stayed open; this
+adds a second path alongside it rather than replacing it. Alt was the only free
+modifier — Ctrl/Cmd feed `resolveSnap`'s `suppressed`, Shift is `axisLock` plus
+three other surfaces, and three-stdlib's own `onMouseDown` already swaps
+ROTATE/PAN on ctrl/meta/shift — and it is the convention Blender and Maya use
+for exactly this hardware gap. The implementation deliberately avoids the usual
+keydown/keyup modifier mirror: the button map is DERIVED at every press from the
+`altKey` the pointerdown itself carries, in a capture-phase handler on the
+viewport container, so an Alt released over another window cannot leave the rig
+stuck and there is nothing to clean up on blur. Mutation ran in three arms —
+fixed 71.99 deg, binding reverted 0.00 deg, sketcher guards removed 71.98 deg
+but drawing a whole rectangle during the orbit.
+
+**CORRECTED by code review, same day: the three arms establish that the BINDING
+and the guard PAIR are each pinned by the spec, NOT that each guard is
+independently load-bearing.** The builder's own parenthetical said the press
+guard alone was "not observable" and the record then concluded the opposite; the
+reviewer measured both singles — press-guard-alone GREEN, click-guard-alone
+GREEN (the latter never tested by the builder). So a future refactor dropping
+one guard reads a green suite and ships a founder-visible defect. The reviewer
+demonstrated that defect with a probe: with the press guard removed, an Alt
+orbit leaves a stray rectangle anchor in `pending`, so the modeller's very next
+plain left click closes a rectangle from wherever they began looking around —
+`Save sketch0 entities` on the shipped build versus `Save sketch4 entities`
+without it. That is precisely what `SketchScene.tsx:568-571` says the guard
+exists to prevent, shipping green. Filed as a spec gap with the exact
+measured-red assertion; the source needs no change.
+
+Two smaller review corrections to this entry's own wording. "Unreachable" below
+overstates the builder's measurement — 0.041 mm and still shrinking at the
+deadline means *unreached inside 15 s*, and the same change also raised the
+timeout 15 s to 60 s. And the coarse rest predicate's blanket justification
+("a coasting sample can only understate the turn") is true of four of its five
+assertion sites but not of the fifth, which guards against the camera easing
+BACK toward the reference and so can be overstated by an unsettled sample. The
+reviewer bounded that one and found it not exploitable — the ease closes >=63 %
+of the remaining distance per frame, so a 0.5 deg sample delta implies well
+under 1 deg of residual against a 10 deg threshold — but the justification as
+written does not cover it.
+
+**It also found VP-1's acceptance criterion (2) RED at `43c703c`, before any
+change of its own** — a control run with its source changes stashed reproduced
+the failure with the camera at the same position to two decimals. Cause was not
+the two-rig deadlock the position magnitude resembles: the camera converges
+normally, but `restCamera`'s 0.02 mm stillness predicate was unreachable because
+damping decays per rendered FRAME while each sample costs ~600 ms of round trip;
+the samples at the timeout were 0.041 mm apart and still shrinking. The
+predicate now asks for the stillness each assertion actually needs. **The
+general point for CI-4: VP-1 shipped with one of its own acceptance specs red,
+and nothing caught it** — e2e is a separate workflow from `ci`.
+
+Not closed, and filed rather than hidden: the gesture is undiscoverable (the nav
+cue does not render while sketching), touch is still uncovered, and a Linux WM
+that grabs Alt+drag eats it.
+
+**VP-1 PARTIAL (43c703c, 2026-08-14) — orbit works while sketching, on the
 middle button; it does not yet reach a trackpad.** The sketcher draws with a
 left press-drag-release and three.js binds orbit to LEFT, so the app had
 resolved the conflict with `enableRotate={false}` — orbit off on every button,
@@ -38,7 +204,7 @@ worktree-isolated agent that died at 04:45 UTC, work reconciled and gates re-run
 by the orchestrator, **not reviewed and not QA'd**, and the new e2e spec has not
 been executed here.
 
-**SKETCH-1 CLOSED (a7f81ba, 2026-08-14) — a saved sketch can now be re-opened,
+**SKETCH-1 CLOSED (30a9f3f, 2026-08-14) — a saved sketch can now be re-opened,
 so driving dimensions stop being write-once.** `selectFeature` had a branch for
 every feature type except `sketch` and fell through to `setEditor(null)`, so the
 tree row and its context-menu `Edit` were both silent no-ops. The new
@@ -84,9 +250,10 @@ not. Also recorded: the depthTest mutant is a Z-FIGHT LOTTERY, not 212.49 —
 four runs gave 349.48/244.09/194.00/154.55, so the floor's honest margin is
 1.14x, not 1.88x.
 
-**FB-20 (the CAMERA item — the id collides with a P0/L flow item, groomer
-please renumber) CLOSED 2026-08-14 — the first extrude of every session stole
-the viewpoint, because the guard against it counted FITS, not POSES.**
+**FB-20 (the CAMERA item — RENUMBERED 2026-08-14: the open flow item that
+collided with this id is now FLOW-1 in `docs/BACKLOG.md`) CLOSED 2026-08-14 —
+the first extrude of every session stole the viewpoint, because the guard
+against it counted FITS, not POSES.**
 `framedOnce` was set in exactly one place, inside the auto-fit, so a user framed
 by the view rail or by saving a sketch was still "first" when their geometry
 appeared and got snapped to iso once per session — which is the whole of the
@@ -1613,6 +1780,39 @@ signature still z=10) and locks 37,947.61065788307 mm³ / 8,245.044226980004 mm�
 centroid x 30.178821275282164 (deviations ≤7.3e-12), with mesh counts cross-checked
 byte-identical against an exact-pick build of the same part. Evidence:
 `docs/GEOMETRY-QA.md` 2026-07-30.
+
+**GEOM-2 (M17) — the sequel to QA-2's blind spot: a face's identity encoded
+what had been DRILLED into it (FIXED 2026-08-14, kernel-architect; `8b95dac`).**
+QA-2's tiers 2/3 free a face's offset and in-plane position but both still pin
+`area_mm2` + in-plane centroid — fine when a face carries exactly one feature,
+wrong the moment it carries two: thickening a plate AND editing a hole
+diameter on the same face left holes 3-5 `subshape_unresolved`, because tier 2
+frees area/centroid at constant thickness (invisible) but tier 3 pins BOTH at
+a changed thickness (fatal). Tier 4 (`enclosing_face_match`) anchors identity
+on the face's OUTER boundary instead — the one invariant interior subtraction
+cannot touch — reached only on an empty tier-3 result, strictly additive.
+Mutation: removing tier 4 reddens 6 tests + 4 golden gates; removing its LOWER
+bound (the first draft) also reddens 6, because without it three shipped
+honest-error gates silently became wrong resolutions.
+**Code review (`57711c4`, 2026-08-15) corrected the design doc's own account
+and QUANTIFIED the honest limit §12a only described qualitatively.** Three
+goldens moved, not the "one" first claimed; the M17 top-face centroid is
+(50.336, 20.0), 0.336 mm off the bore centre, not "dead centre" as first
+written; and only the band's UPPER bound is derived from the hypothesis — the
+LOWER bound is a well-motivated assumption, not a derivation, which matters
+because it is exactly what the honest-limits paragraph has to defend. The
+review then derived the admission rule precisely: tier 4 accepts a stored face
+whose relative area `f` satisfies `f >= 1 - 2r` (`r` = the candidate's own open
+fraction), and MEASURED it on a 100x100 vented plate with an 8x8 grid of Ø9
+holes (r=40.7%, "an ordinary grille or lightened web"): deleting a 70x70,
+60x60, or 50x50 boss all RESOLVE onto the plate underneath (wrong — guard 2's
+own designed failure case), and only a 40x40 boss stays an honest error. The
+M17 bracket itself is r=17.7% (comfortably safe), so the cliff is real but not
+universal. Filed as GEOM-3 (P0, `docs/BACKLOG.md` Ready) — the durable fix
+(`PlanarFaceSignature` should carry an outer-boundary invariant instead of
+`area_mm2` + centroid) that was deliberately deferred at ship time, now with
+the number that makes it urgent rather than theoretical. GEOM-4/GEOM-5 (Later)
+carry two smaller findings from the same review.
 
 **QA-4 — a print never loses a dimension in SILENCE (FIXED 2026-07-30,
 kernel-architect; QA wave `748a6ad`).** The composer had a skip branch: a dimension

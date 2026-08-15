@@ -329,13 +329,19 @@ def test_resolve_and_solve_is_deterministic() -> None:
 
 
 def test_stale_face_signature_is_assembly_definition_error() -> None:
-    """A face signature no face matches (wrong centroid) is a clean error, never a
-    wrong face or a crash (the 'no longer exists after rebuild' path)."""
+    """A face signature no face matches is a clean error, never a wrong face or a
+    crash (the 'no longer exists after rebuild' path).
+
+    A wrong offset is no longer enough on its own to make a face absent — tier 3
+    frees it, and tier 4 frees the area within what this face's own holes could
+    account for (topological-naming.md §12/§12a). The AREA is what makes this
+    signature unmatchable: no interior edit to this plate's +Z face can leave 100 mm²
+    of it, at any offset."""
     body = plate_with_holes()
     stale = PlanarFaceSignature(
         normal=Vec3(x=0.0, y=0.0, z=1.0),
-        centroid=Vec3(x=20.0, y=10.0, z=99.0),  # no face at z=99
-        area_mm2=760.7,
+        centroid=Vec3(x=20.0, y=10.0, z=99.0),  # no face at z=99 ...
+        area_mm2=100.0,  # ... and no face this small, at any offset
     )
     with pytest.raises(AssemblyDefinitionError):
         resolve_mate_geometry(body, MateFaceRef(instance_id=iid(1), signature=stale))

@@ -114,12 +114,35 @@ Recorded here as the loop's biggest open structural improvement.
 
 **ADOPTED AND MEASURED, 2026-08-14.** The first batch dispatched with
 `isolation: 'worktree'` produced two live worktrees under `.claude/worktrees/`,
-each cut from the branch tip (`5aa981a`) rather than from `origin/main` — the
-base ref was the specific thing worth checking before trusting anything they
-built, and it was right. Two builders worked simultaneously in
+both at `5aa981a`. Two builders worked simultaneously in
 `apps/web/src/sketch/**` and `apps/web/src/viewport/**` with **zero** contact:
 no shared index, no `stage-doc-hunks.py`, no `GIT_INDEX_FILE` dance, nothing to
 reconcile. The whole collision protocol was simply not needed.
+
+**CORRECTION, same day, and it is the retro's own §4 class.** I wrote above that
+the worktrees were "cut from the branch tip rather than from `origin/main` — the
+base ref was the specific thing worth checking, and it was right." The check was
+right; the conclusion was not. `5aa981a` happened to be BOTH at that moment, so
+the observation could not distinguish the two hypotheses and I asserted the
+flattering one. Measured properly a few hours later, across two different
+dispatch mechanisms and after `main` had moved on to `5cd7216`: **every** live
+worktree — the Agent-tool ones and the Workflow ones alike — still sits at
+`5aa981a`. The base is the session's initial ref, PINNED. It is not the branch
+tip and it is not current `main`.
+
+Consequence, found by the VP-1a agent rather than by me: its worktree was five
+commits behind and **did not contain VP-1**, the very commit it was extending —
+`apps/web/e2e/sketch-orbit.spec.ts` did not exist in it. It noticed, reset its
+branch to the dev tip, and said so in its report. An agent that did not notice
+would have built against stale code, gated against stale code, and produced a
+commit whose parent silently reverts its predecessors.
+
+**So every worktree brief must now say: your first act is
+`git fetch origin <dev branch> && git reset --hard origin/<dev branch>`, then
+state in your report which SHA you actually built on.** That is cheap, and it is
+the only thing standing between worktree isolation and a silent revert. The
+general lesson is the one this file keeps writing down: a single observation
+consistent with two explanations is not evidence for either.
 
 One residual seam, and its fix: the same-commit rule requires every commit to
 tick `docs/ROADMAP.md` + `docs/BACKLOG.md`, which would put every worktree back
@@ -218,6 +241,83 @@ is how all three of the above travelled.
 Note that a post-condition comparing a result against what the code *claimed*
 does not catch this — a wrong claim verifies happily against itself. The fix is
 a second opinion from a different derivation.
+
+---
+
+## 4a. "CI is green" was a false claim for ten commits, and the fault was mine
+
+There are three workflows — `ci.yml`, `e2e.yml`, `deploy-path.yml`. Through
+2026-08-14 I read `ci` and reported "CI green", including to the founder, while
+`e2e` had been failing on **every commit since `221a7ca`** — ten in a row, last
+green `a34382b`. `221a7ca` is a docs-only commit, so the red was never in
+anybody's diff: it is CI-4's systemic instability, sitting in plain sight in a
+workflow nobody was reading.
+
+The failure shape is the point. "Green on `ci`" is a TRUE sentence that reads
+like a complete answer, so it never invited a second look — the same shape as
+every other entry in §4. It is also exactly the trap `just gen-check` had
+(a gate is only as honest as its input) wearing different clothes: the question
+I asked was narrower than the question I reported answering.
+
+The two specs failing at the tip, for the record: `qa-harness.spec.ts:968`
+("the probe window must see renders while the scene is orbiting", Expected > 0,
+Received 0) and `qa-sel7-verify.spec.ts:555` (QA7-1, already root-caused by the
+engineering audit as a wait on a string the product never renders — a vacuous
+wait, so the spec's two arms are sampled at different settle depths). 118 passed
+on that shard.
+
+Rule: name the workflow you checked. "Green on ci" and "green" are different
+claims and only one of them is defensible from one API call.
+
+---
+
+## 4b. I shipped a mutation-test constant as product code, and only the gate I skipped could see it
+
+`0580f7d` is mine. Its message says, accurately: *"RECONCILED from a stopped
+agent; gates re-run by me, no independent review."* The gates I re-ran were
+`just lint` and 1598 unit tests. I did not run the e2e.
+
+The stopped agent had been mutation-testing `apps/web/e2e/diagnostics.ts`, and its
+injected mutant was still in the tree when I picked the work up:
+
+```ts
+rendersInProbeWindow: after === null || before === null ? null : 0, // MUTANT: always 0
+```
+
+I committed it. The same commit ADDED the assertion written to catch exactly that
+condition — so the gate and the defect it was designed to detect landed together,
+and the gate then failed on every commit for the next ten, which is half of the
+red streak in §4a that I also mis-reported as green. The comment literally says
+`MUTANT`. Nobody read the diff hunk; I read the docstring change the commit was
+nominally about.
+
+Three things generalise, in increasing order of how much they cost:
+
+1. **Reconciling a dead agent's work means running the gates that agent's work
+   was ABOUT, not the gates that are cheap.** The dead agent was working on e2e
+   diagnostics. `just lint` and the unit suite were structurally incapable of
+   seeing anything it had done. I chose the gates by convenience and then wrote
+   "gates re-run by me" as though that settled it.
+2. **A stopped agent's tree may contain deliberate sabotage.** Mutation testing is
+   mandatory here — every builder is told to inject a mutant, watch it redden, and
+   revert. So an agent killed mid-mutation leaves a defect that is *by
+   construction* invisible to every gate except the one it was aimed at. This is a
+   predictable consequence of our own process, and the relaunch protocol said
+   nothing about it.
+3. **`git diff --cached` in full, before every commit, would have caught it in a
+   second** — the marker is the word `MUTANT` in a one-line hunk. That rule is
+   already in `CLAUDE.md`, written for a different failure (sweeping a colleague's
+   work), and I did not apply it because the commit "was only a docstring fix".
+
+Found 2026-08-15 by the QAH-1 agent, which correctly refused both candidates in
+its brief — I had framed it as "either the probe is broken or the scene is not
+rendering" — and measured a third thing: the scene rendered 38-48 times and the
+camera moved ~18 units while the collector reported 0. Both of my hypotheses were
+wrong and it said so with numbers.
+
+**Recommended and not yet built:** a grep-level guard for `MUTANT` / ablation
+markers in committed code. It is a second of CI time and it closes a defect class
+that unit tests and lint cannot see by construction.
 
 ---
 

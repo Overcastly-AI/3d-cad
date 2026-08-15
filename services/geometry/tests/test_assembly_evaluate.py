@@ -295,13 +295,22 @@ def test_bodyless_part_is_a_per_instance_error_not_a_crash() -> None:
 
 def test_unresolvable_mate_is_a_per_mate_error_and_dropped() -> None:
     """A mate with a stale face signature is a per-mate subshape_unresolved error
-    and is DROPPED — the assembly still solves the mates it can (design §4)."""
+    and is DROPPED — the assembly still solves the mates it can (design §4).
+
+    The fixture must be a face that is GENUINELY gone, and since tier 4
+    (topological-naming.md §12a) states an offset 99 mm away is no longer enough on
+    its own: the resolver deliberately frees the offset, and frees the area within
+    what this face's own interior holes could account for. This plate's -Z face
+    encloses 1000 mm² with 157 mm² of holes, so a stored 760.7 mm² reads as a
+    plausible hole edit and resolves — correctly. 100 mm² does not: no edit to this
+    face's interior can shrink it by 743 mm², so the reference is honestly
+    unresolvable, which is what this test is about."""
     body = _plate_body()
     top = _face_sig(body, 1.0)
     stale = PlanarFaceSignature(
         normal=Vec3(x=0.0, y=0.0, z=-1.0),
-        centroid=Vec3(x=20.0, y=12.5, z=99.0),  # no face at z=99
-        area_mm2=760.7,
+        centroid=Vec3(x=20.0, y=12.5, z=99.0),  # no face at z=99 ...
+        area_mm2=100.0,  # ... and no face this small, at any offset
     )
     result = evaluate_assembly(
         _bolted_request([_coincident(1001, 0, top, stale, 1, 2)])

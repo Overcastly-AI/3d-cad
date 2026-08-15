@@ -488,8 +488,12 @@ function PointerCatcher({ basis }: { basis: PlaneBasis }) {
   /**
    * Modifier state read from the EVENT — authoritative at the instant of the
    * click, where a keyboard-tracked flag can be one repaint stale. Ctrl/Cmd
-   * suppresses every snap; Shift locks the aim to an axis. Alt is deliberately
-   * unused: window managers and browser menus fight for Alt+drag.
+   * suppresses every snap; Shift locks the aim to an axis.
+   *
+   * Alt is NOT a sketch modifier and must never become one: it belongs to the
+   * camera (VP-1a — Alt+left-drag orbits, the only orbit gesture a trackpad can
+   * produce while the sketcher owns LEFT). The press and click handlers below
+   * therefore ignore alt-modified events outright.
    */
   const modifiers = (e: ThreeEvent<PointerEvent> | ThreeEvent<MouseEvent>) => ({
     suppressed: e.nativeEvent.ctrlKey || e.nativeEvent.metaKey,
@@ -559,8 +563,13 @@ function PointerCatcher({ basis }: { basis: PlaneBasis }) {
         // pointer-down of its own — placing on THAT would scatter points every
         // time somebody moved the view. Touch keeps tap-then-tap, which is the
         // better touch gesture anyway.
+        //
+        // Alt held means the camera has this drag (VP-1a): the same press is
+        // orbiting, and placing a point from it would draw a stray entity every
+        // time the modeller looked around.
         if (
           e.nativeEvent.button !== 0 ||
+          e.nativeEvent.altKey ||
           e.nativeEvent.pointerType === "touch" ||
           !dragDraws(store.tool)
         ) {
@@ -573,6 +582,14 @@ function PointerCatcher({ basis }: { basis: PlaneBasis }) {
         invalidate();
       }}
       onClick={(e) => {
+        // The release that ends an Alt-orbit (VP-1a) is the camera's, not the
+        // sketcher's: it places nothing and picks nothing. `strokeOpen` is
+        // cleared so a press that began un-modified and released under Alt
+        // cannot leave a stale "a drag is in flight" flag for the next click.
+        if (e.nativeEvent.altKey) {
+          strokeOpen.current = false;
+          return;
+        }
         const store = useSketchStore.getState();
         const clickTool = store.tool;
         if (dragDraws(clickTool)) {

@@ -19,12 +19,16 @@ import { describe, expect, it, vi } from "vitest";
 import type { ExtrudeParams } from "../api/parts";
 import {
   defaultExtrudeForm,
+  describeExtrudeDirection,
+  type ExtrudeDirection,
   type ExtrudeForm,
+  type ExtrudeOperation,
   type ExtrudePreviewState,
+  type PlaneProvenance,
   type ProfileOption,
 } from "../features/extrude";
 import { DocumentUnitProvider } from "../units/documentUnit";
-import { ExtrudeEditor } from "./ExtrudeEditor";
+import { ExtrudeEditor, sweepRemovesNothing } from "./ExtrudeEditor";
 import type { LengthUnit } from "@loft/design";
 import { expectGated } from "../test/gated";
 
@@ -271,6 +275,82 @@ describe("ExtrudeEditor cut direction on a face-seated sketch", () => {
     fireEvent.click(screen.getByTestId("extrude-dir-normal"));
     expect(screen.getByTestId("extrude-direction-hint")).toHaveTextContent(
       "nothing to remove",
+    );
+  });
+});
+
+// FB-19 — the sweep note moved behind a balloon affordance, which is only safe
+// if the WARNING never goes with it. Two independent things have to hold: the
+// predicate that decides "this is a warning" must agree with the sentence, and
+// the row must render the two states differently.
+describe("ExtrudeEditor sweep note (FB-19 density)", () => {
+  const faceForm = defaultExtrudeForm("sk2", "face");
+  const OPERATIONS: ExtrudeOperation[] = ["add", "cut"];
+  const DIRECTIONS: ExtrudeDirection[] = ["normal", "reverse"];
+  const SEATS: PlaneProvenance[] = ["face", "base"];
+
+  it("flags exactly the sweeps whose own sentence says they remove nothing", () => {
+    // The cross-derivation guard. `sweepRemovesNothing` is computed from the
+    // three inputs, NOT by sniffing the prose — so this walks all eight
+    // combinations and demands the two derivations agree. Reword the sentence
+    // without moving the predicate (or vice versa) and this reddens, instead of
+    // the warning quietly folding itself back into the balloon.
+    const disagreements: string[] = [];
+    for (const operation of OPERATIONS) {
+      for (const direction of DIRECTIONS) {
+        for (const provenance of SEATS) {
+          const sentence = describeExtrudeDirection(
+            operation,
+            direction,
+            provenance,
+          );
+          const saysNothing = sentence.includes("nothing to remove");
+          const flagged = sweepRemovesNothing(operation, direction, provenance);
+          if (saysNothing !== flagged) {
+            disagreements.push(
+              `${operation}/${direction}/${provenance}: sentence=${String(
+                saysNothing,
+              )} predicate=${String(flagged)} — "${sentence}"`,
+            );
+          }
+        }
+      }
+    }
+    expect(disagreements).toEqual([]);
+    // Sanity: the walk must actually have found the warning case, or the
+    // comparison above passes by covering nothing (all([]) is true).
+    expect(sweepRemovesNothing("cut", "normal", "face")).toBe(true);
+  });
+
+  it("keeps an ordinary sweep note behind the balloon", () => {
+    renderEditor({ profiles: MIXED_PROFILES, initial: faceForm });
+    fireEvent.click(screen.getByTestId("extrude-op-cut"));
+    const note = screen.getByTestId("extrude-direction-hint");
+    expect(note).toHaveAttribute("hidden");
+    fireEvent.click(screen.getByTestId("extrude-direction-hint-toggle"));
+    expect(note).not.toHaveAttribute("hidden");
+  });
+
+  it("pins the warning open, with no toggle to put it away", () => {
+    renderEditor({ profiles: MIXED_PROFILES, initial: faceForm });
+    fireEvent.click(screen.getByTestId("extrude-op-cut"));
+    fireEvent.click(screen.getByTestId("extrude-dir-normal"));
+    expect(screen.getByTestId("extrude-direction-hint")).not.toHaveAttribute(
+      "hidden",
+    );
+    expect(screen.queryByTestId("extrude-direction-hint-toggle")).toBeNull();
+  });
+
+  it("states the merge OUTCOME in the control's own label", () => {
+    // The permanently-resident helper sentence is gone because the label does
+    // its job: one element, one job (FB-19).
+    renderEditor();
+    expect(screen.getByTestId("extrude-merge")).toHaveAccessibleName(
+      "Fuse into the touching body",
+    );
+    fireEvent.click(screen.getByTestId("extrude-merge"));
+    expect(screen.getByTestId("extrude-merge")).toHaveAccessibleName(
+      "Start a new body",
     );
   });
 });

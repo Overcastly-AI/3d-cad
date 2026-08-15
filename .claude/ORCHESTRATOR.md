@@ -28,9 +28,28 @@ were not being used and the orchestrator was doing their work by hand.
 
 1. **Reading CI.** `api.github.com` is policy-denied for every subagent. You are
    the only one who can see a run, so you read it and relay failures back.
+   **THERE ARE THREE WORKFLOWS AND `ci` IS ONLY ONE OF THEM** — `ci.yml`,
+   `e2e.yml`, `deploy-path.yml`. Reading `ci` alone and saying "CI is green" is
+   a false statement about the build, and I made it repeatedly on 2026-08-14
+   while `e2e` had been RED for **ten consecutive commits** (last green
+   `a34382b`; red from `221a7ca` onward, which is a DOCS-ONLY commit, so the
+   red was never in anyone's diff). Nobody caught it because the sentence
+   "green on ci" is true and reads like the whole answer. Check all three, name
+   which one you checked, and treat "green" as a claim that needs the same
+   measurement discipline as any other.
 2. **Dispatching batches** and assigning **disjoint territories**.
 3. **Integrating** green branches and verifying the MERGED tree before pushing.
-4. **Relaunching dead agents** and reconciling their preserved work.
+4. **Relaunching dead agents** and reconciling their preserved work. **Run the
+   gates that agent's work was ABOUT, not the gates that are cheap** — and read
+   `git diff --cached` in full, every hunk, before committing it. On 2026-08-15 a
+   reconciliation of mine (`0580f7d`) shipped a stopped agent's
+   `// MUTANT: always 0` constant as product code: I ran lint and the unit suite,
+   both structurally incapable of seeing an e2e-diagnostics change, and the one
+   gate that could see it was the one I skipped. It then failed on every commit
+   for the next ten. Mutation testing is MANDATORY here, so an agent killed
+   mid-mutation leaves sabotage that is by construction invisible to every gate
+   except the one it was aimed at. Assume the tree is booby-trapped, not merely
+   unfinished.
 5. **Talking to the founder.**
 
 If you find yourself editing `docs/BACKLOG.md`, stop. That is the groomer's file
@@ -62,7 +81,7 @@ Modelled on `Overcastly-AI/next-lane`, which runs this in production. One batch
 per invocation; **chain the next batch on completion.**
 
 ```
-Audit  →  Groom  →  Build  →  Integrate  →  (next batch)
+Audit  →  Groom  →  Build  →  Review  →  Verify  →  Integrate  →  (next batch)
 ```
 
 - **Audit** — `product-auditor` + `engineering-auditor` in parallel, independent,
@@ -74,6 +93,23 @@ Audit  →  Groom  →  Build  →  Integrate  →  (next batch)
 - **Build** — one agent per item, each with **`isolation: 'worktree'`**, owning
   the slice end to end: implement, self-review, QA, commit-if-green, leave it on
   its branch. N≈2–4.
+
+  **A WORKTREE IS SEEDED FROM THE SESSION'S INITIAL REF, NOT THE BRANCH TIP —
+  put the reset in every brief.** Measured 2026-08-14 across both dispatch
+  mechanisms, hours apart, and after `main` had moved: every worktree sat at
+  `5aa981a`. The VP-1a agent's worktree was five commits behind and did not
+  contain VP-1, the commit it was extending — the spec file it was told to edit
+  did not exist. It noticed and reset; an agent that did not would have gated
+  against stale code and produced a commit whose parent reverts its
+  predecessors. Brief line: *"your first act is `git fetch origin <branch> &&
+  git reset --hard origin/<branch>`; state in your report which SHA you built
+  on."*
+- **Review, then Verify** — `code-reviewer` then `qa-tester`, per item,
+  pipelined so an item's review starts the moment its build lands. **These were
+  missing from the loop until 2026-08-14**, when the engineering audit (K8)
+  measured the consequence: three of the last five commits landed with no review
+  and no QA. A build-only loop cannot produce reviewed work however good the
+  builders are. The reviewer re-runs the builder's mutation evidence itself.
 - **Integrate** — yours. Merge each green branch, verify the merged tree
   (typecheck + unit + targeted gates), push, read CI, then launch the next batch.
 

@@ -11,9 +11,11 @@
 # Why it is not in ci.yml:
 #   - it needs its own time budget (the geometry image carries the ~700MB OCP
 #     wheel, so the build dominates the run), and
-#   - `cancel-in-progress: false` below: this proof must not be killed by the
-#     next push, which is exactly what ci.yml's fast-feedback concurrency group
-#     does. Runs QUEUE instead, so one always completes.
+#   - it must not be killed by the next push. That was the original reason for
+#     the split, back when ci.yml cancelled superseded branch runs; ci.yml no
+#     longer does, and this workflow's concurrency now matches it exactly (see
+#     the block below, and CI-2 for why "not cancelled" was not the same thing
+#     as "not evicted").
 #
 # MEASURED: 86s end to end (build + boot + migrate + round-trip + teardown) on
 # a hosted runner, first green run 2026-07-25 — far cheaper than the OCP wheel
@@ -37,8 +39,71 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: deploy-path-${{ github.ref }}
-  cancel-in-progress: false
+  # PUSH: group PER COMMIT, so a commit's run can never be evicted by a later
+  # one. PR: group per ref, so a superseded PR push still cancels. Identical in
+  # shape to ci.yml and e2e.yml, and asserted so by
+  # scripts/check-workflow-concurrency.py (CI's `compose` job + `just lint`) —
+  # a concurrency expression cannot be exercised locally and only misbehaves
+  # when two pushes land close together, so agreement between the three is the
+  # only thing about it that can actually be checked before it matters.
+  #
+  # This workflow was the last one keyed on the ref, and `cancel-in-progress:
+  # false` was believed to protect it: "runs QUEUE instead, so one always
+  # completes". They queue, but the queue is ONE deep. A concurrency group
+  # holds at most one RUNNING run plus one PENDING run, and a newer arrival
+  # EVICTS the pending one — regardless of cancel-in-progress, which only
+  # governs runs already holding a runner. So under the rapid back-to-back
+  # pushes several parallel agents produce, the middle commit silently loses
+  # its run. ci.yml and e2e.yml were converted on 2026-07-30 for exactly this
+  # (there, 5 of 8 consecutive runs came back `cancelled` under four agents);
+  # this workflow was missed and stayed ref-keyed for two weeks.
+  #
+  # The prompting observation, recorded with its evidentiary status rather than
+  # its conclusion: on 2026-08-15 `8d386ab` came back `cancelled` here while
+  # `07c4005`, `26bc761`, `8b95dac`, `d6fc92b`, `275b3cf` and `305ed4b` all
+  # succeeded. That was NOT discriminated against the other cause of the same
+  # word — a job hitting `timeout-minutes` — which needs the run's per-job
+  # conclusions and step durations (an eviction kills a run early and takes all
+  # its jobs; a timeout kills one job at its limit and leaves siblings green).
+  # So treat 8d386ab as the reason somebody looked, not as the proof. The
+  # change stands on the mechanism and on the fact that ci.yml and e2e.yml had
+  # already been converted for it: ref-keying here was a real hole whatever
+  # killed that particular run.
+  #
+  # It matters MORE here than anywhere else. CLAUDE.md's standing rule is that
+  # every commit is green on its own and `cancelled` is explicitly not a pass,
+  # and this is the ONLY workflow that builds the service images — a failure
+  # class that is out of local reach entirely, because the Docker registry is
+  # policy-blocked in the dev container. A commit that loses its deploy-path
+  # run therefore has no image-build evidence anywhere, and nothing local can
+  # supply it.
+  #
+  # THE COST, honestly. Per-SHA groups buy runner minutes with runner minutes,
+  # and this is the most expensive workflow we run — two jobs, each building
+  # all three images (the geometry one carries the ~700MB OCP wheel). Two
+  # distinct prices, not one:
+  #   * MINUTES. Ref-keying caps a burst of N pushes at 2 runs; per-SHA gives
+  #     all N a run. At the measured code-commit rate (21/day on 2026-07-31,
+  #     39/day on 2026-07-30) and a generous 10 min/job, that is ≈13
+  #     runner-hours/day worst case — free on hosted runners for a public repo,
+  #     ≈$6/day at the $0.008/min private rate. For scale, e2e.yml's sharded
+  #     suite already costs an accepted 20-45 runner-hours/day, so this is a
+  #     minority of the bill.
+  #   * CONCURRENCY. The bigger change: ref-keying SERIALISED this workflow, so
+  #     at most one image build ran at a time. Per-SHA does not, so four agents
+  #     pushing means up to 8 concurrent deploy-path jobs on top of ci.yml's 6
+  #     and e2e.yml's 5 per push. If runner contention becomes the bottleneck,
+  #     the lever is this workflow's TRIGGER (paths-ignore, as e2e.yml uses to
+  #     drop markdown-only commits) — not the concurrency key, because
+  #     re-keying on the ref just buys the minutes back by discarding evidence.
+  group: >-
+    ${{ github.event_name == 'pull_request'
+        && format('deploy-path-pr-{0}', github.ref)
+        || format('deploy-path-sha-{0}', github.sha) }}
+  # PULL REQUESTS only. On a branch push each commit keeps its own run to
+  # completion; on a PR only the head matters for merge, so a superseded run is
+  # genuine waste.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   compose-stack-e2e:

@@ -953,6 +953,25 @@ export const EyeOffIcon = (p: IconProps) => (
 );
 
 /**
+ * NOTE — "there is something written about this row" (`FieldRow`'s note
+ * affordance, FB-19).
+ *
+ * Deliberately NOT the ubiquitous circle-with-an-i: that glyph belongs to the
+ * web-app vernacular this product is trying not to sound like. A drawing says
+ * the same thing with a BALLOON ON A LEADER — a circle carrying an annotation,
+ * tailed to the thing it annotates — which is already the drafting idiom this
+ * token system cites for its one round corner ("BALLOONS ARE CIRCLES on an
+ * engineering drawing", `radius` in tokens.ts). The balloon is empty because
+ * what it holds is the note the button reveals.
+ */
+export const NoteIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <circle cx={14.5} cy={9.5} r={5.5} />
+    <path d="M10.6 13.4 L4 20" />
+  </Icon>
+);
+
+/**
  * Isolate — one component kept, its neighbours struck to phantom. The verb, in
  * the same dashed-is-absent language the eye's ghost form uses, so the menu row
  * and the row glyph read as one idea.

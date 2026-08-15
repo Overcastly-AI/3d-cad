@@ -8,6 +8,27 @@
  * It is the icon-forward evolution of the ad-hoc two-cell toggle the editors
  * used before: same `aria-pressed`/`role="group"` semantics (so QA hooks and
  * screen readers are unchanged), now discoverable at a glance.
+ *
+ * DENSITY (FB-19). Two 2-state toggles used to cost four rows — a caption line
+ * and a control line each. They now share ONE row, which needs two things this
+ * primitive owns rather than the editor:
+ *
+ *   `hideLabel`  the group keeps its accessible name and loses the caption
+ *                LINE. Legitimate only where the segments name themselves
+ *                (ADD/CUT, NORMAL/REVERSE): the segment's own word IS the
+ *                label, and each segment's `aria-label` still carries the group
+ *                ("Operation: Add"), so nothing is lost to a screen reader or
+ *                to a pointer (the same string becomes the tooltip).
+ *   `size="dense"`  the segment trades horizontal padding, letter tracking and
+ *                its ICON for width. Measured on the extrude card: two controls
+ *                sharing a 264px column give the Direction segments 45.5px of
+ *                text box, and "REVERSE" lays out at 46.1px with the icon
+ *                present — so the first build of this row shipped `REVER…`, and
+ *                the word is worth more than a 12px glyph sitting next to it.
+ *                (A word-only dense segment has ~16px of slack instead of
+ *                −0.6px, which also survives the fallback font.) It keeps the
+ *                24px target floor (SC 2.5.8) — this is a width trade, never a
+ *                target trade.
  */
 import type { ReactNode } from "react";
 
@@ -34,6 +55,13 @@ export interface SegmentedControlProps<T extends string = string> {
   onChange: (value: T) => void;
   disabled?: boolean;
   className?: string;
+  /**
+   * Keep the group's accessible name and drop the visible caption LINE. For a
+   * control whose segments name themselves; see the density note above.
+   */
+  hideLabel?: boolean;
+  /** `dense` narrows the segment so two controls fit one card row (FB-19). */
+  size?: "default" | "dense";
 }
 
 export function SegmentedControl<T extends string>({
@@ -43,40 +71,67 @@ export function SegmentedControl<T extends string>({
   onChange,
   disabled,
   className,
+  hideLabel = false,
+  size = "default",
 }: SegmentedControlProps<T>) {
+  const dense = size === "dense";
   return (
     <div
       role="group"
       aria-label={label}
-      className={cx("flex flex-col gap-0.5", className)}
+      className={cx(
+        hideLabel ? "flex min-w-0 grow" : "flex flex-col gap-0.5",
+        className,
+      )}
     >
-      <span className="font-body text-xs text-gauge">{label}</span>
-      <div className="flex items-stretch divide-x divide-hairline rounded-sm border border-etch">
+      {hideLabel ? null : (
+        <span className="font-body text-xs text-gauge">{label}</span>
+      )}
+      <div
+        className={cx(
+          "flex grow items-stretch divide-x divide-hairline rounded-sm border border-etch",
+          dense && "min-w-0",
+        )}
+      >
         {options.map((option) => {
           const selected = option.value === value;
+          const name = option["aria-label"] ?? option.label;
           return (
             <button
               key={option.value}
               type="button"
               aria-pressed={selected}
-              aria-label={option["aria-label"] ?? option.label}
+              aria-label={name}
+              // With the caption line gone the group name must still reach a
+              // POINTER, not only a screen reader — same string, no second
+              // source of truth.
+              title={hideLabel ? name : undefined}
               data-testid={option["data-testid"]}
               disabled={disabled}
               onClick={() => onChange(option.value)}
               className={cx(
-                "relative flex flex-1 items-center justify-center gap-1.5 px-3 py-1.5",
+                "relative flex flex-1 items-center justify-center",
+                dense
+                  ? "min-h-target-dense min-w-0 gap-1 px-1.5"
+                  : "gap-1.5 px-3 py-1.5",
                 "transition-colors duration-fast hover:bg-carbide",
                 "focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass",
                 "disabled:opacity-40 disabled:pointer-events-none",
                 selected ? "text-brass" : "text-mist",
               )}
             >
-              {option.icon ? (
+              {/* Dropped in dense mode — see the width measurement above. */}
+              {option.icon && !dense ? (
                 <span aria-hidden className="flex shrink-0 items-center">
                   {option.icon}
                 </span>
               ) : null}
-              <span className="font-display text-2xs uppercase tracking-[0.12em]">
+              <span
+                className={cx(
+                  "font-display text-2xs uppercase",
+                  dense ? "truncate tracking-[0.04em]" : "tracking-[0.12em]",
+                )}
+              >
                 {option.label}
               </span>
               {/* Active scribe — a brass line, never a fill (title-block idiom). */}
@@ -86,7 +141,10 @@ export function SegmentedControl<T extends string>({
                   // Same QA hook as `ToolButton`: the accent is a line, so its
                   // measured size is the assertion (UI-REVIEW 2026-07-30).
                   data-scribe
-                  className="pointer-events-none absolute inset-x-1.5 bottom-0.5 h-px bg-brass"
+                  className={cx(
+                    "pointer-events-none absolute bottom-0.5 h-px bg-brass",
+                    dense ? "inset-x-1" : "inset-x-1.5",
+                  )}
                 />
               ) : null}
             </button>

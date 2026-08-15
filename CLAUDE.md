@@ -670,6 +670,20 @@ recipe here in the same commit as the fix.**
 
 - Working branch: develop on the current `claude/*` branch; never push to
   `main` without explicit permission.
+- **A freshly-created WORKTREE gives FALSE `prettier --check` and `tsc` failures
+  on files you never touched — and they name a COLLEAGUE'S territory, so the
+  natural read is "someone pushed a red build".** Found 2026-08-15 by the CI-2
+  agent, which nearly reported the branch tip as lint-red in frontend territory
+  before catching itself. Before `pnpm install --frozen-lockfile`, `just lint`
+  failed on 6 unmodified `apps/web/src/**` files and `pnpm -r typecheck` failed
+  with `Cannot find module 'openapi-fetch'`. The proof it was the environment and
+  not the tree: it extracted `apps/web/src/api/drawings.ts` from the committed
+  blob at the tip, prettier failed those exact bytes, and the identical bytes
+  passed after the install. Rule: **a new worktree is not ready until
+  `pnpm install --frozen-lockfile` has run in it**, and a lint failure in a file
+  outside your diff is a claim about YOUR environment until you have proved
+  otherwise on committed bytes. Do not report it as a colleague's regression —
+  that costs two agents' time and starts a hunt for a defect that does not exist.
 - OCP/OCCT wheels are large; in CI cache the uv environment keyed on the
   lockfile.
 - **To test swapping an auditwheel-vendored library WITHOUT touching the shared
@@ -879,6 +893,22 @@ recipe here in the same commit as the fix.**
   `apps/web/vite.config.ts` sets `server.strictPort`, so a Vite that cannot take
   the port it was given FAILS instead of falling back to 5173. The swallowed
   argument is still silent — that part only discipline fixes.
+- **`apps/web/test-results/` LOOKS like the ideal scratch directory and Playwright
+  WIPES IT at the start of every run — including your live SQLite files.** It is
+  gitignored AND prettier-ignored AND inside the linted tree, which is exactly the
+  combination an agent needing a throwaway config hunts for, so this is a trap
+  correct reasoning walks into. Cost a restart on 2026-08-15: an isolated
+  Playwright config and two SQLite DBs were placed there, the first run deleted
+  them mid-flight, and the unlinked-inode DBs produced precisely the
+  `attempt to write a readonly database` / "500 at create-part" mask the recipes
+  above describe — i.e. it wears the same costume as three other faults. Two more
+  traps in the same corner, both measured: **Node refuses to type-strip a `.ts`
+  Playwright config located under `node_modules/`**, so an isolated config there
+  must be `.mjs`; and **`apps/web/playwright.config.ts` hardcodes
+  `baseURL: 5173` with no env override**, so running against an isolated Vite port
+  needs a whole separate config file, not a flag. The working recipe, which
+  survives all three: `apps/web/node_modules/.vp1a/<name>.config.mjs` — gitignored
+  via `node_modules`, eslint-ignored via `**/node_modules/**`, and not wiped.
 - **A stale Vite on :5173 poisons `just e2e` worse than a stale uvicorn — every
   spec 500s at register.** `apps/web/playwright.config.ts` sets
   `reuseExistingServer: true` (so e2e composes with a running `just dev`), and

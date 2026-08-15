@@ -2760,3 +2760,116 @@ both are wrong by measurement. Adding to this checklist for every future pass:
 redundancy is a claim, and a claim about contrast is checkable.** Same class as
 the 0x0 signature element: the defect is invisible precisely because the
 documentation says it is not there.
+
+---
+
+## 2026-08-15 — QA: the founder's "cannot assign a dimension", after `c449235`
+
+**Verdict: the founder's complaint is HALF closed.** The verb now arms and the
+editor opens, mouse-only, on the founder's exact path. But the value the user
+types is then corrupted before it is committed: typed at an ordinary rhythm,
+**"125" reaches the solver as 435 mm**, silently, with the glyph agreeing. A
+dead end has become a wrong answer, which is the worse of the two for CAD.
+
+**Method.** Real stack, native boot on isolated ports (gateway :8130, documents
+:8131, geometry :8132), driven in real Chromium at 1600x1000 against the
+**production bundle** (`vite build` + `vite preview`, not the dev server —
+sibling HMR resets React state mid-typing and would have confounded every
+reading). Picks are `handClick`s. The mutation control is a real build of
+`c449235^` served from an isolated worktree on :5205.
+
+### PASS — the arming fix (`c449235`) works on the founder's exact path
+
+Draw a rectangle with the toolbar, click a side meaning "select this line"
+(readout still says `nothing selected` — the rect tool owns the click), then
+Constrain > Dimension > Distance: the hint reads `Click a line to dimension it.`,
+the half-drawn second rectangle's live size chip is gone, and the next click on
+the edge opens THAT edge's editor. Entering `60` and pressing Enter moves the
+solved edge to 60.000 mm, and the value survives save + page reload + re-open
+(SKETCH-1). Gated by `apps/web/e2e/sketch-dimension-typing.spec.ts`.
+
+MUTATION (a real build of `c449235^`, same spec, verbatim):
+
+```
+Expected: "Click a line to dimension it."
+Received: "Select one line to dimension."
+```
+
+and with that string assertion deleted, the same pre-fix build still fails one
+step later — `expect(locator).toBeVisible() failed / element(s) not found` on
+`dimension-editor`. The gate is about the behaviour, not the wording.
+
+### P0 (DIM-1) — the value cell commits a number nobody typed
+
+`apps/web/src/viewport/ConstraintGlyphs.tsx` renders the dimension value as a
+controlled React input inside the r3f canvas via drei `<Html>`, which renders
+its children into a **separate ReactDOM root** (`ReactDOM.createRoot`, re-rendered
+from a `useLayoutEffect` on the parent). The `useState` draft lives in the OUTER
+r3f root, so a keystroke's state update has to cross roots before the inner root
+re-renders the input. Until it does, React's controlled-input restore puts the
+PREFILL back. Every character typed in that window is composed against the stale
+prefill, and only the last one survives: `43` + `5` = `435`.
+
+Measured on the production build, typing `125` into a cell pre-filled `43`, keys
+dispatched on a wall clock (raw CDP, so the rhythm is the one requested):
+
+| key gap (measured in page) | field after typing |
+| --- | --- |
+| 171/195, 198/208, 240/270, 259/287 ms | `435` |
+| 281/301, 296/316, 329/503, 349/180, 363/367 ms | `435` |
+| 201/207, 253/256 ms | `125` (won the race) |
+| 803/805, 920/920, 1103/1157 ms | `125` |
+| 2502/2506 ms | `125` |
+
+**10 of 12 trials at 150–250 ms/key — dead-centre human typing — committed the
+wrong number**, and the corruption is not cosmetic: with the field showing `435`,
+Enter sent it to the solver and the evaluate response came back with the edge at
+**435 mm**. Other observed shapes: `15`, `4325`, and (at 0 ms/key) `43` unchanged.
+
+Three properties make this worse than a slow field:
+
+1. **It is silent.** No error, no rejection; the glyph, the field and the solved
+   geometry all agree on the wrong number. The only way to notice is to re-read
+   a dimension you already typed.
+2. **It is not monotonic in typing speed**, so "type slower" is not a workaround
+   a user could discover: keys ~155 ms apart beat the revert and survive, keys
+   0.2–0.7 s apart are corrupted, keys 0.8 s+ survive again. The corrupted band
+   sits exactly where ordinary typing lives.
+3. **The band widens with machine load.** Under sibling-agent load, gaps of
+   0.9–1.4 s still corrupted. Each keystroke costs 0.2–1.2 s of main-thread work
+   (measured: two `longtask` entries per key, **zero network requests**), while
+   the same page renders its frames at 17 ms median / 60 fps with the editor
+   open and idle. The cost is React work per keystroke, not rasterisation and not
+   a round trip.
+
+Same defect in the same editor's **Name** cell: typing `abc` yields `c`.
+
+**Why no existing gate caught it.** `sketch-dimension-pick.spec.ts` (shipped with
+the fix) and `sketch-reopen.spec.ts` (SKETCH-1) both drive the cell with
+`locator.fill()` — one DOM mutation, one input event, no window for the revert to
+land in. `fill()` cannot see this defect by construction. Note also that
+`locator.pressSequentially()` is only a partial escape: it awaits the renderer
+between keys, so on a busy machine a requested 150 ms lands 400–1300 ms apart and
+the stimulus becomes a function of load — the same assertion came back green and
+red on one unchanged build. Anything asserting on per-keystroke behaviour in this
+viewport needs a wall-clock driver; there is one in
+`sketch-dimension-typing.spec.ts`.
+
+Repro (30 s): open any sketch, dimension a line, type a 3-digit value at an
+ordinary rhythm, press Enter, read the glyph.
+
+### Also verified while the stack was up
+
+- **VP-1** (`43c703c`, orbit on the middle button while sketching) — its spec had
+  never been executed; all 7 tests pass against the production build.
+- **SKETCH-1** (`30a9f3f`) — passes, and re-open round-trips through a page
+  reload (added to the new spec: save → reload → right-click Edit → the
+  dimension still reads 60).
+- The builder's own `sketch-dimension-pick.spec.ts` — both tests pass.
+
+### Not closed by this ticket
+
+- DIM-1 above (P0) — the founder's sentence is not satisfied until this lands.
+- The measure of a fixed DIM-1 is per-keystroke, not `fill()`: flip the two
+  assertions named in `sketch-dimension-typing.spec.ts` and it becomes the
+  positive gate.
