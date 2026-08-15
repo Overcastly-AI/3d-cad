@@ -232,5 +232,34 @@ Full list in `CLAUDE.md`. The ones that cost the loop most:
   Grep the agent transcript for `permission handler returned updatedInput`; if
   present it is an intermittent harness fault — relaunch fresh, do not resume
   (the cached failure replays) and do not touch the schema.
+  **REFINEMENT, 2026-08-15: count the faults per agent before relaunching, and
+  send ONE canary rather than the whole batch.** A three-agent workflow lost all
+  three in five minutes — 10, 11 and 24 occurrences respectively; both auditors
+  returned EMPTY having written nothing despite write-early, and the groomer hit
+  the cap. When the fault is hitting EVERY agent, "relaunch fresh" re-buys the
+  same failure at full batch cost. Instead dispatch one agent on a real ticket
+  and let it double as the probe — tell it the fault exists, that it is not its
+  mistake, to retry once or twice and then stop and report rather than working
+  around it. Count the occurrences with
+  `grep -c 'permission handler returned updatedInput' <transcript>.jsonl`; a
+  clean canary means the batch is safe to send.
+  **AND THAT REFINEMENT WAS ITSELF WRONG WITHIN ONE CYCLE — the canary was not a
+  valid control.** I sent one `Agent`-tool dispatch, it saw ZERO faults across
+  ~45 calls and finished a full ticket, and I concluded "the fault has passed"
+  and relaunched the workflow. It died identically: 12, 21 and 10 occurrences,
+  both auditors EMPTY again. The canary differed from the batch in THREE ways at
+  once — dispatch mechanism (`Agent` vs `Workflow`), concurrency (one agent vs
+  two auditors in parallel), and schema (none vs `StructuredOutput`) — so a clean
+  result could not isolate anything. That is the third time in one day I reasoned
+  from one data point per side, having written the rule down twice. **A control
+  that varies more than one thing is not a control, it is an anecdote.**
+  What IS measured: two `Workflow` runs failed heavily (10/11/24 and 12/21/10),
+  one `Agent` run was clean, and the stripped calls span `Bash` (19), `Glob` (6),
+  `Grep` (4), `Read` (9) and `Write` (3) — so it is not Bash-specific and not
+  schema-specific either (the auditors carry no schema and still returned empty).
+  Practical rule until someone isolates it properly: **when `Workflow` fails this
+  way twice, fall back to `Agent` dispatches and run the loop's phases by hand.**
+  That is a workaround chosen on evidence, not a diagnosis — do not write it up
+  as one.
 - **Playwright's `actionTimeout` is unset**, meaning *no* timeout. A `.catch()`
   cannot save you from a promise that never settles; pass explicit timeouts.

@@ -262,7 +262,7 @@ duplication.
       TERRITORY: `apps/web/src/routes/PartPage.tsx`,
       `apps/web/src/sketch/store.ts`. agentType: frontend-builder.
 
-- [ ] (P0, S) **SNAP-1 — founder: "snap points not working." Never reproduced;
+- [x] (P0, S) **SNAP-1 — founder: "snap points not working." Never reproduced;
       no ticket existed before this pass.** REPRODUCE FIRST, before assuming a
       root cause: start a sketch, draw near an existing endpoint/midpoint/the
       origin with snapping on; check whether the snap badge/glyph fires
@@ -285,6 +285,50 @@ duplication.
       it; queue for the next batch once that territory frees up).
       [src: founder report 2026-08-14, needs reproduction]
       agentType: frontend-builder.
+      **CLOSED as branch (ii) — NOT a snap bug. DUPLICATE of SKETCH-2.** Snap
+      detection and placement are correct in every configuration that could be
+      constructed, driven in a real browser against a real stack: grid ON (the
+      DEFAULT — see below) hitting origin / x-axis / endpoint / midpoint all
+      exact; grid OFF 4/4; press-drag-release persisting exactly (2,2)->(44,29);
+      a RE-OPENED sketch; XZ and YZ datums; a FACE-SEATED sketch; and the magnet
+      measured at 12/12/12 px across three zoom levels, equal to
+      `SNAP_TOLERANCE_PX`. The SKETCH-2 half reproduces cleanly WITH a positive
+      control in the same test: clicking the drawn line gives `"1 ent"`, while
+      clicking the origin ring, the X axis and the Y axis all give
+      `"nothing selected"`. So the founder can AIM at the origin and axes — the
+      glyph fires, the point lands exact — and cannot SELECT them to constrain
+      to, which from the user's chair is indistinguishable from "snap points do
+      not work". Do not build a second fix; SKETCH-2 is the fix.
+      **WHY IT SURVIVED THREE DAYS UNFALSIFIED, and this is the transferable
+      part:** `sketch-snap.spec.ts` presses `g` before every assertion — it HAS
+      to, because with the grid off an exact whole millimetre in the DRO can only
+      have come from an entity snap, which is what makes it a proof — and the
+      cost is that the DEFAULT configuration had no coverage at all. Same for the
+      drag gesture, re-open, non-XY planes and face-seated sketches: five
+      distinct inputs into the same `resolveSnap`, none tested. A gate that is
+      rigorous by narrowing its input leaves the untested majority behind it.
+      Shipped `apps/web/e2e/sketch-snap-defaults.spec.ts` (6 tests) to cover
+      them, using `pick-affordance`'s park-then-wait shape so a stale snap kind
+      cannot masquerade as a fresh one. Mutation, against the SUBJECT since
+      nothing was fixed: `SNAP_TOLERANCE_PX` 12 -> 2 gives **6 failed / 0
+      passed**; reverted, 6 passed.
+      **NEW GAP FOUND, not fixed, needs its own ticket:** a snap copies the
+      COORDINATE but infers no CONSTRAINT. `placeAt` takes only a `Point2D`,
+      while the `SnapCandidate` in the store carries `entities: readonly
+      string[]` — the exact ids a coincident constraint would need — and nothing
+      reads them. Fusion and SolidWorks create an inferred coincident on snap, so
+      the corner STAYS attached when the profile is later dimensioned; ours
+      leaves two independent points that happen to share coordinates. That is a
+      plausible second reading of "snap points do not work" (they hold, then let
+      go) and a different fix from both SNAP-1 and SKETCH-2.
+      Untested and worth knowing: the founder tests from a GitHub Codespace, so
+      his `devicePixelRatio`, browser zoom, trackpad and window size were not
+      reproducible here (all measurements 1600x1000, DPR 1, software GL); touch
+      snapping is untested and the drag path explicitly excludes
+      `pointerType === "touch"`; and now that VP-1a has shipped Alt-orbit, a
+      plane viewed at a grazing angle makes the isotropic mm magnet read as an
+      anisotropic sliver on screen — not his cause on 2026-08-14 because he could
+      not orbit then, but a live question for the next report.
 
 - [ ] (P0, M) **PICK-1 (M16) — a viewport pick is stamped with the TIP
       feature's id, not the feature that owns the sub-shape, so no non-tip
@@ -376,7 +420,7 @@ duplication.
       successor), `docs/design/topological-naming.md` §12a, geometry goldens.
       agentType: kernel-architect.
 
-- [ ] (P0, M) **SKETCH-2 (M2) — the sketch origin and axes are not selectable
+- [x] (P0, M) **SKETCH-2 (M2) — the sketch origin and axes are not selectable
       entities, so a profile cannot be grounded relationally; likely also the
       founder's "snap points not working" report** (`apps/web/src/viewport/
       SketchScene.tsx`, `apps/web/src/sketch/**`). MEASURED: `data-testid=
@@ -411,6 +455,65 @@ duplication.
       working" report — needs reproduction to confirm same root cause]
       TERRITORY: `apps/web/src/viewport/SketchScene.tsx`,
       `apps/web/src/sketch/**`, new e2e spec. agentType: frontend-builder.
+      SHIPPED 5ceed6e — and this CLOSES THE FOUNDER'S "snap points do not work"
+      report (SNAP-1 closed as its duplicate: snap detection was correct all
+      along; selection was not).
+      MECHANISM CONFIRMED, with a second quantitative half the ticket did not
+      have: the frame was drawn as pure `InkSegments` while picking ran entirely
+      through `pickCandidates(state.entities, …)`, so it had nothing to hit — AND
+      **even a point pick at (0,0) would not have covered the founder's
+      gesture**, because the ring is drawn at `ORIGIN_RING_FRACTION` (0.022) of
+      the camera's frame half-height, ~**10 px** from centre, against a
+      `PICK_TOLERANCE_PX` of **8**. Clicking ON the mark misses a centre-point
+      target by construction. The fix derives the grab region from the same
+      fractions that draw the ink.
+      A third constraint forced the design: `planegcs_solver.py` resolves every
+      constraint ref against `sketch.entities` and raises on an unknown id, so a
+      client-only pseudo-id would have died at the first solve. Hence
+      `apps/web/src/sketch/datum.ts` — the frame as real geometry, materialised
+      LAZILY as pinned construction entities. Lazy is load-bearing: a sketch that
+      never grounds to the frame is byte-identical to before, the pins are
+      DOF-neutral, and there is ONE representation, so re-open needs no
+      reconstitution. Picking is strictly ADDITIVE on a plain click (drawn
+      geometry still wins wherever it is in range); a modifier click appends the
+      frame. The frame is a TARGET, not a subject — distance/radius/horizontal/
+      vertical/fixed/equal on it are refused by name, and the armed-dimension
+      rung (`dimensionPick`, c449235) is suppressed for a datum selection so it
+      cannot eat the next click. Pins carry no glyph and are excluded from the
+      "N applied" readout.
+      MEASURED END TO END, which is the bar that matters — a sketch that cannot
+      be constrained to its own datums is not parametric: a floating 24x16
+      rectangle, select corner -> Shift-click the origin -> `c`, and the solver
+      TRANSLATED the whole profile so the corner sits on (0,0). Persisted params
+      carry `origin` as a `construction: true` point with exactly one `fixed` pin
+      and NO `fixed` on any drawn entity — relational, not fixed-at-coords.
+      Re-opened via the tree row: still selectable, not duplicated. Width then
+      re-driven 24 -> 36 mm and the grounded corner was STILL exactly (0,0).
+      Mutation (`datumPickCandidates` returns `[]`, the pre-fix state): 2 failed,
+      `Received: "nothing selected · 8 applied"` — the founder's symptom verbatim
+      — with the positive control (`"1 ent"` on a drawn line) still passing
+      before the failure point, so the gate is sensitive to the frame and
+      insensitive to the rest. Reverted: 2 passed.
+      Gates: typecheck clean, **1659 unit tests** (was 1644), prettier + eslint
+      clean, mutation-marker gate clean, 42 neighbouring e2e specs green
+      including `sketch-escape-select`'s stacked-corner CYCLE case. Screenshots
+      at 1600 and 1280 under `docs/screenshots/sketch-origin-selected-*`.
+      NOT reviewed, NOT QA'd. NOT run: full `just e2e`, repo-wide `just lint`,
+      and ~15 remaining sketch specs (mirror, offset, trim/extend, spline,
+      fillet/chamfer, visibility) which touch the changed paths only via a
+      `withoutDatums` filter that unit tests cover but no browser has.
+      **THREE FOLLOW-UPS for the groomer.** (a) Mirroring ABOUT a datum axis is
+      out of scope — the mirror request is a server round trip carrying the
+      entity set and the frame is excluded from that pick path; the natural next
+      reach now the axes are selectable. (b) The SNAP-1 gap is now SHARPER, not
+      softer: a snap still copies the coordinate and infers no constraint, so
+      with the frame selectable "snap the corner to the origin" LOOKS grounded
+      and is not until you press `c`. (c) `dimensionVerbHint` offers no hint for
+      a frame selection (it only speaks D/R); "C — coincident" once two points
+      are held is the flow-correct addition.
+      One 5-line change landed outside the named territory and is flagged:
+      `SketchStrip.tsx` (constraint count -> `authoredConstraintCount`), without
+      which the strip reads "2 applied" after one user constraint.
 
 - [ ] (P0, M) **FB-21 — the origin axis glyphs are labelled in KERNEL space but
       drawn in SCENE space, which the GLB rotation has already turned.**

@@ -225,6 +225,62 @@ async function splitFaceMarks(
   return { wall, plate };
 }
 
+/**
+ * A page position guaranteed to be off every pick surface — the same one this
+ * file's stamp negative control already relies on.
+ */
+const OFF_BODY: Point = { x: 5, y: 5 };
+
+/**
+ * Is the hole's placement face REALLY under `point`?
+ *
+ * THE STAMP LAGS THE POINTER, so reading it straight after `page.mouse.move`
+ * answers about the PREVIOUS position. `page.mouse.move` resolves once the
+ * browser has dispatched the event; `data-hole-point-hover` is React state
+ * written a commit later. Measured on this build over 40 sampled points: 4
+ * reads lagged (null, then set once settled) and 3 led (set, then null once
+ * settled) — the race runs in BOTH directions.
+ *
+ * At the edge of the face that is fatal rather than cosmetic. The scan below
+ * walks a 12 px grid in raster order, so where a row crosses only a narrow
+ * sliver of the face the on-face run is one or two points long; a lag of one
+ * point makes the FIRST OFF-FACE point inherit the last on-face point's stamp,
+ * the scan drills there, `HolePointOverlay.pointAt` correctly refuses a hit
+ * that is not the placement face, and the readout never leaves "Centre of
+ * face". Reproduced here 3 runs in 6 under CPU load, with the identical
+ * message CI reported — and at the same rate with `a810524` (DIM-1) reverted,
+ * which is what rules that fix out as the cause.
+ *
+ * So the scan stays the cheap FILTER it always was and this is the oracle. It
+ * is settle-tolerant rather than a fixed frame budget, and it NULLS the stamp
+ * first: without that baseline a stale "1" cannot be told from a fresh one,
+ * which is the whole defect.
+ */
+async function confirmsPlacementFace(
+  page: Page,
+  viewport: Locator,
+  point: Point,
+): Promise<boolean> {
+  await page.mouse.move(OFF_BODY.x, OFF_BODY.y);
+  await expect(viewport).not.toHaveAttribute("data-hole-point-hover", /.*/, {
+    timeout: 10_000,
+  });
+  await page.mouse.move(point.x, point.y);
+  return page
+    .waitForFunction(
+      () =>
+        document
+          .querySelector('[data-testid="viewport"]')
+          ?.getAttribute("data-hole-point-hover") !== null,
+      undefined,
+      { timeout: 5_000, polling: 100 },
+    )
+    .then(
+      () => true,
+      () => false,
+    );
+}
+
 async function armFilletPick(page: Page): Promise<void> {
   await expect(page.getByTestId("new-fillet")).toBeEnabled({ timeout: 30_000 });
   await page.getByTestId("new-fillet").click();
@@ -957,6 +1013,7 @@ test.describe("SEL-4 — the armed pick addresses the geometry", () => {
     ).flatMap((b) => (b === null ? [] : [b]));
     const points = await litPoints(page, { step: 12 });
     let placed: Point | null = null;
+    let confirmations = 0;
     for (const point of points) {
       const clear = snapBoxes.every(
         (b) =>
@@ -967,11 +1024,20 @@ test.describe("SEL-4 — the armed pick addresses the geometry", () => {
       );
       if (!clear) continue;
       await page.mouse.move(point.x, point.y);
+      // The FILTER: one round trip over ~1500 grid points, and it is allowed to
+      // be wrong at the face's edge because nothing is drilled on its word.
       if ((await viewport.getAttribute("data-hole-point-hover")) === null) {
         continue;
       }
-      placed = point;
-      break;
+      // The ORACLE (see confirmsPlacementFace). Bounded, because each one is a
+      // settle: a healthy scan needs one or two, so 12 is headroom, not a
+      // budget the run is expected to spend.
+      confirmations += 1;
+      if (confirmations > 12) break;
+      if (await confirmsPlacementFace(page, viewport, point)) {
+        placed = point;
+        break;
+      }
     }
     expect(
       placed,

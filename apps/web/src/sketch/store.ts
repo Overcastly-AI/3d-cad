@@ -36,6 +36,7 @@ import { create, type StateCreator } from "zustand";
 
 import {
   applyConstraintAction,
+  constraintEntityRefs,
   reconcileConstraints,
   toggleConstruction,
   type ConstraintAction,
@@ -46,6 +47,14 @@ import {
   type SolveInfo,
 } from "./constraints";
 import { toggleCornerPick, type CornerOp } from "./corner";
+import {
+  datumFrame,
+  DEFAULT_FRAME_HALF_HEIGHT_MM,
+  groundDatums,
+  pickWithDatums,
+  selectionTouchesDatum,
+  withDatums,
+} from "./datum";
 import {
   drawDimensionConstraints,
   drawDimensionFields,
@@ -61,7 +70,6 @@ import { originIdentity } from "./origin";
 import type { DatumPlaneName, Point2D, SketchPlaneSpec } from "./plane";
 import {
   applyPick,
-  pickCandidates,
   toggleSelection,
   type PickMode,
   type SketchPick,
@@ -193,6 +201,14 @@ export interface SketchState {
   cursor: Point2D | null;
   /** Plane under the pointer / focused cell during plane pick. */
   hoveredPlane: DatumPlaneName | null;
+  /**
+   * Half-height (mm) of the frame the sketch camera parks in — the scene's own
+   * `sketchFrameHalfHeightMm`, reported in by `setDatumFrame`. It sizes the
+   * origin ring and the axes, and therefore the region that PICKS them
+   * (`sketch/datum.ts`): the pick geometry is derived from the same number that
+   * draws the ink, so what you aim at is what you hit.
+   */
+  datumFrameHalfMm: number;
   /** Current selection (select tool): entities and defining points. */
   selection: SketchPick[];
   /** Pick under the pointer (select tool) — hover highlight. */
@@ -348,6 +364,11 @@ export interface SketchState {
   setTool: (tool: SketchTool) => void;
   setHoveredPlane: (plane: DatumPlaneName | null) => void;
   setCursor: (point: Point2D | null) => void;
+  /**
+   * Report the camera's framing (mm) so the sketch frame's PICK region is
+   * derived from the same number that draws its ink (`datumFrameHalfMm`).
+   */
+  setDatumFrame: (frameHalfHeightMm: number) => void;
   /** Toggle the GRID snap (G). Entity snapping is unaffected — it is always on. */
   toggleSnap: () => void;
   /** Set the grid step in mm (a settings-surface seam; <= 0 is rejected). */
@@ -525,6 +546,7 @@ const INITIAL = {
   aimToleranceMm: 0,
   cursor: null,
   hoveredPlane: null,
+  datumFrameHalfMm: DEFAULT_FRAME_HALF_HEIGHT_MM,
   selection: [],
   hoverPick: null,
   selectedConstraint: null,
@@ -732,6 +754,11 @@ const createSketchState = (
         ? { cursor: null, snapCandidate: null, aimRaw: null }
         : { cursor },
     ),
+  setDatumFrame: (frameHalfHeightMm) => {
+    if (!Number.isFinite(frameHalfHeightMm) || frameHalfHeightMm <= 0) return;
+    if (get().datumFrameHalfMm === frameHalfHeightMm) return;
+    set({ datumFrameHalfMm: frameHalfHeightMm });
+  },
   toggleSnap: () => set((state) => ({ snapEnabled: !state.snapEnabled })),
   setSnapStep: (stepMm) => {
     if (!Number.isFinite(stepMm) || stepMm <= 0) return;
@@ -855,7 +882,20 @@ const createSketchState = (
 
   selectAt: (point, toleranceMm, mode) => {
     const state = get();
-    const candidates = pickCandidates(state.entities, point, toleranceMm);
+    // The sketch frame picks like any other geometry (SKETCH-2): the origin
+    // ring and the two axes are candidates here, ordered behind whatever the
+    // user drew. Everything downstream — the readout, the constraint verbs, the
+    // Escape cascade — then treats a datum pick as an ordinary member of
+    // `selection`, which is the whole reason this is a picking change and not a
+    // new mode.
+    const pickMode = mode ?? pickModeOf(state);
+    const candidates = pickWithDatums(
+      state.entities,
+      point,
+      toleranceMm,
+      datumFrame(state.datumFrameHalfMm),
+      pickMode,
+    );
     // An ARMED dimension verb consumes this click instead of selecting with it:
     // the whole point of arming was that "select the line first" was the step
     // the user could not reach. Take the CURVE under the pointer (points are
@@ -896,11 +936,7 @@ const createSketchState = (
       return;
     }
     set({
-      selection: applyPick(
-        state.selection,
-        candidates,
-        mode ?? pickModeOf(state),
-      ),
+      selection: applyPick(state.selection, candidates, pickMode),
       selectedConstraint: null,
       hint: null,
     });
@@ -917,22 +953,39 @@ const createSketchState = (
   clearSelection: () => set({ selection: [], selectedConstraint: null }),
 
   applyConstraint: (action) => {
-    const { selection, entities, constraints, revision } = get();
+    const { selection, entities, constraints, revision, datumFrameHalfMm } =
+      get();
+    const frame = datumFrame(datumFrameHalfMm);
+    // The verb reasons over the drawn geometry PLUS the frame, so a datum ref
+    // resolves before the datum has been materialised into the buffer.
     const result = applyConstraintAction(
       action,
       selection,
-      entities,
+      withDatums(entities, frame),
       constraints,
     );
     switch (result.outcome) {
-      case "added":
+      case "added": {
+        // Whatever part of the frame the new constraint reached for now becomes
+        // real construction geometry, pinned, so the solver has something to
+        // resolve the reference against and the origin cannot be dragged off
+        // zero by the constraint that names it. Nothing is added for a
+        // constraint that never touches the frame.
+        const referenced = result.constraints.flatMap(constraintEntityRefs);
+        const grounded = groundDatums(entities, referenced, frame);
         set({
-          constraints: [...constraints, ...result.constraints],
+          entities: grounded.entities,
+          constraints: [
+            ...constraints,
+            ...result.constraints,
+            ...grounded.constraints,
+          ],
           revision: revision + 1,
           selection: [],
           hint: null,
         });
         return;
+      }
       case "editor":
         set({ dimensionEdit: result.target, dimensionPick: null, hint: null });
         return;
@@ -943,7 +996,14 @@ const createSketchState = (
         // shape's first corner, so "select one line" is an instruction the user
         // cannot carry out. The size cells of the shape just drawn go too —
         // they hang over the geometry now being picked.
-        if (action === "distance" || action === "radius") {
+        // …unless the user aimed AT THE FRAME. Arming would answer "click a
+        // line to dimension it" to someone who just told us which line they
+        // meant, and would then eat their next click; the refusal names the
+        // verbs the frame does accept, so it is guidance, not a dead end.
+        if (
+          (action === "distance" || action === "radius") &&
+          !selectionTouchesDatum(selection)
+        ) {
           set({
             dimensionPick: action,
             tool: "select",

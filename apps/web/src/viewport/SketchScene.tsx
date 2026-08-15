@@ -71,6 +71,19 @@ import {
   originIdentity,
   originRingSegments,
 } from "../sketch/origin";
+import {
+  DATUM_LABELS,
+  DATUM_PICKS,
+  DATUM_X_AXIS_ID,
+  DATUM_Y_AXIS_ID,
+  DATUM_ORIGIN_ID,
+  datumFrame,
+  datumPickState,
+  pickWithDatums,
+  withoutDatums,
+  type DatumKind,
+  type DatumPickState,
+} from "../sketch/datum";
 import { pickCandidates, samePick, PICK_TOLERANCE_PX } from "../sketch/pick";
 import {
   DATUM_PLANES,
@@ -516,11 +529,25 @@ function PointerCatcher({ basis }: { basis: PlaneBasis }) {
         // the first click of a fast key-then-click sequence.
         const aimTool = useSketchStore.getState().tool;
         if (!placesPoints(aimTool)) {
-          const all = pickCandidates(
-            useSketchStore.getState().entities,
-            raw,
-            toleranceMm(e),
-          );
+          const state = useSketchStore.getState();
+          // Select hovers the frame too (SKETCH-2) — the same candidate list
+          // `selectAt` clicks, so the highlight can never promise a pick the
+          // click does not make. The whole-curve tools (trim/extend/offset/
+          // mirror/corner) address DRAWN geometry only: the frame is not
+          // theirs to cut, reflect or fillet.
+          const all =
+            aimTool === "select"
+              ? pickWithDatums(
+                  state.entities,
+                  raw,
+                  toleranceMm(e),
+                  datumFrame(state.datumFrameHalfMm),
+                )
+              : pickCandidates(
+                  withoutDatums(state.entities),
+                  raw,
+                  toleranceMm(e),
+                );
           // Trim/extend/offset/mirror address a whole curve — the aim affordance
           // highlights the hovered target only (points are irrelevant to them);
           // select keeps its finer point-first grain. In the mirror axis phase
@@ -619,9 +646,11 @@ function PointerCatcher({ basis }: { basis: PlaneBasis }) {
           // choose the segment/end, and snapping would jump off a fine target.
           const raw = rawPlanePoint(e);
           const target =
-            pickCandidates(store.entities, raw, toleranceMm(e)).find(
-              (pick) => pick.kind === "entity",
-            ) ?? null;
+            pickCandidates(
+              withoutDatums(store.entities),
+              raw,
+              toleranceMm(e),
+            ).find((pick) => pick.kind === "entity") ?? null;
           store.requestEdit(
             clickTool,
             target !== null && target.kind === "entity" ? target.id : null,
@@ -632,9 +661,11 @@ function PointerCatcher({ basis }: { basis: PlaneBasis }) {
           // the inline signed-distance editor; the offset fires on confirm.
           const raw = rawPlanePoint(e);
           const target =
-            pickCandidates(store.entities, raw, toleranceMm(e)).find(
-              (pick) => pick.kind === "entity",
-            ) ?? null;
+            pickCandidates(
+              withoutDatums(store.entities),
+              raw,
+              toleranceMm(e),
+            ).find((pick) => pick.kind === "entity") ?? null;
           store.beginOffset(
             target !== null && target.kind === "entity" ? target.id : null,
           );
@@ -643,9 +674,11 @@ function PointerCatcher({ basis }: { basis: PlaneBasis }) {
           // phase) click a line to reflect them about it.
           const raw = rawPlanePoint(e);
           const target =
-            pickCandidates(store.entities, raw, toleranceMm(e)).find(
-              (pick) => pick.kind === "entity",
-            ) ?? null;
+            pickCandidates(
+              withoutDatums(store.entities),
+              raw,
+              toleranceMm(e),
+            ).find((pick) => pick.kind === "entity") ?? null;
           const id = target?.kind === "entity" ? target.id : null;
           if (store.mirror?.phase === "axis") store.pickMirrorAxis(id);
           else store.toggleMirrorTarget(id);
@@ -654,9 +687,11 @@ function PointerCatcher({ basis }: { basis: PlaneBasis }) {
           // the value editor opens once both are held.
           const raw = rawPlanePoint(e);
           const target =
-            pickCandidates(store.entities, raw, toleranceMm(e)).find(
-              (pick) => pick.kind === "entity",
-            ) ?? null;
+            pickCandidates(
+              withoutDatums(store.entities),
+              raw,
+              toleranceMm(e),
+            ).find((pick) => pick.kind === "entity") ?? null;
           store.pickCornerLine(
             target !== null && target.kind === "entity" ? target.id : null,
           );
@@ -1151,6 +1186,13 @@ function SketchOrigin({
   const identity = originIdentity(plane);
   const axisLengthMm = frameHalfHeightMm * ORIGIN_AXIS_FRACTION;
   const spans = useMemo(() => originAxisSpans(axisLengthMm), [axisLengthMm]);
+  const selection = useSketchStore((state) => state.selection);
+  const hoverPick = useSketchStore((state) => state.hoverPick);
+  const originState = datumPickState(DATUM_ORIGIN_ID, selection, hoverPick);
+  const axisState: Record<"x" | "y", DatumPickState> = {
+    x: datumPickState(DATUM_X_AXIS_ID, selection, hoverPick),
+    y: datumPickState(DATUM_Y_AXIS_ID, selection, hoverPick),
+  };
 
   const ring = useMemo(
     () =>
@@ -1160,45 +1202,58 @@ function SketchOrigin({
       ),
     [basis, frameHalfHeightMm],
   );
-  const positive = useMemo(
+  const originDot = useMemo(
     () =>
-      segmentPositions(
-        basis,
-        spans.map((span) => span.positive),
-      ),
-    [basis, spans],
+      originState === "idle"
+        ? new Float32Array(0)
+        : new Float32Array(planeToWorld(basis, { x: 0, y: 0 })),
+    [basis, originState],
   );
-  const negative = useMemo(
+  const axisPositions = useMemo(
     () =>
-      segmentPositions(
-        basis,
-        spans.map((span) => span.negative),
-      ),
+      spans.map((span) => ({
+        key: span.key,
+        positive: segmentPositions(basis, [span.positive]),
+        negative: segmentPositions(basis, [span.negative]),
+      })),
     [basis, spans],
   );
 
   return (
     <group>
-      <InkSegments
-        positions={positive}
-        color={sketch.constructionInk}
-        onTop
-        order={PLANE_FRAME_RENDER_ORDER}
-      />
-      <InkSegments
-        positions={negative}
-        color={sketch.constructionInk}
-        dashed
-        dashSize={axisLengthMm * ORIGIN_DASH_FRACTION}
-        gapSize={axisLengthMm * ORIGIN_GAP_FRACTION}
-        onTop
-        order={PLANE_FRAME_RENDER_ORDER}
-      />
+      {axisPositions.map((axis) => (
+        <group key={axis.key}>
+          <InkSegments
+            positions={axis.positive}
+            color={DATUM_INK[axisState[axis.key]]}
+            onTop
+            order={PLANE_FRAME_RENDER_ORDER}
+          />
+          <InkSegments
+            positions={axis.negative}
+            color={DATUM_INK[axisState[axis.key]]}
+            dashed
+            dashSize={axisLengthMm * ORIGIN_DASH_FRACTION}
+            gapSize={axisLengthMm * ORIGIN_GAP_FRACTION}
+            onTop
+            order={PLANE_FRAME_RENDER_ORDER}
+          />
+        </group>
+      ))}
       <InkSegments
         positions={ring}
-        color={sketch.constructionInk}
+        color={DATUM_INK[originState]}
         onTop
         order={PLANE_FRAME_RENDER_ORDER}
+      />
+      {/* Engaged, the ring wears the picked-point dot every other defining
+          point wears — the frame joins the handle language rather than
+          inventing a second one for itself. */}
+      <InkPoints
+        positions={originDot}
+        color={DATUM_INK[originState]}
+        sizePx={sketch.pickedPointSizePx}
+        onTop
       />
       {spans.map((span) => (
         <Html
@@ -1210,36 +1265,107 @@ function SketchOrigin({
         >
           <span
             data-testid={`sketch-axis-label-${span.key}`}
-            className="font-data text-2xs tracking-[0.18em] text-gauge"
+            data-pick-state={axisState[span.key]}
+            className={`font-data text-2xs tracking-[0.18em] ${
+              axisState[span.key] === "idle" ? "text-gauge" : "text-brass"
+            }`}
           >
             {span.label}
           </span>
         </Html>
       ))}
-      {/* The mark's own name, for anyone who cannot see it — and the QA hook
-          that says WHICH origin this plane has. Not painted into the viewport:
-          standing text at zero would be chrome repeating itself on every frame,
-          and the snap mark already says the word at the moment it matters.
-          Pointer-inert, because the one click this must never eat is the click
-          that places a point exactly here. */}
+      {/* The frame's DOM: its name for anyone who cannot see it, the QA hook
+          that says WHICH origin this plane has, and — since SKETCH-2 made the
+          frame selectable — a keyboard path to select it.
+
+          Every element here is pointer-INERT by design. The one click this must
+          never eat is the click that places a point exactly at zero; the canvas
+          owns pointer picking (`datumPickCandidates`), and these controls exist
+          for the keyboard. Focus is visible in the VIEWPORT rather than on the
+          control: focusing one hovers its datum, so the ring or the axis lights
+          up in the scene — the ink is the focus ring, which is the only place a
+          screen-reader-only control could honestly show one. */}
       <Html
         position={planeToWorld(basis, { x: 0, y: 0 })}
         center
         style={{ pointerEvents: "none" }}
       >
-        <span
-          className="sr-only"
-          role="img"
-          data-testid="sketch-origin"
-          data-origin-label={identity.label}
-          aria-label={
+        <DatumHandle
+          id={DATUM_ORIGIN_ID}
+          testId="sketch-origin"
+          state={originState}
+          label={
             identity.note === null
               ? `Sketch origin — ${identity.label}`
               : `Sketch origin — ${identity.label}. ${identity.note}`
           }
+          originLabel={identity.label}
+        />
+        <DatumHandle
+          id={DATUM_X_AXIS_ID}
+          testId="sketch-axis-x"
+          state={axisState.x}
+          label={`Sketch ${DATUM_LABELS[DATUM_X_AXIS_ID]}`}
+        />
+        <DatumHandle
+          id={DATUM_Y_AXIS_ID}
+          testId="sketch-axis-y"
+          state={axisState.y}
+          label={`Sketch ${DATUM_LABELS[DATUM_Y_AXIS_ID]}`}
         />
       </Html>
     </group>
+  );
+}
+
+/**
+ * The frame's ink, per pick state. Both renderers read one palette: `hoverInk`
+ * and `selectedInk` are the SAME brass the drawn geometry uses, so the frame
+ * answers a pick in the language the rest of the sketcher already speaks.
+ */
+const DATUM_INK: Readonly<Record<DatumPickState, string>> = {
+  idle: sketch.constructionInk,
+  hover: sketch.hoverInk,
+  selected: sketch.selectedInk,
+};
+
+/**
+ * One screen-reader-only, keyboard-reachable handle for a member of the sketch
+ * frame. `aria-pressed` carries the selection, so a keyboard user hears what
+ * they hold; `data-pick-state` is the same fact for QA. Pointer-inert (see the
+ * caller) — activating it is a keyboard act, and hovering it is a focus act.
+ */
+function DatumHandle({
+  id,
+  testId,
+  state,
+  label,
+  originLabel,
+}: {
+  id: DatumKind;
+  testId: string;
+  state: DatumPickState;
+  label: string;
+  originLabel?: string;
+}) {
+  const togglePick = useSketchStore((store) => store.togglePick);
+  const setHoverPick = useSketchStore((store) => store.setHoverPick);
+  return (
+    <button
+      type="button"
+      className="sr-only"
+      style={{ pointerEvents: "none" }}
+      data-testid={testId}
+      data-pick-state={state}
+      {...(originLabel === undefined
+        ? {}
+        : { "data-origin-label": originLabel })}
+      aria-pressed={state === "selected"}
+      aria-label={label}
+      onFocus={() => setHoverPick(DATUM_PICKS[id])}
+      onBlur={() => setHoverPick(null)}
+      onClick={() => togglePick(DATUM_PICKS[id])}
+    />
   );
 }
 
@@ -1340,7 +1466,12 @@ function witnessPositions(
  * and the constraint annotation layer.
  */
 function DrawLayer({ basis }: { basis: PlaneBasis }) {
-  const entities = useSketchStore((state) => state.entities);
+  const buffered = useSketchStore((state) => state.entities);
+  // The sketch frame is drawn by `SketchOrigin`, at the size the camera parks
+  // at — so once it has been materialised into the buffer (grounding a profile
+  // to it), it must not ALSO be drawn here as ordinary construction geometry.
+  // One owner for the frame's ink; one cross at zero, not two.
+  const entities = useMemo(() => withoutDatums(buffered), [buffered]);
   const pending = useSketchStore((state) => state.pending);
   const tool = useSketchStore((state) => state.tool);
   const cursor = useSketchStore((state) => state.cursor);
@@ -1559,7 +1690,14 @@ function DatumHintSheet({ basis }: { basis: PlaneBasis }) {
 
 /** Persisted sketches, rendered from the SOLVED evaluate payload. */
 function SolvedLayer({ layer }: { layer: SolvedSketchLayer }) {
-  const parts = useMemo(() => partitionConstruction(layer.entities), [layer]);
+  // A saved sketch carries its frame as construction entities once anything was
+  // grounded to it (`sketch/datum.ts`). They are the plane's own datum, not ink
+  // the user drew, so a solved layer never paints them — the world origin triad
+  // already says where zero is out here.
+  const parts = useMemo(
+    () => partitionConstruction(withoutDatums(layer.entities)),
+    [layer],
+  );
   const profilePositions = useMemo(
     () => entitySegmentPositions(parts.profile, layer.basis),
     [parts, layer.basis],
@@ -1756,6 +1894,12 @@ export function SketchScene({ solved, facePicking = false }: SketchSceneProps) {
     () => (plane === null ? 0 : sketchFrameHalfHeightMm(plane, camera)),
     [plane, camera],
   );
+  // The store picks the frame with the number that DRAWS it, so the region that
+  // selects the origin and the axes is the ink the user is aiming at (SKETCH-2).
+  const setDatumFrame = useSketchStore((state) => state.setDatumFrame);
+  useEffect(() => {
+    setDatumFrame(frameHalfHeightMm);
+  }, [frameHalfHeightMm, setDatumFrame]);
   // WHICH solved sketches are drawn (UI-W2, part half). The rule used to be a
   // hard one-liner in the workspace — "a body exists, so draw no sketch ink at
   // all" — which is a reasonable DEFAULT (coincident scribe ink z-fights the
