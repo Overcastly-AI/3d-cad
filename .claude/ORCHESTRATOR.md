@@ -243,5 +243,23 @@ Full list in `CLAUDE.md`. The ones that cost the loop most:
   around it. Count the occurrences with
   `grep -c 'permission handler returned updatedInput' <transcript>.jsonl`; a
   clean canary means the batch is safe to send.
+  **AND THAT REFINEMENT WAS ITSELF WRONG WITHIN ONE CYCLE — the canary was not a
+  valid control.** I sent one `Agent`-tool dispatch, it saw ZERO faults across
+  ~45 calls and finished a full ticket, and I concluded "the fault has passed"
+  and relaunched the workflow. It died identically: 12, 21 and 10 occurrences,
+  both auditors EMPTY again. The canary differed from the batch in THREE ways at
+  once — dispatch mechanism (`Agent` vs `Workflow`), concurrency (one agent vs
+  two auditors in parallel), and schema (none vs `StructuredOutput`) — so a clean
+  result could not isolate anything. That is the third time in one day I reasoned
+  from one data point per side, having written the rule down twice. **A control
+  that varies more than one thing is not a control, it is an anecdote.**
+  What IS measured: two `Workflow` runs failed heavily (10/11/24 and 12/21/10),
+  one `Agent` run was clean, and the stripped calls span `Bash` (19), `Glob` (6),
+  `Grep` (4), `Read` (9) and `Write` (3) — so it is not Bash-specific and not
+  schema-specific either (the auditors carry no schema and still returned empty).
+  Practical rule until someone isolates it properly: **when `Workflow` fails this
+  way twice, fall back to `Agent` dispatches and run the loop's phases by hand.**
+  That is a workaround chosen on evidence, not a diagnosis — do not write it up
+  as one.
 - **Playwright's `actionTimeout` is unset**, meaning *no* timeout. A `.catch()`
   cannot save you from a promise that never settles; pass explicit timeouts.
