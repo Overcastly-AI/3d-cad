@@ -31,8 +31,8 @@ GEOM-2's tier 4 shipped (`8b95dac`) and closed M17's control case, then a code
 review (`57711c4`) quantified its honest limit: at r>=~25% open area on a
 face, tier 4 can silently re-target a deleted feature's sketch onto the wrong
 face — filed as GEOM-3 (P0, the durable fix), GEOM-4/GEOM-5 (smaller
-follow-ups). See `docs/BACKLOG.md` Ready: DIM-1/QAH-1/SNAP-1/PICK-1/GEOM-3/
-SKETCH-2 are the next batch. (The flow-overhaul item formerly numbered FB-20
+follow-ups). See `docs/BACKLOG.md` Ready. DIM-1, QAH-1, SNAP-1 and SKETCH-2 have
+since SHIPPED (entries below); PICK-1 and GEOM-3 remain. (The flow-overhaul item formerly numbered FB-20
 was renamed FLOW-1 — that id collided with the camera-stolen-after-extrude
 fix, also FB-20, closed below.)
 
@@ -76,6 +76,53 @@ harness-produced fixture). Groom pass 2026-08-14 (post-VP-1/SKETCH-1) filed
 **SNAP-1** (founder "snap points not working," never reproduced before now)
 onto the board; both queue behind the currently-occupied
 `apps/web/src/{viewport,sketch}/**` territories.
+
+**SKETCH-2 CLOSED (`5ceed6e`, ticked `8932e4c`, reviewed request-changes) — the
+sketch origin and axes are selectable, which closes the FOUNDER's "snap points
+do not work" report** (SNAP-1 closed as its duplicate: detection was correct all
+along, selection was not). The frame is now real geometry, materialised lazily as
+pinned construction entities, so a sketch that never grounds to it is unchanged.
+Verified end to end against the bar that makes a modeller parametric: ground a
+floating rectangle's corner to the origin and the solver TRANSLATES the profile;
+the saved file records a coincident constraint and **no** `fixed` on any drawn
+entity; it survives save and re-open; re-driving the width leaves the grounded
+corner exactly at (0,0). Independent review confirmed the persistence claim
+against what is written rather than the readout, confirmed the mutation verbatim
+including that its positive control is genuinely positive, and additionally ran
+the six sketch specs the builder had left unrun — 18/18 green.
+
+**Review found one BLOCKING user-facing defect and it is open:** symmetric about
+a datum axis — the marquee case the module's own refusal hint recommends —
+produces `OVER-CONSTRAINED` pointing at nothing. The geometry is correct
+(measured, the rectangle centres on the axis), but the redundant constraint the
+banner means is a datum PIN, which is glyph-suppressed by design and therefore
+cannot be seen, selected or deleted. Isolated against the real solver with four
+counterfactuals: unpinned construction line -> underconstrained; one pin ->
+underconstrained; both pins (what `datumPins` authors) -> **overconstrained**,
+redundant index = the second pin. So it is specific to `symmetric` plus the
+both-ends pinning, and the both-ends decision is itself defensible. **The general
+lesson: if you hide a constraint from the user, you must also guarantee the
+solver can never ask them to delete it.**
+
+Two undisclosed behaviour changes the review measured against `ce40e44`, both
+outside the "strictly additive" claim's wording (which itself holds): a modifier
+UN-pick now appends the datum instead of deselecting wherever the frame lies
+under the pointer, and a plain click on empty steel along an axis selects the
+axis instead of clearing the selection — the latter across a full-viewport cross
++/-8 px wide. Also: the entity count still includes the materialised datum
+("5 entities" for four drawn), which is the exact inconsistency the SketchStrip
+change was made to avoid.
+
+**And two numbers in the record were wrong, both mine for repeating them without
+re-deriving.** The unit-test count is 1622 -> 1659 (**37 new**), not "1659, was
+1644" / "15 new" — corrected below. And the headline "the ring is ~10 px from
+centre against an 8 px tolerance, so clicking ON the mark misses BY
+CONSTRUCTION" is **viewport-dependent and false at 1280x800**: ring_px =
+0.011 x canvasHeight, so 1600x1000 gives canvas 852 px -> 9.37 px (a 1.4 px
+margin, not "by construction"), while 1280x800 gives canvas 652 px -> **7.17 px,
+inside the 8 px tolerance**. At the small-laptop width the design mandate
+requires, a naive centre-point pick WOULD have answered the founder's gesture.
+I quoted the universal form to the founder; it is corrected here and to them.
 
 **CI-4 SUBSTRATE (2026-08-15) — the e2e suite's rest/settle layer, attacked as a
 class. One root found, one honestly NOT found, and no forced unification.**

@@ -458,15 +458,25 @@ duplication.
       SHIPPED 5ceed6e — and this CLOSES THE FOUNDER'S "snap points do not work"
       report (SNAP-1 closed as its duplicate: snap detection was correct all
       along; selection was not).
-      MECHANISM CONFIRMED, with a second quantitative half the ticket did not
-      have: the frame was drawn as pure `InkSegments` while picking ran entirely
-      through `pickCandidates(state.entities, …)`, so it had nothing to hit — AND
-      **even a point pick at (0,0) would not have covered the founder's
-      gesture**, because the ring is drawn at `ORIGIN_RING_FRACTION` (0.022) of
-      the camera's frame half-height, ~**10 px** from centre, against a
-      `PICK_TOLERANCE_PX` of **8**. Clicking ON the mark misses a centre-point
-      target by construction. The fix derives the grab region from the same
-      fractions that draw the ink.
+      MECHANISM CONFIRMED: the frame was drawn as pure `InkSegments` while
+      picking ran entirely through `pickCandidates(state.entities, …)`, so it had
+      nothing to hit. The fix derives the grab region from the same fractions
+      that draw the ink.
+      **THE SECOND, QUANTITATIVE HALF WAS OVERSTATED — corrected by review.** The
+      claim was that the ring sits ~10 px from centre against an 8 px
+      `PICK_TOLERANCE_PX`, so clicking ON the mark misses a centre-point target
+      "by construction", i.e. a naive fix would also have failed. The constants
+      are right (`ORIGIN_RING_FRACTION = 0.022`, `PICK_TOLERANCE_PX = 8`) and the
+      arithmetic collapses to `ring_px = 0.011 x canvasHeight`, independent of
+      camera distance and fov — but it is therefore VIEWPORT-DEPENDENT, and the
+      original measurement was taken at one width. Measured at both:
+      1600x1000 -> canvas 852 px -> **9.37 px** (clears 8 by 1.4 px, which is a
+      margin, not "by construction"); 1280x800 -> canvas 652 px -> **7.17 px,
+      INSIDE the tolerance**. So at the small-laptop width the design mandate
+      requires, a centre-point pick WOULD have answered the founder's gesture.
+      The fix is still right and still broader than a point pick; the sentence
+      justifying it was not true as stated, and it had already been quoted to the
+      founder before the review caught it.
       A third constraint forced the design: `planegcs_solver.py` resolves every
       constraint ref against `sketch.entities` and raises on an unknown id, so a
       client-only pseudo-id would have died at the first solve. Hence
@@ -494,7 +504,9 @@ duplication.
       — with the positive control (`"1 ent"` on a drawn line) still passing
       before the failure point, so the gate is sensitive to the frame and
       insensitive to the rest. Reverted: 2 passed.
-      Gates: typecheck clean, **1659 unit tests** (was 1644), prettier + eslint
+      Gates: typecheck clean, **1659 unit tests** (1622 before this change, so
+      37 new, not the 15 the commit message claims — corrected by review by
+      running vitest at both commits), prettier + eslint
       clean, mutation-marker gate clean, 42 neighbouring e2e specs green
       including `sketch-escape-select`'s stacked-corner CYCLE case. Screenshots
       at 1600 and 1280 under `docs/screenshots/sketch-origin-selected-*`.
