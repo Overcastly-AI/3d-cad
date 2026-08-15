@@ -184,7 +184,16 @@ test.describe("dimension a just-drawn shape (desktop 1440)", () => {
 
     const value = page.getByTestId("dimension-input");
     await expect(value).toHaveValue("43");
-    await value.fill("60");
+    // TYPED, ONE KEY AT A TIME, AT HUMAN SPEED — `fill()` sets the value in a
+    // single shot and never exercises the path a person uses, which is how the
+    // second half of the founder's report hid behind a green spec (DIM-1). The
+    // editor's cells were CONTROLLED, so React restored the DOM from a render
+    // that predated the keystroke: measured on the pre-fix build, "125" over a
+    // pre-filled "43" ended as "43" — every character lost — at 0/20/40/60/80 ms
+    // per key, surviving only from 120 ms. 60 ms is a fast typist, and it is
+    // squarely inside the broken band.
+    await value.pressSequentially("60", { delay: 60 });
+    await expect(value).toHaveValue("60");
     await value.press("Enter");
     await expect(editor).toHaveCount(0);
 
@@ -246,7 +255,11 @@ test.describe("dimension a just-drawn shape (desktop 1440)", () => {
     await page.mouse.click(mid.x, mid.y);
     await expect(page.getByTestId("dimension-editor")).toBeVisible();
     const value = page.getByTestId("dimension-input");
-    await value.fill("25");
+    // The adversarial floor of the same path: no delay at all between keys, the
+    // case a numeric keypad gets closest to. Pre-fix this left the cell reading
+    // its "43" prefill.
+    await value.pressSequentially("25", { delay: 0 });
+    await expect(value).toHaveValue("25");
     await value.press("Enter");
     await expect(page.getByTestId("glyph-0")).toHaveText("25", {
       timeout: 15_000,

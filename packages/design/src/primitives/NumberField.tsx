@@ -1,4 +1,4 @@
-import type { InputHTMLAttributes } from "react";
+import type { InputHTMLAttributes, Ref } from "react";
 import { useId } from "react";
 
 import { cx } from "../cx";
@@ -31,6 +31,13 @@ export interface NumberFieldProps extends Omit<
    * never applied to twelve of them by changing a default.
    */
   layout?: "stacked" | "inline";
+  /**
+   * Handle on the cell itself — same reason as {@link ExpressionFieldProps.ref}:
+   * an UNCONTROLLED cell (the browser owns the text, so keystrokes typed faster
+   * than React can commit are never restored over) is only readable through the
+   * node, and the primitive owns the node.
+   */
+  ref?: Ref<HTMLInputElement>;
 }
 
 /**
@@ -45,6 +52,7 @@ export function NumberField({
   className,
   emphasis = "default",
   layout = "stacked",
+  ref,
   ...rest
 }: NumberFieldProps) {
   const id = useId();
@@ -69,6 +77,7 @@ export function NumberField({
     >
       <input
         id={id}
+        ref={ref}
         type="text"
         inputMode="decimal"
         autoComplete="off"

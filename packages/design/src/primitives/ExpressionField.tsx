@@ -1,4 +1,4 @@
-import type { InputHTMLAttributes, ReactNode } from "react";
+import type { InputHTMLAttributes, ReactNode, Ref } from "react";
 import { useId } from "react";
 
 import { cx } from "../cx";
@@ -19,6 +19,14 @@ export interface ExpressionFieldProps extends Omit<
    * only when there's no error. Null hides the line.
    */
   resolved?: ReactNode;
+  /**
+   * Handle on the cell itself. Load-bearing, not a convenience: a caller that
+   * lets the BROWSER own the text (uncontrolled — see the note on
+   * `DimensionTagCell`) has no other way to read what was typed, and a
+   * controlled dimension cell drops keystrokes at human typing speed (DIM-1).
+   * The primitive owns the `<input>`, so the primitive has to hand it back.
+   */
+  ref?: Ref<HTMLInputElement>;
 }
 
 /**
@@ -35,6 +43,7 @@ export function ExpressionField({
   error,
   resolved,
   className,
+  ref,
   ...rest
 }: ExpressionFieldProps) {
   const id = useId();
@@ -56,6 +65,7 @@ export function ExpressionField({
       >
         <input
           id={id}
+          ref={ref}
           type="text"
           inputMode="text"
           autoComplete="off"
