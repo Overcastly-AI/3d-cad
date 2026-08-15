@@ -40,11 +40,34 @@ set -uo pipefail
 # (find finishes first), which is why it looked fine. `-print -quit` stops at the
 # first hit with no second process to race. Found by the negative control below,
 # not by reading.
+#
+# AND THE TRANSCRIPT IS THE WRONG SIGNAL ON ITS OWN. A task's `.output` is the
+# agent's conversation transcript, and an agent deep in tool work does not flush
+# it — measured 2026-08-15, an agent whose transcript was 39 MINUTES stale was
+# editing `datum.ts` that same minute, with its own uvicorn stack up. The hook
+# fired "idle, dispatch a batch" on top of it, which is precisely the racing the
+# guard exists to prevent. So ALSO watch the worktrees, where a builder's actual
+# work lands. `node_modules`, `.venv` and `.git` are pruned: they churn for
+# reasons that are not an agent thinking, and including them would make the
+# guard fire forever.
 TASK_ROOT=${TASK_ROOT:-/tmp/claude-0}
+WORKTREE_ROOT=${WORKTREE_ROOT:-.claude/worktrees}
+
 tasks_in_flight() {
   [[ -n "$(find "${1:-$TASK_ROOT}" -path '*/tasks/*.output' -mmin -30 \
              -print -quit 2>/dev/null)" ]]
 }
+
+worktrees_in_flight() {
+  local root=${1:-$WORKTREE_ROOT}
+  [[ -d "$root" ]] || return 1
+  [[ -n "$(find "$root" \
+             \( -name node_modules -o -name .venv -o -name .git \
+                -o -name test-results -o -name .pnpm-store \) -prune -o \
+             -type f -mmin -30 -print -quit 2>/dev/null)" ]]
+}
+
+work_in_flight() { tasks_in_flight || worktrees_in_flight; }
 
 # --self-test: does guard 2 fire against an output file the HARNESS produced?
 # That is the control the original lacked. It REFUSES (exit 2) rather than
@@ -94,6 +117,32 @@ if [[ "${1:-}" == "--self-test" ]]; then
     exit 1
   fi
   echo "PASS: guard 2 stays quiet for a 90-minute-old output"
+
+  # --- the worktree half, which the transcript half cannot cover ---
+  wt="$fake_root/worktrees"
+  mkdir -p "$wt/agent-x/apps/web/src" "$wt/agent-x/node_modules/pkg" \
+           "$wt/agent-x/.venv/lib" "$wt/agent-x/apps/web/test-results"
+  touch -d '90 minutes ago' "$wt/agent-x/apps/web/src/datum.ts"
+  if worktrees_in_flight "$wt"; then
+    echo "FAIL: a 90-minute-old worktree edit counted as in flight" >&2
+    exit 1
+  fi
+  # The exact case that bit on 2026-08-15: source edited NOW, transcript stale.
+  touch "$wt/agent-x/apps/web/src/datum.ts"
+  if ! worktrees_in_flight "$wt"; then
+    echo "FAIL: a worktree edited this minute did NOT count as in flight" >&2
+    exit 1
+  fi
+  echo "PASS: a live worktree edit counts as in flight"
+  # Churn that must NOT hold the loop open forever.
+  touch -d '90 minutes ago' "$wt/agent-x/apps/web/src/datum.ts"
+  touch "$wt/agent-x/node_modules/pkg/index.js" "$wt/agent-x/.venv/lib/x.so" \
+        "$wt/agent-x/apps/web/test-results/trace.zip"
+  if worktrees_in_flight "$wt"; then
+    echo "FAIL: node_modules/.venv/test-results churn counted as agent work" >&2
+    exit 1
+  fi
+  echo "PASS: dependency and artefact churn is pruned"
   exit 0
 fi
 
@@ -111,7 +160,9 @@ git rev-parse --git-dir >/dev/null 2>&1 || exit 0
 # 2. Work in flight? Say nothing. The agents will wake the orchestrator when
 #    they finish, and the Routine covers the case where they never do.
 #    Verify with `scripts/loop-continue.sh --self-test` while a task is live.
-if tasks_in_flight; then
+#    BOTH signals: a transcript that is being written, OR a worktree that is
+#    being edited. Either alone is insufficient — see the comment above.
+if work_in_flight; then
   exit 0
 fi
 
