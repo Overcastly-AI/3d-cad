@@ -2873,3 +2873,159 @@ ordinary rhythm, press Enter, read the glyph.
 - The measure of a fixed DIM-1 is per-keystroke, not `fill()`: flip the two
   assertions named in `sketch-dimension-typing.spec.ts` and it becomes the
   positive gate.
+
+---
+
+## 2026-08-15 — QA: SKETCH-2, grounding a profile to the sketch frame (`5ceed6e`)
+
+**Verdict: PASS on the founder's complaint, with four defects filed — one of
+which (QA-SK2-1) means the ticket's own headline claim is not what its evidence
+measures.**
+
+Independent of the builder's `sketch-origin-constraint.spec.ts`. Real stack
+(native boot, gateway :8250 / documents :8251 / geometry :8252, Vite :5351),
+real Chromium, 8 new tests in `apps/web/e2e/qa-sketch-frame.spec.ts`, every
+assertion mutation-verified against the pre-change behaviour.
+
+### What is genuinely fixed
+
+- **The founder's gesture works, and it works at every zoom.** The origin ring's
+  drawn radius was measured off the canvas (brass token `#E3A64B`, sampled at
+  45° so neither axis's ink can be mistaken for it): **9 px** as the sketch
+  opens, **21.5 px** zoomed in 16 notches, **4 px** zoomed out. Clicking ON the
+  ink at all eight compass points, plus the exact centre of the mark, selects
+  the origin in all three cameras. The ink and the grab region are both derived
+  in plane-mm, so the correspondence survives the dolly — that was the open
+  question, since the pick tolerance is in screen px.
+  - *Mutation (M2), the "naive centre-point fix" the ticket says would not have
+    worked:* `Math.hypot(at) <= toleranceMm` instead of `ringRadiusMm +
+    toleranceMm`. Fails at the FIRST leg — `Expected substring: "1 pt" /
+    Received string: "1 ent"`. Worse than a miss: the click resolves to the X
+    axis instead of the origin.
+- **A rigid profile TRANSLATES.** Ground a corner, and all four corners land on
+  `(0,0) (24,0) (24,16) (0,16)` — measured, not two of four (see QA-SK2-1).
+  Extrudes to 1,920 mm³ / 24 × 16 × 5, so the frame's construction geometry does
+  not open the wire.
+- **The axes are usable targets, not just selectable things.** Two corners + the
+  Y axis + `S` gives a plate symmetric about the origin (±12), and re-driving
+  24 → 36 keeps it symmetric (±18) — the sentence the ticket says was not
+  expressible at all. The axis materialises as pinned construction geometry with
+  exactly two `fixed` pins; the X axis, never reached for, is never created.
+- **TARGET-not-SUBJECT holds under attack.** All six refused verbs (`h v d r x
+  e`) × all three frame members = 18 attempts, every one refused by name with
+  the constraint count unchanged; `L` (perpendicular) on a drawn edge + the X
+  axis is accepted and persists. The armed `dimensionPick` rung is not eaten by
+  a frame click and is not lost either — the next click on a real line still
+  opens its editor at 24.
+- **Not just XY.** Same grounding works on XZ, and on a sketch seated on a model
+  FACE (where the handle correctly reads `Face centre` and the accessible name
+  carries "moves if the outline changes").
+- **No regressions** in the seven specs the builder listed as NOT run: mirror,
+  offset, trim/extend, fillet/chamfer, spline, visibility, construction
+  geometry — 21 tests green.
+
+### QA-SK2-1 (P1, evidence) — the fixture the ticket proves itself with is not a rectangle, and the profile it "translates" actually DEFORMS
+
+`FLOATING_RECT` in `apps/web/e2e/sketch-origin-constraint.spec.ts` is documented
+as *"rigid in SHAPE (corners tied, edges H/V, both sizes driven)"*. It carries
+four coincidences, **one** `horizontal` and **one** `vertical` — where the
+product's own rectangle rigidity set (`drawDimensions.ts` `rectangleRigidity`,
+which rides in with the first typed dimension) is four coincidences, **two**
+horizontals and **two** verticals. One H and one V short of rigid is a four-bar
+linkage, not a rectangle.
+
+Measured on that fixture, grounding `e1.start` to the origin:
+
+```
+solved: e1 (0,0)->(24,0)   e2 (24,0)->(24,16)
+        e3 (24,16)->(10,24)  e4 (10,24)->(0,0)
+extrude 5 mm: Volume 2,000 mm³   Extents 24 × 24 × 5
+```
+
+Two corners translated by (-10,-8); the third stayed where it was. The profile
+is a sheared quadrilateral and the body is visibly wrong. The spec asserts
+`e1.start` and `e2.end` — **exactly the two corners that survive** — so it
+passes. With the product's real rigidity set the same gesture gives
+`(0,0) (24,0) (24,16) (0,16)` and 1,920 mm³.
+
+The kernel is not at fault: every authored constraint is satisfied. The defect
+is that the commit message, the BACKLOG entry and the spec's own comments all
+say *"the solver TRANSLATED the whole rectangle"*, and nothing in the repo
+measures that. Fix: give the fixture `horizontal e3` + `vertical e4` and assert
+all four corners. `apps/web/e2e/qa-sketch-frame.spec.ts` does both.
+
+### QA-SK2-2 (P1, flow) — a corner already sitting ON the origin cannot be grounded to it
+
+`datum.ts` names this case as the reason the modifier click appends the frame:
+*"a corner already sitting on the origin can still be joined TO the origin — the
+second Shift-click adds the datum under the one already held."* It does not.
+`pickWithDatums` returns `[...drawn, ...datums]` and `toggleSelection` appends
+the first candidate **not already held**, so every drawn point and edge within
+tolerance is consumed first. Verbatim, on a rectangle drawn with its first
+corner snapped to the origin:
+
+```
+plain click on the corner-at-origin: 1 pt · 9 applied
+shift-click #1: 2 pts · 9 applied              | origin: idle
+shift-click #2: 1 ent · 2 pts · 9 applied      | origin: idle
+shift-click #3: 2 ents · 2 pts · 9 applied     | origin: idle
+shift-click #4: 2 ents · 3 pts · 9 applied     | origin: SELECTED
+shift-click #5: 3 ents · 3 pts · 9 applied     | origin: selected
+shift-click #6: 4 ents · 3 pts · 9 applied     | origin: selected
+press c      -> "Select two points to make coincident."
+```
+
+By the time the origin is held the selection is unusable, and there is no way to
+drop what was added on the way. The user is told to do the thing they just did.
+Workaround (undiscoverable, and the only one that works): select the corner,
+then hold the origin through its keyboard handle — Tab to "Sketch origin",
+Enter. Suggested fix: on a modifier click, order the frame FIRST when every
+drawn candidate is already in the selection, or give the datum its own modifier.
+
+### QA-SK2-3 (P2, flow, pre-existing — but SKETCH-2 puts it on the hot path) — "Finish sketch" silently drops a click
+
+`SketchStrip.tsx` renders the finish button `disabled={saving || …}`. Every
+constraint edit kicks off a live save, and the natural next action is Finish, so
+a click lands in the window between actionability and React's re-render and is
+delivered to a disabled button. Measured **2 failures in 10 attempts** under
+load, always with the sketch fully saved (`DOF 0 · CONVERGED`, "11 applied",
+button focused) and the strip simply still open after 30 s. Nothing tells the
+user; they press it again and it works. It bit the builder's own spec once in
+this session (`sketch-origin-constraint.spec.ts:419`) and two of mine. Fix:
+don't disable across a live save (the save is already committed), or keep the
+click and replay it when the save settles.
+
+### QA-SK2-4 (P1, flow) — SNAP IS NOT A CONSTRAINT, and the tool never says so
+
+The builder flagged this as a follow-up; it is confirmed, and it is the same
+class as the founder's original report — the tool appears to have understood you
+and has not. Draw a rectangle with its first corner snapped to the origin (the
+snap fires, the marker reads `origin`, the DRO reads `+0.00 / +0.00`) and type a
+width, so the rigidity set rides in and the plate is a real dimensioned part.
+Saved: the corner is at exactly `(0,0)`, the strip reads "9 applied", and
+**nothing in the model names the origin** — no `origin` entity, no constraint
+referencing it.
+
+How the user finds out: they re-drive the width 30 → 40 and the part they
+anchored at zero **slides to x = −7.1716 mm**. Same plate, grounded with `c`
+first, re-driven 40 → 55: the corner stays at exactly `(0,0)`.
+
+There is no signal in between. The origin mark looks identical either way; the
+readout counts the same constraints either way; there is no "under-constrained
+here" mark on the corner. Minimum fix: infer a coincident when a placement point
+resolves to an `origin` / `x-axis` / `y-axis` snap, exactly as the snap already
+knows it did. Cheaper interim: mark a point that is coincident-with-nothing at
+the origin, so the absence is visible.
+
+### Coverage this pass did NOT reach
+
+- **Touch.** `apps/web/playwright.config.ts` has no touch project (TOUCH-1), so
+  the frame's pick affordance has never been exercised with a finger. Notable
+  because the grab region is a 9 px disc at the default camera, well under any
+  touch-target guideline; the zoomed-out leg measured it at **4 px**.
+- **Ortho / rotated cameras.** All measurements are the parked normal-on view
+  plus a dolly. Orbiting during a sketch (VP-1) was not combined with a frame
+  pick.
+- **The frame under undo/redo**, and deleting the coincident that grounded a
+  profile (the origin entity and its pin stay in the sketch afterwards — a
+  permanent, unremovable construction point; harmless but unasserted anywhere).

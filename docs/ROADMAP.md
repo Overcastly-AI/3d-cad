@@ -83,13 +83,63 @@ do not work" report** (SNAP-1 closed as its duplicate: detection was correct all
 along, selection was not). The frame is now real geometry, materialised lazily as
 pinned construction entities, so a sketch that never grounds to it is unchanged.
 Verified end to end against the bar that makes a modeller parametric: ground a
-floating rectangle's corner to the origin and the solver TRANSLATES the profile;
+floating rectangle's corner to the origin and the solver translates the profile;
 the saved file records a coincident constraint and **no** `fixed` on any drawn
 entity; it survives save and re-open; re-driving the width leaves the grounded
 corner exactly at (0,0). Independent review confirmed the persistence claim
 against what is written rather than the readout, confirmed the mutation verbatim
 including that its positive control is genuinely positive, and additionally ran
 the six sketch specs the builder had left unrun — 18/18 green.
+
+**INDEPENDENT QA: PASS on the founder's complaint — and it found that the
+"the solver TRANSLATED the whole rectangle" claim is not measured by anything in
+the repo.** The behaviour is real: QA ground a properly rigid rectangle, saved,
+re-opened via the tree row, re-drove the width, and the corner stayed at exactly
+(0,0) while the profile moved as a unit and extruded to 1,920 mm3 / 24x16x5.
+`S` on two corners plus the Y axis gives a plate symmetric about the origin
+(+/-12), still symmetric after 24->36 (+/-18) — the sentence the ticket said was
+inexpressible.
+
+But **the spec that claims it cannot fail for it.** `FLOATING_RECT` in
+`sketch-origin-constraint.spec.ts` is documented "rigid in SHAPE" and carries
+1 horizontal + 1 vertical, where the product's own `rectangleRigidity` authors
+**2 + 2**. Grounding that fixture DEFORMS the profile — measured, e3 runs
+(24,16)->(10,24) and the extrude is 2,000 mm3 / 24x24x5 — and the spec asserts
+`e1.start` and `e2.end`, which are exactly the two corners that survive. The
+kernel is right; every constraint is satisfied. The claim was true and unproven,
+which is this repo's favourite defect shape, and it was repeated into the commit
+message, the BACKLOG tick, the merge to main and a founder update before anyone
+measured it.
+
+**The founder's gesture, measured properly this time.** Ring ink radius read off
+the canvas, then clicked at eight compass points ON that radius plus the exact
+centre: 9 px as opened, 21.5 px zoomed in 16 notches, 4 px zoomed out 32 — all
+nine clicks select the origin at every zoom, because ink and grab region are
+both derived in plane-mm so the correspondence survives a dolly. That was the
+open question the px-vs-mm correction raised, and it is now answered.
+
+**QA-SK2-4 — the snap trap is REAL, and it is the founder's own defect class.**
+Draw a rect with its first corner SNAPPED to the origin: the marker reads
+`origin`, the DRO reads +0.00/+0.00, the save records "9 applied" — and there is
+**no `origin` entity and no constraint naming it**. How the user finds out: they
+re-drive 30->40 and the part slides to **x = -7.1716 mm**, while the genuinely
+grounded twin re-driven 40->55 stays at exactly (0,0). "There is no signal in
+between — the mark looks identical, the count is identical, nothing marks the
+corner." The tool appears to have understood you and has not.
+
+**QA-SK2-2 — the modifier click's advertised reason does not work.** `datum.ts`
+names "a corner already sitting on the origin can still be joined TO it" as why
+the modifier exists; measured, it takes FOUR shift-clicks to reach the origin
+because every drawn point and edge is consumed first, and `c` then refuses
+because the selection is polluted. The only working route is the keyboard handle.
+
+**QA-SK2-3 (P2, pre-existing)** — `disabled={saving || …}` on Finish drops a
+click landing during a live save, 2 in 10 under load, always with
+`DOF 0 · CONVERGED`.
+
+Also measured and worth knowing: the grab disc is **9 px** at the default camera
+and **4 px** zoomed out — well under any touch-target guideline, and there is no
+touch project to catch it (TOUCH-1).
 
 **Review found one BLOCKING user-facing defect and it is open:** symmetric about
 a datum axis — the marquee case the module's own refusal hint recommends —
