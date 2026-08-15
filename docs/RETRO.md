@@ -321,6 +321,42 @@ that unit tests and lint cannot see by construction.
 
 ---
 
+## 4c. I called a load-dependent flake a bisect, and named an innocent commit
+
+2026-08-15. `pick-affordance.spec.ts:907` passed at `f7c41d9` and failed at
+`a810524` and `c3019b6`. Five commits sat in that interval and only `a810524`
+touched application source, so I wrote: *"a regression, and it is very likely
+caused by the DIM-1 fix"* — and said so to the founder, framed as likely-true
+with a hedge, which is not the same as framed as a hypothesis.
+
+It was refuted the right way, by the agent I handed it to: it reverted
+`a810524`'s three source files and re-ran the identical protocol under load.
+**3 failed of 6 with DIM-1 present, 2 failed of 6 with DIM-1 reverted.** Same
+failure, same message. The rates are small samples and it declined to defend
+3-vs-2; the categorical fact that it fails with the fix OUT is what settles it.
+The real cause was a zero-settle read of a React-state attribute in the spec's
+own scan — instrumented over 40 sampled points, **4 reads lagged and 3 led**, so
+the race runs both ways.
+
+**The error in my reasoning has a name already in this file: diagnosing from one
+data point per side.** I had one pass and two fails. Against a DETERMINISTIC
+failure that is a bisect; against a load-dependent one it is three samples from
+a distribution, and I treated the sample as the population. The tell was
+available and I did not look for it: a failure that reproduces at a
+non-suspect commit under artificial load is not in the diff. The cheap check —
+"can I make this fail at the commit I believe is clean?" — is the same negative
+control this repo demands of every gate, applied to a diagnosis instead of an
+assertion.
+
+Note the correct-looking story that nearly closed it: `6df1170` added a spec
+file, which moves the `--shard=i/4` split and hence the load each shard runs
+under. Plausible, mechanistic, and **not what happened** — `pick-affordance`
+passed at `6df1170` too. A hypothesis that explains the observations is not
+thereby true, and this one had the added seduction of explaining my own wrong
+answer.
+
+---
+
 ## 5. Environment facts that cost real time
 
 Full detail lives in `CLAUDE.md`'s environment-recipes section; these are the

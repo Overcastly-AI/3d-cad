@@ -77,6 +77,42 @@ harness-produced fixture). Groom pass 2026-08-14 (post-VP-1/SKETCH-1) filed
 onto the board; both queue behind the currently-occupied
 `apps/web/src/{viewport,sketch}/**` territories.
 
+**SPEC-5 (2026-08-15) — `pick-affordance.spec.ts`'s hole scan read a React-state
+attribute with zero settle, and it cost a false accusation before it was
+fixed.** The scan walks a 12 px grid of lit pixels asking `data-hole-point-hover`
+whether the placement face is under each one, and read the attribute
+immediately after `page.mouse.move` — but that attribute is React state, written
+a commit and a frame later. Instrumented over 40 sampled points: **4 reads
+lagged, 3 led**. Where a raster row crosses only a sliver of the top face the
+on-face run is one or two points long, so a one-point lag hands the first
+OFF-face point the last ON-face point's stamp; `HolePointOverlay.pointAt` then
+correctly refuses a hit that is not the placement face, the click does nothing,
+and the readout never leaves `"Centre of face"`. The product was correct at
+every step — verified by settling and re-reading `onSurfaceMove` and `onOut`.
+
+Fix: the scan stays the cheap filter (one round trip over ~1500 points, allowed
+to be wrong at the edge because nothing is drilled on its word) and gains an
+oracle that **nulls the stamp against a known-off-body position first** — without
+that baseline a stale `"1"` is indistinguishable from a fresh one, which IS the
+defect — then waits for it to appear at the candidate. Settle-tolerant, bounded
+at 12 confirmations, a healthy scan spends one. Before: 3 failed / 6 at load 10.
+After: 0 / 10 at load 10 and 0 / 6 at load 20. Ablation (oracle returns true):
+5 failed / 6 with CI's exact string.
+
+**The orchestrator had attributed this to the DIM-1 fix (`a810524`) from a CI
+bisect — one pass, two fails, only one source-touching commit in the interval —
+and was wrong.** Refuted by reverting DIM-1's three files and re-running: still
+2 failed of 6. Against a deterministic failure that reasoning is a bisect;
+against a load-dependent one it is three samples from a distribution. See
+`docs/RETRO.md` §4c.
+
+FILED, not fixed: `measureReach` in the same file reads `data-edge-pick-hover`
+with the identical zero settle, so the fillet/measure/mate reach numbers carry
+the same defect — and a lag there would INFLATE perpendicular reach against a
+`<= 16 px` ceiling, i.e. fail safe in the direction that hides a defect. Left
+alone deliberately: it is not the reported failure and changing it moves
+measured thresholds on currently-green tests.
+
 **DIM-1 — THE FOUNDER'S DIMENSION COMPLAINT IS NOT CLOSED, AND THE REMAINING
 HALF SILENTLY WRITES WRONG GEOMETRY (QA 2026-08-15, `6df1170`).** Independent QA
 against the production bundle and a real stack answered the question directly:
