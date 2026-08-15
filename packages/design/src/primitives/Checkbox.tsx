@@ -22,6 +22,14 @@ export interface CheckboxProps {
  * boolean option reads as a member of the instrument panel, not a stock form
  * control. A `role="checkbox"` button carries native Space/Enter toggling and
  * an accessible `aria-checked`; app code never restyles a raw <input>.
+ *
+ * TARGET SIZE (FB-19). With no `description`, this control was exactly as tall
+ * as its own 16px check square (`h-4`) — under the product's 24px floor
+ * (`target.dense`, WCAG 2.2 SC 2.5.8), which the density pass would otherwise
+ * have made worse rather than better. The floor is on the primitive so every
+ * checkbox in the product gets it, and it is a MINIMUM: a row with a
+ * description is still as tall as its content (measured on the extrude card's
+ * old two-line merge cell: 32.3px).
  */
 export function Checkbox({
   label,
@@ -39,7 +47,10 @@ export function Checkbox({
       disabled={disabled}
       onClick={() => onChange(!checked)}
       className={cx(
-        "group flex items-start gap-2 text-left",
+        "group flex min-h-target-dense gap-2 text-left",
+        // Centred on a single-line label, top-aligned once a description turns
+        // the cell into a paragraph (the box belongs beside the FIRST line).
+        description === undefined ? "items-center" : "items-start",
         "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass",
         disabled && "cursor-not-allowed opacity-40",
       )}

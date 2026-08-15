@@ -490,3 +490,42 @@ describe("FeatureTreePanel row badge", () => {
     expect(within(row).queryByText(/M\d/)).not.toBeInTheDocument();
   });
 });
+
+// FB-19 — the origin set was six full-width rows saying "XY, XZ, YZ, X, Y, Z".
+// It is a 3x2 datum table now. What must survive the compaction: the six
+// toggles, their test hooks, their pressed state, and — the thing a smaller
+// control is most likely to lose — a name that says WHICH KIND of datum it is,
+// since the visible label no longer carries "plane"/"axis".
+describe("FeatureTreePanel origin datum table", () => {
+  const ORIGIN = [
+    ["origin-plane-XY", "Show XY plane"],
+    ["origin-plane-XZ", "Show XZ plane"],
+    ["origin-plane-YZ", "Show YZ plane"],
+    ["origin-axis-X", "Show X axis"],
+    ["origin-axis-Y", "Show Y axis"],
+    ["origin-axis-Z", "Show Z axis"],
+  ] as const;
+
+  it("keeps all six datums as named, pressable toggles", () => {
+    renderPanel([sketch("f1", "Sketch 1")], undefined);
+    for (const [testId, name] of ORIGIN) {
+      const cell = screen.getByTestId(testId);
+      expect(cell).toHaveAttribute("aria-pressed", "false");
+      expect(cell).toHaveAccessibleName(name);
+    }
+    // Six cells, one list — the shape the grid is laid out on.
+    expect(
+      within(screen.getByTestId("origin-list")).getAllByRole("button"),
+    ).toHaveLength(6);
+  });
+
+  it("draws a datum when its cell is pressed, and says so", () => {
+    renderPanel([sketch("f1", "Sketch 1")], undefined);
+    const cell = screen.getByTestId("origin-plane-XZ");
+    fireEvent.click(cell);
+    expect(cell).toHaveAttribute("aria-pressed", "true");
+    expect(cell).toHaveAccessibleName("Hide XZ plane");
+    fireEvent.click(cell);
+    expect(cell).toHaveAttribute("aria-pressed", "false");
+  });
+});

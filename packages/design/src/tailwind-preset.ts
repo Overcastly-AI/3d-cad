@@ -71,6 +71,8 @@ export const loftPreset = {
       width: {
         inspector: px(layout.inspectorWidth),
         editor: px(layout.editorCardWidth),
+        /** Caption column of a dense `FieldRow` — see `layout.fieldLabelWidth`. */
+        "field-label": px(layout.fieldLabelWidth),
       },
       /**
        * The written TARGET-SIZE policy as utilities (`min-h-target`,

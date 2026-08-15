@@ -778,6 +778,23 @@ export const layout = {
    */
   editorCardWidth: 320,
   /**
+   * Width of the CAPTION column in a DENSE field row — the label set BESIDE its
+   * control rather than stacked above it (`FieldRow`; FB-19).
+   *
+   * A real title block does not stack a caption over its value: it prints a
+   * small caption in the corner of a ruled cell and the value beside it, and
+   * `PanelRow` has drawn read-only cells that way since day one. Editable cells
+   * were the only ones still stacking, which cost a whole line of leading per
+   * parameter on forms that are almost entirely short values — six full-width
+   * rows for the extrude's five fields (founder photo, 2026-08-01).
+   *
+   * 64 px is the measured fit, not a round number: the widest caption the dense
+   * editors set is "Operation" (9 characters of 11 px Hanken Grotesk, ~52 px);
+   * 64 clears it with the 8 px gutter the rest of the chrome breathes on and
+   * still leaves 216 px of control column inside a 320 px card.
+   */
+  fieldLabelWidth: 64,
+  /**
    * Left inset for HUD cards (feature editors, mate HUD) so they clear the
    * floating tree panel: panel inset (12) + panel width + gutter (12).
    */

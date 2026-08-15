@@ -464,7 +464,7 @@ duplication.
       TERRITORY: TBD by reproduction — likely `apps/web/src/viewport/**` or
       `apps/web/src/sketch/plane.ts`. agentType: frontend-builder.
 
-- [ ] (P1, M) **FB-19 — the chrome is too sparse; compact it.** Founder,
+- [x] (P1, M) **FB-19 — the chrome is too sparse; compact it.** Founder,
       2026-08-01, and distinct from FB-7: FB-7 stops panels COVERING the model,
       this makes them worth the pixels they take. Note UI-W4 already did one pass
       ("feature editors stop being 12-row web forms") and the founder still says
@@ -494,6 +494,33 @@ duplication.
       per CLAUDE.md's design mandate. agentType: frontend-builder.
       DISPATCHED 2026-08-14 alongside QA7-1 (disjoint territories — no
       viewport/sketch/geometry files touched by either).
+      SHIPPED — fixed in the DESIGN SYSTEM, not at the instances, which is what
+      the ticket asked for: a new `FieldRow` primitive carries the
+      label-beside-control layout and `NumberField`/`SelectField`/`Checkbox`/
+      `SegmentedControl` were compacted through it, so future editors inherit
+      the density instead of re-deriving it. Operation and Direction collapse
+      onto one row as segmented controls; the origin list becomes a 3x2 grid.
+      MEASURED at 1600 AND 1280, each ceiling seen FAILING at HEAD~ before it
+      was asserted: origin block 212.0px -> 95.0px (ceiling 100), extrude
+      editor card 368.3px -> 219.5px (ceiling 240), tree panel at rest 591.0px
+      -> 474.0px (ceiling 500). Combined chrome AREA is reported rather than
+      asserted, and the spec says why — once the card shrinks the tree stops
+      being scroll-clipped and grows into the room, so the column total is a
+      poor monotone signal even though every panel got smaller.
+      The non-negotiable floor is a GATE, not a claim: every interactive element
+      in the compacted chrome asserted >= 24px on both axes (WCAG 2.5.8), every
+      focus stop >= 2px ring, plus a text-overflow check that exists because a
+      0.7px overflow rendered `REVER...` in a screenshot while everything else
+      passed. Before/after shots at both widths under `docs/screenshots/fb19-*`.
+      PROVENANCE: the agent died on a session limit before committing; work
+      preserved from its worktree and gated by the orchestrator (typecheck
+      clean, 1618 web + 86 design unit tests on the merged tree, prettier and
+      eslint clean on every changed file). NOT reviewed, NOT QA'd, and
+      `fb19-chrome-density.spec.ts` has NOT been executed here — the pixel
+      numbers above are the dead agent's, re-run only at the unit level.
+      **Still owed: the founder has not SEEN the screenshots.** CLAUDE.md's
+      design mandate says "surfaced" means sent to the founder in chat, not
+      generated into `docs/screenshots/`. Send them.
 
 ## Next (P2)
 

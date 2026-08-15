@@ -528,6 +528,59 @@ function ViewRow({
 }
 
 /**
+ * One cell of the ORIGIN datum table — the eye and the entity's short name, in
+ * a ruled square. It is `ViewRow`'s control in a grid cell rather than a row:
+ * the origin set is FIXED and its names are two characters, so a full-width row
+ * per entity was spending a panel's height on a label that fits in a corner.
+ *
+ * Ink, glyphs and hover behaviour are `ViewRow`'s, unchanged (`gauge` at rest,
+ * `mist` once drawn, `brass` on hover) — the shape carries the state, the ink is
+ * the second cue. The accessible name states the KIND ("Show XY plane"), which
+ * is the one thing the compaction drops from the screen.
+ */
+function OriginCell({
+  drawn,
+  label,
+  kind,
+  testId,
+  onToggle,
+  onAddress,
+}: {
+  drawn: boolean;
+  /** The stamped short name — "XY" for a plane, "X" for an axis. */
+  label: string;
+  kind: "plane" | "axis";
+  testId: string;
+  onToggle: () => void;
+  onAddress: () => void;
+}) {
+  const Glyph = drawn ? EyeIcon : EyeOffIcon;
+  const action = `${drawn ? "Hide" : "Show"} ${label} ${kind}`;
+  return (
+    <li className="bg-anvil">
+      <button
+        type="button"
+        onClick={() => {
+          onAddress();
+          onToggle();
+        }}
+        aria-pressed={drawn}
+        aria-label={action}
+        title={action}
+        data-testid={testId}
+        data-drawn={drawn || undefined}
+        className={`flex min-h-target-dense w-full items-center justify-center gap-1.5 outline-none transition-colors duration-fast hover:bg-carbide hover:text-brass focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass ${
+          drawn ? "text-mist" : "text-gauge"
+        }`}
+      >
+        <Glyph size={14} />
+        <span className="font-data text-xs">{label}</span>
+      </button>
+    </li>
+  );
+}
+
+/**
  * ORIGIN and SKETCHES — the two categories a Fusion user reaches for that this
  * browser had no row for (founder: *"what about the ability to enable planes,
  * sketches and bodies?"*). Bodies is the third, and lives in `BodiesPanel`
@@ -585,27 +638,46 @@ function ViewCategories({ tree }: { tree: FeatureTreeResponse | undefined }) {
       ) : null}
 
       <PanelSection eyebrow="Origin" data-testid="origin-section">
-        <ul className="pb-1" data-testid="origin-list">
+        {/*
+          THE DATUM TABLE (FB-19). Six fixed entities spent six full-width rows
+          — a 212px block of a panel that floats over the model, to say "XY, XZ,
+          YZ, X, Y, Z", which every one of our users already knows. Measured
+          after: 95px, and at 1280x800 with an editor open the six toggles went
+          from OFF the bottom of the frame (`elementFromPoint` found none of
+          them) to reachable. A drawing stamps a fixed set like this as a small
+          ruled schedule, so this is a 3x2 one:
+          planes on the top course, axes under them, hairline-ruled cells inside
+          one frame. The structure carries the kind — two letters is a plane,
+          one is an axis — and each cell's accessible name says it in words
+          ("Show XY plane"), so nothing is lost by dropping the detail badge the
+          rows carried.
+
+          Same cells, same test hooks, same targets: every cell is a 24px
+          `target.dense` toggle (WCAG 2.2 SC 2.5.8), which is what the 6 rows
+          were, laid out in two courses instead of six.
+        */}
+        <ul
+          className="mx-3 mb-1 grid grid-cols-3 gap-px border border-hairline bg-hairline"
+          data-testid="origin-list"
+        >
           {ORIGIN_PLANES.map((plane) => (
-            <ViewRow
+            <OriginCell
               key={plane}
               drawn={entityIsDrawn(view, originPlaneKey(plane))}
               label={plane}
-              detail="plane"
+              kind="plane"
               testId={`origin-plane-${plane}`}
-              rowTestId={`origin-row-plane-${plane}`}
               onToggle={() => toggle(originPlaneKey(plane))}
               onAddress={() => setAddressed(originPlaneKey(plane))}
             />
           ))}
           {ORIGIN_AXES.map((axis) => (
-            <ViewRow
+            <OriginCell
               key={axis}
               drawn={entityIsDrawn(view, originAxisKey(axis))}
-              label={`${axis} axis`}
-              detail="axis"
+              label={axis}
+              kind="axis"
               testId={`origin-axis-${axis}`}
-              rowTestId={`origin-row-axis-${axis}`}
               onToggle={() => toggle(originAxisKey(axis))}
               onAddress={() => setAddressed(originAxisKey(axis))}
             />
