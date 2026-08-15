@@ -37,17 +37,24 @@ duplication.
   than duplicated here.
 - **✅ rows, now qualified:** Price/freedom holds. Sketching & constraints and
   Part modeling are creation-only ✅ — the audit above found editing/revision
-  broken on both; treat as ➖ until SKETCH-2/PICK-1/GEOM-2 land and SKETCH-1
-  (shipped `30a9f3f`, still unreviewed/unQA'd) is verified. The founder's
-  "dimensions not assigning" report is STILL not closed even with SKETCH-1 and
-  the arm-fix (c449235) shipped — code review found the value field drops
-  keystrokes at every human typing speed (DIM-1, P0, top of Ready); that is
-  plausibly the actual daily-driver-blocking experience behind the report.
-- **Process note, not a scorecard row:** `e2e` CI has been RED for TEN
-  consecutive commits (last green `a34382b`); one cause is filed (QA7-1), the
-  other (`qa-harness.spec.ts:968`, orbit-probe renders) is newly filed this
-  pass as QAH-1. Until it's green again, treat every "shipped, gates green
-  locally" claim on `apps/web` as CI-unverified.
+  broken on both; treat as ➖ until SKETCH-2/PICK-1 land and GEOM-2's own gap
+  (see GEOM-3, Ready, P0 — tier 4 shipped and closes M17's control case, but
+  degrades on ordinary vented/perforated parts at r>=~25% open area). SKETCH-1
+  and VP-1/VP-1a are now QA'd green (`6df1170`) but still unreviewed by
+  `code-reviewer`. The founder's "dimensions not assigning" report is STILL
+  not closed even with SKETCH-1 and the arm-fix (c449235) shipped — independent
+  QA (`6df1170`) upgraded it from "drops keystrokes" to **silently writes
+  wrong geometry** (DIM-1, P0, top of Ready); that is plausibly the actual
+  daily-driver-blocking experience behind the report, and it is a data-
+  integrity defect, not merely a slow field.
+- **Process note, not a scorecard row:** `e2e` CI was RED for TEN consecutive
+  commits as of the last read available to this pass (last green `a34382b`).
+  Of the two known causes, QA7-1 is fixed and reviewed non-blocking
+  (`07c4005`, archived below); QAH-1 (`qa-harness.spec.ts:968`, orbit-probe
+  renders) is still open. **Whether the streak has actually broken is
+  unverified by this pass** — the groomer cannot read CI; treat every
+  "shipped, gates green locally" claim on `apps/web` as CI-unverified until
+  the orchestrator confirms a green run against a commit after `07c4005`.
 - **➖ rows (usable, short of incumbent parity):** Assemblies (export +
   interference shipped; import, exploded views, recursive BOM, part-version
   pinning still missing). Interop (part STEP round-trips to 1e-9 against an
@@ -69,70 +76,74 @@ duplication.
 
 ## Ready (top of queue)
 
-- [x] (P1, S) **QA7-1 — ROOT-CAUSED this pass (K1): the spec waits on a string
-      the product never renders, so the wait is a no-op and the two arms of its
-      comparison sample at different settle depths** (`apps/web/e2e/
-      qa-sel7-verify.spec.ts:596-616`). `expect.poll(() => status.textContent(),
-      …).not.toBe("Evaluating")` — but `eval-status`'s complete range is
-      `"Solving…" | "—" | "Failed" | "Solved"` (`partBuild.ts:257-268`);
-      `"Evaluating"` occurs nowhere in `apps/web/src`. The predicate is
-      satisfied by the FIRST sample, always — of 148 `eval-status` references
-      in the e2e suite this is the only negative predicate and the only one
-      naming a string that does not exist. Consequence: `run()` samples
-      `status`/`volumeAfter` right after the `Hole1` row appears for the DRAWN
-      arm, but the HIDDEN arm runs six extra frames + a body re-show + a re-fit
-      first (`:601-616`) before sampling — so under load the drawn arm can
-      capture `"Solving…"` while the hidden arm captures `"Solved"`/`"Failed"`,
-      and `toEqual` fails with exactly QA7-1's reported message. FIX: wait on a
-      state the product can actually be in
-      (`await expect(status).toHaveText(/Solved|Failed/)`, the shape 142 other
-      assertions already use) and sample BOTH arms at the same point in
-      `run()`, before the arm-specific restore. Do NOT fix with a retry (masks
-      a harness bug CI-4 already forbids retrying past). ACCEPTANCE: run the
-      spec 20x quiet + 20x under a 3-core burner with the fix; 0 failures.
-      Mutation check: reverting to the vacuous wait must NOT be required to
-      reproduce failure (the bug was load-correlated, not deterministic) — so
-      instead assert by code inspection that no `expect.poll` in the file names
-      a string absent from `partBuild.ts`'s status union (grep gate is fine).
-      [src: engineering-auditor pass 5, 2026-08-14 (K1)]
-      TERRITORY: `apps/web/e2e/qa-sel7-verify.spec.ts` only — read-only on
-      `partBuild.ts` (cite its status union, do not change it).
+- [ ] (P0, S) **DIM-1 (was "FOUNDER — dimensions not assigning") — TOP OF THE
+      QUEUE: the dimension VALUE field silently writes WRONG GEOMETRY, not
+      merely a slow one.** REPRODUCED in two layers: code review of c449235
+      (branch (i), the arming half, shipped — see the Done archive) found the
+      keystroke-loss mechanism; independent QA (`6df1170`, 2026-08-15, evidence
+      in `docs/UI-REVIEW.md`) then confirmed it against the production bundle
+      and a real stack — **VERDICT FAIL**. Founder's exact path: type `125`
+      into a cell pre-filled `43`, press Enter, read the geometry service's
+      evaluate response — a 43 mm edge becomes **435 mm**. No error, no
+      rejection: the glyph, the field and the SOLVED GEOMETRY all agree on the
+      wrong number. Measured 435 mm committed twice at 150-250 ms wall-clock
+      keying (10 of 12 trials corrupted the field), 15 mm on one
+      `pressSequentially` trial; `125` survives only at 2500 ms/key. The Name
+      cell has it too (`abc` -> `c`).
+      THIS IS A DATA-INTEGRITY DEFECT, not a UI annoyance: it is SILENT; it is
+      NOT MONOTONIC in typing speed (~155 ms gaps survive, 0.2-0.7 s corrupt,
+      0.8 s+ survive), so "type slower" is not a discoverable workaround; and
+      the corrupted band WIDENS UNDER LOAD (0.9-1.4 s gaps still corrupted with
+      siblings active), i.e. it gets worse on a busy machine. Paste/
+      `insertText` survives, which is exactly why the shipped `.fill()` spec
+      legs see nothing.
+      NOT an environment artifact: per keystroke, two `longtask` entries
+      totalling 211+318 ms idle and 640+546 ms loaded, with **ZERO network
+      requests**, while the same page holds 180 frames / 3 s (17 ms median)
+      with the editor open. React work, not rasterisation, not a round trip.
+      MECHANISM (structurally verified by the code review; HYPOTHESIS on the
+      cross-root timing, well-supported but NOT proven by a fix — whoever
+      builds this should confirm or refute it rather than inherit it):
+      `apps/web/src/viewport/ConstraintGlyphs.tsx:218-228` is a CONTROLLED
+      `ExpressionField` rendered inside the r3f canvas via drei `<Html>`, which
+      renders children into a SEPARATE `ReactDOM.createRoot` re-rendered from a
+      dep-less `useLayoutEffect`, while the `useState` draft lives in the outer
+      r3f root — so React's controlled-input restore puts the prefill back
+      before the cross-root update lands. `apps/web/src/viewport/
+      SketchScene.tsx:916` documents this IDENTICAL defect for the FB-16
+      draw-time cells and fixed it by making them UNCONTROLLED; that is the
+      remedy to point at, not a novel fix.
+      FIX: make `ConstraintGlyphs.tsx`'s value field uncontrolled the same way
+      (ref-backed local input, commit on blur/Enter, no React-driven `value`
+      fighting the DOM mid-keystroke). ACCEPTANCE: (1) a component/unit test
+      typing "125" over a pre-filled "43" at 0 ms/key (the adversarial case)
+      yields "125", not "435"; (2) `apps/web/e2e/sketch-dimension-pick.spec.ts`
+      gains a `pressSequentially` leg — today's `:187`/`:249` use `.fill()`,
+      which bypasses the per-keystroke path entirely and cannot catch this;
+      the new leg MUST fail on current HEAD and pass after the fix; (3) this
+      item's original acceptance (type a value, press Enter, geometry updates)
+      re-verified end to end. Mutation check: reverting the uncontrolled-input
+      change reddens both the new unit test and the new e2e leg.
+      Also settled while reproducing (M22, product-audit pass 2026-08-14,
+      confirmed as designed not a bug): before the second click of a
+      rubber-band draw, `draw-dimensions` is `data-state="live"` with ZERO
+      input cells, so the live W/H chip is indistinguishable from a field and
+      typing into it does nothing — a separate, smaller UX gap, not this bug.
+      FB-16 is NOT regressed and SKETCH-1 is not implicated — editing an
+      EXISTING dimension already works end to end (measured 60 then 25).
+      The QA pass also EXECUTED two specs that had never run anywhere:
+      `sketch-orbit.spec.ts` (VP-1) **7/7 pass**, and `sketch-reopen.spec.ts`
+      (SKETCH-1) pass, plus a new save -> reload -> re-open -> dimension-still-60
+      round trip — see QA-VERIFY-1 in the Done archive, now closed on this
+      evidence. And it flagged that its own green arming gate types at 2.5 s/key
+      DELIBERATELY, to isolate the verb — that gate must not be read as
+      "typing works".
+      [src: founder report 2026-08-14; root-caused by code review of c449235;
+      independent QA 2026-08-15 (`6df1170`)]
+      TERRITORY: `apps/web/src/viewport/ConstraintGlyphs.tsx`,
+      `apps/web/e2e/sketch-dimension-pick.spec.ts` (append the
+      `pressSequentially` leg only — do not touch the existing `.fill()` legs).
       agentType: frontend-builder.
-      SHIPPED db144d7, and REVIEWED non-blocking (3 green, 1 amber). Root cause
-      confirmed independently: `solveSummary` returns exactly
-      `"Solving…" | "—" | "Failed" | "Solved"`, and `grep -rn Evaluating
-      apps/web/src` is 0 hits, so the old `.not.toBe("Evaluating")` poll was
-      satisfied by its FIRST sample and the two arms of `run()` were then
-      sampled at different settle depths (drawn arm immediately; hidden arm
-      after a re-show + view-fit + six frames). Fix waits on
-      `toHaveText(/Solved|Failed/)` and samples both arms at the same point
-      before the arm-specific restore; the hidden arm's restore now carries its
-      own assertion instead of running for scenery. `"—"` is deliberately NOT
-      accepted: the evaluate query is keyed on tree version with no
-      keepPreviousData, so its data is briefly undefined right after Hole1
-      lands and that window must not end the wait.
-      The interesting part is the GATE ON THE GATE: a static check reads the
-      four allowed strings out of `solveSummary` in the product source — never
-      copied into the spec — scans the spec's own source for SOLVE-cell
-      assertions, and demands every string they name is in that vocabulary. It
-      carries its own negative control (the shipped defect line verbatim,
-      asserted BEFORE the subject) so "0 violations" can never mean "the
-      scanner matched nothing". The reviewer re-ran all four mutation arms and
-      reproduced them verbatim, plus two of its own.
-      **AMBER, for a follow-up:** the scanner recognises a SOLVE-cell subject
-      only via the literal `"eval-status"` or a `const <name> =
-      page.getByTestId("eval-status")` binding, so `page.locator(
-      "[data-testid=eval-status]")` and `const cell = status` both slip past —
-      measured, each applied and reverted, 1 passed. Neither shape exists in
-      the file today so nothing is unguarded now, but the gate's header claims
-      completeness the code does not meet, which is this repo's own
-      guard-encodes-the-direction-of-its-defect pattern. Also NOT done: the
-      gate is scoped to this one file rather than all of `apps/web/e2e`
-      (sibling specs were other agents' territory that batch); promoting it, or
-      lifting it into `just lint` as a standalone script, is the cheap
-      follow-up. QA never ran — the verify agent died on a session limit.
-      DISPATCHED 2026-08-14 alongside FB-19 (disjoint territories — no
-      viewport/sketch/geometry files touched by either).
 
 - [ ] (P0, S) **QAH-1 — e2e CI has been RED for TEN consecutive commits (last
       green `a34382b`, red from `221a7ca`, itself a docs-only commit);
@@ -275,79 +286,51 @@ duplication.
       agentType: frontend-builder (cross-check overlay wiring with
       kernel-architect if the geometry-service response needs a field added).
 
-- [x] (P0, M) **GEOM-2 (M17) — a planar face's identity signature encodes what
-      has been CUT into it, so drilling hole *n* invalidates hole *n+1*'s
-      match, and a thickness edit orphans every hole on the face** (likely
-      `services/documents` or `services/geometry` signature/attribution code —
-      confirm exact module before starting). MEASURED: four holes on one
-      plate-top face store signatures `{surface, normal, centroid, area_mm2}`
-      with `area_mm2` shrinking by exactly one hole's worth (34.21 mm²) each
-      time — so the signature is a function of what has ALREADY been drilled,
-      not just of the face's plane. Moving the face (10mm → 14mm thickness)
-      breaks the strict match for 3 of 4 holes (`SUBSHAPE_UNRESOLVED` +
-      cascading `SKIP`), and the "Re-pick face" recovery is itself blocked by
-      PICK-1's bug. FIX: match a planar face's identity on the PLANE (normal +
-      signed offset along it) plus a rebuild-invariant anchor that does not
-      depend on what has been subtracted from the face, not on `centroid` +
-      `area_mm2`. Coordinate with whoever owns the signature/attribution
-      module (`PERF-5a`/`PERF-5b`'s per-face provenance machinery is the
-      likely home). ACCEPTANCE: reproduce M17 as the control (4 mounting
-      holes + fillet on an 11-feature bracket; thicken the plate 10→14mm;
-      today 4 of 11 features go red); after the fix all 4 holes + fillet
-      rebuild successfully against the new face position, matching the
-      closed-form volume. Golden-model regression added to the geometry
-      QA suite (`services/geometry/tests` or the goldens directory —
-      confirm convention with `docs/GEOMETRY-QA.md`).
-      [src: product-auditor pass 2026-08-14 (M17); geometry-qa should verify]
-      TERRITORY: `services/geometry/src/geometry/**` and/or
-      `services/documents/src/documents/**` (signature/attribution module —
-      builder confirms exact file), geometry test suite.
+- [ ] (P0, M) **GEOM-3 — GEOM-2's honest limit now has a number, and on an
+      ordinary vented/lightened part it is closer than §12a's qualitative
+      caveat suggested.** Code review of `8b95dac`/tier 4 (`enclosing_face_match`,
+      `geometry.kernel.faces`) derived the exact admission rule: tier 4 accepts
+      any stored face whose relative area `f` satisfies **`f >= 1 - 2r`**, where
+      `r` is the candidate face's open-area fraction. At r=10% the smallest
+      wrong face admitted is 80% of the outer region; r=25% -> 50%; r=37.5% ->
+      25%; at r>=50% tier 4 degrades to normal-sense + containment alone —
+      exactly as §12a's prose already warned, now with the threshold attached.
+      MEASURED (not extrapolated) on a **100x100 vented plate, 8x8 grid of Ø9
+      through-holes** (r=40.7%, "an ordinary grille or lightened web"):
+      `outer=10000.0 current=5928.5 removed_frac=0.407 lower_bound=1857.0`.
+      Deleting the boss a sketch sits on and re-evaluating: a 70x70 boss top
+      (4900 mm², tier4=True) RESOLVES onto the plate underneath; 60x60
+      (3600 mm²) RESOLVES; 50x50 (2500 mm²) RESOLVES; only 40x40 (1600 mm²,
+      tier4=False) stays an honest error. That is guard 2's own designed
+      failure case — the boss-deletion scenario tier 4's lower bound exists to
+      keep an HONEST error — now firing on a boss covering a QUARTER of an
+      ordinary perforated plate, not a pathological one. For scale, the M17
+      bracket itself is r=17.7% (lower bound 65% of the plate): comfortably
+      safe; the cliff is real but not universal. Does NOT argue for reverting
+      GEOM-2 — the alternative is a P0 that strands features on every
+      multi-feature face — this is the case FOR the durable fix flagged (and
+      deliberately deferred) at ship time, see the GEOM-2 entry in the Done
+      archive: `PlanarFaceSignature`
+      (`packages/py-kit`) should store outer-boundary invariants instead of
+      `area_mm2` + area centroid, removing the need to infer a bound from three
+      numbers at all. NOTE the ordering: that contract change ALSO needs tier 4
+      for every selector authored before it, so `8b95dac` is its prerequisite,
+      not a workaround — do not skip straight to the contract change.
+      ACCEPTANCE: `PlanarFaceSignature` carries an outer-boundary invariant
+      (e.g. outer wire signature/hash, not area+centroid alone); tier 4 (or its
+      successor) resolves the vented-plate boss-deletion case correctly (stays
+      an honest error at every boss size up to the full 70x70, not just
+      <=40x40); the M17 bracket golden and all tier-4 goldens stay green;
+      new golden(s) at r>=25% covering the boss-deletion honest-error case.
+      Mutation check: reverting the outer-boundary storage back to area+centroid
+      reddens the new r=40.7% golden.
+      [src: code review of 8b95dac, relayed 2026-08-15 — not yet committed to
+      docs/GEOMETRY-QA.md or the design doc; whoever picks this up should land
+      the inequality and the vented-plate measurement there too]
+      TERRITORY: `packages/py-kit/**` (PlanarFaceSignature schema),
+      `services/geometry/src/geometry/kernel/faces.py` (tier 4 and its
+      successor), `docs/design/topological-naming.md` §12a, geometry goldens.
       agentType: kernel-architect.
-      SHIPPED 8b95dac — and it CORRECTED THIS TICKET'S OWN PREMISE. M17 is not
-      "a thickness edit breaks holes": it takes TWO edits, and the audit's
-      control ("reverting to 10 mm restores all-OK, so the thickness change
-      alone causes it") misread that. Measured: t=10 with a diameter edit is
-      all-OK; t=14 with no diameter edit is all-OK; t=14 AND the diameter edit
-      is where holes 3-5 go `subshape_unresolved`. Tier 2 (coplanar) frees area
-      and in-plane centroid, so at constant thickness the staleness is
-      invisible; move the plane and tier 3 (translated) pins both stale
-      quantities. `docs/design/topological-naming.md` §12 NAMED this case and
-      shipped without it, calling the BOTH case a conservative choice — which
-      it only is if BOTH is rare, and it is the default state of any face
-      carrying more than one feature.
-      FIX: a tier 4 `enclosing_face_match`, reached only on an empty tier-3
-      result, carrying identity on the face's OUTER boundary — the one
-      invariant interior subtraction cannot touch. NO contract change, so no
-      persisted selector is invalidated, and strictly additive: nothing that
-      resolves today can be re-targeted.
-      Mutation, and the second arm is the one that matters: tier 4 removed ->
-      6 tests + 4 golden gates red; the band's LOWER bound removed (the
-      builder's own first draft) -> 6 tests red, because without it three
-      shipped HONEST-ERROR gates silently became resolutions — delete the boss
-      a sketch sits on and the sketch re-anchors to the plate underneath, a
-      visible failure traded for wrong geometry. Correctness, not just
-      liveness: new golden hand-derived at tol 1e-9, volume dev 7.3e-12, area
-      dev 0.0, centroid dev 2.1e-14, topology 9/21/1 exact, and the rescued
-      body byte-identical (sha256 `85563175ea7ffad3...`) to an exact re-pick.
-      Tier-4 cost 0.74 ms on a 200x200 plate with 36 holes, error path only.
-      Gates re-run by the orchestrator on the merged tree: ruff + ruff format +
-      pyright clean on all 6 changed files, targeted geometry slice 65 passed,
-      full golden suite 276 passed. NOT yet reviewed or QA'd — dispatched, and
-      the builder explicitly asked for `code-reviewer` sign-off on the
-      `topological-naming.md` §12a delta because this is a design-doc-first
-      area.
-      **THREE THINGS IT DID NOT CLOSE, for a later groom:** (a) the DURABLE fix
-      is a contract change it deliberately did not make — the signature should
-      store outer-boundary invariants instead of `area_mm2` + area centroid
-      (`PlanarFaceSignature` in `packages/py-kit`); note that change would ALSO
-      need tier 4 for every selector authored before it, so this commit is its
-      prerequisite, not a workaround. (b) Honest limit, stated in the doc and
-      the docstring: the band's width is twice what is currently cut out of the
-      face, so on a heavily perforated face it opens up and tier 4 degrades
-      toward normal-sense + containment — inherent to inferring the missing
-      invariant from three numbers, and the argument for (a). (c) M17's
-      *browser* recovery path ("Re-pick face") is still blocked by PICK-1; this
-      removes the need for it in the measured case but does not touch PICK-1.
 
 - [ ] (P0, M) **SKETCH-2 (M2) — the sketch origin and axes are not selectable
       entities, so a profile cannot be grounded relationally; likely also the
@@ -384,80 +367,6 @@ duplication.
       working" report — needs reproduction to confirm same root cause]
       TERRITORY: `apps/web/src/viewport/SketchScene.tsx`,
       `apps/web/src/sketch/**`, new e2e spec. agentType: frontend-builder.
-
-- [ ] (P0, S) **DIM-1 (was "FOUNDER — dimensions not assigning") — the
-      dimension VALUE field loses keystrokes typed at human speed; this is
-      plausibly the founder's whole actual experience of the report.**
-      REPRODUCED in two layers, the second by code review of c449235 (branch
-      (i), the arming half, shipped — see the Done archive). MECHANISM
-      (structurally verified by the reviewer; the delay numbers below are NOT
-      independently re-verified by this pass — re-derive them when building):
-      `apps/web/src/viewport/ConstraintGlyphs.tsx:218-228` is a CONTROLLED
-      `ExpressionField` rendered inside the r3f canvas via drei `<Html>`.
-      Typing `125` into a field pre-filled `43` produced `435` at inter-key
-      delays of 0/20/40/60/80/120 ms, and only survived at 200 ms/key. Event
-      trace: `[input] value="1"` -> ~86 ms of blocked main thread ->
-      `macro value="43"` (React restoring the DOM from a stale render) —
-      `apps/web/src/viewport/SketchScene.tsx:916` documents this IDENTICAL
-      defect for the FB-16 draw-time cells and fixed it by making them
-      UNCONTROLLED; that is the remedy to point at, not a novel fix. FIX: make
-      `ConstraintGlyphs.tsx`'s value field uncontrolled the same way
-      (ref-backed local input, commit on blur/Enter, no React-driven `value`
-      fighting the DOM mid-keystroke). ACCEPTANCE: (1) a component/unit test
-      typing "125" over a pre-filled "43" at 0 ms/key (the adversarial case)
-      yields "125", not "435"; (2) `apps/web/e2e/sketch-dimension-pick.spec.ts`
-      gains a `pressSequentially` leg — today's `:187`/`:249` use `.fill()`,
-      which bypasses the per-keystroke path entirely and cannot catch this;
-      the new leg MUST fail on current HEAD and pass after the fix; (3) this
-      item's original acceptance (type a value, press Enter, geometry updates)
-      re-verified end to end. Mutation check: reverting the uncontrolled-input
-      change reddens both the new unit test and the new e2e leg.
-      Also settled while reproducing (M22, product-audit pass 2026-08-14,
-      confirmed as designed not a bug): before the second click of a
-      rubber-band draw, `draw-dimensions` is `data-state="live"` with ZERO
-      input cells, so the live W/H chip is indistinguishable from a field and
-      typing into it does nothing — a separate, smaller UX gap, not this bug.
-      FB-16 is NOT regressed and SKETCH-1 is not implicated — editing an
-      EXISTING dimension already works end to end (measured 60 then 25).
-      [src: founder report 2026-08-14; root-caused by code review of c449235]
-      **INDEPENDENT QA, 2026-08-15 (`6df1170`, evidence in `docs/UI-REVIEW.md`)
-      — VERDICT FAIL, and the defect is WORSE than "a slow field". It silently
-      writes WRONG GEOMETRY.** Founder's exact path, production bundle, real
-      stack: type `125` into a cell pre-filled `43`, press Enter, read the
-      geometry service's evaluate response — a 43 mm edge becomes **435 mm**.
-      No error, no rejection: the glyph, the field and the SOLVED GEOMETRY all
-      agree on the wrong number. Measured 435 mm committed twice at 150-250 ms
-      wall-clock keying (10 of 12 trials corrupted the field), and 15 mm on one
-      `pressSequentially` trial. `125` survives only at 2500 ms/key.
-      Three properties make it a data-integrity bug rather than an annoyance:
-      it is SILENT; it is NOT MONOTONIC in typing speed (~155 ms gaps survive,
-      0.2-0.7 s corrupt, 0.8 s+ survive), so "type slower" is not a
-      discoverable workaround and a user cannot learn their way around it; and
-      the corrupted band WIDENS UNDER LOAD (0.9-1.4 s gaps still corrupted with
-      siblings active), i.e. it gets worse on a busy machine. The Name cell has
-      it too: `abc` -> `c`. Paste/`insertText` survives, which is exactly why
-      `.fill()` sees nothing.
-      NOT an environment artifact, and this rules out the obvious alternatives:
-      per keystroke, two `longtask` entries totalling 211+318 ms idle and
-      640+546 ms loaded, with **ZERO network requests** — while the same page
-      holds 180 frames / 3 s (17 ms median) with the editor open. React work,
-      not rasterisation and not a round trip.
-      MECHANISM HYPOTHESIS, well-supported but NOT proven by a fix: drei
-      `<Html>` renders children into a SEPARATE `ReactDOM.createRoot`,
-      re-rendered from a dep-less `useLayoutEffect`, while the `useState` draft
-      lives in the outer r3f root — so React's controlled-input restore puts
-      the prefill back before the cross-root update lands. Whoever fixes this
-      should confirm or refute that rather than inherit it.
-      The QA pass also EXECUTED two specs that had never run anywhere:
-      `sketch-orbit.spec.ts` (VP-1) **7/7 pass**, and `sketch-reopen.spec.ts`
-      (SKETCH-1) pass, plus a new save -> reload -> re-open -> dimension-still-60
-      round trip. And it flagged that its own green arming gate types at
-      2.5 s/key DELIBERATELY, to isolate the verb — that gate must not be read
-      as "typing works".
-      TERRITORY: `apps/web/src/viewport/ConstraintGlyphs.tsx`,
-      `apps/web/e2e/sketch-dimension-pick.spec.ts` (append the
-      `pressSequentially` leg only — do not touch the existing `.fill()` legs).
-      agentType: frontend-builder.
 
 - [ ] (P0, M) **FB-21 — the origin axis glyphs are labelled in KERNEL space but
       drawn in SCENE space, which the GLB rotation has already turned.**
@@ -498,63 +407,25 @@ duplication.
       TERRITORY: TBD by reproduction — likely `apps/web/src/viewport/**` or
       `apps/web/src/sketch/plane.ts`. agentType: frontend-builder.
 
-- [x] (P1, M) **FB-19 — the chrome is too sparse; compact it.** Founder,
-      2026-08-01, and distinct from FB-7: FB-7 stops panels COVERING the model,
-      this makes them worth the pixels they take. Note UI-W4 already did one pass
-      ("feature editors stop being 12-row web forms") and the founder still says
-      it is not dense enough — so treat the previous pass as insufficient rather
-      than done. Evidence is the founder's own photo: `EDIT EXTRUDE` spends six
-      full-width rows on Profile / Distance / Operation / Direction / Merge /
-      actions, every label stacked ABOVE its control, plus a permanently-visible
-      helper sentence ("Fuse into the touching body."); the left panel spends six
-      rows listing XY/XZ/YZ + X/Y/Z axis. Concrete levers, in order of return:
-      label BESIDE control instead of above (halves row height on a form that is
-      almost all short values); the two 2-state toggles (Operation, Direction)
-      onto one row as segmented controls; helper prose behind an info affordance
-      rather than permanently resident; the origin list as a 3x2 grid, not six
-      rows. THE FLOOR, which is not negotiable and must be stated in the commit:
-      WCAG 2.5.8 24px minimum target size (`PickNode` already cites it), visible
-      focus, AA contrast, and the touch specs still green — a panel compacted
-      into unusability on a laptop trackpad is a worse defect than a tall one.
-      Judge it the way the design mandate says: screenshots side by side against
-      a Fusion/Plasticity reference at 1600 AND 1280, and measure the viewport
-      pixels reclaimed rather than asserting it feels tighter. [src: founder
-      2026-08-01]
-      TERRITORY: `apps/web/src/components/ExtrudeEditor.tsx`,
-      `apps/web/src/components/FeatureTreePanel.tsx` (origin plane/axis list),
-      `packages/design/**` (only if a new dense-row/segmented-control
-      primitive is needed — fix the primitive, don't one-off it), new
-      screenshots under `docs/screenshots/`. Use the `frontend-design` skill
-      per CLAUDE.md's design mandate. agentType: frontend-builder.
-      DISPATCHED 2026-08-14 alongside QA7-1 (disjoint territories — no
-      viewport/sketch/geometry files touched by either).
-      SHIPPED — fixed in the DESIGN SYSTEM, not at the instances, which is what
-      the ticket asked for: a new `FieldRow` primitive carries the
-      label-beside-control layout and `NumberField`/`SelectField`/`Checkbox`/
-      `SegmentedControl` were compacted through it, so future editors inherit
-      the density instead of re-deriving it. Operation and Direction collapse
-      onto one row as segmented controls; the origin list becomes a 3x2 grid.
-      MEASURED at 1600 AND 1280, each ceiling seen FAILING at HEAD~ before it
-      was asserted: origin block 212.0px -> 95.0px (ceiling 100), extrude
-      editor card 368.3px -> 219.5px (ceiling 240), tree panel at rest 591.0px
-      -> 474.0px (ceiling 500). Combined chrome AREA is reported rather than
-      asserted, and the spec says why — once the card shrinks the tree stops
-      being scroll-clipped and grows into the room, so the column total is a
-      poor monotone signal even though every panel got smaller.
-      The non-negotiable floor is a GATE, not a claim: every interactive element
-      in the compacted chrome asserted >= 24px on both axes (WCAG 2.5.8), every
-      focus stop >= 2px ring, plus a text-overflow check that exists because a
-      0.7px overflow rendered `REVER...` in a screenshot while everything else
-      passed. Before/after shots at both widths under `docs/screenshots/fb19-*`.
-      PROVENANCE: the agent died on a session limit before committing; work
-      preserved from its worktree and gated by the orchestrator (typecheck
-      clean, 1618 web + 86 design unit tests on the merged tree, prettier and
-      eslint clean on every changed file). NOT reviewed, NOT QA'd, and
-      `fb19-chrome-density.spec.ts` has NOT been executed here — the pixel
-      numbers above are the dead agent's, re-run only at the unit level.
-      **Still owed: the founder has not SEEN the screenshots.** CLAUDE.md's
-      design mandate says "surfaced" means sent to the founder in chat, not
-      generated into `docs/screenshots/`. Send them.
+- [ ] (P1, XS) **FB-19b — FB-19 shipped (`f7c41d9`) but is not DONE: unreviewed,
+      unQA'd, and the founder has not seen the before/after screenshots.**
+      The chrome-density fix (label-beside-control `FieldRow` primitive,
+      compacted `NumberField`/`SelectField`/`Checkbox`/`SegmentedControl`,
+      measured origin block 212.0px->95.0px, extrude card 368.3px->219.5px,
+      tree panel 591.0px->474.0px, all against stated ceilings) is preserved
+      and gate-passing at the unit level only (typecheck, 1618 web + 86 design
+      unit tests, prettier/eslint clean) — the agent died before its own
+      `fb19-chrome-density.spec.ts` e2e gate ran even once, and no
+      `code-reviewer`/`qa-tester` pass has happened. ACCEPTANCE: (1) run
+      `fb19-chrome-density.spec.ts`, root-cause and fix if red; (2)
+      `code-reviewer` + `qa-tester` sign off; (3) orchestrator SENDS
+      `docs/screenshots/fb19-*` to the founder in chat per CLAUDE.md's design
+      mandate ("surfaced" = sent, not merely generated) — this last step is
+      not a build task, flag it for the orchestrator rather than a builder.
+      [src: FB-19 provenance note, groomed 2026-08-15]
+      TERRITORY: read-only verification; `apps/web/e2e/
+      fb19-chrome-density.spec.ts` only if it needs a fix. agentType:
+      frontend-builder or qa-tester.
 
 ## Next (P2)
 
@@ -584,19 +455,6 @@ duplication.
       `apps/web/src/viewport/**` (hover affordance rendering), new e2e spec.
       agentType: frontend-builder. DEMOTED from Ready 2026-08-14 (queue-thinning
       groom pass — pure flow polish, no correctness defect, not yet dispatched).
-
-- [ ] (P1, XS) **QA-VERIFY-1 — two shipped e2e specs have never been executed
-      anywhere: `sketch-orbit.spec.ts` (VP-1) and `sketch-reopen.spec.ts`
-      (SKETCH-1).** Both commits (43c703c, 30a9f3f) say so explicitly — the
-      agents died mid-slice and the orchestrator reconciled + re-ran
-      typecheck/unit/prettier only, never e2e. Both are runnable NATIVELY in
-      this container per CLAUDE.md's environment recipes (no Docker needed).
-      ACCEPTANCE: run both specs; if green, note the run against the ROADMAP
-      entries for VP-1/SKETCH-1; if red, root-cause and file a follow-up (do
-      not retry into green).
-      [src: code review of c449235, orchestrator dispatch 2026-08-14]
-      TERRITORY: read-only verification; no code changes expected unless a
-      spec is found red. agentType: frontend-builder or qa-tester.
 
 - [ ] (P2, XS) **ESC-3 — the one scenario where c449235's Escape-disarm rung
       actually prevents an exit (armed Dimension in an EMPTY sketch) is
@@ -628,6 +486,59 @@ duplication.
       [src: VP-1a follow-up noted 2026-08-14, filed this pass]
       TERRITORY: `apps/web/src/components/NavCue.tsx`,
       `apps/web/src/viewport/**` (wiring). agentType: frontend-builder.
+
+- [ ] (P2, XS) **QA7-1b — the static gate QA7-1 shipped (`db144d7`) recognises
+      a SOLVE-cell subject only via the literal `"eval-status"` string or a
+      `const <name> = page.getByTestId("eval-status")` binding, so
+      `page.locator("[data-testid=eval-status]")` or `const cell = status`
+      slip past it undetected.** Measured by the reviewer: each shape applied
+      then reverted, 1 passed — the gate does not fire. Neither shape exists in
+      `qa-sel7-verify.spec.ts` today, so nothing is unguarded right now, but
+      the gate's own header claims a completeness the code does not meet —
+      this repo's own guard-encodes-the-direction-of-its-defect pattern.
+      Separately, the gate is scoped to one file rather than all of
+      `apps/web/e2e` (sibling specs were other agents' territory when it
+      shipped). FIX: widen the binding-recognition regex to cover
+      `page.locator`/arbitrary-identifier forms, and either promote the
+      scanner to cover every e2e spec or lift it into a standalone
+      `just lint`-wired script (`scripts/`) so new specs inherit the guard
+      without a per-file copy. ACCEPTANCE: the two measured-slip shapes now
+      fail the gate when they name a string outside `solveSummary`'s
+      vocabulary; the non-vacuity negative control (the shipped pre-fix defect
+      line, asserted before the subject) still passes.
+      [src: code review of QA7-1 (`07c4005`), amber follow-up, filed 2026-08-15]
+      TERRITORY: `apps/web/e2e/qa-sel7-verify.spec.ts` (scanner function),
+      or a new `scripts/` gate if promoted repo-wide. agentType:
+      frontend-builder.
+
+- [ ] (P2, S) **TOUCH-1 — there is no touch/mobile Playwright PROJECT, and has
+      never been one since `playwright.config.ts` was introduced; QA briefs
+      that say "desktop AND touch" have been silently half-satisfied for the
+      life of the e2e suite.** `apps/web/playwright.config.ts` declares a
+      single default (desktop Chromium, 1600x1000, `deviceScaleFactor: 1`) —
+      no `projects` array, so there is no systematic touch/mobile run of any
+      kind. The only touch coverage that exists is ad hoc: 6 spec files
+      (`qa-sel4-verify`, `qa-sel6-verify`, `qa-sel7-verify`,
+      `measure-pattern-qa`, `full-flow`, `import-remix`) locally override
+      `test.use({ hasTouch: true, viewport: … })` inside one describe block
+      each — a hand-picked subset, not a run of the suite. This is a PROCESS
+      defect as much as a coverage gap: any brief (including this repo's own
+      QA dispatches) that asks for "desktop and touch" verification cannot be
+      honoured by "run the touch project," because none exists — it can only
+      mean "if one of these 6 specs happens to cover it." FIX: add a `projects`
+      array with at least one touch-emulating profile
+      (`{ ...devices["iPad (gen 7) landscape"], hasTouch: true }` or similar)
+      that runs a deliberately-scoped touch SMOKE subset (not the full 350+
+      spec suite doubled — sizing that subset is part of the work), wired into
+      `e2e.yml` as its own shard/job so a touch regression has somewhere to
+      show up. ACCEPTANCE: a touch project exists and runs in CI; at least the
+      6 specs above (already touch-aware) run under it rather than only under
+      per-spec overrides; document in this file's own convention (or
+      CLAUDE.md) what "desktop and touch" verification means going forward so
+      future briefs stop overclaiming coverage that isn't there.
+      [src: QA finding, relayed 2026-08-15 — process gap, not a single bug]
+      TERRITORY: `apps/web/playwright.config.ts`, `.github/workflows/e2e.yml`.
+      agentType: platform-builder or frontend-builder.
 
 - [x] (P1, S) **K7 — Stop hook in-flight guard fixed. SHIPPED 29387da
       2026-08-14.** Depth-agnostic `find -path '*/tasks/*.output' -mmin -30`,
@@ -1444,6 +1355,35 @@ frame refactor are v2/§11. Spike de-collected.
       naming. The fix is adjacency ("the arc tangent to these two faces") = stage-2
       provenance (topological-naming §2d), not a looser epsilon.
       [src: topological-naming §11]
+- [ ] (P2, S) **GEOM-4 — tier 4's containment check leaves a derivable
+      constraint unenforced: when a stored face's area equals the outer
+      region's, its centroid MUST equal the outer region's centroid.**
+      `outer·C_outer = stored·C_stored + removed·C_removed` implies this
+      directly, but `enclosing_face_match` only tests containment. MEASURED
+      accepting a bogus signature: a plain 100x40 face with `area_mm2 = 4000`
+      (== outer) and `centroid = (5, 3, 10)` returns `enclosing_face_match ==
+      True`. Would NOT have caught GEOM-3's vented-plate case (boss and plate
+      share a centroid there), and no shipped test currently depends on it —
+      a strengthening opportunity, not a live defect. FIX: when `stored ==
+      outer` (within tolerance), assert `centroid == outer_centroid` as an
+      additional necessary condition before accepting the match. ACCEPTANCE:
+      the bogus-centroid case above is REFUSED; every existing tier-4 golden
+      stays green (their centroids already satisfy the identity, since they
+      came from a real subtraction). Small enough to ride with GEOM-3 if that
+      lands first, or standalone otherwise.
+      [src: code review of 8b95dac, relayed 2026-08-15]
+      TERRITORY: `services/geometry/src/geometry/kernel/faces.py`
+      (`enclosing_face_match`). agentType: kernel-architect.
+- [ ] (P3, XS) **GEOM-5 — an unlisted honest limit for §12a: a hole enlarged
+      until it BREACHES the outer boundary (a scallop or edge slot) changes
+      the outer wire itself, which is the one invariant tier 4 rests on.**
+      Fails SAFE (the outer region shrinks and the upper bound refuses) but is
+      the most likely real edit that defeats the claimed invariant, and
+      deserves a line in the doc beside the already-documented concave-face
+      and grown-face limits. Doc-only; no code change implied.
+      [src: code review of 8b95dac, relayed 2026-08-15]
+      TERRITORY: `docs/design/topological-naming.md` §12a — land alongside
+      whoever next touches GEOM-3/GEOM-4 rather than as a standalone dispatch.
 - [ ] (P2, M, recurring) Model-a-REAL-part dogfooding gate — once per phase
       (or ~quarterly), an agent models a complete real product end-to-end
       through the actual app + APIs, verifies against closed-form analytics,
@@ -2050,28 +1990,61 @@ so it is the pre-`5bd4c46` camera snap or a stale Codespace bundle (see FB-11).
 
 ## Done — archive
 
+### Reconciled from Ready — DIM-1 QA / QA7-1 / GEOM-2 / FB-19 groom pass (2026-08-15, backlog-groomer)
+
+- **QA7-1** — the SEL-7 Create-costs-nothing wait was vacuous and the two
+  comparison arms sampled at different settle depths. SHIPPED `db144d7`,
+  REVIEWED non-blocking (3 green, 1 amber). Amber follow-up filed as QA7-1b
+  (scanner recognition gap + repo-wide promotion, Next). QA never ran on this
+  slice itself (the verify agent died on a session limit) — no product-code
+  risk (the fix is e2e-file-only), noted for completeness.
+- **GEOM-2 (M17)** — tier 4 (`enclosing_face_match`) anchors a planar face's
+  identity on its OUTER boundary, fixing the thickness-edit-orphans-holes case.
+  SHIPPED `8b95dac`. Code-reviewed `57711c4` (corrected the design doc's own
+  account of what moved: 3 goldens + a rename, not the "one" first claimed;
+  the M17 top-face centroid measurement; and that only the band's UPPER bound
+  is derived, the lower is a well-motivated assumption). That review also
+  QUANTIFIED the honest limit `docs/design/topological-naming.md` §12a only
+  described qualitatively — see GEOM-3 (Ready, P0), now the actual next step,
+  plus GEOM-4/GEOM-5 (Later) for the smaller follow-ups it also found.
+- **FB-19** — chrome density (label-beside-control `FieldRow` primitive).
+  SHIPPED `f7c41d9`. Still not reviewed, not QA'd, screenshots not sent to the
+  founder — tracked as FB-19b (Ready) rather than closed here, per the K8
+  convention (an `(UNREVIEWED)`-class item stays visible until both gates
+  pass).
+- **QA-VERIFY-1 CLOSED** — both specs it asked to verify have now run:
+  `sketch-orbit.spec.ts` (VP-1) 7/7 pass, `sketch-reopen.spec.ts` (SKETCH-1)
+  pass plus a new save/reload/re-open round trip, both executed as part of the
+  DIM-1 QA pass (`6df1170`, 2026-08-15) rather than by a QA-VERIFY-1-labeled
+  task — the acceptance criterion (run both, note the result) is met either
+  way. SKETCH-1/VP-1/VP-1a below updated from UNQA'D to QA'd-green,
+  code-review still outstanding.
+
 ### Reconciled from Ready — c449235 review groom pass (2026-08-14, backlog-groomer)
 
 - **SKETCH-1 (M15)** — a saved sketch can be re-opened via `beginEdit`
-  hydration; SHIPPED `30a9f3f`. UNREVIEWED, UNQA'D — see QA-VERIFY-1
-  (`sketch-reopen.spec.ts` never executed).
-- **VP-1** — orbit while sketching on MIDDLE button; SHIPPED `43c703c`.
-  UNREVIEWED, UNQA'D — see QA-VERIFY-1 (`sketch-orbit.spec.ts` never
-  executed). Fragile mechanism, noted not filed as its own item: the
+  hydration; SHIPPED `30a9f3f`. QA'd green 2026-08-15 (`6df1170`: pass, plus a
+  new save/reload/re-open/dimension-still-60 round trip). Still UNREVIEWED by
+  `code-reviewer`.
+- **VP-1** — orbit while sketching on MIDDLE button; SHIPPED `43c703c`. QA'd
+  green 2026-08-15 (`6df1170`: `sketch-orbit.spec.ts` 7/7). Still UNREVIEWED
+  by `code-reviewer`. Fragile mechanism, noted not filed as its own item: the
   sketch-mode `mouseButtons` binding relies on r3f REPLACING rather than
   merging the `mouseButtons` object prop (`Viewport.tsx:880-887`) — if a
   future three-fiber/drei upgrade ever merges instead, LEFT silently regains
   ROTATE and the sketcher's press-drag starts orbiting. Watch this on any
   r3f/drei version bump.
 - **VP-1a** — Alt(Option)+left-drag orbit reaches trackpads; SHIPPED
-  `32e5b87`. UNREVIEWED, UNQA'D. Follow-ups filed: VP-1b (undiscoverable
-  gesture, Next) and QAH-1 (possible CI orbit-probe regression, Ready).
+  `32e5b87`. UNREVIEWED by `code-reviewer`; QA coverage rides VP-1's spec
+  above (same binding path). Follow-ups filed: VP-1b (undiscoverable gesture,
+  Next) and QAH-1 (possible CI orbit-probe regression, Ready).
 - **c449235 (Dimension verb arms instead of dead-ending)** — SHIPPED,
   reviewed (`d6fc92b` corrected two integration errors from this pass:
   stale worktree SHA citations, and this item's parent left `[x]` while its
   own acceptance was unmet). Follow-ups filed: DIM-1 (P0, keystroke loss —
-  the probable real founder experience), DIM-3 (armed-state flow bugs),
-  ESC-2 (FB-13 landmine in a duplicate Escape cascade), ESC-3 (test gap).
+  the probable real founder experience, now confirmed by QA as silent
+  WRONG-GEOMETRY writes — `6df1170`), DIM-3 (armed-state flow bugs), ESC-2
+  (FB-13 landmine in a duplicate Escape cascade), ESC-3 (test gap).
 
 ### Reconciled from Ready — backlog hygiene sweep (2026-08-14, backlog-groomer)
 
@@ -2741,11 +2714,8 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
-- 2026-08-14 — **Groom pass 3 — c449235 review triage (backlog-groomer):**
-  filed DIM-1 (P0, dimension-field keystroke loss — the probable real founder
-  bug), DIM-3/ESC-2/ESC-3 (armed-state flow + FB-13-class landmine + test
-  gap), QAH-1 (P0, unfiled e2e CI-red cause) and QA-VERIFY-1/VP-1b; archived
-  SKETCH-1/VP-1/VP-1a as shipped-unreviewed; renamed the FB-20 id collision to
-  FLOW-1; deduped a stale full-detail Changelog tail into `CHANGELOG.md`.
-
-Older entries: see `docs/CHANGELOG.md`.
+- 2026-08-15 — **Groom pass 4 (backlog-groomer):** DIM-1 moved to top of Ready
+  (QA `6df1170` found it writes silent WRONG geometry, not just a slow field);
+  archived QA7-1/GEOM-2/FB-19 shipped, QA-VERIFY-1 closed; filed GEOM-3/4/5
+  (GEOM-2's quantified honest limit + durable fix) and TOUCH-1 (no touch
+  Playwright project). Older entries: see `docs/CHANGELOG.md`.

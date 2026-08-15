@@ -2,30 +2,72 @@
 
 Status legend: ✅ done · 🚧 in progress · ⬜ planned
 
-**Current focus, corrected 2026-08-14 (K6 — this line was 129 commits and two
-weeks stale, and had drifted to claim LIC-1 open when line 1977 of this same
-file says CLOSED; third recurrence of this exact staleness, see H6/J13/K6):
-SELECTION/PICK RELIABILITY + E2E/CI STABILITY, now pivoting to SKETCH- AND
-FEATURE-EDIT CORRECTNESS.** The open-source-release push (backups,
-`/metrics`, licensing) landed 2026-07-31 and LIC-1 (GPL `jbigkit` in the
-geometry image) closed the same day (`c7f23dd`/LIC-1+LIC-3, see line ~1977).
-Since then the work has been SEL-1..8 (viewport picking through hidden/
-occluded geometry), CI-1..4 + REV-1..5 (e2e gate reliability, a five-lens
-ultracode review), and FB-20 (camera stolen after extrude, closed 2026-08-14).
-A fresh, still-uncommitted audit pass (product M1-22 + engineering K1-8,
-2026-08-14) found the next real gap: sketch and feature EDITING is broken
-(a saved sketch cannot be re-opened at all; a picked-edge fillet's radius is
-write-once; a viewport pick is stamped with the tip feature's id rather than
-the one that owns the sub-shape). SKETCH-1/VP-1/VP-1a shipped (below) but are
-**unreviewed and unQA'd**, and a code review of the dimension-arm fix
-(c449235) found the founder's "dimensions not assigning" report is STILL
-open: the value field drops keystrokes at every human typing speed (DIM-1,
-now the top P0). **`e2e` CI has been RED for TEN consecutive commits** (last
-green `a34382b`); two causes, QA7-1 and QAH-1 (both filed, see BACKLOG
-Ready). See `docs/BACKLOG.md` Ready: DIM-1/QAH-1/SNAP-1/PICK-1/GEOM-2/
+**Current focus, corrected 2026-08-15 (backlog-groomer reconciliation pass —
+QA7-1/CI-2/FB-19 had shipped without a ROADMAP update; see the entries below):
+SKETCH- AND FEATURE-EDIT CORRECTNESS, with DIM-1 now the top P0 on evidence,
+not suspicion.** The open-source-release push (backups, `/metrics`, licensing)
+landed 2026-07-31; SEL-1..8 (viewport picking) and CI-1..4/REV-1..5 (e2e gate
+reliability) closed through 2026-08-14. A fresh audit pass (product M1-22 +
+engineering K1-8, 2026-08-14) found sketch and feature EDITING broken (a saved
+sketch could not be re-opened at all; a picked-edge fillet's radius write-once;
+a viewport pick stamped with the tip feature's id rather than the one that
+owns the sub-shape). SKETCH-1/VP-1/VP-1a shipped and are now **QA'd green**
+(`6df1170`, 2026-08-15 — `sketch-orbit.spec.ts` 7/7, `sketch-reopen.spec.ts`
+pass plus a new round trip) but still **unreviewed by `code-reviewer`**.
+**DIM-1 escalated**: a code review of the dimension-arm fix (c449235) first
+found the value field drops keystrokes at human typing speed; independent QA
+(`6df1170`) then confirmed against the production bundle that it goes further
+— it **silently writes wrong geometry** (`125` typed over `43` commits `435`
+to the solver, no error). That is now the top P0 on the board, above every
+other item, per the "wrong geometry is always P0" rule.
+**QA7-1 CLOSED** (`07c4005`, reviewed non-blocking) and **CI-2 fixed a second
+time** (`43a4efd` — see the CI-2 entry near line ~1977 for the recurrence);
+QAH-1, the OTHER named cause of the ten-consecutive-red streak, is still open.
+Whether the streak has actually broken is **unverified as of this pass** — the
+groomer cannot read CI; the orchestrator should confirm on the next CI read.
+**FB-19 shipped** (`f7c41d9`, chrome density) but is unreviewed, unQA'd, and
+its screenshots have not been sent to the founder — tracked as FB-19b.
+GEOM-2's tier 4 shipped (`8b95dac`) and closed M17's control case, then a code
+review (`57711c4`) quantified its honest limit: at r>=~25% open area on a
+face, tier 4 can silently re-target a deleted feature's sketch onto the wrong
+face — filed as GEOM-3 (P0, the durable fix), GEOM-4/GEOM-5 (smaller
+follow-ups). See `docs/BACKLOG.md` Ready: DIM-1/QAH-1/SNAP-1/PICK-1/GEOM-3/
 SKETCH-2 are the next batch. (The flow-overhaul item formerly numbered FB-20
 was renamed FLOW-1 — that id collided with the camera-stolen-after-extrude
 fix, also FB-20, closed below.)
+
+**QA7-1 CLOSED (`db144d7`, reviewed non-blocking `07c4005`) — the SEL-7
+Create-costs-nothing e2e wait wasn't waiting.** `expect.poll(...).not.toBe(
+"Evaluating")` was satisfied by its first sample ("Evaluating" occurs nowhere
+in the product's status vocabulary), so the two comparison arms sampled at
+different settle depths under load, producing QA7-1's reported flake. Fixed
+by waiting on a state the product can actually be in and sampling both arms
+at the same point; a static gate now checks every SOLVE-cell assertion in the
+spec against `solveSummary`'s real vocabulary. Amber follow-up (scanner
+recognition gap + one-file scope) filed as QA7-1b, `docs/BACKLOG.md` Next.
+
+**CI-2 fixed a SECOND time (`43a4efd`) — `deploy-path.yml` had reverted to
+ref-keyed concurrency and was evicting runs again.** First fixed `2076de4`;
+recurred, measured on `8d386ab` (`cancelled`, 81s wall clock, `total_jobs: 0`
+— the eviction signature, not a timeout). Re-fixed to per-SHA push
+concurrency (matching `ci.yml`/`e2e.yml`) and gated so it cannot silently
+regress a third time: `scripts/check-workflow-concurrency.py`, wired into
+`just lint` and CI's `compose` job, asserts every workflow's concurrency
+expression by POSITION (not just "contains github.sha") and that group
+prefixes are unique across workflows. Verified against the real pre-fix file
+(exits 1 naming the bad expression) and an 8-fixture self-test.
+
+**FB-19 SHIPPED (`f7c41d9`) — chrome density, but not DONE.** The
+label-beside-control `FieldRow` primitive compacts `NumberField`/
+`SelectField`/`Checkbox`/`SegmentedControl`; measured origin block
+212.0px->95.0px, extrude editor card 368.3px->219.5px, tree panel
+591.0px->474.0px, each against a stated ceiling, with a WCAG 2.5.8 24px
+target-size gate. Provenance: the building agent died on a session limit
+before its own e2e gate (`fb19-chrome-density.spec.ts`) ran even once; work
+was preserved and re-gated at the unit level only (typecheck, 1618 web + 86
+design unit tests). Not reviewed, not QA'd, and the founder has not seen the
+before/after screenshots (CLAUDE.md's design mandate: "surfaced" means sent
+in chat) — tracked as FB-19b, `docs/BACKLOG.md` Ready.
 
 **K7 CLOSED (29387da, 2026-08-14)** — Stop hook in-flight guard fixed
 (depth-agnostic `find`, no `pipefail`-breaking pipe, self-test against a
@@ -1738,6 +1780,39 @@ signature still z=10) and locks 37,947.61065788307 mm³ / 8,245.044226980004 mm�
 centroid x 30.178821275282164 (deviations ≤7.3e-12), with mesh counts cross-checked
 byte-identical against an exact-pick build of the same part. Evidence:
 `docs/GEOMETRY-QA.md` 2026-07-30.
+
+**GEOM-2 (M17) — the sequel to QA-2's blind spot: a face's identity encoded
+what had been DRILLED into it (FIXED 2026-08-14, kernel-architect; `8b95dac`).**
+QA-2's tiers 2/3 free a face's offset and in-plane position but both still pin
+`area_mm2` + in-plane centroid — fine when a face carries exactly one feature,
+wrong the moment it carries two: thickening a plate AND editing a hole
+diameter on the same face left holes 3-5 `subshape_unresolved`, because tier 2
+frees area/centroid at constant thickness (invisible) but tier 3 pins BOTH at
+a changed thickness (fatal). Tier 4 (`enclosing_face_match`) anchors identity
+on the face's OUTER boundary instead — the one invariant interior subtraction
+cannot touch — reached only on an empty tier-3 result, strictly additive.
+Mutation: removing tier 4 reddens 6 tests + 4 golden gates; removing its LOWER
+bound (the first draft) also reddens 6, because without it three shipped
+honest-error gates silently became wrong resolutions.
+**Code review (`57711c4`, 2026-08-15) corrected the design doc's own account
+and QUANTIFIED the honest limit §12a only described qualitatively.** Three
+goldens moved, not the "one" first claimed; the M17 top-face centroid is
+(50.336, 20.0), 0.336 mm off the bore centre, not "dead centre" as first
+written; and only the band's UPPER bound is derived from the hypothesis — the
+LOWER bound is a well-motivated assumption, not a derivation, which matters
+because it is exactly what the honest-limits paragraph has to defend. The
+review then derived the admission rule precisely: tier 4 accepts a stored face
+whose relative area `f` satisfies `f >= 1 - 2r` (`r` = the candidate's own open
+fraction), and MEASURED it on a 100x100 vented plate with an 8x8 grid of Ø9
+holes (r=40.7%, "an ordinary grille or lightened web"): deleting a 70x70,
+60x60, or 50x50 boss all RESOLVE onto the plate underneath (wrong — guard 2's
+own designed failure case), and only a 40x40 boss stays an honest error. The
+M17 bracket itself is r=17.7% (comfortably safe), so the cliff is real but not
+universal. Filed as GEOM-3 (P0, `docs/BACKLOG.md` Ready) — the durable fix
+(`PlanarFaceSignature` should carry an outer-boundary invariant instead of
+`area_mm2` + centroid) that was deliberately deferred at ship time, now with
+the number that makes it urgent rather than theoretical. GEOM-4/GEOM-5 (Later)
+carry two smaller findings from the same review.
 
 **QA-4 — a print never loses a dimension in SILENCE (FIXED 2026-07-30,
 kernel-architect; QA wave `748a6ad`).** The composer had a skip branch: a dimension

@@ -5,6 +5,23 @@ section each grooming pass (one-line-per-entry there; detail preserved
 here). Newest first. Evidence for shipped items also lives in the Done
 archive (`BACKLOG.md`) and per-item commits.
 
+## 2026-08-14/15 (c449235 review triage + DIM-1/QA7-1/GEOM-2/FB-19 groom passes)
+
+- **Groom pass 3 — c449235 review triage (backlog-groomer):** filed DIM-1
+  (P0, dimension-field keystroke loss — the probable real founder bug),
+  DIM-3/ESC-2/ESC-3 (armed-state flow + FB-13-class landmine + test gap),
+  QAH-1 (P0, unfiled e2e CI-red cause) and QA-VERIFY-1/VP-1b; archived
+  SKETCH-1/VP-1/VP-1a as shipped-unreviewed; renamed the FB-20 id collision
+  to FLOW-1.
+- **Groom pass 4 — DIM-1 QA / QA7-1 / GEOM-2 review / FB-19 reconciliation
+  (backlog-groomer):** DIM-1 reclassified P0-top on independent QA finding
+  silent wrong-geometry writes (`6df1170`); archived QA7-1/GEOM-2/FB-19 as
+  shipped (all still owe review/QA/screenshot-send, tracked as QA7-1b/FB-19b);
+  closed QA-VERIFY-1 (both specs now run green); filed GEOM-3 (P0, the
+  quantified honest-limit/durable-fix ticket — `f >= 1 - 2r`, measured on a
+  vented plate at r=40.7%), GEOM-4/GEOM-5 (smaller follow-ups), TOUCH-1 (no
+  touch/mobile Playwright project has ever existed).
+
 ## 2026-08-14 (audit-driven groom passes 1-2, pre-c449235-review)
 
 - **Groom + hygiene sweep (backlog-groomer):** Ready had grown to 145 items /
