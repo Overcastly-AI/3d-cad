@@ -420,6 +420,40 @@ duplication.
       FB-16 is NOT regressed and SKETCH-1 is not implicated — editing an
       EXISTING dimension already works end to end (measured 60 then 25).
       [src: founder report 2026-08-14; root-caused by code review of c449235]
+      **INDEPENDENT QA, 2026-08-15 (`6df1170`, evidence in `docs/UI-REVIEW.md`)
+      — VERDICT FAIL, and the defect is WORSE than "a slow field". It silently
+      writes WRONG GEOMETRY.** Founder's exact path, production bundle, real
+      stack: type `125` into a cell pre-filled `43`, press Enter, read the
+      geometry service's evaluate response — a 43 mm edge becomes **435 mm**.
+      No error, no rejection: the glyph, the field and the SOLVED GEOMETRY all
+      agree on the wrong number. Measured 435 mm committed twice at 150-250 ms
+      wall-clock keying (10 of 12 trials corrupted the field), and 15 mm on one
+      `pressSequentially` trial. `125` survives only at 2500 ms/key.
+      Three properties make it a data-integrity bug rather than an annoyance:
+      it is SILENT; it is NOT MONOTONIC in typing speed (~155 ms gaps survive,
+      0.2-0.7 s corrupt, 0.8 s+ survive), so "type slower" is not a
+      discoverable workaround and a user cannot learn their way around it; and
+      the corrupted band WIDENS UNDER LOAD (0.9-1.4 s gaps still corrupted with
+      siblings active), i.e. it gets worse on a busy machine. The Name cell has
+      it too: `abc` -> `c`. Paste/`insertText` survives, which is exactly why
+      `.fill()` sees nothing.
+      NOT an environment artifact, and this rules out the obvious alternatives:
+      per keystroke, two `longtask` entries totalling 211+318 ms idle and
+      640+546 ms loaded, with **ZERO network requests** — while the same page
+      holds 180 frames / 3 s (17 ms median) with the editor open. React work,
+      not rasterisation and not a round trip.
+      MECHANISM HYPOTHESIS, well-supported but NOT proven by a fix: drei
+      `<Html>` renders children into a SEPARATE `ReactDOM.createRoot`,
+      re-rendered from a dep-less `useLayoutEffect`, while the `useState` draft
+      lives in the outer r3f root — so React's controlled-input restore puts
+      the prefill back before the cross-root update lands. Whoever fixes this
+      should confirm or refute that rather than inherit it.
+      The QA pass also EXECUTED two specs that had never run anywhere:
+      `sketch-orbit.spec.ts` (VP-1) **7/7 pass**, and `sketch-reopen.spec.ts`
+      (SKETCH-1) pass, plus a new save -> reload -> re-open -> dimension-still-60
+      round trip. And it flagged that its own green arming gate types at
+      2.5 s/key DELIBERATELY, to isolate the verb — that gate must not be read
+      as "typing works".
       TERRITORY: `apps/web/src/viewport/ConstraintGlyphs.tsx`,
       `apps/web/e2e/sketch-dimension-pick.spec.ts` (append the
       `pressSequentially` leg only — do not touch the existing `.fill()` legs).

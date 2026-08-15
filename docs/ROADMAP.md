@@ -35,6 +35,30 @@ harness-produced fixture). Groom pass 2026-08-14 (post-VP-1/SKETCH-1) filed
 onto the board; both queue behind the currently-occupied
 `apps/web/src/{viewport,sketch}/**` territories.
 
+**DIM-1 — THE FOUNDER'S DIMENSION COMPLAINT IS NOT CLOSED, AND THE REMAINING
+HALF SILENTLY WRITES WRONG GEOMETRY (QA 2026-08-15, `6df1170`).** Independent QA
+against the production bundle and a real stack answered the question directly:
+the founder can now REACH the dimension editor — `c449235`'s arming half genuinely
+works — and then the number he types is corrupted before it reaches the solver.
+Type `125` into a cell pre-filled `43` and a 43 mm edge becomes **435 mm**, with
+the glyph, the field and the evaluated geometry all agreeing on the wrong value.
+No error is raised.
+
+This is a data-integrity defect in a CAD tool, not a UI annoyance, and three
+measured properties are why: it is silent; it is **not monotonic in typing
+speed** (~155 ms key gaps survive, 0.2-0.7 s corrupt, 0.8 s+ survive), so
+"type slower" is not a workaround anyone could discover; and the corrupted band
+**widens under load**, so it is worst on a busy machine. Ruled out as
+environmental by measurement: two `longtask` entries per keystroke and **zero
+network requests**, on a page holding 180 frames / 3 s. React work, not
+rasterisation, not a round trip.
+
+The same pass executed two specs that had never been run anywhere —
+`sketch-orbit.spec.ts` (VP-1) 7/7, and `sketch-reopen.spec.ts` (SKETCH-1) plus a
+new save/reload/re-open round trip — and reported honestly that its own green
+arming gate types at 2.5 s/key deliberately, so it must not be read as "typing
+works". A fix is in flight.
+
 **FOUNDER "dimensions not assigning" REPRODUCED and PARTIALLY FIXED (c449235,
 2026-08-14) — the founder's complaint is NOT closed.** The report had sat un-reproduced by anyone. The mechanism is a
 flow defect, not a wrong value: a draw tool stays armed after it draws (Fusion
