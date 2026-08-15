@@ -271,6 +271,56 @@ claims and only one of them is defensible from one API call.
 
 ---
 
+## 4b. I shipped a mutation-test constant as product code, and only the gate I skipped could see it
+
+`0580f7d` is mine. Its message says, accurately: *"RECONCILED from a stopped
+agent; gates re-run by me, no independent review."* The gates I re-ran were
+`just lint` and 1598 unit tests. I did not run the e2e.
+
+The stopped agent had been mutation-testing `apps/web/e2e/diagnostics.ts`, and its
+injected mutant was still in the tree when I picked the work up:
+
+```ts
+rendersInProbeWindow: after === null || before === null ? null : 0, // MUTANT: always 0
+```
+
+I committed it. The same commit ADDED the assertion written to catch exactly that
+condition — so the gate and the defect it was designed to detect landed together,
+and the gate then failed on every commit for the next ten, which is half of the
+red streak in §4a that I also mis-reported as green. The comment literally says
+`MUTANT`. Nobody read the diff hunk; I read the docstring change the commit was
+nominally about.
+
+Three things generalise, in increasing order of how much they cost:
+
+1. **Reconciling a dead agent's work means running the gates that agent's work
+   was ABOUT, not the gates that are cheap.** The dead agent was working on e2e
+   diagnostics. `just lint` and the unit suite were structurally incapable of
+   seeing anything it had done. I chose the gates by convenience and then wrote
+   "gates re-run by me" as though that settled it.
+2. **A stopped agent's tree may contain deliberate sabotage.** Mutation testing is
+   mandatory here — every builder is told to inject a mutant, watch it redden, and
+   revert. So an agent killed mid-mutation leaves a defect that is *by
+   construction* invisible to every gate except the one it was aimed at. This is a
+   predictable consequence of our own process, and the relaunch protocol said
+   nothing about it.
+3. **`git diff --cached` in full, before every commit, would have caught it in a
+   second** — the marker is the word `MUTANT` in a one-line hunk. That rule is
+   already in `CLAUDE.md`, written for a different failure (sweeping a colleague's
+   work), and I did not apply it because the commit "was only a docstring fix".
+
+Found 2026-08-15 by the QAH-1 agent, which correctly refused both candidates in
+its brief — I had framed it as "either the probe is broken or the scene is not
+rendering" — and measured a third thing: the scene rendered 38-48 times and the
+camera moved ~18 units while the collector reported 0. Both of my hypotheses were
+wrong and it said so with numbers.
+
+**Recommended and not yet built:** a grep-level guard for `MUTANT` / ablation
+markers in committed code. It is a second of CI time and it closes a defect class
+that unit tests and lint cannot see by construction.
+
+---
+
 ## 5. Environment facts that cost real time
 
 Full detail lives in `CLAUDE.md`'s environment-recipes section; these are the

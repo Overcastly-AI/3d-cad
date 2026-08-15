@@ -39,7 +39,17 @@ were not being used and the orchestrator was doing their work by hand.
    measurement discipline as any other.
 2. **Dispatching batches** and assigning **disjoint territories**.
 3. **Integrating** green branches and verifying the MERGED tree before pushing.
-4. **Relaunching dead agents** and reconciling their preserved work.
+4. **Relaunching dead agents** and reconciling their preserved work. **Run the
+   gates that agent's work was ABOUT, not the gates that are cheap** — and read
+   `git diff --cached` in full, every hunk, before committing it. On 2026-08-15 a
+   reconciliation of mine (`0580f7d`) shipped a stopped agent's
+   `// MUTANT: always 0` constant as product code: I ran lint and the unit suite,
+   both structurally incapable of seeing an e2e-diagnostics change, and the one
+   gate that could see it was the one I skipped. It then failed on every commit
+   for the next ten. Mutation testing is MANDATORY here, so an agent killed
+   mid-mutation leaves sabotage that is by construction invisible to every gate
+   except the one it was aimed at. Assume the tree is booby-trapped, not merely
+   unfinished.
 5. **Talking to the founder.**
 
 If you find yourself editing `docs/BACKLOG.md`, stop. That is the groomer's file
