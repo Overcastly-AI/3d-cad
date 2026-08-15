@@ -141,7 +141,70 @@ Also measured and worth knowing: the grab disc is **9 px** at the default camera
 and **4 px** zoomed out — well under any touch-target guideline, and there is no
 touch project to catch it (TOUCH-1).
 
-**Review found one BLOCKING user-facing defect and it is open:** symmetric about
+**BLOCKING REVIEW FINDING NOW CLOSED (`09cec01`) — and the fix's own reasoning
+is the transferable part.** Symmetric about a datum axis reported
+`OVER-CONSTRAINED` pointing at a glyph-suppressed, undeletable datum pin. All
+four counterfactuals reproduced against the real solver (unpinned construction
+line -> underconstrained dof 6; one pin -> underconstrained dof 4; both pins ->
+**overconstrained dof 3, redundant = the second pin**; parallel+coincident to a
+pinned axis -> underconstrained dof 1).
+
+Chosen fix: filter pin indices out of `conflicting`/`redundant` at ONE seam
+(`datumSafeSolve`, applied in `adoptSolved`) so the DRO cell, the banner and the
+flagged-glyph set read the same sanitised value and cannot disagree. **Why a
+rigid non-pin representation is worse, four ways:** it cannot be DOF-neutral
+(`fixed(start) + horizontal` removes 3 of a line's 4 DOF, so grounding would ADD
+to the number the user reads, breaking `datum.ts`'s own documented property);
+the solver has no "rigid" primitive, so anything expressible is pins under
+another name and attracts the same attribution; the pins are PERSISTED, so every
+saved sketch would need migrating for a presentation defect; and it fixes only
+the axis, while the origin's `fixed` has identical exposure. Filtering encodes
+the general rule, re-representation patches one instance.
+
+**A genuine over-constraint stays visible, measured rather than argued** —
+planegcs reports the whole dependent set, so a user's own redundancy keeps its
+own index even with a pin in the set: duplicated coincident + origin pin ->
+`redundant [1]` survives; user `fixed` fighting the origin pin -> `conflicting
+[0,1,2]` filters to `[0,1]`, both glyphed; rigid rect + symmetric + a redundant
+`parallel` -> `[10,11]`, pin dropped, user constraint flagged. Conflicts are
+never softened: a conflicting sketch did not solve, so when only a pin is named
+the status stands. Negative control: an over-eager filter reddens the guard
+tests, so they are sensitive in both directions.
+
+**The agent caught TWO of its own tests being unfalsifiable and said so** — the
+shape this repo names first. Its initial e2e fixture used two driven dimensions
+instead of the second H/V pair, which the solver answers `underconstrained,
+redundant=[]`, so every "no banner" assertion passed against a sketch that never
+produced a banner. And its first version asserted the banner's ABSENCE
+immediately after the keystroke and **passed with the fix reverted**, because it
+was measuring the gap before the debounced solve returned.
+
+**QA's four findings folded in, and one of QA's implied fixes was refuted.**
+Dropping the axes from the modifier candidate list was not enough — at a
+rectangle corner the origin still sat behind four candidates — and sorting the
+origin in WITH the points produces a FALSE fix: the corner's other endpoint
+takes the click, the readout says "2 pts", `coincident` is accepted, and the
+corner is grounded to ITSELF. The rule shipped instead: a modifier click on a
+point ALREADY HELD reaches through to the origin; anywhere else it queues behind
+the drawn points, so starting a selection at a corner still gives you the
+corner. `FLOATING_RECT` is fixed to the product's real rigidity set with an
+assertion on `e3.end`, which reads `(10,24)` under the old deformation — so the
+spec can now fail for the property the record claimed. The parked-frame constant
+is corrected to the measured 61.87 mm (was documented 80).
+
+Gates: typecheck clean, **1677 unit tests** (1659 at base, 18 new), prettier and
+eslint clean on all 12 files, mutation-marker gate clean, **67 sketch e2e green**
+with the two SKETCH-2 specs run 3x consecutively at 8/8.
+
+NOT done, filed rather than hidden: the reserved-id hydration guard (a foreign
+entity named `origin` would silently become the frame) — not cheap done properly,
+and exposure is theoretical until Phase 5 adds a scripting surface. And the e2e
+cannot assert the entity count AFTER grounding, because authoring the coincident
+takes the buffer above zero constraints and `PartPage`'s debounced persist binds
+the sketch, flipping the caption; that half is covered deterministically by a
+unit test instead, and the limitation is written into the spec comment.
+
+ symmetric about
 a datum axis — the marquee case the module's own refusal hint recommends —
 produces `OVER-CONSTRAINED` pointing at nothing. The geometry is correct
 (measured, the rectangle centres on the axis), but the redundant constraint the

@@ -74,11 +74,29 @@ interface SketchConstraintRow {
 }
 
 /**
- * A 24 x 16 rectangle at (10,8): rigid in SHAPE (corners tied, edges H/V, both
- * sizes driven) and NOT grounded — it floats with two translational degrees of
- * freedom. That is the state the ticket is about: before this change the only
- * way to pin it was `fixed` at absolute coordinates, which does not re-centre
- * when the profile's size changes.
+ * A 24 x 16 rectangle at (10,8): rigid in SHAPE (corners tied, BOTH pairs of
+ * edges axis-aligned, both sizes driven) and NOT grounded — it floats with two
+ * translational degrees of freedom. That is the state the ticket is about:
+ * before this change the only way to pin it was `fixed` at absolute
+ * coordinates, which does not re-centre when the profile's size changes.
+ *
+ * THE SECOND H AND V ARE A FIX, NOT DECORATION (found by independent QA of
+ * SKETCH-2). This fixture shipped with ONE horizontal and ONE vertical while
+ * the product's own `rectangleRigidity` (`sketch/drawDimensions.ts`) authors
+ * two of each — so it was not rigid, and grounding it DEFORMED the profile
+ * instead of translating it. Measured on the shipped version:
+ *
+ *     e3 (24,16) -> (10,24)      e4 (10,24) -> (0,0)      dof 2
+ *
+ * i.e. the top edge came out a diagonal, and an extrude of it measured
+ * 2,000 mm3 / 24 x 24 x 5 where the profile claims 1,920 / 24 x 16 x 5. Every
+ * constraint was satisfied and the kernel was right; the FIXTURE was under-
+ * constrained. The assertions below named `e1.start` and `e2.end` — the exact
+ * two corners a deformation leaves in place — so "the solver TRANSLATED the
+ * whole rectangle", the claim in the commit message, the BACKLOG tick and these
+ * comments, was never measured by anything. With the product's real rigidity
+ * set it converges to dof 0 and does translate, so the claim was true and
+ * unproven, which is the worse of the two ways to be wrong.
  */
 const FLOATING_RECT = {
   plane: { kind: "datum_plane", plane: "XY" },
@@ -110,7 +128,9 @@ const FLOATING_RECT = {
       b: { entity: "e1", point: "start" },
     },
     { kind: "horizontal", entity: "e1" },
+    { kind: "horizontal", entity: "e3" },
     { kind: "vertical", entity: "e2" },
+    { kind: "vertical", entity: "e4" },
     { kind: "distance", entity: "e1", value_mm: 24 },
     { kind: "distance", entity: "e2", value_mm: 16 },
   ],
@@ -269,6 +289,36 @@ async function seedFloatingRect(
   });
 }
 
+/**
+ * Finish the sketch, retrying the click.
+ *
+ * `sketch-save` carries `disabled={saving || …}`, and a bound sketch saves
+ * live, so a click that passes Playwright's actionability check can still land
+ * in a window where the button has just gone disabled — the click is swallowed
+ * and the strip never closes. Independent QA measured it at ~2 in 10 attempts
+ * under load, always with the sketch at `DOF 0 · CONVERGED`, which is exactly
+ * the state this fixture now reaches (it was dof 2 while it was deforming — so
+ * fixing the fixture raised this spec's exposure to a defect that was already
+ * there). Filed for the product; the spec should not be the thing that reports
+ * it, so it retries rather than asserting once.
+ */
+async function finishSketch(page: Page): Promise<void> {
+  await expect
+    .poll(
+      async () => {
+        if ((await page.getByTestId("sketch-strip").count()) === 0) return 0;
+        await page.getByTestId("sketch-save").click({ timeout: 5_000 });
+        await page
+          .getByTestId("sketch-strip")
+          .waitFor({ state: "detached", timeout: 5_000 })
+          .catch(() => undefined);
+        return page.getByTestId("sketch-strip").count();
+      },
+      { timeout: 60_000 },
+    )
+    .toBe(0);
+}
+
 async function reopenSketch(page: Page): Promise<void> {
   await page.getByTestId("feature-row").first().click({ button: "right" });
   await page.getByTestId("tree-ctx-edit").click();
@@ -415,10 +465,7 @@ test.describe("SKETCH-2 — grounding a profile to the sketch frame", () => {
       page.locator('[data-testid^="glyph-"]', { hasText: "FIX" }),
     ).toHaveCount(0);
 
-    await page.getByTestId("sketch-save").click();
-    await expect(page.getByTestId("sketch-strip")).toHaveCount(0, {
-      timeout: 30_000,
-    });
+    await finishSketch(page);
     await expect(page.getByTestId("eval-status")).toHaveText("Solved", {
       timeout: 30_000,
     });
@@ -432,6 +479,14 @@ test.describe("SKETCH-2 — grounding a profile to the sketch frame", () => {
     const far = solved.find((e) => e.id === "e2");
     expect(far?.end?.x).toBeCloseTo(24, 6);
     expect(far?.end?.y).toBeCloseTo(16, 6);
+    // AND the two corners a DEFORMATION would leave behind. Grounding this
+    // fixture used to drag `e3.end` to (10,24) — a diagonal top edge — while
+    // the two assertions above passed unchanged, so they could not tell
+    // "translated" from "stretched". These can: under the old deformation they
+    // read (10, 24).
+    const top = solved.find((e) => e.id === "e3");
+    expect(top?.end?.x).toBeCloseTo(0, 6);
+    expect(top?.end?.y).toBeCloseTo(16, 6);
 
     // The origin is real, pinned CONSTRUCTION geometry — so it can never open
     // the profile a downstream extrude consumes.
@@ -499,10 +554,7 @@ test.describe("SKETCH-2 — grounding a profile to the sketch frame", () => {
     await page.getByTestId("dimension-input").press("Enter");
     await expect(page.getByTestId("dimension-editor")).toHaveCount(0);
 
-    await page.getByTestId("sketch-save").click();
-    await expect(page.getByTestId("sketch-strip")).toHaveCount(0, {
-      timeout: 30_000,
-    });
+    await finishSketch(page);
     await expect(page.getByTestId("eval-status")).toHaveText("Solved", {
       timeout: 30_000,
     });

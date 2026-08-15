@@ -5,6 +5,7 @@
  */
 import { beforeEach, describe, expect, it } from "vitest";
 
+import { formatSolveCell, solveDiagnostic } from "./constraints";
 import { datumFrame } from "./datum";
 import { useSketchStore } from "./store";
 import type { SketchEntity } from "./tools";
@@ -501,24 +502,62 @@ describe("SKETCH-2 — the origin and axes are selectable constraint targets", (
     rectangleOffOrigin();
     const store = useSketchStore.getState;
     // Reported: clicking the ring answered "nothing selected" while a click on
-    // a drawn line answered "1 ent". The ring is ~1.8 mm out at the parked
+    // a drawn line answered "1 ent". The ring is ~1.36 mm out at the parked
     // frame, so a bare point tolerance measured from (0,0) never reached it.
     const ring = datumFrame(store().datumFrameHalfMm).ringRadiusMm;
-    expect(ring).toBeGreaterThan(1);
+    expect(ring).toBeCloseTo(1.361, 3);
     store().selectAt({ x: ring, y: 0 }, 1);
     expect(store().selection).toEqual([
       { kind: "point", entity: "origin", point: "position" },
     ]);
   });
 
-  it("selects either axis, and clears on empty steel", () => {
+  it("selects either axis from an empty selection, and clears on empty steel", () => {
     rectangleOffOrigin();
     const store = useSketchStore.getState;
     store().selectAt({ x: 30, y: 0 }, 1);
     expect(store().selection).toEqual([{ kind: "entity", id: "x-axis" }]);
+    store().clearSelection();
     store().selectAt({ x: 0, y: -30 }, 1);
     expect(store().selection).toEqual([{ kind: "entity", id: "y-axis" }]);
     store().selectAt({ x: 300, y: 300 }, 1);
+    expect(store().selection).toEqual([]);
+  });
+
+  it("a plain click on the invisible axis CLEARS a standing selection", () => {
+    // "Click away to deselect" is a constant gesture, and the axes are an
+    // invisible cross spanning the viewport (1.25 x the frame half-height) of
+    // which only +/-8 px is ink. Before SKETCH-2 every such click answered
+    // nothing selected; letting the cross convert one into "you have now also
+    // got the X axis" turns a deselect into a multi-select whose next verb
+    // refuses with "The origin and axes are fixed".
+    rectangleOffOrigin();
+    const store = useSketchStore.getState;
+    store().selectAt({ x: 40, y: 20 }, 1); // the rectangle's bottom edge
+    expect(store().selection).toHaveLength(1);
+    store().selectAt({ x: -30, y: 0 }, 1); // empty steel, but ON the X axis
+    expect(store().selection).toEqual([]);
+    // …and with nothing held there is nothing to drop, so the same click means
+    // what it looks like.
+    store().selectAt({ x: -30, y: 0 }, 1);
+    expect(store().selection).toEqual([{ kind: "entity", id: "x-axis" }]);
+  });
+
+  it("a modifier UN-pick still un-picks where the frame lies under the line", () => {
+    // `toggleSelection`'s documented grain: the same modifier click twice
+    // returns you to where you started. Appending the axis to the candidates
+    // cost it that — [e1] then [e1, x-axis] — and the frame joined a
+    // multi-select the user never asked for.
+    useSketchStore.getState().begin();
+    useSketchStore.getState().choosePlane("XY");
+    useSketchStore.getState().setTool("line");
+    useSketchStore.getState().placeAt({ x: 10, y: 0 });
+    useSketchStore.getState().placeAt({ x: 50, y: 0 }); // lies ALONG the X axis
+    useSketchStore.getState().setTool("select");
+    const store = useSketchStore.getState;
+    store().selectAt({ x: 30, y: 0 }, 1, "add");
+    expect(store().selection).toEqual([{ kind: "entity", id: "e1" }]);
+    store().selectAt({ x: 30, y: 0 }, 1, "add");
     expect(store().selection).toEqual([]);
   });
 
@@ -660,6 +699,70 @@ describe("SKETCH-2 — the origin and axes are selectable constraint targets", (
     store().applyConstraint("coincident");
     expect(store().entities).toEqual(saved.entities);
     expect(store().constraints).toHaveLength(saved.constraints.length + 1);
+  });
+
+  /**
+   * THE BLOCKING REVIEW FINDING, end to end through the store. The unit tests
+   * in `datum.test.ts` prove the filter; this proves the WIRING — that the one
+   * seam every reader goes through (`adoptSolved`) actually applies it, on the
+   * sketch the store really authors, with the indices the real solver really
+   * returned for it.
+   */
+  it("never reports an OVER-CONSTRAINT the user cannot act on", () => {
+    rectangleOffOrigin();
+    const store = useSketchStore.getState;
+    store().selectAt({ x: 20, y: 20 }, 1);
+    store().selectAt({ x: 20, y: 45 }, 1, "add");
+    store().selectAt({ x: -30, y: 0 }, 1, "add"); // the X axis
+    store().applyConstraint("symmetric");
+
+    // The two pins the store authored ARE the last two constraints, and the
+    // index the solver flagged is the second of them.
+    const pinAt = store().constraints.length - 1;
+    expect(store().constraints[pinAt]).toEqual({
+      kind: "fixed",
+      point: { entity: "x-axis", point: "end" },
+    });
+
+    // Exactly what the solver returned for this shape (planegcs, measured):
+    // overconstrained, dof 3, redundant = [the second pin].
+    store().adoptSolved(null, {
+      status: "overconstrained",
+      dof: 3,
+      conflicting: [],
+      redundant: [pinAt],
+    });
+
+    const solve = store().solve;
+    expect(solve?.redundant).toEqual([]);
+    expect(solve?.status).toBe("underconstrained");
+    // The banner the user would have read is gone, and the DRO reads the DOF.
+    expect(solveDiagnostic(solve)).toBeNull();
+    expect(formatSolveCell(solve, false).value).toBe(
+      "DOF 3 · UNDER-CONSTRAINED",
+    );
+  });
+
+  it("still reports an over-constraint the user CAN act on", () => {
+    rectangleOffOrigin();
+    const store = useSketchStore.getState;
+    store().selectAt({ x: 20, y: 20 }, 1);
+    store().selectAt({ x: -30, y: 0 }, 1, "add");
+    store().applyConstraint("coincident"); // corner ON the axis, + 2 pins
+    store().selectAt({ x: 40, y: 20 }, 1); // the bottom edge
+    store().applyConstraint("horizontal"); // index 3: a real, glyphed verb
+
+    store().adoptSolved(null, {
+      status: "overconstrained",
+      dof: 2,
+      conflicting: [],
+      redundant: [3],
+    });
+    expect(store().solve?.status).toBe("overconstrained");
+    expect(store().solve?.redundant).toEqual([3]);
+    expect(solveDiagnostic(store().solve)).toMatchObject({
+      title: "Over-constrained",
+    });
   });
 });
 

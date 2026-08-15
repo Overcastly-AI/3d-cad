@@ -70,6 +70,8 @@ import {
   originAxisSpans,
   originIdentity,
   originRingSegments,
+  SKETCH_CAMERA_DISTANCE_MM,
+  SKETCH_CAMERA_FOV_DEG,
 } from "../sketch/origin";
 import {
   DATUM_LABELS,
@@ -179,8 +181,10 @@ const COPLANAR_DECAL = {
 
 /** Datum sheet half-extent feels like stock on the table (mm). */
 const PLANE_SIZE_MM = 90;
-/** Normal-on authoring distance (mm) — an A6-ish sheet fills the view. */
-const SKETCH_CAMERA_DISTANCE_MM = 170;
+/* Normal-on authoring distance (mm) — an A6-ish sheet fills the view. It lives
+   in `sketch/origin.ts` with the fov and the frame fractions that scale off it,
+   because `sketch/datum.ts` derives the frame's PICK region from the same
+   framing and cannot import this file. */
 /** Plane-pick vantage: the studio iso the shell opens with, re-centred. */
 const PICK_CAMERA_DISTANCE_MM = 230;
 /**
@@ -255,7 +259,9 @@ function gridQuaternion(basis: PlaneBasis): Quaternion {
  * three call sites here all need (an ortho camera frames by zoom, not fov).
  */
 function cameraFov(camera: Camera): number {
-  return "fov" in camera && typeof camera.fov === "number" ? camera.fov : 40;
+  return "fov" in camera && typeof camera.fov === "number"
+    ? camera.fov
+    : SKETCH_CAMERA_FOV_DEG;
 }
 
 /** Plane-mm segment pairs → a world-space positions buffer on this basis. */
@@ -542,6 +548,13 @@ function PointerCatcher({ basis }: { basis: PlaneBasis }) {
                   raw,
                   toleranceMm(e),
                   datumFrame(state.datumFrameHalfMm),
+                  "replace",
+                  // The selection is an INPUT to picking now: over the frame
+                  // with something held, a plain click clears instead of
+                  // selecting, so the frame must not light up as if it were
+                  // about to be picked. Same arguments as `selectAt`, or the
+                  // highlight promises a pick the click does not make.
+                  state.selection,
                 )
               : pickCandidates(
                   withoutDatums(state.entities),

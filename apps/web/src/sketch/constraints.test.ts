@@ -19,7 +19,7 @@ import {
   type SketchConstraint,
   type SolvedDimension,
 } from "./constraints";
-import { datumEntities, datumFrame } from "./datum";
+import { DATUM_X_AXIS_ID, datumEntities, datumFrame } from "./datum";
 import type { SketchPick } from "./pick";
 import type { SketchEntity } from "./tools";
 
@@ -195,6 +195,22 @@ describe("construction geometry", () => {
     expect(selectionAllConstruction([pickLine("e1")], marked)).toBe(true);
     expect(selectionAllConstruction([pickLine("e2")], marked)).toBe(false);
     expect(selectionAllConstruction([], marked)).toBe(false);
+  });
+
+  it("is not pressed for a selection the verb would refuse — the frame", () => {
+    // A control that looks engaged and then declines. The axis is not in
+    // `entities` until something grounds to it, so resolving the selected id
+    // against them found nothing and `[].every(…)` answered true: the chip
+    // rendered pressed and, pressed, hinted "Select an entity to toggle
+    // construction." The pressed state and the verb now share one derivation.
+    const onlyAxis = [pickLine(DATUM_X_AXIS_ID)];
+    expect(toggleConstruction(onlyAxis, entities)).toBeNull();
+    expect(selectionAllConstruction(onlyAxis, entities)).toBe(false);
+    // …and still not pressed once the frame IS materialised (it is
+    // construction, but the verb still refuses to flip it).
+    const grounded = [...entities, ...datumEntities(datumFrame(80))];
+    expect(toggleConstruction(onlyAxis, grounded)).toBeNull();
+    expect(selectionAllConstruction(onlyAxis, grounded)).toBe(false);
   });
 });
 
@@ -952,6 +968,33 @@ describe("solve feedback", () => {
       title: "Dimension expression",
       body: "cycle: width → height → width",
     });
+  });
+
+  it("never claims a flag that is not in the sketch", () => {
+    // "A redundant constraint is FLAGGED in the sketch. Remove it" with zero
+    // flagged glyphs is a dead end with an ambiguous exit — the user is told to
+    // remove something they cannot find. Both branches say what is true and
+    // name a next move instead.
+    const over = solveDiagnostic({
+      status: "overconstrained",
+      dof: 0,
+      conflicting: [],
+      redundant: [],
+    });
+    expect(over?.body).not.toContain("flagged");
+    expect(over?.body).toContain("Remove the last one you added");
+
+    // A conflict is never softened — the geometry on screen is wrong — so when
+    // the only thing the solver could name is unreachable, point at the frame.
+    const conflict = solveDiagnostic({
+      status: "conflicting",
+      dof: null,
+      conflicting: [],
+      redundant: [],
+    });
+    expect(conflict).toMatchObject({ title: "Solve conflict" });
+    expect(conflict?.body).not.toContain("flagged");
+    expect(conflict?.body).toContain("origin and axes");
   });
 
   it("describes the selection for the strip readout", () => {
