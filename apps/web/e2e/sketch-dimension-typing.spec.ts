@@ -1,3 +1,5 @@
+import type { Locator } from "@playwright/test";
+
 import { expect, test, type Page } from "./fixtures";
 
 import { handClick } from "./hand";
@@ -10,16 +12,19 @@ import { createPartViaApi, seedSession } from "./support";
  *
  * `sketch-dimension-pick.spec.ts` gates the half `c449235` fixed: the Dimension
  * verb ARMS instead of dead-ending, so the click that could not select a line
- * now opens that line's editor. It then drives the value cell with
+ * now opens that line's editor. Until `a810524` it drove the value cell with
  * `locator.fill()` — one DOM mutation, one input event — which is the one
  * gesture no hand makes, and is exactly why the second half of the sentence
- * stayed invisible to it. Typed key by key at ordinary speed, the same cell
- * drops keystrokes and COMMITS a number the user never entered (DIM-1).
+ * stayed invisible to it: typed key by key at ordinary speed, the same cell
+ * DROPPED keystrokes and committed a number the user never entered (DIM-1,
+ * fixed in `a810524` by letting the browser, not React, own the cell's text).
  *
- * So this file types with `pressSequentially`. Picks are `handClick`s, and the
- * assertion of record is the SOLVED length that comes back from the geometry
- * service — never the label on the glyph, which can be right while the geometry
- * is wrong and vice versa.
+ * So this file types one key at a time, and it owns the per-keystroke property
+ * that `fill()` cannot see: at any rhythm a hand types at, the cell keeps every
+ * character and the solver receives exactly the number that was typed. Picks
+ * are `handClick`s, and the assertion of record is the SOLVED length that comes
+ * back from the geometry service — never the label on the glyph, which can be
+ * right while the geometry is wrong and vice versa.
  */
 
 const SOLVE_TOLERANCE_MM = 1e-3;
@@ -41,6 +46,19 @@ const SAFE_KEY_GAP_MS = 2500;
  * about human typing and are discarded before their outcome is read.
  */
 const HUMAN_GAP_CEILING_MS = 400;
+
+/**
+ * The rhythms swept by the per-keystroke gate, in ms between keys, chosen from
+ * where the DIM-1 corruption was MEASURED and not from where it is convenient
+ * to type. Two independent measurements of the pre-fix build disagree about
+ * which band is deadly — `a810524` recorded every character lost from 0 to
+ * 80 ms/key and survival from 120 ms; the QA pass that first characterised it
+ * recorded corruption from ~0.2 s to ~0.7 s, widening past 1.4 s under load —
+ * so the sweep spans both, and the fast end is where the pre-fix build fails
+ * most reliably (ABLATION below). 60 ms/key is a fast typist on a keypad, not
+ * a synthetic torture case; the driver below is what makes it a REAL 60 ms.
+ */
+const TYPING_RHYTHMS_MS = [60, 100, 150, 200, 250, 60];
 
 interface SolvedPoint {
   x: number;
@@ -134,8 +152,10 @@ async function drainKeyTrace(page: Page): Promise<Keystroke[]> {
  * 400–1300 ms apart and the STIMULUS becomes a function of machine load — which
  * is how the same assertion came back both green and red on one build. Raw CDP
  * dispatches keep the requested rhythm regardless of what the page is doing, so
- * the trial under test is the trial that was asked for. (Both drivers reproduce
- * DIM-1; only this one reproduces it *repeatably*.)
+ * the trial under test is the trial that was asked for. (Both drivers
+ * reproduced DIM-1 pre-fix; only this one did so repeatably, which is why it is
+ * still the stimulus of record now the property is asserted the other way up:
+ * a gate this one can't redden is a gate the other one can't either.)
  */
 async function typeOnAWallClock(
   page: Page,
@@ -209,10 +229,58 @@ async function dimensionTheBottomEdge(
   await expect(page.getByTestId("dimension-input")).toHaveValue("43");
 }
 
+/** Discard whatever is in the editor and get a fresh one on the same edge. */
+async function reopenEditorOnBottomEdge(
+  page: Page,
+  at: PlaneMapper,
+): Promise<void> {
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("dimension-editor")).toHaveCount(0);
+  await dimensionTheBottomEdge(page, at);
+}
+
+/** What the field held after a trial, and the gaps its keys actually landed at. */
+interface Trial {
+  delay: number;
+  got: string;
+  gaps: number[];
+}
+
+/** One trial of the stimulus: type "125" over the "43" prefill at `delay`. */
+async function typeTrial(
+  page: Page,
+  cell: Locator,
+  delay: number,
+): Promise<Trial> {
+  await cell.focus();
+  await drainKeyTrace(page); // discard anything the re-open left behind
+  await typeOnAWallClock(page, "125", delay);
+  const got = await cell.inputValue();
+  return { delay, got, gaps: gapsOf(await drainKeyTrace(page)) };
+}
+
+/**
+ * Did this trial actually type at a human rhythm? Measured IN THE PAGE, and
+ * checked BEFORE the trial's outcome is looked at — a trial whose keys crawled
+ * is no evidence about human typing either way, so it is discarded on its gaps
+ * alone. That is a retried STIMULUS; no assertion is ever retried here.
+ */
+function isHumanRhythm(trial: Trial): boolean {
+  return (
+    trial.gaps.length === 2 && Math.max(...trial.gaps) <= HUMAN_GAP_CEILING_MS
+  );
+}
+
 test.describe("FOUNDER: a typed dimension reaches the solver", () => {
   /**
    * GATES `c449235`. Keys are spaced well beyond the value cell's settle
    * window, so anything red here is the VERB's fault, not the field's.
+   *
+   * DO NOT READ THIS LEG AS "typing works". It is deliberately typed slower
+   * than any hand, precisely so that it cannot fail for a keystroke-retention
+   * reason; that property belongs to the second test and must stay there. Two
+   * legs that both type at human speed would leave the arming verb with no
+   * gate that fails for its own reason.
    *
    * MUTATION (a build of `c449235^` served from an isolated worktree): fails at
    * `Click a line to dimension it.` — received "Select one line to dimension."
@@ -277,31 +345,45 @@ test.describe("FOUNDER: a typed dimension reaches the solver", () => {
   });
 
   /**
-   * CHARACTERISES DIM-1 (P0, open): the value cell reverts to its prefill
-   * between keystrokes, so a number typed at an ordinary rhythm is composed
-   * against a stale value and the WRONG number reaches the solver — silently,
-   * with no error and a glyph that agrees with the corruption.
+   * THE PROPERTY, and the gate on the DIM-1 fix (`a810524`): at an ordinary
+   * typing rhythm the value cell keeps every keystroke, and the number that
+   * reaches the SOLVER is the number that was typed.
    *
-   * WHY REPEATED TRIALS AND A COUNT, NOT ONE ASSERTION. The corruption is a
-   * RACE, and measurement showed it is not monotonic in typing speed: keys
-   * landing ~155 ms apart beat the revert and survive, keys ~0.2-0.7 s apart
-   * land after the revert but before the real update and are corrupted, and
-   * keys ~0.8 s+ apart survive again (the window widens under load, where gaps
-   * of 1.4 s still corrupted). A single-shot assertion on a race is flaky in
-   * whichever direction it is written; a count over trials spanning the window
-   * is not. Measured on this build: 5 of 8 trials at a 150 ms nominal rhythm
-   * mis-committed, so "at least one of six" carries a ~0.3 % false-green risk.
+   * What it is standing guard over: the cell used to be CONTROLLED, so React
+   * restored it from a render that predated the keystroke; each character was
+   * composed against the stale "43" prefill and the wrong number was committed
+   * silently — no error, and a glyph that agreed with the corruption.
    *
-   * Written to pass TODAY and to go RED the day the field is fixed, which is
-   * the signal to flip the assertion to `expect(wrong).toHaveLength(0)`.
-   * Deliberately NOT `test.fail()`: that marker swallows an earlier breakage (a
-   * regression in arming would read as "expected failure"), whereas every
-   * assertion here fails for its own reason. The gap-fidelity assertion is what
-   * stops it passing for free — a trial whose keys crawled is not a trial about
-   * human typing, and it is discarded on its GAPS alone, before its outcome is
-   * looked at. That is a retried STIMULUS, never a retried assertion.
+   * WHY A SWEEP OF RHYTHMS AND NOT ONE TYPED NUMBER. The corruption was a
+   * RACE, so it was never monotonic in typing speed: some rhythms beat the
+   * revert and survived while their neighbours did not, and the deadly band
+   * moved with machine load. One typed number therefore only ever proves the
+   * field at the one rhythm it used, and a survivor is not evidence — an
+   * absence of casualties across `TYPING_RHYTHMS_MS` is.
+   *
+   * ABLATION (2026-08-15) — these exact assertions, unchanged, against a build
+   * with the `ConstraintGlyphs.tsx` + `packages/design` hunks of `a810524`
+   * reverted in the worktree:
+   *
+   *   Error: keystrokes were dropped at an ordinary typing rhythm (DIM-1):
+   *     [{"delay":60,"got":"435","gaps":[81,86]},
+   *      {"delay":60,"got":"435","gaps":[81,87]}]
+   *   Expected length: 0 / Received length: 2
+   *
+   * Both 60 ms trials lost every character but the last, to the founder's own
+   * "435"; restored, all six trials read "125" and the solver returned exactly
+   * 125 mm. THE FAST END IS WHAT MAKES THIS A GATE: swept at 150/200/250 ms
+   * only — the band this file used while it characterised the open defect —
+   * the same ablation corrupted just 1 trial of 6, i.e. a broken build would
+   * have gone green roughly a third of the time. Do not narrow the band back
+   * without re-running the ablation.
+   *
+   * The gap-fidelity check is what stops this passing for free — a trial whose
+   * keys crawled is not a trial about human typing, and it is discarded on its
+   * GAPS alone, before its outcome is looked at. That is a retried STIMULUS,
+   * never a retried assertion.
    */
-  test("OPEN DEFECT (DIM-1): an ordinary typing rhythm commits a number nobody typed", async ({
+  test("an ordinary typing rhythm commits exactly the number typed (DIM-1)", async ({
     page,
   }) => {
     test.setTimeout(300_000);
@@ -320,68 +402,70 @@ test.describe("FOUNDER: a typed dimension reaches the solver", () => {
 
     const cell = page.getByTestId("dimension-input");
     await installKeyTrace(page);
-    const trials: { delay: number; got: string; gaps: number[] }[] = [];
-    for (const [index, delay] of [150, 200, 250, 150, 200, 250].entries()) {
-      if (index > 0) {
-        await page.keyboard.press("Escape");
-        await expect(page.getByTestId("dimension-editor")).toHaveCount(0);
-        await dimensionTheBottomEdge(page, at);
-      }
-      await cell.focus();
-      await drainKeyTrace(page); // discard anything the re-open left behind
-      await typeOnAWallClock(page, "125", delay);
-      const got = await cell.inputValue();
-      const keys = await drainKeyTrace(page);
-      trials.push({ delay, got, gaps: gapsOf(keys) });
+    const trials: Trial[] = [];
+    for (const [index, delay] of TYPING_RHYTHMS_MS.entries()) {
+      if (index > 0) await reopenEditorOnBottomEdge(page, at);
+      trials.push(await typeTrial(page, cell, delay));
     }
-    console.log(`DIM-1 trials: ${JSON.stringify(trials)}`);
+    console.log(`typing trials: ${JSON.stringify(trials)}`);
 
     // FIDELITY: only trials that actually typed at a human rhythm count. This
     // is what stops the test agreeing for free when load stretches the keys.
-    const human = trials.filter(
-      (t) => t.gaps.length === 2 && Math.max(...t.gaps) <= HUMAN_GAP_CEILING_MS,
-    );
+    const human = trials.filter(isHumanRhythm);
     expect(
       human.length,
       "no trial landed its keys within the human window — this run did not test human typing",
     ).toBeGreaterThanOrEqual(3);
 
-    // TODAY: most trials read "435" — the cell reverts to its "43" prefill, so
-    // each character is composed against a stale value and only the last
-    // survives. WHEN FIXED: this reddens; assert `wrong` is empty.
+    // EVERY human-rhythm trial keeps what was typed. Pre-fix these read "435"
+    // (or bare "43"): the cell reverted to its prefill between keys, so each
+    // character was composed against a stale value.
     const wrong = human.filter((t) => t.got !== "125");
     expect(
-      wrong.length,
-      `DIM-1 appears fixed — every human-rhythm trial kept its keystrokes: ${JSON.stringify(human)}`,
-    ).toBeGreaterThan(0);
+      wrong,
+      `keystrokes were dropped at an ordinary typing rhythm (DIM-1): ${JSON.stringify(wrong)}`,
+    ).toHaveLength(0);
 
-    // …and the wrong number is not merely displayed, it is COMMITTED: the
-    // solver moves the edge to a length nobody asked for. Re-typed here on a
-    // fresh editor so the committed value belongs to a known trial.
-    await page.keyboard.press("Escape");
-    await expect(page.getByTestId("dimension-editor")).toHaveCount(0);
-    await dimensionTheBottomEdge(page, at);
-    await cell.focus();
-    await drainKeyTrace(page);
-    await typeOnAWallClock(page, "125", wrong[0]!.delay);
-    const committed = await cell.inputValue();
+    // …and the typed number is not merely displayed, it is COMMITTED: the
+    // solver moves the edge to exactly the length that was typed. Re-typed on a
+    // fresh editor at the fastest rhythm this run actually landed — where the
+    // pre-fix build failed every time — so the committed value belongs to a
+    // trial measured here rather than to whatever the last loop left behind.
+    // The RETRY is of the stimulus: an attempt whose keys crawled is thrown
+    // away before its value is read, and the assertions below run once.
+    let commitTrial: Trial | null = null;
+    for (let attempt = 0; attempt < 3 && commitTrial === null; attempt += 1) {
+      await reopenEditorOnBottomEdge(page, at);
+      const trial = await typeTrial(page, cell, human[0]!.delay);
+      if (isHumanRhythm(trial)) commitTrial = trial;
+    }
+    expect(
+      commitTrial,
+      "the committing leg never landed its keys within the human window — this run did not test human typing",
+    ).not.toBeNull();
+    expect(
+      commitTrial!.got,
+      `the field held ${JSON.stringify(commitTrial!.got)} after typing "125" with gaps ${JSON.stringify(commitTrial!.gaps)}`,
+    ).toBe("125");
+
     await page.keyboard.press("Enter");
     await expect(page.getByTestId("dimension-editor")).toHaveCount(0);
-    test.skip(
-      committed === "125",
-      "this trial happened to win the race — the committed-geometry leg needs a corrupted one",
-    );
+    await expect(page.getByTestId("glyph-0")).toHaveText("125", {
+      timeout: 15_000,
+    });
     await expect
       .poll(
         () => {
           const length = latestLength(evaluations, "e1");
-          return length === null ? null : Math.abs(length - 125) > 1;
+          return length === null
+            ? null
+            : Math.abs(length - 125) < SOLVE_TOLERANCE_MM;
         },
         { timeout: 30_000 },
       )
       .toBe(true);
     console.log(
-      `DIM-1 committed geometry for a typed "125": field held "${committed}", solver returned ${String(
+      `committed geometry for a typed "125": solver returned ${String(
         latestLength(evaluations, "e1"),
       )} mm`,
     );

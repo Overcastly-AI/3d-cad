@@ -76,7 +76,7 @@ duplication.
 
 ## Ready (top of queue)
 
-- [ ] (P0, S) **DIM-1 (was "FOUNDER — dimensions not assigning") — TOP OF THE
+- [x] (P0, S) **DIM-1 (was "FOUNDER — dimensions not assigning") — TOP OF THE
       QUEUE: the dimension VALUE field silently writes WRONG GEOMETRY, not
       merely a slow one.** REPRODUCED in two layers: code review of c449235
       (branch (i), the arming half, shipped — see the Done archive) found the
@@ -144,6 +144,50 @@ duplication.
       `apps/web/e2e/sketch-dimension-pick.spec.ts` (append the
       `pressSequentially` leg only — do not touch the existing `.fill()` legs).
       agentType: frontend-builder.
+      SHIPPED a810524 (the fix) plus the commit carrying this tick (the gate
+      flipped from characterization to positive). The cell is
+      uncontrolled now, React keeps a shadow copy only for the live error and
+      resolved echo, and **every commit reads the DOM node, never the shadow**.
+      Same fix applied to the Name, Offset and Fillet/Chamfer cells; the
+      primitives (`ExpressionField`, `NumberField`) now forward `ref`, so this
+      was fixed at the primitive, not the instance. Two things a naive port
+      misses, both found by writing the gate first: a retarget needs a REMOUNT
+      (`key`), because `defaultValue` sets the value ATTRIBUTE which a dirty
+      input ignores — so clicking a second glyph mid-edit left the first
+      dimension's text in the second cell; and validation had to move to commit
+      time, because applying an unusable value used to fall through to
+      `cancelDimension()`, i.e. Enter sometimes applied and sometimes discarded
+      (FB-13 class). Builder's own re-measured timings, which differ from the
+      audit's and supersede them: total loss at 0/20/40/60/80 ms per key,
+      survival from 120 ms.
+      **THE GATE FLIP IS WHERE THE REAL LESSON IS.** The QA pass's
+      characterization test asserted the defect was PRESENT, so closing DIM-1
+      required inverting it — and inverting a gate is exactly when "it passes"
+      stops meaning anything. Ablated against `a810524^` with the ORIGINAL
+      150/200/250 ms band: only **1 of 6 trials** corrupted, i.e. at 5-of-6
+      per-trial survival on a BROKEN build a six-trial sweep goes green about a
+      THIRD of the time. The gate would have certified DIM-1 fixed while it was
+      live, and the characterization's own estimate of that risk (~0.3 %) was
+      optimistic by two orders of magnitude on this hardware — in the dangerous
+      direction. Band widened to `[60, 100, 150, 200, 250, 60]`; re-ablated, both
+      60 ms trials fail deterministically with the founder's exact `"435"`, and
+      the fixed build returns `"125"` with the solver at 125 mm. The docstring
+      carries the red output and a "do not narrow the band back without
+      re-running the ablation" note.
+      Preserved deliberately: the 2.5 s/key leg stays SEPARATE and its comment
+      now says outright "DO NOT READ THIS LEG AS 'typing works'"; and the
+      stimulus-only retry shape is explicit — `isHumanRhythm(trial)` is
+      evaluated on measured key gaps BEFORE the outcome is read, and the
+      committing leg re-types up to 3x then asserts ONCE. No assertion is ever
+      retried.
+      Overlap with `sketch-dimension-pick.spec.ts` examined and deliberately NOT
+      consolidated: `pressSequentially` awaits the renderer between keys, so its
+      "60 ms" lands 400-1300 ms apart under load — which is why the typing spec
+      uses a raw CDP driver — and the pick spec's subject is the arming verb
+      end to end. `sketch-dimension-typing.spec.ts` owns the per-keystroke
+      property, stated in both files.
+      NOT independently reviewed or QA'd; the fix and its gate were written by
+      two different agents, which is the nearest thing to independence here.
 
 - [ ] (P0, S) **QAH-1 — e2e CI has been RED for TEN consecutive commits (last
       green `a34382b`, red from `221a7ca`, itself a docs-only commit);
