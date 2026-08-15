@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   applyConstraintAction,
+  authoredConstraintCount,
   constraintEntityRefs,
   constraintGlyphs,
   describeSelection,
@@ -18,6 +19,7 @@ import {
   type SketchConstraint,
   type SolvedDimension,
 } from "./constraints";
+import { datumEntities, datumFrame } from "./datum";
 import type { SketchPick } from "./pick";
 import type { SketchEntity } from "./tools";
 
@@ -594,6 +596,88 @@ describe("sameConstraint", () => {
         { kind: "distance", entity: "e1", value_mm: 60 },
       ),
     ).toBe(true);
+  });
+});
+
+describe("SKETCH-2 — the sketch frame as a constraint target", () => {
+  const framed: SketchEntity[] = [line, ...datumEntities(datumFrame(80))];
+  const originPick: SketchPick = {
+    kind: "point",
+    entity: "origin",
+    point: "position",
+  };
+  const axisPick: SketchPick = { kind: "entity", id: "x-axis" };
+
+  it("accepts the origin as a coincident target", () => {
+    const result = applyConstraintAction(
+      "coincident",
+      [{ kind: "point", entity: "e1", point: "start" }, originPick],
+      framed,
+      [],
+    );
+    expect(result).toEqual({
+      outcome: "added",
+      constraints: [
+        {
+          kind: "coincident",
+          a: { entity: "e1", point: "start" },
+          b: { entity: "origin", point: "position" },
+        },
+      ],
+    });
+  });
+
+  it("accepts an axis as a parallel/perpendicular partner", () => {
+    const result = applyConstraintAction(
+      "parallel",
+      [{ kind: "entity", id: "e1" }, axisPick],
+      framed,
+      [],
+    );
+    expect(result).toMatchObject({ outcome: "added" });
+  });
+
+  it("refuses the verbs that would DRIVE the frame, naming the ones that work", () => {
+    for (const verb of [
+      "distance",
+      "radius",
+      "horizontal",
+      "vertical",
+      "fixed",
+      "equal",
+    ] as const) {
+      const result = applyConstraintAction(verb, [axisPick], framed, []);
+      expect(result.outcome).toBe("hint");
+      expect(result).toMatchObject({ hint: /coincident, symmetric/ });
+    }
+  });
+
+  it("carries no glyph for the frame's own pins", () => {
+    const constraints: SketchConstraint[] = [
+      { kind: "fixed", point: { entity: "e1", point: "start" } },
+      { kind: "fixed", point: { entity: "origin", point: "position" } },
+      { kind: "fixed", point: { entity: "x-axis", point: "start" } },
+    ];
+    expect(
+      constraintGlyphs(constraints, framed, 3.5).map((g) => g.label),
+    ).toEqual(["FIX"]);
+    // …and the index space is untouched: a glyph still names its own
+    // constraint, which is what Delete and the dimension editor address.
+    expect(constraintGlyphs(constraints, framed, 3.5)[0]?.index).toBe(0);
+  });
+
+  it("counts only the constraints the user authored", () => {
+    expect(
+      authoredConstraintCount([
+        { kind: "horizontal", entity: "e1" },
+        { kind: "fixed", point: { entity: "origin", point: "position" } },
+        { kind: "fixed", point: { entity: "e1", point: "start" } },
+      ]),
+    ).toBe(2);
+  });
+
+  it("never flips the frame out of construction geometry", () => {
+    expect(toggleConstruction([axisPick], framed)).toBeNull();
   });
 });
 

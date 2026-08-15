@@ -5,6 +5,7 @@
  */
 import { beforeEach, describe, expect, it } from "vitest";
 
+import { datumFrame } from "./datum";
 import { useSketchStore } from "./store";
 import type { SketchEntity } from "./tools";
 
@@ -482,6 +483,183 @@ describe("dimension verb with nothing selected — arms instead of refusing", ()
     store().applyConstraint("coincident");
     expect(store().dimensionPick).toBeNull();
     expect(store().hint).toMatch(/two points/i);
+  });
+});
+
+describe("SKETCH-2 — the origin and axes are selectable constraint targets", () => {
+  /** A rectangle clear of the frame, so the origin and axes are reachable. */
+  const rectangleOffOrigin = () => {
+    useSketchStore.getState().begin();
+    useSketchStore.getState().choosePlane("XY");
+    useSketchStore.getState().setTool("rect");
+    useSketchStore.getState().placeAt({ x: 20, y: 20 });
+    useSketchStore.getState().placeAt({ x: 60, y: 45 });
+    useSketchStore.getState().setTool("select");
+  };
+
+  it("selects the origin from a click on the drawn RING — the founder's gesture", () => {
+    rectangleOffOrigin();
+    const store = useSketchStore.getState;
+    // Reported: clicking the ring answered "nothing selected" while a click on
+    // a drawn line answered "1 ent". The ring is ~1.8 mm out at the parked
+    // frame, so a bare point tolerance measured from (0,0) never reached it.
+    const ring = datumFrame(store().datumFrameHalfMm).ringRadiusMm;
+    expect(ring).toBeGreaterThan(1);
+    store().selectAt({ x: ring, y: 0 }, 1);
+    expect(store().selection).toEqual([
+      { kind: "point", entity: "origin", point: "position" },
+    ]);
+  });
+
+  it("selects either axis, and clears on empty steel", () => {
+    rectangleOffOrigin();
+    const store = useSketchStore.getState;
+    store().selectAt({ x: 30, y: 0 }, 1);
+    expect(store().selection).toEqual([{ kind: "entity", id: "x-axis" }]);
+    store().selectAt({ x: 0, y: -30 }, 1);
+    expect(store().selection).toEqual([{ kind: "entity", id: "y-axis" }]);
+    store().selectAt({ x: 300, y: 300 }, 1);
+    expect(store().selection).toEqual([]);
+  });
+
+  it("grounds a corner to the origin: one authored constraint, one pin, DOF-neutral", () => {
+    rectangleOffOrigin();
+    const store = useSketchStore.getState;
+    const before = store().entities.length;
+    store().selectAt({ x: 20, y: 20 }, 1); // the near corner (a point pick)
+    store().selectAt(
+      { x: datumFrame(store().datumFrameHalfMm).ringRadiusMm, y: 0 },
+      1,
+      "add",
+    );
+    expect(store().selection).toHaveLength(2);
+    store().applyConstraint("coincident");
+
+    // The authored constraint names the origin by the id the solver resolves.
+    expect(store().constraints[0]).toEqual({
+      kind: "coincident",
+      a: { entity: "e1", point: "start" },
+      b: { entity: "origin", point: "position" },
+    });
+    // …and the origin is now real, pinned CONSTRUCTION geometry, so the solver
+    // moves the corner rather than the sketch's zero.
+    expect(store().entities).toHaveLength(before + 1);
+    const origin = store().entities.find((e) => e.id === "origin");
+    expect(origin).toMatchObject({
+      kind: "point",
+      position: { x: 0, y: 0 },
+      construction: true,
+    });
+    expect(store().constraints).toContainEqual({
+      kind: "fixed",
+      point: { entity: "origin", point: "position" },
+    });
+    // Only the origin was reached for — the axes stay out of the sketch.
+    expect(store().entities.filter((e) => e.id.endsWith("axis"))).toEqual([]);
+  });
+
+  it("grounds symmetry about the Y axis, pinning the axis at both ends", () => {
+    rectangleOffOrigin();
+    const store = useSketchStore.getState;
+    store().selectAt({ x: 20, y: 20 }, 1);
+    store().selectAt({ x: 60, y: 20 }, 1, "add");
+    store().selectAt({ x: 0, y: 30 }, 1, "add"); // the Y axis
+    expect(store().selection).toHaveLength(3);
+    store().applyConstraint("symmetric");
+    expect(store().constraints[0]).toMatchObject({
+      kind: "symmetric",
+      line: "y-axis",
+    });
+    expect(store().entities.find((e) => e.id === "y-axis")).toMatchObject({
+      kind: "line",
+      construction: true,
+    });
+    expect(
+      store().constraints.filter(
+        (c) => c.kind === "fixed" && c.point.entity === "y-axis",
+      ),
+    ).toHaveLength(2);
+  });
+
+  it("grounds only ONCE — a second constraint to the origin adds no second pin", () => {
+    rectangleOffOrigin();
+    const store = useSketchStore.getState;
+    const ring = datumFrame(store().datumFrameHalfMm).ringRadiusMm;
+    store().selectAt({ x: 20, y: 20 }, 1);
+    store().selectAt({ x: ring, y: 0 }, 1, "add");
+    store().applyConstraint("coincident");
+    const entities = store().entities.length;
+    store().selectAt({ x: 40, y: 45 }, 1); // the top edge, mid-span
+    store().selectAt({ x: 0, y: 40 }, 1, "add"); // Y axis
+    store().applyConstraint("perpendicular");
+    expect(store().entities).toHaveLength(entities + 1); // the axis only
+    expect(
+      store().constraints.filter(
+        (c) => c.kind === "fixed" && c.point.entity === "origin",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("refuses to make the frame the SUBJECT of a verb, and adds nothing", () => {
+    rectangleOffOrigin();
+    const store = useSketchStore.getState;
+    const before = { ...store() };
+    store().selectAt({ x: 30, y: 0 }, 1); // the X axis
+    for (const verb of ["distance", "horizontal", "fixed"] as const) {
+      store().applyConstraint(verb);
+      expect(store().hint).toMatch(/origin and axes are fixed/i);
+      expect(store().dimensionEdit).toBeNull();
+    }
+    expect(store().constraints).toEqual([]);
+    expect(store().entities).toHaveLength(before.entities.length);
+    expect(store().revision).toBe(before.revision);
+  });
+
+  it("refuses to flip the frame to profile geometry", () => {
+    rectangleOffOrigin();
+    const store = useSketchStore.getState;
+    store().selectAt({ x: 30, y: 0 }, 1);
+    store().toggleConstruction();
+    expect(store().hint).toMatch(/select an entity/i);
+    expect(store().entities.some((e) => e.id === "x-axis")).toBe(false);
+  });
+
+  it("Escape gives the frame selection back through the existing rung", () => {
+    rectangleOffOrigin();
+    const store = useSketchStore.getState;
+    store().selectAt({ x: 30, y: 0 }, 1);
+    expect(store().selection).toHaveLength(1);
+    store().escape();
+    expect(store().selection).toEqual([]);
+    expect(store().mode).toBe("draw"); // did not fall through and exit
+  });
+
+  it("re-opening a grounded sketch keeps the frame addressable, not duplicated", () => {
+    const store = useSketchStore.getState;
+    const ring = datumFrame(store().datumFrameHalfMm).ringRadiusMm;
+    rectangleOffOrigin();
+    store().selectAt({ x: 20, y: 20 }, 1);
+    store().selectAt({ x: ring, y: 0 }, 1, "add");
+    store().applyConstraint("coincident");
+    const saved = {
+      entities: store().entities,
+      constraints: store().constraints,
+    };
+
+    store().exit();
+    store().beginEdit("f-1", { kind: "origin", base: "XY" }, saved.entities, [
+      ...saved.constraints,
+    ]);
+    expect(store().entities.filter((e) => e.id === "origin")).toHaveLength(1);
+    // Still selectable, and constraining to it again materialises nothing new.
+    store().selectAt({ x: ring, y: 0 }, 1);
+    expect(store().selection).toEqual([
+      { kind: "point", entity: "origin", point: "position" },
+    ]);
+    store().selectAt({ x: 60, y: 20 }, 1, "add");
+    store().applyConstraint("coincident");
+    expect(store().entities).toEqual(saved.entities);
+    expect(store().constraints).toHaveLength(saved.constraints.length + 1);
   });
 });
 

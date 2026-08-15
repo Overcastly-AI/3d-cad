@@ -61,6 +61,7 @@ import { HistoryGroup } from "./HistoryGroup";
 import { isTypingTarget } from "../lib/isTypingTarget";
 import { undoRedoStep } from "../lib/undoRedoShortcut";
 import {
+  authoredConstraintCount,
   describeSelection,
   dimensionVerbHint,
   selectionAllConstruction,
@@ -738,7 +739,12 @@ export function SketchStrip({
   const setHoveredPlane = useSketchStore((state) => state.setHoveredPlane);
   const hoveredPlane = useSketchStore((state) => state.hoveredPlane);
   const entityCount = useSketchStore((state) => state.entities.length);
-  const constraintCount = useSketchStore((state) => state.constraints.length);
+  // The frame's own pins are excluded: grounding a corner to the origin is ONE
+  // constraint the user made, and counting the pin that came with it would be
+  // the readout claiming work nobody did (`sketch/datum.ts`).
+  const constraintCount = useSketchStore((state) =>
+    authoredConstraintCount(state.constraints),
+  );
   const selection = useSketchStore((state) => state.selection);
   const entities = useSketchStore((state) => state.entities);
   const constraints = useSketchStore((state) => state.constraints);

@@ -7,6 +7,7 @@
  */
 import type { components } from "@loft/ts-client/gateway";
 
+import { isDatumId, isDatumPin, selectionTouchesDatum } from "./datum";
 import type { Point2D } from "./plane";
 import type { SketchPick } from "./pick";
 import { TOOL_SHORTCUTS, type SketchEntity } from "./tools";
@@ -183,7 +184,11 @@ export function toggleConstruction(
   entities: readonly SketchEntity[],
 ): SketchEntity[] | null {
   const ids = new Set(
-    selection.flatMap((pick) => (pick.kind === "entity" ? [pick.id] : [])),
+    selection.flatMap((pick) =>
+      // The frame is construction by definition; flipping an axis to profile
+      // geometry would put it in the wire that extrude consumes.
+      pick.kind === "entity" && !isDatumId(pick.id) ? [pick.id] : [],
+    ),
   );
   if (ids.size === 0) return null;
   const selected = entities.filter((e) => ids.has(e.id));
@@ -243,6 +248,25 @@ const hint = (text: string): ConstraintActionResult => ({
   outcome: "hint",
   hint: text,
 });
+
+/**
+ * Verbs that would make the sketch frame the SUBJECT of a constraint rather
+ * than its target — dimensioning an axis, making the origin "fixed" (it
+ * already is), forcing an axis horizontal, calling an axis equal to an edge.
+ * Every one is either redundant with the frame's own pins or an attempt to
+ * move the sketch's zero.
+ */
+const DATUM_SUBJECT_REFUSED: ReadonlySet<ConstraintAction> = new Set([
+  "horizontal",
+  "vertical",
+  "distance",
+  "radius",
+  "fixed",
+  "equal",
+]);
+
+const DATUM_SUBJECT_HINT =
+  "The origin and axes are fixed — constrain TO them (coincident, symmetric, parallel, perpendicular).";
 
 function selectedLineIds(
   selection: readonly SketchPick[],
@@ -357,6 +381,16 @@ export function applyConstraintAction(
   constraints: readonly SketchConstraint[],
 ): ConstraintActionResult {
   const byId = new Map(entities.map((e) => [e.id, e]));
+  // THE SKETCH FRAME IS A TARGET, NOT A SUBJECT (SKETCH-2). The origin and the
+  // two axes are selectable so a profile can be GROUNDED to them — coincident,
+  // symmetric, parallel, perpendicular. The verbs that would DRIVE the frame
+  // instead are refused here rather than silently fighting its pins: they
+  // would author a constraint the solver must then reconcile against a fixed
+  // point, and the honest answer to "dimension the X axis" is that the axis is
+  // not yours to move.
+  if (DATUM_SUBJECT_REFUSED.has(action) && selectionTouchesDatum(selection)) {
+    return hint(DATUM_SUBJECT_HINT);
+  }
   switch (action) {
     case "horizontal":
     case "vertical": {
@@ -760,6 +794,10 @@ export function constraintGlyphs(
   /** Every geometric (non-dimension) mark is driving-agnostic ink. */
   const geometric = { driven: false, expression: null } as const;
   constraints.forEach((constraint, index) => {
+    // The sketch frame's own pins carry no glyph: the user authored none of
+    // them, and a FIX mark standing permanently on the origin would be chrome
+    // describing the tool rather than the model (CLAUDE.md mandate 3a).
+    if (isDatumPin(constraint)) return;
     switch (constraint.kind) {
       case "horizontal":
       case "vertical": {
@@ -967,6 +1005,18 @@ export function solveDiagnostic(
     default:
       return null;
   }
+}
+
+/**
+ * Constraints the USER authored — the frame's pins excluded. The "N applied"
+ * readout counts these: grounding a corner to the origin is one constraint the
+ * user made, and reporting the pin that came with it would be the readout
+ * claiming work nobody did.
+ */
+export function authoredConstraintCount(
+  constraints: readonly SketchConstraint[],
+): number {
+  return constraints.filter((c) => !isDatumPin(c)).length;
 }
 
 /** Short selection readout for the constraint strip ("1 line · 2 pts"). */
