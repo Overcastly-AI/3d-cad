@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "./fixtures";
 
 import { angleBetween, cameraPose, installSceneProbe } from "./invariants";
-import { createPartViaApi, seedSession } from "./support";
+import { createPartViaApi, seedSession, waitForRenders } from "./support";
 
 /**
  * VP-1 — orbit while sketching. Founder report: *"cannot orbit the 3D camera
@@ -185,6 +185,18 @@ const REST_EXACT: Stillness = { mm: 0.05, deg: 0.05 };
 const REST_COARSE: Stillness = { mm: 1, deg: 0.5 };
 
 /**
+ * Renders (or, on a scene with nothing to draw, animation frames) each rest
+ * sample spans. See {@link restCamera} for why the window is counted in renders
+ * rather than milliseconds.
+ *
+ * Four, matching `waitForRenders`' own default: the measured coast carried 2-5
+ * renders per 120 ms window, so this is the same amount of evidence the old
+ * wall-clock window happened to collect — the change is that it is now
+ * GUARANTEED rather than incidental, at the same cost.
+ */
+const REST_SAMPLE_RENDERS = 4;
+
+/**
  * Wait until the camera stops moving and return its pose.
  *
  * `invariants.waitForCameraRest` watches the view DIRECTION, which never
@@ -193,24 +205,48 @@ const REST_COARSE: Stillness = { mm: 1, deg: 0.5 };
  * which is what a spec comparing a pan against an orbit needs. Damping is on
  * (`enableDamping={!reducedMotion}`), so both gestures coast after mouse-up.
  *
- * KNOWN HOLE, AND WHY THE OBVIOUS PATCH IS WRONG. "Two samples agree" is also
- * what a STALL looks like: the canvas is `frameloop="demand"`, so a window in
- * which nothing rendered has a delta of exactly 0 and this returns mid-motion,
- * at any tolerance — tightening {@link REST_EXACT} cannot close it. The
- * tempting fix is to also require `window.__loftRenderTick` (the render clock,
- * `Viewport.tsx`) to have advanced between the two samples. MEASURED, and it
- * does not work: a camera that is genuinely at rest renders ZERO frames on a
- * demand loop, which is exactly what the two calls that matter here observed
- * (`renders=0, dDeg=0.0000` for both the opening sample of a test and the
- * post-draw sample in step 3 of the raycast test). A render-delta requirement
- * would therefore hang on precisely the still cameras it was added to certify.
- * The probe cannot separate "nothing moved" from "nothing ran"; only DEMANDING
- * a render and observing that the camera did not move can, which is the shape
- * `qa-harness.spec.ts`'s `waitForQuiet` already uses. Left alone deliberately:
- * that belongs with the render-clock work, not bolted on here.
+ * THE STALL HOLE, AND HOW IT IS CLOSED (CI-4). "Two samples agree" is also what
+ * a STALL looks like: the canvas is `frameloop="demand"`, so a window in which
+ * nothing rendered has a delta of exactly 0 and a wall-clock version of this
+ * returns mid-motion, at any tolerance — tightening {@link REST_EXACT} cannot
+ * close it. The obvious patch, requiring `window.__loftRenderTick` to have
+ * ADVANCED between samples, is wrong for the mirror-image reason: a camera that
+ * is genuinely at rest renders ZERO frames on a demand loop, so that
+ * requirement hangs on precisely the still cameras it was added to certify.
+ * Measured on this spec: the opening sample of each test is `renders=0,
+ * dDeg=0.0000` — the good case and the stall case, wearing the same reading.
  *
- * (The same instrumentation showed the render clock ticking 8-9 times per
- * 120 ms window all the way down a coast in this scene, so it is alive here.)
+ * So the window is anchored to `waitForRenders` (`support.ts`) rather than to
+ * `waitForTimeout(120)`, which is the `waitForQuiet` shape both reviewers
+ * converged on. That helper returns on exactly two conditions and throws
+ * otherwise, and BOTH of them are rest evidence when the camera has not moved:
+ *
+ *   · it observed {@link REST_SAMPLE_RENDERS} RENDERS — the scene ran and the
+ *     camera did not move across them; or
+ *   · it observed that many ANIMATION FRAMES with no render — nothing can move
+ *     this camera without a frame (drei's OrbitControls damping updates inside
+ *     `useFrame` and re-`invalidate`s while it coasts), so a demand loop that
+ *     declined to draw for that many frames is quiet, not stalled.
+ *
+ * A starved page satisfies neither and `waitForRenders` throws, naming what it
+ * achieved — which is the case the old wall-clock window silently called rest.
+ *
+ * THE HOLE IS NOT THEORETICAL — measured both ways, same tolerance, only the
+ * WINDOW changed. On this box under six CPU hogs the 120 ms wall-clock window
+ * happened to carry 2-5 renders per sample (never 0), so it was latent here. Put
+ * the page under 12x CDP CPU throttling — which is what a shard on a 2-core
+ * hosted runner looks like to a demand loop — and it bites hard. Degrees of
+ * travel STILL TO COME after the predicate declared rest, three runs each:
+ *
+ *   wall-clock 120 ms window : 5.328  3.824  4.109 deg
+ *   render-anchored window   : 1.465  1.399  1.495 deg
+ *
+ * i.e. the old window blessed a camera that was still turning by ~4-5 deg, at
+ * the same {@link REST_COARSE} tolerance. Every assertion in this file that
+ * bounds an angle from BELOW survives that (a coast only understates the turn —
+ * see REST_COARSE's directional argument), which is why nothing was red; the
+ * one assertion of the opposite shape is step 3 of the raycast test, and it is
+ * exactly the one a mid-ease sample could have passed falsely.
  */
 async function restCamera(
   page: Page,
@@ -220,7 +256,7 @@ async function restCamera(
   const deadline = Date.now() + timeoutMs;
   let previous = await cameraPose(page);
   for (;;) {
-    await page.waitForTimeout(120);
+    const sample = await waitForRenders(page, REST_SAMPLE_RENDERS);
     const current = await cameraPose(page);
     const settled =
       angleBetween(previous.direction, current.direction) <= still.deg &&
@@ -232,7 +268,8 @@ async function restCamera(
     if (Date.now() > deadline) {
       throw new Error(
         `restCamera: still moving after ${timeoutMs}ms (position ` +
-          `${current.position.map((v) => v.toFixed(2)).join(",")})`,
+          `${current.position.map((v) => v.toFixed(2)).join(",")}; last window ` +
+          `${sample.renders} render(s) / ${sample.frames} frame(s))`,
       );
     }
   }

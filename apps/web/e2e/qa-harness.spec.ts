@@ -15,6 +15,7 @@ import {
   installSceneProbe,
   measureOcclusion,
   overlapArea,
+  readCameraProbe,
 } from "./invariants";
 import { seedCube } from "./partSeed";
 import { expectInkLegible, measureInk, silhouette } from "./perception";
@@ -851,6 +852,114 @@ test.describe("harness: camera probe (invariants.ts)", () => {
     ).rejects.toThrow(/camera direction moved/);
     const front = await cameraPose(page);
     expect(angleBetween(iso.direction, front.direction)).toBeGreaterThan(20);
+  });
+
+  /**
+   * THE GAP THE PROBE USED TO FALL INTO (CI-4).
+   *
+   * `cameraPose` captures the camera inside `onBeforeRender`, so it does not
+   * exist until the scene has rendered once — and on a `frameloop="demand"`
+   * canvas neither `goto` resolving nor the canvas being visible implies that.
+   * The old version read the probe ONCE and threw, so a loaded runner turned
+   * that gap into "no camera captured — call installSceneProbe(page) BEFORE
+   * page.goto", naming the one cause the probe's own contents ruled out.
+   *
+   * This drives the gap deliberately rather than waiting for a slow runner to
+   * find it: no canvas wait at all, the read taken the instant `goto` returns.
+   */
+  test("it waits out the first render instead of throwing into the gap", async ({
+    page,
+  }) => {
+    await installSceneProbe(page);
+    const { token } = await seedSession(page);
+    const part = await createPartViaApi(page, token, "Camera probe race");
+    await page.goto(`/parts/${part.id}`);
+
+    // Deliberately NO `expect(canvas).toBeVisible()` here.
+    const atGoto = await readCameraProbe(page);
+    const pose = await cameraPose(page);
+
+    expect(
+      Math.hypot(...pose.direction),
+      "a real unit view direction, not a zero vector",
+    ).toBeCloseTo(1, 6);
+    // The probe was installed the whole time, which is exactly why the old
+    // message was wrong; asserted rather than merely described.
+    expect(atGoto.state.installed).toBe(true);
+    // And the pose came from the probe filling in, not from somewhere else: a
+    // camera exists NOW that may well not have existed at the read above.
+    const after = await readCameraProbe(page);
+    expect(after.state.captured).toBeGreaterThan(0);
+  });
+
+  /**
+   * The three causes of a null pose, each one driven into existence, because a
+   * diagnostic message nobody has produced is a message nobody has checked.
+   */
+  test("a missing camera says WHICH of the three causes it is", async ({
+    page,
+  }) => {
+    // (1) No init script: the probe globals are absent.
+    await page.setContent("<!doctype html><html><body></body></html>");
+    const bare = await readCameraProbe(page);
+    expect(bare.state.installed).toBe(false);
+    await expect(cameraPose(page, { timeoutMs: 500 })).rejects.toThrow(
+      /the scene probe is not on this page/,
+    );
+
+    // (2) Installed, but nothing ever constructed a Scene.
+    await installSceneProbe(page);
+    await page.goto("about:blank");
+    const installed = await readCameraProbe(page);
+    expect(installed.state.installed).toBe(true);
+    expect(installed.state.scenes).toBe(0);
+    await expect(cameraPose(page, { timeoutMs: 500 })).rejects.toThrow(
+      /never constructed a\s+Scene/,
+    );
+
+    // (3) A Scene exists and has never rendered — the measured CI case. Faked
+    //     at the devtools seam the probe hooks, so no renderer is needed: what
+    //     is under test is the reading, not three.js.
+    await page.evaluate(() => {
+      const w = window as unknown as Record<string, unknown>;
+      const scene = { isScene: true, uuid: "never-rendered" };
+      w["__fakeScene"] = scene;
+      (w["__THREE_DEVTOOLS__"] as EventTarget).dispatchEvent(
+        new CustomEvent("observe", { detail: scene }),
+      );
+    });
+    const unrendered = await readCameraProbe(page);
+    expect(unrendered.state.scenes).toBe(1);
+    expect(unrendered.state.captured).toBe(0);
+    await expect(cameraPose(page, { timeoutMs: 500 })).rejects.toThrow(
+      /none has RENDERED/,
+    );
+
+    // `captured: 0` is a MEASUREMENT, not a constant: the probe wrapped that
+    // scene's `onBeforeRender`, so calling it the way `WebGLRenderer.render`
+    // does — with the camera as its third argument — makes a camera appear and
+    // the very same call returns a pose. Without this control, a probe that had
+    // stopped capturing entirely would pass the three cases above.
+    await page.evaluate(() => {
+      const scene = (
+        window as unknown as Record<
+          string,
+          { onBeforeRender?: (...args: unknown[]) => void }
+        >
+      )["__fakeScene"];
+      const camera = {
+        position: { x: 0, y: 0, z: 4 },
+        up: { x: 0, y: 1, z: 0 },
+        // Identity: forward is -Z, which is what the pose must report.
+        matrixWorld: {
+          elements: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+        },
+      };
+      scene?.onBeforeRender?.(null, scene, camera);
+    });
+    const rendered = await readCameraProbe(page);
+    expect(rendered.state.captured).toBe(1);
+    expect(rendered.pose?.direction).toEqual([-0, -0, -1]);
   });
 });
 

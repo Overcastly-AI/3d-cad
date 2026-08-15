@@ -120,13 +120,43 @@ async function buildBaseBox(page: Page): Promise<void> {
   await extrudeTenMm(page);
 }
 
+/** Everything the app is SAYING about the face pick, for a failure message. */
+async function facePickReport(page: Page): Promise<string> {
+  const read = async (testid: string): Promise<string> =>
+    (await page.getByTestId(testid).allTextContents()).join(" | ").trim() ||
+    "(absent)";
+  return (
+    `sketch-step="${await read("sketch-step")}" ` +
+    `face-pick-prompt="${await read("face-pick-prompt")}" ` +
+    `face-pick-error="${await read("face-pick-error")}" ` +
+    `pick-nodes=${await page.locator('[data-testid^="plane-pick-face-"]').count()}`
+  );
+}
+
 /**
  * Click the body's TOP face node. Faces are identified by their OCCT centroid
  * in the pick node's accessible name; the top face has the greatest z (10 for a
  * 10 mm box, vs. 5 for the sides and 0 for the base) — deterministic, no
  * reliance on screen projection or a transient face index.
+ *
+ * IT WAITS FOR THE DATUM WRITE, and that is not politeness (CI-4). A click here
+ * starts a chain — `authorFacePlane` reads a tree version, POSTs an `on_face`
+ * datum, awaits the refetch, then seats the sketch — and every caller used to
+ * assert only the LAST link (`sketch-step` reads "On Face"). When that assertion
+ * timed out in CI the message was `Expected "On Face", Received "Pick a plane"`,
+ * which is true of all four ways the chain can break and evidence for none:
+ * the click was never acted on; the POST was rejected; the app refused the pick
+ * before writing (no body anchor); or the seating is merely slow. The three
+ * that are FAULTS all leave a reading on screen — the prompt flips to "Placing
+ * the sketch on the face…" the instant the click is received, and
+ * `face-pick-error` carries the app's own refusal text — so a failure here now
+ * reports which link broke instead of only that one did.
+ *
+ * The functional test already waited for this response; hoisting it into the
+ * shared helper is why the two screenshot tests, which did not, were the ones
+ * that failed unattributably.
  */
-async function clickTopFace(page: Page): Promise<void> {
+async function clickTopFace(page: Page, partId: string): Promise<void> {
   const nodes = page.locator('[data-testid^="plane-pick-face-"]');
   await expect(nodes.first()).toBeVisible({ timeout: 20_000 });
   const count = await nodes.count();
@@ -141,7 +171,47 @@ async function clickTopFace(page: Page): Promise<void> {
       bestIndex = i;
     }
   }
+  const datumWrite = page
+    .waitForResponse(
+      (r) =>
+        r.url().includes(`/parts/${partId}/features`) &&
+        r.request().method() === "POST",
+      { timeout: 30_000 },
+    )
+    .catch(() => null);
   await nodes.nth(bestIndex).click();
+  const response = await datumWrite;
+  if (response === null) {
+    throw new Error(
+      `clickTopFace: the top face (z=${bestZ}, ${count} pickable) was clicked ` +
+        "and no on_face datum POST followed within 30s — the app never acted " +
+        `on the click. What it is showing: ${await facePickReport(page)}`,
+    );
+  }
+  expect(
+    response.status(),
+    `the on_face datum write was rejected: ${await response
+      .text()
+      .catch(() => "(no body)")}`,
+  ).toBe(201);
+}
+
+/**
+ * The sketch seated on the picked face. Same assertion as before — this only
+ * attaches the app's own account of itself when it fails.
+ */
+async function expectSeatedOnFace(page: Page): Promise<void> {
+  try {
+    await expect(page.getByTestId("sketch-step")).toHaveText("On Face", {
+      timeout: 15_000,
+    });
+  } catch (failure) {
+    throw new Error(
+      "the on_face datum was written (201) and the sketcher never seated on " +
+        `it. What the app is showing: ${await facePickReport(page)}. ` +
+        `Original: ${failure instanceof Error ? failure.message : String(failure)}`,
+    );
+  }
 }
 
 test.describe("sketch on a model face", () => {
@@ -167,19 +237,12 @@ test.describe("sketch on a model face", () => {
       6,
     );
 
-    // Click the top face → an on_face datum POSTs, the sketch seats on it.
-    const datumWrite = page.waitForResponse(
-      (r) =>
-        r.url().includes(`/parts/${part.id}/features`) &&
-        r.request().method() === "POST",
-    );
-    await clickTopFace(page);
-    expect((await datumWrite).status()).toBe(201);
+    // Click the top face → an on_face datum POSTs (asserted 201 in the helper),
+    // the sketch seats on it.
+    await clickTopFace(page, part.id);
 
     // The sketcher is now ON the face — the DRO/strip say so, a datum row lands.
-    await expect(page.getByTestId("sketch-step")).toHaveText("On Face", {
-      timeout: 15_000,
-    });
+    await expectSeatedOnFace(page);
     await expect(page.getByTestId("dro-plane")).toHaveText("Face");
     await expect(
       page.getByTestId("feature-row").filter({ hasText: "Plane1" }),
@@ -270,10 +333,8 @@ test.describe("sketch on a model face — founder screenshots", () => {
       path: `${SCREENSHOT_DIR}/sketch-on-face-pick-desktop.png`,
     });
 
-    await clickTopFace(page);
-    await expect(page.getByTestId("sketch-step")).toHaveText("On Face", {
-      timeout: 15_000,
-    });
+    await clickTopFace(page, part.id);
+    await expectSeatedOnFace(page);
     await sketchBossAndSave(page);
     await extrudeTenMm(page);
     await waitForBossBody(page);
@@ -293,10 +354,8 @@ test.describe("sketch on a model face — founder screenshots", () => {
       path: `${SCREENSHOT_DIR}/sketch-on-face-pick-laptop.png`,
     });
 
-    await clickTopFace(page);
-    await expect(page.getByTestId("sketch-step")).toHaveText("On Face", {
-      timeout: 15_000,
-    });
+    await clickTopFace(page, part.id);
+    await expectSeatedOnFace(page);
     await sketchBossAndSave(page);
     await extrudeTenMm(page);
     await waitForBossBody(page);

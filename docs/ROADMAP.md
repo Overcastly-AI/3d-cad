@@ -77,6 +77,69 @@ harness-produced fixture). Groom pass 2026-08-14 (post-VP-1/SKETCH-1) filed
 onto the board; both queue behind the currently-occupied
 `apps/web/src/{viewport,sketch}/**` territories.
 
+**CI-4 SUBSTRATE (2026-08-15) — the e2e suite's rest/settle layer, attacked as a
+class. One root found, one honestly NOT found, and no forced unification.**
+
+**Failure 2 — `cameraPose: no camera captured`. Root-caused, and the error
+message was the reason it cost two agents their time.** `cameraPose` captures the
+camera inside the wrapped `scene.onBeforeRender`, so **the camera does not exist
+until the scene has RENDERED once** — and on a `frameloop="demand"` canvas,
+`expect(canvas).toBeVisible()` does not imply a render has happened. The old code
+read the probe once and threw. Measured with a page-side sampler across five
+fresh-process runs under six CPU hogs: four saw a camera at 0 ms; the fifth saw
+**three scenes constructed, zero cameras captured, `__loftRenderTick` not yet
+installed**, and 882 ms before a camera appeared. The thrown message said "call
+`installSceneProbe(page)` BEFORE `page.goto`" — the one cause its own data
+(`scenes=3`) had already ruled out. **A diagnostic that names a cause it has
+disproven is worse than one that says nothing**, because it sends the next
+reader somewhere it has already been. `cameraPose` now polls rAF-paced with a
+bounded deadline and, on giving up, reports which of three states it is in
+(probe absent / no Scene ever constructed / scenes exist but none has rendered).
+No assertion changed — only the input is waited for. Ablation reproduces CI's
+message verbatim at zero load; before, 2 pass / 2 fail of 4 under six hogs;
+after, 6/6.
+
+**Failure 1 — `sketch-step` stuck on "Pick a plane". NOT reproduced in ~35
+executions** across 6 hogs, 12 hogs, CDP-free 2-CPU `taskset` starvation,
+`--repeat-each` in one warm process, and tracing on. Three mechanisms ruled out
+by instrumentation rather than argument: the 15 s window (worst observed
+click-to-seated ~3.4 s), overlay remount (MutationObserver counted `added:0,
+removed:0` over the pick window), and node motion under the pointer (a per-rAF
+bounding-box sampler counted `moves:0`, with down/up/click all landing on the
+same node at the same coordinates). That last one matters because it is the one
+mechanism that WOULD have shared failure 2's demand-loop root. **So they do not
+share a root, and the agent declined to unify them** — the right call.
+
+What changed instead: the assertion was *unattributable*, not wrong. `clickTopFace`
+now waits for the `on_face` datum POST and asserts 201 — which the functional
+test already did and **the two screenshot tests did not, which is exactly why
+those two were the ones that failed opaquely** — and the seating assertion
+attaches the app's own error surface. Three forced ablation modes each now name
+their own cause. If the next red says "the app never acted on the click", that is
+a PRODUCT defect (a user clicks a face and gets nothing) and must be reported as
+one; this change makes the next occurrence self-describing, it does not claim to
+prevent it.
+
+**The stall hole in `restCamera`, closed with a measured red.** Two earlier
+agents were right that two equal samples cannot separate rest from stall, and
+right that requiring a render-delta hangs on genuinely still cameras. The window
+is now anchored to counted animation frames rather than `waitForTimeout(120)`.
+It could not be reddened at six hogs — coast windows carried 2-5 renders, so the
+hole was latent on this box — but under 12x CDP throttling it bites, and the
+numbers are the argument: degrees still to turn AFTER the predicate declared
+rest, same tolerance, only the window changed — wall-clock window **5.328 /
+3.824 / 4.109 deg**, render-anchored window **1.465 / 1.399 / 1.495 deg**. The
+old window was blessing a camera still turning four to five degrees. Nothing was
+red only because every angle assertion in that file bounds from below, where a
+coast can only understate — except one step of the raycast test, which is exactly
+the shape a mid-ease sample could pass falsely.
+
+Combined final run: harness + on-face + orbit, one process at load ~9,
+**37/37**. FILED separately, one occurrence in 35: an on-face run at load ~15
+failed at a different point with `"Save sketch0 entities"` — the boss
+rectangle's two clicks produced no entities. A distinct load flake in
+`sketchBossAndSave`, not addressed here.
+
 **SPEC-5 (2026-08-15) — `pick-affordance.spec.ts`'s hole scan read a React-state
 attribute with zero settle, and it cost a false accusation before it was
 fixed.** The scan walks a 12 px grid of lit pixels asking `data-hole-point-hover`
