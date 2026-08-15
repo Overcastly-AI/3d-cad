@@ -148,6 +148,39 @@ const REST_EXACT: Stillness = { mm: 0.05, deg: 0.05 };
  * 10 deg threshold, and a coasting sample can only understate the turn (the
  * coast continues in the direction of the drag), so a loose sample can fail
  * this class of assertion but never pass it falsely.
+ *
+ * THE ARGUMENT IS DIRECTIONAL, SO READ IT BEFORE REACHING FOR THIS. It licenses
+ * a loose sample only where an unsettled camera moves the measurement TOWARDS
+ * failure. That holds at every site below: the orbit tests bound the turn from
+ * BELOW while the coast is still adding to it; the pan test bounds the travel
+ * from below while the coast is still adding to that; and the "plain drag did
+ * not orbit" test bounds the change from ABOVE, where a coast can only inflate
+ * what it measures. It does NOT hold where the rig is easing the camera back
+ * toward the reference direction — there an unsettled sample OVERSTATES the
+ * angle, and a lower bound on that angle could pass for the reason it is meant
+ * to catch. The one assertion of that shape in this file (step 3 of the raycast
+ * test, "the camera stayed orbited across the draw") therefore takes
+ * {@link REST_EXACT}, which costs it nothing: the gesture before it is a DRAW,
+ * so there is no orbit coast left to wait out.
+ *
+ * HOW MUCH TURN IS STILL COMING when a sample is accepted here — measured, not
+ * asserted, because the number decides whether the bounds below have any room.
+ * Instrumenting this predicate through one orbit coast (idle container, ~8
+ * renders per 120 ms sample window) gave the tail:
+ *
+ *     6.094  4.391  2.497  1.647  1.089  0.720  0.477  0.316  0.210  0.139
+ *     0.092  0.061  0.041  0.027  0.018  0.012 deg per window
+ *
+ * i.e. the velocity decays ~0.66x per window, so ~0.949x per rendered FRAME.
+ * Summing the tail from the 0.5 deg threshold: **~0.95 deg of turn still to
+ * come**. That is the number the "well under a degree" claim below now rests
+ * on. Its load sensitivity is the part worth knowing: damping decays per FRAME,
+ * so a contended box that renders only ~2 frames per window has moved 0.25 deg
+ * PER FRAME to show the same 0.5 deg window, and the same sum gives ~4.5 deg —
+ * against a 5 deg bound. The direction is still safe (an unsettled sample can
+ * only push that assertion towards failure, never towards a false pass), but if
+ * "the plain drag drew and did not orbit" ever flakes under load, this is why,
+ * and ~10 deg is the bound the derivation supports.
  */
 const REST_COARSE: Stillness = { mm: 1, deg: 0.5 };
 
@@ -159,6 +192,25 @@ const REST_COARSE: Stillness = { mm: 1, deg: 0.5 };
  * afterwards is a coasting sample. This one settles on position AND direction,
  * which is what a spec comparing a pan against an orbit needs. Damping is on
  * (`enableDamping={!reducedMotion}`), so both gestures coast after mouse-up.
+ *
+ * KNOWN HOLE, AND WHY THE OBVIOUS PATCH IS WRONG. "Two samples agree" is also
+ * what a STALL looks like: the canvas is `frameloop="demand"`, so a window in
+ * which nothing rendered has a delta of exactly 0 and this returns mid-motion,
+ * at any tolerance — tightening {@link REST_EXACT} cannot close it. The
+ * tempting fix is to also require `window.__loftRenderTick` (the render clock,
+ * `Viewport.tsx`) to have advanced between the two samples. MEASURED, and it
+ * does not work: a camera that is genuinely at rest renders ZERO frames on a
+ * demand loop, which is exactly what the two calls that matter here observed
+ * (`renders=0, dDeg=0.0000` for both the opening sample of a test and the
+ * post-draw sample in step 3 of the raycast test). A render-delta requirement
+ * would therefore hang on precisely the still cameras it was added to certify.
+ * The probe cannot separate "nothing moved" from "nothing ran"; only DEMANDING
+ * a render and observing that the camera did not move can, which is the shape
+ * `qa-harness.spec.ts`'s `waitForQuiet` already uses. Left alone deliberately:
+ * that belongs with the render-clock work, not bolted on here.
+ *
+ * (The same instrumentation showed the render clock ticking 8-9 times per
+ * 120 ms window all the way down a coast in this scene, so it is alive here.)
  */
 async function restCamera(
   page: Page,
@@ -506,6 +558,126 @@ test.describe("VP-1 — the camera moves while the sketch is being drawn", () =>
       "true",
     );
     await expect(page.getByTestId("sketch-step")).toHaveText(`On ${PLANE}`);
+
+    // AND ONE PLAIN CLICK AFTERWARDS — which is what pins the PRESS guard
+    // rather than the pair. There are two alt guards in `PointerCatcher`, one
+    // on press and one on click, and every assertion above survives removing
+    // EITHER one alone (measured, both ablations): with the press guard gone
+    // the click guard still swallows the release, so nothing is drawn and the
+    // entity count stays 0 — while the press has quietly left the rectangle's
+    // first corner sitting in `pending`. The modeller's next click then closes
+    // a rectangle from wherever they happened to start looking around, which is
+    // exactly the defect the press guard's own comment in `SketchScene.tsx`
+    // names — "placing a point from it would draw a stray entity every time the
+    // modeller looked around". One more click is the whole difference between
+    // testing the pair and testing each member of it.
+    //
+    // `planeAt` first because the pixel has to still MEAN something after a
+    // ~72 deg turn: it throws when the ray misses the sketch plane, so this
+    // cannot decay into a click that lands nowhere and asserts nothing.
+    await planeAt(page, 600, 620);
+    await page.mouse.click(600, 620, { button: "left" });
+    await expect(
+      page.getByTestId("sketch-save"),
+      "the Alt press left no anchor for the next click to close on",
+    ).toContainText("0 entities");
+  });
+
+  test("an Alt click picks nothing, with the select tool live", async ({
+    page,
+  }) => {
+    // The CLICK guard, alone. Its failure mode is not the press guard's: with
+    // `select` armed `dragDraws` is false, so the press handler returns before
+    // it ever reads `altKey` and the press guard is not in the path at all.
+    // Everything here therefore rests on the single line at the top of
+    // `onClick` — and an Alt release that reached the picker would select the
+    // curve the modeller merely orbited across.
+    await enterDrawOnXy(page, "Sketch orbit: alt does not pick");
+
+    // Something to pick, and its extent in PLANE coordinates: the alt gesture
+    // below turns the camera, so the pixel that addresses this line afterwards
+    // is not the pixel that addresses it now.
+    await armRect(page);
+    const corner = { x: 660, y: 400 };
+    const opposite = { x: 960, y: 600 };
+    const rectA = await planeAt(page, corner.x, corner.y);
+    const rectB = await planeAt(page, opposite.x, opposite.y);
+    await drag(
+      page,
+      "left",
+      corner,
+      opposite.x - corner.x,
+      opposite.y - corner.y,
+    );
+    await expect(page.getByTestId("sketch-save")).toContainText("4 entities");
+
+    // Escape closes the size cells AND drops the tool, landing on `select` —
+    // the resting tool, which has no button of its own. The wait on the cells
+    // is load-bearing for the same reason as in the raycast test below: while
+    // armed they take pointer events and would eat the press.
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("tool-rect")).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    await expect(page.getByTestId("draw-dimensions")).toHaveCount(0);
+    await expect(page.getByTestId("selection-readout")).toContainText(
+      "nothing selected",
+    );
+
+    // The midpoint of one of the rectangle's two edges of constant v, in plane
+    // terms — an edge midpoint is the same target `click-drift.spec.ts` picks
+    // at for FB-12, and it is as far from a corner (and from the corner's
+    // point-grain pick) as the curve gets.
+    const mid = {
+      u: (rectA.u + rectB.u) / 2,
+      v: Math.min(rectA.v, rectB.v),
+    };
+    const onTheLine = await screenAt(page, mid.u, mid.v);
+    const pixel = { x: Math.round(onTheLine.x), y: Math.round(onTheLine.y) };
+
+    // (a) Alt with no travel at all — an Option-tap on a trackpad, and the
+    //     limiting case of the short alt-drag: `isClick` is unarguably true, so
+    //     nothing but the guard stands between this release and `selectAt`.
+    await page.keyboard.down("Alt");
+    try {
+      await page.mouse.click(pixel.x, pixel.y, { button: "left" });
+    } finally {
+      await page.keyboard.up("Alt");
+    }
+    await expect(
+      page.getByTestId("selection-readout"),
+      "an Alt tap picked the curve under it",
+    ).toContainText("nothing selected");
+
+    // (b) And with real travel, under CLICK_SLOP_PX (12) — the gesture the
+    //     founder's trackpad actually makes when a tumble barely moves. The
+    //     view turns a little, which is the point: the camera took this
+    //     gesture, so the model must not have.
+    await page.keyboard.down("Alt");
+    try {
+      await drag(page, "left", pixel, 6, 5);
+    } finally {
+      await page.keyboard.up("Alt");
+    }
+    await expect(
+      page.getByTestId("selection-readout"),
+      "a short Alt drag picked the curve it orbited across",
+    ).toContainText("nothing selected");
+
+    // The positive control, and the reason neither assertion above can pass
+    // vacuously: WITHOUT Alt the very same target does select. Re-projected
+    // through the settled camera rather than re-used as a pixel — (b) turned
+    // the view, and a stale pixel would make this fail for the wrong reason.
+    await restCamera(page, REST_COARSE);
+    const stillThere = await screenAt(page, mid.u, mid.v);
+    await page.mouse.click(Math.round(stillThere.x), Math.round(stillThere.y), {
+      button: "left",
+    });
+    await expect(
+      page.getByTestId("selection-readout"),
+      "the target was pickable all along",
+    ).toContainText("1 ent");
   });
 
   test("a plain left-drag after an Alt-orbit still draws, and does not orbit", async ({
@@ -526,11 +698,14 @@ test.describe("VP-1 — the camera moves while the sketch is being drawn", () =>
     await drag(page, "left", { x: 660, y: 400 }, 300, 200);
     await expect(page.getByTestId("sketch-save")).toContainText("4 entities");
 
-    // The bounds are an order of magnitude below what a stuck LEFT binding
-    // would produce and an order of magnitude above the residual of the coarse
-    // rest above: the Alt-orbit that precedes this turns ~72 deg and carries
-    // the camera ~172 mm, while a coast still decaying at the coarse threshold
-    // adds well under a degree over the span of one drag.
+    // The bounds sit between what a stuck LEFT binding would produce and the
+    // residual of the coarse rest above: the Alt-orbit that precedes this turns
+    // ~72 deg and carries the camera ~172 mm, while a coast accepted at the
+    // coarse threshold has ~0.95 deg still to come on an idle box — measured,
+    // with the decay tail and the load sensitivity written out in
+    // {@link REST_COARSE}. Read that before touching either number: the margin
+    // here is ~5x on an idle box and thinner under contention, and it is the
+    // derivation, not the constant, that says so.
     const after = await restCamera(page, REST_COARSE);
     expect(
       angleBetween(before.direction, after.direction),
@@ -648,7 +823,17 @@ test.describe("VP-1 — the camera moves while the sketch is being drawn", () =>
     // The camera really was off-axis for that draw — if the sketch rig had
     // snapped back to normal-on when the entity synced, the assertions below
     // would pass for the wrong reason (the old mapping would be correct again).
-    const held = await restCamera(page, REST_COARSE);
+    //
+    // EXACT rest, unlike every other lower-bound assertion in this file, and
+    // the reason is in {@link REST_COARSE}'s docblock: this is the one place
+    // where an unsettled camera moves the measurement the WRONG way. The
+    // failure being watched for is precisely a rig easing the view BACK toward
+    // normal-on, so a mid-ease sample reads FURTHER from the reference than the
+    // settled one does and a coarse rest could bless the snap-back it exists to
+    // catch. It is also nearly free here: the gesture before it is a draw, not
+    // an orbit, so the camera is already still and the first pair of samples
+    // agrees.
+    const held = await restCamera(page, REST_EXACT);
     expect(
       angleBetween(orbit.before.direction, held.direction),
       "the camera stayed orbited across the draw",
