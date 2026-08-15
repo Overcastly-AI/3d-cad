@@ -262,7 +262,7 @@ duplication.
       TERRITORY: `apps/web/src/routes/PartPage.tsx`,
       `apps/web/src/sketch/store.ts`. agentType: frontend-builder.
 
-- [ ] (P0, S) **SNAP-1 — founder: "snap points not working." Never reproduced;
+- [x] (P0, S) **SNAP-1 — founder: "snap points not working." Never reproduced;
       no ticket existed before this pass.** REPRODUCE FIRST, before assuming a
       root cause: start a sketch, draw near an existing endpoint/midpoint/the
       origin with snapping on; check whether the snap badge/glyph fires
@@ -285,6 +285,50 @@ duplication.
       it; queue for the next batch once that territory frees up).
       [src: founder report 2026-08-14, needs reproduction]
       agentType: frontend-builder.
+      **CLOSED as branch (ii) — NOT a snap bug. DUPLICATE of SKETCH-2.** Snap
+      detection and placement are correct in every configuration that could be
+      constructed, driven in a real browser against a real stack: grid ON (the
+      DEFAULT — see below) hitting origin / x-axis / endpoint / midpoint all
+      exact; grid OFF 4/4; press-drag-release persisting exactly (2,2)->(44,29);
+      a RE-OPENED sketch; XZ and YZ datums; a FACE-SEATED sketch; and the magnet
+      measured at 12/12/12 px across three zoom levels, equal to
+      `SNAP_TOLERANCE_PX`. The SKETCH-2 half reproduces cleanly WITH a positive
+      control in the same test: clicking the drawn line gives `"1 ent"`, while
+      clicking the origin ring, the X axis and the Y axis all give
+      `"nothing selected"`. So the founder can AIM at the origin and axes — the
+      glyph fires, the point lands exact — and cannot SELECT them to constrain
+      to, which from the user's chair is indistinguishable from "snap points do
+      not work". Do not build a second fix; SKETCH-2 is the fix.
+      **WHY IT SURVIVED THREE DAYS UNFALSIFIED, and this is the transferable
+      part:** `sketch-snap.spec.ts` presses `g` before every assertion — it HAS
+      to, because with the grid off an exact whole millimetre in the DRO can only
+      have come from an entity snap, which is what makes it a proof — and the
+      cost is that the DEFAULT configuration had no coverage at all. Same for the
+      drag gesture, re-open, non-XY planes and face-seated sketches: five
+      distinct inputs into the same `resolveSnap`, none tested. A gate that is
+      rigorous by narrowing its input leaves the untested majority behind it.
+      Shipped `apps/web/e2e/sketch-snap-defaults.spec.ts` (6 tests) to cover
+      them, using `pick-affordance`'s park-then-wait shape so a stale snap kind
+      cannot masquerade as a fresh one. Mutation, against the SUBJECT since
+      nothing was fixed: `SNAP_TOLERANCE_PX` 12 -> 2 gives **6 failed / 0
+      passed**; reverted, 6 passed.
+      **NEW GAP FOUND, not fixed, needs its own ticket:** a snap copies the
+      COORDINATE but infers no CONSTRAINT. `placeAt` takes only a `Point2D`,
+      while the `SnapCandidate` in the store carries `entities: readonly
+      string[]` — the exact ids a coincident constraint would need — and nothing
+      reads them. Fusion and SolidWorks create an inferred coincident on snap, so
+      the corner STAYS attached when the profile is later dimensioned; ours
+      leaves two independent points that happen to share coordinates. That is a
+      plausible second reading of "snap points do not work" (they hold, then let
+      go) and a different fix from both SNAP-1 and SKETCH-2.
+      Untested and worth knowing: the founder tests from a GitHub Codespace, so
+      his `devicePixelRatio`, browser zoom, trackpad and window size were not
+      reproducible here (all measurements 1600x1000, DPR 1, software GL); touch
+      snapping is untested and the drag path explicitly excludes
+      `pointerType === "touch"`; and now that VP-1a has shipped Alt-orbit, a
+      plane viewed at a grazing angle makes the isotropic mm magnet read as an
+      anisotropic sliver on screen — not his cause on 2026-08-14 because he could
+      not orbit then, but a live question for the next report.
 
 - [ ] (P0, M) **PICK-1 (M16) — a viewport pick is stamped with the TIP
       feature's id, not the feature that owns the sub-shape, so no non-tip
