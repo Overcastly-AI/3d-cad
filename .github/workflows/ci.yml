@@ -10,15 +10,19 @@
 #               geometry S3 creds == MinIO's; internal services unpublished) and
 #               scripts/check-build-context.py (every Dockerfile COPY source
 #               survives .dockerignore — the failure `deploy-path` used to find)
+#               and scripts/check-workflow-concurrency.py (all three workflows
+#               key their push concurrency group per COMMIT — CI-2)
 #   licences  — scripts/check-licences.py over the shared objects in the synced
 #               environment (LIC-3), plus a self-test that PROVES the gate
 #               fails on the GPL library the OCP wheel vendors
 #
 # The RUNTIME half of the compose gate lives in its own workflow —
-# .github/workflows/deploy-path.yml — because it builds the images, boots the
-# stack, and must NOT be cancelled by the next push the way this fast-feedback
-# workflow is. Measured 86s end to end on a hosted runner (first green run
-# 2026-07-25), so it is cheap; the split is about cancellation, not cost.
+# .github/workflows/deploy-path.yml — because it builds the images and boots the
+# stack, and wants its own time budget for it. Measured 86s end to end on a
+# hosted runner (first green run 2026-07-25), so it is cheap. NB the split was
+# originally about cancellation, back when this workflow cancelled superseded
+# BRANCH runs; it no longer does (see the concurrency block below), and as of
+# CI-2 deploy-path keys its group exactly the same way.
 #
 # Notes:
 # - The geometry golden suite and Playwright e2e get their OWN workflow later
@@ -166,6 +170,17 @@ jobs:
         run: |
           python3 scripts/check-build-context.py --self-test
           python3 scripts/check-build-context.py
+      # Every push-triggered workflow keys its concurrency group per COMMIT.
+      # Same class as the check above and the same reason it lives in a fast
+      # job: a concurrency expression cannot be exercised locally, and it only
+      # misbehaves when two pushes land close together — so deploy-path.yml
+      # stayed keyed on the ref for two weeks after this file and e2e.yml were
+      # converted, silently risking the only image-build evidence a commit can
+      # have (CI-2, 2026-08-15). Stdlib, no daemon, ~60ms.
+      - name: Workflow concurrency keying (+ prove the gate can fail)
+        run: |
+          python3 scripts/check-workflow-concurrency.py --self-test
+          python3 scripts/check-workflow-concurrency.py
 
   licences:
     # LIC-3 — the no-GPL rule, enforced by reading the BINARIES we ship.

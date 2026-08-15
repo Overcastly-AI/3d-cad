@@ -670,6 +670,20 @@ recipe here in the same commit as the fix.**
 
 - Working branch: develop on the current `claude/*` branch; never push to
   `main` without explicit permission.
+- **A freshly-created WORKTREE gives FALSE `prettier --check` and `tsc` failures
+  on files you never touched — and they name a COLLEAGUE'S territory, so the
+  natural read is "someone pushed a red build".** Found 2026-08-15 by the CI-2
+  agent, which nearly reported the branch tip as lint-red in frontend territory
+  before catching itself. Before `pnpm install --frozen-lockfile`, `just lint`
+  failed on 6 unmodified `apps/web/src/**` files and `pnpm -r typecheck` failed
+  with `Cannot find module 'openapi-fetch'`. The proof it was the environment and
+  not the tree: it extracted `apps/web/src/api/drawings.ts` from the committed
+  blob at the tip, prettier failed those exact bytes, and the identical bytes
+  passed after the install. Rule: **a new worktree is not ready until
+  `pnpm install --frozen-lockfile` has run in it**, and a lint failure in a file
+  outside your diff is a claim about YOUR environment until you have proved
+  otherwise on committed bytes. Do not report it as a colleague's regression —
+  that costs two agents' time and starts a hunt for a defect that does not exist.
 - OCP/OCCT wheels are large; in CI cache the uv environment keyed on the
   lockfile.
 - **To test swapping an auditwheel-vendored library WITHOUT touching the shared

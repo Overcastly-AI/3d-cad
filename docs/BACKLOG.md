@@ -749,7 +749,7 @@ duplication.
       regression, and not the runner. See SPEC-4.
       [src: orchestrator CI root-cause, 2026-08-11]
 
-- [ ] (P2, XS) **CI-2 — `deploy-path` never got the per-SHA concurrency fix, so
+- [x] (P2, XS) **CI-2 — `deploy-path` never got the per-SHA concurrency fix, so
       it is still evicting runs** (`.github/workflows`). Filed 2026-08-08 by the
       orchestrator from the CI board. `ci.yml` and `e2e.yml` both key their PUSH
       concurrency group on `github.sha`; `deploy-path.yml:39-41` still reads
@@ -772,6 +772,43 @@ duplication.
       ACCEPTANCE: two commits pushed back-to-back each get a completed
       `deploy-path` run; no `cancelled` with zero jobs.
       [src: orchestrator CI read, 2026-08-08]
+      SHIPPED 2076de4. Recurred and was re-measured before the fix: `8d386ab`
+      came back `cancelled` on deploy-path on 2026-08-14 while the six commits
+      either side succeeded — **81 s wall clock (13:27:33 -> 13:28:54) and
+      `total_jobs: 0`**, against a 45-minute ceiling. Zero jobs is the decisive
+      discriminator: an eviction kills a PENDING run before any job exists,
+      whereas a `timeout-minutes` kill requires a job to have started and
+      reached its limit. So there is no second bug hiding behind the word
+      "cancelled" here.
+      The builder REFUSED to take the orchestrator's eviction diagnosis on
+      trust — it cannot read CI — and recorded the observation in the workflow
+      file with its evidentiary status ("the reason somebody looked, not the
+      proof"), resting the change on the mechanism instead. The orchestrator
+      then fetched the per-job breakdown above. That is the right shape and is
+      worth copying.
+      It also priced the trade honestly and found a SECOND cost the ticket did
+      not name: ref-keying was *serialising* the image builds, so per-SHA means
+      up to 8 concurrent deploy-path jobs under four pushing agents, on top of
+      ci's 6 and e2e's 5. Judgement recorded in-file that the trade is still
+      right — a serialised gate that discards evidence is not cheaper, it is
+      unpaid — and that if runner contention bites, the lever is the TRIGGER
+      (`paths-ignore`), never the key.
+      GATE: `scripts/check-workflow-concurrency.py`, wired into `just lint` and
+      ci.yml's `compose` job, stdlib-only, ~60 ms. It derives coverage from the
+      filesystem (every workflow with a push trigger), so a workflow added
+      tomorrow is covered and no list can go stale. Verified by the orchestrator
+      against the REAL pre-fix file, not a fixture: `git checkout HEAD~1 --
+      .github/workflows/deploy-path.yml` makes it exit 1 naming
+      `deploy-path-${{ github.ref }}`. `--self-test` carries 8 fixtures of which
+      5 MUST fail, including **arms swapped** (PR keyed on sha, push on ref) —
+      the symmetric mistake a check that merely grepped for `github.sha` would
+      sail past, which is this repo's own
+      guard-encodes-the-direction-of-its-defect lesson applied in advance. It
+      also cross-checks its own line reader against PyYAML and REFUSES to report
+      on disagreement, with a negative control on the refusal itself.
+      NOT verified: no image was built (registry 403), and the acceptance
+      criterion above — two back-to-back pushes each completing — can only be
+      observed on the next real double push.
 
 - [ ] (P0, L) **FB-8 — "too many [points] to see what you are clicking"; wants
       Fusion/Plasticity pre-selection** — a snapping pointer, the FACE (not the
