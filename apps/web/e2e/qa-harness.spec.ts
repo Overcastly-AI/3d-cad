@@ -948,18 +948,56 @@ test.describe("harness: the render clock (support.ts + Viewport RenderProbe)", (
    * how this gate first went red (2026-08-11): it read "the wait did not throw"
    * as a broken instrument when the scene was simply still moving.
    *
+   * THE BUDGET IS RENDERS, NOT WALL TIME (QAH-1, 2026-08-15). It was 20_000 ms,
+   * and that is a load-dependent bound for a load-independent claim: damping is
+   * a fixed amount of WORK (OrbitControls decays the delta per FRAME, ~120
+   * renders from a 12-step drag), so its wall-clock tail is that work divided by
+   * the frame rate. Measured here on the real stack, orbit then sample the
+   * product's own clock once a second:
+   *
+   *   loaded box  4,4,5,5,4,3,3,3,3,4,3,5,4,5,5,3,5,5,5,4,5,6,6,7,5,6,3,0,0,…
+   *                                                       first quiet second: 28 s
+   *
+   * i.e. under a loaded container (load average 11.6 on 4 cores, software GL at
+   * ~4 renders/s) the tail is 28 s and a 20 s budget fails DETERMINISTICALLY —
+   * four runs, four failures, and it fails identically with this commit's
+   * collector fix reverted, so it is not that fix. At 60 fps the same 120
+   * renders settle in ~2 s, which is why the bound held on a quiet runner and
+   * why raising the number alone would only move the load at which it breaks.
+   *
+   * So the loop now spends a RENDER budget, which does not drift with CPU, and
+   * keeps a wall-clock only as a hang guard (a scene that stopped painting
+   * altogether would otherwise never reach either bound). Note this LOOSENS
+   * nothing: the claim being gated is the rejection this returns, plus the
+   * `/achieved 0 render\(s\)/`, `painted > 5` and `tickDelta === 0` assertions at
+   * the call site — all unchanged. The budget only decides whether a still-
+   * damping scene is reported as a failure or waited out.
    */
-  async function waitForQuiet(page: Page, deadlineMs = 20_000): Promise<Error> {
-    const until = Date.now() + deadlineMs;
+  async function waitForQuiet(
+    page: Page,
+    renderBudget = 600,
+    hangGuardMs = 180_000,
+  ): Promise<Error> {
+    const until = Date.now() + hangGuardMs;
+    let spent = 0;
     for (;;) {
       const outcome = await waitForRenders(page, 1, {
         requireRenders: true,
         timeoutMs: 1_000,
       }).catch((error: Error) => error);
       if (outcome instanceof Error) return outcome;
+      spent += outcome.renders;
+      if (spent > renderBudget) {
+        throw new Error(
+          `waitForQuiet: the scene rendered ${spent} times without going quiet ` +
+            `(budget ${renderBudget}). Damping settles in ~120; this many means ` +
+            `the loop is not on demand, or something is invalidating forever.`,
+        );
+      }
       if (Date.now() > until) {
         throw new Error(
-          `waitForQuiet: the scene never stopped rendering in ${deadlineMs}ms`,
+          `waitForQuiet: the scene never stopped PAINTING in ${hangGuardMs}ms ` +
+            `(${spent} render(s) seen). This is the hang guard, not the budget.`,
         );
       }
     }
@@ -972,8 +1010,11 @@ test.describe("harness: the render clock (support.ts + Viewport RenderProbe)", (
     // loop, a 1.5 s unreachable demand, a 1 s quiet window and two orbit+probe
     // windows. It measured ~45 s in a quiet container and timed out at the 60 s
     // default once under sibling load — a budget, not a hang, so it gets one
-    // rather than losing a measurement.
-    test.setTimeout(150_000);
+    // rather than losing a measurement. Raised again for QAH-1: the settle loop
+    // above now waits out a damping tail that measures 28 s on a loaded box
+    // instead of failing at 20 s, and 150 s left no room for that plus the 30 s
+    // poll below.
+    test.setTimeout(240_000);
     const { token } = await seedSession(page);
     const part = await createPartViaApi(page, token, "Render clock");
     await seedCube(page, token, part.id);
