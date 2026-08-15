@@ -118,7 +118,11 @@ unchanged; only the fixture had to become genuinely unmatchable. This is exactly
 suite-level finding QA-2 recorded (four tests then encoded "gone" as *the same face
 at a different z*): the codebase's canonical example of an unresolvable reference
 keeps turning out to be a reference the user's ordinary edits produce. **Three**
-fixtures moved out of ~2 900 tests; nothing else in the suite changed.
+fixtures moved out of the geometry suite's **2485** collected tests (the ~2 900
+figure is the whole Python CI job — gateway + documents + geometry — not this
+suite); nothing else in the suite changed. A fourth gate,
+`test_a_face_that_moved_AND_changed_shape_stays_an_honest_error`, was RENAMED to
+`…_moved_AND_GREW_…` with an unchanged body.
 
 ### What is NOT fixed
 

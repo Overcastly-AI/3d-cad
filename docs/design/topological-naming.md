@@ -1195,8 +1195,13 @@ revision of a face that carries more than one feature.
 
 **Why the anchor is the outer boundary and not the picked point on the face.** The
 stored `centroid` is the face's AREA centroid, which for a plate with a central
-bore is a point **inside the bore — not on the face at all** (measured: the M17
-plate's top-face centroid is (0, 0, z), dead centre of its own Ø30 hole). A
+bore is a point **inside the bore — not on the face at all** (re-measured by
+review: the M17 plate's top-face area centroid is **(50.335933, 20.0, z)** and
+the bore centre is (50, 20) — 0.336 mm off centre, inside the Ø30 bore. The
+original text here said "(0, 0, z), dead centre of its own Ø30 hole", which was
+wrong on both counts while being labelled "measured"; the substantive point —
+that the anchor is not on the face — is unaffected and is gated by
+`test_the_tier4_anchor_point_is_not_even_ON_the_face`). A
 containment test against the face itself would reject the very case this tier
 exists for. Against the outer boundary region it is inside, and stays inside under
 any interior edit.
@@ -1208,8 +1213,19 @@ the guards carry more weight than in §12:
    unchanged and still the load-bearing one. A plate's bottom face is a full flip
    away, so a hole drilled in the top can never re-anchor to the bottom.
 2. **A face that VANISHED does not re-anchor onto whatever larger face happens to
-   contain the point — the AREA BAND is what stops it, and both of its ends are
-   derived.** This is the guard the first draft of tier 4 got wrong, and the cost
+   contain the point — the AREA BAND is what stops it.** Its two ends do NOT have
+   the same standing, and an earlier draft of this section called both of them
+   "derived", which overstates the lower one. The UPPER end is derived: a face is
+   a subset of the region its own outer wire encloses, so `stored ≤ outer`
+   follows from the hypothesis alone. The LOWER end is an additional
+   ATTRIBUTION ASSUMPTION — under "same face, different interior" the stored area
+   could be anything in `(0, outer]`, because a DELETED hole shrinks
+   `candidate − stored` by an amount unrelated to what the candidate currently
+   subtracts. It is chosen because `outer − candidate` is the only quantity
+   available, it is conservative in the right direction, and it is proven
+   load-bearing below — but calling it derived made it look immune to "why this
+   bound and not 1.5x?", which is a fair question the honest-limits paragraph
+   then has to answer. This is the guard the first draft of tier 4 got wrong, and the cost
    was measured rather than argued: with only the obvious `stored ≤ outer` subset
    bound, three of `test_faces.py`'s honest-error gates went from red to
    silently-resolving, including the "the plane is gone" one. Delete the boss a
@@ -1257,14 +1273,27 @@ the strongest argument for the `PlanarFaceSignature` change below rather than a
 reason to prefer no fix: the alternative on offer is a P0 that strands features on
 every multi-feature face.
 
-**One existing negative control moved, and it is worth knowing which.** A synthetic
-"this face is gone" fixture in `test_assembly_evaluate.py` stated a −Z face 99 mm
-away with an area 10 % off the real one. With the offset freed by tier 3 and the
-area freed within the band by tier 4, that now reads as a plausible hole edit and
-resolves — correctly, on the tier's own terms. The fixture was retuned to an area
-no edit to that face's interior could produce; the test's subject (a per-mate
-`subshape_unresolved` is reported and dropped, never a crash) is unchanged. No
-other gate in the ~2 900-test geometry suite moved.
+**THREE existing negative controls moved, plus a rename — corrected by review.**
+An earlier version of this paragraph said "one", which contradicted the same
+commit's own `docs/GEOMETRY-QA.md` table and understated the riskiest part of the
+change in the sentence a future reader would use to learn what coverage moved.
+The three are `test_assembly_evaluate.py`, `test_assembly_resolve.py` and
+`test_draft.py`; each stated "this face is gone" about a face still plainly
+there with only its offset — or, in `test_draft`'s case, only its in-plane
+station — wrong, which tier 4 now correctly resolves. Each was retuned to state
+something no interior edit to that face could produce. In all three the ONLY
+changed lines are the fixture's `centroid`/`area_mm2` and the docstring; every
+assertion is byte-identical, so the subjects are unchanged. Separately,
+`test_faces.py`'s `test_a_face_that_moved_AND_changed_shape_stays_an_honest_error`
+was RENAMED to `…_moved_AND_GREW_…` with a new docstring and an unchanged body.
+
+That the retuning is real rather than a loosening is not asserted, it is measured:
+under the lower-bound mutation below, **all three retuned fixtures go red**. The
+lower bound is precisely what makes them unmatchable, so they still bind.
+
+Nothing else in the geometry suite moved. That suite collects **2485** tests —
+the ~2 900 figure quoted here previously is the whole Python CI job (gateway +
+documents + geometry), not this suite.
 
 **Cost.** Tier 4 is the only tier that touches the B-rep beyond the signatures it
 is handed — it builds one face per candidate from that candidate's outer wire. It

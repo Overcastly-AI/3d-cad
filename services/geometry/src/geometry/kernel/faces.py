@@ -518,9 +518,10 @@ def _match_face_records(
 def _anchored_plane(plane: Plane, target: PlanarFaceSignature) -> Plane:
     """*plane*'s supporting plane, re-anchored at the STORED signature's centroid.
 
-    The RESILIENT-tier (2 and 3) origin rule. Neither resilient tier pins the area
+    The RESILIENT-tier (2, 3 and 4) origin rule. No resilient tier pins the area
     centroid — tier 2 ignores it because an unrelated in-plane edit is exactly what
-    moves it, tier 3 because the whole face has travelled along its normal — so the
+    moves it, tier 3 because the whole face has travelled along its normal, tier 4
+    because both are true at once and the stored area is stale too — so the
     matched record's plane origin (the CURRENT face's area centroid,
     :func:`_face_plane`) is a different point from the one the reference was authored
     against. For tier 3 the STORED centroid is off the face in the other direction —
@@ -554,19 +555,21 @@ def resolve_face_plane(
     """Resolve a stage-1 face signature to its planar face's sketch plane.
 
     Matches *target* against the planar faces of *body* (:func:`planar_faces`) via
-    the three-tier :func:`_match_face_records` (strict signature, then a resilient
-    coplanar re-match — FINDINGS #3, then a translated re-match — QA-2), requires
+    the four-tier :func:`_match_face_records` (strict signature, then a resilient
+    coplanar re-match — FINDINGS #3, then a translated re-match — QA-2, then an
+    enclosing-face re-match on the outer boundary — GEOM-2/M17 §12a), requires
     EXACTLY ONE match (§7.2 — refuse to guess), and returns that face's deterministic
     sketch plane, shifted ``offset_mm`` along the face normal.
 
     ORIGIN RULE. A tier-1 (strict) match pins the centroid to within
     ``_CENTROID_TOL_MM``, so the matched face's own plane IS the authored one and
-    is returned unchanged. A tier-2 or tier-3 match got there precisely BECAUSE the
-    area centroid is elsewhere (drifted in-plane, or carried along by the plane's
-    move), so the plane is re-anchored at the stored centroid projected onto the
-    matched face (:func:`_anchored_plane`) — never the drifted origin, which would
-    silently translate the sketch/datum/mate seated on that face, and never the raw
-    stored point, which for a translated face is no longer on it.
+    is returned unchanged. A tier-2, tier-3 or tier-4 match got there precisely
+    BECAUSE the area centroid is elsewhere (drifted in-plane, carried along by the
+    plane's move, or both), so the plane is re-anchored at the stored centroid
+    projected onto the matched face (:func:`_anchored_plane`) — never the drifted
+    origin, which would silently translate the sketch/datum/mate seated on that
+    face, and never the raw stored point, which for a translated face is no longer
+    on it.
 
     Raises:
         SubshapeUnresolvedError: zero matching planar faces (the referenced face
