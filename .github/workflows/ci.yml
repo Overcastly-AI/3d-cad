@@ -11,7 +11,9 @@
 #               scripts/check-build-context.py (every Dockerfile COPY source
 #               survives .dockerignore — the failure `deploy-path` used to find)
 #               and scripts/check-workflow-concurrency.py (all three workflows
-#               key their push concurrency group per COMMIT — CI-2)
+#               key their push concurrency group per COMMIT — CI-2) and
+#               scripts/check-mutation-markers.py (no mutation/ablation/debug
+#               marker labels committed source — docs/RETRO.md §4b)
 #   licences  — scripts/check-licences.py over the shared objects in the synced
 #               environment (LIC-3), plus a self-test that PROVES the gate
 #               fails on the GPL library the OCP wheel vendors
@@ -181,6 +183,19 @@ jobs:
         run: |
           python3 scripts/check-workflow-concurrency.py --self-test
           python3 scripts/check-workflow-concurrency.py
+      # No mutation/ablation/debug marker survives into committed source.
+      # Mutation testing is mandatory here, so an agent stopped mid-mutation
+      # leaves a defect that is by construction invisible to every gate except
+      # the one it was aimed at: on 2026-08-14 a `// <marker>: always 0` in
+      # apps/web/e2e/diagnostics.ts passed lint, pyright and 1598 unit tests
+      # and turned the e2e workflow red for ten commits (docs/RETRO.md §4b).
+      # It belongs in this job rather than `python` because it needs no uv
+      # environment at all — stdlib, no deps, ~700ms over 877 files — so the
+      # signal arrives in the fastest job we have.
+      - name: Mutation/debug markers in source (+ prove the gate can fail)
+        run: |
+          python3 scripts/check-mutation-markers.py --self-test
+          python3 scripts/check-mutation-markers.py
 
   licences:
     # LIC-3 — the no-GPL rule, enforced by reading the BINARIES we ship.
