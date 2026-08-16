@@ -15,80 +15,63 @@ See VISION.md's table for current row text — the vision-steward re-scores it
 independently each pass; this note only points the queue at it, no
 duplication.
 
-- **Groom pass 5 (2026-08-15 evening, this pass) — the founder's four
-  2026-08-01 sketcher complaints all now have answers.** Dimensions assign
-  (DIM-1, gate flipped, `a810524`+`810d9fb`); orbit-while-sketching reaches a
-  trackpad (VP-1/VP-1a); a saved sketch re-opens (SKETCH-1); "snap points do
-  not work" resolved through SNAP-1 -> SKETCH-2 -> the QA-SK2 follow-up fix
-  (`8f00dec`) — detection was always correct, selection was not, and the
-  frame no longer asks you to delete a constraint you cannot see. **New
-  reading, sharper than the original report:** independent QA of SKETCH-2
-  (`docs/UI-REVIEW.md` QA-SK2-4) found a snap to the origin/axis copies the
-  COORDINATE but authors no constraint — the corner looks grounded, saves as
-  "N applied," and then drifts on the first re-drive. Filed below (SNAP-2)
-  as the sharpest open founder-adjacent defect, same silent-trust-violation
-  class as DIM-1 was.
-- **✅ rows, still qualified:** Sketching & constraints and Part modeling are
-  creation- AND now datum-editing-capable (SKETCH-2), but still ➖-grade until
-  PICK-1 (non-tip feature edits 422) and GEOM-3 (GEOM-2's honest limit on
-  vented/perforated faces) land, and until SNAP-2 closes the silent-drift gap
-  above. SKETCH-1/VP-1/VP-1a/DIM-1/SKETCH-2 are QA'd green but **none of the
-  five have an independent `code-reviewer` pass** — flag this to the
-  orchestrator; it is process debt, not a defect, but it is real debt.
-- **Process note, not a scorecard row:** the CI-4 "systemically unstable e2e"
-  umbrella got a substrate pass this session (`8d5be24`) — one of its two
-  named failures (the camera-probe race) is root-caused and fixed with a
-  0/12-after ablation; the other (`sketch-on-face` screenshot variants)
-  could not be reproduced in 35 starved runs and stays filed, not fixed.
-  **QAH-1 is CLOSED — `c3019b6`, an ANCESTOR of `a658db4` (verified:
-  `git merge-base --is-ancestor c3019b6 a658db4` -> yes).** This groom pass
-  first searched only `a658db4..HEAD` (the range the dispatch brief gave)
-  and, finding nothing there, wrongly corrected the brief's "already shipped"
-  claim to "still open" — a real error, caught by the orchestrator re-pointing
-  at the right range, not by re-deriving harder inside the wrong one. `c3019b6`
-  is a genuinely different fix from `8d5be24`'s camera-probe race (that
-  distinction stands and is worth keeping apart): QAH-1 was a mutation-test
-  constant — `diagnostics.ts:193`, `rendersInProbeWindow: … ? null : 0, //
-  MUTANT: always 0` — left in the tree by `0580f7d`'s reconciliation of a
-  stopped agent's work, whose own e2e gate was never run. See the archived
-  entry for the evidence.
+- **Groom pass 6 (2026-08-16, this pass) — Sketching & constraints FLIPPED
+  ✅→➖ by the vision-steward this pass, and the reason is now three Ready
+  tickets, not prose.** VISION.md's 2026-08-16 correction: a plain
+  rectangle/hand-drawn profile is silently NOT rigid until a value is typed
+  (RECT-1, P0) or an entity endpoint is snapped (SNAP-3, P0, generalizing
+  the still-open SNAP-2), and the mirror-axis picker excludes the datum
+  SKETCH-2 made real (MIRROR-1, P1) — all filed this pass, all verified
+  against current HEAD by symbol (not trusted from the steward's read). Both
+  of pass 5's P0s shipped this window: **PICK-1** (`2b266b1`) and **GEOM-3**
+  (`1e39c14`, independently geometry-qa'd PASS `0628ceb` — filed GQA-1/2/3,
+  see Next/Later) — see Done archive. `docs/COMPETITIVE.md` is FRESH as of
+  this pass (2026-08-16 vision-steward read); no longer stale.
+- **✅ rows, still qualified:** Part modeling is creation- and edit-capable
+  (PICK-1 closed the non-tip-edit 422; GEOM-3 closed GEOM-2's vented-plate
+  gap, with GQA-1's narrower rotation-invariance residual filed P2, not
+  blocking). None of DIM-1/SKETCH-1/VP-1/VP-1a/SKETCH-2/PICK-1/GEOM-3-fix
+  have an independent `code-reviewer` pass — process debt, flagged again.
 - **➖ rows (usable, short of incumbent parity):** Assemblies (export +
   interference shipped; import, exploded views, recursive BOM, part-version
-  pinning still missing). Interop (part STEP round-trips to 1e-9 against an
-  independent OCCT re-read; assembly import still the gap). Drawings (auto
-  re-projection + associativity genuinely good; the *printed sheet* still
-  truncates the title in the export, prints 2 of 3 dimension texts over the
-  part outline, and carries no part-no/rev/material/tolerance/projection-symbol
-  fields — M13). Sheet metal (bend chains/corner relief/hems/edge-flange
-  extents shipped; open/teardrop/rolled hems, miters, tabs, gauge tables
-  still missing).
-- **❌ rows:** Performance (`docs/PERF.md`, PERF-1..5 fixes shipped; no
-  standing benchmark GATE yet — the row text overstates the gap per the fresh
-  audit's M19 measurements, ~700-850ms full rebuild on an 11-feature part).
-  Collaboration & versioning and Extensibility/scripting+MCP remain untouched
-  (Phase 3 / Phase 5, unstarted).
-- **`docs/COMPETITIVE.md`** still dates from 2026-07-19 — stale against every
-  finding above; flagged again for the vision-steward to refresh. Ready queue
-  restocked from the fresh BACKLOG-native audit findings this pass.
+  pinning still missing). Interop (part STEP round-trips to 1e-9; assembly
+  import still the gap). Drawings (auto re-projection + associativity good;
+  printed-sheet title/dimension-overlap/title-block fields still missing —
+  M13). Sheet metal (bend chains/hems/edge-flange shipped; teardrop hems,
+  miters, tabs, gauge tables still missing).
+- **❌ rows:** Performance (fixes shipped, no standing benchmark GATE yet).
+  Collaboration & versioning and Extensibility/scripting+MCP untouched
+  (Phase 3 / Phase 5).
 
 ## Ready (top of queue)
 
-**Dispatch order, this pass — PICK-1 and GEOM-3 have sat Ready longest of the
-P0s without being dispatched; nothing has overtaken them, but the order
-between them is worth stating.** GEOM-3 should go FIRST: it is a SILENT
-wrong-geometry defect (a deleted-feature's sketch can re-target onto the
-wrong face with no error at all), which is the class CLAUDE.md ranks above
-everything else on the board, including PICK-1. PICK-1 fails LOUDLY (a 422)
-rather than silently, which is the less dangerous failure mode even though it
-fully blocks a whole class of edits (M9/M10) — a real product/scorecard hit,
-just not a "wrong answer accepted as right" one. SNAP-2 (new this pass) is
-comparable in shape to PICK-1 — correct now, silently wrong after a later
-edit — but shares `apps/web/src/sketch/**` territory with nothing else
-currently Ready, so it can run alongside GEOM-3 (kernel-architect territory)
-without contention; PICK-1 and SNAP-2 do NOT share territory either
-(`PartPage.tsx`/editor components vs. `sketch/store.ts`/`snap.ts`) so up to
-three of GEOM-3/PICK-1/SNAP-2 can be dispatched in parallel this batch.
-QAH-1 (CI-reliability debt) is CLOSED as of this pass — see Done archive.
+**Dispatch order, groom pass 6 (2026-08-16) — GEOM-3 and PICK-1 both SHIPPED
+this window (see Done archive), closing the last two P0s from pass 5.**
+Focus moves to the vision-steward's 2026-08-16 competitive finding: an
+ordinary rectangle/hand-drawn profile is silently NOT rigid until a value is
+typed (**RECT-1**, new, P0) or an existing entity's endpoint is snapped
+(**SNAP-3**, new, P0, the general case SNAP-2's own text names but doesn't
+scope) — both flip VISION.md's Sketching row back toward ✅ and are the
+single highest-value close named there. **TERRITORY COLLISION, read before
+dispatching:** RECT-1, SNAP-2 (already Ready) and SNAP-3 ALL modify the same
+mechanism — constraint-authoring at draw/placement time in
+`apps/web/src/sketch/store.ts` (`placeAt`, `commitDrawDimensions`) and
+`drawDimensions.ts`/`snap.ts`. Do not dispatch these three to different
+agents in parallel; either one agent takes all three in sequence, or they
+run strictly serially with each integrated before the next starts. RECT-1
+and SNAP-2/3 are close enough in shape that the same author in the same
+sitting (as the steward suggested) is the cheapest path. **DIM-3 and ESC-2
+also collide with each other** (both `sketch/store.ts`, DIM-3 at
+`selectConstraint`/`togglePick`, ESC-2 at the escape cascade/`freshSession`)
+— different functions from the RECT-1/SNAP-2/SNAP-3 cluster and from each
+other, so a merge is mechanically low-risk, but they are P1 and should queue
+behind the P0 cluster regardless; ESC-2 is the simpler DRY fix and should go
+first between the two if both are picked up the same session. **MIRROR-1**
+(new, P1) is the only new item with NO overlap — its fix lives in
+`apps/web/src/viewport/SketchScene.tsx` (the mirror-axis pick + hover-ghost
+branches), not `store.ts` — safe to run fully in parallel with everything
+above. FB-21/FB-9 (frame-convention) and GQA-1 (§12b correction, P2, Next)
+remain independent of all of the above.
 
 - [ ] (P1, S) **DIM-3 — the Dimension verb's ARMED state (c449235) is
       invisible, and a wrong-kind pick prints the exact sentence the arm-fix
@@ -140,203 +123,6 @@ QAH-1 (CI-reliability debt) is CLOSED as of this pass — see Done archive.
       TERRITORY: `apps/web/src/routes/PartPage.tsx`,
       `apps/web/src/sketch/store.ts`. agentType: frontend-builder.
 
-- [x] (P0, M) **PICK-1 (M16) — a viewport pick is stamped with the TIP
-      feature's id, not the feature that owns the sub-shape, so no non-tip
-      feature can ever be re-picked for an edit** (`apps/web/src/routes/
-      PartPage.tsx`, `apps/web/src/components/{FilletEditor,ChamferEditor,
-      ShellEditor,DraftEditor,EdgeFlangeEditor,HemEditor}.tsx`). Root cause of
-      M9/M10 (a picked-edge fillet's radius can NEVER be edited, failed or
-      not — `PATCH` 422s `reference_not_earlier` naming the fillet's OWN id)
-      and a contributor to M17. Confirmed in source:
-      `bodyFeatureId` (`PartPage.tsx:1430`, comment: "the last body-affecting
-      feature") is computed ONCE as the current TIP and threaded unmodified
-      into every fillet/chamfer/shell/draft/edge-flange/hem editor
-      (`PartPage.tsx:4118-4198`), which use it to build every
-      `SubshapeRef.feature_id` (`faceSubshapeRef`/`edgeSubshapeRef` in
-      `features/{face,edge}.ts`). That is correct when CREATING a new feature
-      (the pick necessarily belongs to the current tip) but wrong when
-      EDITING an existing one: the edge you re-pick belongs to whatever
-      feature actually produced it, which the backend correctly rejects as
-      "must come strictly earlier" when it turns out to be the tip (or the
-      feature under edit itself). The data needed already exists server-side:
-      `OverlayFace.feature_id` (`services/geometry/src/geometry/kernel/
-      overlay.py:87-149`) is set from face provenance already (FINDINGS #9,
-      feature-localized selection). INVESTIGATE first whether that per-face
-      `feature_id` already reaches the frontend's pick payload (it may only be
-      used for hover tooltips today) — if not, thread it through the overlay
-      fetch into the pick handler. Then: when a pick happens during an EDIT
-      session (as opposed to a fresh create), resolve the `SubshapeRef`'s
-      `feature_id` from the picked geometry's own owning feature, not from
-      `bodyFeatureId`. ACCEPTANCE: reproduce M10 first as the control (create
-      a 3-edge fillet R4, re-open it, change radius to R3 — today this 422s
-      naming the fillet's own id); after the fix the edit succeeds and volume
-      changes to the new closed-form value. New e2e spec covering: (a) edit a
-      picked-edge fillet's radius, (b) edit a picked-face shell's thickness,
-      both against a body with ≥2 features between the picked feature and the
-      tip. Mutation check: reverting the resolution (back to `bodyFeatureId`
-      everywhere) must redden both.
-      [src: product-auditor pass 2026-08-14 (M9, M10, M16)]
-      TERRITORY: `apps/web/src/routes/PartPage.tsx`,
-      `apps/web/src/components/{Fillet,Chamfer,Shell,Draft,EdgeFlange,Hem}
-      Editor.tsx`, `apps/web/src/features/{face,edge,modify,shell,draft,
-      sheetMetal}.ts`, `services/geometry/src/geometry/kernel/overlay.py`
-      (if the per-face id needs threading through), new e2e spec.
-      agentType: frontend-builder (cross-check overlay wiring with
-      kernel-architect if the geometry-service response needs a field added).
-      SHIPPED — client-side, **no contract change**, and it REFUTED this
-      ticket's own investigation lead. `bodyFeatureId` was
-      `lastBodyFeatureId(features)` — the TIP — threaded unmodified into all six
-      pick editors and into `pickHoleFace`/`pickDatumFace`, which build EVERY
-      `SubshapeRef.feature_id` from it. Worse on the EDIT path: `formFrom*Params`
-      restores the persisted signatures and the builders re-stamp them,
-      discarding the ref's original valid `feature_id`.
-      Observed in a real browser on a fixture built so the tip is provably not
-      the answer (`Sketch1 · Extrude1 · <subject> · Sketch2 · Extrude2`), the
-      server's verbatim answer: `{"error":{"code":"reference_not_earlier",
-      "message":"Referenced feature … must come strictly earlier in the tree.",
-      "details":{"slot":"edges[0]"}}}` 422 — and the same for `faces[0]` (shell)
-      and `face` (hole re-pick).
-      **NOT `OverlayFace.feature_id`, which this ticket suggested.** That field
-      is best-effort RENDERING provenance ("which feature made this face"); the
-      write needs the stage-1 ANCHOR ("which body do I signature-match
-      against"). Different questions — and `OverlayEdge` carries no
-      `feature_id` at all, so a provenance-based fix could not have covered
-      fillet or chamfer. New pure `anchorBodyFeatureId(features,
-      editingFeatureId)` in `apps/web/src/features/face.ts`; `bodyFeatureId`
-      deliberately STAYS the tip for what it actually answers (the import gate,
-      and pre-selection carry-over — a pick always comes FROM the tip's
-      overlay).
-      **This is why M17's "Re-pick face" repair could not work**: the hole under
-      repair is usually the tip, so the re-pick wrote the hole's own id. The new
-      e2e finishes the loop `repick-face.spec.ts` stops at (which only proves
-      the affordance ARMS): orphan a hole's face ref -> `subshape_unresolved` ->
-      Re-pick -> pick -> save -> **PATCH 200**, editor closes, Solved, error
-      gone. That save was the 422 above.
-      Mutation: reverting to the tip flips all three e2e cases
-      (`- "Extrude1 (owns the sub-shape)" / + "Extrude2 (the TIP)"`), and with
-      the stamp assertions suppressed so the user-visible half is reached,
-      `Expected: 200 / Received: 422`. Unit: 5 of 7 new cases redden; the two
-      create-path cases correctly stay green.
-      Gates re-run on the merged tree: typecheck clean, **1684 unit tests**,
-      mutation-marker gate clean; the agent ran 86 existing e2e specs green
-      across hole/shell/draft/fillet/datum/repick/preselection/sheet-metal/
-      timeline plus its own 3/3.
-      NOT reviewed, NOT QA'd — dispatched.
-      **ONE REAL LIMIT FOUND AND NOT FIXED, for the groomer:** while editing a
-      mid-tree feature the viewport still renders the TIP body, so re-picking
-      geometry created AFTER the feature under edit now resolves to
-      `subshape_unresolved` rather than 422. That is an honest failure and
-      semantically correct — the edge does not exist yet at that point in the
-      tree — but the proper answer is a rolled-back PREVIEW during an edit, a
-      separate and larger change to the overlay/mesh fetch.
-      Also cheap and outside the brief: the `bodyFeatureId` prop name and JSDoc
-      on the six `components/*Editor.tsx` now under-describe the value; rename
-      to `anchorFeatureId`.
-
-- [x] (P0, M) **GEOM-3 — GEOM-2's honest limit now has a number, and on an
-      ordinary vented/lightened part it is closer than §12a's qualitative
-      caveat suggested.** Code review of `8b95dac`/tier 4 (`enclosing_face_match`,
-      `geometry.kernel.faces`) derived the exact admission rule: tier 4 accepts
-      any stored face whose relative area `f` satisfies **`f >= 1 - 2r`**, where
-      `r` is the candidate face's open-area fraction. At r=10% the smallest
-      wrong face admitted is 80% of the outer region; r=25% -> 50%; r=37.5% ->
-      25%; at r>=50% tier 4 degrades to normal-sense + containment alone —
-      exactly as §12a's prose already warned, now with the threshold attached.
-      MEASURED (not extrapolated) on a **100x100 vented plate, 8x8 grid of Ø9
-      through-holes** (r=40.7%, "an ordinary grille or lightened web"):
-      `outer=10000.0 current=5928.5 removed_frac=0.407 lower_bound=1857.0`.
-      Deleting the boss a sketch sits on and re-evaluating: a 70x70 boss top
-      (4900 mm², tier4=True) RESOLVES onto the plate underneath; 60x60
-      (3600 mm²) RESOLVES; 50x50 (2500 mm²) RESOLVES; only 40x40 (1600 mm²,
-      tier4=False) stays an honest error. That is guard 2's own designed
-      failure case — the boss-deletion scenario tier 4's lower bound exists to
-      keep an HONEST error — now firing on a boss covering a QUARTER of an
-      ordinary perforated plate, not a pathological one. For scale, the M17
-      bracket itself is r=17.7% (lower bound 65% of the plate): comfortably
-      safe; the cliff is real but not universal. Does NOT argue for reverting
-      GEOM-2 — the alternative is a P0 that strands features on every
-      multi-feature face — this is the case FOR the durable fix flagged (and
-      deliberately deferred) at ship time, see the GEOM-2 entry in the Done
-      archive: `PlanarFaceSignature`
-      (`packages/py-kit`) should store outer-boundary invariants instead of
-      `area_mm2` + area centroid, removing the need to infer a bound from three
-      numbers at all. NOTE the ordering: that contract change ALSO needs tier 4
-      for every selector authored before it, so `8b95dac` is its prerequisite,
-      not a workaround — do not skip straight to the contract change.
-      ACCEPTANCE: `PlanarFaceSignature` carries an outer-boundary invariant
-      (e.g. outer wire signature/hash, not area+centroid alone); tier 4 (or its
-      successor) resolves the vented-plate boss-deletion case correctly (stays
-      an honest error at every boss size up to the full 70x70, not just
-      <=40x40); the M17 bracket golden and all tier-4 goldens stay green;
-      new golden(s) at r>=25% covering the boss-deletion honest-error case.
-      Mutation check: reverting the outer-boundary storage back to area+centroid
-      reddens the new r=40.7% golden.
-      [src: code review of 8b95dac, relayed 2026-08-15 — not yet committed to
-      docs/GEOMETRY-QA.md or the design doc; whoever picks this up should land
-      the inequality and the vented-plate measurement there too]
-      TERRITORY: `packages/py-kit/**` (PlanarFaceSignature schema),
-      `services/geometry/src/geometry/kernel/faces.py` (tier 4 and its
-      successor), `docs/design/topological-naming.md` §12a, geometry goldens.
-      agentType: kernel-architect.
-      SHIPPED — vented-plate table reproduced VERBATIM on `10714a6` before a line
-      was edited (`removed_frac=0.407, lower_bound=1857.0`; 70x70/60x60/50x50
-      boss tops all `tier4=True`, 40x40 correctly False).
-      DESIGN (§12b): `PlanarFaceSignature` gains three OPTIONAL outer-wire
-      invariants — `outer_area_mm2`, `outer_centroid`, `outer_perimeter_mm` —
-      and tier 4 splits: **4a compares them; 4b keeps §12a's inference verbatim
-      for older selectors.** Three quantities and not one because area plus
-      centroid still collide: an 80x50 boss top and a 100x40 plate top are both
-      4000 mm2 about the same point.
-      Rejected with reasons in the doc: re-tuning the lower bound (a function of
-      `r`, no safe constant exists); a hard version bump with a migration (a
-      migration cannot INVENT an outer wire, and would re-evaluate every
-      persisted part — wrong geometry corpus-wide instead of per-edit, a worse
-      failure mode); making the fields required (breaks every persisted selector
-      and every `apps/web` site in one commit); re-anchoring on the outer
-      centroid (would translate every seated sketch).
-      OLD SELECTORS KEEP RESOLVING — dual-read, proven three ways the author did
-      NOT write: the M17 golden's `model.json` is UNCHANGED and its committed
-      selectors are three-field; `test_faces_m17_revision.py` is UNCHANGED and
-      is now the tree-level legacy gate; and every pre-existing `test_faces.py`
-      fixture is three-field, so the whole shipped tier-1/2/3/4 set exercises
-      the legacy path.
-      **THE LOAD-BEARING FINDING, and the author caught it in their own new
-      work: ablation A2 SURVIVED the first pass.** Dropping the outer-AREA
-      comparison entirely left every gate green, because every shape under test
-      also differed in perimeter — three invariants claimed, **two actually
-      gated**. A new test (70x70 vs 100x40: same 280 mm perimeter, same
-      centroid, 4900 vs 4000 mm2) now kills A2. That is the
-      assertion-never-seen-to-fail defect, found by the person who had just
-      written it, in the exact commit that closes a P0 about a gate being too
-      loose.
-      Eight ablations in both directions: A1 legacy-band-always -> 5 red incl.
-      both tree-level gates; A3 perimeter dropped -> 1 red; A4 in-plane centroid
-      dropped -> 1 red; A5 partial signature accepted -> 1 red; A6 GEOM-4
-      identity dropped -> 1 red; B1 invariants read the FACE not its outer wire
-      -> 10 red incl. all four golden legs; B2 pick side emits nothing -> 12 red.
-      RESIDUAL EXPOSURE GATED DELIBERATELY rather than hidden
-      (`test_the_LEGACY_band_still_swallows_it_which_is_why_the_contract_
-      changed`): a document saved BEFORE this commit keeps the old behaviour,
-      because a stateless service cannot upgrade a selector it does not own.
-      Closing it needs a document-side re-emit, and that test goes red the day
-      someone does it.
-      Two framing corrections, both gated: a literal DELETE never reaches the
-      matcher (dangling `feature_id`), nor does SUPPRESS
-      (`references_suppressed`), and any edit leaving a face on the reference's
-      own plane is absorbed by tier 2. The hazard needs the PLANE to empty while
-      the feature lives — measured there as **8 mm of silent error** (pin at
-      z=15 instead of z=23).
-      Gates re-run by the orchestrator on the merged tree: ruff + ruff format
-      clean, kernel slice 53 passed, full golden suite green, **`just gen-verify`
-      green against the INDEX** (the right gate for a contract change — plain
-      `gen-check` reads the working tree), mutation-marker gate clean. Author
-      also reports pyright 0, 2515 geometry tests collected exit 0, `pnpm -r
-      typecheck` green (which is what proves the optional fields break no
-      `apps/web` caller), and cold M17 rebuild 103 -> 121 ms.
-      NOT reviewed and NOT QA'd yet — `geometry-qa` is now wired into the loop
-      by territory and this is exactly its subject, including the
-      selector-authored-before-the-change proof.
-
 - [ ] (P0, M) **SNAP-2 — a snap to the origin/axis copies the COORDINATE but
       authors no CONSTRAINT, so a grounded-looking sketch silently drifts on
       its first re-drive.** Found by independent QA of SKETCH-2 (`docs/
@@ -387,6 +173,129 @@ QAH-1 (CI-reliability debt) is CLOSED as of this pass — see Done archive.
       territory as SKETCH-2/the hydration-guard item below — do not run
       concurrently with either. agentType: frontend-builder.
 
+- [ ] (P0, S/M) **RECT-1 — a rectangle drawn WITHOUT typing a value during the
+      draw gesture is four numerically-coincident but topologically
+      DISCONNECTED lines, not a closed profile.** kind: capability (the
+      product cannot author the rigidity a closed profile needs unless the
+      user also types a dimension in the same gesture — a capability gap, not
+      a broken instance of an existing one). Verified on current HEAD, by
+      symbol not by the cited line numbers (they drift): `drawDimensions.ts`'s
+      `drawDimensionConstraints` — `const typed = fields.filter(...); if
+      (typed.length === 0) return [];` — is the ONLY call site anywhere under
+      `apps/web/src/sketch/**` (grepped) that invokes `rectangleRigidity` (the
+      function authoring the four corner `coincident` + 2H/2V constraints);
+      `tools.ts`'s `rectangleCorners`/`rectangleLines` store each corner as a
+      raw `{x,y}` pair with no id-sharing between adjacent lines; no
+      server-side point-merge exists anywhere in
+      `services/geometry/src/geometry/sketch/**` (grepped `merge`/`coincid`,
+      none found — `coincident` is authored, never inferred, in
+      `planegcs_solver.py`). Draw a rectangle, don't type a size, dismiss the
+      draw-dimension cell (Escape / click elsewhere) — a later horizontal or
+      vertical dimension on any ONE edge moves that edge alone; the other
+      three stay put and the rectangle tears at its corners on the first
+      re-drive. This is the single most common closed-profile gesture in the
+      sketcher. FIX: author the rectangle's rigidity set (4x coincident +
+      2H/2V) unconditionally at PLACEMENT time (`store.ts`'s `placeAt`, where
+      `result.entities` for a completed rectangle placement is already known)
+      rather than gating it behind `commitDrawDimensions`'s typed-value path;
+      decouple "the shape is closed" from "a size was typed." ACCEPTANCE: draw
+      a rectangle, do NOT type a value, dismiss the cell; a new e2e spec
+      re-drives one edge's dimension and asserts the OTHER three edges move
+      with it (closed profile), and a companion assertion proves this FAILS on
+      current HEAD (the other three edges stay put). Mutation check: reverting
+      the unconditional rigidity-authoring back to the typed-value gate
+      reddens the new spec's re-drive assertion only, and only that one.
+      [src: vision-steward competitive pass 2026-08-16, docs/COMPETITIVE.md
+      "Automatic constraint inference while sketching" row; docs/VISION.md
+      Sketching & constraints row, 2026-08-16 correction]
+      TERRITORY: `apps/web/src/sketch/drawDimensions.ts` (`rectangleRigidity`,
+      `drawDimensionConstraints`), `apps/web/src/sketch/store.ts` (`placeAt`),
+      new e2e spec. **Shares `placeAt`/draw-commit territory with SNAP-2 and
+      SNAP-3 below — see the Ready-section dispatch note; do not run these
+      three in parallel across different agents.** agentType: frontend-builder.
+
+- [ ] (P0, M) **SNAP-3 — SNAP-2's own ticket text names this as "the general
+      entity-snap case" without scoping it; promoted to its own item.**
+      kind: capability. Snapping a new point onto an ALREADY-DRAWN entity's
+      endpoint or midpoint (the ordinary way to close a hand-drawn profile
+      edge-by-edge, as opposed to SNAP-2's datum-frame-only case) copies the
+      resolved coordinate with the identical no-constraint gap SNAP-2 fixes
+      for `origin`/`x-axis`/`y-axis`: the corner LOOKS joined (the DRO reads
+      the same number, the marker glyph lights up) and separates from its
+      neighbour on the first later re-drive. SolidWorks documents
+      automatic-coincident-on-point-over-point-during-a-line-draw as baseline
+      behavior ([SOLIDWORKS Sketch Relations Guide](https://www.goengineer.com/blog/solidworks-sketch-relations-guide)).
+      MECHANISM, same as SNAP-2's: `placeAt` (`store.ts`) receives only the
+      resolved coordinate from `aim()`; `SnapCandidate.entities` (`snap.ts`)
+      already carries the id(s) an inferred coincident needs and nothing
+      reads them for a plain entity-endpoint/midpoint snap (only SNAP-2's
+      fix, once shipped, will cover the datum-frame subset). FIX: extend
+      SNAP-2's inferred-constraint authoring at `placeAt` to the
+      endpoint/midpoint `SnapCandidate` kinds, not just
+      `origin`/`x-axis`/`y-axis`. Ship AFTER SNAP-2 lands (same call site,
+      same author preferred — see dispatch note) rather than as an
+      independent rewrite. ACCEPTANCE: draw two lines closing a triangle by
+      snapping the second line's endpoint onto the first line's start; save;
+      re-drive a dimension on the first line — the shared corner stays
+      joined (matches an explicit `coincident`-constrained twin), not the
+      coordinate-copy drift SNAP-2's own repro demonstrates. New e2e spec
+      proves it and includes a companion assertion that fails on
+      pre-SNAP-3 HEAD (same shape as SNAP-2's own acceptance criteria).
+      Mutation check: skipping the endpoint/midpoint branch of the
+      inferred-constraint authoring reddens the new spec's re-drive
+      assertion only.
+      [src: vision-steward competitive pass 2026-08-16, generalizing SNAP-2's
+      own text and docs/VISION.md's Sketching row 2026-08-16 correction]
+      TERRITORY: `apps/web/src/sketch/store.ts` (`placeAt`), `apps/web/src/
+      sketch/snap.ts`, new e2e spec. **Same placeAt/draw-commit territory as
+      SNAP-2 and RECT-1 above — sequence, don't parallelize.** agentType:
+      frontend-builder.
+
+- [ ] (P1, S) **MIRROR-1 — the mirror-axis picker explicitly excludes datum
+      entities, so mirroring a profile about the sketch's own centerline
+      (the origin/axis SKETCH-2 made real three days ago) is flatly
+      unavailable.** kind: capability. Verified on current HEAD:
+      `SketchScene.tsx`'s pointer-move (hover/ghost-preview) handler picks
+      via `pickCandidates(withoutDatums(state.entities), ...)` for every
+      `aimTool` other than `"select"` (mirror included), and the click
+      handler's `mirror` branch does the same
+      (`pickCandidates(withoutDatums(store.entities), ...)`, feeding both
+      `toggleMirrorTarget` in the targets phase and `store.pickMirrorAxis(id)`
+      in the axis phase) — so a datum axis can neither be HOVERED (no ghost
+      reflection preview) nor CLICKED as the mirror axis. `DrawLayer`'s own
+      `entities` (used to resolve `axisLinePoints` for the ghost) is ALSO
+      `withoutDatums(buffered)`, so the ghost-preview path has the identical
+      exclusion. This is not a store-level gap: `pickMirrorAxis`
+      (`store.ts:1179`) already accepts ANY `kind:"line"` entity including a
+      datum axis, and `axisLinePoints` (`mirror.ts`) works from an
+      unfiltered entity list when given one — the exclusion is entirely in
+      the two `SketchScene.tsx` pick call sites. Fusion/Onshape mirror
+      freely about any construction line including the origin axes; a
+      symmetric bracket profile (mirror a half-profile about the sketch
+      centerline) is the textbook case this blocks. FIX: in
+      `SketchScene.tsx`, when `store.mirror?.phase === "axis"` (both the
+      hover/aim handler and the click handler), pick from the FULL entity
+      list (or a datum-inclusive variant) instead of `withoutDatums(...)`;
+      leave the `"targets"` phase and every other tool's picks
+      datum-excluded as today (mirroring the datum axis itself, or letting
+      it become a plain click-select target, is out of scope). ACCEPTANCE:
+      start a mirror, select a target entity, advance to the axis phase,
+      hover and click the sketch's Y-axis (or X-axis) datum line — the ghost
+      preview renders and the mirror commits about it, producing the
+      backend's exact reflection. New e2e spec; a companion assertion shows
+      the axis click is a no-op (`hint: "Aim at a line to mirror about."`)
+      on pre-fix HEAD. Mutation check: reverting either pick call site back
+      to `withoutDatums` unconditionally reddens the new spec's axis-pick
+      assertion only.
+      [src: vision-steward competitive pass 2026-08-16, docs/COMPETITIVE.md
+      Sketching "Sketch mirror / pattern" row; docs/VISION.md Sketching row
+      2026-08-16 correction]
+      TERRITORY: `apps/web/src/viewport/SketchScene.tsx` (mirror hover +
+      click branches), new e2e spec. **No overlap with RECT-1/SNAP-2/SNAP-3
+      (different file) or DIM-3/ESC-2 (different `store.ts` functions) —
+      safe to dispatch in parallel with any of them.** agentType:
+      frontend-builder.
+
 - [ ] (P0, M) **FB-21 — the origin axis glyphs are labelled in KERNEL space but
       drawn in SCENE space, which the GLB rotation has already turned.**
       Founder: *"check the axis. Turn on the axis and compare them to the view
@@ -427,6 +336,45 @@ QAH-1 (CI-reliability debt) is CLOSED as of this pass — see Done archive.
       `apps/web/src/sketch/plane.ts`. agentType: frontend-builder.
 
 ## Next (P2)
+
+- [ ] (P2, S) **GQA-1 — the invariant triple tier 4a compares (outer area,
+      perimeter, in-plane centroid) is NOT a fingerprint of the outer wire;
+      §12b overclaims "the same outer wire, to tolerance."** kind: defect
+      (a design-doc overclaim plus a real, if narrow, resolver gap — NOT a
+      regression of `1e39c14`/GEOM-3: tier 4b admits the same wrong face
+      identically, so this predates GEOM-3 and GEOM-3 neither introduced nor
+      closed it). All three invariants are exactly preserved under any rigid
+      ROTATION of the wire about its own centroid, so two congruent-but-
+      differently-oriented faces sharing an in-plane centroid agree on all
+      three and tier 4a wrongly admits either for the other. MEASURED
+      (`docs/GEOMETRY-QA.md`, 2026-08-16 GEOM-3 independent verification): a
+      100x40/40x100 transition-bracket flange pair, both `A=4000.000
+      P=280.000 C=(0,0)`, resolves to the WRONG face — `resolve_face_plane ->
+      origin (0.0, 0.0, 10.0)`, a **40.000 mm silent error** at the resolver
+      level. Severity kept at P2 not P0: three independent attempts to build
+      a feature-tree vehicle that reaches this from an ordinary edit all hit
+      real kernel guards (`cut_removed_nothing`, `boolean_failed`,
+      `subshape_ambiguous`) — resolver-level reachability is proven,
+      product-level reachability is not. FIX: (a) correct §12b's prose from
+      "narrows congruent to the same outer wire" to "the same outer area,
+      perimeter and in-plane centroid" and add the rotation/reflection
+      family to the honest-limits list; (b) the durable close needs an
+      orientation-bearing invariant (the three scalars gated today are
+      deliberately not one) — a second area moment or an anchored boundary
+      hash, TBD by whoever picks this up. ACCEPTANCE: §12b's sentence
+      corrected; either a new invariant closes the transition-bracket case
+      (new golden) or the honest-limit is formally documented with a gated
+      characterization test if closing it is deferred again. Mutation check:
+      `test_faces_geom3_qa.py::test_the_outer_invariant_TRIPLE_is_NOT_a_
+      fingerprint_of_the_outer_wire` already gates the KNOWN-limit
+      characterization — goes red the day a shape-sensitive invariant is
+      added, which is the acceptance signal for a real fix.
+      [src: geometry-qa independent verification of GEOM-3, `0628ceb`,
+      2026-08-16, docs/GEOMETRY-QA.md "GQA-1"]
+      TERRITORY: `docs/design/topological-naming.md` §12b (doc fix, cheap,
+      do first), `packages/py-kit` (`PlanarFaceSignature`, if a new
+      invariant is added), `services/geometry/src/geometry/kernel/faces.py`
+      (tier 4a/4b), geometry goldens. agentType: kernel-architect.
 
 - [ ] (P2, S) **SKETCH-3 — reserved-id hydration guard: an externally-authored
       entity named `origin`/`x-axis`/`y-axis` would silently BECOME the sketch
@@ -1609,6 +1557,56 @@ frame refactor are v2/§11. Spike de-collected.
 
 ## Later (P3)
 
+- [ ] (P3, XS) **GQA-2 — a selector "authored before the GEOM-3 change" and
+      "OCCT couldn't build the outer-wire region at pick time" produce the
+      IDENTICAL stored signature, so a future document-side re-emit cannot
+      tell them apart.** kind: defect. `_signature_dto` emits all three
+      `outer_*` fields as `None` both when a pre-2026-08-16 selector never
+      had them AND when `outer_boundary_invariants()` fails at pick time —
+      the resolver keys the dual-read purely on field PRESENCE, silently
+      taking the weaker inferred-band path in both cases. The wrapper
+      already carries `selector_version: 1`, the field that exists to make
+      this distinguishable, and it isn't used. Narrow today (needs a live
+      OCCT region-build failure at pick time to matter) but will directly
+      block a future document-side re-emit from knowing which stored
+      selectors it has already upgraded. FIX: stamp `selector_version`
+      (or a dedicated reason field) when the outer-boundary build fails,
+      distinct from "never computed." ACCEPTANCE: a new test forces an
+      OCCT region-build failure at pick time and asserts the resulting
+      signature is distinguishable (by field, not just by None-ness) from
+      one from a genuinely pre-GEOM-3 selector.
+      [src: geometry-qa independent verification of GEOM-3, `0628ceb`,
+      2026-08-16, docs/GEOMETRY-QA.md "GQA-2"]
+      TERRITORY: `services/geometry/src/geometry/kernel/faces.py`
+      (`_signature_dto`), `packages/py-kit` (schema, if a field is added).
+      agentType: kernel-architect.
+
+- [ ] (P3, XS) **GQA-3 — GEOM-3's tier 4a cost moved from the resolve path (a
+      500x win, 1.70 us vs 4b's 866 us per candidate) onto the interactive
+      viewport OVERLAY route, which is unconditional and wasn't in the
+      builder's cost table.** kind: defect (perf regression, filed not
+      blocking — two orders inside the ceiling). MEASURED warm, three
+      goldens: `sketch-extrude-plate-6hole-ring-cut-60x60x10` 18.08ms ->
+      21.71ms (+20%), `pattern-cut-6hole-boltcircle-60x60x10` 18.18ms ->
+      21.52ms (+18%), `revise-lightened-plate-...-100x100x14` 15.65ms ->
+      19.09ms (+22%). `planar_faces` runs on the overlay route — the one
+      every viewport click hits, budgeted since audit H4 — not only on the
+      GEOM-3 rescue path, so §12a's "a clean rebuild pays nothing" no longer
+      holds there. Lever already measured and identified:
+      `BRepBuilderAPI_MakeFace(gp_Pln, wire)` (0.249 ms) vs `Face(wire)`'s
+      0.686 ms on the 64-hole face — swap the outer-boundary-invariant
+      construction to the cheaper API on the overlay's hot path. ACCEPTANCE:
+      the three named goldens' warm overlay cost returns to within 10% of
+      pre-GEOM-3 baseline; `test_benchmarks.py` gains a tripwire for the
+      overlay route specifically (the gap this pass found — cold-rebuild and
+      isolated `planar_faces` benchmarks already exist but neither covers
+      this route).
+      [src: geometry-qa independent verification of GEOM-3, `0628ceb`,
+      2026-08-16, docs/GEOMETRY-QA.md "GQA-3"]
+      TERRITORY: `services/geometry/src/geometry/kernel/faces.py`
+      (outer-boundary invariant construction), `services/geometry/tests/
+      test_benchmarks.py` (new overlay tripwire). agentType: kernel-architect.
+
 - [ ] (P3, XS) **REV-3 — FB-7's collapsed rail tab aligns to the wrong edge on
       the RIGHT rail** (`apps/web/components/FloatingPanel.tsx:94-95`). Filed
       2026-08-13; MEASURED in Chromium against the repo's real Tailwind build.
@@ -2136,6 +2134,42 @@ so it is the pre-`5bd4c46` camera snap or a stale Codespace bundle (see FB-11).
       [src: retro]
 
 ## Done — archive
+
+### PICK-1 + GEOM-3 CLOSED — the two P0s pass 5 flagged as longest-waiting (groom pass 6, 2026-08-16, backlog-groomer)
+
+- **PICK-1 (M16)** — a viewport pick was stamped with the TIP feature's id,
+  not the sub-shape's owning feature, so no mid-tree fillet/shell/draft/
+  hole/chamfer/edge-flange/hem could be re-picked for an edit (M9/M10's
+  422 `reference_not_earlier`). SHIPPED `2b266b1`, client-side, no contract
+  change; REFUTED its own investigation lead (`OverlayFace.feature_id` is
+  render provenance, not the anchor needed) in favor of a new pure
+  `anchorBodyFeatureId`. 1684 unit tests, 86 existing + 3 new e2e green,
+  mutation-verified both directions. **NOT reviewed, NOT QA'd** — flagged for
+  dispatch. One honest residual left open: editing a mid-tree feature still
+  renders the TIP body, so re-picking geometry created after it reads
+  `subshape_unresolved` rather than 422 (correct; the real fix is a
+  rolled-back preview during edit, filed separately if reported again).
+- **GEOM-3** — GEOM-2's tier-4 area band admitted a wrong face once a plate
+  passed ~40% open area (a boss-deletion re-anchor case). SHIPPED `1e39c14`:
+  `PlanarFaceSignature` gained three optional outer-wire invariants (area,
+  perimeter, in-plane centroid); tier 4 splits 4a (compares them) / 4b
+  (legacy inference, unchanged, for selectors saved earlier — dual read, no
+  migration). Independently geometry-qa'd PASS `0628ceb` — the first
+  `geometry-qa` pass in the project's history: 7154+10197+1176 differential
+  comparisons against the parent commit in one interpreter, 1859
+  differences, every one explained by GEOM-4's deliberate refusal, zero
+  unexplained; all 686 agreeing resolutions bit-identical. Found and gated a
+  hole in the builder's own gate (ablation A2 survived the first pass — two
+  invariants gated, not three, until a 70x70-vs-100x40 fixture closed it).
+  Found and filed three new items, weighed for severity, none blocking:
+  **GQA-1** (P2, Next — the invariant triple is not a rotation-invariant
+  fingerprint, §12b overclaims; NOT a GEOM-3 regression, tier 4b has it too),
+  **GQA-2** (P3, Later — "authored before" and "OCCT couldn't build it" share
+  a signature), **GQA-3** (P3, Later — the interactive overlay route is
+  +18/20/22% warm, a real if sub-ceiling perf regression). The residual
+  legacy exposure GEOM-2/3 always disclosed is now numbered: 8.000000 mm /
+  780.000000 mm^3 silent error on a document saved before the fix, closing
+  only via a future document-side re-emit.
 
 ### QAH-1 CLOSED — found outside the range this groom pass first searched (2026-08-15 evening, backlog-groomer, corrected by the orchestrator)
 
@@ -2935,21 +2969,17 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
-- 2026-08-15 — **Groom pass 4 (backlog-groomer):** DIM-1 moved to top of Ready
-  (QA `6df1170` found it writes silent WRONG geometry, not just a slow field);
-  archived QA7-1/GEOM-2/FB-19 shipped, QA-VERIFY-1 closed; filed GEOM-3/4/5
-  (GEOM-2's quantified honest limit + durable fix) and TOUCH-1 (no touch
-  Playwright project). Older entries: see `docs/CHANGELOG.md`.
-- 2026-08-15 evening — **Groom pass 5 (backlog-groomer):** all four founder
-  2026-08-01 sketcher reports now answered; archived DIM-1/SNAP-1/SKETCH-2 +
-  the SKETCH-2 follow-up fix (`8f00dec`, closes the blocking symmetric-datum
-  bug + QA-SK2-1/2). Filed SNAP-2 (P0 — snap infers no constraint, silent
-  drift on redrive), SKETCH-3, TOUCH-2, QA-SK2-3, SPEC-6/SPEC-7. Credited the
-  mutation-marker CI gate (`56297d2`) with a Done entry it had none of.
-  Wrongly concluded QAH-1 still open — corrected below, same evening.
-- 2026-08-15 evening — **Groom pass 5 correction (orchestrator-caught):**
-  pass 5 searched only `a658db4..HEAD` (the brief's range) and found nothing
-  touching QAH-1's assertion; the fix (`c3019b6`) is an ANCESTOR of
-  `a658db4`, invisible to that window. **QAH-1 is CLOSED** — see Done
-  archive for the evidence. Re-deriving from git log is only as good as the
-  range it searches.
+- 2026-08-15 — Groom pass 4: DIM-1 to top-of-Ready (silent wrong geometry);
+  archived QA7-1/GEOM-2/FB-19; filed GEOM-3/4/5, TOUCH-1.
+- 2026-08-15 evening — Groom pass 5 (+ correction): all four founder
+  2026-08-01 sketcher reports answered; archived DIM-1/SNAP-1/SKETCH-2; filed
+  SNAP-2, SKETCH-3, TOUCH-2, QA-SK2-3, SPEC-6/7; QAH-1 confirmed CLOSED after
+  an initial wrong-range re-derivation. Full detail: `docs/CHANGELOG.md`.
+- 2026-08-16 — **Groom pass 6 (backlog-groomer):** archived PICK-1 (`2b266b1`)
+  + GEOM-3 (`1e39c14`, geometry-qa PASS `0628ceb`) shipped; filed GQA-1
+  (P2)/GQA-2/GQA-3 (P3) from the geometry-qa pass. Turned the vision-steward's
+  2026-08-16 competitive findings into build-ready tickets — RECT-1 (P0),
+  SNAP-3 (P0), MIRROR-1 (P1), each verified against current HEAD by symbol,
+  each `kind: capability` — closing the gap where COMPETITIVE.md/VISION.md
+  prose could never reach the build loop's Ready queue. ROADMAP "Current
+  focus" corrected (was still pointing at GEOM-3/PICK-1 as "next").

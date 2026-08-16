@@ -2,10 +2,18 @@
 
 Status legend: ✅ done · 🚧 in progress · ⬜ planned
 
-**Current focus, corrected 2026-08-15 evening (backlog-groomer reconciliation
-pass 5): FEATURE-EDIT CORRECTNESS — GEOM-3 and PICK-1, the two P0s that have
-sat Ready longest, are next; GEOM-3 first (silent wrong-geometry outranks
-PICK-1's loud 422).** All four of the founder's 2026-08-01 sketcher reports
+**Current focus, corrected 2026-08-16 (backlog-groomer reconciliation pass
+6): GEOM-3 and PICK-1 are both SHIPPED** — GEOM-3 `1e39c14`, independently
+geometry-qa'd PASS `0628ceb`; PICK-1 `2b266b1`, shipped but NOT yet
+reviewed/QA'd. **Focus moves to SKETCH DRAW CORRECTNESS**, the
+vision-steward's 2026-08-16 competitive pass: a plain rectangle or
+hand-drawn profile is silently NOT rigid until a value is typed (RECT-1, new
+P0) or an entity endpoint is snapped (SNAP-3, new P0, the general case of
+the still-open SNAP-2), and the mirror-axis picker excludes the datum axis
+SKETCH-2 just made real (MIRROR-1, new P1). See BACKLOG Ready for territory
+— RECT-1/SNAP-2/SNAP-3 all touch `sketch/store.ts`'s `placeAt`/draw-commit
+path and should not be built in parallel by different agents. All four of
+the founder's 2026-08-01 sketcher reports
 now have answers: dimensions assign correctly (DIM-1, gate flipped to
 positive `810d9fb`), orbit-while-sketching reaches a trackpad (VP-1/VP-1a),
 a saved sketch re-opens (SKETCH-1), and "snap points do not work" resolved
@@ -208,6 +216,23 @@ filed **GQA-3 (P3)**: the interactive OVERLAY route, budgeted since audit H4 and
 absent from the builder's table, is +20/18/22 % warm on three goldens. Two orders
 inside the ceiling, but over 10 % is a filed regression and the lever is already
 measured.
+
+**PICK-1 SHIPPED (`2b266b1`, M16) — a viewport pick was stamped with the TIP
+feature's id, not the feature that owns the sub-shape, so a mid-tree fillet/
+shell/draft/hole/chamfer/edge-flange/hem could never be re-picked for an
+edit.** Root cause of M9/M10 (a picked-edge fillet's radius 422s naming the
+fillet's OWN id). REFUTED its own investigation lead — the fix is not
+`OverlayFace.feature_id` (best-effort render provenance) but a new pure
+`anchorBodyFeatureId` client function; `bodyFeatureId` deliberately stays the
+tip for what it actually answers. No contract change. Reproduced M10 live
+(422 `reference_not_earlier`) and confirmed fixed (200, volume changes to
+the closed-form value); mutation reverts flip 3 e2e + 5 of 7 unit cases.
+1684 unit tests, 86 existing e2e specs re-run green plus 3 new. **NOT yet
+reviewed, NOT yet QA'd** — dispatch next. One honest residual found and left
+open: editing a mid-tree feature still renders the TIP body in the viewport,
+so re-picking geometry created after the edited feature reads
+`subshape_unresolved` (correct, but the fix is a rolled-back preview, a
+separate larger change).
 
 **CI-4 / `pick-affordance.spec.ts` hardening (2026-08-16) — and it REFUTED the
 premise it was dispatched on, then found a product defect.**

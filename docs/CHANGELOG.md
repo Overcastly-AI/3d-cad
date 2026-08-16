@@ -5,6 +5,27 @@ section each grooming pass (one-line-per-entry there; detail preserved
 here). Newest first. Evidence for shipped items also lives in the Done
 archive (`BACKLOG.md`) and per-item commits.
 
+## 2026-08-15 (groom passes 4-5 — DIM-1 top-of-Ready, all four founder sketcher reports answered)
+
+- **Groom pass 4 (backlog-groomer):** DIM-1 moved to top of Ready (QA
+  `6df1170` found it writes silent WRONG geometry, not just a slow field);
+  archived QA7-1/GEOM-2/FB-19 shipped, QA-VERIFY-1 closed; filed GEOM-3/4/5
+  (GEOM-2's quantified honest limit + durable fix) and TOUCH-1 (no touch
+  Playwright project).
+- **Groom pass 5 (backlog-groomer):** all four founder 2026-08-01 sketcher
+  reports now answered; archived DIM-1/SNAP-1/SKETCH-2 + the SKETCH-2
+  follow-up fix (`8f00dec`, closes the blocking symmetric-datum bug +
+  QA-SK2-1/2). Filed SNAP-2 (P0 — snap infers no constraint, silent drift on
+  redrive), SKETCH-3, TOUCH-2, QA-SK2-3, SPEC-6/SPEC-7. Credited the
+  mutation-marker CI gate (`56297d2`) with a Done entry it had none of.
+  Wrongly concluded QAH-1 still open — corrected same evening.
+- **Groom pass 5 correction (orchestrator-caught):** pass 5 searched only
+  `a658db4..HEAD` (the brief's range) and found nothing touching QAH-1's
+  assertion; the fix (`c3019b6`) is an ANCESTOR of `a658db4`, invisible to
+  that window. **QAH-1 is CLOSED** — see BACKLOG Done archive for the
+  evidence. Re-deriving from git log is only as good as the range it
+  searches.
+
 ## 2026-08-14/15 (c449235 review triage + DIM-1/QA7-1/GEOM-2/FB-19 groom passes)
 
 - **Groom pass 3 — c449235 review triage (backlog-groomer):** filed DIM-1
