@@ -154,6 +154,63 @@ Also measured and worth knowing: the grab disc is **9 px** at the default camera
 and **4 px** zoomed out — well under any touch-target guideline, and there is no
 touch project to catch it (TOUCH-1).
 
+**CI-4 / `pick-affordance.spec.ts` hardening (2026-08-16) — and it REFUTED the
+premise it was dispatched on, then found a product defect.**
+
+The brief said `measureReach` reads `data-edge-pick-hover` "with the identical
+zero settle" as the hole-hover reader fixed in `2f0b361`. Measured under 10 CPU
+spinners on 4 cores, the two attributes **do not behave the same way at all**:
+
+* `data-hole-point-hover` **lags in TIME**, as claimed — over 120 points of the
+  production raster, **18 bare reads (15 %)** differed from the same point
+  re-read 1 s later, alternating in both directions. One correction to the
+  earlier record: the in-place 1 s read equalled the PARKED read **120/120**, so
+  on that attribute the settle does the work and the park is what makes the
+  settle *provable* rather than assumed.
+* `data-edge-pick-hover` **does not lag at all** — 96 probes across six edge
+  marks, bare read equal to +50 ms, +200 ms, +500 ms and +2000 ms in every case.
+  What it depends on instead is **where the pointer came from**.
+
+**And the threshold worry was unfounded — measured, not assumed.** Three naive
+sweeps in a quiet window, three at load 13, and a full parked ground-truth sweep
+all report byte-identical values for the three line edges every assertion
+consumes. **Nothing was re-baselined.** Converting the whole sweep to the parked
+protocol was rejected on measurement: 20x cost (13.8 s -> 275.7 s against a 60 s
+test) and it replaces a corridor traversal with a teleport, which is the thing
+under test. Instead each value an assertion actually consumes is re-confirmed at
+its own point, and the `perp <= 16` swept-maximum was replaced with the claim
+itself. Pass rates: 39/39 before, 52/52 after, at load 13.
+
+**PRODUCT DEFECT found by hardening the test, reported not patched:** the edge
+hover in `EdgeBandLayer.tsx` / `EdgePickOverlay.tsx` is **pointer-path
+dependent**. Arriving at a point from 130 px out along the ray reports nothing
+where arriving from off-canvas reports the edge — reproducible with 2.75 s of
+settle in both arms, deterministic across 16 directions x 5 marks x 3 protocols,
+and an 8-step DRAG is *worse* than a teleport. If that reaches a user, dragging
+across a bore's corridor sometimes fails to light the edge. Found because the
+agent's own park guard fired on its first draft and it chased why instead of
+loosening it.
+
+**A pre-existing ~29 % flake correctly left alone.** The mate-axis gate passes on
+a lagged read: on the UNMODIFIED file the sweep read `#14 40px` in 5 runs of 7
+and `#14 28px` in 2 — and the 28s failed, while every 40 px reading is refused by
+the settled re-walk 5/5. The agent did not tune it, because the measurement will
+not hold still (20/28/40/90 px across 15 runs) and pinning the camera did not
+close it. What it SHOULD assert is written at the call site; gating it needs a
+stable assembly fixture outside the territory.
+
+**CI's `:780` failure was NOT reproduced** — 8/8 locally under load, ghost census
+0/832 non-null both naive and settled. The agent notes its cost is ~967 probes /
+28 s and that a `timeout-minutes` kill on a 4-shard hosted runner is plausible
+but unevidenced, and explicitly leaves that pointer open rather than claiming it.
+Correct: I had already said the CI red was a hint about which file to read, not a
+diagnosis to confirm.
+
+DRY debt filed: `stampAfterMove` now exists in three places
+(`qa-sel4-verify.spec.ts:79`, `qa-sel6-verify.spec.ts:100`, and this file's
+better-measured `stampSettles`/`parkOffBody`/`settledStampAt`). They belong in
+`apps/web/e2e/support.ts` beside `waitForRenders`.
+
 **BLOCKING REVIEW FINDING NOW CLOSED (`09cec01`) — and the fix's own reasoning
 is the transferable part.** Symmetric about a datum axis reported
 `OVER-CONSTRAINED` pointing at a glyph-suppressed, undeletable datum pin. All
