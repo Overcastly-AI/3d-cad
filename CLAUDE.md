@@ -670,6 +670,34 @@ recipe here in the same commit as the fix.**
 
 - Working branch: develop on the current `claude/*` branch; never push to
   `main` without explicit permission.
+- **`git push -u origin <branch>` FROM A WORKTREE PUSHES NOTHING AND SAYS
+  "Everything up-to-date" — and worktree isolation is MANDATORY for builders, so
+  the standing push instruction is wrong for every builder we run.** Found
+  2026-08-16 by the backlog-groomer, which noticed its own commit had not landed
+  and re-pushed by hand; reproduced deterministically before writing this down.
+  Mechanism: a worktree is on its OWN branch (`worktree-agent-<id>`), while the
+  shared checkout holds `claude/<name>`. `git push origin <branch>` expands to
+  the refspec `<branch>:<branch>`, and the LEFT side is resolved as a local ref —
+  so git pushes the MAIN checkout's branch, which is already at the remote tip,
+  and truthfully reports it is up to date. Your commit is never mentioned.
+  Measured, with a scratch commit in the worktree so HEAD and the ref differed:
+  ```
+  HEAD                                    ebbaa18
+  ref claude/branch-review-development-…  5c7fb48   (the OTHER worktree's branch)
+  git push --dry-run -u origin claude/…   -> "Everything up-to-date"
+  git push --dry-run origin HEAD:claude/… -> "5c7fb48..ebbaa18  HEAD -> claude/…"
+  ```
+  Use `git push origin HEAD:<branch>` — pushing the commit you are ON, by value,
+  rather than a name that resolves somewhere else — and then VERIFY with
+  `git ls-remote origin <branch>` that the remote tip equals `git rev-parse HEAD`.
+  Two things generalise. (a) **This failure is silent and success-shaped**: exit
+  code 0, a reassuring sentence, and a whole agent run left on the floor; the
+  push-succeeded belief is only falsifiable against `ls-remote`, so verify by
+  VALUE, never by exit status. It is the zero-byte-200 trap in different clothes.
+  (b) A `-u` flag is not a safety net — here it cheerfully offered to set the
+  upstream of a branch the agent was not on. Auditing for this is cheap and worth
+  doing after any batch: `git rev-list --count origin/<branch>..<worktree-branch>`
+  should be 0 for every worktree branch.
 - **A freshly-created WORKTREE gives FALSE `prettier --check` and `tsc` failures
   on files you never touched — and they name a COLLEAGUE'S territory, so the
   natural read is "someone pushed a red build".** Found 2026-08-15 by the CI-2
