@@ -1504,7 +1504,25 @@ outer wire directly instead of against an inferred bound, so they are now exact:
   remains a tier-4b (legacy) limit.
 - The general stage-1 caveat stands: a drastic model change can still land on a
   coincidentally-congruent face. Tier 4a narrows "congruent" from "an area inside
-  a band, somewhere inside the region" to "the same outer wire, to tolerance".
+  a band, somewhere inside the region" to "the same outer AREA, PERIMETER and
+  in-plane CENTROID, to tolerance".
+
+  **That is NOT "the same outer wire", and an earlier draft of this line said it
+  was — disproven by geometry QA (GQA-1).** All three quantities are invariant
+  under any rigid motion of the wire about its own centroid, so a rotated
+  congruent wire compares equal on every one of them. Measured on an ordinary
+  transition bracket (100x40 bottom flange, 30x30 column, 40x100 rotated top
+  flange): the picked top flange at z=50 and a survivor at z=10 both present
+  `outer A=4000.000  P=280.000  C=(0,0)`, tiers 1-3 all miss, and **4a returns
+  TRUE — 40.000 mm of silent error**. Note 4b admits it identically, so this is
+  a pre-existing limit of the whole approach and NOT a regression introduced by
+  4a; 4a is still strictly narrower than 4b on every case measured. It is P2
+  rather than P0 because resolver-level reachability is definite while
+  product-level is not: three attempts to build a feature-tree vehicle died on
+  real kernel guards (`cut_removed_nothing`, `boolean_failed`) or on an honest
+  `subshape_ambiguous`. Closing it properly needs an orientation-bearing
+  invariant — the wire's principal axis, or a vertex-ordered hash — which the
+  three scalars deliberately are not.
 
 ### Cost
 

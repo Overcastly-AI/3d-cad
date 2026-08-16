@@ -154,6 +154,61 @@ Also measured and worth knowing: the grab disc is **9 px** at the default camera
 and **4 px** zoomed out — well under any touch-target guideline, and there is no
 touch project to catch it (TOUCH-1).
 
+**GEOM-3 CLOSED + INDEPENDENTLY QA'd (2026-08-16) — the first `geometry-qa`
+pass in the project's history, and it earned its keep immediately.**
+
+Tier 4's area band admitted a wrong face once a plate was ~40 % open area; on a
+100x100 vented plate with an 8x8 grid of Ø9 holes, deleting a boss covering a
+quarter of the plate silently re-anchored the sketch to the plate underneath.
+`PlanarFaceSignature` now carries three OPTIONAL outer-wire invariants and tier 4
+splits — 4a compares them, 4b keeps the old inference verbatim for selectors
+saved earlier. A migration was rejected for a reason worth keeping: **a migration
+cannot INVENT an outer wire**, and would re-evaluate every persisted part, which
+is wrong geometry corpus-wide instead of per-edit.
+
+**The builder caught its own gate not gating.** Ablation A2 — dropping the
+outer-AREA comparison entirely — left every test green, because every fixture
+also differed in perimeter. Three invariants claimed, two actually gated. A
+70x70-vs-100x40 case (same 280 mm perimeter, same centroid, 4900 vs 4000 mm2)
+now kills it.
+
+**QA VERDICT: PASS**, verified two ways the author did not use — it loaded the
+PARENT `faces.py` beside HEAD's in one interpreter and asked both the same
+questions: 7154 + 10197 + 1176 comparisons, **1859 differences, every one
+explained by GEOM-4, zero unexplained**, and all 686 agreeing resolutions
+returned a bit-identical plane. It also wrote the test nobody had written — a
+selector authored the OLD way, handed to the NEW resolver.
+
+**GQA-1 (P2, new, and it corrects §12b):** the doc claimed 4a narrows congruence
+to "the same outer wire, to tolerance". False. Area, perimeter and centroid are
+all invariant under a rigid ROTATION of the wire about its own centroid. Measured
+on a transition bracket, two faces 40 mm apart both present `A=4000.000
+P=280.000 C=(0,0)` and 4a returns TRUE — **40 mm of silent error**. NOT a
+regression (4b admits it identically) and P2 not P0 because three attempts to
+build a feature-tree vehicle died on real kernel guards. Closing it needs an
+orientation-bearing invariant, which three scalars deliberately are not. §12b
+corrected in place.
+
+**The residual exposure, with the number the builder omitted.** A document saved
+before this commit keeps the old behaviour. QA confirmed the 8.000000 mm and
+added the volume: **780.000000 mm3** of material in the wrong place (closed form
+26x6x5). Its description of the user experience is the point — *"nothing: no
+badge, clean rebuild, the pin has simply sunk into the plate."*
+
+**GQA-2 (P3):** "authored before the change" and "OCCT could not build the region
+at pick time" produce the SAME signature, because the dual read keys on field
+PRESENCE rather than on the `selector_version` that exists for exactly this — a
+silent downgrade of the kind the partial case is refused to prevent, and it would
+also blind a future document-side re-emit.
+
+**Performance: the brief's concern was INVERTED.** Tier 4a costs 1.70 us per
+candidate on the 64-hole face against 4b's 866 us — the cost MOVED to the pick
+path. QA measured cold M17 at +9 % (the builder's +18 % was conservative) but
+filed **GQA-3 (P3)**: the interactive OVERLAY route, budgeted since audit H4 and
+absent from the builder's table, is +20/18/22 % warm on three goldens. Two orders
+inside the ceiling, but over 10 % is a filed regression and the lever is already
+measured.
+
 **CI-4 / `pick-affordance.spec.ts` hardening (2026-08-16) — and it REFUTED the
 premise it was dispatched on, then found a product defect.**
 
