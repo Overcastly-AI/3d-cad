@@ -17,6 +17,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { expectGated } from "../test/gated";
+import { DATUM_ORIGIN_ID, DATUM_PICKS } from "../sketch/datum";
 import { useSketchStore } from "../sketch/store";
 import { SketchStrip } from "./SketchStrip";
 
@@ -262,5 +263,60 @@ describe("the sketcher's history buttons hold the SKETCH's stack", () => {
     render(<SketchStrip onSave={vi.fn()} saving={false} saveError={null} />);
 
     expect(screen.queryByTestId("undo-button")).toBeNull();
+  });
+});
+
+/**
+ * THE COUNT IS OF WHAT THE USER DREW. The frame materialises as a real
+ * construction entity the moment a constraint reaches for it (SKETCH-2), and
+ * the strip was reading `entities.length` straight — so grounding one corner of
+ * a four-line rectangle turned the caption into "5 entities" and armed
+ * "Discard 5 unsaved entities" over four. The constraint count already excluded
+ * the frame's pins for exactly this reason; this is the other half.
+ */
+describe("the strip counts drawn geometry, never the frame", () => {
+  it("still reads four after a corner is grounded to the origin", () => {
+    drawUnsavedRectangle();
+    const store = () => useSketchStore.getState();
+    store().selectAt({ x: 40, y: 25 }, 1); // the far corner of the rectangle
+    // The near corner already sits ON the origin, so reach the frame the way
+    // the keyboard handle does rather than through a pointer pick.
+    store().togglePick(DATUM_PICKS[DATUM_ORIGIN_ID]);
+    expect(store().selection).toHaveLength(2);
+    store().applyConstraint("coincident");
+    // The frame IS in the buffer now — this is not a test that nothing changed.
+    expect(store().entities).toHaveLength(5);
+    expect(store().entities.some((e) => e.id === "origin")).toBe(true);
+
+    render(<SketchStrip onSave={vi.fn()} saving={false} saveError={null} />);
+    expect(screen.getByTestId("sketch-save").textContent).toContain(
+      "4 entities",
+    );
+
+    fireEvent.click(screen.getByTestId("sketch-exit"));
+    expect(
+      screen.getByTestId("sketch-discard-confirm").getAttribute("aria-label"),
+    ).toBe("Discard 4 unsaved entities — this cannot be undone");
+  });
+});
+
+/**
+ * A CONTROL THAT LOOKS ENGAGED AND THEN DECLINES. `sketch-construction`
+ * rendered pressed for a datum selection — an unmaterialised axis resolves to
+ * no entity and `[].every(…)` is true — and pressing it hinted "Select an
+ * entity to toggle construction."
+ */
+describe("the construction toggle never reads active for the frame", () => {
+  it("is unpressed with only an axis selected, and stays unpressed", () => {
+    drawUnsavedRectangle();
+    const store = () => useSketchStore.getState();
+    store().clearSelection();
+    store().selectAt({ x: -30, y: 0 }, 1); // the X axis, off the rectangle
+    expect(store().selection).toEqual([{ kind: "entity", id: "x-axis" }]);
+
+    render(<SketchStrip onSave={vi.fn()} saving={false} saveError={null} />);
+    const chip = screen.getByTestId("sketch-construction");
+    expect(chip.getAttribute("aria-pressed")).not.toBe("true");
+    expect(chip.getAttribute("data-active")).not.toBe("true");
   });
 });

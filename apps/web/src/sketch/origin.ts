@@ -102,6 +102,39 @@ export const ORIGIN_LABEL_FRACTION = 0.56;
 export const ORIGIN_DASH_FRACTION = 0.03;
 export const ORIGIN_GAP_FRACTION = 0.022;
 
+/**
+ * How far the sketch camera parks from a datum sheet (mm), and the perspective
+ * field of view it looks through. Both live here — with the fractions they
+ * scale — rather than in the scene, because the frame's PICK geometry
+ * (`sketch/datum.ts`) is derived from the same framing and cannot import
+ * three.js. Two copies of "how big is the parked frame" is exactly the drift
+ * the pick region was rewritten to close.
+ *
+ * The fov is the Canvas camera's (`viewport/Viewport.tsx`), mirrored here as
+ * the number `cameraFov()` falls back to when a scene hands us an orthographic
+ * camera that has none.
+ */
+export const SKETCH_CAMERA_DISTANCE_MM = 170;
+export const SKETCH_CAMERA_FOV_DEG = 40;
+
+/**
+ * Half the height of the frame the sketch camera parks at, in plane mm —
+ * `distance · tan(fov/2)`, the standard perspective half-extent.
+ *
+ * DERIVED, not written down, because the written-down version was wrong: a
+ * literal `80` shipped under a comment claiming it WAS this derivation, when
+ * the derivation gives **61.88 mm** (170 × tan 20°) — 29 % high. It bit in two
+ * places, both quiet: the window before the scene reports the measured framing
+ * in (`setDatumFrame`), and every unit test that took the default and therefore
+ * reasoned about a 1.76 mm origin ring where the product draws 1.36 mm.
+ */
+export function parkedFrameHalfHeightMm(
+  distanceMm: number = SKETCH_CAMERA_DISTANCE_MM,
+  fovDeg: number = SKETCH_CAMERA_FOV_DEG,
+): number {
+  return distanceMm * Math.tan((fovDeg * Math.PI) / 360);
+}
+
 /** Segments in the origin ring — enough to read round at any zoom we frame. */
 const RING_SEGMENTS = 32;
 

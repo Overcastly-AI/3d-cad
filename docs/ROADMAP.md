@@ -2,39 +2,52 @@
 
 Status legend: ✅ done · 🚧 in progress · ⬜ planned
 
-**Current focus, corrected 2026-08-15 (backlog-groomer reconciliation pass —
-QA7-1/CI-2/FB-19 had shipped without a ROADMAP update; see the entries below):
-SKETCH- AND FEATURE-EDIT CORRECTNESS, with DIM-1 now the top P0 on evidence,
-not suspicion.** The open-source-release push (backups, `/metrics`, licensing)
-landed 2026-07-31; SEL-1..8 (viewport picking) and CI-1..4/REV-1..5 (e2e gate
-reliability) closed through 2026-08-14. A fresh audit pass (product M1-22 +
-engineering K1-8, 2026-08-14) found sketch and feature EDITING broken (a saved
-sketch could not be re-opened at all; a picked-edge fillet's radius write-once;
-a viewport pick stamped with the tip feature's id rather than the one that
-owns the sub-shape). SKETCH-1/VP-1/VP-1a shipped and are now **QA'd green**
-(`6df1170`, 2026-08-15 — `sketch-orbit.spec.ts` 7/7, `sketch-reopen.spec.ts`
-pass plus a new round trip) but still **unreviewed by `code-reviewer`**.
-**DIM-1 escalated**: a code review of the dimension-arm fix (c449235) first
-found the value field drops keystrokes at human typing speed; independent QA
-(`6df1170`) then confirmed against the production bundle that it goes further
-— it **silently writes wrong geometry** (`125` typed over `43` commits `435`
-to the solver, no error). That is now the top P0 on the board, above every
-other item, per the "wrong geometry is always P0" rule.
-**QA7-1 CLOSED** (`07c4005`, reviewed non-blocking) and **CI-2 fixed a second
-time** (`43a4efd` — see the CI-2 entry near line ~1977 for the recurrence);
-QAH-1, the OTHER named cause of the ten-consecutive-red streak, is still open.
-Whether the streak has actually broken is **unverified as of this pass** — the
-groomer cannot read CI; the orchestrator should confirm on the next CI read.
-**FB-19 shipped** (`f7c41d9`, chrome density) but is unreviewed, unQA'd, and
-its screenshots have not been sent to the founder — tracked as FB-19b.
-GEOM-2's tier 4 shipped (`8b95dac`) and closed M17's control case, then a code
-review (`57711c4`) quantified its honest limit: at r>=~25% open area on a
-face, tier 4 can silently re-target a deleted feature's sketch onto the wrong
-face — filed as GEOM-3 (P0, the durable fix), GEOM-4/GEOM-5 (smaller
-follow-ups). See `docs/BACKLOG.md` Ready: DIM-1/QAH-1/SNAP-1/PICK-1/GEOM-3/
-SKETCH-2 are the next batch. (The flow-overhaul item formerly numbered FB-20
-was renamed FLOW-1 — that id collided with the camera-stolen-after-extrude
-fix, also FB-20, closed below.)
+**Current focus, corrected 2026-08-15 evening (backlog-groomer reconciliation
+pass 5): FEATURE-EDIT CORRECTNESS — GEOM-3 and PICK-1, the two P0s that have
+sat Ready longest, are next; GEOM-3 first (silent wrong-geometry outranks
+PICK-1's loud 422).** All four of the founder's 2026-08-01 sketcher reports
+now have answers: dimensions assign correctly (DIM-1, gate flipped to
+positive `810d9fb`), orbit-while-sketching reaches a trackpad (VP-1/VP-1a),
+a saved sketch re-opens (SKETCH-1), and "snap points do not work" resolved
+through SNAP-1 -> SKETCH-2 -> a follow-up fix (`8f00dec`/`09cec01`) that
+closed a blocking review finding (symmetric-about-a-datum-axis reported
+OVER-CONSTRAINED pointing at an invisible, undeletable pin) plus two QA
+defects in the original SKETCH-2 fixture. **None of DIM-1/SKETCH-1/VP-1/
+VP-1a/SKETCH-2 have an independent `code-reviewer` pass** — process debt,
+flagged for the orchestrator, not a product defect.
+**Sharper reading found by QA, now the top new item (SNAP-2, P0):** a snap to
+the origin/axis copies the coordinate but authors no constraint, so a
+grounded-looking corner silently drifts on its first later re-drive — same
+silent-trust-violation class DIM-1 was, correct now, wrong only later.
+**QAH-1 IS CLOSED — a range error in this pass briefly said otherwise, and
+that is now corrected.** This pass first searched only `a658db4..HEAD` (the
+window its dispatch brief specified), found no commit touching the
+`qa-harness.spec.ts` "renders while orbiting" assertion, and wrongly
+concluded QAH-1 was still open. The actual fix, `c3019b6`, is an ANCESTOR of
+`a658db4` (`git merge-base --is-ancestor c3019b6 a658db4` -> yes) — invisible
+to that range, ticked nowhere because the groomer held the board when it
+shipped and its author didn't contend for the file. Verified independently:
+`diagnostics.ts:193` carried a mutation-test constant
+(`rendersInProbeWindow: … ? null : 0, // MUTANT: always 0`) committed as
+product code by `0580f7d`'s reconciliation of a stopped agent's work, whose
+own e2e gate was never run; `c3019b6` removed it, with a live measurement
+(38-48 renders / ~18 units of camera motion while the collector reported 0,
+pre-fix) and ablations in both directions. This is a DIFFERENT defect from
+`8d5be24`'s `cameraPose: no camera captured` race (different spec, different
+mechanism) — that distinction was correct throughout and stands. See
+`docs/BACKLOG.md` Done archive for the full evidence and the process note on
+why a range-scoped re-derivation is only as trustworthy as the range.
+Also credited this pass: the mutation/debug-marker CI gate (`56297d2`,
+`docs/RETRO.md` §4b's ask, shipped with no BACKLOG ticket tracking it before
+now). New items filed: SNAP-2 (P0), SKETCH-3 (reserved-id hydration guard,
+gated on Phase 5), TOUCH-2, QA-SK2-3, SPEC-6/SPEC-7 (both flagged
+possibly-already-covered by a concurrent sweep of `pick-affordance.spec.ts` —
+check before duplicating). GEOM-2's tier 4 shipped (`8b95dac`) and closed
+M17's control case; a code review (`57711c4`) quantified its honest limit —
+GEOM-3 (P0, the durable fix) remains, plus GEOM-4/GEOM-5 (smaller
+follow-ups). See `docs/BACKLOG.md` Ready. (The flow-overhaul item formerly
+numbered FB-20 was renamed FLOW-1 — collided with the camera-stolen-after-
+extrude fix, also FB-20, closed below.)
 
 **QA7-1 CLOSED (`db144d7`, reviewed non-blocking `07c4005`) — the SEL-7
 Create-costs-nothing e2e wait wasn't waiting.** `expect.poll(...).not.toBe(
@@ -76,6 +89,229 @@ harness-produced fixture). Groom pass 2026-08-14 (post-VP-1/SKETCH-1) filed
 **SNAP-1** (founder "snap points not working," never reproduced before now)
 onto the board; both queue behind the currently-occupied
 `apps/web/src/{viewport,sketch}/**` territories.
+
+**SKETCH-2 CLOSED (`5ceed6e`, ticked `8932e4c`, reviewed request-changes) — the
+sketch origin and axes are selectable, which closes the FOUNDER's "snap points
+do not work" report** (SNAP-1 closed as its duplicate: detection was correct all
+along, selection was not). The frame is now real geometry, materialised lazily as
+pinned construction entities, so a sketch that never grounds to it is unchanged.
+Verified end to end against the bar that makes a modeller parametric: ground a
+floating rectangle's corner to the origin and the solver translates the profile;
+the saved file records a coincident constraint and **no** `fixed` on any drawn
+entity; it survives save and re-open; re-driving the width leaves the grounded
+corner exactly at (0,0). Independent review confirmed the persistence claim
+against what is written rather than the readout, confirmed the mutation verbatim
+including that its positive control is genuinely positive, and additionally ran
+the six sketch specs the builder had left unrun — 18/18 green.
+
+**INDEPENDENT QA: PASS on the founder's complaint — and it found that the
+"the solver TRANSLATED the whole rectangle" claim is not measured by anything in
+the repo.** The behaviour is real: QA ground a properly rigid rectangle, saved,
+re-opened via the tree row, re-drove the width, and the corner stayed at exactly
+(0,0) while the profile moved as a unit and extruded to 1,920 mm3 / 24x16x5.
+`S` on two corners plus the Y axis gives a plate symmetric about the origin
+(+/-12), still symmetric after 24->36 (+/-18) — the sentence the ticket said was
+inexpressible.
+
+But **the spec that claims it cannot fail for it.** `FLOATING_RECT` in
+`sketch-origin-constraint.spec.ts` is documented "rigid in SHAPE" and carries
+1 horizontal + 1 vertical, where the product's own `rectangleRigidity` authors
+**2 + 2**. Grounding that fixture DEFORMS the profile — measured, e3 runs
+(24,16)->(10,24) and the extrude is 2,000 mm3 / 24x24x5 — and the spec asserts
+`e1.start` and `e2.end`, which are exactly the two corners that survive. The
+kernel is right; every constraint is satisfied. The claim was true and unproven,
+which is this repo's favourite defect shape, and it was repeated into the commit
+message, the BACKLOG tick, the merge to main and a founder update before anyone
+measured it.
+
+**The founder's gesture, measured properly this time.** Ring ink radius read off
+the canvas, then clicked at eight compass points ON that radius plus the exact
+centre: 9 px as opened, 21.5 px zoomed in 16 notches, 4 px zoomed out 32 — all
+nine clicks select the origin at every zoom, because ink and grab region are
+both derived in plane-mm so the correspondence survives a dolly. That was the
+open question the px-vs-mm correction raised, and it is now answered.
+
+**QA-SK2-4 — the snap trap is REAL, and it is the founder's own defect class.**
+Draw a rect with its first corner SNAPPED to the origin: the marker reads
+`origin`, the DRO reads +0.00/+0.00, the save records "9 applied" — and there is
+**no `origin` entity and no constraint naming it**. How the user finds out: they
+re-drive 30->40 and the part slides to **x = -7.1716 mm**, while the genuinely
+grounded twin re-driven 40->55 stays at exactly (0,0). "There is no signal in
+between — the mark looks identical, the count is identical, nothing marks the
+corner." The tool appears to have understood you and has not.
+
+**QA-SK2-2 — the modifier click's advertised reason does not work.** `datum.ts`
+names "a corner already sitting on the origin can still be joined TO it" as why
+the modifier exists; measured, it takes FOUR shift-clicks to reach the origin
+because every drawn point and edge is consumed first, and `c` then refuses
+because the selection is polluted. The only working route is the keyboard handle.
+
+**QA-SK2-3 (P2, pre-existing)** — `disabled={saving || …}` on Finish drops a
+click landing during a live save, 2 in 10 under load, always with
+`DOF 0 · CONVERGED`.
+
+Also measured and worth knowing: the grab disc is **9 px** at the default camera
+and **4 px** zoomed out — well under any touch-target guideline, and there is no
+touch project to catch it (TOUCH-1).
+
+**BLOCKING REVIEW FINDING NOW CLOSED (`09cec01`) — and the fix's own reasoning
+is the transferable part.** Symmetric about a datum axis reported
+`OVER-CONSTRAINED` pointing at a glyph-suppressed, undeletable datum pin. All
+four counterfactuals reproduced against the real solver (unpinned construction
+line -> underconstrained dof 6; one pin -> underconstrained dof 4; both pins ->
+**overconstrained dof 3, redundant = the second pin**; parallel+coincident to a
+pinned axis -> underconstrained dof 1).
+
+Chosen fix: filter pin indices out of `conflicting`/`redundant` at ONE seam
+(`datumSafeSolve`, applied in `adoptSolved`) so the DRO cell, the banner and the
+flagged-glyph set read the same sanitised value and cannot disagree. **Why a
+rigid non-pin representation is worse, four ways:** it cannot be DOF-neutral
+(`fixed(start) + horizontal` removes 3 of a line's 4 DOF, so grounding would ADD
+to the number the user reads, breaking `datum.ts`'s own documented property);
+the solver has no "rigid" primitive, so anything expressible is pins under
+another name and attracts the same attribution; the pins are PERSISTED, so every
+saved sketch would need migrating for a presentation defect; and it fixes only
+the axis, while the origin's `fixed` has identical exposure. Filtering encodes
+the general rule, re-representation patches one instance.
+
+**A genuine over-constraint stays visible, measured rather than argued** —
+planegcs reports the whole dependent set, so a user's own redundancy keeps its
+own index even with a pin in the set: duplicated coincident + origin pin ->
+`redundant [1]` survives; user `fixed` fighting the origin pin -> `conflicting
+[0,1,2]` filters to `[0,1]`, both glyphed; rigid rect + symmetric + a redundant
+`parallel` -> `[10,11]`, pin dropped, user constraint flagged. Conflicts are
+never softened: a conflicting sketch did not solve, so when only a pin is named
+the status stands. Negative control: an over-eager filter reddens the guard
+tests, so they are sensitive in both directions.
+
+**The agent caught TWO of its own tests being unfalsifiable and said so** — the
+shape this repo names first. Its initial e2e fixture used two driven dimensions
+instead of the second H/V pair, which the solver answers `underconstrained,
+redundant=[]`, so every "no banner" assertion passed against a sketch that never
+produced a banner. And its first version asserted the banner's ABSENCE
+immediately after the keystroke and **passed with the fix reverted**, because it
+was measuring the gap before the debounced solve returned.
+
+**QA's four findings folded in, and one of QA's implied fixes was refuted.**
+Dropping the axes from the modifier candidate list was not enough — at a
+rectangle corner the origin still sat behind four candidates — and sorting the
+origin in WITH the points produces a FALSE fix: the corner's other endpoint
+takes the click, the readout says "2 pts", `coincident` is accepted, and the
+corner is grounded to ITSELF. The rule shipped instead: a modifier click on a
+point ALREADY HELD reaches through to the origin; anywhere else it queues behind
+the drawn points, so starting a selection at a corner still gives you the
+corner. `FLOATING_RECT` is fixed to the product's real rigidity set with an
+assertion on `e3.end`, which reads `(10,24)` under the old deformation — so the
+spec can now fail for the property the record claimed. The parked-frame constant
+is corrected to the measured 61.87 mm (was documented 80).
+
+Gates: typecheck clean, **1677 unit tests** (1659 at base, 18 new), prettier and
+eslint clean on all 12 files, mutation-marker gate clean, **67 sketch e2e green**
+with the two SKETCH-2 specs run 3x consecutively at 8/8.
+
+NOT done, filed rather than hidden: the reserved-id hydration guard (a foreign
+entity named `origin` would silently become the frame) — not cheap done properly,
+and exposure is theoretical until Phase 5 adds a scripting surface. And the e2e
+cannot assert the entity count AFTER grounding, because authoring the coincident
+takes the buffer above zero constraints and `PartPage`'s debounced persist binds
+the sketch, flipping the caption; that half is covered deterministically by a
+unit test instead, and the limitation is written into the spec comment.
+
+ symmetric about
+a datum axis — the marquee case the module's own refusal hint recommends —
+produces `OVER-CONSTRAINED` pointing at nothing. The geometry is correct
+(measured, the rectangle centres on the axis), but the redundant constraint the
+banner means is a datum PIN, which is glyph-suppressed by design and therefore
+cannot be seen, selected or deleted. Isolated against the real solver with four
+counterfactuals: unpinned construction line -> underconstrained; one pin ->
+underconstrained; both pins (what `datumPins` authors) -> **overconstrained**,
+redundant index = the second pin. So it is specific to `symmetric` plus the
+both-ends pinning, and the both-ends decision is itself defensible. **The general
+lesson: if you hide a constraint from the user, you must also guarantee the
+solver can never ask them to delete it.**
+
+Two undisclosed behaviour changes the review measured against `ce40e44`, both
+outside the "strictly additive" claim's wording (which itself holds): a modifier
+UN-pick now appends the datum instead of deselecting wherever the frame lies
+under the pointer, and a plain click on empty steel along an axis selects the
+axis instead of clearing the selection — the latter across a full-viewport cross
++/-8 px wide. Also: the entity count still includes the materialised datum
+("5 entities" for four drawn), which is the exact inconsistency the SketchStrip
+change was made to avoid.
+
+**And two numbers in the record were wrong, both mine for repeating them without
+re-deriving.** The unit-test count is 1622 -> 1659 (**37 new**), not "1659, was
+1644" / "15 new" — corrected below. And the headline "the ring is ~10 px from
+centre against an 8 px tolerance, so clicking ON the mark misses BY
+CONSTRUCTION" is **viewport-dependent and false at 1280x800**: ring_px =
+0.011 x canvasHeight, so 1600x1000 gives canvas 852 px -> 9.37 px (a 1.4 px
+margin, not "by construction"), while 1280x800 gives canvas 652 px -> **7.17 px,
+inside the 8 px tolerance**. At the small-laptop width the design mandate
+requires, a naive centre-point pick WOULD have answered the founder's gesture.
+I quoted the universal form to the founder; it is corrected here and to them.
+
+**CI-4 SUBSTRATE (2026-08-15) — the e2e suite's rest/settle layer, attacked as a
+class. One root found, one honestly NOT found, and no forced unification.**
+
+**Failure 2 — `cameraPose: no camera captured`. Root-caused, and the error
+message was the reason it cost two agents their time.** `cameraPose` captures the
+camera inside the wrapped `scene.onBeforeRender`, so **the camera does not exist
+until the scene has RENDERED once** — and on a `frameloop="demand"` canvas,
+`expect(canvas).toBeVisible()` does not imply a render has happened. The old code
+read the probe once and threw. Measured with a page-side sampler across five
+fresh-process runs under six CPU hogs: four saw a camera at 0 ms; the fifth saw
+**three scenes constructed, zero cameras captured, `__loftRenderTick` not yet
+installed**, and 882 ms before a camera appeared. The thrown message said "call
+`installSceneProbe(page)` BEFORE `page.goto`" — the one cause its own data
+(`scenes=3`) had already ruled out. **A diagnostic that names a cause it has
+disproven is worse than one that says nothing**, because it sends the next
+reader somewhere it has already been. `cameraPose` now polls rAF-paced with a
+bounded deadline and, on giving up, reports which of three states it is in
+(probe absent / no Scene ever constructed / scenes exist but none has rendered).
+No assertion changed — only the input is waited for. Ablation reproduces CI's
+message verbatim at zero load; before, 2 pass / 2 fail of 4 under six hogs;
+after, 6/6.
+
+**Failure 1 — `sketch-step` stuck on "Pick a plane". NOT reproduced in ~35
+executions** across 6 hogs, 12 hogs, CDP-free 2-CPU `taskset` starvation,
+`--repeat-each` in one warm process, and tracing on. Three mechanisms ruled out
+by instrumentation rather than argument: the 15 s window (worst observed
+click-to-seated ~3.4 s), overlay remount (MutationObserver counted `added:0,
+removed:0` over the pick window), and node motion under the pointer (a per-rAF
+bounding-box sampler counted `moves:0`, with down/up/click all landing on the
+same node at the same coordinates). That last one matters because it is the one
+mechanism that WOULD have shared failure 2's demand-loop root. **So they do not
+share a root, and the agent declined to unify them** — the right call.
+
+What changed instead: the assertion was *unattributable*, not wrong. `clickTopFace`
+now waits for the `on_face` datum POST and asserts 201 — which the functional
+test already did and **the two screenshot tests did not, which is exactly why
+those two were the ones that failed opaquely** — and the seating assertion
+attaches the app's own error surface. Three forced ablation modes each now name
+their own cause. If the next red says "the app never acted on the click", that is
+a PRODUCT defect (a user clicks a face and gets nothing) and must be reported as
+one; this change makes the next occurrence self-describing, it does not claim to
+prevent it.
+
+**The stall hole in `restCamera`, closed with a measured red.** Two earlier
+agents were right that two equal samples cannot separate rest from stall, and
+right that requiring a render-delta hangs on genuinely still cameras. The window
+is now anchored to counted animation frames rather than `waitForTimeout(120)`.
+It could not be reddened at six hogs — coast windows carried 2-5 renders, so the
+hole was latent on this box — but under 12x CDP throttling it bites, and the
+numbers are the argument: degrees still to turn AFTER the predicate declared
+rest, same tolerance, only the window changed — wall-clock window **5.328 /
+3.824 / 4.109 deg**, render-anchored window **1.465 / 1.399 / 1.495 deg**. The
+old window was blessing a camera still turning four to five degrees. Nothing was
+red only because every angle assertion in that file bounds from below, where a
+coast can only understate — except one step of the raycast test, which is exactly
+the shape a mid-ease sample could pass falsely.
+
+Combined final run: harness + on-face + orbit, one process at load ~9,
+**37/37**. FILED separately, one occurrence in 35: an on-face run at load ~15
+failed at a different point with `"Save sketch0 entities"` — the boss
+rectangle's two clicks produced no entities. A distinct load flake in
+`sketchBossAndSave`, not addressed here.
 
 **SPEC-5 (2026-08-15) — `pick-affordance.spec.ts`'s hole scan read a React-state
 attribute with zero settle, and it cost a false accusation before it was

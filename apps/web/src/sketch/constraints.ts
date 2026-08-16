@@ -179,17 +179,30 @@ export function reconcileConstraints(
  * construction — the familiar toggle-group rule. Returns the next entity
  * array, or null when the selection addresses no entity (the caller hints).
  */
+/**
+ * Which entities a construction toggle would actually flip. ONE derivation,
+ * shared by the verb and by the button's pressed state, so a control that reads
+ * "engaged" can never be a control that then declines: `sketch-construction`
+ * rendered pressed for a datum selection and hinted "Select an entity to toggle
+ * construction" when pressed, because the two answered the question separately
+ * and an unmaterialised axis matches no entity, making `[].every(…)` true.
+ *
+ * The frame is construction by definition and is excluded here: flipping an
+ * axis to profile geometry would put it in the wire that extrude consumes.
+ */
+function constructionTargetIds(selection: readonly SketchPick[]): Set<string> {
+  return new Set(
+    selection.flatMap((pick) =>
+      pick.kind === "entity" && !isDatumId(pick.id) ? [pick.id] : [],
+    ),
+  );
+}
+
 export function toggleConstruction(
   selection: readonly SketchPick[],
   entities: readonly SketchEntity[],
 ): SketchEntity[] | null {
-  const ids = new Set(
-    selection.flatMap((pick) =>
-      // The frame is construction by definition; flipping an axis to profile
-      // geometry would put it in the wire that extrude consumes.
-      pick.kind === "entity" && !isDatumId(pick.id) ? [pick.id] : [],
-    ),
-  );
+  const ids = constructionTargetIds(selection);
   if (ids.size === 0) return null;
   const selected = entities.filter((e) => ids.has(e.id));
   const target = !selected.every((e) => e.construction);
@@ -198,16 +211,21 @@ export function toggleConstruction(
   );
 }
 
-/** Whether the selection is non-empty and every addressed entity is construction. */
+/**
+ * Whether the toggle is currently ON: the selection addresses at least one
+ * entity the verb would flip, and every one of them is already construction.
+ * False for a selection the verb would refuse — the button is only pressed
+ * where pressing it does something.
+ */
 export function selectionAllConstruction(
   selection: readonly SketchPick[],
   entities: readonly SketchEntity[],
 ): boolean {
-  const ids = new Set(
-    selection.flatMap((pick) => (pick.kind === "entity" ? [pick.id] : [])),
-  );
+  const ids = constructionTargetIds(selection);
   if (ids.size === 0) return false;
-  return entities.filter((e) => ids.has(e.id)).every((e) => e.construction);
+  const addressed = entities.filter((e) => ids.has(e.id));
+  if (addressed.length === 0) return false;
+  return addressed.every((e) => e.construction);
 }
 
 /** A dimension editor request: which value the inline mm field is driving. */
@@ -983,12 +1001,22 @@ export function solveDiagnostic(
         body:
           info.conflicting.length > 0
             ? `${info.conflicting.length} constraints cannot all hold — they are flagged in the sketch. Remove or edit one.`
-            : "The constraints cannot all hold. Remove or edit one.",
+            : // Nothing is flagged, so do not claim there is. The solver
+              // located the conflict only in constraints the user cannot
+              // reach — in practice the frame's own pins, which are the only
+              // hidden constraints there are (`sketch/datum.ts`). Never
+              // silenced: a conflicting sketch did not solve, so the geometry
+              // on screen is wrong and saying so is mandatory. Point at the
+              // one place it can be, instead of at a flag that is not there.
+              "The constraints cannot all hold, and the conflict is with the origin and axes — the frame cannot move. Remove or edit a constraint that reaches for it.",
       };
     case "overconstrained":
       return {
         title: "Over-constrained",
-        body: "A redundant constraint is flagged in the sketch. Remove it — the geometry is already determined without it.",
+        body:
+          info.redundant.length > 0
+            ? "A redundant constraint is flagged in the sketch. Remove it — the geometry is already determined without it."
+            : "The sketch has one constraint more than it needs, and the solver could not say which. Remove the last one you added.",
       };
     case "invalid":
       return {

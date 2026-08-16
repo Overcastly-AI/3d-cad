@@ -5,7 +5,7 @@ import {
   type ScreenBox,
   type SilhouetteOptions,
 } from "./perception";
-import { waitForFrames } from "./support";
+import { waitForFrames, waitForRenders } from "./support";
 
 /**
  * STRUCTURAL INVARIANTS — the one-line gates that would have caught two of the
@@ -82,72 +82,197 @@ export interface CameraPose {
   agreesWithStamp: boolean;
 }
 
-/** Read the live camera pose. Requires {@link installSceneProbe}. */
-export async function cameraPose(page: Page): Promise<CameraPose> {
-  const pose = await page.evaluate((): CameraPose | null => {
-    interface Vec {
-      x: number;
-      y: number;
-      z: number;
-    }
-    interface Cam {
-      position: Vec;
-      up: Vec;
-      matrixWorld: { elements: number[] };
-    }
-    const w = window as unknown as Record<string, unknown>;
-    const order = (w["__loftSceneOrder"] ?? []) as string[];
-    const cameras = (w["__loftCameras"] ?? {}) as Record<string, Cam>;
-    const stamp = document
-      .querySelector('[data-testid="viewport"]')
-      ?.getAttribute("data-camera-pos");
-    const stamped = stamp
-      ? stamp.split(",").map((value) => Number(value))
-      : null;
-    const near = (camera: Cam): boolean =>
-      stamped !== null &&
-      stamped.length === 3 &&
-      Math.abs(camera.position.x - (stamped[0] as number)) < 0.2 &&
-      Math.abs(camera.position.y - (stamped[1] as number)) < 0.2 &&
-      Math.abs(camera.position.z - (stamped[2] as number)) < 0.2;
-    let picked: Cam | null = null;
-    let agrees = false;
-    for (const uuid of order) {
-      const camera = cameras[uuid];
-      if (camera === undefined) continue;
-      if (near(camera)) {
-        picked = camera;
-        agrees = true;
-        break;
+/**
+ * What the scene probe holds right now. Exists to make "no camera" ATTRIBUTABLE:
+ * the three causes below are indistinguishable from a null pose, and the old
+ * error named only the first of them.
+ */
+export interface CameraProbeState {
+  /** The init script ran: `installSceneProbe` was called before this load. */
+  installed: boolean;
+  /** three.js `Scene`s observed at construction. */
+  scenes: number;
+  /** Scenes that have RENDERED at least once, so a camera was captured. */
+  captured: number;
+  /** `window.__loftRenderTick` — cumulative r3f renders; null before the probe. */
+  renderTick: number | null;
+  /** A viewport canvas is in the DOM (mounted is not rendered). */
+  canvas: boolean;
+}
+
+/** One round trip: the pose if there is one, and the probe's state either way. */
+export async function readCameraProbe(
+  page: Page,
+): Promise<{ pose: CameraPose | null; state: CameraProbeState }> {
+  return page.evaluate(
+    (): {
+      pose: CameraPose | null;
+      state: CameraProbeState;
+    } => {
+      interface Vec {
+        x: number;
+        y: number;
+        z: number;
       }
-      picked ??= camera;
-    }
-    if (picked === null) return null;
-    // -Z column of the world matrix is the camera's forward axis.
-    const e = picked.matrixWorld.elements;
-    const forward: [number, number, number] = [
-      -(e[8] as number),
-      -(e[9] as number),
-      -(e[10] as number),
-    ];
-    const length = Math.hypot(...forward) || 1;
-    return {
-      direction: [
-        forward[0] / length,
-        forward[1] / length,
-        forward[2] / length,
-      ],
-      position: [picked.position.x, picked.position.y, picked.position.z],
-      up: [picked.up.x, picked.up.y, picked.up.z],
-      agreesWithStamp: agrees,
-    };
-  });
-  if (pose === null) {
-    throw new Error(
-      "cameraPose: no camera captured — call installSceneProbe(page) BEFORE page.goto",
+      interface Cam {
+        position: Vec;
+        up: Vec;
+        matrixWorld: { elements: number[] };
+      }
+      const w = window as unknown as Record<string, unknown>;
+      const installed = w["__loftSceneOrder"] !== undefined;
+      const order = (w["__loftSceneOrder"] ?? []) as string[];
+      const cameras = (w["__loftCameras"] ?? {}) as Record<string, Cam>;
+      const tick = w["__loftRenderTick"];
+      const state: CameraProbeState = {
+        installed,
+        scenes: order.length,
+        captured: Object.keys(cameras).length,
+        renderTick: typeof tick === "number" ? tick : null,
+        canvas:
+          document.querySelector('[data-testid="viewport"] canvas') !== null,
+      };
+      const stamp = document
+        .querySelector('[data-testid="viewport"]')
+        ?.getAttribute("data-camera-pos");
+      const stamped = stamp
+        ? stamp.split(",").map((value) => Number(value))
+        : null;
+      const near = (camera: Cam): boolean =>
+        stamped !== null &&
+        stamped.length === 3 &&
+        Math.abs(camera.position.x - (stamped[0] as number)) < 0.2 &&
+        Math.abs(camera.position.y - (stamped[1] as number)) < 0.2 &&
+        Math.abs(camera.position.z - (stamped[2] as number)) < 0.2;
+      let picked: Cam | null = null;
+      let agrees = false;
+      for (const uuid of order) {
+        const camera = cameras[uuid];
+        if (camera === undefined) continue;
+        if (near(camera)) {
+          picked = camera;
+          agrees = true;
+          break;
+        }
+        picked ??= camera;
+      }
+      if (picked === null) return { pose: null, state };
+      // -Z column of the world matrix is the camera's forward axis.
+      const e = picked.matrixWorld.elements;
+      const forward: [number, number, number] = [
+        -(e[8] as number),
+        -(e[9] as number),
+        -(e[10] as number),
+      ];
+      const length = Math.hypot(...forward) || 1;
+      return {
+        pose: {
+          direction: [
+            forward[0] / length,
+            forward[1] / length,
+            forward[2] / length,
+          ],
+          position: [picked.position.x, picked.position.y, picked.position.z],
+          up: [picked.up.x, picked.up.y, picked.up.z],
+          agreesWithStamp: agrees,
+        },
+        state,
+      };
+    },
+  );
+}
+
+/**
+ * How long {@link cameraPose} will wait for the scene to produce a camera.
+ *
+ * Generous on purpose: it is only ever spent when there is NO camera at all, so
+ * on a healthy page it costs nothing, and the thing it is waiting for is a
+ * loaded runner's first render.
+ */
+const CAMERA_PROBE_TIMEOUT_MS = 15_000;
+
+/**
+ * Frames to yield between probe reads while there is no camera. Small enough
+ * that a camera appearing is noticed within ~4 frames, large enough that this
+ * is not a 60 Hz poll against a runner that is already short of CPU.
+ */
+const CAMERA_PROBE_POLL_FRAMES = 4;
+
+/** Say which of the three causes produced a null pose, not just that one did. */
+function describeMissingCamera(
+  state: CameraProbeState,
+  waitedMs: number,
+): string {
+  const facts = ` (${JSON.stringify(state)}, waited ${waitedMs}ms)`;
+  if (!state.installed) {
+    return (
+      "cameraPose: the scene probe is not on this page — call " +
+      "installSceneProbe(page) BEFORE page.goto (addInitScript only applies " +
+      "to loads that come after it)" +
+      facts
     );
   }
-  return pose;
+  if (state.scenes === 0) {
+    return (
+      "cameraPose: the probe is installed but three.js never constructed a " +
+      "Scene — either no viewport mounted on this page, or three.js stopped " +
+      "dispatching the __THREE_DEVTOOLS__ `observe` event this probe hooks" +
+      facts
+    );
+  }
+  return (
+    `cameraPose: ${state.scenes} scene(s) exist and none has RENDERED, so no ` +
+    'camera has been captured yet. On a frameloop="demand" canvas the camera ' +
+    "only appears at the FIRST render, which a visible canvas does not imply" +
+    facts
+  );
+}
+
+/**
+ * Read the live camera pose. Requires {@link installSceneProbe}.
+ *
+ * IT WAITS, and the wait is the fix for a CI red (CI-4). The probe captures the
+ * camera inside `onBeforeRender`, so the camera does not exist until the scene
+ * has rendered ONCE — and on a `frameloop="demand"` canvas nothing about the
+ * canvas being present or visible implies that render has happened. This used
+ * to read the probe once and throw, which turned a startup race into a hard
+ * failure: `sketch-orbit.spec.ts`'s "outside the sketcher the left button still
+ * orbits" waits for the canvas and then reads the camera, and on a loaded
+ * runner that read lands in the gap.
+ *
+ * MEASURED, in the window between `canvas` becoming visible and the first
+ * camera appearing, under six CPU hogs on a four-core box: 4 of 5 runs had the
+ * camera already (0 ms), and one run reported `scenes=3 cams=0 tick=absent` at
+ * the canvas-visible instant and took **882 ms** to produce one. Reproduced as
+ * a failure 2 times in 4 fresh-process runs before this change, 0 in 12 after.
+ *
+ * The old error message made it worse than a flake: it said "call
+ * installSceneProbe(page) BEFORE page.goto", which the failing spec DOES, so
+ * the one message it could emit named the one cause that was ruled out by the
+ * data the probe was already holding. {@link describeMissingCamera} separates
+ * the three.
+ */
+export async function cameraPose(
+  page: Page,
+  options: { timeoutMs?: number } = {},
+): Promise<CameraPose> {
+  const { timeoutMs = CAMERA_PROBE_TIMEOUT_MS } = options;
+  const started = Date.now();
+  for (;;) {
+    const { pose, state } = await readCameraProbe(page);
+    if (pose !== null) return pose;
+    if (Date.now() - started >= timeoutMs) {
+      throw new Error(describeMissingCamera(state, Date.now() - started));
+    }
+    // rAF-paced, never a wall-clock sleep: one animation frame is the shortest
+    // interval in which the thing being waited for (a render) can happen. Its
+    // own timeout is swallowed because a page that has stopped painting is a
+    // state THIS function must report — with the probe reading attached — not
+    // one it should re-throw someone else's message for.
+    await waitForRenders(page, CAMERA_PROBE_POLL_FRAMES, {
+      timeoutMs: 1_000,
+    }).catch(() => undefined);
+  }
 }
 
 /** Angle between two unit vectors, in degrees. */

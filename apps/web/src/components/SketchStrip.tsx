@@ -67,6 +67,7 @@ import {
   selectionAllConstruction,
   type ConstraintAction,
 } from "../sketch/constraints";
+import { withoutDatums } from "../sketch/datum";
 import {
   buildOffsetParams,
   canSubmitOffset,
@@ -738,7 +739,13 @@ export function SketchStrip({
   const [offsetOpen, setOffsetOpen] = useState(false);
   const setHoveredPlane = useSketchStore((state) => state.setHoveredPlane);
   const hoveredPlane = useSketchStore((state) => state.hoveredPlane);
-  const entityCount = useSketchStore((state) => state.entities.length);
+  // The frame is excluded for the same reason its pins are excluded from the
+  // constraint count below: the user drew four lines, so the strip says four,
+  // and "Discard 5 unsaved entities" must never offer to throw away a fifth
+  // thing that only exists because they grounded one of them.
+  const entityCount = useSketchStore(
+    (state) => withoutDatums(state.entities).length,
+  );
   // The frame's own pins are excluded: grounding a corner to the origin is ONE
   // constraint the user made, and counting the pin that came with it would be
   // the readout claiming work nobody did (`sketch/datum.ts`).

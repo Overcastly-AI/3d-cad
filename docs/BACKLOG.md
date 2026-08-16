@@ -15,46 +15,43 @@ See VISION.md's table for current row text — the vision-steward re-scores it
 independently each pass; this note only points the queue at it, no
 duplication.
 
-- **Fresh audit pass 2026-08-14 (uncommitted, both auditors — read for this
-  groom, not yet landed by their owners):** a flow-first product-audit pass
-  (native Chromium, real modeling job: sketch → revise → hand off) found the
-  Sketching/Part-modeling ✅ rows rest on *authoring*, not *editing* — a saved
-  sketch cannot be re-opened at all (M15, silent no-op — `selectFeature` in
-  `PartPage.tsx` has no `"sketch"` branch), the sketch origin/axes are not
-  selectable so a profile cannot be grounded relationally (M2), any pick-based
-  edit of a non-tip feature 422s because the client stamps the pick with the
-  TIP feature's id instead of the one that owns the sub-shape (M16 — the root
-  cause behind the fillet-radius write-once bug M9/M10 and the thickness-edit
-  hole breakage M17), and a planar-face signature encodes what has been CUT
-  into the face, so drilling hole *n* invalidates hole *n+1*'s match on a later
-  edit (M17). Recommends dropping Sketching & constraints and Part modeling to
-  ➖ until M15/M2/M16/M17 close. The independent engineering-audit pass found
-  QA7-1's real cause (a wait on a string the product never renders — K1,
-  fully diagnosed, see the Ready entry), a Stop-hook in-flight guard that globs
-  one directory too shallow and so never fires (K7), and that this file's own
-  "Current focus" line was 129 commits stale (K6 — fixed this pass, see below).
-  Both audits are referenced by id (M#/K#) from the Ready items below rather
-  than duplicated here.
-- **✅ rows, now qualified:** Price/freedom holds. Sketching & constraints and
-  Part modeling are creation-only ✅ — the audit above found editing/revision
-  broken on both; treat as ➖ until SKETCH-2/PICK-1 land and GEOM-2's own gap
-  (see GEOM-3, Ready, P0 — tier 4 shipped and closes M17's control case, but
-  degrades on ordinary vented/perforated parts at r>=~25% open area). SKETCH-1
-  and VP-1/VP-1a are now QA'd green (`6df1170`) but still unreviewed by
-  `code-reviewer`. The founder's "dimensions not assigning" report is STILL
-  not closed even with SKETCH-1 and the arm-fix (c449235) shipped — independent
-  QA (`6df1170`) upgraded it from "drops keystrokes" to **silently writes
-  wrong geometry** (DIM-1, P0, top of Ready); that is plausibly the actual
-  daily-driver-blocking experience behind the report, and it is a data-
-  integrity defect, not merely a slow field.
-- **Process note, not a scorecard row:** `e2e` CI was RED for TEN consecutive
-  commits as of the last read available to this pass (last green `a34382b`).
-  Of the two known causes, QA7-1 is fixed and reviewed non-blocking
-  (`07c4005`, archived below); QAH-1 (`qa-harness.spec.ts:968`, orbit-probe
-  renders) is still open. **Whether the streak has actually broken is
-  unverified by this pass** — the groomer cannot read CI; treat every
-  "shipped, gates green locally" claim on `apps/web` as CI-unverified until
-  the orchestrator confirms a green run against a commit after `07c4005`.
+- **Groom pass 5 (2026-08-15 evening, this pass) — the founder's four
+  2026-08-01 sketcher complaints all now have answers.** Dimensions assign
+  (DIM-1, gate flipped, `a810524`+`810d9fb`); orbit-while-sketching reaches a
+  trackpad (VP-1/VP-1a); a saved sketch re-opens (SKETCH-1); "snap points do
+  not work" resolved through SNAP-1 -> SKETCH-2 -> the QA-SK2 follow-up fix
+  (`8f00dec`) — detection was always correct, selection was not, and the
+  frame no longer asks you to delete a constraint you cannot see. **New
+  reading, sharper than the original report:** independent QA of SKETCH-2
+  (`docs/UI-REVIEW.md` QA-SK2-4) found a snap to the origin/axis copies the
+  COORDINATE but authors no constraint — the corner looks grounded, saves as
+  "N applied," and then drifts on the first re-drive. Filed below (SNAP-2)
+  as the sharpest open founder-adjacent defect, same silent-trust-violation
+  class as DIM-1 was.
+- **✅ rows, still qualified:** Sketching & constraints and Part modeling are
+  creation- AND now datum-editing-capable (SKETCH-2), but still ➖-grade until
+  PICK-1 (non-tip feature edits 422) and GEOM-3 (GEOM-2's honest limit on
+  vented/perforated faces) land, and until SNAP-2 closes the silent-drift gap
+  above. SKETCH-1/VP-1/VP-1a/DIM-1/SKETCH-2 are QA'd green but **none of the
+  five have an independent `code-reviewer` pass** — flag this to the
+  orchestrator; it is process debt, not a defect, but it is real debt.
+- **Process note, not a scorecard row:** the CI-4 "systemically unstable e2e"
+  umbrella got a substrate pass this session (`8d5be24`) — one of its two
+  named failures (the camera-probe race) is root-caused and fixed with a
+  0/12-after ablation; the other (`sketch-on-face` screenshot variants)
+  could not be reproduced in 35 starved runs and stays filed, not fixed.
+  **QAH-1 is CLOSED — `c3019b6`, an ANCESTOR of `a658db4` (verified:
+  `git merge-base --is-ancestor c3019b6 a658db4` -> yes).** This groom pass
+  first searched only `a658db4..HEAD` (the range the dispatch brief gave)
+  and, finding nothing there, wrongly corrected the brief's "already shipped"
+  claim to "still open" — a real error, caught by the orchestrator re-pointing
+  at the right range, not by re-deriving harder inside the wrong one. `c3019b6`
+  is a genuinely different fix from `8d5be24`'s camera-probe race (that
+  distinction stands and is worth keeping apart): QAH-1 was a mutation-test
+  constant — `diagnostics.ts:193`, `rendersInProbeWindow: … ? null : 0, //
+  MUTANT: always 0` — left in the tree by `0580f7d`'s reconciliation of a
+  stopped agent's work, whose own e2e gate was never run. See the archived
+  entry for the evidence.
 - **➖ rows (usable, short of incumbent parity):** Assemblies (export +
   interference shipped; import, exploded views, recursive BOM, part-version
   pinning still missing). Interop (part STEP round-trips to 1e-9 against an
@@ -76,141 +73,22 @@ duplication.
 
 ## Ready (top of queue)
 
-- [x] (P0, S) **DIM-1 (was "FOUNDER — dimensions not assigning") — TOP OF THE
-      QUEUE: the dimension VALUE field silently writes WRONG GEOMETRY, not
-      merely a slow one.** REPRODUCED in two layers: code review of c449235
-      (branch (i), the arming half, shipped — see the Done archive) found the
-      keystroke-loss mechanism; independent QA (`6df1170`, 2026-08-15, evidence
-      in `docs/UI-REVIEW.md`) then confirmed it against the production bundle
-      and a real stack — **VERDICT FAIL**. Founder's exact path: type `125`
-      into a cell pre-filled `43`, press Enter, read the geometry service's
-      evaluate response — a 43 mm edge becomes **435 mm**. No error, no
-      rejection: the glyph, the field and the SOLVED GEOMETRY all agree on the
-      wrong number. Measured 435 mm committed twice at 150-250 ms wall-clock
-      keying (10 of 12 trials corrupted the field), 15 mm on one
-      `pressSequentially` trial; `125` survives only at 2500 ms/key. The Name
-      cell has it too (`abc` -> `c`).
-      THIS IS A DATA-INTEGRITY DEFECT, not a UI annoyance: it is SILENT; it is
-      NOT MONOTONIC in typing speed (~155 ms gaps survive, 0.2-0.7 s corrupt,
-      0.8 s+ survive), so "type slower" is not a discoverable workaround; and
-      the corrupted band WIDENS UNDER LOAD (0.9-1.4 s gaps still corrupted with
-      siblings active), i.e. it gets worse on a busy machine. Paste/
-      `insertText` survives, which is exactly why the shipped `.fill()` spec
-      legs see nothing.
-      NOT an environment artifact: per keystroke, two `longtask` entries
-      totalling 211+318 ms idle and 640+546 ms loaded, with **ZERO network
-      requests**, while the same page holds 180 frames / 3 s (17 ms median)
-      with the editor open. React work, not rasterisation, not a round trip.
-      MECHANISM (structurally verified by the code review; HYPOTHESIS on the
-      cross-root timing, well-supported but NOT proven by a fix — whoever
-      builds this should confirm or refute it rather than inherit it):
-      `apps/web/src/viewport/ConstraintGlyphs.tsx:218-228` is a CONTROLLED
-      `ExpressionField` rendered inside the r3f canvas via drei `<Html>`, which
-      renders children into a SEPARATE `ReactDOM.createRoot` re-rendered from a
-      dep-less `useLayoutEffect`, while the `useState` draft lives in the outer
-      r3f root — so React's controlled-input restore puts the prefill back
-      before the cross-root update lands. `apps/web/src/viewport/
-      SketchScene.tsx:916` documents this IDENTICAL defect for the FB-16
-      draw-time cells and fixed it by making them UNCONTROLLED; that is the
-      remedy to point at, not a novel fix.
-      FIX: make `ConstraintGlyphs.tsx`'s value field uncontrolled the same way
-      (ref-backed local input, commit on blur/Enter, no React-driven `value`
-      fighting the DOM mid-keystroke). ACCEPTANCE: (1) a component/unit test
-      typing "125" over a pre-filled "43" at 0 ms/key (the adversarial case)
-      yields "125", not "435"; (2) `apps/web/e2e/sketch-dimension-pick.spec.ts`
-      gains a `pressSequentially` leg — today's `:187`/`:249` use `.fill()`,
-      which bypasses the per-keystroke path entirely and cannot catch this;
-      the new leg MUST fail on current HEAD and pass after the fix; (3) this
-      item's original acceptance (type a value, press Enter, geometry updates)
-      re-verified end to end. Mutation check: reverting the uncontrolled-input
-      change reddens both the new unit test and the new e2e leg.
-      Also settled while reproducing (M22, product-audit pass 2026-08-14,
-      confirmed as designed not a bug): before the second click of a
-      rubber-band draw, `draw-dimensions` is `data-state="live"` with ZERO
-      input cells, so the live W/H chip is indistinguishable from a field and
-      typing into it does nothing — a separate, smaller UX gap, not this bug.
-      FB-16 is NOT regressed and SKETCH-1 is not implicated — editing an
-      EXISTING dimension already works end to end (measured 60 then 25).
-      The QA pass also EXECUTED two specs that had never run anywhere:
-      `sketch-orbit.spec.ts` (VP-1) **7/7 pass**, and `sketch-reopen.spec.ts`
-      (SKETCH-1) pass, plus a new save -> reload -> re-open -> dimension-still-60
-      round trip — see QA-VERIFY-1 in the Done archive, now closed on this
-      evidence. And it flagged that its own green arming gate types at 2.5 s/key
-      DELIBERATELY, to isolate the verb — that gate must not be read as
-      "typing works".
-      [src: founder report 2026-08-14; root-caused by code review of c449235;
-      independent QA 2026-08-15 (`6df1170`)]
-      TERRITORY: `apps/web/src/viewport/ConstraintGlyphs.tsx`,
-      `apps/web/e2e/sketch-dimension-pick.spec.ts` (append the
-      `pressSequentially` leg only — do not touch the existing `.fill()` legs).
-      agentType: frontend-builder.
-      SHIPPED a810524 (the fix) plus the commit carrying this tick (the gate
-      flipped from characterization to positive). The cell is
-      uncontrolled now, React keeps a shadow copy only for the live error and
-      resolved echo, and **every commit reads the DOM node, never the shadow**.
-      Same fix applied to the Name, Offset and Fillet/Chamfer cells; the
-      primitives (`ExpressionField`, `NumberField`) now forward `ref`, so this
-      was fixed at the primitive, not the instance. Two things a naive port
-      misses, both found by writing the gate first: a retarget needs a REMOUNT
-      (`key`), because `defaultValue` sets the value ATTRIBUTE which a dirty
-      input ignores — so clicking a second glyph mid-edit left the first
-      dimension's text in the second cell; and validation had to move to commit
-      time, because applying an unusable value used to fall through to
-      `cancelDimension()`, i.e. Enter sometimes applied and sometimes discarded
-      (FB-13 class). Builder's own re-measured timings, which differ from the
-      audit's and supersede them: total loss at 0/20/40/60/80 ms per key,
-      survival from 120 ms.
-      **THE GATE FLIP IS WHERE THE REAL LESSON IS.** The QA pass's
-      characterization test asserted the defect was PRESENT, so closing DIM-1
-      required inverting it — and inverting a gate is exactly when "it passes"
-      stops meaning anything. Ablated against `a810524^` with the ORIGINAL
-      150/200/250 ms band: only **1 of 6 trials** corrupted, i.e. at 5-of-6
-      per-trial survival on a BROKEN build a six-trial sweep goes green about a
-      THIRD of the time. The gate would have certified DIM-1 fixed while it was
-      live, and the characterization's own estimate of that risk (~0.3 %) was
-      optimistic by two orders of magnitude on this hardware — in the dangerous
-      direction. Band widened to `[60, 100, 150, 200, 250, 60]`; re-ablated, both
-      60 ms trials fail deterministically with the founder's exact `"435"`, and
-      the fixed build returns `"125"` with the solver at 125 mm. The docstring
-      carries the red output and a "do not narrow the band back without
-      re-running the ablation" note.
-      Preserved deliberately: the 2.5 s/key leg stays SEPARATE and its comment
-      now says outright "DO NOT READ THIS LEG AS 'typing works'"; and the
-      stimulus-only retry shape is explicit — `isHumanRhythm(trial)` is
-      evaluated on measured key gaps BEFORE the outcome is read, and the
-      committing leg re-types up to 3x then asserts ONCE. No assertion is ever
-      retried.
-      Overlap with `sketch-dimension-pick.spec.ts` examined and deliberately NOT
-      consolidated: `pressSequentially` awaits the renderer between keys, so its
-      "60 ms" lands 400-1300 ms apart under load — which is why the typing spec
-      uses a raw CDP driver — and the pick spec's subject is the arming verb
-      end to end. `sketch-dimension-typing.spec.ts` owns the per-keystroke
-      property, stated in both files.
-      NOT independently reviewed or QA'd; the fix and its gate were written by
-      two different agents, which is the nearest thing to independence here.
-
-- [ ] (P0, S) **QAH-1 — e2e CI has been RED for TEN consecutive commits (last
-      green `a34382b`, red from `221a7ca`, itself a docs-only commit);
-      `qa-harness.spec.ts:968` is one of the two failing specs at HEAD and was
-      filed nowhere until this pass.** `"the probe window must see renders
-      while the scene is orbiting"` — `Expected > 0, Received 0`. The sibling
-      failure, `qa-sel7-verify.spec.ts:555`, is QA7-1 below (already filed,
-      already dispatched) — this is the OTHER cause nobody had named.
-      HYPOTHESIS to verify, not assume: VP-1a's Alt+drag orbit binding
-      (`Viewport.tsx`, shipped 32e5b87) is a capture-phase pointerdown handler
-      on the viewport container; if it or a sketcher guard suppresses the
-      demand-mode render loop while orbiting, the probe's render counter would
-      legitimately read 0 even though the camera visibly moves. Root-cause
-      against the ACTUAL commit range (bisect if unclear whether the failure
-      predates 32e5b87 — CI has been red since a docs-only commit, which rules
-      out THAT commit but not one shipped between `a34382b` and `221a7ca`).
-      ACCEPTANCE: mechanism named, fix, spec green 10x quiet + 10x under load;
-      if the cause is unrelated to VP-1a, say so explicitly rather than leaving
-      the coincidence unexplained.
-      [src: orchestrator dispatch 2026-08-14 — CI status relayed by the
-      orchestrator; subagents cannot read CI themselves]
-      TERRITORY: TBD by root-cause — likely `apps/web/e2e/qa-harness.spec.ts`
-      and/or `apps/web/src/viewport/Viewport.tsx`. agentType: frontend-builder.
+**Dispatch order, this pass — PICK-1 and GEOM-3 have sat Ready longest of the
+P0s without being dispatched; nothing has overtaken them, but the order
+between them is worth stating.** GEOM-3 should go FIRST: it is a SILENT
+wrong-geometry defect (a deleted-feature's sketch can re-target onto the
+wrong face with no error at all), which is the class CLAUDE.md ranks above
+everything else on the board, including PICK-1. PICK-1 fails LOUDLY (a 422)
+rather than silently, which is the less dangerous failure mode even though it
+fully blocks a whole class of edits (M9/M10) — a real product/scorecard hit,
+just not a "wrong answer accepted as right" one. SNAP-2 (new this pass) is
+comparable in shape to PICK-1 — correct now, silently wrong after a later
+edit — but shares `apps/web/src/sketch/**` territory with nothing else
+currently Ready, so it can run alongside GEOM-3 (kernel-architect territory)
+without contention; PICK-1 and SNAP-2 do NOT share territory either
+(`PartPage.tsx`/editor components vs. `sketch/store.ts`/`snap.ts`) so up to
+three of GEOM-3/PICK-1/SNAP-2 can be dispatched in parallel this batch.
+QAH-1 (CI-reliability debt) is CLOSED as of this pass — see Done archive.
 
 - [ ] (P1, S) **DIM-3 — the Dimension verb's ARMED state (c449235) is
       invisible, and a wrong-kind pick prints the exact sentence the arm-fix
@@ -261,74 +139,6 @@ duplication.
       [src: code review of c449235, orchestrator dispatch 2026-08-14]
       TERRITORY: `apps/web/src/routes/PartPage.tsx`,
       `apps/web/src/sketch/store.ts`. agentType: frontend-builder.
-
-- [x] (P0, S) **SNAP-1 — founder: "snap points not working." Never reproduced;
-      no ticket existed before this pass.** REPRODUCE FIRST, before assuming a
-      root cause: start a sketch, draw near an existing endpoint/midpoint/the
-      origin with snapping on; check whether the snap badge/glyph fires
-      (`sketch/snap.ts`, `SNAP_MARKS`, shipped FB-22/UI-W5) and whether the
-      drawn point lands exactly on the target vs. some pixels off. Two
-      candidate causes to rule in/out while reproducing, NOT assumed: (a) a
-      regression in the snap-detection radius/priority logic itself
-      (`sketch/snap.ts`); (b) the founder means "I can't select origin/axes to
-      constrain to" — that is SKETCH-2 (M2), a different code path
-      (constraint-target selectability, not snap detection) — if reproduction
-      points there instead, close this as a duplicate of SKETCH-2 rather than
-      building a second fix for the same symptom. ACCEPTANCE: either (i)
-      reproduced as a genuine snap-detection bug — root-cause against
-      `apps/web/src/sketch/snap.ts` and fix, with an e2e spec that fails on
-      the reverted fix; or (ii) NOT reproduced / found to be SKETCH-2's
-      selectability gap — close with the exact steps tried and result, so the
-      report is falsified or correctly merged rather than left open twice.
-      TERRITORY: `apps/web/src/sketch/**` (occupied this batch by the
-      dimensions-not-assigning reproduction — cannot run concurrently with
-      it; queue for the next batch once that territory frees up).
-      [src: founder report 2026-08-14, needs reproduction]
-      agentType: frontend-builder.
-      **CLOSED as branch (ii) — NOT a snap bug. DUPLICATE of SKETCH-2.** Snap
-      detection and placement are correct in every configuration that could be
-      constructed, driven in a real browser against a real stack: grid ON (the
-      DEFAULT — see below) hitting origin / x-axis / endpoint / midpoint all
-      exact; grid OFF 4/4; press-drag-release persisting exactly (2,2)->(44,29);
-      a RE-OPENED sketch; XZ and YZ datums; a FACE-SEATED sketch; and the magnet
-      measured at 12/12/12 px across three zoom levels, equal to
-      `SNAP_TOLERANCE_PX`. The SKETCH-2 half reproduces cleanly WITH a positive
-      control in the same test: clicking the drawn line gives `"1 ent"`, while
-      clicking the origin ring, the X axis and the Y axis all give
-      `"nothing selected"`. So the founder can AIM at the origin and axes — the
-      glyph fires, the point lands exact — and cannot SELECT them to constrain
-      to, which from the user's chair is indistinguishable from "snap points do
-      not work". Do not build a second fix; SKETCH-2 is the fix.
-      **WHY IT SURVIVED THREE DAYS UNFALSIFIED, and this is the transferable
-      part:** `sketch-snap.spec.ts` presses `g` before every assertion — it HAS
-      to, because with the grid off an exact whole millimetre in the DRO can only
-      have come from an entity snap, which is what makes it a proof — and the
-      cost is that the DEFAULT configuration had no coverage at all. Same for the
-      drag gesture, re-open, non-XY planes and face-seated sketches: five
-      distinct inputs into the same `resolveSnap`, none tested. A gate that is
-      rigorous by narrowing its input leaves the untested majority behind it.
-      Shipped `apps/web/e2e/sketch-snap-defaults.spec.ts` (6 tests) to cover
-      them, using `pick-affordance`'s park-then-wait shape so a stale snap kind
-      cannot masquerade as a fresh one. Mutation, against the SUBJECT since
-      nothing was fixed: `SNAP_TOLERANCE_PX` 12 -> 2 gives **6 failed / 0
-      passed**; reverted, 6 passed.
-      **NEW GAP FOUND, not fixed, needs its own ticket:** a snap copies the
-      COORDINATE but infers no CONSTRAINT. `placeAt` takes only a `Point2D`,
-      while the `SnapCandidate` in the store carries `entities: readonly
-      string[]` — the exact ids a coincident constraint would need — and nothing
-      reads them. Fusion and SolidWorks create an inferred coincident on snap, so
-      the corner STAYS attached when the profile is later dimensioned; ours
-      leaves two independent points that happen to share coordinates. That is a
-      plausible second reading of "snap points do not work" (they hold, then let
-      go) and a different fix from both SNAP-1 and SKETCH-2.
-      Untested and worth knowing: the founder tests from a GitHub Codespace, so
-      his `devicePixelRatio`, browser zoom, trackpad and window size were not
-      reproducible here (all measurements 1600x1000, DPR 1, software GL); touch
-      snapping is untested and the drag path explicitly excludes
-      `pointerType === "touch"`; and now that VP-1a has shipped Alt-orbit, a
-      plane viewed at a grazing angle makes the isotropic mm magnet read as an
-      anisotropic sliver on screen — not his cause on 2026-08-14 because he could
-      not orbit then, but a live question for the next report.
 
 - [ ] (P0, M) **PICK-1 (M16) — a viewport pick is stamped with the TIP
       feature's id, not the feature that owns the sub-shape, so no non-tip
@@ -420,100 +230,55 @@ duplication.
       successor), `docs/design/topological-naming.md` §12a, geometry goldens.
       agentType: kernel-architect.
 
-- [x] (P0, M) **SKETCH-2 (M2) — the sketch origin and axes are not selectable
-      entities, so a profile cannot be grounded relationally; likely also the
-      founder's "snap points not working" report** (`apps/web/src/viewport/
-      SketchScene.tsx`, `apps/web/src/sketch/**`). MEASURED: `data-testid=
-      "sketch-origin"` resolves to a screen-reader-only `<span role="img">`
-      over decorative canvas ink (`SketchScene.tsx`'s `SketchOrigin` draws
-      pure `InkSegments`, no pick geometry) — clicking the drawn origin ring
-      and both axis lines at multiple points all return "nothing selected".
-      Consequence: the only way to ground a sketch profile is `Fixed` at
-      absolute coordinates (`RELATIONAL → X`), which does not re-centre when
-      the profile's size changes — "this plate is symmetric about the origin"
-      is not expressible. NOTE the SNAP layer already offers origin/x-axis/
-      y-axis kinds (FB-22, `sketch/snap.ts`) — this item is about
-      CONSTRAINT-TARGET selectability, a different code path. Before starting,
-      REPRODUCE the founder's "snap points not working" report specifically
-      (start a sketch, draw near an existing endpoint/midpoint/the origin
-      with snapping on, check the snap badge fires and the drawn point lands
-      exactly on the target) — if snapping itself is broken (regression from
-      FB-22/UI-W5), that is a DIFFERENT, narrower bug than this one and should
-      be split into its own P0 item once confirmed; if snapping works and the
-      complaint is really "I can't select origin/axes to constrain to", it is
-      this item. FIX (for the selectability half): give the origin point and
-      the two axis lines real hit-test geometry and wire them into the same
-      entity-picking path sketch lines/points already use, with a pseudo-id
-      (`"origin"`, `"x-axis"`, `"y-axis"`) the constraint solver can accept as
-      a target for coincident/symmetric/distance. ACCEPTANCE: draw a rectangle,
-      apply Coincident between one corner and the origin, Symmetric between two
-      edges about the Y axis; resize the rectangle and confirm the corner
-      stays pinned to (0,0) and the profile stays centred (relational, not
-      `Fixed`-at-coords). New e2e spec `apps/web/e2e/sketch-origin-
-      constraint.spec.ts`.
-      [src: product-auditor pass 2026-08-14 (M2); founder "snap points not
-      working" report — needs reproduction to confirm same root cause]
-      TERRITORY: `apps/web/src/viewport/SketchScene.tsx`,
-      `apps/web/src/sketch/**`, new e2e spec. agentType: frontend-builder.
-      SHIPPED 5ceed6e — and this CLOSES THE FOUNDER'S "snap points do not work"
-      report (SNAP-1 closed as its duplicate: snap detection was correct all
-      along; selection was not).
-      MECHANISM CONFIRMED, with a second quantitative half the ticket did not
-      have: the frame was drawn as pure `InkSegments` while picking ran entirely
-      through `pickCandidates(state.entities, …)`, so it had nothing to hit — AND
-      **even a point pick at (0,0) would not have covered the founder's
-      gesture**, because the ring is drawn at `ORIGIN_RING_FRACTION` (0.022) of
-      the camera's frame half-height, ~**10 px** from centre, against a
-      `PICK_TOLERANCE_PX` of **8**. Clicking ON the mark misses a centre-point
-      target by construction. The fix derives the grab region from the same
-      fractions that draw the ink.
-      A third constraint forced the design: `planegcs_solver.py` resolves every
-      constraint ref against `sketch.entities` and raises on an unknown id, so a
-      client-only pseudo-id would have died at the first solve. Hence
-      `apps/web/src/sketch/datum.ts` — the frame as real geometry, materialised
-      LAZILY as pinned construction entities. Lazy is load-bearing: a sketch that
-      never grounds to the frame is byte-identical to before, the pins are
-      DOF-neutral, and there is ONE representation, so re-open needs no
-      reconstitution. Picking is strictly ADDITIVE on a plain click (drawn
-      geometry still wins wherever it is in range); a modifier click appends the
-      frame. The frame is a TARGET, not a subject — distance/radius/horizontal/
-      vertical/fixed/equal on it are refused by name, and the armed-dimension
-      rung (`dimensionPick`, c449235) is suppressed for a datum selection so it
-      cannot eat the next click. Pins carry no glyph and are excluded from the
-      "N applied" readout.
-      MEASURED END TO END, which is the bar that matters — a sketch that cannot
-      be constrained to its own datums is not parametric: a floating 24x16
-      rectangle, select corner -> Shift-click the origin -> `c`, and the solver
-      TRANSLATED the whole profile so the corner sits on (0,0). Persisted params
-      carry `origin` as a `construction: true` point with exactly one `fixed` pin
-      and NO `fixed` on any drawn entity — relational, not fixed-at-coords.
-      Re-opened via the tree row: still selectable, not duplicated. Width then
-      re-driven 24 -> 36 mm and the grounded corner was STILL exactly (0,0).
-      Mutation (`datumPickCandidates` returns `[]`, the pre-fix state): 2 failed,
-      `Received: "nothing selected · 8 applied"` — the founder's symptom verbatim
-      — with the positive control (`"1 ent"` on a drawn line) still passing
-      before the failure point, so the gate is sensitive to the frame and
-      insensitive to the rest. Reverted: 2 passed.
-      Gates: typecheck clean, **1659 unit tests** (was 1644), prettier + eslint
-      clean, mutation-marker gate clean, 42 neighbouring e2e specs green
-      including `sketch-escape-select`'s stacked-corner CYCLE case. Screenshots
-      at 1600 and 1280 under `docs/screenshots/sketch-origin-selected-*`.
-      NOT reviewed, NOT QA'd. NOT run: full `just e2e`, repo-wide `just lint`,
-      and ~15 remaining sketch specs (mirror, offset, trim/extend, spline,
-      fillet/chamfer, visibility) which touch the changed paths only via a
-      `withoutDatums` filter that unit tests cover but no browser has.
-      **THREE FOLLOW-UPS for the groomer.** (a) Mirroring ABOUT a datum axis is
-      out of scope — the mirror request is a server round trip carrying the
-      entity set and the frame is excluded from that pick path; the natural next
-      reach now the axes are selectable. (b) The SNAP-1 gap is now SHARPER, not
-      softer: a snap still copies the coordinate and infers no constraint, so
-      with the frame selectable "snap the corner to the origin" LOOKS grounded
-      and is not until you press `c`. (c) `dimensionVerbHint` offers no hint for
-      a frame selection (it only speaks D/R); "C — coincident" once two points
-      are held is the flow-correct addition.
-      One 5-line change landed outside the named territory and is flagged:
-      `SketchStrip.tsx` (constraint count -> `authoredConstraintCount`), without
-      which the strip reads "2 applied" after one user constraint.
+- [ ] (P0, M) **SNAP-2 — a snap to the origin/axis copies the COORDINATE but
+      authors no CONSTRAINT, so a grounded-looking sketch silently drifts on
+      its first re-drive.** Found by independent QA of SKETCH-2 (`docs/
+      UI-REVIEW.md` QA-SK2-4, `c82ff09`), confirmed against the real solver.
+      Draw a rect with its first corner SNAPPED to the origin: the marker
+      reads `origin`, the DRO reads `+0.00 / +0.00`, the strip reads "9
+      applied" — and there is **no `origin` entity and no constraint naming
+      it**. Re-drive a width 30 -> 40 and the part slides to **x = -7.1716
+      mm**; a genuinely grounded twin (corner joined with `c`) re-driven
+      40 -> 55 stays at exactly (0,0). QA's words: "there is no signal in
+      between — the mark looks identical, the count is identical, nothing
+      marks the corner." Same defect CLASS as DIM-1 before its fix (the tool
+      appears to have understood you and has not) but a different SEVERITY
+      profile, worth stating plainly rather than inheriting DIM-1's tier by
+      default: the geometry recorded at save time is exactly what was typed/
+      snapped — nothing is wrong YET — the wrongness is deferred to a LATER
+      edit, the same shape as PICK-1 (M9/M10) and GEOM-3, which is why this is
+      filed at their tier rather than DIM-1's "wrong the instant you look."
+      MECHANISM: `placeAt(point: Point2D)` (`apps/web/src/sketch/store.ts:805`)
+      receives only the resolved coordinate; the `SnapCandidate` already on
+      `resolution.candidate` (`apps/web/src/sketch/snap.ts:84-97`) carries
+      `entities: readonly string[]` — the exact id(s) an inferred coincident
+      needs — and nothing reads them at placement time. Fusion and SolidWorks
+      author that inferred constraint on snap; this is the gap between "aim
+      lands exactly on the target" (true here) and "stays attached" (false).
+      FIX: when `placeAt` resolves via an `origin`/`x-axis`/`y-axis`/endpoint/
+      midpoint snap (not the grid or a free point), author the matching
+      coincident (or on-axis) constraint against `resolution.candidate.
+      entities` at the same commit that adds the drawn entity — mirroring how
+      the drag-release gesture and the rigidity-set-on-first-dimension already
+      inject constraints alongside geometry. Needs a product decision on
+      SCOPE: infer for ALL entity-snap kinds (endpoint/midpoint too, closing a
+      second, older reading of "snap points don't work" — the corner separates
+      from its neighbour on edit) or just the datum frame (narrower, faster,
+      directly closes QA-SK2-4). Recommend shipping the datum-frame case first
+      (this ticket) and filing the general entity-snap case separately once
+      shipped, rather than blocking on the larger design. ACCEPTANCE: draw a
+      rect with a corner snapped to the origin, save, re-drive the width — the
+      corner stays at exactly (0,0), matching the `c`-grounded case; a new e2e
+      spec proves it, and a companion asserts the OLD behaviour (coordinate
+      copy, no constraint) is what's being replaced, i.e. the spec must fail
+      on current HEAD. Mutation check: skipping the inferred-constraint
+      authoring reddens the new spec's re-drive assertion only.
+      [src: independent QA of SKETCH-2, `docs/UI-REVIEW.md` QA-SK2-4,
+      2026-08-15]
+      TERRITORY: `apps/web/src/sketch/store.ts` (`placeAt`), `apps/web/src/
+      sketch/snap.ts`, `apps/web/src/sketch/datum.ts`, new e2e spec. Same
+      territory as SKETCH-2/the hydration-guard item below — do not run
+      concurrently with either. agentType: frontend-builder.
 
 - [ ] (P0, M) **FB-21 — the origin axis glyphs are labelled in KERNEL space but
       drawn in SCENE space, which the GLB rotation has already turned.**
@@ -554,6 +319,33 @@ duplication.
       TERRITORY: TBD by reproduction — likely `apps/web/src/viewport/**` or
       `apps/web/src/sketch/plane.ts`. agentType: frontend-builder.
 
+## Next (P2)
+
+- [ ] (P2, S) **SKETCH-3 — reserved-id hydration guard: an externally-authored
+      entity named `origin`/`x-axis`/`y-axis` would silently BECOME the sketch
+      frame.** Named and deliberately NOT built by the SKETCH-2 builder, with
+      reasoning worth preserving rather than re-litigating: `withoutDatums`
+      (`apps/web/src/sketch/datum.ts:182`) is id-based, so a foreign entity
+      sharing one of the three reserved ids would be hidden from drawing and
+      picking, and `groundDatums` (`datum.ts:237`) would pin it as though it
+      were the real frame. A correct fix is not cheap — renaming on hydration
+      risks references the client cannot enumerate (constraints, drawing
+      views, mate authoring all cite entity ids by string), and a warning that
+      only announces the collision without resolving it is decoration, not a
+      fix. Exposure is THEORETICAL today: nothing external authors sketch JSON
+      — Phase 5's scripting/MCP surface is the first path that would. FIX:
+      once Phase 5 lands a write surface, either namespace the reserved ids
+      out of the user-authorable range (e.g. a sigil no client-authored id can
+      produce) or validate + reject/rename on ingest with full reference
+      remapping. ACCEPTANCE: a hydration test that constructs a sketch with a
+      user entity literally named `origin` and asserts the frame is NOT
+      silently replaced (exact behaviour — reject vs. remap — is a product
+      decision to make when this is picked up, not implied by this ticket).
+      [src: SKETCH-2 builder, flagged not built, relayed by groomer 2026-08-15]
+      TERRITORY: `apps/web/src/sketch/datum.ts`, sketch persistence/hydration
+      path. agentType: frontend-builder. Gate on Phase 5 scripting surface
+      landing; do not build ahead of the exposure that makes it real.
+
 - [ ] (P1, XS) **FB-19b — FB-19 shipped (`f7c41d9`) but is not DONE: unreviewed,
       unQA'd, and the founder has not seen the before/after screenshots.**
       The chrome-density fix (label-beside-control `FieldRow` primitive,
@@ -573,8 +365,6 @@ duplication.
       TERRITORY: read-only verification; `apps/web/e2e/
       fb19-chrome-density.spec.ts` only if it needs a fix. agentType:
       frontend-builder or qa-tester.
-
-## Next (P2)
 
 - [ ] (P1, M) **FOUNDER — no Fusion-style hover-a-face-to-sketch.** Founder
       complaint: today, starting a sketch requires clicking the Sketch
@@ -686,6 +476,93 @@ duplication.
       [src: QA finding, relayed 2026-08-15 — process gap, not a single bug]
       TERRITORY: `apps/web/playwright.config.ts`, `.github/workflows/e2e.yml`.
       agentType: platform-builder or frontend-builder.
+
+- [ ] (P2, S) **TOUCH-2 — the sketch origin/frame grab disc is well under any
+      touch-target guideline: 9 px at the default camera, 4 px zoomed out 32
+      notches.** Measured by independent QA of SKETCH-2 (`c82ff09`,
+      `docs/UI-REVIEW.md`). Related to TOUCH-1 (no touch Playwright project
+      exists to have caught this) but a distinct product concern — the mouse
+      pick tolerance (`PICK_TOLERANCE_PX = 8`) the ring rides on is well below
+      WCAG 2.5.8's 24 px minimum, and unlike a drawn line a datum pin has no
+      alternate keyboard-reachable affordance advertised anywhere in the UI
+      (the SKETCH-2 QA found the keyboard Tab-to-origin path exists but
+      undiscoverable). FIX: give the frame's hit region a touch-specific
+      floor independent of the mouse pick tolerance (mirrors A7/SEL-1's
+      existing pattern of a generous invisible hit area with a tighter visual
+      mark). ACCEPTANCE: a touch-emulated pick (once TOUCH-1's project
+      exists) hits the origin/axis at >=24 px from centre at the default
+      camera; a unit test on the hit-region math independent of a touch
+      harness in the meantime. [src: independent QA of SKETCH-2, `docs/
+      UI-REVIEW.md`, 2026-08-15]
+      TERRITORY: `apps/web/src/sketch/datum.ts`, `apps/web/src/sketch/
+      origin.ts`. agentType: frontend-builder. Natural pairing with TOUCH-1;
+      does not require it to ship first (the hit-region fix is independent of
+      whether CI runs a touch project).
+
+- [ ] (P2, XS) **QA-SK2-3 — "Finish sketch" silently drops a click landing
+      during a live save, 2 in 10 under load.** `SketchStrip.tsx` disables the
+      Finish button `disabled={saving || …}` for the duration of every
+      constraint-edit's autosave; a click in that window is delivered to a
+      disabled button and does nothing, with no feedback — measured always at
+      `DOF 0 · CONVERGED`, i.e. the save had already succeeded. Pre-existing
+      (not introduced by SKETCH-2), but SKETCH-2 put grounding-then-finish on
+      the hot path so it is hit more often now. FIX: don't disable across a
+      live save (it's already committed server-side), or queue the click and
+      replay it when the save settles. ACCEPTANCE: a spec that triggers a
+      save-in-flight and clicks Finish during it asserts the sketch exits
+      (not silently ignored); reproduces the 2-in-10 rate before the fix,
+      0-in-N after over a comparable number of trials.
+      [src: independent QA of SKETCH-2, `docs/UI-REVIEW.md` QA-SK2-3,
+      2026-08-15]
+      TERRITORY: `apps/web/src/components/SketchStrip.tsx` (or equivalent),
+      `apps/web/src/sketch/store.ts` (`finishSketch`). agentType:
+      frontend-builder.
+
+- [ ] (P2, S) **SPEC-6 — `measureReach` in `pick-affordance.spec.ts` reads
+      `data-edge-pick-hover` with the same zero-settle pattern SPEC-5 found
+      and fixed for the hole scan's `data-hole-point-hover` — filed, not
+      fixed, and possibly already covered.** `measureReach` (`pick-affordance
+      .spec.ts:150`) does `page.mouse.move(...)` then immediately
+      `viewport.getAttribute(attribute)` with no wait for the React commit —
+      the exact shape SPEC-5 (`c7d3f2a`) diagnosed and fixed at the hole-point
+      call site, using an oracle that nulls the stamp against a known-off-body
+      position first so a lag can't masquerade as a fresh read. Here the
+      failure direction is the opposite of SPEC-5's (which under-read "on
+      face"): a lagging read on `measureReach` INFLATES perpendicular reach
+      against the fillet/measure/mate `<= 16 px` ceilings it feeds, i.e. it
+      fails SAFE (hides a defect rather than reporting a false one) — which is
+      exactly why nobody has been forced to notice yet. **CHECK FIRST**: a
+      builder was live sweeping this file for zero-settle attribute reads as
+      of this pass; before building a fix, confirm `measureReach` isn't
+      already covered by that sweep. ACCEPTANCE (if not already covered):
+      apply the same oracle pattern to `measureReach`'s attribute read;
+      re-measure the currently-green reach thresholds this call site feeds
+      (fillet/measure/mate specs) and confirm they don't move, or update them
+      with the corrected (smaller) measured reach if they do.
+      [src: ROADMAP CI-4 substrate pass, `8d5be24`/`c7d3f2a`, relayed
+      2026-08-15]
+      TERRITORY: `apps/web/e2e/pick-affordance.spec.ts` (`measureReach`).
+      agentType: frontend-builder. DO NOT dispatch concurrently with any
+      other agent already in this file — check git log / ask the orchestrator
+      first.
+
+- [ ] (P3, XS) **SPEC-7 — one observation, not a diagnosis:
+      `pick-affordance.spec.ts:780` ("SEL-6 — the default face hover sees
+      past a hidden body too") failed once on CI at `8d5be24`, with both
+      immediate descendant commits green.** Filed as a single data point per
+      this repo's own rule against diagnosing load-dependent failures from
+      few samples — the orchestrator has been wrong twice this session doing
+      exactly that. No cause is claimed. **CHECK FIRST**: a builder was live
+      sweeping this same file for zero-settle attribute reads as of this
+      pass (see SPEC-6); this single failure may already be explained or
+      fixed by that work — read `git log` for `pick-affordance.spec.ts`
+      before treating this as open. If still unexplained after that check:
+      re-run the test under load a handful of times and see whether it
+      reproduces before spending more on it; one CI sample with two green
+      descendants is not yet evidence of a standing defect.
+      [src: orchestrator CI observation, relayed 2026-08-15]
+      TERRITORY: `apps/web/e2e/pick-affordance.spec.ts`. agentType:
+      frontend-builder or qa-tester (reproduction first, before any fix).
 
 - [x] (P1, S) **K7 — Stop hook in-flight guard fixed. SHIPPED 29387da
       2026-08-14.** Depth-agnostic `find -path '*/tasks/*.output' -mmin -30`,
@@ -839,7 +716,26 @@ duplication.
       locally at HEAD (5 of 10 runs) with the ink plainly on screen at 0.74
       coverage — an anti-aliasing phase lottery in the census, not a rendering
       regression, and not the runner. See SPEC-4.
-      [src: orchestrator CI root-cause, 2026-08-11]
+      **SUBSTRATE PASS 2026-08-15 (`8d5be24`) — one of the suite's two named
+      failures root-caused and fixed, the other filed honestly unreproduced.**
+      `cameraPose: no camera captured` (`sketch-orbit.spec.ts`) was the probe
+      reading the camera before the demand-mode scene had rendered even once;
+      it now polls rAF-paced with a bounded deadline and names which of three
+      causes it's in on timeout. Ablation: 2/4 pass under 6 CPU hogs before,
+      6/6 after. The `sketch-on-face` screenshot-variant failure could NOT be
+      reproduced in ~35 starved local runs across six load-generation methods;
+      three candidate shared mechanisms with the camera-probe fix were each
+      ruled out by instrumentation (not argument), so it stays filed rather
+      than force-unified. Separately, `pick-affordance.spec.ts`'s hole-scan
+      read a React-state attribute with zero settle after `page.mouse.move`
+      and produced a false accusation of DIM-1 (`a810524`) before being
+      root-caused and fixed (`c7d3f2a`, SPEC-5) — see the note on
+      `measureReach`'s sibling exposure, filed separately below. NOT the same
+      ticket as QAH-1 (`qa-harness.spec.ts`, "renders while orbiting") —
+      different assertion, different mechanism, and QAH-1 was already CLOSED
+      before this substrate pass (`c3019b6`, an ancestor of `a658db4` outside
+      the window this pass first searched — see Done archive).
+      [src: orchestrator CI root-cause, 2026-08-11; substrate pass 2026-08-15]
 
 - [x] (P2, XS) **CI-2 — `deploy-path` never got the per-SHA concurrency fix, so
       it is still evicting runs** (`.github/workflows`). Filed 2026-08-08 by the
@@ -1099,7 +995,6 @@ duplication.
       but the trigger is small enough to be worth a regression case and a better
       error message. [docs/PERF.md 2026-08-01]
 
-
 Restocked 2026-07-23 (HEAD `0ed9f74`) — the overnight batch converged 18
 Ready items (WF-1/PB-1 width extents, drawings dead-capability drain D1-D4,
 MB-4c wire+frontend, e2e hardening) — all archived below (Done, one line
@@ -1275,7 +1170,6 @@ frame refactor are v2/§11. Spike de-collected.
       hole placed on any body's face drills THAT body; e2e on the two-body
       fixture asserting Solved + the Δ-volume for a hole on body 1.
       [src: qa-tester, SEL-7 verification 2026-08-11]
-
 
 - [x] (P2, M) **QA3-3 — selecting a Ø3 hole lit the whole plate; a feature now owns
       the faces whose SURFACE it created. CLOSED 2026-08-01** (kernel-architect).
@@ -1748,7 +1642,6 @@ geometry**: solid min along the normal equals the plane offset to 0 on XY, XZ,
 YZ and XY+30, volume exactly 10000.000000 mm³, footprint exactly the profile —
 so it is the pre-`5bd4c46` camera snap or a stale Codespace bundle (see FB-11).
 
-
 - [ ] (P2, S) **SEL-3 — stacked-candidate count badge** (`apps/web`). When
       `pickCandidates(...).length > 1` (sketch) or a raycast hit disagrees
       with a nearby armed-pick `PickNode` within tolerance, show a small `+N`
@@ -2137,6 +2030,82 @@ so it is the pre-`5bd4c46` camera snap or a stale Codespace bundle (see FB-11).
 
 ## Done — archive
 
+### QAH-1 CLOSED — found outside the range this groom pass first searched (2026-08-15 evening, backlog-groomer, corrected by the orchestrator)
+
+- **QAH-1** — e2e CI's "renders while orbiting" failure
+  (`qa-harness.spec.ts`, `Expected > 0, Received 0`). ROOT CAUSE: the
+  render-clock COLLECTOR, not the product — `diagnostics.ts:193` read
+  `rendersInProbeWindow: … ? null : 0, // MUTANT: always 0`, a mutation-test
+  constant `0580f7d` committed as product code while reconciling a stopped
+  agent's work without running its own e2e gate. FIXED `c3019b6`: measured
+  live, the scene rendered 38-48 times and the camera moved ~18 units while
+  the collector reported 0; post-fix the same window reads 9-of-9 frames
+  backed by a render. Ablated both directions (constant 0 -> red at the
+  orbiting assertion with CI's exact message; constant positive -> red at
+  the settled-scene assertion) and CI itself shows the target assertion
+  passing at `c3019b6`. A second, independent defect found while verifying
+  (`waitForQuiet`'s 20s wall-clock budget failing deterministically under
+  load, unrelated to the collector) fixed in the same commit.
+  **NOT the same defect as `8d5be24`'s `cameraPose: no camera captured`
+  race** (a different spec, a different mechanism — the probe reading before
+  the scene's first render vs. a broken render counter) — kept apart
+  correctly by this pass even while the range error below was live.
+  **PROCESS NOTE, the reason this needed a second look:** `c3019b6` is an
+  ANCESTOR of `a658db4` (`git merge-base --is-ancestor c3019b6 a658db4` ->
+  yes), so it was invisible to `git log a658db4..HEAD` — the range this
+  groom pass's dispatch brief specified. Re-deriving *inside* the given
+  range found nothing and produced a confident, well-evidenced, WRONG
+  conclusion ("no commit touches this assertion") — re-deriving is only as
+  good as the window it searches, and a truncated window can make "found
+  nothing" look identical to "there was nothing to find." The brief itself
+  was also wrong in a smaller way (QAH-1 was never ticked, because the
+  groomer held the board when it shipped and the fix's author chose not to
+  contend for it). Caught by the orchestrator re-reading `git log` against
+  the correct range, not by anything this pass did differently.
+
+### Reconciled from Ready — the founder's four 2026-08-01 sketcher reports all now answered (2026-08-15 evening, backlog-groomer)
+
+- **DIM-1** — dimension VALUE field silently wrote wrong geometry (`125` over
+  `43` -> `435`, no error). FIXED `a810524` (uncontrolled input, ref-backed).
+  Gate flipped from characterization to positive `810d9fb`, band widened to
+  `[60,100,150,200,250,60]` ms after ablation showed the original band passed
+  on a broken build ~1/3 of the time. NOT independently code-reviewed or
+  QA'd (fix and gate were written by two different agents, the nearest thing
+  to independence here).
+- **SNAP-1** — founder "snap points not working." NOT a snap-detection bug:
+  snap detection/placement measured correct in every buildable configuration
+  (`dbd7140`, 6 new specs). CLOSED as a duplicate of SKETCH-2 — the founder
+  could aim at the origin/axes and could not select them to constrain to.
+- **SKETCH-2 (M2)** — origin and axes made selectable constraint targets via
+  lazily-materialised pinned construction geometry (`5ceed6e`). Independent
+  QA (`c82ff09`) verdict PASS on the founder's complaint, with four defects
+  filed (QA-SK2-1..4 in `docs/UI-REVIEW.md`). Follow-up fix `8f00dec`/`09cec01`
+  closed the BLOCKING finding (symmetric-about-a-datum-axis reported
+  OVER-CONSTRAINED pointing at an undeletable, invisible pin — fixed by
+  filtering pin indices out of the solver's reported conflict/redundant sets
+  at one seam) plus QA-SK2-1 (the fixture wasn't actually rigid — fixed, all
+  four corners now verified) and QA-SK2-2 (modifier-click ordering so a
+  corner already at the origin can reach it). **Two QA findings remain open,
+  filed separately: QA-SK2-3 (Finish-button click drop) and SNAP-2 (snap
+  copies coordinate, infers no constraint — Ready, P0, the sharpest reading
+  of "snap points don't work" left standing).** Two numbers corrected by
+  review during this arc, both now fixed everywhere they appear: unit tests
+  1622->1659 (37 new, not 15); the origin-ring pick margin is
+  viewport-dependent (9.37 px at 1600x1000, 7.17 px — inside tolerance — at
+  1280x800), not "misses by construction" universally.
+- SKETCH-1, VP-1, VP-1a — all QA'd green (`6df1170`), still **none reviewed
+  by `code-reviewer`** — flagged, not re-filed as separate tickets; the debt
+  is the same class as K8 and belongs on the orchestrator's radar, not the
+  board.
+- **Mutation/debug-marker CI gate** (`56297d2`, `scripts/check-mutation-
+  markers.py`) — the grep-level guard `docs/RETRO.md` §4b asked for after
+  `0580f7d` shipped a stopped agent's `// MUTANT: always 0` as product code
+  with nothing but e2e able to catch it. Wired into `just lint` + CI;
+  23-case self-test, two negative controls on its own acquitting rules, a
+  non-vacuity floor (MIN_FILES=300) so a broken walk can't report clean. No
+  BACKLOG ticket tracked this ask before it shipped — process gap, noted so
+  the next RETRO-sourced ask gets filed rather than done silently.
+
 ### Reconciled from Ready — DIM-1 QA / QA7-1 / GEOM-2 / FB-19 groom pass (2026-08-15, backlog-groomer)
 
 - **QA7-1** — the SEL-7 Create-costs-nothing wait was vacuous and the two
@@ -2156,7 +2125,7 @@ so it is the pre-`5bd4c46` camera snap or a stale Codespace bundle (see FB-11).
   plus GEOM-4/GEOM-5 (Later) for the smaller follow-ups it also found.
 - **FB-19** — chrome density (label-beside-control `FieldRow` primitive).
   SHIPPED `f7c41d9`. Still not reviewed, not QA'd, screenshots not sent to the
-  founder — tracked as FB-19b (Ready) rather than closed here, per the K8
+  founder — tracked as FB-19b (Next) rather than closed here, per the K8
   convention (an `(UNREVIEWED)`-class item stays visible until both gates
   pass).
 - **QA-VERIFY-1 CLOSED** — both specs it asked to verify have now run:
@@ -2270,7 +2239,6 @@ of these lives in `docs/ROADMAP.md` and `git log`; one line each below.
   right-click context menus, drawings/HLR burn-down, assembly STEP PRODUCT
   naming, register template-feel fixes.
 
-
 Full narrative evidence lives in `docs/ROADMAP.md` (Phase 4/4b sections) and
 `CHANGELOG.md`; one line per item below per token economy.
 
@@ -2350,7 +2318,6 @@ Full narrative evidence lives in `docs/ROADMAP.md` (Phase 4/4b sections) and
 > after I had written the recipe against it. Annotated rather than rewritten:
 > agents have already rebased onto that commit. `scripts/stage-doc-hunks.py`
 > now exists so the correct path is the easy one.
-
 
 - **#31 — compose's projection-keyed anchors now REFUSE a repeated projection**
   instead of silently dropping a view from the print. The invariant that made it
@@ -2866,3 +2833,16 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
   archived QA7-1/GEOM-2/FB-19 shipped, QA-VERIFY-1 closed; filed GEOM-3/4/5
   (GEOM-2's quantified honest limit + durable fix) and TOUCH-1 (no touch
   Playwright project). Older entries: see `docs/CHANGELOG.md`.
+- 2026-08-15 evening — **Groom pass 5 (backlog-groomer):** all four founder
+  2026-08-01 sketcher reports now answered; archived DIM-1/SNAP-1/SKETCH-2 +
+  the SKETCH-2 follow-up fix (`8f00dec`, closes the blocking symmetric-datum
+  bug + QA-SK2-1/2). Filed SNAP-2 (P0 — snap infers no constraint, silent
+  drift on redrive), SKETCH-3, TOUCH-2, QA-SK2-3, SPEC-6/SPEC-7. Credited the
+  mutation-marker CI gate (`56297d2`) with a Done entry it had none of.
+  Wrongly concluded QAH-1 still open — corrected below, same evening.
+- 2026-08-15 evening — **Groom pass 5 correction (orchestrator-caught):**
+  pass 5 searched only `a658db4..HEAD` (the brief's range) and found nothing
+  touching QAH-1's assertion; the fix (`c3019b6`) is an ANCESTOR of
+  `a658db4`, invisible to that window. **QAH-1 is CLOSED** — see Done
+  archive for the evidence. Re-deriving from git log is only as good as the
+  range it searches.

@@ -39,6 +39,18 @@ were not being used and the orchestrator was doing their work by hand.
    measurement discipline as any other.
 2. **Dispatching batches** and assigning **disjoint territories**.
 3. **Integrating** green branches and verifying the MERGED tree before pushing.
+   **AND SENDING ANY SCREENSHOTS THE COMMIT ADDS, IN THE SAME TURN.** CLAUDE.md's
+   design mandate says "surfaced" means the orchestrator SENDS them with the
+   file-send tool — a PNG the founder never sees does not count. Make it
+   mechanical, because judgement fails here: after every cherry-pick, run
+   `git show --name-only <sha> -- docs/screenshots/` and send whatever it lists.
+   Measured 2026-08-15 when the founder had to ask: 17 shots were added across
+   the session and I sent 12. The five I sat on were the two that most directly
+   showed his own reported bugs — `dimension-pick-before-desktop.png`, which has
+   the whole "cannot assign a dimension" defect in one frame, and the SKETCH-1
+   re-open pair. I sent the shots for the two tickets whose agents happened to
+   mention screenshots in their reports, and missed the ones whose agents merely
+   committed them. Do not rely on the report; read the diff.
 4. **Relaunching dead agents** and reconciling their preserved work. **Run the
    gates that agent's work was ABOUT, not the gates that are cheap** — and read
    `git diff --cached` in full, every hunk, before committing it. On 2026-08-15 a

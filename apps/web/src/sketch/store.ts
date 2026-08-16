@@ -49,6 +49,7 @@ import {
 import { toggleCornerPick, type CornerOp } from "./corner";
 import {
   datumFrame,
+  datumSafeSolve,
   DEFAULT_FRAME_HALF_HEIGHT_MM,
   groundDatums,
   pickWithDatums,
@@ -895,6 +896,10 @@ const createSketchState = (
       toleranceMm,
       datumFrame(state.datumFrameHalfMm),
       pickMode,
+      // The standing selection is part of the question: a plain click whose
+      // only candidate is the invisible axis cross means "drop what I am
+      // holding", not "select the axis" (`pickWithDatums`).
+      state.selection,
     );
     // An ARMED dimension verb consumes this click instead of selecting with it:
     // the whole point of arming was that "select the line first" was the step
@@ -1423,13 +1428,21 @@ const createSketchState = (
   adoptSolved: (entities, solve, dimensions) => {
     const dims =
       dimensions === undefined ? {} : { solvedDimensions: [...dimensions] };
+    // THE seam where the solve report becomes something the user is shown.
+    // Sanitised once, here, rather than at each of the three readers (the DRO
+    // cell, the diagnostic banner, the flagged-glyph set) — one filter cannot
+    // disagree with itself, and a fourth reader gets it for free. The buffer is
+    // clean whenever this runs (PartPage adopts only then), so these indices
+    // and `state.constraints` describe the same sketch.
+    const safe = (state: SketchState): SolveInfo | null =>
+      solve === null ? null : datumSafeSolve(solve, state.constraints);
     if (entities === null) {
-      set({ solve, ...dims });
+      set((state) => ({ solve: safe(state), ...dims }));
       return;
     }
     const solvedById = new Map(entities.map((e) => [e.id, e]));
     set((state) => ({
-      solve,
+      solve: safe(state),
       ...dims,
       entities: state.entities.map((e) => solvedById.get(e.id) ?? e),
     }));
