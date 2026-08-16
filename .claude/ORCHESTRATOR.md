@@ -93,9 +93,23 @@ Modelled on `Overcastly-AI/next-lane`, which runs this in production. One batch
 per invocation; **chain the next batch on completion.**
 
 ```
-Audit  →  Groom  →  Build  →  Review  →  Verify  →  Integrate  →  (next batch)
+Discover  →  Audit  →  Groom  →  Build  →  Review  →  Verify  →  Integrate  →  (next)
 ```
 
+- **Discover** — `vision-steward`, competitive gaps against Fusion 360 and
+  Plasticity, owning `docs/VISION.md` + `docs/COMPETITIVE.md`. **THIS PHASE DID
+  NOT EXIST AND THE LOOP WAS STRUCTURALLY INCAPABLE OF SHIPPING A NEW FEATURE
+  WITHOUT IT.** Measured 2026-08-16 after the founder asked "is our idea agent
+  finding new ideas — we are not progressing new features": across ~45 commits,
+  22 docs / 9 fix / 8 test / **4 feat** / 2 ci, and all four feats were repairs
+  of founder-reported defects. Every one of the seven Ready items was a defect.
+  `VISION.md` and `COMPETITIVE.md` had been untouched for 16 days, and
+  `vision-steward` had **never been spawned** — 38 subagent spawns, zero of it.
+  The cause is structural, not lazy dispatch: the auditors find what is BROKEN
+  and the groomer curates from the auditors, so **nothing in the loop was
+  looking for what is ABSENT**. A defect-repair machine converges on a
+  well-repaired version of what it already is. Run it on the same cadence as the
+  audits, and feed its candidates to the groomer — it does NOT write the board.
 - **Audit** — `product-auditor` + `engineering-auditor` in parallel, independent,
   appending to their own docs as they go (write-early: we have lost two agents'
   entire reports to session limits). Roughly every third batch; the board does
