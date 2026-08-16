@@ -1726,3 +1726,193 @@ third (change a driving thickness) breaks the features downstream of it.
   empty striped rows (M22).
 
 _End of pass 2026-08-14._
+
+---
+
+## Pass 2026-08-16 — product audit (independent)
+
+**Setup.** Native boot (Docker registry blocked), isolated ports to avoid a
+concurrent agent's stack on 8270–8272: geometry `:8092`, documents `:8091`,
+gateway `:8090`, Vite `:5191`, own SQLite files (`paudit-*.db`). All three
+`/healthz`+`/readyz` → 200. Branch `claude/branch-review-development-hkbbnb`,
+tip `8bd8790`.
+
+**Job for this pass.** Re-run the *revision* workflow that the 2026-08-14 pass
+called the product's failure mode ("model once → yes; revise → no"), because
+five of that pass's P0s are claimed shipped since (SKETCH-1 sketch re-open,
+SKETCH-2 origin/axis references, GEOM-2 tier 4 on the face-signature break,
+DIM-1, VP-1). Then model a *new* real part end-to-end and judge tool feel.
+
+_Findings appended below as they are measured._
+
+### P-1 — The camera never comes back from the sketch, so you model a solid you cannot see. **Rating 1/5 (flow)**
+
+Measured, whole run A: `new-sketch` → `plane-XY` orients top-down (correct). On
+`sketch-save` the view **stays top-down**, and it stays there for every
+subsequent feature. Evidence `shots/a05`, `a06`, `a07`: after an 8 mm extrude of
+a 90 × 60 profile the viewport shows a **flat, uniform tan rectangle** — no
+thickness, no edges, no shading gradient, no perspective. The inspector says
+`Extents 90 × 60 × 8` and `Faces 6`; the picture says "you drew a rectangle".
+The only thing telling you a solid exists is a number in a side panel.
+
+Fusion 360 restores the pre-sketch orientation on Finish Sketch, and Onshape
+does the same; Plasticity never leaves the 3D view at all. Loft's own coach
+mark ("MOVE THE VIEW · DRAG orbit") is on screen at the same moment, which is
+the tool admitting the user has to fix the framing by hand after every sketch.
+This compounds P-2: with no orthographic mode and no snap-to-iso, recovering a
+readable view is a freehand drag every single time.
+
+**Also unframed:** the solved sketch in `a05` runs off the top and right edges
+of the viewport — a 90 × 60 profile drawn at the default zoom is *clipped*, and
+nothing zoom-to-fits after the solve moves the geometry.
+
+### P-2 — Fillet cannot select the edges an engineer means. **Rating 2/5**
+
+`fillet-edges` offers exactly four options: `All edges`, `Edges parallel to X`,
+`Y`, `Z`. There is no "pick these edges in the viewport" mode reachable from the
+fillet editor (contrast: SolidWorks/Fusion/Onshape all start from a viewport
+edge/face/feature selection). The consequence is not cosmetic: the most common
+plate operation — round the four *corners* of a plate, leave the top and bottom
+sharp — is only expressible if the corners happen to be axis-parallel to Z, and
+"break all the top edges 0.5 mm" is not expressible at all.
+
+**And the default fails.** `new-fillet` → r6 → Enter on a 90 × 60 × 8 plate
+returns `FILLET_FAILED — Fillet failed in the kernel (ValueError); the radius
+(6.0 mm) may be too large for an adjacent face.` That is *geometrically correct*
+(6 + 6 > 8 across the plate thickness) and the diagnosis is genuinely good — a
+typed code, a plain-English cause, an `ERR` row, a `Partial · built to Extrude1`
+status. But the tool put the user there: the editor defaults to `All edges`,
+offers no preview, and does not tell you which edges are the problem.
+
+### P-3 — A failed tip feature makes the good body unexportable. **Rating 2/5**
+
+Same state (`shots/a07`): `Body 1` is present, valid, `built to Extrude1`, and
+rendered. `EXPORT` reads `Fillet1 failed`, and **both STEP and STL are
+disabled**. So a valid solid that the product is drawing on screen cannot leave
+the product because a *later* feature errored. Fusion/Onshape both let you roll
+back and export the last good state; here the rollback bar (`TIMELINE 03/03`,
+`TO TIP`) exists but rolling back was not offered as the remedy anywhere in the
+error, and the export strip's own words name a feature, not an action.
+
+### P-4 — Toolbar is 18 unlabelled glyphs, 17 of them disabled on entry. **Rating 2/5 (discoverability)**
+
+`shots/a02`: a new part shows `CREATE / MODIFY / SHEET METAL / INSPECT` groups
+containing 18 icon-only buttons. Exactly one (`new-sketch`) is enabled —
+measured: `new-sketch:ON` and every other `new-*` off. Nothing in the viewport
+says "start here"; the empty state is a bare grid plus a view-navigation coach
+mark. Fusion labels its toolbar buttons with text and Onshape uses distinct,
+named icons; Loft's are small monochrome line glyphs where e.g. the two fillet/
+chamfer marks and the six sheet-metal marks are hard to tell apart at a glance.
+Hover tooltips exist ("Fillet" is visible in `a07`) but tooltips are a fallback,
+not discovery. **The disabled buttons do carry honest reasons** ("Create a body
+first", "Draw a profile and a path sketch") — that part is better than the
+incumbents and worth keeping.
+
+### P-0 (headline) — The rectangle tool authors FOUR LOOSE LINES AND ZERO CONSTRAINTS, so the first parametric edit destroys the part. **Rating 1/5**
+
+This is the finding of the pass. It is not a UI nit; it breaks the product's
+core promise.
+
+**Reproduction (run B, full UI, no API shortcuts).** Sketch a rectangle with
+the `R` tool at exactly (0,0)→(90,60); ground the near corner to the sketch
+origin (`coincident`); dimension the bottom edge 90 and the right edge 60;
+finish. Extrude 8 mm (`Volume 43,200 mm³`, `Extents 90 × 60 × 8`). Fillet the
+four vertical corners r6 (`42,952.78 mm³`). Drill a Ø6.6 through hole
+(`42,679.08 mm³`). Four green `OK` rows. Then do the one thing parametric CAD
+exists for: re-open Sketch1 (works — SKETCH-1 has shipped, single click on the
+tree row re-enters with entities *and* dimension glyphs `C | 90 | 60` intact,
+2.5 s), double-click the `90` glyph (works, editor opens inline), type 110,
+finish. Result:
+
+```
+01 Sketch1  sketch  OK
+02 Extrude1 extrude ERR  PROFILE_NOT_CLOSED
+     This profile isn't a closed region to extrude. Close every gap between
+     its edges so the sketch forms one continuous loop.
+     Not attempted: the 2 features below.
+03 Fillet1  fillet  SKIP
+04 Hole1    hole    SKIP
+```
+
+**Root cause, measured directly off the API** (run C — draw the rectangle in the
+UI, then read `GET /api/v1/parts/{id}/features`):
+
+```json
+"entities":    [ {"id":"e1","kind":"line","start":{"x":0,"y":0}, "end":{"x":90,"y":0}},
+                 {"id":"e2","kind":"line","start":{"x":90,"y":0},"end":{"x":90,"y":60}},
+                 {"id":"e3","kind":"line","start":{"x":90,"y":60},"end":{"x":0,"y":60}},
+                 {"id":"e4","kind":"line","start":{"x":0,"y":60}, "end":{"x":0,"y":0}} ],
+"constraints": [ {"kind":"distance","entity":"e1","value_mm":90} ]
+```
+
+Four free segments that merely *coincide numerically* at the corners, and the
+only constraint in the file is the dimension the user typed. **The rectangle
+tool emits no coincidence, no horizontal, no vertical, no perpendicular.** So
+driving the 90 moves `e1` and leaves `e2`/`e4` where they were — the loop opens,
+and everything downstream of it dies.
+
+**What the incumbents do.** In SolidWorks, Fusion 360, Onshape and FreeCAD the
+rectangle tool emits its own constraints at creation (2 horizontal + 2 vertical
++ 4 coincident, or the perpendicular equivalent) — a drawn rectangle is *rigid*
+before you dimension anything, and the sketcher additionally infers constraints
+from the cursor while you draw (Onshape and Fusion show the inference glyph
+under the cursor before the click). Loft has the constraint *vocabulary* — I
+applied coincident-to-origin successfully, `H`/`V`/`C`/`D` all work — but no
+**inference and no tool-authored constraints**, so a sketch is unconstrained
+unless the user hand-authors every relation. For this rectangle that is 8 extra
+gestures (4 × click+shift-click+`c`, plus H/V) *before* any dimension, and the
+tool never says they are missing: the strip reads `3 applied` and `SOLVE
+Solved`, and the tree reads `OK`, right up until the edit that tears it apart.
+
+This also explains the shape of the previously-filed SNAP-2 ("a snap copies the
+coordinate but authors no constraint"): SNAP-2 is the same defect seen through
+the snapping system. The general statement is **Loft records positions where the
+incumbents record intent**, and a parametric model made of positions is not
+parametric.
+
+**Consequences for the scorecard.** "Sketching & constraints ➖" is measuring the
+wrong thing — the Notes cell argues about over-constraint diagnosis, dimension
+expressions and splines while the *base* case (draw a rectangle, change a
+dimension) fails outright. On the operating question the honest answer moves
+backwards from the 2026-08-14 pass: not merely "revision is hard", but **the
+canonical parametric edit corrupts a good model, silently, with no prior
+warning.** Nothing else in this audit outranks it.
+
+### P-0b — Control experiment: the solver is fine; only the authoring is missing. **(evidence for P-0)**
+
+To be sure P-0 is the *tool*, not the *solver*, I built the identical rectangle
+through the API with the eight constraints the incumbents' rectangle tool would
+have emitted (4 coincident + 2 horizontal + 2 vertical) plus the two dimensions,
+extruded it, then PATCHed the 90 → 110 and re-evaluated:
+
+```
+sketch create: 201 · extrude create: 201 · evaluate: 200
+patch dim 90->110: 200
+evaluate after re-drive: 200
+FEATURE <sketch>  ok | sketchStatus: underconstrained
+FEATURE <extrude> ok |  (rebuilt, no error)
+```
+
+The loop stays closed and the extrude rebuilds. So the solver, the tree, the
+rebuild and the PATCH path all work — **the entire defect is that the rectangle
+tool does not author the constraints.** Fixing it is additive and localised.
+
+### P-0c — The backend already computes `underconstrained`, and the UI throws it away. **Rating 2/5**
+
+Same payload: every sketch evaluation carries `data.status`, and for the
+control it read `"underconstrained"`. The UI's only sketch state readouts are
+the tree panel's `SOLVE Solved` and the sketch strip's `N applied`. There is no
+"fully constrained" indicator, no degrees-of-freedom count, and no
+under-vs-fully-constrained colour on the entities — all four incumbents
+(SolidWorks black/blue, Fusion's status text, Onshape's "Fully constrained"
+banner, FreeCAD's DoF readout) make this the single most-read piece of state in
+the sketcher, because it is how you know whether the model will survive an edit.
+Loft has the datum on the wire and does not show it. Note the control's re-drive
+also *translated the whole profile* (e1 moved from x=0 to x=−11.44) precisely
+because it was underconstrained — the exact failure the missing readout is
+supposed to warn you about.
+
+Two more small readout faults seen in the same frames: the status bar reads
+`SOLVE SOLVING…` at the same instant the tree panel reads `SOLVE Solved`
+(`shots/a04`, `b04`) — two solve readouts that disagree; and `Solved` is used
+where the incumbents say `Fully constrained`, which means a different thing.

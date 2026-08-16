@@ -54,7 +54,6 @@ export const meta = {
 const READY = {
   type: 'object',
   additionalProperties: false,
-  required: ['items'],
   properties: {
     items: {
       type: 'array',

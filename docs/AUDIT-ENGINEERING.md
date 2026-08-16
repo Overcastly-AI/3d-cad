@@ -2714,3 +2714,489 @@ looked at it.
   me. The stack my e2e runs used was booted by a sibling at 02:54:14, after HEAD,
   and was healthy throughout; I did not boot a fresh one, and my pre-flight check
   that claimed no listener existed was itself a false negative (see K1's caveat).
+
+---
+
+## 2026-08-16 — Pass 6: post-SKETCH-2 / DIM-1 / loop-rebuild batch
+
+Scope: committed HEAD `8bd8790` on `claude/branch-review-development-hkbbnb`,
+48 commits since the last pass's `133a009` (+17 777 / −3 214 over 90 files).
+The batch is almost entirely `apps/web` + `apps/web/e2e` + process/loop
+infrastructure; `services/geometry` moved only in `kernel/faces.py` (GEOM-2/M17).
+Brief named two threads — RETRO §4 (gates that cannot fail) and CI-4/QA7-1
+(per-commit e2e trust) — both addressed below with measurements.
+
+### Gate re-verification (ran myself, not trusted)
+
+| Gate | Result |
+|---|---|
+| `just lint` | **RED, exit 1.** ruff check clean; `ruff format --check` 339 files clean; `pyright` 0 errors; **`pnpm run lint` → eslint 44 errors**, 36 of them in a *tracked* file at HEAD. `prettier --check .` clean (run separately — eslint short-circuits it). See **L1**. |
+| `just test` | Running; result recorded at the end of this pass. |
+| `check-mutation-markers.py` + `--self-test` | **PASS** (884 files clean, 8 patterns proven live, 23 self-test cases incl. two negative controls). 1.0 s. |
+| `check-licences.py --self-test` | **PASS** — watched it fail on the vendored GPL `libjbig` and pass after the strip. |
+| `check-build-context.py` / `check-workflow-concurrency.py` / `check-compose.py` | PASS (45 COPY sources; 3 workflows keyed per commit; compose invariants hold). |
+| Dependency manifests | **Zero changes** in the whole 48-commit batch (`git diff 133a009..HEAD -- '**/pyproject.toml' '**/package.json' uv.lock pnpm-lock.yaml` is empty) → **no new licence exposure this pass.** |
+
+### L1 — HEAD IS LINT-RED, AND SO ARE THE TWO COMMITS BEFORE IT. `just lint` fails on committed bytes; CI's `ts` job runs the identical command. **P0 · CONFIRMED (reproduced on HEAD bytes)** · red push
+
+```
+$ just lint
+…
+uv run pyright → 0 errors, 0 warnings, 0 informations
+pnpm run lint
+> eslint . && prettier --check .
+
+/home/user/3d-cad/.claude/workflows/loft-dev-loop.js
+   93:3   error  Duplicate key 'required'   no-dupe-keys
+  147:20  error  'args' is not defined      no-undef
+  … 34 more …
+✖ 44 problems (44 errors, 0 warnings)
+error: recipe `lint` failed on line 61 with exit code 1
+```
+
+Isolating the tracked file from my environment (the 8 remaining errors are L2):
+
+```
+$ npx eslint . --ignore-pattern '.claude/worktrees/**'
+✖ 36 problems (36 errors, 0 warnings)      # all in .claude/workflows/loft-dev-loop.js
+```
+
+The file is **tracked and unmodified in my worktree** (`git status` shows only
+`docs/VISION.md` dirty), added by `2d51a74` and extended by `8bd8790` — the tip.
+`.github/workflows/ci.yml:121-122` runs `pnpm run lint`, i.e. root `eslint .`,
+on a clean checkout, so **the last two commits are red in CI's `ts` job for a
+reason that has nothing to do with any local environment.** This is the standing
+"never push a red build" rule, broken by the loop-infrastructure commits
+themselves.
+
+Why eslint sees it and nobody expected it to: `.prettierignore` lists `.claude/`
+but `eslint.config.js:6-14`'s `ignores` does **not** — it names
+`node_modules`, `dist`, `.venv`, `packages/contracts`, `packages/ts-client`.
+`loft-dev-loop.js` is the first `.js` ever committed under `.claude/`, so the
+gap was latent until this batch. The `scripts/**/*.mjs` Node-globals override at
+`eslint.config.js:20-30` does not match it either, hence 35 × `no-undef` for
+`args`/`phase`/`agent`/`log`/`pipeline` — which are the workflow DSL's injected
+globals, not defects.
+
+One of the 36 is **not** a config gap and deserves the groomer's eye:
+
+```js
+// .claude/workflows/loft-dev-loop.js:55-93
+  type: 'object',
+  additionalProperties: false,
+  required: ['items'],          //  <-- line 57
+  properties: { items: {…}, ratio: {…} },
+  required: ['items', 'ratio'], //  <-- line 93, duplicate key
+}
+```
+
+JS keeps the **last** literal, so the effective schema is the intended
+`['items','ratio']` and behaviour is correct today — but the batch schema of the
+loop driver now carries two contradictory statements of its own contract, and
+the next edit to line 57 will be silently discarded. Fix both: add `.claude/` (or
+at minimum `.claude/workflows/*.js` with the DSL globals declared) to the eslint
+config, and delete the stale `required`.
+
+**Note for the groomer on what this says about the loop, not just the file:**
+`8bd8790` and `2d51a74` are *process* commits, and the process rule they break
+is the one about pushing red. A commit that changes the loop is not exempt from
+the loop's gates.
+
+### L2 — `eslint .` walks `.claude/worktrees/**`, so the MANDATED isolation mechanism turns the shared gate red. **P2 · CONFIRMED (measured)** · gate hygiene
+
+```
+$ npx eslint .          # 44 errors = 36 (L1) + 8
+/home/user/3d-cad/.claude/worktrees/agent-a5c56b810ea6d30d6/scripts/gen-ts-client.mjs
+  23:31  error  'URL' is not defined      no-undef
+  74:3   error  'console' is not defined  no-undef
+  75:38  error  'process' is not defined  no-undef
+  75:78  error  'process' is not defined  no-undef
+… identical 4 for agent-a694a2e9a01c8a3c2
+$ git worktree list
+/home/user/3d-cad/.claude/worktrees/agent-a5c56b810ea6d30d6  10714a6 [locked]
+/home/user/3d-cad/.claude/worktrees/agent-a694a2e9a01c8a3c2  10714a6 [locked]
+```
+
+`.claude/worktrees/` is gitignored (`.gitignore:38`) and prettier-ignored (via
+`.claude/`), but eslint 9 flat config does **not** read `.gitignore`, so every
+per-agent worktree is linted as part of the parent checkout. The errors are
+artefacts of nesting: the root config's `files: ["scripts/**/*.mjs"]` globals
+override does not match `.claude/worktrees/<agent>/scripts/gen-ts-client.mjs`, so
+a file that is lint-clean at its own root is red one level down.
+
+Three consequences, in increasing severity:
+
+1. **The failure names a colleague's territory.** CLAUDE.md already carries a
+   recipe for exactly this misread ("a fresh worktree gives FALSE prettier/tsc
+   failures … do not report it as a colleague's regression"); this is a second,
+   *permanent* generator of the same illusion, in the direction the recipe does
+   not cover (parent tree, not the worktree).
+2. **It is latent and grows.** Only `gen-ts-client.mjs` errors today. A builder
+   with half-finished `apps/web/src/**.tsx` in a worktree gets those files linted
+   by the *root* config (the `apps/web` config does not apply at that nesting),
+   i.e. under rules that were never meant for them — an arbitrary red in the
+   batch-boundary gate, caused by work that is by design not ready.
+3. **CI cannot see any of it**, because CI checks out a clean tree. So this is a
+   local-only red: the gate is *stricter* locally than in CI, which is the
+   direction that trains people to dismiss lint failures — and L1 is precisely
+   the failure that then gets dismissed with it. The two findings compound.
+
+Fix: add `".claude/worktrees/**"` to `eslint.config.js`'s `ignores` (and
+consider `includeIgnoreFile(".gitignore")` from `@eslint/compat` so the ignore
+sets cannot drift again).
+
+### L3 — The route-authorisation gate is still not built. **P2 · CONFIRMED (re-measured) · fourth consecutive pass** · security coverage
+
+Re-ran my own sweep at HEAD (script in this pass's scratch; it recurses
+`_IncludedRouter.original_router`, the FastAPI-0.139 trap the last pass
+documented, and treats a route as protected if `current_user` / `CurrentUser` /
+`require_user` / `owner_id` / `user_id` appears anywhere in its resolved
+dependant or endpoint signature):
+
+```
+== gateway:   87 routes, 5 without auth/owner marker
+     GET /healthz | GET /metrics | GET /readyz
+     POST /api/v1/auth/login | POST /api/v1/auth/register
+== documents: 64 routes, 4 without auth/owner marker
+     GET /api/v1/materials | GET /healthz | GET /metrics | GET /readyz
+== geometry:  27 routes, all identity-free by design (internal, unpublished)
+```
+
+**The posture is correct and unchanged from 2026-08-14** (87/5, 64/4, 27) — the
+backend did not move this batch. What is unchanged too is that *nothing in the
+test suite asserts it*: `services/gateway/tests/` has 31 files, none of which
+enumerates routes; a new route that forgets `CurrentUser` is caught only if
+someone writes a test for that route specifically. Filed as J7 → K2 → now L3.
+It is the highest security coverage per line available and it has now been
+recommended three times without landing.
+
+### L4 — The e2e cost model's blank is still blank, and the suite has grown another 9 %. **P2 · CONFIRMED (measured)** · CI-4 critical path
+
+```
+$ npx playwright test --list
+Total: 516 tests in 109 files
+```
+
+Against **473 / 99** measured on 2026-08-14 (+9 % in two days) and **352** — the
+number `.github/workflows/e2e.yml`'s cost model was written for (**+47 %**).
+Line 88 of that file still reads, verbatim:
+
+```
+#   per-shard wall on a hosted runner: ____ min (fill in from `e2e complete`)
+```
+
+`e2e-shard-audit.py --timeline` has printed that number on **every** run, green
+ones included, since 08-11; its `--self-test` passes here ("the gate can fail",
+6 named cases). So the decision rule — "past ~30 min per shard, raise the matrix
+to 6" — has had an instrument for five days and no reading, while the input to
+it grew by half. This is on CI-4's critical path twice over: it is the number
+that says whether shards are near the 40-minute step ceiling, and it is the
+"do failures cluster late in a shard?" evidence CI-4's own FIRST MOVES ask for.
+
+### L5 — `frontend-qa` is the one agent of fourteen the new loop never dispatches, and it owns the standing founder priority. **P2 · CONFIRMED (measured)** · loop health
+
+`8bd8790`'s message says "the last three unused agents are now pulled by the
+loop". Counted, per agent file, against `.claude/workflows/loft-dev-loop.js`:
+
+```
+backend-builder 1 · backlog-groomer 6 · code-reviewer 1 · doc-syncer 3
+engineering-auditor 2 · frontend-builder 1 · frontend-qa 0 · geometry-qa 3
+kernel-architect 2 · oss-curator 3 · platform-builder 2 · product-auditor 2
+qa-tester 1 · vision-steward 3
+```
+
+The Verify phase picks its verifier by territory and has exactly two branches
+(`loft-dev-loop.js:512`):
+
+```js
+const kernel = isKernelAdjacent(item)
+const verifier = kernel ? 'geometry-qa' : 'qa-tester'
+```
+
+so a UI item is verified by `qa-tester` and **never** by `frontend-qa` —
+the agent CLAUDE.md assigns "design/a11y/consistency → `docs/UI-REVIEW.md`",
+i.e. the reviewer for the DESIGN MANDATE that CLAUDE.md marks a STANDING FOUNDER
+PRIORITY. Corroborating evidence that this is a real gap and not a naming
+quibble: the last two commits to touch `docs/UI-REVIEW.md` are `c82ff09` and
+`6df1170`, both `test(e2e)` commits from QA agents, not a `frontend-qa` pass.
+And this batch is almost entirely UI.
+
+The irony is the finding: the loop was built precisely because eight agents had
+never been invoked, and it ships with one still unwired — the one whose subject
+the founder has named a standing priority. Fix is small: route items whose
+territory is `apps/web/**` or `packages/design/**` through a `frontend-qa`
+spot-check phase (CLAUDE.md's loop already prescribes it: "`frontend-qa`
+spot-check").
+
+### L6 — `loop-continue.sh --self-test` writes to the very artefact the guard reads, so running it can silence the loop for 30 minutes. **P3 · CONFIRMED (reproduced)** · gate side effect
+
+```
+$ bash scripts/loop-continue.sh --self-test
+probe: /tmp/claude-0/…/tasks/bevd53rxb.output
+PASS: guard 2 fires on a harness-produced task output
+…
+```
+
+`scripts/loop-continue.sh:92` does `touch -h "$probe"` on a REAL harness output
+picked by `find … | head -1` — which may belong to a long-dead session. The
+guard's own window is `-mmin -30`, so a self-test run makes `tasks_in_flight`
+return true for the next half hour regardless of whether anything is live, and
+the Stop hook then exits 0 ("work in flight, say nothing") — i.e. **verifying
+the loop's liveness guard suppresses the loop.** The rest of the self-test is
+excellent (it refuses rather than passes when there is no harness artefact, and
+its 2 000-file negative control is sized to the SIGPIPE defect); this is the one
+seam left. Fix: copy the probe into the temp root and touch the copy — the
+depth-shape replay it already does for the window control.
+
+### L7 — `git merge-base main HEAD` is EMPTY, so 23 evidence SHAs in the board resolve to nothing on this branch. **P3 · CONFIRMED (measured)** · record integrity
+
+```
+$ git merge-base main HEAD          # (no output)
+$ git rev-list --count main..HEAD   # 178
+$ git rev-list --count HEAD..main   # 166
+$ wc -l .git/shallow                # 7
+```
+
+The clone is shallow with seven grafted boundary commits, and the two branches'
+`--max-parents=0` roots differ (`0d3ea59` 2026-07-31 vs `ae6b920` 2026-07-23),
+so the histories are formally disjoint here. Consequence, measured by scanning
+every 7-40 hex token in the two board files and classifying it:
+
+| file | SHAs that are ancestors of HEAD | SHAs that are commits but NOT ancestors |
+|---|---|---|
+| `docs/ROADMAP.md` | 36 | **14** |
+| `docs/BACKLOG.md` | 41 | **9** |
+
+Of the 23, five are **rebase twins** — the same commit message exists on the
+branch under a different SHA (`09cec01`→`8f00dec`, `db144d7`→`07c4005`,
+`2076de4`→`43a4efd`, `2f0b361`→`c7d3f2a`), i.e. the board cites a SHA that no
+longer exists in the history it describes. The other eighteen are pre-shallow-
+boundary commits reachable only via `main`. **No code is missing** — I checked:
+`git diff --name-status main HEAD -- services/geometry/src` reports zero
+deletions, so the branch is a content superset. So this is a record-integrity
+and tooling issue, not lost work: `git merge-base`, `git log main..HEAD` and
+anything reasoning about "on main vs on the branch" give nonsense in this
+checkout, and a citation like "`09cec01` closed the review finding" (ROADMAP's
+current-focus paragraph) cannot be verified by `git log 09cec01` on a fresh
+clone. Cheapest fix: cite SHAs only after the commit is on the branch it will
+live on, and re-derive when a worktree branch is rebased in.
+
+### What I re-verified as GENUINELY CLEAN (so the groomer can spend attention elsewhere)
+
+* **Licence hygiene: nothing to audit.** Zero dependency-manifest changes in 48
+  commits. `check-licences.py --self-test` passes and I watched it go red on the
+  vendored GPL `libjbig` and green after the strip.
+* **Service boundaries: clean.** No `OCP`/`build123d` import outside
+  `services/geometry` except the one documented 3-service integration test
+  (`services/gateway/tests/test_assembly_import_chain.py:56`); no
+  sqlalchemy/asyncpg/psycopg anywhere in `services/geometry/src`; no `:8001`/
+  `:8002` reference in `apps/web/src`.
+* **Typing: clean.** `pyright` strict 0 errors/0 warnings over the workspace;
+  the only two grep hits for `any` / `@ts-expect-error` / `eslint-disable` in
+  `apps/web/src` + `packages/design/src` are the word "any" **in prose**
+  (`ConstraintGlyphs.tsx:638`, `store.ts:32`).
+* **DRY: clean.** All 29 `apps/web/src/api/*.ts` import their types from
+  `@loft/ts-client` except three that have no API types to import
+  (`envelope.ts`, and two test files); 7 hex literals in all of `apps/web/src`.
+* **No ad-hoc SQL.** One `sa.text("SELECT 1")`, in py-kit's readiness probe.
+* **No ad-hoc epsilons in the new sketch geometry.** `datum.ts` (474 new lines)
+  takes `toleranceMm` as a parameter throughout; the frontend's few constants
+  are named, documented and justified against a kernel counterpart
+  (`plane.ts:229 MIDPLANE_PARALLEL_TOLERANCE = 1e-9` "the port of" the kernel's;
+  `snap.ts:173 TOUCH_MM`, `:176 DUPLICATE_MM`, `pick.ts:23 PICK_TOLERANCE_PX`).
+* **Assertion-free tests: 35 of 2 196 blocks, and I checked a sample — none is a
+  defect.** Every one I opened puts its assertions in a shared helper
+  (`hole.spec.ts:698` → `recessAuthoringShot`, which asserts the thread
+  designation and the derived tap-drill diameter) or is a founder-screenshot
+  capture whose flow still fails on a crash or timeout.
+* **`check-mutation-markers.py` (new this batch) is a good gate.** 884 files in
+  1.0 s, 23 self-test cases including two negative controls that reproduce the
+  defect it was built for, a `MIN_FILES` non-vacuity floor, a canary corpus every
+  pattern must match on every invocation, and a single-exact-path self-exemption
+  whose own case proves the exemption cannot grow. It is wired into `just lint`
+  (justfile:89-90) **and** CI (`ci.yml:197-198`). This is the shape RETRO §4 asks
+  for; it is worth naming as the template.
+* **`e2e-shard-audit.py --self-test`, `check-workflow-concurrency.py
+  --self-test`, `check-build-context.py`, `check-compose.py`** all pass, and the
+  first two print an explicit "the gate can fail" after exercising negative
+  controls.
+* **QA7-1b is genuinely latent.** I swept every `eval-status` assertion in all
+  109 spec files: 127 × `toHaveText("Solved")`, 18 + 1 × `"Failed"`,
+  1 × `/Solved|Failed/`. **Zero** out-of-vocabulary claims, so the scanner's
+  known blind spot (`page.locator("[data-testid=eval-status]")` shapes) is not
+  hiding a live defect today.
+
+### L8 — CI-4's three named mechanisms all have code-level answers now; what is missing is the READING. **P2 · CONFIRMED (code read)** · board accuracy
+
+The BACKLOG entry (`docs/BACKLOG.md:666-700`) still presents (a), (b) and (c) as
+the live evidence. Reading the tree at HEAD, each has been answered:
+
+* **(a) `interaction-depth.spec.ts:40`, "colour count 316 vs > 336".** The
+  absolute threshold is gone. It is now
+  `expect.poll(() => distinctCanvasColors(page), { timeout: 10_000 }).toBeGreaterThan(inkColors + 8)`
+  (`interaction-depth.spec.ts:61-63`) — a *relative* comparison against the same
+  frame's own pre-extrude reading, behind a retrying poll, plus a
+  raster-independent `extrude-preview-active` marker asserted first.
+* **(b) `502 upstream_unavailable / ReadError` with no server-side evidence.**
+  `e2e.yml:282-291` now uploads `e2e-logs-shard-*` and `e2e-metrics-shard-*` on
+  `if: always()` and tails 60 lines into the job log on failure — CI-4's own
+  FIRST MOVE (1), shipped.
+* **(c) `sketch-visibility.spec.ts:164`, `countTokenPixels(…, "#E9F1F8") = 0`
+  against a floor of 120.** The assertion moved to `measureInkCoverage`
+  (`sketch-visibility.spec.ts:265-330`), and the old exact-token count is kept
+  only as a recorded census. The comment carries the measurement that settles
+  it: the exact-token count **returned 0 on 5 of 10 HEALTHY runs**, with the
+  mutant separation (healthy coverage 1168.32 vs `depthTest:true` 212.49) as the
+  floor's justification. So (c) was never substrate — it was an
+  exact-token-match instrument on an anti-aliased 1 px GL line.
+
+Corroboration that the lesson took: `sketch-reopen.spec.ts:29-38` (new this
+batch) explicitly *rejects* a canvas-ink census for the same reason and asserts
+hydration in the DOM instead. Only **4 spec files / 13 call sites** in the whole
+109-file suite still touch raster pixel counting.
+
+So CI-4's remaining content is not more spec work — it is the one step nobody
+has taken: **read a run.** Two numbers would close or re-open it: the per-shard
+wall from `--timeline` (L4), and whether the last N pushes were green. Neither
+is available to a subagent; both are one orchestrator CI read. Recommend the
+groomer re-scope CI-4 from "P1, M, umbrella over three spec mechanisms" to
+"P1, XS, read the last five e2e runs and either close it or name the surviving
+mechanism with the artifacts that now exist".
+
+### L9 — Loop throughput: 47 % of the last 30 commits change nothing but docs and `.claude/`, and the only two `feat` commits in that window are the loop itself. **P2 · CONFIRMED (measured)** · process rot
+
+```
+$ git log -30 --format='%s' | grep -oE '^[a-z]+' | sort | uniq -c | sort -rn
+     13 docs      7 test      6 fix      2 feat      2 ci
+$ # commits touching NOTHING outside docs/ .claude/ CLAUDE.md, last 30
+     14
+$ git log -60 --format='%h %s' | grep '^\S* feat'
+  8bd8790 feat(workflow): the last three unused agents are now pulled by the loop
+  2d51a74 feat(workflow): Discover is a real phase in the script, not prose…
+  f7c41d9 feat(ui): compact the chrome (FB-19)
+  32e5b87 feat(viewport): orbit while sketching on a TRACKPAD (VP-1a)
+  43c703c feat(viewport): orbit while sketching, on the middle button (VP-1)
+  30a9f3f feat(sketch): re-open a saved sketch (SKETCH-1)
+  133a009 feat(loop): a Stop hook that hands over the next instruction…
+```
+
+Four product features in sixty commits (6.7 %); three of the seven `feat`s are
+the loop machinery. The loop's own batch schema now forces a
+`defect | capability` label per item and a measured feat/fix `ratio`
+(`loft-dev-loop.js:75-93`) precisely because of this — so the instrument exists
+and this pass is its first outside reading. I am not calling the process work
+wasted: `check-mutation-markers.py`, the per-SHA concurrency keys and the e2e
+diagnostics uploads are all real defect-class closures. But **the ratio is now
+the thing to watch**, and the next batch should be judged on whether it moves.
+Also worth the groomer's eye: `services/geometry/src` has moved in **one**
+commit (`8b95dac`, GEOM-2/M17) since 08-14, while GEOM-3 has been the named
+top-P0 focus for two grooming passes.
+
+### L10 — Smaller items
+
+* **No `alembic check` fast gate** (K10, unchanged). `services/gateway` still has
+  1 migration for its 1 table and its tests build the schema with
+  `Base.metadata.create_all`, so a model/migration drift is caught only by
+  `deploy-path` — the slowest signal we have. `services/documents` is fine
+  (16 migrations, conftest runs them). P3.
+* **`viewport-makeover.spec.ts:373`** — still the single surviving instance of
+  the banned `waitForTimeout(1200)` + non-retrying numeric assertion shape (K10,
+  unchanged). I re-swept: **22** `waitForTimeout` calls in `apps/web/e2e`, all
+  others are settles before retrying assertions. New this batch:
+  `sketch-dimension-typing.spec.ts:181` `waitForTimeout(3000)` — a deliberate
+  keystroke drain inside a CDP typing helper, correct but a flat 3 s × its
+  callers added to a suite already at L4's growth rate. P3.
+* **`check-compose.py:156-161`** — dev-overlay half is still a hand-list while
+  the half beside it sweeps every service (K4/K10, unchanged). P3.
+* **Mesh fetch is a capability URL**, as previously assessed (`geometry.py:344`
+  requires `CurrentUser` but scopes by content hash, not owner). Unchanged, and
+  previously recorded at line 2297 of this file. No action.
+* **No SSRF surface.** The only outbound HTTP in `services/*/src` is
+  `gateway/upstream.py:117` and the readiness probe at `main.py:167`, both to
+  config-supplied service URLs; nothing takes a URL from a request body.
+* **JWT posture is properly fail-closed and tested by name**, including the
+  conftest-leak trap: `test_auth.py:442-471` constructs `GatewaySettings` with
+  explicit `loft_env="production"/"staging"/None` and asserts refusal for
+  missing/blank/whitespace/short secrets, and acceptance after trimming.
+
+### L1, updated at the close of the pass — the red is now FOUR commits deep and includes a product fix
+
+HEAD moved twice while I was auditing (`8bd8790` → `2e2be7f` → `2b266b1`). The
+eslint failure is unchanged at each (`npx eslint . --ignore-pattern
+'.claude/worktrees/**'` → `✖ 36 problems` at `2b266b1`), and neither
+`.claude/workflows/loft-dev-loop.js` nor `eslint.config.js` has been touched
+since `8bd8790`. So every commit from `2d51a74` inclusive is red in CI's `ts`
+job:
+
+```
+2d51a74 feat(workflow): Discover is a real phase in the script…      ← introduced it
+8bd8790 feat(workflow): the last three unused agents are now pulled…
+2e2be7f docs(vision): the 16-day-idle competitive pass…              ← docs-only, inherits it
+2b266b1 fix(web): PICK-1 — a subshape pick was stamped with the TIP… ← a P0 product fix, inherits it
+```
+
+`ci.yml` has no `paths-ignore`, so the docs-only commit gets a `ts` job too and
+fails it. The cost is not the workflow file — it is that **PICK-1, a P0 product
+fix, cannot be certified green on its own commit** until this is fixed, which is
+exactly the property CLAUDE.md spends four paragraphs defending.
+
+### Gate results, completed
+
+| Gate | Result at `8bd8790`/`2b266b1` |
+|---|---|
+| `just lint` | **RED (exit 1)** — see L1. Python half green (ruff, ruff-format 339 files, pyright 0/0); `prettier --check .` clean when run separately. |
+| `just test` | **GREEN (exit 0).** Python **3 566 passed, 1 skipped, 5 deselected in 1 437 s**; `packages/design` 88 passed (13 files); `apps/web` 1 684 passed (118 files). Up from 3 541 / 77 / 1 598 on 08-14. |
+| `just gen-check` | **GREEN** — "contracts + ts-client match generated output". |
+| Standalone gates | `check-mutation-markers` (+self-test), `check-licences --self-test`, `check-build-context`, `check-workflow-concurrency` (+self-test), `check-compose`, `e2e-shard-audit --self-test`, `loop-continue.sh --self-test`: **all pass**. |
+| `just e2e` | **NOT RUN — see the confidence ledger.** |
+
+On the python wall clock: 1 437 s here against 880 s on 08-14 for 25 fewer
+tests. **Do not read that as a 63 % slowdown** — the product auditor had a
+three-service stack and a browser suite live on this four-core container for
+most of my run (load average 3.7). It is not evidence about the runner. It *is*
+a reminder that `ci.yml:78-82`'s 30-minute ceiling is still argued from
+"~2 958 tests" and a 14m31s measurement, and the suite is now **3 566**.
+
+### Prioritized recommendations for the groomer
+
+| # | Sev | Item | Why now |
+|---|-----|------|---------|
+| 1 | **P0** | **L1** — add `.claude/workflows/*.js` to `eslint.config.js` (with the workflow DSL's injected globals: `args`, `phase`, `agent`, `parallel`, `log`, `pipeline`), and delete the stale duplicate `required: ['items']` at `loft-dev-loop.js:57`. Then push and READ THE RUN. | Four commits are CI-red on the `ts` job right now, including PICK-1, a P0 product fix that therefore cannot be green on its own commit. `just lint` reproduces it in 40 s on committed bytes. This is the standing "never push a red build" rule, broken by the commits that rebuilt the loop. |
+| 2 | **P2** | **L2** — add `".claude/worktrees/**"` to the eslint `ignores` (ideally via `includeIgnoreFile(".gitignore")`). | The mandated worktree isolation currently makes the shared batch-boundary gate red for reasons that name a colleague's territory, and CI cannot see it — the exact combination that trains agents to dismiss lint output, which is how #1 survived four commits. |
+| 3 | **P2** | **L8 + L4** — re-scope CI-4 to "read the last five `e2e` runs and the `--timeline` output; fill in `e2e.yml:88`; close it or name the surviving mechanism". All three filed mechanisms have code answers in the tree. | CI-4 is the P1 umbrella blocking per-commit trust, and its remaining content is a CI read no subagent can do. The suite is now **516 tests / 109 files** (+47 % over the cost model's 352) and the decision rule for raising the shard matrix has had an instrument for five days and no reading. |
+| 4 | **P2** | **L5** — wire `frontend-qa` into the loop's Verify phase for `apps/web/**` / `packages/design/**` territories (`loft-dev-loop.js:512`). | It is the only one of fourteen agents the new loop never dispatches, it owns `docs/UI-REVIEW.md`, and its subject is CLAUDE.md's STANDING FOUNDER PRIORITY — in a batch that was almost entirely UI. The loop exists because agents were going unused. |
+| 5 | **P2** | **L3** — the route-authorisation sweep gate (J7 → K2 → L3, fourth pass). Recurse `_IncludedRouter.original_router`; assert the literal 5-route gateway allowlist, documents' `owner_id` on all but 4, and carry a count floor. | Posture is correct and unchanged (87/5, 64/4, 27) but is asserted by nobody; a route that forgets `CurrentUser` ships silently. Highest security coverage per line available, recommended three times without landing. |
+| 6 | **P2** | **L9** — judge the next batch on the `ratio` field the loop now collects. Four product features in sixty commits; 14 of the last 30 commits touch only docs/`.claude/`; `services/geometry/src` has moved once since 08-14 while GEOM-3 has been the named top-P0 for two grooming passes. | The instrument exists (`loft-dev-loop.js:85-93`) and this is its first outside reading. Process work here has been genuinely valuable, which is precisely why the ratio needs an external check rather than a self-assessment. |
+| 7 | **P3** | **L6** — make `loop-continue.sh --self-test` copy the probe into its temp root instead of `touch`-ing a real harness output (`:92`). | Verifying the liveness guard currently suppresses the loop for 30 minutes. One line, and the rest of that self-test is the best example of the RETRO §4 discipline in the repo. |
+| 8 | **P3** | **L7 + L10 batch** — cite SHAs only after they are on the branch (23 board SHAs do not resolve to branch history); `alembic check` as a fast gate for the gateway model↔migration seam; anchor `viewport-makeover.spec.ts:373` to render ticks; sweep the dev-overlay half of `check-compose.py:156-161`. | Housekeeping, one grooming slice. The first is cheap discipline; the other three are the unchanged remainder of K10. |
+
+### Confidence ledger for this pass
+
+* **Ran myself, output captured:** `just lint` (exit 1, quoted), `npx eslint`
+  with and without the worktree ignore (44 vs 36), `prettier --check .` (clean),
+  `just test` (exit 0; 3 566 / 88 / 1 684), `just gen-check` (clean),
+  `check-mutation-markers.py` + `--self-test` (884 files, 23 cases),
+  `check-licences.py --self-test`, `check-build-context.py`,
+  `check-workflow-concurrency.py --self-test`, `check-compose.py`,
+  `e2e-shard-audit.py --self-test`, `scripts/loop-continue.sh --self-test`
+  (against a live harness task — it passed, and I observed the side effect in
+  L6), `playwright test --list` (516/109), my own three-service route sweep
+  (script in this pass's scratch, output quoted), the board-SHA classifier, and
+  an assertion-free-test scan over 2 196 blocks in 109 spec + 118 unit files.
+* **L1 is not arguable**: it reproduces on committed bytes at three successive
+  HEADs, with the same command CI runs, and I isolated it from my environment by
+  excluding the worktrees.
+* **NOT verified by me:** the browser suite. **I did not run `just e2e`** — the
+  product auditor had a three-service stack (:8090-8092) and a Vite (:5191)
+  live on this container throughout, and CLAUDE.md's own rule is that a red e2e
+  under CPU contention is unconfirmed; booting a second stack would also have
+  risked its SQLite files. So every claim I make about e2e in L4/L8 is from
+  reading the specs and the workflow, not from executing them.
+* **I cannot read CI** (subagent; `api.github.com` policy-denied). L1 says CI's
+  `ts` job *must* be red because it runs the identical command on tracked bytes;
+  it does not say I watched it be red. Recommendations #1 and #3 both end in a
+  CI read that only the orchestrator can perform.
+* **Not covered this pass:** the compose/deploy-path runtime (registry blocked);
+  geometry goldens were not re-run beyond their inclusion in `just test`
+  (50 goldens, +1 this batch: `revise-thickness-and-hole-dia-100x40x14`);
+  performance benchmarking; `docs/PERF.md` freshness.
