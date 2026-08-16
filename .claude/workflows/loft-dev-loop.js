@@ -11,6 +11,7 @@ export const meta = {
     { title: 'Build' },
     { title: 'Review' },
     { title: 'Verify' },
+    { title: 'DocSync' },
     { title: 'Integrate' },
   ],
 }
@@ -146,6 +147,18 @@ const VERIFIED = {
 const batchSize = (args && args.batchSize) || 3
 const skipAudit = !!(args && args.skipAudit)
 const skipDiscover = !!(args && args.skipDiscover)
+const skipCurate = !!(args && args.skipCurate)
+
+// Which verifier an item gets. `geometry-qa` owns golden models, STEP
+// round-trips, solver determinism and benchmarks; CLAUDE.md says it runs
+// "whenever kernel-adjacent code changes", and it had NEVER been spawned in 108
+// subagent spawns — while GEOM-2 shipped a whole new face-matching tier and
+// GEOM-3 rewrote the persisted face-signature contract. The kernel-architect was
+// writing its own goldens, which is the QA'd-by-the-author arrangement this loop
+// exists to end. Routing is by TERRITORY so nobody has to remember.
+const KERNEL_PATHS = ['services/geometry', 'packages/py-kit', 'goldens', 'kernel']
+const isKernelAdjacent = (it) =>
+  KERNEL_PATHS.some((k) => String((it && it.territory) || '').includes(k))
 const occupied = (args && args.occupiedTerritories) || []
 const branch = (args && args.branch) || 'claude/branch-review-development-hkbbnb'
 
@@ -270,6 +283,41 @@ CI-4/QA7-1 in docs/BACKLOG.md: the e2e suite is not yet trustworthy per-commit.`
         { label: 'audit:engineering', phase: 'Audit', agentType: 'engineering-auditor' },
       ),
   ])
+}
+
+// --- Curate ------------------------------------------------------------------
+// `oss-curator` owns the FIRST-IMPRESSION surface of an MIT open-source project
+// — README, CONTRIBUTING, SECURITY, issue/PR templates, badges, screenshots. It
+// had never been spawned either, and the product audit's top finding (M1) is
+// exactly its territory: a stranger who clones this repo lands on a sign-in card
+// pinned to the bottom-right corner with ~86 % empty grid and no "MIT /
+// self-hosted / your data" framing anywhere. Same cadence as the audits.
+if (!skipCurate) {
+  phase('Audit')
+  await agent(
+    `Audit and repair the first-impression surface of this repo as an MIT,
+self-hostable, open-source CAD project: README, CONTRIBUTING, SECURITY,
+CODE_OF_CONDUCT, issue/PR templates, badges, and the screenshots the README
+leans on.
+
+TRUTH ONLY — this is the rule that matters most for your role. Do not claim a
+capability the product does not have, and re-derive anything already written
+before you repeat it: this project has shipped several confident claims that
+were never measured, and a README is the highest-visibility place for one.
+Check what actually shipped in \`git log\` and \`docs/ROADMAP.md\` rather than
+trusting existing prose.
+
+Relevant, and it is your territory rather than the frontend's: the product audit
+recorded that the landing screen is a sign-in card at the bottom-right of an
+otherwise empty frame, with no product framing at all — no MIT/self-hosted line,
+no version, no link to docs — on the one screen every self-hoster sees first.
+Judge whether the README compensates or compounds that.
+
+Meta and docs only, never app code. Commit as the last thing you do, staged and
+committed in the same turn. Do NOT touch \`docs/BACKLOG.md\` or
+\`docs/ROADMAP.md\`.`,
+    { label: 'curate:oss', phase: 'Audit', agentType: 'oss-curator' },
+  )
 }
 
 // --- Groom -----------------------------------------------------------------
@@ -460,6 +508,8 @@ lands. You are read-only on app code — report, do not fix.`,
           .join('\n') || '  (none)'
       : '  (the reviewer died; assume nothing was checked)'
 
+    const kernel = isKernelAdjacent(item)
+    const verifier = kernel ? 'geometry-qa' : 'qa-tester'
     const verify = await agent(
       `Independent QA of ticket ${item.id} — ${item.title}, against the REAL
 running stack in a real browser. You did not write this code and you are not
@@ -474,7 +524,20 @@ ${item.ticket}
 WHAT THE REVIEWER FLAGGED (context, not your worklist):
 ${flagged}
 
-YOUR JOB IS THE CHECK THE BUILDER'S OWN GATE STRUCTURALLY CANNOT MAKE. That
+${
+        kernel
+          ? `THIS IS KERNEL-ADJACENT, SO YOU ARE THE GEOMETRIC-CORRECTNESS GATE, NOT A
+WEB QA. A green unit suite with a wrong volume is a failure. Exercise the golden
+suite, STEP round-trip fidelity, solver determinism across interpreter restarts,
+and the performance budget. Hand-derive expected values in closed form at
+documented per-model tolerances — never an ad-hoc epsilon, and never the
+builder's own numbers re-run. If the change touches a PERSISTED signature or
+contract, prove a selector authored BEFORE the change still resolves after it.
+Write your findings to docs/GEOMETRY-QA.md.
+
+`
+          : ''
+      }YOUR JOB IS THE CHECK THE BUILDER'S OWN GATE STRUCTURALLY CANNOT MAKE. That
 phrasing is deliberate: on recent tickets the useful QA finding was never "the
 feature is broken", it was that the shipped gate asked a question too coarse to
 see the defect — a boolean where the interesting fact was WHICH entity answered,
@@ -494,7 +557,7 @@ ${STANDARD}
 REPORT: verdict PASS or FAIL, your measurements, your mutation evidence
 verbatim, and anything you found that this ticket did NOT close — including
 defects outside its scope, which get filed rather than fixed.`,
-      { label: `verify:${item.id}`, phase: 'Verify', agentType: 'qa-tester', schema: VERIFIED },
+      { label: `verify:${item.id}`, phase: 'Verify', agentType: verifier, schema: VERIFIED },
     )
     return { ...slice, verify }
   },
@@ -509,6 +572,38 @@ log(
   `built ${done.filter((s) => s.build && s.build.shipped).length}/${items.length}` +
     (died ? `, ${died} DIED — worktrees preserved, reconcile rather than discard` : '') +
     `; clean through review+QA: ${green.map((s) => s.item.id).join(', ') || 'none'}`,
+)
+
+// --- DocSync -----------------------------------------------------------------
+// `doc-syncer` is specified to run EVERY iteration, on the doc surfaces the
+// same-commit rule does not cover — ARCHITECTURE facts, README claims,
+// CHANGELOG, CLAUDE.md's command list. It had never been spawned once, and the
+// drift is exactly what you would predict: ROADMAP went 129 commits stale, then
+// stale again the same week; VISION and COMPETITIVE sat 16 days. It is on a
+// cheap model by design (CLAUDE.md's token-economy section), so there is no
+// reason for it to be the phase that gets skipped. Runs last, once the batch's
+// commits exist for it to reconcile against.
+phase('DocSync')
+const shipped = done
+  .filter((s2) => s2.build && s2.build.shipped)
+  .map((s2) => `${s2.item.id}: ${(s2.build.shas || []).join(' ')}`)
+  .join('\n') || '(nothing shipped this batch)'
+await agent(
+  `Reconcile the doc surfaces the same-commit rule does NOT cover, against what
+actually shipped in this batch:
+
+${shipped}
+
+Check and fix drift in: \`docs/ARCHITECTURE.md\` (stated facts vs the code),
+\`README.md\` claims, \`docs/CHANGELOG.md\`, and CLAUDE.md's command list versus
+the real \`justfile\` targets. Read \`git show\` on the commits above rather than
+their messages alone — a commit message is a claim like any other.
+
+Do NOT touch \`docs/BACKLOG.md\` or \`docs/ROADMAP.md\` (the groomer owns both),
+and never app code. If you find nothing drifted, say so and change nothing —
+an empty pass is a fine outcome and better than invented edits. Commit as the
+last thing you do, staged and committed in the same turn.`,
+  { label: 'docsync', phase: 'DocSync', agentType: 'doc-syncer' },
 )
 
 // --- Integrate --------------------------------------------------------------
