@@ -573,6 +573,58 @@ log(
     `; clean through review+QA: ${green.map((s) => s.item.id).join(', ') || 'none'}`,
 )
 
+// --- Design ------------------------------------------------------------------
+// `frontend-qa` owns design-system adherence, a11y, responsive behaviour and
+// viewport UX -> docs/UI-REVIEW.md. It is the LAST agent the loop never pulled
+// (AUDIT-ENGINEERING L5, 2026-08-16): one spawn in 108, and it owns the STANDING
+// FOUNDER PRIORITY — CLAUDE.md's design mandate, where "flow is the first rule"
+// and every founder report on 2026-08-01 was a flow failure rather than a
+// missing capability. I wired geometry-qa, oss-curator and doc-syncer and left
+// out the one whose subject the founder has complained about most. Runs only
+// when the batch actually touched the UI, so it is pulled by the work rather
+// than by memory.
+const touchedUi = done.some(
+  (s2) =>
+    s2.build &&
+    s2.build.shipped &&
+    /apps\/web|packages\/design/.test(String((s2.item && s2.item.territory) || '')),
+)
+if (touchedUi) {
+  phase('Verify')
+  await agent(
+    `Design and accessibility pass over what this batch changed in the UI:
+
+${done
+  .filter((s2) => s2.build && s2.build.shipped)
+  .map((s2) => `${s2.item.id}: ${s2.item.title} — ${(s2.build.shas || []).join(' ')}`)
+  .join('\n')}
+
+Judge it by CLAUDE.md's design mandate, and lead with FLOW, which is the
+founder's standing first rule: what does the user do NEXT from the state this
+change leaves them in? Is the next step VISIBLE from the current state? Is there
+a direct-manipulation path, or only a form? Are there dead ends or ambiguous
+exits — a key that sometimes saves and sometimes discards is the named example.
+Every founder report on 2026-08-01 was a flow failure where the capability
+existed and was unreachable; that is the class to catch before he does.
+
+Then the floor, which is not negotiable: WCAG-AA contrast, visible focus,
+24 px minimum target size, \`prefers-reduced-motion\`, self-hosted fonts, and
+responsive to 1280x800 — check BOTH 1600 and 1280, since defects have hidden at
+the smaller width before (the origin ring measured 9.37 px at 1600 and 7.17 px
+at 1280, on either side of an 8 px pick tolerance).
+
+And design-system adherence: screens compose \`packages/design\` primitives and
+never restyle raw elements; the r3f viewport reads the SAME tokens as the DOM.
+Fix the primitive, never the instance.
+
+File findings to \`docs/UI-REVIEW.md\`. You are READ-ONLY on app code — report,
+do not fix. Capture before/after screenshots at both widths for anything
+visual; the orchestrator surfaces them to the founder, and a PNG he never sees
+does not count.`,
+    { label: 'design:frontend-qa', phase: 'Verify', agentType: 'frontend-qa' },
+  )
+}
+
 // --- DocSync -----------------------------------------------------------------
 // `doc-syncer` is specified to run EVERY iteration, on the doc surfaces the
 // same-commit rule does not cover — ARCHITECTURE facts, README claims,

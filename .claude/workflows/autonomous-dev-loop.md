@@ -98,13 +98,19 @@ and does not write the board.**
    The reviewer re-runs the builder's mutation evidence itself rather than
    trusting the report, and checks every factual claim the diff adds to the
    record.
-5. **DocSync** — `doc-syncer` (cheap model, every iteration) reconciles the
+5. **Design** — `frontend-qa` when the batch touched `apps/web/**` or
+   `packages/design/**`, leading with FLOW (what does the user do next?) and
+   then the non-negotiable floor: AA contrast, visible focus, 24 px targets,
+   reduced-motion, responsive at BOTH 1600 and 1280. It owns the STANDING
+   FOUNDER PRIORITY and was the last agent the loop never pulled — one spawn in
+   108 (AUDIT-ENGINEERING L5). Pulled by the work, not by memory.
+6. **DocSync** — `doc-syncer` (cheap model, every iteration) reconciles the
    surfaces the same-commit rule does not cover: ARCHITECTURE facts, README
    claims, CHANGELOG, CLAUDE.md's command list. Never spawned before
    2026-08-16, and the drift was exactly what that predicts — ROADMAP 129
    commits stale, then stale again the same week. Runs last, so the batch's
    commits exist to reconcile against. An empty pass is a fine outcome.
-6. **Integrate** — the orchestrator cherry-picks each clean branch, **writes the
+7. **Integrate** — the orchestrator cherry-picks each clean branch, **writes the
    ROADMAP/BACKLOG tick and folds it into that commit** (`git commit --amend
    --no-edit`), **verifies the merged tree** (typecheck + unit + targeted gates)
    before pushing, pushes **each commit separately** (GitHub fires one run per
