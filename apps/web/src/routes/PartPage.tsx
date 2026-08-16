@@ -304,6 +304,7 @@ import {
   type SketchPlaneSpec,
 } from "../sketch/plane";
 import {
+  anchorBodyFeatureId,
   faceOrdinalOfSignature,
   faceSignatureKey,
   isPickableFace,
@@ -1455,16 +1456,38 @@ export function PartPage() {
   );
 
   // ---------------------------------------------------------------------
-  // Fillet/Chamfer edge picking. The anchor for a picked edge's `SubshapeRef`
-  // is the last body-affecting feature (the body the edges belong to) — the
-  // same rule face picking uses. The edge-pick store bridges the editor and
-  // the in-canvas overlay; PartPage owns the overlay fetch and the session
-  // lifecycle (open on a fillet/chamfer editor, close otherwise).
+  // Fillet/Chamfer edge picking. The edge-pick store bridges the editor and the
+  // in-canvas overlay; PartPage owns the overlay fetch and the session lifecycle
+  // (open on a fillet/chamfer editor, close otherwise). The anchor a picked
+  // edge's `SubshapeRef` carries is `pickAnchorFeatureId` below, NOT the tip.
   // ---------------------------------------------------------------------
   const bodyFeatureId = useMemo(
     () => lastBodyFeatureId(tree.data?.features ?? []),
     [tree.data],
   );
+
+  // PICK-1 (M16) — the anchor a SUBSHAPE REFERENCE gets stamped with, which is
+  // NOT always `bodyFeatureId`. A reference must name a feature strictly earlier
+  // than the one carrying it (documents `_validate_references` → 422
+  // `reference_not_earlier`), and it is resolved against THAT feature's body. At
+  // create the new feature lands at the tip, so the two coincide; while EDITING a
+  // mid-tree feature the tip is later than — or IS — the referrer, which is why
+  // no picked-edge fillet / picked-face shell could be re-saved at all (M9/M10)
+  // and why M17's "re-pick the face" recovery wrote an id the server refused.
+  //
+  // `bodyFeatureId` stays the TIP on purpose: it answers "does a body exist, and
+  // which body is on screen" (the import gate, the pre-selection carry-over —
+  // the overlays a pick comes FROM are always the tip's). Only the reference
+  // stamp moves.
+  const editingFeatureId =
+    editor !== null && editor.mode === "edit"
+      ? (editor.featureId ?? null)
+      : null;
+  const pickAnchorFeatureId = useMemo(
+    () => anchorBodyFeatureId(tree.data?.features ?? [], editingFeatureId),
+    [tree.data, editingFeatureId],
+  );
+
   const edgePicking = useEdgePickStore((s) => s.active && s.picking);
   const setEdgeOverlay = useEdgePickStore((s) => s.setOverlay);
   const setEdgeOverlayError = useEdgePickStore((s) => s.setOverlayError);
@@ -1499,7 +1522,8 @@ export function PartPage() {
   // face overlay for the current body is fetched exactly as the edge/measure
   // overlays are (same request/key — one cache entry, faces line up with the
   // rendered body). The anchor for a picked face's `SubshapeRef` is the same
-  // `bodyFeatureId` fillet/chamfer use (the last body-affecting feature).
+  // `pickAnchorFeatureId` fillet/chamfer use — the tip while creating, the
+  // feature before the one under edit while editing (PICK-1).
   const shellPicking = useFacePickStore((s) => s.active);
   const setShellOverlay = useFacePickStore((s) => s.setOverlay);
   const setShellOverlayError = useFacePickStore((s) => s.setOverlayError);
@@ -3358,7 +3382,9 @@ export function PartPage() {
     (face: OverlayFace & { signature: PlanarFaceSignature }) => {
       const slot = datumFacePick;
       if (slot === null) return;
-      const anchorId = lastBodyFeatureId(tree.data?.features ?? []);
+      // PICK-1: the REFERENCE is anchored strictly earlier than the datum being
+      // written (the tip while creating; the feature before it while editing).
+      const anchorId = pickAnchorFeatureId;
       if (anchorId === null) {
         setDatumFacePickError(
           "Add a feature that creates a body before picking a face.",
@@ -3372,13 +3398,18 @@ export function PartPage() {
         slot,
         face: { signature: face.signature, anchorId },
       });
-      // Remembered for the next command (UI-W3).
-      usePreselectStore
-        .getState()
-        .rememberFaces([{ signature: face.signature, anchorId }]);
+      // Remembered for the next command (UI-W3) against the body it was picked
+      // FROM — always the tip's overlay — not the reference anchor above.
+      if (bodyFeatureId !== null) {
+        usePreselectStore
+          .getState()
+          .rememberFaces([
+            { signature: face.signature, anchorId: bodyFeatureId },
+          ]);
+      }
       setDatumFacePick(null);
     },
-    [datumFacePick, tree.data],
+    [datumFacePick, pickAnchorFeatureId, bodyFeatureId],
   );
 
   // The datum face-pick session ends whenever the datum editor closes (or the
@@ -3429,7 +3460,11 @@ export function PartPage() {
 
   const pickHoleFace = useCallback(
     (face: OverlayFace & { signature: PlanarFaceSignature }) => {
-      const anchorId = lastBodyFeatureId(tree.data?.features ?? []);
+      // PICK-1: strictly earlier than the hole being written. This is the path
+      // M17's "Re-pick face" repair drives, and stamping the tip here made that
+      // repair write an id the server had to refuse — the hole under repair IS
+      // the tip in the common case, so it named itself.
+      const anchorId = pickAnchorFeatureId;
       if (anchorId === null) {
         setHolePickError(
           "Add a feature that creates a body before drilling a hole.",
@@ -3443,15 +3478,20 @@ export function PartPage() {
         face: { signature: face.signature, anchorId },
       });
       // The pick outlives this editor (UI-W3): cancel the hole and invoke
-      // Datum, or Sketch, and the face is already chosen.
-      usePreselectStore
-        .getState()
-        .rememberFaces([{ signature: face.signature, anchorId }]);
+      // Datum, or Sketch, and the face is already chosen. Remembered against the
+      // body it was picked FROM (the tip's overlay), not the reference anchor.
+      if (bodyFeatureId !== null) {
+        usePreselectStore
+          .getState()
+          .rememberFaces([
+            { signature: face.signature, anchorId: bodyFeatureId },
+          ]);
+      }
       // A face chosen → disarm (the editor seeds the point to the centre); the
       // user arms the POINT pick next to refine the placement.
       setHolePick(null);
     },
-    [tree.data],
+    [pickAnchorFeatureId, bodyFeatureId],
   );
 
   const pickHolePoint = useCallback((point: Vec3) => {
@@ -4188,7 +4228,7 @@ export function PartPage() {
                       <FilletEditor
                         mode={editor.mode}
                         initial={editor.initial}
-                        bodyFeatureId={bodyFeatureId}
+                        bodyFeatureId={pickAnchorFeatureId}
                         onSubmit={submitFillet}
                         onCancel={closeEditor}
                         saving={editorSaving}
@@ -4198,7 +4238,7 @@ export function PartPage() {
                       <ChamferEditor
                         mode={editor.mode}
                         initial={editor.initial}
-                        bodyFeatureId={bodyFeatureId}
+                        bodyFeatureId={pickAnchorFeatureId}
                         onSubmit={submitChamfer}
                         onCancel={closeEditor}
                         saving={editorSaving}
@@ -4208,7 +4248,7 @@ export function PartPage() {
                       <ShellEditor
                         mode={editor.mode}
                         initial={editor.initial}
-                        bodyFeatureId={bodyFeatureId}
+                        bodyFeatureId={pickAnchorFeatureId}
                         onSubmit={submitShell}
                         onCancel={closeEditor}
                         saving={editorSaving}
@@ -4218,7 +4258,7 @@ export function PartPage() {
                       <DraftEditor
                         mode={editor.mode}
                         initial={editor.initial}
-                        bodyFeatureId={bodyFeatureId}
+                        bodyFeatureId={pickAnchorFeatureId}
                         onSubmit={submitDraft}
                         onCancel={closeEditor}
                         saving={editorSaving}
@@ -4256,7 +4296,7 @@ export function PartPage() {
                       <EdgeFlangeEditor
                         mode={editor.mode}
                         initial={editor.initial}
-                        bodyFeatureId={bodyFeatureId}
+                        bodyFeatureId={pickAnchorFeatureId}
                         defaults={smDefaults}
                         onSubmit={submitEdgeFlange}
                         onCancel={closeEditor}
@@ -4268,7 +4308,7 @@ export function PartPage() {
                       <HemEditor
                         mode={editor.mode}
                         initial={editor.initial}
-                        bodyFeatureId={bodyFeatureId}
+                        bodyFeatureId={pickAnchorFeatureId}
                         defaults={smDefaults}
                         onSubmit={submitHem}
                         onCancel={closeEditor}

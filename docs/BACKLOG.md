@@ -140,7 +140,7 @@ QAH-1 (CI-reliability debt) is CLOSED as of this pass — see Done archive.
       TERRITORY: `apps/web/src/routes/PartPage.tsx`,
       `apps/web/src/sketch/store.ts`. agentType: frontend-builder.
 
-- [ ] (P0, M) **PICK-1 (M16) — a viewport pick is stamped with the TIP
+- [x] (P0, M) **PICK-1 (M16) — a viewport pick is stamped with the TIP
       feature's id, not the feature that owns the sub-shape, so no non-tip
       feature can ever be re-picked for an edit** (`apps/web/src/routes/
       PartPage.tsx`, `apps/web/src/components/{FilletEditor,ChamferEditor,
@@ -183,6 +183,55 @@ QAH-1 (CI-reliability debt) is CLOSED as of this pass — see Done archive.
       (if the per-face id needs threading through), new e2e spec.
       agentType: frontend-builder (cross-check overlay wiring with
       kernel-architect if the geometry-service response needs a field added).
+      SHIPPED — client-side, **no contract change**, and it REFUTED this
+      ticket's own investigation lead. `bodyFeatureId` was
+      `lastBodyFeatureId(features)` — the TIP — threaded unmodified into all six
+      pick editors and into `pickHoleFace`/`pickDatumFace`, which build EVERY
+      `SubshapeRef.feature_id` from it. Worse on the EDIT path: `formFrom*Params`
+      restores the persisted signatures and the builders re-stamp them,
+      discarding the ref's original valid `feature_id`.
+      Observed in a real browser on a fixture built so the tip is provably not
+      the answer (`Sketch1 · Extrude1 · <subject> · Sketch2 · Extrude2`), the
+      server's verbatim answer: `{"error":{"code":"reference_not_earlier",
+      "message":"Referenced feature … must come strictly earlier in the tree.",
+      "details":{"slot":"edges[0]"}}}` 422 — and the same for `faces[0]` (shell)
+      and `face` (hole re-pick).
+      **NOT `OverlayFace.feature_id`, which this ticket suggested.** That field
+      is best-effort RENDERING provenance ("which feature made this face"); the
+      write needs the stage-1 ANCHOR ("which body do I signature-match
+      against"). Different questions — and `OverlayEdge` carries no
+      `feature_id` at all, so a provenance-based fix could not have covered
+      fillet or chamfer. New pure `anchorBodyFeatureId(features,
+      editingFeatureId)` in `apps/web/src/features/face.ts`; `bodyFeatureId`
+      deliberately STAYS the tip for what it actually answers (the import gate,
+      and pre-selection carry-over — a pick always comes FROM the tip's
+      overlay).
+      **This is why M17's "Re-pick face" repair could not work**: the hole under
+      repair is usually the tip, so the re-pick wrote the hole's own id. The new
+      e2e finishes the loop `repick-face.spec.ts` stops at (which only proves
+      the affordance ARMS): orphan a hole's face ref -> `subshape_unresolved` ->
+      Re-pick -> pick -> save -> **PATCH 200**, editor closes, Solved, error
+      gone. That save was the 422 above.
+      Mutation: reverting to the tip flips all three e2e cases
+      (`- "Extrude1 (owns the sub-shape)" / + "Extrude2 (the TIP)"`), and with
+      the stamp assertions suppressed so the user-visible half is reached,
+      `Expected: 200 / Received: 422`. Unit: 5 of 7 new cases redden; the two
+      create-path cases correctly stay green.
+      Gates re-run on the merged tree: typecheck clean, **1684 unit tests**,
+      mutation-marker gate clean; the agent ran 86 existing e2e specs green
+      across hole/shell/draft/fillet/datum/repick/preselection/sheet-metal/
+      timeline plus its own 3/3.
+      NOT reviewed, NOT QA'd — dispatched.
+      **ONE REAL LIMIT FOUND AND NOT FIXED, for the groomer:** while editing a
+      mid-tree feature the viewport still renders the TIP body, so re-picking
+      geometry created AFTER the feature under edit now resolves to
+      `subshape_unresolved` rather than 422. That is an honest failure and
+      semantically correct — the edge does not exist yet at that point in the
+      tree — but the proper answer is a rolled-back PREVIEW during an edit, a
+      separate and larger change to the overlay/mesh fetch.
+      Also cheap and outside the brief: the `bodyFeatureId` prop name and JSDoc
+      on the six `components/*Editor.tsx` now under-describe the value; rename
+      to `anchorFeatureId`.
 
 - [ ] (P0, M) **GEOM-3 — GEOM-2's honest limit now has a number, and on an
       ordinary vented/lightened part it is closer than §12a's qualitative
