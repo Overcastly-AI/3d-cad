@@ -5443,7 +5443,7 @@
         "type": "object"
       },
       "PlanarFaceSignature": {
-        "description": "\u00a72b stage-1 geometric fingerprint of a PLANAR face \u2014 typed, kernel-free.\n\nFull-precision invariants (\u00a77.2 forbids quantizing the stored identity): the\noutward unit ``normal``, the area ``centroid`` (world mm), and the\n``area_mm2``. A planar face is uniquely fixed among a body's faces by\n(normal, centroid, area) in the common case; congruent twins of a symmetric\npart tie and resolve to an honest ``subshape_ambiguous`` (\u00a75), never a guess.\nMatching is nearest-within-tolerance at the documented subshape tolerance\n(geometry.kernel.faces / docs/GEOMETRY-QA.md), never an ad-hoc epsilon.",
+        "description": "\u00a72b stage-1 geometric fingerprint of a PLANAR face \u2014 typed, kernel-free.\n\nFull-precision invariants (\u00a77.2 forbids quantizing the stored identity): the\noutward unit ``normal``, the area ``centroid`` (world mm), and the\n``area_mm2``. A planar face is uniquely fixed among a body's faces by\n(normal, centroid, area) in the common case; congruent twins of a symmetric\npart tie and resolve to an honest ``subshape_ambiguous`` (\u00a75), never a guess.\nMatching is nearest-within-tolerance at the documented subshape tolerance\n(geometry.kernel.faces / docs/GEOMETRY-QA.md), never an ad-hoc epsilon.\n\nOUTER-BOUNDARY INVARIANTS (\u00a712b, GEOM-3 \u2014 the three ``outer_*`` fields).\n``centroid`` and ``area_mm2`` are functions of what has been CUT INTO the\nface, not of the face's identity, so on a face carrying more than one feature\nthey go stale the moment any earlier feature on it changes (\u00a712a). Tier 4 of\nthe resolver worked around that by INFERRING a bound on the missing quantity\nfrom the three numbers above, and the bound degrades linearly with how\nperforated the face is \u2014 on an ordinary vented plate it admitted a deleted\nboss top covering a quarter of the plate, i.e. silent wrong geometry. These\nthree fields carry the missing quantity outright: the area, the area centroid\nand the perimeter of the region the face's OUTER WIRE encloses, all of them\npure functions of that wire and therefore untouched by any interior edit\n(drilling, enlarging, moving or adding a hole).\n\nThey are OPTIONAL because every selector persisted before they existed must\nkeep resolving: the resolver DUAL-READS (``geometry.kernel.faces``), taking\nthe exact outer-wire comparison when they are present and the \u00a712a inferred\nband when they are not. The pick side emits them for every planar face from\n2026-08-16 on, so the legacy population is closed. Emit all three or none \u2014\na signature carrying some but not all is refused rather than downgraded.",
         "properties": {
           "area_mm2": {
             "description": "Face area (mm^2), full precision",
@@ -5458,6 +5458,43 @@
           "normal": {
             "$ref": "#/components/schemas/Vec3",
             "description": "Outward unit normal of the planar face (full precision)"
+          },
+          "outer_area_mm2": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Area (mm^2) of the region the face's OUTER wire encloses \u2014 the face with its holes plugged. Invariant under any interior boundary edit (topological-naming \u00a712b). Absent on selectors authored before 2026-08-16, which fall back to the \u00a712a inferred band.",
+            "title": "Outer Area Mm2"
+          },
+          "outer_centroid": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Vec3"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Area centroid of the outer-wire region, world mm (full precision). Absent on selectors authored before 2026-08-16."
+          },
+          "outer_perimeter_mm": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Length (mm) of the face's OUTER wire. Separates two outer regions that share an area and a centroid but not a shape. Absent on selectors authored before 2026-08-16.",
+            "title": "Outer Perimeter Mm"
           },
           "subshape_type": {
             "const": "face",

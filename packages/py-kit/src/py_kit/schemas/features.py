@@ -192,6 +192,26 @@ class PlanarFaceSignature(BaseModel):
     part tie and resolve to an honest ``subshape_ambiguous`` (§5), never a guess.
     Matching is nearest-within-tolerance at the documented subshape tolerance
     (geometry.kernel.faces / docs/GEOMETRY-QA.md), never an ad-hoc epsilon.
+
+    OUTER-BOUNDARY INVARIANTS (§12b, GEOM-3 — the three ``outer_*`` fields).
+    ``centroid`` and ``area_mm2`` are functions of what has been CUT INTO the
+    face, not of the face's identity, so on a face carrying more than one feature
+    they go stale the moment any earlier feature on it changes (§12a). Tier 4 of
+    the resolver worked around that by INFERRING a bound on the missing quantity
+    from the three numbers above, and the bound degrades linearly with how
+    perforated the face is — on an ordinary vented plate it admitted a deleted
+    boss top covering a quarter of the plate, i.e. silent wrong geometry. These
+    three fields carry the missing quantity outright: the area, the area centroid
+    and the perimeter of the region the face's OUTER WIRE encloses, all of them
+    pure functions of that wire and therefore untouched by any interior edit
+    (drilling, enlarging, moving or adding a hole).
+
+    They are OPTIONAL because every selector persisted before they existed must
+    keep resolving: the resolver DUAL-READS (``geometry.kernel.faces``), taking
+    the exact outer-wire comparison when they are present and the §12a inferred
+    band when they are not. The pick side emits them for every planar face from
+    2026-08-16 on, so the legacy population is closed. Emit all three or none —
+    a signature carrying some but not all is refused rather than downgraded.
     """
 
     subshape_type: Literal["face"] = "face"
@@ -203,6 +223,32 @@ class PlanarFaceSignature(BaseModel):
         description="Area centroid of the face, world mm (full precision)"
     )
     area_mm2: float = Field(gt=0, description="Face area (mm^2), full precision")
+    outer_area_mm2: float | None = Field(
+        default=None,
+        gt=0,
+        description=(
+            "Area (mm^2) of the region the face's OUTER wire encloses — the face "
+            "with its holes plugged. Invariant under any interior boundary edit "
+            "(topological-naming §12b). Absent on selectors authored before "
+            "2026-08-16, which fall back to the §12a inferred band."
+        ),
+    )
+    outer_centroid: Vec3 | None = Field(
+        default=None,
+        description=(
+            "Area centroid of the outer-wire region, world mm (full precision). "
+            "Absent on selectors authored before 2026-08-16."
+        ),
+    )
+    outer_perimeter_mm: float | None = Field(
+        default=None,
+        gt=0,
+        description=(
+            "Length (mm) of the face's OUTER wire. Separates two outer regions "
+            "that share an area and a centroid but not a shape. Absent on "
+            "selectors authored before 2026-08-16."
+        ),
+    )
 
 
 class CylindricalFaceSignature(BaseModel):

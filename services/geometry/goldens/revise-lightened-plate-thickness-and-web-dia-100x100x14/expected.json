@@ -1,0 +1,27 @@
+{
+  "description": "THE OUTER-BOUNDARY GOLDEN (GEOM-3, docs/design/topological-naming.md 12b). A 100x100 plate, 14 mm thick, lightened by four Ø40 holes on a 50 mm grid at (25,25)/(75,25)/(25,75)/(75,75), with one Ø6 hole at (50, 25) drilled on its top (+Z) face. The tree is stored in exactly the state a document is left in after TWO ordinary edits — the lightening holes were retyped Ø39 -> Ø40, and then Extrude1's distance 10 -> 14 — so the Ø6 hole's stored face signature still says z = 10 AND still describes the top face as it was when the lightening holes were Ø39 (centroid z = 10, area 5221.637573889923 mm^2 = 10000 - 1521*pi). Neither edit alone breaks anything (tier 2 absorbs the in-plane change, tier 3 the moved plane); together they reach tier 4, exactly as the sibling revise-thickness-and-hole-dia-100x40x14 golden does. WHAT MAKES THIS SHAPE DIFFERENT, and why it is the golden GEOM-3 asked for: the top face is 50.3 % OPEN, so 12a's INFERRED area band 2*current - outer evaluates to -53.096491487338426 mm^2 — negative, i.e. on this plate the legacy tier-4b band admits ANY stored area at all and has degenerated to the normal-sense and containment tests alone. That is 12a's own stated limiting case ('in the limit of a face that is half holes it admits any stored area'), and it is the state in which the review measured a deleted boss top silently re-anchoring onto the plate underneath. The signature here instead carries the OUTER-WIRE invariants (outer_area_mm2 10000, outer_centroid (50,50,10), outer_perimeter_mm 400), which tier 4a COMPARES rather than infers, so the match does not depend on how perforated the face is. Refusals are gated by name in test_faces.py and test_faces_geom3_vented_plate.py; this golden locks that the rescue lands on the right face and drills at the picked station.",
+  "derivation": [
+    "Plate: 100 x 100 x 14 = 140000 mm^3.",
+    "Five through-bores removed, each the full 14 mm depth: four R20 plus one R3, so pi*14*(4*20^2 + 3^2) = pi*14*1609 = 22526 mm^2*mm... stated exactly as 14*1609*pi mm^3.",
+    "Volume = 14 * (10000 - 1609*pi) = 69232.48388523633 mm^3 (measured deviation 1.5e-11).",
+    "Surface area: plate sides 4*100*14 = 5600 mm^2; top and bottom faces are each 10000 - 1609*pi, so 2*(10000 - 1609*pi) = 20000 - 3218*pi; the five bores add lateral cylinders 14*2*pi*(4*20 + 3) = 2324*pi. Area = 25600 - 894*pi = 22791.416167690724 mm^2 (measured deviation 3.6e-12).",
+    "Centroid x = 50 EXACTLY by symmetry, and that is an assertion rather than a convenience: the four lightening holes are symmetric about x = 50 and the Ø6 hole sits ON x = 50, so any drill station other than the picked one moves x off 50 (measured 50.00000000000001, deviation 1.4e-14 from the closed form).",
+    "Centroid y is NOT 50 and that is the point of the part: the Ø6 hole is the only feature that breaks y symmetry, so y is a single number that pins where it was drilled. y = (10000*50 - 1600*pi*50 - 9*pi*25) / (10000 - 1609*pi) = 50.14293892553691 mm (measured deviation 1.4e-14). z = 7 by symmetry (every bore runs the full depth).",
+    "AABB unchanged by the bores: (0,0,0)-(100,100,14). As the sibling revision goldens note, a hole drilled from the STALE z = 10 plane would still reach the bottom under through_all, so the bbox alone cannot catch a mis-anchored drill — the y centroid can, and does.",
+    "Topology: 6 plate planar faces + 5 cylindrical bore faces = 11 faces; 12 plate edges + 3 per bore (top circle, bottom circle, cylindrical seam) = 27 edges; 1 shell.",
+    "Mesh (linear_deflection 0.1): 2554 vertices / 2552 triangles. INDEPENDENTLY CROSS-CHECKED rather than recorded: the same tree with the face signature and the hole position authored at the CURRENT state (centroid z = 14, the top face described with the lightening holes already at Ø40 — a tier-1 STRICT match that never reaches any resilient tier) produces byte-identical GLB (sha256 86a503fdf3e03c7d...), identical topology, identical mesh counts and identical mass properties. So the tier-4a rescue lands on exactly the body an exact re-pick would have made, which is the claim this golden exists to make."
+  ],
+  "tolerance": 1e-9,
+  "tolerance_rationale": "Every bore is a pure boolean cut of a right cylinder from a box, so GProp integrates the analytic quadrics exactly; measured deviation from the closed forms above is 1.5e-11 mm^3 (volume), 3.6e-12 mm^2 (area) and 1.4e-14 mm (centroid) — machine precision. The 1e-9 ceiling matches the sibling revise-thickness-and-hole-dia-100x40x14 and revise-thickness-hole-on-moved-face-60x40x16 goldens and the kernel's 1e-7 m linear posture; it is 2-3 orders of magnitude above the observed residual and orders of magnitude below any mis-anchoring this golden exists to catch (drilling at the face's own area centroid, (50, 50), instead of at the picked station moves the part's y centroid by 1.4e-1 mm, thirteen orders outside it).",
+  "properties": {
+    "volume": 69232.48388523633,
+    "surface_area": 22791.416167690724,
+    "centroid": { "x": 50.0, "y": 50.14293892553691, "z": 7.0 },
+    "bounding_box": {
+      "min": { "x": 0.0, "y": 0.0, "z": 0.0 },
+      "max": { "x": 100.0, "y": 100.0, "z": 14.0 }
+    }
+  },
+  "topology": { "faces": 11, "edges": 27, "shells": 1 },
+  "mesh": { "vertices": 2554, "triangles": 2552 }
+}

@@ -233,7 +233,7 @@ QAH-1 (CI-reliability debt) is CLOSED as of this pass — see Done archive.
       on the six `components/*Editor.tsx` now under-describe the value; rename
       to `anchorFeatureId`.
 
-- [ ] (P0, M) **GEOM-3 — GEOM-2's honest limit now has a number, and on an
+- [x] (P0, M) **GEOM-3 — GEOM-2's honest limit now has a number, and on an
       ordinary vented/lightened part it is closer than §12a's qualitative
       caveat suggested.** Code review of `8b95dac`/tier 4 (`enclosing_face_match`,
       `geometry.kernel.faces`) derived the exact admission rule: tier 4 accepts
@@ -278,6 +278,64 @@ QAH-1 (CI-reliability debt) is CLOSED as of this pass — see Done archive.
       `services/geometry/src/geometry/kernel/faces.py` (tier 4 and its
       successor), `docs/design/topological-naming.md` §12a, geometry goldens.
       agentType: kernel-architect.
+      SHIPPED — vented-plate table reproduced VERBATIM on `10714a6` before a line
+      was edited (`removed_frac=0.407, lower_bound=1857.0`; 70x70/60x60/50x50
+      boss tops all `tier4=True`, 40x40 correctly False).
+      DESIGN (§12b): `PlanarFaceSignature` gains three OPTIONAL outer-wire
+      invariants — `outer_area_mm2`, `outer_centroid`, `outer_perimeter_mm` —
+      and tier 4 splits: **4a compares them; 4b keeps §12a's inference verbatim
+      for older selectors.** Three quantities and not one because area plus
+      centroid still collide: an 80x50 boss top and a 100x40 plate top are both
+      4000 mm2 about the same point.
+      Rejected with reasons in the doc: re-tuning the lower bound (a function of
+      `r`, no safe constant exists); a hard version bump with a migration (a
+      migration cannot INVENT an outer wire, and would re-evaluate every
+      persisted part — wrong geometry corpus-wide instead of per-edit, a worse
+      failure mode); making the fields required (breaks every persisted selector
+      and every `apps/web` site in one commit); re-anchoring on the outer
+      centroid (would translate every seated sketch).
+      OLD SELECTORS KEEP RESOLVING — dual-read, proven three ways the author did
+      NOT write: the M17 golden's `model.json` is UNCHANGED and its committed
+      selectors are three-field; `test_faces_m17_revision.py` is UNCHANGED and
+      is now the tree-level legacy gate; and every pre-existing `test_faces.py`
+      fixture is three-field, so the whole shipped tier-1/2/3/4 set exercises
+      the legacy path.
+      **THE LOAD-BEARING FINDING, and the author caught it in their own new
+      work: ablation A2 SURVIVED the first pass.** Dropping the outer-AREA
+      comparison entirely left every gate green, because every shape under test
+      also differed in perimeter — three invariants claimed, **two actually
+      gated**. A new test (70x70 vs 100x40: same 280 mm perimeter, same
+      centroid, 4900 vs 4000 mm2) now kills A2. That is the
+      assertion-never-seen-to-fail defect, found by the person who had just
+      written it, in the exact commit that closes a P0 about a gate being too
+      loose.
+      Eight ablations in both directions: A1 legacy-band-always -> 5 red incl.
+      both tree-level gates; A3 perimeter dropped -> 1 red; A4 in-plane centroid
+      dropped -> 1 red; A5 partial signature accepted -> 1 red; A6 GEOM-4
+      identity dropped -> 1 red; B1 invariants read the FACE not its outer wire
+      -> 10 red incl. all four golden legs; B2 pick side emits nothing -> 12 red.
+      RESIDUAL EXPOSURE GATED DELIBERATELY rather than hidden
+      (`test_the_LEGACY_band_still_swallows_it_which_is_why_the_contract_
+      changed`): a document saved BEFORE this commit keeps the old behaviour,
+      because a stateless service cannot upgrade a selector it does not own.
+      Closing it needs a document-side re-emit, and that test goes red the day
+      someone does it.
+      Two framing corrections, both gated: a literal DELETE never reaches the
+      matcher (dangling `feature_id`), nor does SUPPRESS
+      (`references_suppressed`), and any edit leaving a face on the reference's
+      own plane is absorbed by tier 2. The hazard needs the PLANE to empty while
+      the feature lives — measured there as **8 mm of silent error** (pin at
+      z=15 instead of z=23).
+      Gates re-run by the orchestrator on the merged tree: ruff + ruff format
+      clean, kernel slice 53 passed, full golden suite green, **`just gen-verify`
+      green against the INDEX** (the right gate for a contract change — plain
+      `gen-check` reads the working tree), mutation-marker gate clean. Author
+      also reports pyright 0, 2515 geometry tests collected exit 0, `pnpm -r
+      typecheck` green (which is what proves the optional fields break no
+      `apps/web` caller), and cold M17 rebuild 103 -> 121 ms.
+      NOT reviewed and NOT QA'd yet — `geometry-qa` is now wired into the loop
+      by territory and this is exactly its subject, including the
+      selector-authored-before-the-change proof.
 
 - [ ] (P0, M) **SNAP-2 — a snap to the origin/axis copies the COORDINATE but
       authors no CONSTRAINT, so a grounded-looking sketch silently drifts on
