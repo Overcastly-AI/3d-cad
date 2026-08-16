@@ -37,16 +37,34 @@ and does not write the board.**
 
 ## Phases per batch
 
+0. **Discover** — `vision-steward` hunts capability gaps against Fusion 360 and
+   Plasticity, re-grounds the daily-driver scorecard, and hands the groomer a
+   prioritised candidate list. **This phase did not exist until 2026-08-16 and
+   the loop was structurally incapable of shipping a feature without it**: the
+   auditors find what is BROKEN, the groomer curates from the auditors, so
+   nothing looked for what is ABSENT. Measured over ~45 commits — 22 docs, 9
+   fix, 8 test, **4 feat**, 2 ci, with all four feats being repairs of reported
+   defects, every Ready item a defect, VISION/COMPETITIVE untouched for 16 days,
+   and `vision-steward` never once spawned. A defect-repair machine converges on
+   a well-repaired version of what it already is, and every batch looks
+   productive while it does.
 1. **Audit (parallel, independent)** — `product-auditor` and
    `engineering-auditor` deeply review the current app and **append** ratings and
    prioritised recommendations to their own docs. They do not see each other's
    output first; that independence is what earns its keep. They **write early**
    (append incrementally) so a late crash does not lose the pass — we have lost
    two agents' whole reports to session limits.
-2. **Groom** — `backlog-groomer` ingests both audits, `docs/UI-REVIEW.md`,
-   `docs/GEOMETRY-QA.md`, the roadmap and git history; dedupes, reprioritises,
-   ticks what shipped, and refreshes the **Ready** queue in `docs/BACKLOG.md`.
-   It returns the top N **disjoint** items with an explicit territory each.
+2. **Groom** — `backlog-groomer` ingests both audits, **`docs/COMPETITIVE.md`
+   and VISION's scorecard**, `docs/UI-REVIEW.md`, `docs/GEOMETRY-QA.md`, the
+   roadmap and git history; dedupes, reprioritises, ticks what shipped, and
+   refreshes the **Ready** queue in `docs/BACKLOG.md`. It returns the top N
+   **disjoint** items with an explicit territory each, **every item tagged
+   `kind: 'defect' | 'capability'`**, plus a **measured** `ratio` — the feat/fix
+   split of the last 30 commits and the defect/capability split of the batch.
+   The schema forces both. The script cannot run git; the groomer can, so the
+   groomer is the instrument that makes convergence-on-repair visible every
+   batch instead of every fortnight. An all-defect batch may be right — it just
+   may not be silent, and the script logs a note when one follows a Discover.
 3. **Build (parallel, isolated)** — each item is ONE agent in its own
    **`isolation: 'worktree'`**, owning the slice end to end: implement, review
    its own diff, QA against the real stack, commit only if green, leave the work
@@ -92,8 +110,12 @@ and does not write the board.**
 
 ```js
 export const meta = { name:'loft-dev-loop',
-  phases:[{title:'Audit'},{title:'Groom'},{title:'Build'},
+  phases:[{title:'Discover'},{title:'Audit'},{title:'Groom'},{title:'Build'},
           {title:'Review'},{title:'Verify'},{title:'Integrate'}] }
+
+phase('Discover')                    // skippable via args.skipDiscover
+await agent(competitiveBrief,        // Fusion 360 + Plasticity, WebFetch/WebSearch
+  {agentType:'vision-steward'})      // owns VISION.md + COMPETITIVE.md, never BACKLOG
 
 phase('Audit')                       // skippable via args.skipAudit
 await parallel([
