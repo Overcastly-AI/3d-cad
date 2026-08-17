@@ -486,6 +486,72 @@ for full evidence/gates.** Their two live follow-ups stay in Ready:
       TERRITORY: `docs/COMPETITIVE.md`, `docs/VISION.md`. No code, no
       overlap with any item above. agentType: vision-steward.
 
+- [ ] (P2, S) **A11Y-TOOLBTN-1 — `ToolButton` only wires `aria-describedby`
+      to its caption while DISABLED, so an enabled-but-QUALIFIED state is
+      hover-only for a screen-reader user.** kind: defect. Found by the
+      EXPORT-1 builder (`3a7c4ca`) while wiring `ExportToolGroup` and
+      reported rather than fixed — correctly: the fix touches a shared
+      primitive mid-batch and would change accessible descriptions for
+      every tool in every command band. Verified against source:
+      `packages/design/src/primitives/ToolButton.tsx:117` —
+      `const hasGateReason = isDisabled && Boolean(caption);` — gates the
+      `aria-describedby` wiring (`:118-121`) on `isDisabled` alone; the
+      doc comment above it (`:86-91`) even says "while disabled, the
+      button's `aria-describedby` points at the caption node," describing
+      the gap as the intended design. A working (enabled) `ToolButton` can
+      carry a `caption` that qualifies what the click will DO — the case
+      that exposed this, `ExportToolGroup.tsx`'s export cells, whose
+      caption reads `"${caption} · marks the file partial"` when the
+      export is allowed but would only write a prefix of the tree — and
+      that qualifier is visible on hover/focus (the tooltip) but never
+      reaches `aria-describedby`, so a screen-reader user gets only the
+      accessible NAME with no indication the file is partial. This is a
+      WCAG-relevant gap against CLAUDE.md's quality floor (visible focus,
+      AA contrast, and by extension not making state visual-only), and
+      because it's in the PRIMITIVE it is wrong everywhere `ToolButton` is
+      used with an enabled `caption` — not just at the export site that
+      surfaced it (grep `caption=` across `HoleEditor.tsx`,
+      `MirrorEditor.tsx`, `CreateStrip.tsx`, `SectionAuthorPanel.tsx`,
+      `SketchStrip.tsx`, `AssemblyCommandBand.tsx`, `DrawingCommandBand.tsx`,
+      `HistoryGroup.tsx` for other call sites carrying an enabled caption
+      before scoping the fix). WORKAROUND ALREADY IN TREE, must be unwound
+      in the same commit as the primitive fix or the qualifier announces
+      TWICE: `ExportToolGroup.tsx:71-75` folds the qualifier into the
+      accessible NAME instead (`aria-label={qualifier === undefined ? name
+      : \`${name} — ${qualifier}\`}`), with a comment explaining exactly
+      why. FIX: change `hasGateReason` (or equivalent) to key on
+      `Boolean(caption)` alone, not `isDisabled && Boolean(caption)`, so
+      `aria-describedby` always points at the caption node when one is
+      rendered — enabled or disabled; confirm this doesn't double-announce
+      already (a disabled button announces `aria-disabled` + description
+      today, so an enabled one gaining a description is the same shape,
+      not a new one). ACCEPTANCE: an ENABLED `ToolButton` with a non-empty
+      `caption` exposes `aria-describedby` pointing at the caption node
+      (new `ToolButton.test.tsx` case, mirroring the existing disabled-case
+      test); `ExportToolGroup.tsx`'s `aria-label` workaround removed in the
+      same commit, reverting to a plain `name`/`label` accessible name, with
+      an updated test asserting the qualifier now comes from the
+      description, not the name (no double-announcement). Mutation check:
+      reverting the `hasGateReason` condition back to
+      `isDisabled && Boolean(caption)` reddens the new enabled-caption test
+      only.
+      [src: EXPORT-1 builder report, 2026-08-17, verified against
+      `packages/design/src/primitives/ToolButton.tsx` and
+      `apps/web/src/components/ExportToolGroup.tsx` this pass]
+      TERRITORY: `packages/design/src/primitives/ToolButton.tsx`,
+      `packages/design/src/primitives/ToolButton.test.tsx`,
+      `apps/web/src/components/ExportToolGroup.tsx` (unwind the
+      `aria-label` workaround), `apps/web/src/components/
+      ExportToolGroup.test.tsx`. **Collides with EXPORT-1's own files
+      (`ExportToolGroup.tsx`) and with ANY other in-flight work on
+      `packages/design/src/primitives/ToolButton.tsx` — it is a shared
+      primitive consumed by every command band (`CreateStrip.tsx`,
+      `AssemblyCommandBand.tsx`, `DrawingCommandBand.tsx`, `HistoryGroup.tsx`,
+      `SketchStrip.tsx`, and the editors listed above); do not dispatch
+      alongside any other agent touching `ToolButton.tsx` or
+      `ExportToolGroup.tsx` in the same session.** agentType:
+      frontend-builder.
+
 ## Next (P2)
 
 - [ ] (P2, M) **IMPORT-HEAL-1 — a STEP import yielding zero solids has no
