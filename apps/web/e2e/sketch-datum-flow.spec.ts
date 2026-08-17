@@ -563,16 +563,43 @@ test.describe("SKETCH-2 — the frame never leads anywhere you cannot leave", ()
       "data-pick-state",
       "selected",
     );
-    await page.keyboard.press("c"); // coincident — accepted, not refused
-    // 9 = the draw's own rigidity set (RECT-1: 4 coincidences + 2 H + 2 V) plus
-    // this grounding one. The number that matters is that it GREW: a refused
-    // verb would have left it at eight.
+    await page.keyboard.press("c");
+    // THE GESTURE THIS TEST WAS WRITTEN FOR HAS BEEN AUTOMATED OUT FROM UNDER
+    // IT, and that is the result rather than a problem. Its original premise —
+    // "drawn FROM the origin, so its near corner is snapped to zero (snapped is
+    // not constrained)" — was exactly the defect SNAP-3 closed: a snapped point
+    // now carries the coincident it was snapped to. So the corner was already
+    // grounded by the draw, and asking for it again is correctly refused.
+    //
+    // 9 = the rectangle's rigidity set (RECT-1: 4 coincidences + 2H + 2V) plus
+    // the one the draw authored when the first corner took the origin. It does
+    // NOT become ten, because the product does not stack a fact it already
+    // holds.
     await expect(page.getByTestId("sketch-strip")).toContainText("9 applied");
-    await expect(page.getByTestId("constraint-hint")).toHaveCount(0);
+    await expect(page.getByTestId("constraint-hint")).toContainText(
+      /already coincident/i,
+    );
+    // Pointer-grounding of a profile that is NOT already on the origin — the
+    // capability this step used to cover — keeps its own coverage in
+    // `sketch-origin-constraint.spec.ts` ("grounds a floating profile to the
+    // origin"), which is where it belongs now that the stacked-pick case is
+    // resolved before the user can reach for it.
+    // BIND THE SKETCH so the server can be asked at all. The draw's automatic
+    // constraints deliberately do not persist it (`userConstrained` — binding on
+    // them would retire the unsaved-exit confirm for anything that snapped), and
+    // the manual grounding above was refused as redundant, so at this point the
+    // user has authored nothing and there is no feature to evaluate. A
+    // dimension is a real user edit.
+    await selectAndRead(page, at, at({ x: 12, y: 0 }), "1 ent");
+    await page.keyboard.press("d");
+    const dimension = page.getByTestId("dimension-input");
+    await expect(dimension).toBeVisible();
+    await dimension.fill("24");
+    await dimension.press("Enter");
+
     // …and the frame is really in the sketch now, which only a constraint that
-    // names it can do. Tolerant of the throw: this sketch is unsaved, so there
-    // is no sketch feature to evaluate until the debounced persist binds it,
-    // and "not yet" is a poll iteration rather than a failure.
+    // names it can do. Tolerant of the throw: the debounced persist has to land
+    // first, so "not yet" is a poll iteration rather than a failure.
     await expect
       .poll(
         async () => {

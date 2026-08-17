@@ -195,6 +195,22 @@ async function calibratePlane(
   });
 }
 
+/**
+ * Find a constraint glyph BY THE SYMBOL IT SHOWS, not by its position.
+ *
+ * `glyph-N` is an index into the constraint array, and two features now push a
+ * test's own constraint down it: RECT-1 authors a rectangle's rigidity set at
+ * the draw, and SNAP-3 authors a coincident wherever a placed point snapped to
+ * something. A glyph-suppressed datum pin also leaves HOLES in the sequence, so
+ * the "obvious" +1 fails with element-not-found and reads as "the constraint
+ * was never authored" — a false regression, in someone else's territory. The
+ * symbol is what these assertions are actually about; the index never was.
+ */
+const glyphShowing = (page: Page, symbol: string) =>
+  page
+    .locator('[data-testid^="glyph-"]')
+    .filter({ hasText: new RegExp(`^${symbol}$`) });
+
 async function clickPlane(
   page: Page,
   at: (pt: { x: number; y: number }) => { x: number; y: number },
@@ -249,8 +265,10 @@ test.describe("sketcher constraints", () => {
     //    the draw now authors for itself, so the example no longer applies
     //    them; it checks they arrived. Four corner coincidences first, then
     //    horizontal on the two horizontal edges, vertical on the two vertical.
+    // 9 = RECT-1's eight, plus the coincident SNAP-3 authored when the first
+    // corner was clicked on the origin.
     await expect(page.getByTestId("selection-readout")).toContainText(
-      "8 applied",
+      "9 applied",
     );
     for (const i of [0, 1, 2, 3]) {
       await expect(page.getByTestId(`glyph-${i}`)).toHaveText("C");
@@ -280,7 +298,7 @@ test.describe("sketcher constraints", () => {
     await input.fill("40");
     await input.press("Enter");
     expect((await created).status()).toBe(201);
-    await expect(page.getByTestId("glyph-8")).toHaveText("40");
+    await expect(glyphShowing(page, "40")).toHaveCount(1);
     await expect(page.getByTestId("dro-solve")).toContainText(
       "UNDER-CONSTRAINED",
     );
@@ -291,9 +309,11 @@ test.describe("sketcher constraints", () => {
     await expect(input).toBeVisible();
     await input.fill("25");
     await input.press("Enter");
-    await expect(page.getByTestId("glyph-9")).toHaveText("25");
+    await expect(glyphShowing(page, "25")).toHaveCount(1);
+    // 11 = RECT-1's eight, SNAP-3's origin coincident from the first corner,
+    // and the user's two dimensions.
     await expect(page.getByTestId("selection-readout")).toContainText(
-      "10 applied",
+      "11 applied",
     );
 
     // The solved payload: all five constraints hold at the §6 coordinates.
@@ -327,12 +347,12 @@ test.describe("sketcher constraints", () => {
 
     // The worked-example edit: click the 40, type 60, Enter — re-solve
     // moves the corners.
-    await page.getByTestId("glyph-8").click();
+    await glyphShowing(page, "40").click();
     await expect(input).toBeVisible();
     await expect(input).toHaveValue("40");
     await input.fill("60");
     await input.press("Enter");
-    await expect(page.getByTestId("glyph-8")).toHaveText("60");
+    await expect(glyphShowing(page, "60")).toHaveCount(1);
     await expect
       .poll(() => {
         const sketch = latestSketch(evaluations);
@@ -374,9 +394,17 @@ test.describe("sketcher constraints", () => {
         feature: { params: { constraints: Array<{ kind: string }> } };
       }>;
     };
-    // What actually reached the SERVER — the check that the rigidity set is
-    // persisted geometry and not a client-side decoration. RECT-1's eight in
-    // emission order, then the user's two dimensions.
+    // What actually reached the SERVER — the check that these are persisted
+    // geometry and not client-side decoration. RECT-1's eight in emission
+    // order; then SNAP-3's coincident from the first corner landing on the
+    // origin, and the `fixed` pin that materialising the origin brings with it;
+    // then the user's two dimensions.
+    //
+    // Note the pin is glyph-SUPPRESSED and is absent from the strip's
+    // "9 applied" too, so the client shows nine where the server holds ten.
+    // That gap is deliberate — the pin is not the user's constraint to manage —
+    // and it is exactly why the assertions above locate glyphs by their symbol
+    // rather than by an index into this array.
     expect(
       treeBody.features[0]?.feature.params.constraints.map((c) => c.kind),
     ).toEqual([
@@ -388,6 +416,8 @@ test.describe("sketcher constraints", () => {
       "horizontal",
       "vertical",
       "vertical",
+      "coincident",
+      "fixed",
       "distance",
       "distance",
     ]);
@@ -407,21 +437,29 @@ test.describe("sketcher constraints", () => {
     );
 
     // A 30 mm line with both endpoints fixed…
+    //
+    // DRAWN OFF THE ORIGIN ON PURPOSE (it used to start at 0,0). SNAP-3 now
+    // authors a coincident wherever a placed point snaps to something, so a
+    // line started on the origin arrives grounded — and an explicit FIX on that
+    // same endpoint is then redundant with it, which makes the sketch
+    // OVER-CONSTRAINED and the recovery below unreachable. That interaction is
+    // real and is filed as SNAP-4; this test is about the CONFLICT diagnostic,
+    // so it keeps its subject by staying away from the frame.
     await page.keyboard.press("l");
-    await clickPlane(page, at, { x: 0, y: 0 });
-    await clickPlane(page, at, { x: 30, y: 0 });
+    await clickPlane(page, at, { x: 5, y: 8 });
+    await clickPlane(page, at, { x: 35, y: 8 });
     await page.keyboard.press("Escape");
 
-    await clickPlane(page, at, { x: 0, y: 0 });
+    await clickPlane(page, at, { x: 5, y: 8 });
     await expect(page.getByTestId("selection-readout")).toContainText("1 pt");
     await page.keyboard.press("x");
-    await expect(page.getByTestId("glyph-0")).toHaveText("FIX");
-    await clickPlane(page, at, { x: 30, y: 0 });
+    await expect(glyphShowing(page, "FIX")).toHaveCount(1);
+    await clickPlane(page, at, { x: 35, y: 8 });
     await page.keyboard.press("x");
-    await expect(page.getByTestId("glyph-1")).toHaveText("FIX");
+    await expect(glyphShowing(page, "FIX")).toHaveCount(2);
 
     // …then a 60 mm driving dimension: mutually unsatisfiable.
-    await clickPlane(page, at, { x: 15, y: 0 });
+    await clickPlane(page, at, { x: 20, y: 8 });
     await page.keyboard.press("d");
     const input = page.getByTestId("dimension-input");
     await expect(input).toBeVisible();
@@ -435,7 +473,9 @@ test.describe("sketcher constraints", () => {
       { timeout: 15_000 },
     );
     await expect(page.getByTestId("dro-solve")).toHaveText("CONFLICT");
-    await expect(page.getByTestId("glyph-2")).toHaveAttribute(
+    // The offending glyph is the 60 mm dimension — found by its value, since
+    // SNAP-3's inferred coincident now sits ahead of it in the array.
+    await expect(glyphShowing(page, "60")).toHaveAttribute(
       "data-flagged",
       "true",
     );
@@ -443,7 +483,7 @@ test.describe("sketcher constraints", () => {
 
     // Recovery: open the bad dimension, remove it — the sketch solves again
     // (both endpoints fixed = fully constrained, DOF 0).
-    await page.getByTestId("glyph-2").click();
+    await glyphShowing(page, "60").click();
     await page.getByTestId("dimension-remove").click();
     await expect(page.getByTestId("dro-solve")).toHaveText(
       "DOF 0 · CONVERGED",
@@ -508,7 +548,7 @@ test.describe("sketcher relational constraints", () => {
     await addPlane(page, at, { x: 17.5, y: 4.5 }); // + e2 body (midpoint)
     await expect(page.getByTestId("selection-readout")).toContainText("2 ent");
     await page.keyboard.press("p");
-    await expect(page.getByTestId("glyph-0")).toHaveText("∥");
+    await expect(glyphShowing(page, "∥")).toHaveCount(1);
 
     await expect
       .poll(() => {
@@ -557,7 +597,7 @@ test.describe("sketcher relational constraints", () => {
     await addPlane(page, at, { x: 22.5, y: 15 }); // + e2 body (midpoint)
     await expect(page.getByTestId("selection-readout")).toContainText("2 ent");
     await page.keyboard.press("l"); // L = perpendicular in the constraint vocab
-    await expect(page.getByTestId("glyph-0")).toHaveText("⊥");
+    await expect(glyphShowing(page, "⊥")).toHaveCount(1);
 
     await expect
       .poll(() => {
@@ -603,7 +643,7 @@ test.describe("sketcher relational constraints", () => {
     await addPlane(page, at, { x: 0, y: 10 }); // + e1 circle body (top)
     await expect(page.getByTestId("selection-readout")).toContainText("2 ent");
     await page.keyboard.press("t");
-    await expect(page.getByTestId("glyph-0")).toHaveText("T");
+    await expect(glyphShowing(page, "T")).toHaveCount(1);
 
     await expect
       .poll(() => {
@@ -660,7 +700,7 @@ test.describe("sketcher relational constraints small laptop (1280×800)", () => 
     await clickPlane(page, at, { x: 20, y: 0 });
     await addPlane(page, at, { x: 22.5, y: 15 });
     await page.keyboard.press("l");
-    await expect(page.getByTestId("glyph-0")).toHaveText("⊥");
+    await expect(glyphShowing(page, "⊥")).toHaveCount(1);
 
     // …and a tangent line-arc, for a two-glyph founder shot.
     await page.keyboard.press("c");
@@ -673,7 +713,7 @@ test.describe("sketcher relational constraints small laptop (1280×800)", () => 
     await clickPlane(page, at, { x: 25, y: -30 }); // line body
     await addPlane(page, at, { x: 30, y: -12 }); // + circle body (top)
     await page.keyboard.press("t");
-    await expect(page.getByTestId("glyph-1")).toHaveText("T");
+    await expect(glyphShowing(page, "T")).toHaveCount(1);
 
     const viewport = page.getByTestId("viewport");
     const box = await viewport.boundingBox();
@@ -714,7 +754,7 @@ test.describe("sketcher constraints small laptop (1280×800)", () => {
     await expect(input).toBeVisible();
     await input.fill("40");
     await input.press("Enter");
-    await expect(page.getByTestId("glyph-8")).toHaveText("40");
+    await expect(glyphShowing(page, "40")).toHaveCount(1);
     await expect(page.getByTestId("dro-solve")).toContainText(
       "UNDER-CONSTRAINED",
     );
@@ -792,7 +832,7 @@ test.describe("sketcher size/shape constraints", () => {
     await addPlane(page, at, { x: 35, y: 5 }); // + e2 body (top)
     await expect(page.getByTestId("selection-readout")).toContainText("2 ent");
     await page.keyboard.press("e");
-    await expect(page.getByTestId("glyph-0")).toHaveText("=");
+    await expect(glyphShowing(page, "=")).toHaveCount(1);
 
     await expect
       .poll(() => {
@@ -836,7 +876,7 @@ test.describe("sketcher size/shape constraints", () => {
     await addPlane(page, at, { x: 30, y: 11 }); // + e2 body (top)
     await expect(page.getByTestId("selection-readout")).toContainText("2 ent");
     await page.keyboard.press("o");
-    await expect(page.getByTestId("glyph-0")).toHaveText("◎");
+    await expect(glyphShowing(page, "◎")).toHaveCount(1);
 
     await expect
       .poll(() => {
@@ -892,7 +932,7 @@ test.describe("sketcher size/shape constraints", () => {
     // After the rectangle's own eight (RECT-1) — the centerline is a plain
     // drawn line and a construction flag is not a constraint, so the symmetric
     // is the ninth.
-    await expect(page.getByTestId("glyph-8")).toHaveText("⟷");
+    await expect(glyphShowing(page, "⟷")).toHaveCount(1);
 
     await expect
       .poll(() => {

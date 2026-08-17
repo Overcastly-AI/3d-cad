@@ -242,6 +242,39 @@ remain independent of all of the above.
       the user's chair (pressing `h` on the bottom edge answers "Already
       horizontal.").
 
+- [ ] (P2, S) **SNAP-4 — an explicit Fix on a point the draw already grounded
+      reads as OVER-CONSTRAINED, and the user did not ask for either half.**
+      kind: defect (interaction between two features that are each correct).
+      Found 2026-08-16 while integrating SNAP-3, by a test that stopped
+      passing for an informative reason rather than by inspection. Draw a line
+      starting ON the origin: SNAP-3 correctly authors a coincident from the
+      endpoint to the origin. Now press `x` (Fix) on that same endpoint —
+      also correct in isolation — and the two constraints pin the same point
+      twice, so the sketch reports OVER-CONSTRAINED. MEASURED: the
+      `constraints.spec.ts` conflict-recovery case, which removes a bad
+      dimension and expects `DOF 0 · CONVERGED`, instead reached
+      `OVER-CONSTRAINED` and could not recover; it now draws clear of the
+      origin to keep its own subject, which is a workaround in a test and not
+      a fix in the product. WHY IT MATTERS beyond the tidiness: the report is
+      TRUE — the point genuinely is over-determined — so the diagnosis is not
+      lying, but the user authored only one of the two constraints and the
+      other arrived silently from a snap. That is the "asks the user to delete
+      something they did not knowingly create" shape that SKETCH-2's follow-up
+      was filed for. OPTIONS, in preference order: (a) Fix on a point that
+      already carries a coincident to the frame REPLACES it (the explicit verb
+      supersedes the inferred one) and says so; (b) Fix is refused as "already
+      grounded", matching the "Already horizontal." precedent RECT-1 relies on;
+      (c) leave it and rely on the redundancy diagnosis — cheapest, and the
+      one to argue against. ACCEPTANCE: draw a line from the origin, press `x`
+      on that endpoint, and the sketch does NOT report over-constrained; a
+      GENUINE over-constraint on the same sketch still does (negative
+      control); `constraints.spec.ts`'s conflict case can be moved back onto
+      the origin and still recover to `DOF 0 · CONVERGED`.
+      [src: SNAP-3 integration, 2026-08-16]
+      TERRITORY: `apps/web/src/sketch/constraints.ts` (`applyConstraintAction`,
+      the `fixed` branch), `apps/web/src/sketch/store.ts`. agentType:
+      frontend-builder.
+
 - [ ] (P2, S) **RECT-2 — should DRAWING alone persist a sketch?** kind: question
       (product decision, not a defect). Raised by RECT-1, which made it live:
       `PartPage.tsx`'s persist gate asks "has this sketch any constraints yet",

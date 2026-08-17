@@ -157,28 +157,44 @@ async function sketchDimensionedRectangle(
   await expect(page.getByTestId("glyph-5")).toHaveText("H");
   await expect(page.getByTestId("glyph-6")).toHaveText("V");
   await expect(page.getByTestId("glyph-7")).toHaveText("V");
-  await expect(page.getByTestId("glyph-8")).toHaveCount(0);
+  // SNAP-3, the ninth: the first corner was clicked ON the origin, so the draw
+  // GROUNDED it too. Before these two landed, this rectangle carried nothing at
+  // all and the same gesture left the corner merely sitting at (0,0).
+  await expect(page.getByTestId("glyph-8")).toHaveText("C");
+  await expect(page.getByTestId("selection-readout")).toContainText(
+    "9 applied",
+  );
 
   // …and it is real from the user's chair, not just in the strip: asking for
   // horizontal on the bottom edge is now REFUSED as already true, rather than
-  // stacking a ninth glyph. This is the assertion that would catch the rigidity
+  // stacking a tenth glyph. This is the assertion that would catch the rigidity
   // set being cosmetic.
   await clickPlane(page, at, { x: 20, y: 0 });
   await page.keyboard.press("h");
   await expect(page.getByTestId("constraint-hint")).toContainText(
     /already horizontal/i,
   );
-  await expect(page.getByTestId("glyph-8")).toHaveCount(0);
+  await expect(page.getByTestId("glyph-9")).toHaveCount(0);
 
   // Driving dimension 40 on the bottom edge (the inline mm editor) — the first
   // constraint the USER authors, and the one that persists the sketch.
+  //
+  // Located BY VALUE, not by index. `glyph-N` is a position in the constraint
+  // array, and RECT-1 then SNAP-3 each shifted it; worse, a glyph-suppressed
+  // datum pin leaves HOLES in the sequence, so an "obvious" +1 fails with
+  // element-not-found and reads as "the dimension was never authored". The
+  // number on the glyph is the thing this step is actually about.
+  const dimensionGlyph = (mm: string) =>
+    page
+      .locator('[data-testid^="glyph-"]')
+      .filter({ hasText: new RegExp(`^${mm}$`) });
   await clickPlane(page, at, { x: 20, y: 0 });
   await page.keyboard.press("d");
   const input = page.getByTestId("dimension-input");
   await expect(input).toBeVisible();
   await input.fill("40");
   await input.press("Enter");
-  await expect(page.getByTestId("glyph-8")).toHaveText("40");
+  await expect(dimensionGlyph("40")).toHaveCount(1);
 
   // Driving dimension 25 on the right edge.
   await clickPlane(page, at, { x: 40, y: 12.5 });
@@ -186,7 +202,7 @@ async function sketchDimensionedRectangle(
   await expect(input).toBeVisible();
   await input.fill("25");
   await input.press("Enter");
-  await expect(page.getByTestId("glyph-9")).toHaveText("25");
+  await expect(dimensionGlyph("25")).toHaveCount(1);
 
   // Finish the sketch; the tree solves.
   await page.getByTestId("sketch-save").click();

@@ -1076,8 +1076,12 @@ test.describe("QA SKETCH-2 — grounding to the sketch frame", () => {
     await page.keyboard.up("Shift");
     await expect(page.getByTestId("selection-readout")).toContainText("2 pts");
     await page.keyboard.press("c");
+    // 9 = RECT-1's rigidity set (4 coincidences + 2H + 2V, authored by the
+    // draw) plus this grounding one. The rectangle is deliberately drawn CLEAR
+    // of the origin, so SNAP-3 infers nothing here and the grounding below is
+    // still a real gesture rather than a redundant one.
     await expect(page.getByTestId("selection-readout")).toContainText(
-      "1 applied",
+      "9 applied",
     );
     await finishSketch(page);
 
