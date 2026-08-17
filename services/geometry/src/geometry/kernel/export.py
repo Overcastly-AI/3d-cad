@@ -1,8 +1,9 @@
-"""CAD file export — STEP (exact B-rep) and binary STL (faceted mesh).
+"""CAD file export — STEP (exact B-rep) and three faceted meshes (STL, 3MF, GLB).
 
-Uses build123d's exporters (OCCT ``STEPControl_Writer`` / ``StlAPI_Writer``
-underneath). Both outputs are **byte-deterministic** for identical requests
-(RESEARCH §9); the geometry export gate asserts it:
+Uses build123d's exporters (OCCT ``STEPControl_Writer`` / ``StlAPI_Writer`` /
+``RWGltf_CafWriter``, and lib3mf via ``build123d.mesher.Mesher``, underneath).
+Every output is **byte-deterministic** for identical requests (RESEARCH §9); the
+geometry export gate asserts it:
 
 * **STEP:** OCCT stamps the file's ``FILE_NAME`` record with the wall-clock
   creation time — the one nondeterministic byte range in the output. We pin
@@ -19,6 +20,27 @@ underneath). Both outputs are **byte-deterministic** for identical requests
   Defaults come from :mod:`py_kit.schemas.geometry`
   (``DEFAULT_LINEAR_DEFLECTION`` = 0.1 mm, ``DEFAULT_ANGULAR_DEFLECTION`` =
   0.1 rad — the viewport-quality tessellation settings).
+* **3MF:** an OPC (zip) container whose ``3D/3dmodel.model`` XML declares
+  ``unit="millimeter"`` — the thing STL cannot say, and the reason every 2026
+  slicer prefers it. lib3mf pins the zip member timestamps to 1980, so the only
+  nondeterministic bytes are the five random production-extension UUIDs it
+  stamps per write; :func:`_canonicalise_3mf_ids` pins those to
+  :data:`THREE_MF_UUID_NAMESPACE`-derived values, exactly as
+  :data:`STEP_EXPORT_TIMESTAMP` pins the STEP clock. It also drops the
+  unreferenced components object build123d adds beside each mesh ("Not sure is
+  this is required..." in ``build123d/mesher.py``) — nothing in the build item
+  list points at it, and a resource no consumer reads is bytes we should not
+  ship.
+* **GLB:** *not a new exporter.* It is the payload
+  :func:`~geometry.kernel.tessellate.tessellate_glb` already produces on every
+  viewport tessellation, handed over unchanged — so the file a user downloads
+  is byte-identical to the mesh their screen is drawing, and its determinism is
+  the tessellation path's determinism, already gated. **It is in METRES and
+  Y-up**, per the glTF 2.0 spec, unlike every other format here, which are
+  millimetres and Z-up; ``py_kit.schemas.geometry.EXPORT_UNITS`` is the single
+  place that says so and the export gate asserts the extents against it. That
+  asymmetry is the format's, not ours: a GLB written in mm renders 1000x too
+  large in every conformant viewer.
 
 Kernel objects never leave ``geometry.kernel``: callers receive bytes.
 
@@ -85,6 +107,8 @@ fully-typed :data:`BodyShape` return keeps the boundary honest.
 import io
 import re
 import tempfile
+import uuid
+import zipfile
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
@@ -97,6 +121,8 @@ from build123d.exporters3d import (
     export_step,  # pyright: ignore[reportUnknownVariableType]  (Shape[Unknown] param upstream)
     export_stl,  # pyright: ignore[reportUnknownVariableType]
 )
+from build123d.mesher import Mesher
+from lib3mf import Lib3MF
 from OCP.APIHeaderSection import APIHeaderSection_MakeHeader
 from OCP.BRep import BRep_Builder
 from OCP.gp import gp_Quaternion, gp_Trsf, gp_Vec
@@ -115,6 +141,7 @@ from OCP.XCAFApp import XCAFApp_Application
 from OCP.XCAFDoc import XCAFDoc_DocumentTool, XCAFDoc_ShapeTool
 from OCP.XSControl import XSControl_WorkSession
 
+from geometry.kernel.tessellate import tessellate_glb
 from geometry.kernel.types import BodyShape
 
 #: Pinned STEP creation timestamp (determinism decision, GEOMETRY-QA gap #4).
@@ -129,6 +156,21 @@ STEP_MAGIC = b"ISO-10303-21"
 #: per triangle (normal + 3 vertices as float32 triples + uint16 attribute).
 STL_HEADER_BYTES = 84
 STL_TRIANGLE_RECORD_BYTES = 50
+
+#: The one part every 3MF (OPC) package must carry — the model XML that holds
+#: the unit declaration, the meshes and the build items. Sanity-checked after
+#: every write, and the thing a reader opens.
+THREE_MF_MODEL_PART = "3D/3dmodel.model"
+
+#: Namespace the pinned 3MF production-extension UUIDs are derived from
+#: (determinism decision, module docstring — the 3MF twin of
+#: :data:`STEP_EXPORT_TIMESTAMP`). lib3mf mints a fresh random UUID per object,
+#: per component, per build item and for the build itself on every write, which
+#: is five nondeterministic byte ranges in a file whose geometry is identical.
+#: A 3MF package is self-contained — the production extension's UUIDs matter for
+#: referencing BETWEEN packages, which we never emit — so pinning them costs
+#: nothing a consumer can observe and buys the RESEARCH §9 gate.
+THREE_MF_UUID_NAMESPACE = uuid.UUID("1cbe3d7c-1f0e-5f4a-9d3e-2b7a5c6f4e10")
 
 
 def export_step_bytes(shape: BodyShape, *, name: str | None = None) -> bytes:
@@ -198,6 +240,229 @@ def export_stl_bytes(
     if len(data) < STL_HEADER_BYTES:
         raise RuntimeError("STL export produced a truncated payload")
     return data
+
+
+def _three_mf_model(mesher: Mesher) -> Lib3MF.Model:
+    """``mesher.model``, narrowed from lib3mf's un-annotated ``Model | None``.
+
+    ``Lib3MF.Wrapper.CreateModel`` carries no return annotation, so pyright
+    infers Optional from its body and every call through ``mesher.model`` is an
+    ``reportOptionalMemberAccess`` error. Narrowing HERE, once, keeps that
+    diagnostic switched on for the rest of this module rather than blanket-
+    disabling it in the file header — the same reasoning as the scoped OCP
+    ignores above. The ``None`` branch is unreachable in practice (lib3mf raises
+    ``ELib3MFException`` on a failed create), so it is stated as an assertion
+    about the library, not as a handled path.
+    """
+    model = mesher.model
+    if model is None:  # pragma: no cover - lib3mf raises before returning None
+        raise RuntimeError("lib3mf produced no model to write")
+    return model
+
+
+class MeshExportNotManifoldError(Exception):
+    """3MF refuses a body whose TRIANGULATION is not manifold and oriented.
+
+    Found by the EXPORT-2 golden sweep, not predicted: the whole 51-model
+    inventory writes clean 3MF except ``mirror-revolve-groove-tangent-wall``,
+    whose mesh has exactly ONE non-manifold edge — the 8 mm segment on the
+    revolve axis where the two mirrored groove lobes meet, with 4 triangles
+    round it instead of 2 (measured: V 513, F 1024, E 1535, chi = 1).
+
+    That is not a meshing bug to work around; it is the solid genuinely
+    touching itself along a line, and the 3MF core specification requires a
+    model-type object to be manifold. STL writes such a body happily *because
+    STL has no topology at all* — which is precisely the failure class 3MF
+    exists to eliminate, so quietly emitting a spec-violating package would
+    throw away the reason to support the format. The body is fine: it is
+    ``BRepCheck``-valid, STEP round-trips it to 1e-7, and STL still works.
+
+    Same posture as :class:`~geometry.kernel.degenerate` (RESEARCH §9): DETECT
+    the condition and degrade to a typed error naming the fix, never a 500 and
+    never a file that lies.
+    """
+
+    def __init__(self, message: str, *, code: str = "export_mesh_not_manifold") -> None:
+        super().__init__(message)
+        self.code = code
+
+
+#: What a user can actually do about :class:`MeshExportNotManifoldError`. Named
+#: once because the part and assembly paths both raise it.
+_NOT_MANIFOLD_MESSAGE = (
+    "This body's surface touches itself along a line (a tangency or a knife "
+    "edge where two lumps meet), so it cannot be written as the manifold mesh "
+    "the 3MF specification requires - and a slicer would reject or silently "
+    "repair it. Export STEP (exact B-rep) or STL instead, or give the contact "
+    "some width with a small fillet or clearance."
+)
+
+
+def _add_shape_or_refuse(
+    mesher: Mesher,
+    shape: BodyShape,
+    linear_deflection: float,
+    angular_deflection: float,
+) -> None:
+    """``Mesher.add_shape``, with lib3mf's bare refusal turned into a diagnosis.
+
+    build123d raises ``RuntimeError("3mf mesh is invalid")`` — a sentence with
+    no cause in it — so this ASKS the model which mesh object is unhappy and
+    why, rather than matching on that string (which would silently mis-attribute
+    the day build123d rewords it, or the day a different failure wears the same
+    exception). Only a mesh that lib3mf itself reports as non-manifold becomes
+    the typed error; anything else propagates unchanged.
+    """
+    try:
+        mesher.add_shape(
+            shape,
+            linear_deflection=linear_deflection,
+            angular_deflection=angular_deflection,
+        )
+    except RuntimeError as exc:
+        objects = _three_mf_model(mesher).GetMeshObjects()
+        while objects.MoveNext():
+            if not objects.GetCurrentMeshObject().IsManifoldAndOriented():
+                raise MeshExportNotManifoldError(_NOT_MANIFOLD_MESSAGE) from exc
+        raise
+
+
+def _canonicalise_3mf_ids(mesher: Mesher) -> None:
+    """Pin every production-extension UUID and drop the unread components objects.
+
+    The determinism half (RESEARCH §9, module docstring): lib3mf mints a random
+    UUID for each object, component, build item and the build itself, so two
+    writes of the SAME mesh differ in five places — measured, and it also moves
+    the compressed length, so a digest comparison catches it but a size check
+    does not. Each id is replaced by a ``uuid5`` of its slot in
+    :data:`THREE_MF_UUID_NAMESPACE`, which is a pure function of the package's
+    shape.
+
+    The tidying half: ``build123d.mesher.Mesher.add_shape`` adds a components
+    object beside every mesh ("Not sure is this is required...") that no build
+    item references. Removing it is what makes ``<object>`` count == body count,
+    which is the property the 3MF gate asserts and the one a slicer shows.
+
+    Ordering is the enumeration order lib3mf hands back, which follows resource
+    creation order — itself request order — so the pinning is stable across runs
+    rather than merely constant within one.
+    """
+    model = _three_mf_model(mesher)
+    components = model.GetComponentsObjects()
+    unreferenced = []
+    while components.MoveNext():
+        unreferenced.append(components.GetCurrentComponentsObject())
+    for resource in unreferenced:
+        model.RemoveResource(resource)
+
+    objects = model.GetObjects()
+    index = 0
+    while objects.MoveNext():
+        objects.GetCurrentObject().SetUUID(
+            str(uuid.uuid5(THREE_MF_UUID_NAMESPACE, f"object-{index}"))
+        )
+        index += 1
+
+    items = model.GetBuildItems()
+    index = 0
+    while items.MoveNext():
+        items.GetCurrent().SetUUID(
+            str(uuid.uuid5(THREE_MF_UUID_NAMESPACE, f"item-{index}"))
+        )
+        index += 1
+
+    model.SetBuildUUID(str(uuid.uuid5(THREE_MF_UUID_NAMESPACE, "build")))
+
+
+def _write_3mf(mesher: Mesher) -> bytes:
+    """Canonicalise *mesher*'s ids and serialise it to 3MF package bytes."""
+    _canonicalise_3mf_ids(mesher)
+    buffer = io.BytesIO()
+    mesher.write_stream(buffer, "3mf")
+    data = buffer.getvalue()
+    if not zipfile.is_zipfile(io.BytesIO(data)):
+        raise RuntimeError("3MF export produced a non-OPC payload")
+    with zipfile.ZipFile(io.BytesIO(data)) as package:
+        if THREE_MF_MODEL_PART not in package.namelist():
+            raise RuntimeError(
+                f"3MF export produced a package without {THREE_MF_MODEL_PART}"
+            )
+    return data
+
+
+def _name_new_meshes(mesher: Mesher, first: int, name: str | None) -> None:
+    """Name the mesh objects *mesher* gained since index *first*.
+
+    Named HERE rather than through ``Shape.label`` because
+    ``Mesher.add_shape`` reads the label of each CHILD of a compound, so a
+    multi-body part (``Compound`` of solids, §MB-0) would take its children's
+    labels and ignore the document name entirely — and setting labels on the
+    caller's solids is a mutation an export must not make (the same reason
+    :func:`export_step_bytes` restores the label it borrows).
+    """
+    if name is None:
+        return
+    for mesh in mesher.meshes[first:]:
+        mesh.SetName(name)
+
+
+def export_3mf_bytes(
+    shape: BodyShape,
+    linear_deflection: float,
+    angular_deflection: float,
+    *,
+    name: str | None = None,
+) -> bytes:
+    """Export *shape* as a 3MF package (faceted, units DECLARED as millimetres).
+
+    *shape* is any B-rep :class:`~build123d.Shape` — a single :class:`Solid` or a
+    multi-body :class:`~build123d.Compound` (multi-body §MB-0), which becomes ONE
+    3MF OBJECT PER SOLID rather than STL's undifferentiated triangle soup. That,
+    plus the explicit unit in the model XML, is the whole reason this format
+    exists next to STL: an STL is a bag of triangles at an unstated scale, and
+    every slicer in 2026 would rather be told.
+
+    Meshing is ``BRepMesh_IncrementalMesh`` with the same relative-linear /
+    angular settings the STL and GLB paths use, so a given deflection pair means
+    the same facets in all three files. *name* names the 3MF objects (the label a
+    slicer shows in its object list); ``None`` leaves them unnamed.
+
+    Raises:
+        ValueError: if a deflection is not strictly positive (the API layer
+            rejects these at validation time; this guards direct kernel use).
+    """
+    if linear_deflection <= 0 or angular_deflection <= 0:
+        raise ValueError(
+            "Deflections must be strictly positive, got "
+            f"linear={linear_deflection}, angular={angular_deflection}"
+        )
+    mesher = Mesher(unit=Unit.MM)
+    _add_shape_or_refuse(mesher, shape, linear_deflection, angular_deflection)
+    _name_new_meshes(mesher, 0, name)
+    return _write_3mf(mesher)
+
+
+def export_glb_bytes(shape: BodyShape, linear_deflection: float) -> bytes:
+    """Export *shape* as binary glTF — **metres, Y-up** (module docstring).
+
+    Deliberately NOT a second meshing path: this is
+    :func:`~geometry.kernel.tessellate.tessellate_glb`'s payload verbatim, the
+    same bytes the viewport is served for the same body and deflection (the mesh
+    store is keyed on their sha256, so an export and a tessellation of one body
+    are one artifact). Its determinism is therefore the tessellation path's,
+    already gated, and there is no way for the exported mesh to drift from the
+    displayed one.
+
+    The angular deflection is fixed service-wide on that path
+    (``tessellate.ANGULAR_DEFLECTION``), which is why this signature takes only
+    the linear one — an export that honoured a caller's angular setting would
+    have to mesh again and would stop being the viewport's file.
+
+    Raises:
+        ValueError: if *linear_deflection* is not strictly positive (delegated).
+    """
+    glb, _stats = tessellate_glb(shape, linear_deflection)
+    return glb
 
 
 @dataclass(frozen=True)
@@ -476,3 +741,69 @@ def export_stl_assembly_bytes(
         raise ValueError("assembly STL export requires at least one placed body")
     compound = Compound([_placed_body(component) for component in components])
     return export_stl_bytes(compound, linear_deflection, angular_deflection)
+
+
+def export_3mf_assembly_bytes(
+    components: Sequence[AssemblyComponent],
+    linear_deflection: float,
+    angular_deflection: float,
+) -> bytes:
+    """Export *components* as ONE 3MF with one NAMED OBJECT per instance.
+
+    The closest a mesh format gets to the STEP path's product structure, and the
+    reason this is not just "STL with a unit": 3MF carries multiple objects in
+    one package, so twenty dowel pins arrive as twenty named, individually
+    selectable objects at their solved placements instead of one merged triangle
+    soup. It does NOT instance them — every occurrence carries its own mesh, so
+    unlike the STEP export this file still scales with the fastener count; the
+    format's ``<components>`` encoding could fix that and is deferred (nothing
+    in the product yet needs a 3MF small enough to care).
+
+    Bodies are placed with the copying :func:`place_body`, per instance, and
+    added one instance at a time so each instance's meshes can be named after it
+    — a multi-body part contributes several 3MF objects and they should all
+    carry the instance's name, which is exactly what a single bulk ``add_shape``
+    could not express.
+
+    Raises:
+        ValueError: if *components* is empty, or a deflection is not strictly
+            positive.
+    """
+    if not components:
+        raise ValueError("assembly 3MF export requires at least one placed body")
+    if linear_deflection <= 0 or angular_deflection <= 0:
+        raise ValueError(
+            "Deflections must be strictly positive, got "
+            f"linear={linear_deflection}, angular={angular_deflection}"
+        )
+    mesher = Mesher(unit=Unit.MM)
+    for component in components:
+        first = len(mesher.meshes)
+        _add_shape_or_refuse(
+            mesher, _placed_body(component), linear_deflection, angular_deflection
+        )
+        _name_new_meshes(mesher, first, component.name)
+    return _write_3mf(mesher)
+
+
+def export_glb_assembly_bytes(
+    components: Sequence[AssemblyComponent], linear_deflection: float
+) -> bytes:
+    """Export *components* as ONE binary glTF with placements baked in.
+
+    The same compound the STL composer builds, through
+    :func:`export_glb_bytes` — so an assembly download and the assembly the
+    viewport draws are the same mesh, in **metres and Y-up** (module docstring).
+    glTF has a node hierarchy that could carry the instance names, but reaching
+    it means writing our own XDE document rather than reusing the tessellation
+    payload, and the payload-reuse property is worth more than names in a format
+    whose job is "show this to someone without CAD" (3MF is the mesh format that
+    keeps the structure).
+
+    Raises:
+        ValueError: if *components* is empty, or the deflection is not positive.
+    """
+    if not components:
+        raise ValueError("assembly GLB export requires at least one placed body")
+    compound = Compound([_placed_body(component) for component in components])
+    return export_glb_bytes(compound, linear_deflection)

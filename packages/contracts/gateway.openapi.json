@@ -4107,11 +4107,11 @@
         "type": "object"
       },
       "ExportAssemblyRequest": {
-        "description": "Evaluate an assembly graph and export it as one multi-instance CAD file.\n\nExtends :class:`EvaluateAssemblyRequest` (the solver runs the identical\nevaluate pipeline \u2014 same solved world placements), adding only the export\n``format`` and the STL faceting parameter. STEP exports the exact B-rep as\n**AP214 product structure**: every instance that produced a body becomes a\nnamed PRODUCT positioned at its SOLVED world placement, so a downstream tool\n(or a re-import) recovers each part traceable to its instance. STL bakes the\nsolved placements into a single faceted compound (no product names \u2014 the\nformat carries none). Byte-deterministic for identical requests (RESEARCH\n\u00a79): the STEP creation timestamp is pinned kernel-side and the assembly's\nper-occurrence ids are canonicalised, so the same graph in yields identical\nbytes out, in-process and across an interpreter restart.",
+        "description": "Evaluate an assembly graph and export it as one multi-instance CAD file.\n\nExtends :class:`EvaluateAssemblyRequest` (the solver runs the identical\nevaluate pipeline \u2014 same solved world placements), adding only the export\n``format`` and the STL faceting parameter. STEP exports the exact B-rep as\n**AP214 product structure**: every instance that produced a body becomes a\nnamed PRODUCT positioned at its SOLVED world placement, so a downstream tool\n(or a re-import) recovers each part traceable to its instance. The three\nmesh formats bake the solved placements in, and differ in how much of the\nstructure survives: **3MF keeps one NAMED OBJECT per instance** (the closest\na mesh format gets to the STEP product structure), while STL and GLB flatten\nto a single faceted compound. Byte-deterministic for identical requests\n(RESEARCH \u00a79): the STEP creation timestamp is pinned kernel-side, the\nassembly's per-occurrence ids are canonicalised, and 3MF's per-object UUIDs\nare pinned, so the same graph in yields identical bytes out, in-process and\nacross an interpreter restart.",
         "properties": {
           "angular_deflection": {
             "default": 0.1,
-            "description": "STL facet angular deflection (rad) between adjacent segments; ignored for STEP (exact B-rep). Floored at MIN_ANGULAR_DEFLECTION (work bound, audit G2).",
+            "description": "Facet angular deflection (rad) between adjacent segments for STL and 3MF; ignored for STEP (exact B-rep), and fixed service-wide for GLB. Floored at MIN_ANGULAR_DEFLECTION (work bound, audit G2).",
             "minimum": 0.01,
             "title": "Angular Deflection",
             "type": "number"
@@ -4122,10 +4122,12 @@
             "type": "string"
           },
           "format": {
-            "description": "Export file format: STEP (exact B-rep, AP214 product structure) or STL (faceted mesh, placements baked into one compound)",
+            "description": "Export file format: STEP (exact B-rep, mm) or one of the faceted meshes - STL (mm, no units in the file), 3MF (mm, units DECLARED in the file, one object per body) or GLB (binary glTF, metres and Y-up per the glTF spec - the same payload the viewport is served)",
             "enum": [
               "step",
-              "stl"
+              "stl",
+              "3mf",
+              "glb"
             ],
             "title": "Format",
             "type": "string"
@@ -4185,27 +4187,29 @@
         "type": "object"
       },
       "ExportRequest": {
-        "description": "Build a parametric shape and export it as a downloadable CAD file.\n\nSTEP exports the exact B-rep \u2014 the deflection fields are meaningless for\nit and ignored. STL is a faceted approximation; its quality fields default\nto the tessellation defaults so the exported mesh matches what the\nviewport shows.",
+        "description": "Build a parametric shape and export it as a downloadable CAD file.\n\nSTEP exports the exact B-rep \u2014 the deflection fields are meaningless for\nit and ignored. STL, 3MF and GLB are faceted approximations; their quality\nfields default to the tessellation defaults so the exported mesh matches\nwhat the viewport shows. GLB is in fact the *identical* payload the\nviewport receives, which is why it takes ``linear_deflection`` only (the\nangular setting is fixed service-wide on the tessellation path).",
         "properties": {
           "angular_deflection": {
             "default": 0.1,
-            "description": "STL facet angular deflection (rad) between adjacent segments; ignored for STEP (exact B-rep). Floored at MIN_ANGULAR_DEFLECTION (work bound, audit G2).",
+            "description": "Facet angular deflection (rad) between adjacent segments for STL and 3MF; ignored for STEP (exact B-rep), and fixed service-wide for GLB so an exported GLB is byte-identical to the viewport mesh. Floored at MIN_ANGULAR_DEFLECTION (work bound, audit G2).",
             "minimum": 0.01,
             "title": "Angular Deflection",
             "type": "number"
           },
           "format": {
-            "description": "Export file format: STEP (exact B-rep) or STL (faceted mesh)",
+            "description": "Export file format: STEP (exact B-rep, mm) or one of the faceted meshes - STL (mm, no units in the file), 3MF (mm, units DECLARED in the file, one object per body) or GLB (binary glTF, metres and Y-up per the glTF spec - the same payload the viewport is served)",
             "enum": [
               "step",
-              "stl"
+              "stl",
+              "3mf",
+              "glb"
             ],
             "title": "Format",
             "type": "string"
           },
           "linear_deflection": {
             "default": 0.1,
-            "description": "STL facet linear deflection (mm), same semantics as tessellation; ignored for STEP (exact B-rep). Floored at MIN_LINEAR_DEFLECTION (work bound, audit G2).",
+            "description": "Facet linear deflection (mm) for STL / 3MF / GLB, same semantics as tessellation; ignored for STEP (exact B-rep). Floored at MIN_LINEAR_DEFLECTION (work bound, audit G2).",
             "minimum": 0.001,
             "title": "Linear Deflection",
             "type": "number"
@@ -13528,6 +13532,18 @@
         "responses": {
           "200": {
             "content": {
+              "model/3mf": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "model/gltf-binary": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
               "model/step": {
                 "schema": {
                   "format": "binary",
@@ -13684,6 +13700,18 @@
         "responses": {
           "200": {
             "content": {
+              "model/3mf": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "model/gltf-binary": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
               "model/step": {
                 "schema": {
                   "format": "binary",
@@ -14709,7 +14737,7 @@
     },
     "/api/v1/parts/{part_id}/export": {
       "post": {
-        "description": "Export the part's current evaluated body as a STEP or STL download.\n\nThe export twin of :func:`evaluate_part` and the same two-hop aggregation:\ndocuments serves the evaluation-ready feature list (rollback bar applied,\nparams upcast \u2014 \u00a74.2), the gateway wraps it with the requested format into\nan ``ExportTreeRequest`` and relays it to the stateless geometry service's\ntree-export route, and the file bytes stream back byte-exact. Auth-scoped\nlike every parts route (the principal reaches documents, never geometry).\nA tree with no body is the geometry service's 422 ``tree_export_failed``\nenvelope, re-surfaced verbatim.",
+        "description": "Export the part's current evaluated body as a downloadable CAD file.\n\nThe export twin of :func:`evaluate_part` and the same two-hop aggregation:\ndocuments serves the evaluation-ready feature list (rollback bar applied,\nparams upcast \u2014 \u00a74.2), the gateway wraps it with the requested format into\nan ``ExportTreeRequest`` and relays it to the stateless geometry service's\ntree-export route, and the file bytes stream back byte-exact. Auth-scoped\nlike every parts route (the principal reaches documents, never geometry).\nA tree with no body is the geometry service's 422 ``tree_export_failed``\nenvelope, re-surfaced verbatim.",
         "operationId": "export_part_api_v1_parts__part_id__export_post",
         "parameters": [
           {
@@ -14723,15 +14751,17 @@
             }
           },
           {
-            "description": "Export file format: STEP or STL",
+            "description": "Export file format: STEP (exact B-rep, mm) or one of the faceted meshes - STL (mm, no units in the file), 3MF (mm, units DECLARED in the file, one object per body) or GLB (binary glTF, metres and Y-up per the glTF spec - the same payload the viewport is served)",
             "in": "query",
             "name": "format",
             "required": true,
             "schema": {
-              "description": "Export file format: STEP or STL",
+              "description": "Export file format: STEP (exact B-rep, mm) or one of the faceted meshes - STL (mm, no units in the file), 3MF (mm, units DECLARED in the file, one object per body) or GLB (binary glTF, metres and Y-up per the glTF spec - the same payload the viewport is served)",
               "enum": [
                 "step",
-                "stl"
+                "stl",
+                "3mf",
+                "glb"
               ],
               "title": "Format",
               "type": "string"
@@ -14741,6 +14771,18 @@
         "responses": {
           "200": {
             "content": {
+              "model/3mf": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "model/gltf-binary": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
               "model/step": {
                 "schema": {
                   "format": "binary",
@@ -14754,7 +14796,7 @@
                 }
               }
             },
-            "description": "The exported CAD file of the part's current evaluated body, proxied byte-exact from the geometry service: STEP AP214 part 21 (`model/step`, exact B-rep) or binary STL (`model/stl`, faceted mesh). `Content-Disposition` carries the suggested download filename. A tree that evaluates to no body is a 422 `tree_export_failed` envelope.",
+            "description": "The exported CAD file of the part's current evaluated body, proxied byte-exact from the geometry service: STEP AP214 part 21 (`model/step`, exact B-rep, mm), binary STL (`model/stl`, faceted mesh, mm), 3MF (`model/3mf`, faceted mesh declaring millimetres, one object per body) or binary glTF (`model/gltf-binary`, faceted mesh in metres and Y-up per the glTF spec). `Content-Disposition` carries the suggested download filename. A tree that evaluates to no body is a 422 `tree_export_failed` envelope.",
             "headers": {
               "Content-Disposition": {
                 "description": "attachment; filename=\"<shape>.<format>\"",

@@ -34,6 +34,11 @@ from geometry.kernel.edges import (
 )
 from geometry.kernel.export import (
     AssemblyComponent,
+    MeshExportNotManifoldError,
+    export_3mf_assembly_bytes,
+    export_3mf_bytes,
+    export_glb_assembly_bytes,
+    export_glb_bytes,
     export_step_assembly_bytes,
     export_step_bytes,
     export_stl_assembly_bytes,
@@ -199,6 +204,7 @@ __all__ = [
     "ImportTooManyProductsError",
     "LoftError",
     "MeasureError",
+    "MeshExportNotManifoldError",
     "MirrorError",
     "MirrorUnreachableError",
     "NoAxisError",
@@ -261,6 +267,10 @@ __all__ = [
     "enumerate_edges",
     "evaluate_export",
     "evaluate_tessellation",
+    "export_3mf_assembly_bytes",
+    "export_3mf_bytes",
+    "export_glb_assembly_bytes",
+    "export_glb_bytes",
     "export_solid",
     "export_step_assembly_bytes",
     "export_step_bytes",
@@ -350,20 +360,34 @@ def export_solid(
     parametric-shape export path (:func:`evaluate_export`) and the
     evaluated-feature-tree export path (``geometry.api.export_tree``) both go
     through here, so a filleted part and a primitive box export identically.
-    STEP ignores the deflection arguments (exact B-rep); STL uses both.
+    STEP ignores the deflection arguments (exact B-rep); STL and 3MF use both;
+    GLB uses the linear one and the service-wide angular setting, because it IS
+    the viewport's mesh (:func:`~geometry.kernel.export.export_glb_bytes`).
     Deterministic (RESEARCH §9; :mod:`geometry.kernel.export` pins the STEP
-    timestamp).
+    timestamp and the 3MF UUIDs).
 
-    *name* is the document name the STEP PRODUCT carries (audit N4 — a file
-    named after a UUID containing ``PRODUCT('SOLID')`` tells a vendor nothing).
-    ``None`` keeps OCCT's default, so the parametric-shape path and every
-    existing caller are byte-identical to before. STL carries no product names.
+    **The formats do not share a unit** — STEP/STL/3MF are millimetres, GLB is
+    metres per the glTF spec. ``py_kit.schemas.geometry.EXPORT_UNITS`` is the
+    single place that records it and the export gate asserts every format's
+    round-tripped extents against it.
+
+    *name* is the document name the STEP PRODUCT / 3MF objects carry (audit N4 —
+    a file named after a UUID containing ``PRODUCT('SOLID')`` tells a vendor
+    nothing). ``None`` keeps the writer default, so the parametric-shape path
+    and every existing caller are byte-identical to before. STL and GLB carry no
+    names.
     """
     match fmt:
         case "step":
             return export_step_bytes(shape, name=name)
         case "stl":
             return export_stl_bytes(shape, linear_deflection, angular_deflection)
+        case "3mf":
+            return export_3mf_bytes(
+                shape, linear_deflection, angular_deflection, name=name
+            )
+        case "glb":
+            return export_glb_bytes(shape, linear_deflection)
 
 
 def evaluate_export(request: ExportRequest) -> bytes:

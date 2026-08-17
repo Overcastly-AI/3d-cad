@@ -33,6 +33,8 @@ from py_kit.metrics import record_feature_error
 from py_kit.schemas.geometry import (
     DEFAULT_ANGULAR_DEFLECTION,
     DEFAULT_LINEAR_DEFLECTION,
+    EXPORT_FORMAT_DESCRIPTION,
+    MESH_QUALITY_NOTE,
     MIN_ANGULAR_DEFLECTION,
     MIN_LINEAR_DEFLECTION,
     ExportFormat,
@@ -3696,9 +3698,9 @@ class ExportTreeRequest(EvaluateTreeRequest):
     THAT body (never a re-modelled shape).
 
     STEP exports the exact B-rep, so the deflection fields are meaningless for
-    it and ignored. STL is a faceted approximation; ``linear_deflection``
-    (inherited) and ``angular_deflection`` default to the tessellation defaults
-    so the exported mesh matches what the viewport shows.
+    it and ignored. STL, 3MF and GLB are faceted approximations;
+    ``linear_deflection`` (inherited) and ``angular_deflection`` default to the
+    tessellation defaults so the exported mesh matches what the viewport shows.
 
     If the tree produces no body — a strict-prefix failure (§4.3) or a tree
     with no body-affecting feature — export is a clean error, never a file:
@@ -3706,24 +3708,22 @@ class ExportTreeRequest(EvaluateTreeRequest):
     partial download.
     """
 
-    format: ExportFormat = Field(
-        description="Export file format: STEP (exact B-rep) or STL (faceted mesh)"
-    )
+    format: ExportFormat = Field(description=EXPORT_FORMAT_DESCRIPTION)
     angular_deflection: float = Field(
         default=DEFAULT_ANGULAR_DEFLECTION,
         ge=MIN_ANGULAR_DEFLECTION,
         description=(
-            "STL facet angular deflection (rad) between adjacent segments; "
-            "ignored for STEP (exact B-rep). Floored at MIN_ANGULAR_DEFLECTION "
-            "(work bound, audit G2)."
+            "Facet angular deflection (rad) between adjacent segments for STL "
+            f"and 3MF; {MESH_QUALITY_NOTE}, and fixed service-wide for GLB. "
+            "Floored at MIN_ANGULAR_DEFLECTION (work bound, audit G2)."
         ),
     )
     name: DocumentName | None = Field(
         default=None,
         description="The part's human-readable document name. Names the exported "
-        "STEP PRODUCT and the download filename; omitted / null falls back to the "
-        "part id. EXPORT-only on purpose (see DocumentName) — it is not on "
-        "EvaluateTreeRequest, because a name must never be an input to geometry.",
+        "STEP PRODUCT / 3MF object and the download filename; omitted / null falls "
+        "back to the part id. EXPORT-only on purpose (see DocumentName) — it is not "
+        "on EvaluateTreeRequest, because a name must never be an input to geometry.",
     )
 
 

@@ -746,6 +746,43 @@ export const StlIcon = (p: IconProps) => (
 );
 
 /**
+ * 3MF = the SAME faceted mesh as STL, plus the one thing STL cannot carry: a
+ * stated size. So it is the `StlIcon` strip lifted to make room for a scribed
+ * DIMENSION LINE beneath it — extension lines, arrow ticks, the drawing
+ * notation this icon set already speaks. One mark of difference from STL, and
+ * it is precisely the difference between the formats (3MF declares its unit;
+ * STL's silence is the oldest bug class in 3D printing).
+ */
+export const ThreeMfIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M4 14 L8 5 L12 14 L16 5 L20 14 Z" />
+    <path d="M8 5 L16 5" />
+    <path d="M4 16 V20" />
+    <path d="M20 16 V20" />
+    <path d="M4 19 H20" />
+  </Icon>
+);
+
+/**
+ * glTF/GLB = a mesh made to be LOOKED at, on a screen, by someone who does not
+ * own CAD. The mesh strip again — it is a faceted format, and lying about that
+ * would be the defect — set inside four viewport CORNER BRACKETS. Brackets and
+ * not a full frame on purpose: `SheetExportIcon`'s closed rectangle already
+ * means "the drawing sheet", and a second boxed glyph would read as its
+ * sibling rather than as its opposite (that one exports the 2D print, this one
+ * exports the 3D model for viewing).
+ */
+export const GlbIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M3 7 V3 H7" />
+    <path d="M17 3 H21 V7" />
+    <path d="M21 17 V21 H17" />
+    <path d="M7 21 H3 V17" />
+    <path d="M6 16 L9.5 8 L13 16 L16.5 8 L18 11.5" />
+  </Icon>
+);
+
+/**
  * Export SVG = the drafting SHEET saved out as a vector file. A framed sheet
  * with a title-block cell scribed into its lower-right corner (the drawing you
  * see), and a scribed arrow descending out from under it — the "download the

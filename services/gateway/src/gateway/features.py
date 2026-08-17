@@ -45,7 +45,12 @@ from py_kit.schemas.features import (
     RollbackBarMove,
     UndoRedoRequest,
 )
-from py_kit.schemas.geometry import EXPORT_MEDIA_TYPES, ExportFormat, export_responses
+from py_kit.schemas.geometry import (
+    EXPORT_FORMAT_DESCRIPTION,
+    EXPORT_MEDIA_TYPES,
+    ExportFormat,
+    export_responses,
+)
 from py_kit.schemas.parts import PartEvaluationRecord, PartResponse
 
 from gateway.affinity import forward_geometry
@@ -362,9 +367,12 @@ async def evaluate_part(
 _EXPORT_RESPONSES = export_responses(
     "The exported CAD file of the part's current evaluated body, proxied "
     "byte-exact from the geometry service: STEP AP214 part 21 (`model/step`, "
-    "exact B-rep) or binary STL (`model/stl`, faceted mesh). "
-    "`Content-Disposition` carries the suggested download filename. A tree "
-    "that evaluates to no body is a 422 `tree_export_failed` envelope."
+    "exact B-rep, mm), binary STL (`model/stl`, faceted mesh, mm), 3MF "
+    "(`model/3mf`, faceted mesh declaring millimetres, one object per body) "
+    "or binary glTF (`model/gltf-binary`, faceted mesh in metres and Y-up per "
+    "the glTF spec). `Content-Disposition` carries the suggested download "
+    "filename. A tree that evaluates to no body is a 422 `tree_export_failed` "
+    "envelope."
 )
 
 
@@ -376,13 +384,11 @@ _EXPORT_RESPONSES = export_responses(
 )
 async def export_part(
     part_id: uuid.UUID,
-    format: Annotated[
-        ExportFormat, Query(description="Export file format: STEP or STL")
-    ],
+    format: Annotated[ExportFormat, Query(description=EXPORT_FORMAT_DESCRIPTION)],
     user: CurrentUser,
     http_request: Request,
 ) -> Response:
-    """Export the part's current evaluated body as a STEP or STL download.
+    """Export the part's current evaluated body as a downloadable CAD file.
 
     The export twin of :func:`evaluate_part` and the same two-hop aggregation:
     documents serves the evaluation-ready feature list (rollback bar applied,

@@ -1,5 +1,4 @@
-import { PanelActionCell, StepIcon, StlIcon } from "@loft/design";
-import type { ReactNode } from "react";
+import { PanelActionCell } from "@loft/design";
 import { useState } from "react";
 
 import {
@@ -7,29 +6,19 @@ import {
   type ExportedFile,
   type ExportFormat,
 } from "../api/exportPart";
+import {
+  EXPORT_FORMATS,
+  type ExportFormatEntry,
+} from "../features/exportAction";
 
-const FORMATS: ReadonlyArray<{
-  format: ExportFormat;
-  label: string;
-  caption: string;
-  name: string;
-  icon: ReactNode;
-}> = [
-  {
-    format: "step",
-    label: "STEP",
-    caption: "B-rep",
-    name: "Export STEP (exact B-rep)",
-    icon: <StepIcon />,
-  },
-  {
-    format: "stl",
-    label: "STL",
-    caption: "Mesh",
-    name: "Export STL (faceted mesh)",
-    icon: <StlIcon />,
-  },
-];
+/** The catalogue in rows of two — the strip's 2x2 block (see the layout note). */
+const formatRows: ReadonlyArray<readonly ExportFormatEntry[]> =
+  EXPORT_FORMATS.reduce<ExportFormatEntry[][]>((rows, entry) => {
+    const last = rows.at(-1);
+    if (last === undefined || last.length === 2) rows.push([entry]);
+    else last.push(entry);
+    return rows;
+  }, []);
 
 export interface ExportRowProps {
   /**
@@ -66,11 +55,23 @@ export interface ExportRowProps {
 }
 
 /**
- * The EXPORT strip of a title block: a status cell plus one actionable cell
- * per file format, in the same ruled 3-column rhythm as the UNITS / KERNEL /
- * STATUS strip above it. Presentational + self-contained (busy/error state);
- * the `exporter` prop is the only thing that differs between the box demo and
- * the part workspace, so both draw the same signature strip (DRY).
+ * The EXPORT strip of a title block: a status line, then one actionable cell
+ * per file format. Presentational + self-contained (busy/error state); the
+ * `exporter` prop is the only thing that differs between the box demo and the
+ * part workspace, so both draw the same signature strip (DRY), and the format
+ * catalogue is the SAME constant the command band renders
+ * (`features/exportAction.EXPORT_FORMATS`) — there is no second list.
+ *
+ * **Layout, and why it changed at EXPORT-2.** This was a single ruled row of
+ * three: status, STEP, STL — echoing the UNITS / KERNEL / STATUS strip above
+ * it. Four formats do not divide into that rhythm; three columns would leave a
+ * hole in the second row, and five would squeeze every cell to ~70 px in the
+ * Inspector, where the captions that make the new formats legible ("Print",
+ * "Share") are the whole point. So the status takes the full width — which it
+ * had earned anyway, since after EXPORT-1 this strip is the NOTICE surface and
+ * its cell carries sentences, not a word — and the formats sit in a ruled 2x2
+ * below it. The rhythm is kept where it is load-bearing (the hairline rules,
+ * the cell proportions) and spent where the content changed.
  */
 export function ExportRow({
   exporter,
@@ -113,38 +114,49 @@ export function ExportRow({
       data-testid={`${testIdPrefix}-controls`}
       data-export-state={state}
     >
-      <div className="grid grid-cols-3 divide-x divide-hairline">
-        <div className="px-3 py-2">
-          <span className="block font-display text-2xs uppercase tracking-[0.14em] text-gauge">
-            Export
-          </span>
-          <span
-            className={`block font-data text-xs ${failed ? "text-flag" : "text-mist"}`}
-            data-testid={`${testIdPrefix}-status`}
-            aria-live="polite"
-          >
-            {status}
-          </span>
-        </div>
-        {FORMATS.map(({ format, label, caption, name, icon }) => (
-          <PanelActionCell
-            key={format}
-            icon={icon}
-            label={label}
-            caption={busy === format ? "Writing…" : caption}
-            aria-label={name}
-            aria-busy={busy === format}
-            disabled={disabled || busy !== null}
-            // The row already knows why it is inert; the CELL is what a user
-            // hovers or tabs to, so the reason belongs on it too (it was
-            // unreachable while the cell was natively disabled — UI-REVIEW
-            // 2026-07-30 P2).
-            disabledReason={disabledReason}
-            data-testid={`${testIdPrefix}-${format}`}
-            onClick={() => void handleExport(format)}
-          />
-        ))}
+      <div className="flex items-baseline gap-2 px-3 py-2">
+        <span className="font-display text-2xs uppercase tracking-[0.14em] text-gauge">
+          Export
+        </span>
+        <span
+          className={`min-w-0 font-data text-xs ${failed ? "text-flag" : "text-mist"}`}
+          data-testid={`${testIdPrefix}-status`}
+          aria-live="polite"
+        >
+          {status}
+        </span>
       </div>
+      {/*
+        One wrapper per PAIR rather than one grid with `divide-y`: Tailwind's
+        divide utilities key off DOM order, not grid position, so on a 2x2 they
+        rule the wrong edges (a top border on the first row's second cell).
+        Chunking makes each rule an explicit statement about a row.
+      */}
+      {formatRows.map((row) => (
+        <div
+          key={row[0]?.format}
+          className="grid grid-cols-2 divide-x divide-hairline border-t border-hairline"
+        >
+          {row.map(({ format, label, caption, name, icon }) => (
+            <PanelActionCell
+              key={format}
+              icon={icon}
+              label={label}
+              caption={busy === format ? "Writing…" : caption}
+              aria-label={name}
+              aria-busy={busy === format}
+              disabled={disabled || busy !== null}
+              // The row already knows why it is inert; the CELL is what a user
+              // hovers or tabs to, so the reason belongs on it too (it was
+              // unreachable while the cell was natively disabled — UI-REVIEW
+              // 2026-07-30 P2).
+              disabledReason={disabledReason}
+              data-testid={`${testIdPrefix}-${format}`}
+              onClick={() => void handleExport(format)}
+            />
+          ))}
+        </div>
+      ))}
       {failed ? (
         <p
           role="alert"

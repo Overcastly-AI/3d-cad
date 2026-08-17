@@ -123,6 +123,7 @@ from geometry.kernel import (
     ImportParseTimeoutError,
     ImportResponseTooLargeError,
     ImportTooManyProductsError,
+    MeshExportNotManifoldError,
     evaluate_export,
     evaluate_tessellation,
     export_solid,
@@ -152,17 +153,23 @@ _TESSELLATE_RESPONSES = tessellate_responses(
 )
 
 _EXPORT_RESPONSES = export_responses(
-    "The exported CAD file: STEP AP214 part 21 (`model/step`, exact B-rep) "
-    "or binary STL (`model/stl`, faceted mesh). `Content-Disposition` "
-    "carries the suggested download filename. Byte-deterministic: identical "
-    "requests produce identical files."
+    "The exported CAD file: STEP AP214 part 21 (`model/step`, exact B-rep, "
+    "mm), binary STL (`model/stl`, faceted mesh, mm), 3MF (`model/3mf`, "
+    "faceted mesh in an OPC package that DECLARES millimetres and carries one "
+    "object per body) or binary glTF (`model/gltf-binary`, faceted mesh in "
+    "**metres and Y-up** per the glTF spec — the same payload the viewport is "
+    "served). `Content-Disposition` carries the suggested download filename. "
+    "Byte-deterministic: identical requests produce identical files."
 )
 
 _ASSEMBLY_EXPORT_RESPONSES = export_responses(
-    "The exported assembly file: STEP AP214 part 21 (`model/step`, exact "
-    "B-rep) with product structure — each instance a named PRODUCT at its "
-    "solved world placement — or binary STL (`model/stl`, faceted mesh with "
-    "placements baked into one compound). `Content-Disposition` carries the "
+    "The exported assembly file, in the same four formats as a part, differing "
+    "in how much assembly structure they keep: STEP AP214 part 21 "
+    "(`model/step`, exact B-rep) with INSTANCED product structure — each "
+    "instance a named occurrence of its part at its solved world placement; "
+    "3MF (`model/3mf`) with one NAMED OBJECT per instance; STL (`model/stl`) "
+    "and binary glTF (`model/gltf-binary`, metres and Y-up) as one faceted "
+    "compound with placements baked in. `Content-Disposition` carries the "
     "suggested download filename. Byte-deterministic: identical requests "
     "produce identical files."
 )
@@ -332,7 +339,7 @@ def assembly_interference_route(
     dependencies=[ADMISSION_CONTROL],
 )
 def export_assembly_route(request: ExportAssemblyRequest) -> Response:
-    """Evaluate an assembly and export it as ONE multi-instance STEP/STL download.
+    """Evaluate an assembly and export it as ONE multi-instance CAD download.
 
     Stateless (CLAUDE.md): documents sends the assembly graph (the SAME
     ``EvaluateAssemblyRequest`` fields the evaluate route takes, plus the export
@@ -354,7 +361,7 @@ def export_assembly_route(request: ExportAssemblyRequest) -> Response:
     """
     try:
         data = export_assembly(request)
-    except AssemblyExportError as exc:
+    except (AssemblyExportError, MeshExportNotManifoldError) as exc:
         raise ValidationApiError(str(exc), code=exc.code) from exc
     return Response(
         content=data,
@@ -643,8 +650,11 @@ def fetch_mesh(mesh_glb_id: str) -> Response:
     dependencies=[ADMISSION_CONTROL],
 )
 def export(request: ExportRequest) -> Response:
-    """Build a parametric shape and export it as a STEP or STL download."""
-    data = evaluate_export(request)
+    """Build a parametric shape and export it as a STEP/STL/3MF/GLB download."""
+    try:
+        data = evaluate_export(request)
+    except MeshExportNotManifoldError as exc:
+        raise ValidationApiError(str(exc), code=exc.code) from exc
     return Response(
         content=data,
         media_type=EXPORT_MEDIA_TYPES[request.format],
@@ -915,7 +925,7 @@ def sketch_chamfer(request: SketchChamferRequest) -> SketchCornerResult:
     dependencies=[ADMISSION_CONTROL],
 )
 def export_tree(request: ExportTreeRequest) -> Response:
-    """Evaluate a feature tree and export its LAST-GOOD body as STEP/STL.
+    """Evaluate a feature tree and export its LAST-GOOD body as a CAD file.
 
     Reuses the evaluate-tree machinery verbatim (``evaluate_tree`` — the same
     ordered dispatch + strict-prefix rule as ``POST /api/v1/evaluate``, no
@@ -931,13 +941,16 @@ def export_tree(request: ExportTreeRequest) -> Response:
         raise tree_no_body_error(
             evaluation.result, code="tree_export_failed", action="export"
         )
-    data = export_solid(
-        evaluation.body,
-        request.format,
-        request.linear_deflection,
-        request.angular_deflection,
-        name=request.name,
-    )
+    try:
+        data = export_solid(
+            evaluation.body,
+            request.format,
+            request.linear_deflection,
+            request.angular_deflection,
+            name=request.name,
+        )
+    except MeshExportNotManifoldError as exc:
+        raise ValidationApiError(str(exc), code=exc.code) from exc
     return Response(
         content=data,
         media_type=EXPORT_MEDIA_TYPES[request.format],

@@ -46,7 +46,7 @@ export interface paths {
         put?: never;
         /**
          * Export Assembly Route
-         * @description Evaluate an assembly and export it as ONE multi-instance STEP/STL download.
+         * @description Evaluate an assembly and export it as ONE multi-instance CAD download.
          *
          *     Stateless (CLAUDE.md): documents sends the assembly graph (the SAME
          *     ``EvaluateAssemblyRequest`` fields the evaluate route takes, plus the export
@@ -348,7 +348,7 @@ export interface paths {
         put?: never;
         /**
          * Export
-         * @description Build a parametric shape and export it as a STEP or STL download.
+         * @description Build a parametric shape and export it as a STEP/STL/3MF/GLB download.
          */
         post: operations["export_api_v1_export_post"];
         delete?: never;
@@ -368,7 +368,7 @@ export interface paths {
         put?: never;
         /**
          * Export Tree
-         * @description Evaluate a feature tree and export its LAST-GOOD body as STEP/STL.
+         * @description Evaluate a feature tree and export its LAST-GOOD body as a CAD file.
          *
          *     Reuses the evaluate-tree machinery verbatim (``evaluate_tree`` — the same
          *     ordered dispatch + strict-prefix rule as ``POST /api/v1/evaluate``, no
@@ -3318,17 +3318,20 @@ export interface components {
          *     ``format`` and the STL faceting parameter. STEP exports the exact B-rep as
          *     **AP214 product structure**: every instance that produced a body becomes a
          *     named PRODUCT positioned at its SOLVED world placement, so a downstream tool
-         *     (or a re-import) recovers each part traceable to its instance. STL bakes the
-         *     solved placements into a single faceted compound (no product names — the
-         *     format carries none). Byte-deterministic for identical requests (RESEARCH
-         *     §9): the STEP creation timestamp is pinned kernel-side and the assembly's
-         *     per-occurrence ids are canonicalised, so the same graph in yields identical
-         *     bytes out, in-process and across an interpreter restart.
+         *     (or a re-import) recovers each part traceable to its instance. The three
+         *     mesh formats bake the solved placements in, and differ in how much of the
+         *     structure survives: **3MF keeps one NAMED OBJECT per instance** (the closest
+         *     a mesh format gets to the STEP product structure), while STL and GLB flatten
+         *     to a single faceted compound. Byte-deterministic for identical requests
+         *     (RESEARCH §9): the STEP creation timestamp is pinned kernel-side, the
+         *     assembly's per-occurrence ids are canonicalised, and 3MF's per-object UUIDs
+         *     are pinned, so the same graph in yields identical bytes out, in-process and
+         *     across an interpreter restart.
          */
         ExportAssemblyRequest: {
             /**
              * Angular Deflection
-             * @description STL facet angular deflection (rad) between adjacent segments; ignored for STEP (exact B-rep). Floored at MIN_ANGULAR_DEFLECTION (work bound, audit G2).
+             * @description Facet angular deflection (rad) between adjacent segments for STL and 3MF; ignored for STEP (exact B-rep), and fixed service-wide for GLB. Floored at MIN_ANGULAR_DEFLECTION (work bound, audit G2).
              * @default 0.1
              */
             angular_deflection: number;
@@ -3339,10 +3342,10 @@ export interface components {
             assembly_id: string;
             /**
              * Format
-             * @description Export file format: STEP (exact B-rep, AP214 product structure) or STL (faceted mesh, placements baked into one compound)
+             * @description Export file format: STEP (exact B-rep, mm) or one of the faceted meshes - STL (mm, no units in the file), 3MF (mm, units DECLARED in the file, one object per body) or GLB (binary glTF, metres and Y-up per the glTF spec - the same payload the viewport is served)
              * @enum {string}
              */
-            format: "step" | "stl";
+            format: "step" | "stl" | "3mf" | "glb";
             /**
              * Instances
              * @description The assembly's instances (result order preserved), bounded by MAX_ASSEMBLY_INSTANCES (work bound, audit G2)
@@ -3375,26 +3378,28 @@ export interface components {
          * @description Build a parametric shape and export it as a downloadable CAD file.
          *
          *     STEP exports the exact B-rep — the deflection fields are meaningless for
-         *     it and ignored. STL is a faceted approximation; its quality fields default
-         *     to the tessellation defaults so the exported mesh matches what the
-         *     viewport shows.
+         *     it and ignored. STL, 3MF and GLB are faceted approximations; their quality
+         *     fields default to the tessellation defaults so the exported mesh matches
+         *     what the viewport shows. GLB is in fact the *identical* payload the
+         *     viewport receives, which is why it takes ``linear_deflection`` only (the
+         *     angular setting is fixed service-wide on the tessellation path).
          */
         ExportRequest: {
             /**
              * Angular Deflection
-             * @description STL facet angular deflection (rad) between adjacent segments; ignored for STEP (exact B-rep). Floored at MIN_ANGULAR_DEFLECTION (work bound, audit G2).
+             * @description Facet angular deflection (rad) between adjacent segments for STL and 3MF; ignored for STEP (exact B-rep), and fixed service-wide for GLB so an exported GLB is byte-identical to the viewport mesh. Floored at MIN_ANGULAR_DEFLECTION (work bound, audit G2).
              * @default 0.1
              */
             angular_deflection: number;
             /**
              * Format
-             * @description Export file format: STEP (exact B-rep) or STL (faceted mesh)
+             * @description Export file format: STEP (exact B-rep, mm) or one of the faceted meshes - STL (mm, no units in the file), 3MF (mm, units DECLARED in the file, one object per body) or GLB (binary glTF, metres and Y-up per the glTF spec - the same payload the viewport is served)
              * @enum {string}
              */
-            format: "step" | "stl";
+            format: "step" | "stl" | "3mf" | "glb";
             /**
              * Linear Deflection
-             * @description STL facet linear deflection (mm), same semantics as tessellation; ignored for STEP (exact B-rep). Floored at MIN_LINEAR_DEFLECTION (work bound, audit G2).
+             * @description Facet linear deflection (mm) for STL / 3MF / GLB, same semantics as tessellation; ignored for STEP (exact B-rep). Floored at MIN_LINEAR_DEFLECTION (work bound, audit G2).
              * @default 0.1
              */
             linear_deflection: number;
@@ -3421,9 +3426,9 @@ export interface components {
          *     THAT body (never a re-modelled shape).
          *
          *     STEP exports the exact B-rep, so the deflection fields are meaningless for
-         *     it and ignored. STL is a faceted approximation; ``linear_deflection``
-         *     (inherited) and ``angular_deflection`` default to the tessellation defaults
-         *     so the exported mesh matches what the viewport shows.
+         *     it and ignored. STL, 3MF and GLB are faceted approximations;
+         *     ``linear_deflection`` (inherited) and ``angular_deflection`` default to the
+         *     tessellation defaults so the exported mesh matches what the viewport shows.
          *
          *     If the tree produces no body — a strict-prefix failure (§4.3) or a tree
          *     with no body-affecting feature — export is a clean error, never a file:
@@ -3433,7 +3438,7 @@ export interface components {
         ExportTreeRequest: {
             /**
              * Angular Deflection
-             * @description STL facet angular deflection (rad) between adjacent segments; ignored for STEP (exact B-rep). Floored at MIN_ANGULAR_DEFLECTION (work bound, audit G2).
+             * @description Facet angular deflection (rad) between adjacent segments for STL and 3MF; ignored for STEP (exact B-rep), and fixed service-wide for GLB. Floored at MIN_ANGULAR_DEFLECTION (work bound, audit G2).
              * @default 0.1
              */
             angular_deflection: number;
@@ -3444,10 +3449,10 @@ export interface components {
             features: components["schemas"]["EvaluatedFeatureInput"][];
             /**
              * Format
-             * @description Export file format: STEP (exact B-rep) or STL (faceted mesh)
+             * @description Export file format: STEP (exact B-rep, mm) or one of the faceted meshes - STL (mm, no units in the file), 3MF (mm, units DECLARED in the file, one object per body) or GLB (binary glTF, metres and Y-up per the glTF spec - the same payload the viewport is served)
              * @enum {string}
              */
-            format: "step" | "stl";
+            format: "step" | "stl" | "3mf" | "glb";
             /**
              * Linear Deflection
              * @description Presentation parameter (mm), NEVER persisted per feature (design §8.3). Floored at MIN_LINEAR_DEFLECTION (work bound, audit G2).
@@ -3458,7 +3463,7 @@ export interface components {
             materials?: components["schemas"]["MaterialAssignment"] | null;
             /**
              * Name
-             * @description The part's human-readable document name. Names the exported STEP PRODUCT and the download filename; omitted / null falls back to the part id. EXPORT-only on purpose (see DocumentName) — it is not on EvaluateTreeRequest, because a name must never be an input to geometry.
+             * @description The part's human-readable document name. Names the exported STEP PRODUCT / 3MF object and the download filename; omitted / null falls back to the part id. EXPORT-only on purpose (see DocumentName) — it is not on EvaluateTreeRequest, because a name must never be an input to geometry.
              */
             name?: string | null;
             /**
@@ -7117,7 +7122,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The exported assembly file: STEP AP214 part 21 (`model/step`, exact B-rep) with product structure — each instance a named PRODUCT at its solved world placement — or binary STL (`model/stl`, faceted mesh with placements baked into one compound). `Content-Disposition` carries the suggested download filename. Byte-deterministic: identical requests produce identical files. */
+            /** @description The exported assembly file, in the same four formats as a part, differing in how much assembly structure they keep: STEP AP214 part 21 (`model/step`, exact B-rep) with INSTANCED product structure — each instance a named occurrence of its part at its solved world placement; 3MF (`model/3mf`) with one NAMED OBJECT per instance; STL (`model/stl`) and binary glTF (`model/gltf-binary`, metres and Y-up) as one faceted compound with placements baked in. `Content-Disposition` carries the suggested download filename. Byte-deterministic: identical requests produce identical files. */
             200: {
                 headers: {
                     /** @description attachment; filename="<shape>.<format>" */
@@ -7125,6 +7130,8 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    "model/3mf": string;
+                    "model/gltf-binary": string;
                     "model/step": string;
                     "model/stl": string;
                 };
@@ -7386,7 +7393,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The exported CAD file: STEP AP214 part 21 (`model/step`, exact B-rep) or binary STL (`model/stl`, faceted mesh). `Content-Disposition` carries the suggested download filename. Byte-deterministic: identical requests produce identical files. */
+            /** @description The exported CAD file: STEP AP214 part 21 (`model/step`, exact B-rep, mm), binary STL (`model/stl`, faceted mesh, mm), 3MF (`model/3mf`, faceted mesh in an OPC package that DECLARES millimetres and carries one object per body) or binary glTF (`model/gltf-binary`, faceted mesh in **metres and Y-up** per the glTF spec — the same payload the viewport is served). `Content-Disposition` carries the suggested download filename. Byte-deterministic: identical requests produce identical files. */
             200: {
                 headers: {
                     /** @description attachment; filename="<shape>.<format>" */
@@ -7394,6 +7401,8 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    "model/3mf": string;
+                    "model/gltf-binary": string;
                     "model/step": string;
                     "model/stl": string;
                 };
@@ -7422,7 +7431,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The exported CAD file: STEP AP214 part 21 (`model/step`, exact B-rep) or binary STL (`model/stl`, faceted mesh). `Content-Disposition` carries the suggested download filename. Byte-deterministic: identical requests produce identical files. */
+            /** @description The exported CAD file: STEP AP214 part 21 (`model/step`, exact B-rep, mm), binary STL (`model/stl`, faceted mesh, mm), 3MF (`model/3mf`, faceted mesh in an OPC package that DECLARES millimetres and carries one object per body) or binary glTF (`model/gltf-binary`, faceted mesh in **metres and Y-up** per the glTF spec — the same payload the viewport is served). `Content-Disposition` carries the suggested download filename. Byte-deterministic: identical requests produce identical files. */
             200: {
                 headers: {
                     /** @description attachment; filename="<shape>.<format>" */
@@ -7430,6 +7439,8 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    "model/3mf": string;
+                    "model/gltf-binary": string;
                     "model/step": string;
                     "model/stl": string;
                 };

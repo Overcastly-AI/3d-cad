@@ -299,11 +299,40 @@ Correctness gates no web app needs, run in CI and by the `geometry-qa` agent:
   falling back to an id so an unnamed export still cannot collide. The name rides
   the EXPORT request only, never an evaluate request: a name must not be an input
   to geometry (finding N4).
-- **Export byte-determinism:** identical requests → byte-identical STEP/STL
-  files. STEP's `FILE_NAME` creation timestamp — the one nondeterministic
+- **Export byte-determinism:** identical requests → byte-identical files in
+  every format. STEP's `FILE_NAME` creation timestamp — the one nondeterministic
   byte range OCCT writes — is pinned kernel-side
   (`geometry.kernel.export.STEP_EXPORT_TIMESTAMP`; decision + evidence in
-  docs/GEOMETRY-QA.md 2026-07-10).
+  docs/GEOMETRY-QA.md 2026-07-10). **3MF** (added EXPORT-2, 2026-08-17) is the
+  same shape of problem with a different clock: lib3mf stamps a fresh random
+  production-extension UUID on every object, component, build item and the build
+  itself — five per write, which also shifts the compressed length — so
+  `_canonicalise_3mf_ids` derives them from `THREE_MF_UUID_NAMESPACE` instead. A
+  3MF package is self-contained (we emit no cross-package references), so this
+  costs nothing a consumer can observe. **GLB** needs no pinning at all: it is
+  the tessellation payload verbatim, whose determinism is already gated.
+- **Each export format declares its OWN length unit, and `EXPORT_UNITS` is the
+  single place that says which** (`py_kit.schemas.geometry`; EXPORT-2). STEP,
+  STL and 3MF are millimetres and Z-up; **glTF/GLB is metres and Y-up by
+  specification**, so its payload is the mm geometry / 1000 with a node
+  transform doing the axis change. The gate is not "the file parses" but **the
+  extents of the RE-READ file, converted through that table, equal the source
+  solid's bounding box**, asserted over the whole golden inventory for both new
+  formats (`services/geometry/tests/test_export_mesh_formats.py`). A file that
+  opens cleanly, declares millimetres and is half-size is the defect class this
+  exists to catch.
+- **3MF REFUSES a body whose triangulation is non-manifold; it does not repair
+  it or ship it anyway.** Same posture as `find_zero_width_slits` and
+  `removal_reaches_body` above — detect, then degrade to a typed error naming
+  the fix (`export_mesh_not_manifold`, a 422, never a 500). Found by the
+  EXPORT-2 sweep rather than predicted: one golden of 51
+  (`mirror-revolve-groove-tangent-wall`) has exactly ONE non-manifold edge, the
+  segment on the revolve axis where the two mirrored lobes meet — the solid
+  genuinely touches itself along a line. The 3MF core spec requires a
+  model-type object to be manifold; STL accepts such a mesh only because STL has
+  no topology at all, which is the failure class 3MF exists to remove, so
+  emitting a spec-violating package would discard the reason to support the
+  format. STEP, STL and GLB still export that body.
 - **Solver determinism:** same sketch + constraints → identical solution
   across runs.
 - **Feature-set determinism:** where a feature names a SET of other features,

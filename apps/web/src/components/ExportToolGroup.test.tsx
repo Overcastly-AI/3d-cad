@@ -9,9 +9,17 @@
  * swallow the activation itself? (3) Do the two mounts of export offer the SAME
  * formats — the cross-check that fails loudly if a format is added to one list
  * and not the other, which is the drift the shared catalogue exists to prevent.
+ *
+ * As of EXPORT-2 there is only ONE list (`ExportRow` reads the catalogue rather
+ * than carrying a copy), so the cross-check can no longer fail by drift — it now
+ * guards against a future mount deciding to filter the catalogue. It is kept for
+ * that, and paired with an assertion of the literal format SET, because "both
+ * surfaces agree" is satisfied just as happily by both being wrong.
  */
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import { EXPORT_FORMATS } from "../features/exportAction";
 
 import { ExportRow } from "./ExportRow";
 import { ExportToolGroup } from "./ExportToolGroup";
@@ -110,6 +118,38 @@ describe("ExportToolGroup", () => {
     const alert = await screen.findByTestId("assembly-export-band-error");
     expect(alert).toHaveTextContent(/STEP export failed/);
     expect(downloadBlob).not.toHaveBeenCalled();
+  });
+
+  it("offers all four export formats, named", () => {
+    // The cross-check below only proves the two surfaces AGREE; both could
+    // agree on a list missing a format the backend supports. This is the
+    // independent derivation — the literal set, asserted once.
+    render(
+      <ExportToolGroup
+        testIdPrefix="part-export-band"
+        exporter={exporterFor("bracket")}
+      />,
+    );
+    expect(EXPORT_FORMATS.map((entry) => entry.format)).toEqual([
+      "step",
+      "stl",
+      "3mf",
+      "glb",
+    ]);
+    for (const format of ["step", "stl", "3mf", "glb"]) {
+      expect(
+        screen.getByTestId(`part-export-band-${format}`),
+      ).toBeInTheDocument();
+    }
+    // The two new cells say what the format is FOR, not just what it is
+    // called — "3MF" and "GLB" mean nothing to someone who has only ever
+    // exported STL.
+    expect(screen.getByTestId("part-export-band-3mf")).toHaveAccessibleName(
+      /slicers/,
+    );
+    expect(screen.getByTestId("part-export-band-glb")).toHaveAccessibleName(
+      /viewers/,
+    );
   });
 
   it("offers exactly the formats the panel strip offers", () => {

@@ -12,7 +12,7 @@
  * DRY rule applied to state, the same cure `features/partBuild.ts` applies to
  * the Solve / Status / Export claims.
  */
-import { StepIcon, StlIcon } from "@loft/design";
+import { GlbIcon, StepIcon, StlIcon, ThreeMfIcon } from "@loft/design";
 import type { ReactNode } from "react";
 import { useCallback, useState } from "react";
 
@@ -36,12 +36,21 @@ export interface ExportFormatEntry {
 /**
  * The formats a solid can be issued as, in the order both surfaces show them.
  *
- * NOTE for whoever lands EXPORT-2 (adds `3mf` + `glb`): `ExportRow.tsx` still
- * carries its own copy of this list — the two were not merged here because the
- * two changes were in flight at the same time and that file belonged to the
- * other agent. `ExportToolGroup.test.tsx` cross-checks the two lists and FAILS
- * if a format is added to one and not the other, so folding `ExportRow`'s
- * `FORMATS` into this constant is the intended next step, not an optional one.
+ * THE single list, as of EXPORT-2: `ExportRow.tsx` used to carry a second copy
+ * (left behind deliberately while EXPORT-1 and EXPORT-2 were in flight at once)
+ * and now reads this one. `ExportToolGroup.test.tsx` still cross-checks that
+ * the two surfaces render the same set, so a format added to one mount and not
+ * the other fails loudly rather than shipping a workspace where the panel and
+ * the band disagree about what a part can be written as.
+ *
+ * Order is a claim about intent, not alphabetical: **STEP first** because it is
+ * the only lossless one and the answer to "send this to a machine shop"; then
+ * the three faceted formats in descending fidelity of what they carry — STL
+ * (triangles, no units), 3MF (triangles + declared millimetres + one object per
+ * body: what a slicer actually wants), GLB (triangles for a screen, metres and
+ * Y-up per the glTF spec). STL stays ahead of 3MF because it is what people
+ * reach for by name today; the captions are what tell them 3MF is the better
+ * print file.
  */
 export const EXPORT_FORMATS: readonly ExportFormatEntry[] = [
   {
@@ -57,6 +66,20 @@ export const EXPORT_FORMATS: readonly ExportFormatEntry[] = [
     caption: "Mesh",
     name: "Export STL (faceted mesh)",
     icon: <StlIcon />,
+  },
+  {
+    format: "3mf",
+    label: "3MF",
+    caption: "Print",
+    name: "Export 3MF (faceted mesh with units, for slicers)",
+    icon: <ThreeMfIcon />,
+  },
+  {
+    format: "glb",
+    label: "GLB",
+    caption: "Share",
+    name: "Export GLB (binary glTF, for viewers and rendering)",
+    icon: <GlbIcon />,
   },
 ];
 
