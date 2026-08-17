@@ -36,7 +36,21 @@
  * second was missing until 2026-08-02, which meant every snap this module
  * offered required geometry to already exist, and the FIRST point of a sketch —
  * the one that decides where the part sits — could hold onto nothing at all.
+ *
+ * A SNAP IS AN INTENT, NOT A COORDINATE (SNAP-3 / SNAP-2, 2026-08-17). Aiming
+ * at a corner and taking its coordinate is only half of what the gesture meant:
+ * the user said "here, ON that", and until this landed we recorded only the
+ * "here". The sketch then LOOKED joined and came apart on the first re-drive,
+ * with nothing on screen having ever distinguished the two. So every candidate
+ * that names a point the constraint layer can address now carries that address
+ * ({@link SnapCandidate.ref}), and {@link inferredCoincidents} turns the
+ * addresses a placement actually consumed into the coincidents that hold it
+ * together. Fusion and SolidWorks both do this at draw time; it is the
+ * difference between "the aim landed exactly" and "it stays".
  */
+import type { SketchConstraint, EntityPointRef } from "./constraints";
+import { sameConstraint } from "./constraints";
+import { DATUM_ORIGIN_ID } from "./datum";
 import { arcFrame, arcPointAt, entityPolylines } from "./geometry";
 import { curveDistance, namedPoints } from "./pick";
 import { snapPoint, snapValue, type Point2D } from "./plane";
@@ -94,6 +108,36 @@ export interface SnapCandidate {
    * (`sketch/origin.ts`). One kind, two truthful words.
    */
   label?: string;
+  /**
+   * The CONSTRAINT-ADDRESSABLE point this snap took its coordinate from, when
+   * it has one — the seam that lets a placement author the coincident the
+   * gesture meant (SNAP-3). Present for the kinds that ARE a named point:
+   * `endpoint` and `center` (a drawn entity's `namedPoints`), and `origin` (the
+   * datum point `sketch/datum.ts` materialises on demand).
+   *
+   * ABSENT, deliberately, for the other five, and each absence is a different
+   * reason rather than an oversight:
+   *
+   * · `midpoint` — a line's middle is not an `EntityPointRef`; the schema has
+   *   no midpoint constraint, so there is nothing honest to author.
+   * · `intersection`, `tangent`, `perpendicular` — derived locations, not named
+   *   points. Each has a real constraint that would express it (a coincident on
+   *   both curves, `tangent`, `perpendicular`), but each is a claim about the
+   *   NEW curve's whole shape rather than about where one click landed, and
+   *   inferring that from an aim would author relations the user did not ask
+   *   for. Left to the explicit verbs.
+   * · `x-axis` / `y-axis` — the target is a LINE and the point lies ANYWHERE
+   *   along it, which is a point-on-object relation. The constraint vocabulary
+   *   (`SketchParamsV1`, 12 kinds) has none: `coincident` joins two named
+   *   points and `fixed` pins both coordinates, so the only expressible reading
+   *   would nail the free coordinate too — silently converting "on the X axis"
+   *   into "at this exact spot on the X axis", which is a stronger claim than
+   *   the gesture made. Authoring nothing is the honest answer until a
+   *   `point_on_object` constraint exists kernel-side. Snapping ONTO the origin
+   *   (where the axes cross) is unaffected — that is a named point and is
+   *   covered above.
+   */
+  ref?: EntityPointRef;
 }
 
 export interface SnapResolution {
@@ -412,17 +456,18 @@ export function snapCandidates(
     entities: string[];
     d: number;
     label?: string;
+    ref?: EntityPointRef;
   }> = [];
   const offer = (
     kind: CandidateSnapKind,
     point: Point2D,
     ids: string[],
-    label?: string,
+    extra: { label?: string; ref?: EntityPointRef } = {},
   ): void => {
     const d = dist(at, point);
     // Rule 1: the mark never jumps away from the cursor.
     if (d <= toleranceMm)
-      found.push({ kind, at: point, entities: ids, d, label });
+      found.push({ kind, at: point, entities: ids, d, ...extra });
   };
 
   for (const entity of entities) {
@@ -431,9 +476,17 @@ export function snapCandidates(
       // snap and a coincident constraint can never disagree about where an
       // endpoint is. Only a circle/arc `center` is a centre; start/end/
       // position/fitN are all ends of something.
-      offer(named.point === "center" ? "center" : "endpoint", named.at, [
-        entity.id,
-      ]);
+      //
+      // That shared derivation is exactly why the snap can hand a constraint
+      // ref straight out: the address is not reconstructed from a coordinate
+      // afterwards (which is the guessing game a later re-pick would play), it
+      // is the address the point came FROM.
+      offer(
+        named.point === "center" ? "center" : "endpoint",
+        named.at,
+        [entity.id],
+        { ref: { entity: entity.id, point: named.point } },
+      );
     }
     const mid = midpointOf(entity);
     if (mid !== null) offer("midpoint", mid, [entity.id]);
@@ -483,18 +536,27 @@ export function snapCandidates(
     // specific claim ("this corner", with an entity id a constraint can
     // address) and it is what the user can see, so it takes the tie. Nothing is
     // lost either way: the coordinate is identical, only the word differs.
-    offer("origin", { x: 0, y: 0 }, [], origin.label);
+    offer("origin", { x: 0, y: 0 }, [], {
+      label: origin.label,
+      // The plane's zero IS a constraint-addressable point — `datum.ts`
+      // materialises it as a pinned construction point the moment something
+      // references it — so a corner snapped here can be GROUNDED, not merely
+      // placed at (0,0). That is SNAP-2, and it needs no path of its own.
+      ref: { entity: DATUM_ORIGIN_ID, point: "position" },
+    });
+    // The two axes carry no `ref` — see `SnapCandidate.ref`.
     offer("x-axis", { x: snapValue(at.x, origin.gridStepMm), y: 0 }, []);
     offer("y-axis", { x: 0, y: snapValue(at.y, origin.gridStepMm) }, []);
   }
 
   // Rule 2: rank first (stable under jitter), distance only within a class.
   found.sort((a, b) => RANK[a.kind] - RANK[b.kind] || a.d - b.d);
-  return found.map(({ kind, at: point, entities: ids, label }) => ({
+  return found.map(({ kind, at: point, entities: ids, label, ref }) => ({
     kind,
     at: point,
     entities: ids,
     ...(label === undefined ? {} : { label }),
+    ...(ref === undefined ? {} : { ref }),
   }));
 }
 
@@ -572,4 +634,106 @@ export function resolveSnap(input: SnapInput): SnapResolution {
   // The grid is the floor, and it gets no mark: it is always catching, so a
   // mark for it would be permanent chrome that says nothing.
   return { at: snapPoint(point, gridStepMm), candidate: null };
+}
+
+// ---------------------------------------------------------------------------
+// Snap → constraint inference (SNAP-3, which subsumes SNAP-2)
+// ---------------------------------------------------------------------------
+
+/**
+ * A snap the user actually SPENT — one click of an in-progress placement that
+ * took its coordinate from an addressable point. Held by the store across the
+ * clicks of a sequence, because the click that matters most (a line's start, a
+ * rectangle's first corner) happens while no entity exists to constrain yet.
+ */
+export interface SnapAnchor {
+  /** The coordinate the click took (plane mm) — copied, not recomputed. */
+  at: Point2D;
+  /** The point it took that coordinate FROM. */
+  ref: EntityPointRef;
+}
+
+/**
+ * The anchor a click leaves behind, or null when the aim took the grid, a
+ * modifier-suppressed free point, an axis, or any other kind with no address.
+ */
+export function snapAnchorOf(
+  candidate: SnapCandidate | null,
+  at: Point2D,
+): SnapAnchor | null {
+  const ref = candidate?.ref;
+  return ref === undefined ? null : { at, ref };
+}
+
+/**
+ * Placed coordinates closer than this are the same point. This is NOT a user
+ * tolerance: the placement copies the snapped coordinate verbatim into the
+ * entity, so a match here is bit-identical in every real case and the epsilon
+ * only absorbs the arithmetic `rectangleCorners` does on the way (min/max of
+ * two numbers — exact, but the arc's projection is not).
+ */
+const ANCHOR_MM = 1e-9;
+
+/**
+ * The coincidents a placement earned: one per anchor whose coordinate a
+ * just-emitted entity actually landed a named point on.
+ *
+ * MATCHING BY COORDINATE, NOT BY POSITION IN THE SEQUENCE, is what makes this
+ * ONE path for every tool instead of five (the DRY rule; two snap-to-constraint
+ * implementations would be the defect, not the fix). Each tool routes its
+ * clicks into different slots of a different shape — a line's second click is
+ * an `end`, a rectangle's is two corners away from where it started, a
+ * spline's is `fitN` — and every one of them lands the SNAPPED COORDINATE,
+ * unchanged, on the point that click created. So "which named point did this
+ * click become?" is answered by looking, and three behaviours fall out for
+ * free rather than being special-cased:
+ *
+ * · A RECTANGLE corner is shared by two of the four lines, and only the first
+ *   is bound (`break`). Binding both would state the same fact twice and, with
+ *   the corner coincidences a rectangle already carries, report an ordinary
+ *   sketch as OVER-CONSTRAINED — a worse defect than the one being fixed.
+ * · A CIRCLE's rim click has no named point at that coordinate (a circle is
+ *   `center` + radius), so a snap there authors nothing — correct, because
+ *   what the user constrained is not representable as a point.
+ * · An ARC's third click is PROJECTED onto the arc's circle, so the emitted
+ *   `end` is generally NOT where the user clicked; no match, no constraint.
+ *   Where the target does lie on the circle the coordinates agree and the
+ *   constraint is authored, which is exactly when it is true.
+ *
+ * `existing` is checked so a re-drawn edge cannot stack a duplicate of a
+ * relation already on the sketch — the same `sameConstraint` guard the explicit
+ * `C` verb uses, so the automatic and manual paths agree on what "already
+ * coincident" means.
+ */
+export function inferredCoincidents(
+  anchors: readonly SnapAnchor[],
+  emitted: readonly SketchEntity[],
+  existing: readonly SketchConstraint[] = [],
+): SketchConstraint[] {
+  const out: SketchConstraint[] = [];
+  for (const anchor of anchors) {
+    for (const entity of emitted) {
+      // A point cannot be coincident with itself; an emitted entity can never
+      // be the anchor's target (ids are freshly minted), but the guard keeps
+      // that a property of this function rather than of its caller.
+      if (entity.id === anchor.ref.entity) continue;
+      const named = namedPoints(entity).find(
+        (candidate) => dist(candidate.at, anchor.at) <= ANCHOR_MM,
+      );
+      if (named === undefined) continue;
+      const constraint: SketchConstraint = {
+        kind: "coincident",
+        a: { entity: entity.id, point: named.point },
+        b: anchor.ref,
+      };
+      if (
+        !existing.some((c) => sameConstraint(c, constraint)) &&
+        !out.some((c) => sameConstraint(c, constraint))
+      ) {
+        out.push(constraint);
+      }
+      break;
+    }
+  }
+  return out;
 }

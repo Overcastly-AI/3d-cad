@@ -18,6 +18,30 @@ import { createPartViaApi, SCREENSHOT_DIR, seedSession } from "./support";
 
 const SOLVE_TOLERANCE_MM = 1e-3;
 
+/**
+ * How many CONSTRAINT SLOTS the placement fills before this spec authors
+ * anything — which is not the same as how many glyphs it draws, and the
+ * difference is the whole reason this is a named constant.
+ *
+ * `e1` starts ON the origin, so the snap infers a coincident grounding it there
+ * (SNAP-3) and `groundDatums` pins the origin behind it. That is TWO
+ * constraints: `[coincident, fixed]`. A `glyph-N` testid is the index into the
+ * CONSTRAINT ARRAY (`ConstraintGlyphs`: ``glyph-${glyph.index}``), and the
+ * datum pin is deliberately glyph-suppressed — the user authored none of it —
+ * so index 1 exists as a constraint and renders NOTHING. `glyph-1` is a hole:
+ * the offset is 2, and an "obvious" 1 fails with `element(s) not found`, which
+ * reads like the constraint was never authored rather than like an off-by-one.
+ *
+ * TWO, not the ten the rectangle-based specs carry: this fixture draws LINES,
+ * and RECT-1's rigidity set is a rectangle's alone. The number is per-fixture,
+ * which is exactly why it is derived per file rather than shared.
+ */
+const PLACEMENT_SLOTS = 2;
+
+/** The n-th constraint THIS SPEC authored (see {@link PLACEMENT_SLOTS}). */
+const glyph = (page: Page, index: number) =>
+  page.getByTestId(`glyph-${index + PLACEMENT_SLOTS}`);
+
 interface SolvedPoint {
   x: number;
   y: number;
@@ -205,7 +229,7 @@ test.describe("sketch dimension expressions (desktop 1440)", () => {
     await expect(dimHint).toContainText("D");
     await expect(dimHint).toContainText("dimension");
     await page.keyboard.press("h");
-    await expect(page.getByTestId("glyph-0")).toHaveText("H");
+    await expect(glyph(page, 0)).toHaveText("H");
 
     // width = 20, NAMED so the expression can reference it.
     await clickPlane(page, at, { x: 10, y: 0 });
@@ -216,7 +240,7 @@ test.describe("sketch dimension expressions (desktop 1440)", () => {
     await value.fill("20");
     await name.fill("width");
     await page.getByTestId("dimension-apply").click();
-    await expect(page.getByTestId("glyph-1")).toHaveText("20");
+    await expect(glyph(page, 1)).toHaveText("20");
 
     // height = width/2 — an EXPRESSION dimension on e2.
     await clickPlane(page, at, { x: 15, y: -15 });
@@ -227,7 +251,7 @@ test.describe("sketch dimension expressions (desktop 1440)", () => {
     await page.getByTestId("dimension-apply").click();
 
     // THE ACCEPTANCE: height resolves to 10 — in the readout and the payload.
-    await expect(page.getByTestId("glyph-2")).toHaveText("10", {
+    await expect(glyph(page, 2)).toHaveText("10", {
       timeout: 15_000,
     });
     await expect
@@ -235,8 +259,11 @@ test.describe("sketch dimension expressions (desktop 1440)", () => {
         const sketch = latestSketch(evaluations);
         if (sketch?.data == null) return null;
         const len = lineLength(sketch.data.entities, "e2");
+        // `constraint_index` is the same array position `glyph-N` is, so the
+        // placement's inferred slots shift it exactly as they shift the glyph
+        // above (see PLACEMENT_SLOTS) — one origin per index, not two.
         const dim = sketch.data.dimensions?.find(
-          (d) => d.constraint_index === 2,
+          (d) => d.constraint_index === 2 + PLACEMENT_SLOTS,
         );
         return len === null || dim === undefined
           ? null
@@ -249,7 +276,7 @@ test.describe("sketch dimension expressions (desktop 1440)", () => {
       .toEqual({ solvedTo10: true, readout10: true, expr: "width/2" });
 
     // Re-open the expression dimension: the editor echoes its resolved value.
-    await page.getByTestId("glyph-2").click();
+    await glyph(page, 2).click();
     await expect(value).toHaveValue("width/2");
     await expect(page.getByTestId("dimension-editor")).toContainText("= 10 mm");
     await page.mouse.move(1360, 840);
@@ -264,7 +291,7 @@ test.describe("sketch dimension expressions (desktop 1440)", () => {
     await addPlane(page, at, { x: 12, y: -30 }); // + e3 body
     await expect(page.getByTestId("selection-readout")).toContainText("2 ent");
     await page.keyboard.press("e");
-    await expect(page.getByTestId("glyph-3")).toHaveText("=");
+    await expect(glyph(page, 3)).toHaveText("=");
 
     // ---- Driven (reference) dimension: measured, can't over-constrain. ----
     // e3's length is already determined (equal → e2 → width/2), so a DRIVING
@@ -278,11 +305,8 @@ test.describe("sketch dimension expressions (desktop 1440)", () => {
     await expect(page.getByTestId("dimension-editor")).toHaveCount(0);
 
     // The reference dimension reads (10) in quiet ink; the solve is healthy.
-    await expect(page.getByTestId("glyph-4")).toHaveText("(10)");
-    await expect(page.getByTestId("glyph-4")).toHaveAttribute(
-      "data-driven",
-      "true",
-    );
+    await expect(glyph(page, 4)).toHaveText("(10)");
+    await expect(glyph(page, 4)).toHaveAttribute("data-driven", "true");
     await expect(page.getByTestId("solve-diagnostic")).toHaveCount(0);
     await expect(page.getByTestId("dro-solve")).not.toContainText(
       "OVER-CONSTRAINED",
@@ -291,14 +315,14 @@ test.describe("sketch dimension expressions (desktop 1440)", () => {
     // Edit the geometry: bump width 20 → 40. The expression re-evaluates to 20,
     // equal carries it to e3, and the DRIVEN readout re-measures — parentheses
     // track the geometry.
-    await page.getByTestId("glyph-1").click();
+    await glyph(page, 1).click();
     await expect(value).toHaveValue("20");
     await value.fill("40");
     await page.getByTestId("dimension-apply").click();
-    await expect(page.getByTestId("glyph-2")).toHaveText("20", {
+    await expect(glyph(page, 2)).toHaveText("20", {
       timeout: 15_000,
     });
-    await expect(page.getByTestId("glyph-4")).toHaveText("(20)");
+    await expect(glyph(page, 4)).toHaveText("(20)");
     await expect(page.getByTestId("solve-diagnostic")).toHaveCount(0);
 
     await page.mouse.move(1360, 840);
@@ -307,7 +331,7 @@ test.describe("sketch dimension expressions (desktop 1440)", () => {
     });
 
     // A bad expression is loud, not silent: the invalid diagnostic appears.
-    await page.getByTestId("glyph-2").click();
+    await glyph(page, 2).click();
     await expect(value).toBeVisible();
     await value.fill("nope/0");
     await page.getByTestId("dimension-apply").click();
@@ -351,13 +375,13 @@ test.describe("sketch dimension expressions (laptop 1280×800)", () => {
     await value.fill("20");
     await page.getByTestId("dimension-name").fill("width");
     await page.getByTestId("dimension-apply").click();
-    await expect(page.getByTestId("glyph-1")).toHaveText("20");
+    await expect(glyph(page, 1)).toHaveText("20");
 
     await clickPlane(page, at, { x: 15, y: -15 });
     await page.keyboard.press("d");
     await value.fill("width/2");
     await page.getByTestId("dimension-apply").click();
-    await expect(page.getByTestId("glyph-2")).toHaveText("10", {
+    await expect(glyph(page, 2)).toHaveText("10", {
       timeout: 15_000,
     });
 

@@ -76,7 +76,14 @@ import {
   type PickMode,
   type SketchPick,
 } from "./pick";
-import { resolveSnap, type SnapCandidate, type SnapResolution } from "./snap";
+import {
+  inferredCoincidents,
+  resolveSnap,
+  snapAnchorOf,
+  type SnapAnchor,
+  type SnapCandidate,
+  type SnapResolution,
+} from "./snap";
 import {
   escapeAction,
   finishPlacement as finishPlacementSequence,
@@ -151,6 +158,10 @@ const snapshotOf = (state: SketchState): SketchSnapshot => ({
  */
 const CLEARED_BY_HISTORY = {
   pending: [] as Point2D[],
+  // The anchors belong to the pending sequence that is being thrown away with
+  // them; kept, they would bind the NEXT shape to a target the user aimed at
+  // before the undo.
+  snapAnchors: [] as SnapAnchor[],
   selection: [] as SketchPick[],
   hoverPick: null,
   selectedConstraint: null,
@@ -172,21 +183,42 @@ export interface SketchState {
   tool: SketchTool;
   /** Points of the in-progress placement sequence (plane mm, snapped). */
   pending: Point2D[];
+  /**
+   * The addressable snaps this placement sequence has spent so far (SNAP-3).
+   * Accumulated per click and cashed in when the sequence emits geometry, then
+   * cleared: the click that most needs to be recorded — a line's start, a
+   * rectangle's first corner — happens before any entity exists to constrain,
+   * so the intent has to be carried forward rather than re-derived later.
+   */
+  snapAnchors: SnapAnchor[];
   /** Locally buffered entities; adopt solved positions once persisted. */
   entities: SketchEntity[];
   /** Constraints authored this session (persisted with the entities). */
   constraints: SketchConstraint[];
   /**
-   * Has the USER authored a constraint, as opposed to the draw authoring one
-   * for them? RECT-1 made every drawn rectangle arrive with its rigidity set,
-   * and `PartPage`'s persist gate used to read `constraints.length > 0` as
-   * "this sketch is worth binding" — so without this flag a rectangle would
-   * bind the instant it was drawn and the "Discard N unsaved entities" exit
-   * confirm would silently vanish for rectangles while surviving for lines and
-   * circles. That inconsistency is worse than either rule, and changing WHEN a
-   * sketch persists is not RECT-1's business, so placement deliberately leaves
-   * this false. Whether drawing alone SHOULD auto-bind is a real product
-   * question, filed as RECT-2 rather than decided here.
+   * Has the USER authored a constraint — a verb from the strip, a typed
+   * dimension, or a re-opened sketch that already carried some — as opposed to
+   * the draw authoring one for them?
+   *
+   * TWO features arrived at this flag independently, which is the argument for
+   * it. RECT-1 made every drawn rectangle carry its rigidity set; SNAP-3 made
+   * every corner snapped onto something carry an inferred coincident. Snapping
+   * is ON by default and endpoints outrank everything, so between them nearly
+   * every real draw now authors constraints nobody asked for by name.
+   *
+   * `PartPage`'s live-save gate used to read `constraints.length > 0` as "this
+   * sketch is worth binding", and binding also retires the "Discard N unsaved
+   * entities" exit confirm. Left alone, a rectangle would bind the instant it
+   * was drawn (while a line would not), and any profile would bind the moment
+   * two corners met — changing what Escape and Exit MEAN because of an action
+   * the user never read as constraining anything. That is the FB-13 class of
+   * ambiguous exit, and CLAUDE.md's flow rule forbids it.
+   *
+   * So: constraints the TOOL infers do not bind; constraints the USER asks for
+   * do. The inferred ones still persist, glyph, and count in the strip's
+   * "N applied" — they are real, they are just not a decision to start saving.
+   * Whether drawing alone SHOULD auto-bind is a real product question, filed as
+   * RECT-2 rather than decided here.
    */
   userConstrained: boolean;
   /** Next sketch-local id index (`e1`, `e2`, …). */
@@ -549,6 +581,7 @@ const INITIAL = {
   plane: null,
   tool: "select" as SketchTool,
   pending: [],
+  snapAnchors: [],
   entities: [],
   constraints: [],
   userConstrained: false,
@@ -722,6 +755,10 @@ const createSketchState = (
       plane,
       entities: [...entities],
       constraints: [...constraints],
+      // A sketch being RE-OPENED is already bound to a feature, so the live
+      // save gate is moot here — but the flag has to be true anyway, or
+      // re-entering a constrained sketch would read as never-constrained.
+      userConstrained: constraints.length > 0,
       // Resume the id counter above what was loaded (never re-mint `e1`).
       nextIdIndex: nextIdIndexAfter(entities),
     })),
@@ -738,6 +775,8 @@ const createSketchState = (
     set({
       tool,
       pending: [],
+      // Abandoning the sequence abandons the intents it collected.
+      snapAnchors: [],
       selection: [],
       hoverPick: null,
       selectedConstraint: null,
@@ -818,10 +857,55 @@ const createSketchState = (
   },
 
   placeAt: (point) => {
-    const { tool, pending, nextIdIndex, entities, revision, constraints } =
-      get();
+    const {
+      tool,
+      pending,
+      snapAnchors,
+      nextIdIndex,
+      entities,
+      constraints,
+      revision,
+      snapCandidate,
+      datumFrameHalfMm,
+    } = get();
     const result = placePoint(tool, pending, point, nextIdIndex);
     const drawn = result.entities.length > 0;
+
+    // AUTOMATIC COINCIDENT ON SNAP (SNAP-3, and SNAP-2 with it).
+    //
+    // The aim that produced `point` is still on the store — `placeAt` is only
+    // ever called with `aim()`'s own return — so the address the click took its
+    // coordinate from is available HERE, at the one moment it is unambiguous.
+    // Recovering it later would mean guessing from a coordinate, which is the
+    // guess this closes.
+    //
+    // A REJECTED placement banks nothing. `placePoint` refuses a degenerate
+    // shape (zero-area rectangle, zero-length line, a spline's repeated fit
+    // point) by handing back the sequence untouched; treating that click as an
+    // anchor would leave a stale intent to be cashed in by whatever the user
+    // draws next.
+    const consumed = drawn || result.pending.length !== pending.length;
+    const anchor = consumed ? snapAnchorOf(snapCandidate, point) : null;
+    const anchors = anchor === null ? snapAnchors : [...snapAnchors, anchor];
+
+    const inferred = drawn
+      ? inferredCoincidents(anchors, result.entities, constraints)
+      : [];
+    const placed = drawn ? [...entities, ...result.entities] : entities;
+    // Snapping to the plane's zero references a datum that may not be in the
+    // buffer yet; grounding it here is the same call `applyConstraint` makes,
+    // so the origin is materialised and PINNED by exactly one code path.
+    // Without the pin a coincident to the origin is satisfiable by moving the
+    // origin, which would take the sketch's zero with it.
+    const grounded =
+      inferred.length === 0
+        ? null
+        : groundDatums(
+            placed,
+            inferred.flatMap(constraintEntityRefs),
+            datumFrame(datumFrameHalfMm),
+          );
+
     // A new placement supersedes the last shape's size cells: anything typed
     // into them and not committed is gone, the same way moving on abandons a
     // half-typed value anywhere else. The cells stay visible right up to that
@@ -842,12 +926,30 @@ const createSketchState = (
             result.entities.map((entity) => entity.id),
           )
         : [];
+    /** The snap's inferred coincidents plus whatever datum they had to ground. */
+    const authored =
+      grounded === null ? [] : [...inferred, ...grounded.constraints];
     set({
       pending: result.pending,
+      // Cashed in, or carried to the click that finishes the shape.
+      snapAnchors: drawn ? [] : anchors,
       nextIdIndex: result.nextIdIndex,
-      entities: drawn ? [...entities, ...result.entities] : entities,
+      entities: grounded?.entities ?? placed,
+      // TWO authors, ONE order, and it is deliberate: the shape's own rigidity
+      // (RECT-1) describes what the thing IS, the inferred coincident (SNAP-3)
+      // relates it to what was already there, and the datum pins ride last
+      // because they are the frame's bookkeeping rather than anybody's intent.
+      // Neither author can produce what the other does, so they compose rather
+      // than compete — and each still has exactly one call site.
       constraints:
-        rigidity.length > 0 ? [...constraints, ...rigidity] : constraints,
+        rigidity.length + authored.length === 0
+          ? constraints
+          : [...constraints, ...rigidity, ...authored],
+      // `userConstrained` is deliberately NOT set by either author: this is the
+      // tool recording the shape it drew and the target the user aimed at, not
+      // the user asking for a relation. Binding the sketch here would retire
+      // the unsaved-work exit confirm at a moment the user did not choose (see
+      // the field).
       revision: drawn ? revision + 1 : revision,
       drawDimension:
         drawn && shape !== null && from !== undefined
@@ -889,6 +991,7 @@ const createSketchState = (
     set({
       entities: resizeDrawn(shape, ids, from, to, entities, typed),
       constraints: [...constraints, ...added],
+      // A typed size IS the user constraining the sketch.
       userConstrained: true,
       revision: revision + 1,
       drawDimension: null,
@@ -903,13 +1006,44 @@ const createSketchState = (
   focusDrawDimension: (drawDimensionFocus) => set({ drawDimensionFocus }),
 
   finishPlacement: () => {
-    const { tool, pending, nextIdIndex, entities, revision } = get();
+    const {
+      tool,
+      pending,
+      snapAnchors,
+      nextIdIndex,
+      entities,
+      constraints,
+      revision,
+      datumFrameHalfMm,
+    } = get();
     const result = finishPlacementSequence(tool, pending, nextIdIndex);
     if (result.entities.length === 0) return;
+    // The spline's own commit gesture (Enter / double-click) is the other way a
+    // sequence emits geometry, so it cashes its anchors in through the SAME
+    // inference — a fit point snapped onto a corner stays on that corner.
+    const inferred = inferredCoincidents(
+      snapAnchors,
+      result.entities,
+      constraints,
+    );
+    const placed = [...entities, ...result.entities];
+    const grounded =
+      inferred.length === 0
+        ? null
+        : groundDatums(
+            placed,
+            inferred.flatMap(constraintEntityRefs),
+            datumFrame(datumFrameHalfMm),
+          );
     set({
       pending: result.pending,
+      snapAnchors: [],
       nextIdIndex: result.nextIdIndex,
-      entities: [...entities, ...result.entities],
+      entities: grounded?.entities ?? placed,
+      constraints:
+        grounded === null
+          ? constraints
+          : [...constraints, ...inferred, ...grounded.constraints],
       revision: revision + 1,
     });
   },
@@ -1018,6 +1152,7 @@ const createSketchState = (
             ...result.constraints,
             ...grounded.constraints,
           ],
+          // A constraint verb from the strip or the keyboard.
           userConstrained: true,
           revision: revision + 1,
           selection: [],
@@ -1047,6 +1182,7 @@ const createSketchState = (
             dimensionPick: action,
             tool: "select",
             pending: [],
+            snapAnchors: [],
             selection: [],
             selectedConstraint: null,
             drawDimension: null,
@@ -1395,6 +1531,7 @@ const createSketchState = (
           );
     set({
       constraints: next,
+      // A dimension typed into the inline editor.
       userConstrained: true,
       revision: revision + 1,
       dimensionEdit: null,
@@ -1568,10 +1705,10 @@ const createSketchState = (
         set({ dimensionEdit: null, offsetDraft: null });
         return;
       case "cancel-placement":
-        set({ pending: [] });
+        set({ pending: [], snapAnchors: [] });
         return;
       case "reset-tool":
-        set({ tool: "select", pending: [] });
+        set({ tool: "select", pending: [], snapAnchors: [] });
         return;
       case "clear-selection":
         set({ selection: [], selectedConstraint: null, hint: null });

@@ -1987,3 +1987,209 @@ describe("beginEdit — re-opening a SAVED sketch (SKETCH-1)", () => {
     expect(store().snapStepMm).toBe(0.5);
   });
 });
+
+describe("a snap authors the constraint it meant (SNAP-3, and SNAP-2 with it)", () => {
+  const store = useSketchStore.getState;
+  const NONE = { suppressed: false, axisLock: false };
+
+  /** Aim at `point`, then place whatever the aim resolved to — the real path:
+   *  `SketchScene` only ever calls `placeAt(aim(...))`. */
+  const aimAndPlace = (x: number, y: number, toleranceMm = 1) =>
+    store().placeAt(store().aim({ x, y }, toleranceMm, NONE));
+
+  const draw = (tool: "line" | "rect" | "circle") => {
+    store().begin();
+    store().choosePlane("XY");
+    store().setTool(tool);
+  };
+
+  const coincidents = () =>
+    store().constraints.filter((c) => c.kind === "coincident");
+
+  /**
+   * The coincidents that NAME `id` — how an inferred one is told apart from a
+   * shape's own rigidity set now that RECT-1 gives every drawn rectangle four
+   * corner coincidences of its own. An inferred coincident always reaches
+   * OUTSIDE the shape just drawn (to the origin, or to an earlier entity),
+   * which is exactly what makes this filter the right question rather than a
+   * way of getting the number down: a rigidity coincident can only ever name
+   * two lines of the same new rectangle.
+   */
+  const coincidentsNaming = (id: string) =>
+    store().constraints.filter(
+      (c) =>
+        c.kind === "coincident" && (c.a.entity === id || c.b.entity === id),
+    );
+
+  beforeEach(() => {
+    useSketchStore.setState({ snapEnabled: true, snapStepMm: 1 });
+  });
+
+  /** e1 = (10,10) -> (50,10). Deliberately clear of the datum frame: an aim on
+   *  the origin or along an axis is its OWN case below, and stacking the two
+   *  would make every assertion here ambiguous about which snap it measured. */
+  const firstLine = () => {
+    draw("line");
+    aimAndPlace(10, 10);
+    aimAndPlace(50, 10);
+  };
+
+  it("joins a corner drawn onto an existing endpoint", () => {
+    firstLine();
+    // The second line STARTS on e1's end — aimed a fraction off, so only the
+    // snap can land it exactly, which is the gesture the ticket describes.
+    aimAndPlace(50.3, 10.2);
+    aimAndPlace(50, 40); // e2
+    expect(store().entities.map((e) => e.id)).toEqual(["e1", "e2"]);
+    expect(coincidents()).toEqual([
+      {
+        kind: "coincident",
+        a: { entity: "e2", point: "start" },
+        b: { entity: "e1", point: "end" },
+      },
+    ]);
+  });
+
+  it("grounds a corner snapped to the origin, and PINS the origin (SNAP-2)", () => {
+    draw("rect");
+    aimAndPlace(0.3, -0.2); // the origin magnet
+    aimAndPlace(40, 25);
+    // The datum is materialised on demand, exactly as the explicit verb does.
+    expect(store().entities.map((e) => e.id)).toContain("origin");
+    expect(coincidentsNaming("origin")).toEqual([
+      {
+        kind: "coincident",
+        a: { entity: "e1", point: "start" },
+        b: { entity: "origin", point: "position" },
+      },
+    ]);
+    // Without the pin the coincident is satisfiable by moving the ORIGIN.
+    expect(
+      store().constraints.some(
+        (c) => c.kind === "fixed" && c.point.entity === "origin",
+      ),
+    ).toBe(true);
+  });
+
+  it("binds a shared rectangle corner ONCE — the over-constraint guard", () => {
+    // The corner belongs to two of the four lines, and since RECT-1 those two
+    // are ALREADY tied to each other by the rectangle's own rigidity set.
+    // Grounding both of them would therefore state the same fact three times
+    // and report an ordinary rectangle as over-constrained — a worse defect
+    // than the one being fixed.
+    draw("rect");
+    aimAndPlace(0.3, -0.2);
+    aimAndPlace(40, 25);
+    expect(coincidentsNaming("origin")).toHaveLength(1);
+    // The positive control for that number: the rigidity set really is there,
+    // so "1" is not "the rectangle authored nothing".
+    expect(coincidents().length).toBeGreaterThan(1);
+  });
+
+  it("authors NOTHING when the aim took the grid or a free point", () => {
+    // The negative control for the whole feature: an ordinary draw with no
+    // snap must cost the sketch exactly as many constraints as it did before.
+    draw("line");
+    store().setSnapStep(1);
+    aimAndPlace(5, 5);
+    aimAndPlace(25, 17);
+    expect(store().entities).toHaveLength(1);
+    expect(store().constraints).toEqual([]);
+
+    // …and with the snap SUPPRESSED over a live endpoint, still nothing.
+    store().setTool("line");
+    const held = { suppressed: true, axisLock: false };
+    store().placeAt(store().aim({ x: 25.02, y: 17.03 }, 1, held));
+    store().placeAt(store().aim({ x: 60.4, y: 3.1 }, 1, held));
+    expect(store().entities).toHaveLength(2);
+    expect(store().constraints).toEqual([]);
+  });
+
+  it("authors nothing for a snap to an AXIS — point-on-object is not expressible", () => {
+    draw("line");
+    aimAndPlace(25.3, 0.2); // x-axis
+    aimAndPlace(40, 30);
+    expect(store().entities).toHaveLength(1);
+    expect(store().constraints).toEqual([]);
+  });
+
+  it("does not bank an anchor from a REJECTED placement", () => {
+    // A zero-height rectangle is refused. If that click still banked its snap,
+    // the intent would be cashed in by whatever the user drew next.
+    firstLine();
+    store().setTool("rect");
+    aimAndPlace(50.3, 10.2); // snapped to e1's end — first corner
+    aimAndPlace(80, 10.1); // snapped BACK onto y=10: zero height, rejected
+    expect(store().entities).toHaveLength(1); // nothing emitted
+    aimAndPlace(80, 40); // now a real second corner
+    expect(store().entities).toHaveLength(5);
+    // Exactly the FIRST corner's intent, and nothing from the refused click.
+    // Filtered to constraints reaching back to e1: the rectangle's own rigidity
+    // set names only e2..e5, so anything here came from a banked snap.
+    expect(coincidentsNaming("e1")).toEqual([
+      {
+        kind: "coincident",
+        a: { entity: "e2", point: "start" },
+        b: { entity: "e1", point: "end" },
+      },
+    ]);
+  });
+
+  it("drops the collected intents when the placement is cancelled", () => {
+    firstLine();
+    aimAndPlace(50.3, 10.2); // a snapped first point…
+    store().escape(); // …abandoned
+    expect(store().pending).toHaveLength(0);
+    store().setTool("line");
+    // Ctrl held: the aim takes the raw point and banks NO intent of its own —
+    // yet it starts at exactly the coordinate the abandoned one held, so a
+    // stale anchor would still match it and author a relation nobody asked
+    // for. Nothing here can produce a constraint except the leak.
+    const held = { suppressed: true, axisLock: false };
+    store().placeAt(store().aim({ x: 50, y: 10 }, 1, held));
+    store().placeAt(store().aim({ x: 80, y: 19 }, 1, held));
+    expect(store().entities).toHaveLength(2);
+    expect(store().constraints).toEqual([]);
+  });
+
+  it("leaves `userConstrained` false — an inferred relation must not bind", () => {
+    // Binding starts the live save loop and retires the unsaved-work exit
+    // confirm. A corner that happened to snap is not the user asking for that.
+    firstLine();
+    aimAndPlace(50.3, 10.2);
+    aimAndPlace(50, 40);
+    expect(coincidents()).toHaveLength(1);
+    expect(store().userConstrained).toBe(false);
+
+    // A verb the user pressed DOES bind.
+    store().setTool("select");
+    store().selectAt({ x: 30, y: 10 }, 2);
+    store().applyConstraint("horizontal");
+    expect(store().userConstrained).toBe(true);
+  });
+
+  it("never restates a relation the explicit verb already authored", () => {
+    firstLine();
+    aimAndPlace(50.3, 10.2);
+    aimAndPlace(50, 40); // e2, auto-joined to e1's end
+    expect(coincidents()).toHaveLength(1);
+    // Ask for the same relation by hand: the verb refuses as already applied.
+    store().setTool("select");
+    store().selectAt({ x: 50, y: 10 }, 0.5);
+    store().selectAt({ x: 50, y: 10 }, 0.5, "add");
+    store().applyConstraint("coincident");
+    expect(coincidents()).toHaveLength(1);
+  });
+
+  it("undo takes the inferred constraint back with its geometry", () => {
+    firstLine();
+    aimAndPlace(50.3, 10.2);
+    aimAndPlace(50, 40);
+    expect(coincidents()).toHaveLength(1);
+    store().undo();
+    expect(store().entities).toHaveLength(1);
+    expect(coincidents()).toHaveLength(0);
+    store().redo();
+    expect(coincidents()).toHaveLength(1);
+  });
+});

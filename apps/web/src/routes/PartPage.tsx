@@ -500,10 +500,14 @@ export function PartPage() {
   const cornerRequest = useSketchStore((state) => state.cornerRequest);
   const revision = useSketchStore((state) => state.revision);
   const featureId = useSketchStore((state) => state.featureId);
-  // RECT-1: the USER's authoring, not the raw count. A drawn rectangle now
-  // arrives with its rigidity set, so `constraints.length > 0` would bind every
-  // rectangle the instant it was drawn — removing the unsaved-exit confirm for
-  // rectangles while leaving it for lines and circles.
+  // The USER's authoring, not the raw count — and now for two independent
+  // reasons, which is the tell that this is the right seam rather than a
+  // workaround. RECT-1: a drawn rectangle arrives with its rigidity set, so
+  // `constraints.length > 0` would bind every rectangle the instant it was
+  // drawn. SNAP-3: placement infers a coincident whenever a corner snaps onto
+  // something, so it would bind the first time two corners met. Either way the
+  // unsaved-exit confirm would vanish on an action the user never read as
+  // constraining anything. See `SketchState.userConstrained`.
   const userConstrained = useSketchStore((state) => state.userConstrained);
   const begin = useSketchStore((state) => state.begin);
   const setTool = useSketchStore((state) => state.setTool);
