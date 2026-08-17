@@ -336,15 +336,49 @@ test.describe("SKETCH-2 — the frame never leads anywhere you cannot leave", ()
     await seedSketch(page, token, part.id, RIGID_RECT);
     const at = await openPartAndSketch(page, part.id);
 
+    // The pre-verb state, asserted rather than assumed — the same settle gate
+    // the test above opens with, so a pick can never be aimed at a frame that
+    // the first solve has not finished placing.
+    await expect(page.getByTestId("dro-solve")).toHaveText(
+      "DOF 4 · UNDER-CONSTRAINED",
+      { timeout: 30_000 },
+    );
+
     await selectAndRead(page, at, at({ x: 10, y: 8 }), "1 pt");
     await shiftClick(page, at({ x: 10, y: 24 }));
+    await expect(page.getByTestId("selection-readout")).toContainText("2 pts");
     await shiftClick(page, at({ x: -26, y: 0 }));
+    await expect(page.getByTestId("selection-readout")).toContainText(
+      "1 ent · 2 pts",
+    );
     await page.keyboard.press("s");
     await expect(page.getByTestId("sketch-strip")).toContainText("9 applied");
 
-    // Now the user's own redundancy, on top of the pinned frame.
-    await selectAndRead(page, at, at({ x: 22, y: 8 }), "1 ent"); // the bottom edge
-    await shiftClick(page, at({ x: 22, y: 24 })); // …and the top one
+    // WAIT FOR THE SYMMETRIC TO LAND BEFORE AIMING THE NEXT PICK — and it is
+    // the ANSWER, not the keystroke, that moves the geometry. "9 applied" is
+    // the local buffer counting the constraint the instant `s` is pressed; the
+    // profile only slides onto the axis when the DEBOUNCED solve returns, and
+    // `adoptSolved` commits the DOF readout and the solved entities in one
+    // `set`, so this line is an exact gate on "the rectangle has moved".
+    //
+    // Without it this test raced that round trip and only passed by WINNING —
+    // measured on this branch: 6/6 quiet, 6/6 FAILED under four spinners of CPU
+    // load, always here, always `1 ent`. The clicks below were written for the
+    // pre-solve frame (y = 8 and y = 24); the moment the solve lands first,
+    // y = 24 is empty steel, the Shift-click appends nothing and the parallel
+    // is never authored. A gate for "a real over-constraint still reaches the
+    // user" that is decided by which of two timers wins is not a gate.
+    await expect(page.getByTestId("dro-solve")).toHaveText(
+      "DOF 3 · UNDER-CONSTRAINED",
+      { timeout: 30_000 },
+    );
+
+    // Now the user's own redundancy, on top of the pinned frame — picked at the
+    // edges' SOLVED positions. Symmetric about X translates the profile by
+    // -16 mm in y (the test above pins that: e4 runs y = 8 -> -8), so the two
+    // horizontal edges are now y = +8 (e3) and y = -8 (e1), not 8 and 24.
+    await selectAndRead(page, at, at({ x: 22, y: -8 }), "1 ent"); // the bottom edge
+    await shiftClick(page, at({ x: 22, y: 8 })); // …and the top one
     await expect(page.getByTestId("selection-readout")).toContainText("2 ents");
     await page.keyboard.press("p"); // parallel
     await expect(page.getByTestId("sketch-strip")).toContainText("10 applied");

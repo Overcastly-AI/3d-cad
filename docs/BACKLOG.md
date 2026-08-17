@@ -742,6 +742,26 @@ remain independent of all of the above.
       rather than three independent spec bugs. Patching each assertion would
       raise the pass rate while leaving the cause, which is the outcome this
       repo's "no hand-waving" rule exists to prevent.
+      (d) `1e39c14` and `0628ceb` — `sketch-datum-flow.spec.ts:323`, FIXED
+      2026-08-16 and the FIRST instance of this umbrella to be root-caused
+      rather than hypothesised, so it is evidence for the resource-pressure
+      reading above and not merely another tally mark. The spec aimed its
+      second Shift-click at the rectangle's PRE-solve coordinates: pressing
+      `s` applies symmetric-about-X, the debounced solve translates the
+      profile -16 mm in y, and the two horizontal edges move from y = 8/24 to
+      y = +8/-8 — so y = 24 is empty steel and the pick appends nothing. It
+      had always been a race between the assertion and the solve round trip,
+      and it passed for two months only by WINNING. Measured on this branch:
+      6/6 quiet PASS, 6/6 FAIL under four CPU spinners, always at the same
+      line, always `1 ent` where `2 ents` was expected. Fix gates on the
+      ANSWER (`dro-solve` reaching `DOF 3`), not the keystroke, and re-aims
+      the clicks at the solved positions. Verified with the negative control
+      that makes the claim falsifiable: the original spec under the same load
+      failed 2/2 with exactly the CI string, the fixed spec passed 3/3.
+      NOTE this also CLEARS `1e39c14` (GEOM-3) — the two consecutive reds sat
+      either side of a kernel commit that cannot reach a viewport pick, which
+      is the shape that produced a false bisect on `pick-affordance` the same
+      morning.
       FIRST MOVES, in order: (1) instrument rather than guess — have the shard
       record wall-clock, RSS and CPU alongside each spec, and capture the three
       services' logs as artifacts on failure (the gateway log would settle CI-3
