@@ -3029,3 +3029,309 @@ the origin, so the absence is visible.
 - **The frame under undo/redo**, and deleting the coincident that grounded a
   profile (the origin entity and its pin stay in the sketch afterwards — a
   permanent, unremovable construction point; harmless but unasserted anywhere).
+
+---
+
+## 2026-08-17 — FOUNDER-DIRECTED AUDIT: the main file page, and where EXPORT lives
+
+**Trigger (founder, verbatim):** *"We could shift to the UI. The main file page
+looks like an after thought. … Also the button to export should not be with all
+the mass properties."*
+
+**Method.** Real stack, no containers: geometry :8032, documents :8031, gateway
+:8030 on per-agent SQLite (`uiaudit-*.db`), Vite :5183. Real Chromium at
+1600×1000 and 1280×800 (plus 1440×900 / 1400×800 / 1366×768 / 1280×900 for the
+viewport bracket). Content seeded through the real gateway: an EMPTY account, a
+ONE-part account, an 18-part + 2-folder + 2-assembly account with one part
+carrying a real evaluated body, and a 120-part account. Every number below is
+measured in the running app (`getBoundingClientRect`, computed styles, tab
+counts), not read off the source.
+
+### VERDICT ON THE FOUNDER'S TWO CLAIMS
+
+**Claim 1 — "the main file page looks like an afterthought": CONFIRMED as a
+read, REFUTED as a diagnosis, and the difference decides the fix.**
+
+The surface is not unconsidered — `DocumentRegister.tsx` carries ~140 lines of
+design rationale and the craft is real (see "What is actually good", below). The
+defect is that it was designed as a **log book** (a ruled register you scribe
+the next line into) and a working engineer needs a **file browser** (a place to
+find one model out of two hundred and be inside it in two seconds). Judged as a
+log book it succeeds. Judged against the Fusion Data Panel and the Onshape
+document list — which is the bar — it loses on every axis those two compete on:
+no preview, the identifying column is the third-narrowest, the widest column is
+row verbs, and the newest work sorts last. That is what "afterthought" is
+detecting. Measurements in P1-2 and P1-3.
+
+**Claim 2 — "the button to export should not be with all the mass properties":
+CONFIRMED, and the real situation is worse than the founder described. One
+detail in the wording is wrong and worth correcting** — the panel is not titled
+"mass properties". `BodyInspector.tsx:89` renders `propertiesEyebrow(mass)`,
+which reads **PROPERTIES** and suppresses the Mass row entirely until a material
+is assigned (`docs/design/materials.md` §6.1 — a deliberate anti-overclaim fix).
+So the label is honest. The **information architecture** is exactly as reported:
+export is the last cell of a readout stack (MATERIAL → PROPERTIES → BOUNDING BOX
+→ TOPOLOGY → STATUS → **EXPORT**), styled as a readout cell, inside a panel the
+user can collapse — and collapsing it deletes the only export affordance in the
+product. Measurements in P1-1.
+
+### THE TOP THREE
+
+#### P1-1 — Part workspace — EXPORT is a child of a readout panel, and collapsing that panel removes the only way to issue a file
+
+*Evidence:* `docs/screenshots/uiaudit-part-inspector-export-1600.png` (export as
+the bottom cell of the inspector column),
+`uiaudit-part-inspector-collapsed-1600.png` (inspector collapsed — no export
+anywhere on screen). `apps/web/src/routes/PartPage.tsx:4665-4680`;
+`AssemblyInspectorPanel.tsx:113-119`.
+
+Measured:
+
+- With the Inspector collapsed via its own `panel-collapse-inspector` control,
+  `[data-testid="part-export-controls"]` count = **0**, visible = **false**.
+  There is no File menu, no export in the top toolbar (its groups are HISTORY /
+  CREATE / MODIFY / SHEET METAL / INSPECT), and no export on the breadcrumb. The
+  user must know that a panel called *Inspector* is where files come from.
+- **53 Tab presses** from document start to reach `part-export-step` at
+  1600×1000. Export is the product's terminal action and it is the 53rd stop.
+- Same defect at a second address: the assembly workspace pins its `ExportRow`
+  under a SegmentedControl of **Solve / BOM / Clash** readouts
+  (`AssemblyInspectorPanel.tsx:113`).
+- Collapsing the panel is not an odd thing to do — mandate 3 tells the user's
+  instinct to do it ("the viewport is the hero"), and the collapsed frame is
+  visibly better. The UI rewards the gesture by removing a verb.
+
+Why it costs the user: an action is not a measurement. Fusion puts export behind
+the application/File menu, persistently, regardless of which side panels are
+open; Onshape puts it on the document tab's own context menu, also always
+present. Neither makes it a child of a properties panel. Here, a user who has
+modelled a part and wants a STEP file has no document-level place to look.
+
+**Recommended fix — the product already contains the answer.** The drawings
+workspace puts export in its top command band as its own tool group:
+`DrawingCommandBand.tsx:225` `<ToolGroup eyebrow="Export">` → EXPORT SVG /
+EXPORT PDF / EXPORT DXF, evidenced in
+`docs/screenshots/uiaudit-drawing-export-band-1600.png`. Do exactly that in
+`TopToolbar` (part) and `AssemblyCommandBand` (assembly): an **EXPORT** tool
+group beside INSPECT, carrying the same `exportGate` state (disabled + a
+mouse-and-keyboard-reachable reason, which `PanelActionCell` already supports).
+Keep the ruled strip in the inspector if you like — it is the right place for
+the *notice* ("this file would be partial") — but the primary affordance belongs
+in document-level chrome, where it survives a panel collapse. This is a
+system-level fix: three workspaces, one `ToolGroup eyebrow="Export"` pattern
+that already exists.
+
+#### P1-2 — Parts register — the table spends its width on constants and its emphasis on destructive verbs; the identifying column is third-narrowest and hard-clips
+
+*Evidence:* `docs/screenshots/uiaudit-parts-many-1600.png`,
+`uiaudit-parts-many-1280.png`. `DocumentRegister.tsx:787-801` (`COLUMN`),
+`DocumentRegisterRow.tsx:243-275`.
+
+Measured column widths at 1280×800 (total 957 px):
+
+| column | px | share | distinct values over the sample |
+|---|---|---|---|
+| # (ordinal) | 56 | 6 % | — |
+| **Name** | **173** | **18 %** | the only discriminating column |
+| Units | 72 | 8 % | `mm, mm, mm, mm` |
+| Last worked | 144 | 15 % | mostly `NOT STARTED` |
+| Rebuild | 144 | 15 % | `—` on 14 of 15 rows |
+| Filed | 112 | 12 % | `2026-08-17` ×4 |
+| **Actions** | **256** | **27 %** | RENAME DUPLICATE MOVE DELETE, every row |
+
+So the widest column in a file browser is row verbs, at **1.5× the name**, and
+three columns totalling **34 %** carry a constant. UNITS and FILED are
+structurally constant (a document unit is a preference nobody varies per part;
+FILED is same-day for everything made in a session) — REBUILD is legitimately
+variable in real use, so discount that one; the other two are not defensible.
+Note `DocumentRegister.tsx:38-45` diagnoses this exact failure in the *previous*
+design ("two columns of the same string") — the redesign reintroduced it at a
+new address.
+
+The name is **hard-clipped with no ellipsis and no tooltip**.
+`<td class="truncate">` sets `text-overflow: ellipsis`, but the link inside is
+`inline-flex` (`DocumentRegisterRow.tsx:261`), which is an atomic inline box — it
+gets clipped, not ellipsised. Computed `text-overflow` on the anchor: `clip`;
+`title`: `null`. "Motor mount adapter plate rev C" measures 207 px in a 149 px
+content box and renders as `Motor mount adapter plat` with no cue that anything
+is missing and no way to recover it. Two parts whose names diverge past the cut
+are indistinguishable.
+
+There is also **no preview of any kind**. Every row is text. Fusion's Data Panel
+and Onshape's document list are both thumbnail-first, because a shape is
+recognised faster than a name is read, and because engineers name things badly.
+This is the single largest "afterthought" signal on the page.
+
+**Recommended fix (system-level):** (a) collapse RENAME / DUPLICATE / MOVE /
+DELETE into a single row overflow menu (a `⋯` button + the existing `Flyout`
+primitive) and give the reclaimed 200 px to NAME — this alone fixes the clip;
+(b) fix the primitive: make the row link `inline` (or put
+`overflow:hidden;text-overflow:ellipsis` on the anchor) **and** stamp `title`
+with the full name, so truncation is visible and recoverable everywhere the
+register is used; (c) drop UNITS from the table into the row's secondary line or
+onto hover, and reclaim FILED for a thumbnail cell; (d) file a backend item for
+a part thumbnail (the geometry service already tessellates — a cached PNG per
+`tree_version` is the missing piece), because no amount of table tuning
+substitutes for a picture.
+
+#### P1-3 — Parts register — the return trip is backwards: oldest sorts first, the create control is below the fold, and the header/filter/sort/count scroll away
+
+*Evidence:* `docs/screenshots/uiaudit-parts-120-1280.png`,
+`uiaudit-parts-120-1280-bottom.png`, `uiaudit-parts-many-1280-scrolled.png`.
+`DocumentRegister.tsx:255` (`DEFAULT_SORT`), `:1026` (`ScribeLine`),
+`PartsPage.tsx:34`.
+
+Measured, on a 120-part drawer at 1280×800:
+
+- `aria-sort` on load: `Filed → ascending`. Order returned = creation order,
+  oldest first. The page's own caption says so: *"Your parts, oldest first."*
+  The thing a returning engineer wants is **what they touched last**, and it is
+  the 120th row. Fusion's Data Panel and Onshape both default to
+  recently-modified-first. The register even has the right column (LAST WORKED)
+  and sorts by it — just not by default.
+- `main.scrollHeight` = **5145 px** against `clientHeight` = 756. The only
+  create control (the scribe line, ordinal 121) sits at the **bottom** of those
+  5145 px. On any drawer past ~13 parts, "new part" is off-screen. The `N`
+  accelerator does work and scrolls it into view, but `N` is taught by a `Kbd`
+  chip that lives *on the scribe line* — i.e. it is only discoverable where it
+  is not needed.
+- `thead tr` computed `position: static`. Scrolling therefore loses the column
+  headers **and** the sort controls (they are the headers), the FILTER field,
+  the count readout and the workspace nav simultaneously. At row 104 the screen
+  is six columns of unlabelled data with no way to re-sort without scrolling
+  back 4 000 px.
+
+**Recommended fix:** default sort → LAST WORKED descending (one constant,
+`DEFAULT_SORT`, and update the caption); make the header rule sticky within the
+register's scroll container so sort/filter/count stay addressable; move the
+create affordance to a persistent position (the header rule is where it belongs
+— the scribe line can stay as the in-place gesture) or float it. Optionally add
+a short "Recent" band above the register — this is what Fusion's home and
+Onshape's "Recently opened" do, and it is the whole answer to "get me back into
+the thing I was doing".
+
+### THE REST, RANKED
+
+#### P1-4 — Part workspace — the ViewCube is ABSENT at every viewport height ≤ 800 px
+
+Mandate 3a calls persistent view navigation "table stakes". It is not
+persistent. Bracketed by capture:
+
+| viewport | canvas | ViewCube |
+|---|---|---|
+| 1600×1000 | 1600×852 | present — `uiaudit-viewcube-1600x1000-present.png` |
+| 1440×900 | 1440×752 | present — `uiaudit-viewcube-1440x900-present.png` |
+| 1280×900 | 1280×752 | present — `uiaudit-viewcube-1280x900-present.png` |
+| 1400×800 | 1400×652 | **absent** — `uiaudit-viewcube-1400x800-absent.png` |
+| 1280×800 | 1280×652 | **absent** — `uiaudit-part-inspector-export-1280.png` |
+| 1366×768 | 1366×620 | **absent** — `uiaudit-viewcube-1366x768-absent.png` |
+
+Height-driven, not width-driven: 1280×900 has it, 1400×800 does not. The break
+is between a 752 px and a 652 px canvas, i.e. exactly the two commonest laptop
+frames (1280×800, 1366×768) — the responsive floor CLAUDE.md names, and the
+frame `PartPage.tsx:4662` itself calls out. The ViewBar (home/fit/front/top/
+right/iso) is still present, so navigation is not lost, only the cube; that is
+why this is fourth and not first. `Viewport.tsx:562` `GizmoHelper` with
+`margin=[96,96]`, `CUBE_MARGIN_PX = 96` — the cube's own footprint constant
+(`CUBE_FOOTPRINT_PX = 120`) suggests 96 + 120/2 exceeds something at short
+canvas heights. Needs a builder to root-cause; a regression test asserting cube
+ink at 1280×800 should ship with the fix. NB a naive canvas `drawImage` readback
+does NOT discriminate here (it returned ~350 near-white pixels at every width,
+present or absent) — assert on the page screenshot, not the WebGL buffer.
+
+#### P2-1 — Parts register — the row lights up on hover but only the name text is clickable, and OPEN is the only verb without a label
+
+`<tr class="… hover:bg-carbide">` (`DocumentRegisterRow.tsx:236`) highlights the
+whole 957 px row; the only navigable element is the anchor, measured at **84 px**
+wide for "Bracket plate". The other ~870 px of a row that visibly responds to
+the pointer do nothing. Meanwhile FOLDER rows carry an explicit **OPEN** verb
+and document rows do not — so on the same table, the primary action is
+unlabelled while three secondary actions and one destructive one are labelled at
+equal weight. That is inverted priority, and it is the founder's "afterthought"
+in miniature. Fix: make the row cell (or the row) the open target with the
+anchor still the accessible name, and put DELETE behind the overflow menu from
+P1-2.
+
+#### P2-2 — Parts register (empty) — first impression is a form in a void
+
+`uiaudit-parts-empty-1600.png`: at 1600×1000 the register occupies x≈320–1280
+(60 % of the frame; **40 % is empty grid**), and inside it a 4-line invitation
+sits above ~850 px of blank ruled lines. There is no sample part, no import
+path, no statement of what Loft does. Onshape ships sample documents for exactly
+this moment. Fix: give the empty state something to *do* besides type — one
+"open a sample part" that seeds a real 3-feature tree is the cheapest retention
+lever on the page — and let the register use the full frame rather than a
+`max-w-5xl` marketing column (`PartsPage.tsx:79`).
+
+#### P2-3 — Parts register — the FILTER field is rendered at n = 1
+
+`uiaudit-parts-one-1280.png`: a single part, and the header still carries FILTER
++ its `/` chip. It is not *dead* (it works), but a filter over one row is chrome,
+and mandate 3c's spirit is that a control should be able to justify itself.
+Suggest a threshold (say ≥ 8 rows) — the `/` accelerator can stay live regardless.
+
+#### P3-1 — Parts register — FILTER label and input sit on different baselines
+
+Visible in every register shot: the header is `items-baseline`, but the input
+carries `pb-0.5` + a bottom border, so the value "Name contains…" rides above
+the tracked FILTER label. One-line primitive fix.
+
+#### P3-2 — Register — 10 px row verbs; 24 px targets meet the AA floor and nothing more
+
+Row verbs compute to `font-size: 10px` uppercase with 0.14em tracking, hit
+targets 53×24 / 76×24 / 38×24 / 53×24. That satisfies WCAG 2.5.8 (24 px minimum)
+exactly, with no margin, and is well under a comfortable touch target. Relevant
+because `playwright.config.ts` still has no touch project (TOUCH-1), so no
+tablet-class pass has ever run over this table. Largely moot if P1-2's overflow
+menu lands.
+
+#### P3-3 — Scale watch — 120 rows render in full, no virtualisation, no pagination
+
+Measured: 120 documents → 120 `<tr>`, `scrollHeight` 5145 px, no perceptible
+lag. Correct today, and correctly documented (`DocumentRegister.tsx:258-267`
+notes the whole drawer is on the wire so "4 of 12" can mean it). Flagged only so
+the pairing is remembered: the day the list endpoint paginates, the filter must
+move server-side in the same change.
+
+### What is actually good (do not regress these while fixing the above)
+
+- **Contrast and focus pass cleanly.** Every sampled register token measures
+  **7.18:1** or better on `anvil` (column headers, row verbs, "Not started",
+  count) and the name link 13.21:1. The focus ring is an unmistakable brass
+  outline — `uiaudit-parts-focus-1600.png`.
+- **The scribe line is genuinely distinctive.** A create control that is the
+  *next numbered line of the register*, carrying the next ordinal, is the one
+  thing on this page no template would produce. Keep it; just stop making it the
+  only way to create (P1-3).
+- **Filter semantics are honest and better than the incumbents'.** It searches
+  the whole drawer including inside folders, each hit states where it lives
+  (`uiaudit-parts-filtered-1600.png`), and the count becomes a fraction ("2 of
+  18 parts") so an empty result reads as "nothing matched" rather than "my work
+  is gone". `uiaudit-parts-no-matches-1600.png` names the query and offers the
+  one control that fixes it.
+- **Sort-as-column-header** adds no chrome and carries real `aria-sort`.
+- **Folders-as-dividers** with server-supplied counts, and a breadcrumb that IS
+  the title — no second navigation strip.
+- **The part workspace itself reads as a tool.** Studio matcap, grid to the
+  horizon, atmospheric background, honest PROPERTIES/STATUS cells. The founder's
+  complaint is about the file page and the export placement, not this.
+
+### Coverage this pass did NOT reach
+
+- Drawings register (only the drawings *workspace* command band was captured).
+- Touch/tablet viewports (no touch project exists — TOUCH-1).
+- `prefers-reduced-motion` on the register was launched but the register carries
+  only `duration-fast` colour transitions, so there was nothing to observe; the
+  viewport's reduced-motion path was not re-exercised this pass.
+- Long-content in a FOLDER name, and a drawer with >5 folders.
+
+### Running component checklist (delta from this pass)
+
+- 🔴 `DocumentRegister` / `DocumentRegisterRow` — P1-2, P1-3, P2-1, P2-3, P3-1, P3-2
+- 🔴 `PartsPage` / `AssembliesPage` / `DrawingsPage` shell — P2-2 (max-w-5xl column, empty state)
+- 🔴 `TopToolbar` / `AssemblyCommandBand` — P1-1 (no EXPORT group; `DrawingCommandBand` has one)
+- 🔴 `Viewport` / `ReferenceCube` — P1-4 (absent ≤ 800 px viewport height)
+- ✅ `ExportRow` — the strip itself is correct (honest gate, reason on the cell,
+  `aria-live` status); only its PLACEMENT is the defect
+- ✅ `BodyInspector` — the readouts and the PROPERTIES/MASS honesty are right
+- ✅ Register focus / contrast / filter / empty-result states
