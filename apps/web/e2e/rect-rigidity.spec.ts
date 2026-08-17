@@ -32,7 +32,7 @@ import { createPartViaApi, seedSession } from "./support";
  * Both were checked by mutation rather than assumed — reverting `placeAt` to
  * author nothing reddens each of them. Worth recording HOW, because the first
  * reading of that result was too generous: with the mutant in, this file fails
- * at the "8 applied" readout, several lines ABOVE the tear. That guard is
+ * at the rigidity-set readout, several lines ABOVE the tear. That guard is
  * cheap and it fires first, which would have left the assertion that actually
  * matters never once seen to fail. So the count guard was disabled and the
  * mutant re-run to drive the solve assertion itself, and it reports exactly
@@ -204,10 +204,21 @@ test.describe("RECT-1 — a rectangle drawn without a typed size is still a rect
     const at = await drawUndimensionedRect(page);
 
     // The draw alone authored the rigidity set — before the user has typed
-    // anything at all. Eight: four corner coincidences, 2H, 2V.
-    await expect(page.getByTestId("selection-readout")).toContainText(
-      "8 applied",
-    );
+    // anything at all: four corner coincidences, 2H, 2V.
+    //
+    // Counted BY KIND, not by grand total. The total is not this test's claim
+    // and it has already moved once under it: SNAP-3 later made the first
+    // corner's snap to the origin author a further coincident, which is
+    // correct and has nothing to do with rigidity. A test that pins a total
+    // reddens every time a NEIGHBOURING feature authors anything, and when it
+    // does it says nothing about the thing it is named for. The 2H/2V are
+    // exact because only the rectangle can author them; coincidences are a
+    // floor because the frame legitimately adds more.
+    const glyph = (kind: string) =>
+      page.locator(`[data-testid^="glyph-"][data-kind="${kind}"]`);
+    await expect(glyph("horizontal")).toHaveCount(2);
+    await expect(glyph("vertical")).toHaveCount(2);
+    expect(await glyph("coincident").count()).toBeGreaterThanOrEqual(4);
 
     // Now the LATER dimension, the one that used to tear the shape apart:
     // 40 -> 60 on the bottom edge only.
@@ -277,6 +288,8 @@ test.describe("RECT-1 — a rectangle drawn without a typed size is still a rect
     const part = await createPartViaApi(page, account.token, "Persisted rect");
     await page.goto(`/parts/${part.id}`);
     const at = await drawUndimensionedRect(page);
+    const glyphs = page.locator('[data-testid^="glyph-"]');
+    const beforeDimension = await glyphs.count();
 
     // The draw deliberately does NOT bind the sketch (see `userConstrained` in
     // the sketch store — binding on the automatic set would have removed the
@@ -288,9 +301,14 @@ test.describe("RECT-1 — a rectangle drawn without a typed size is still a rect
     await expect(input).toBeVisible();
     await input.fill("40");
     await input.press("Enter");
-    await expect(page.getByTestId("selection-readout")).toContainText(
-      "9 applied",
-    );
+    // Exactly ONE more than the draw left behind — the dimension just typed,
+    // and nothing smuggled in beside it. A DELTA rather than a total, so it
+    // survives the next feature that authors something at draw time; a pinned
+    // total here is what SNAP-3 broke.
+    await expect(glyphs).toHaveCount(beforeDimension + 1);
+    await expect(
+      page.locator('[data-testid^="glyph-"][data-kind="distance"]'),
+    ).toHaveCount(1);
 
     // Finish the sketch so the feature is committed, then read it straight off
     // the API — not off the store, which is the thing under test.
@@ -306,18 +324,20 @@ test.describe("RECT-1 — a rectangle drawn without a typed size is still a rect
         feature: { params: { constraints?: Array<{ kind: string }> } };
       }>;
     };
-    expect(
-      body.features[0]?.feature.params.constraints?.map((c) => c.kind),
-    ).toEqual([
-      "coincident",
-      "coincident",
-      "coincident",
-      "coincident",
-      "horizontal",
-      "horizontal",
-      "vertical",
-      "vertical",
-      "distance",
-    ]);
+    // BY KIND COUNT, not as an ordered list. The claim is "the rigidity set
+    // reached the server", and an exact array also pins the ORDER and the
+    // presence of every neighbouring feature's work — SNAP-3's origin
+    // coincident and the `fixed` pin that materialising the origin brings with
+    // it both land here legitimately. 2H/2V are exact because only the
+    // rectangle authors them; coincidences are a floor for the same reason.
+    const kinds = body.features[0]?.feature.params.constraints?.map(
+      (c) => c.kind,
+    );
+    expect(kinds).toBeDefined();
+    const count = (k: string) => (kinds ?? []).filter((x) => x === k).length;
+    expect(count("horizontal")).toBe(2);
+    expect(count("vertical")).toBe(2);
+    expect(count("coincident")).toBeGreaterThanOrEqual(4);
+    expect(count("distance")).toBe(1);
   });
 });
