@@ -127,20 +127,6 @@ async function clickPlane(
 }
 
 /**
- * Shift-click: ADD this pick to the standing selection (FB-14) — a plain click
- * replaces, so a coincident's second point is picked with the modifier held.
- */
-async function addPlane(
-  page: Page,
-  at: (pt: { x: number; y: number }) => { x: number; y: number },
-  pt: { x: number; y: number },
-) {
-  await page.keyboard.down("Shift");
-  await clickPlane(page, at, pt);
-  await page.keyboard.up("Shift");
-}
-
-/**
  * Draw a 40 × 25 mm rectangle and dimension it: horizontal + vertical on two
  * edges, coincident at the shared corner, and the two DRIVING dimensions
  * (40, 25). Leaves the sketch persisted and solved. `s1`/`s2` calibrate the
@@ -160,32 +146,39 @@ async function sketchDimensionedRectangle(
   await expect(page.getByTestId("sketch-save")).toContainText("4 entities");
   await page.keyboard.press("Escape"); // back to the select tool
 
-  // Horizontal on the bottom line — the first constraint persists the sketch.
+  // RECT-1 — the rectangle ARRIVES held together. This used to be three manual
+  // steps here (H on the bottom, V on the right, C at the shared corner), and
+  // those three were a fair sample of the eight the draw now authors itself:
+  // four corner coincidences, then horizontal on the two horizontal edges and
+  // vertical on the two vertical ones.
+  await expect(page.getByTestId("glyph-0")).toHaveText("C");
+  await expect(page.getByTestId("glyph-3")).toHaveText("C");
+  await expect(page.getByTestId("glyph-4")).toHaveText("H");
+  await expect(page.getByTestId("glyph-5")).toHaveText("H");
+  await expect(page.getByTestId("glyph-6")).toHaveText("V");
+  await expect(page.getByTestId("glyph-7")).toHaveText("V");
+  await expect(page.getByTestId("glyph-8")).toHaveCount(0);
+
+  // …and it is real from the user's chair, not just in the strip: asking for
+  // horizontal on the bottom edge is now REFUSED as already true, rather than
+  // stacking a ninth glyph. This is the assertion that would catch the rigidity
+  // set being cosmetic.
   await clickPlane(page, at, { x: 20, y: 0 });
   await page.keyboard.press("h");
-  await expect(page.getByTestId("glyph-0")).toHaveText("H");
+  await expect(page.getByTestId("constraint-hint")).toContainText(
+    /already horizontal/i,
+  );
+  await expect(page.getByTestId("glyph-8")).toHaveCount(0);
 
-  // Vertical on the right line.
-  await clickPlane(page, at, { x: 40, y: 12.5 });
-  await page.keyboard.press("v");
-  await expect(page.getByTestId("glyph-1")).toHaveText("V");
-
-  // Coincident at the shared bottom-right corner: the first click takes the
-  // nearer stacked endpoint, Shift adds the other (FB-14 — a plain second
-  // click would CYCLE to it, not collect it).
-  await clickPlane(page, at, { x: 40, y: 0 });
-  await addPlane(page, at, { x: 40, y: 0 });
-  await page.keyboard.press("c");
-  await expect(page.getByTestId("glyph-2")).toHaveText("C");
-
-  // Driving dimension 40 on the bottom edge (the inline mm editor).
+  // Driving dimension 40 on the bottom edge (the inline mm editor) — the first
+  // constraint the USER authors, and the one that persists the sketch.
   await clickPlane(page, at, { x: 20, y: 0 });
   await page.keyboard.press("d");
   const input = page.getByTestId("dimension-input");
   await expect(input).toBeVisible();
   await input.fill("40");
   await input.press("Enter");
-  await expect(page.getByTestId("glyph-3")).toHaveText("40");
+  await expect(page.getByTestId("glyph-8")).toHaveText("40");
 
   // Driving dimension 25 on the right edge.
   await clickPlane(page, at, { x: 40, y: 12.5 });
@@ -193,7 +186,7 @@ async function sketchDimensionedRectangle(
   await expect(input).toBeVisible();
   await input.fill("25");
   await input.press("Enter");
-  await expect(page.getByTestId("glyph-4")).toHaveText("25");
+  await expect(page.getByTestId("glyph-9")).toHaveText("25");
 
   // Finish the sketch; the tree solves.
   await page.getByTestId("sketch-save").click();

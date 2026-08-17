@@ -245,9 +245,18 @@ test.describe("FB-16 — the size is typed while you draw", () => {
     // The shape is kept — Escape ends the command, it is not an undo.
     await expect(page.getByTestId("sketch-save")).toContainText("4 entities");
     await expect(page.getByTestId("draw-dimensions")).toHaveCount(0);
-    await expect(page.getByTestId("selection-readout")).not.toContainText(
-      "applied",
+    // RECT-1 — "undimensioned" is not "unconstrained". The draw authors the
+    // rectangle's rigidity set (4 coincidences + 2 H + 2 V) whether or not a
+    // size was typed, so the readout reports eight. What must still be absent
+    // is a DIMENSION: nothing was typed, so nothing was measured, and the
+    // glyph strip carries no number.
+    await expect(page.getByTestId("selection-readout")).toContainText(
+      "8 applied",
     );
+    for (const i of [0, 1, 2, 3, 4, 5, 6, 7]) {
+      await expect(page.getByTestId(`glyph-${i}`)).not.toHaveText(/[0-9]/);
+    }
+    await expect(page.getByTestId("glyph-8")).toHaveCount(0);
     // …and the same Escape dropped the tool, exactly as it did before.
     await expect(page.getByTestId("tool-rect")).toHaveAttribute(
       "aria-pressed",

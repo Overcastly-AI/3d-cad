@@ -7,6 +7,7 @@ import {
   drawShapeOf,
   resizeDrawn,
   resizedTo,
+  shapeRigidity,
 } from "./drawDimensions";
 import type { SketchEntity } from "./tools";
 import { rectangleCorners } from "./tools";
@@ -202,50 +203,21 @@ describe("drawDimensionConstraints", () => {
     ).toEqual([]);
   });
 
-  it("makes the rectangle rigid before dimensioning it", () => {
+  // RECT-1: the rigidity set moved OUT of here and into `shapeRigidity`, run at
+  // placement. This asserts the half that matters for the move — that the typed
+  // path emits ONLY dimensions — because emitting rigidity in both places would
+  // double all twelve equations and report an ordinary rectangle as
+  // over-constrained.
+  it("emits only the typed dimensions — rigidity is the draw's job now", () => {
     const constraints = drawDimensionConstraints(
       "rect",
       ["e1", "e2", "e3", "e4"],
       rectFields,
       { width: 40, height: 25 },
     );
-    // 4 corner coincidences + 2 horizontal + 2 vertical + the 2 dimensions.
-    // Without the rigidity set a distance stretches ONE line and tears the
-    // rectangle open at the next solve.
-    expect(constraints).toHaveLength(10);
-    expect(constraints.filter((c) => c.kind === "coincident")).toHaveLength(4);
-    expect(
-      constraints
-        .filter((c) => c.kind === "horizontal")
-        .map((c) => (c.kind === "horizontal" ? c.entity : null)),
-    ).toEqual(["e1", "e3"]);
-    expect(
-      constraints
-        .filter((c) => c.kind === "vertical")
-        .map((c) => (c.kind === "vertical" ? c.entity : null)),
-    ).toEqual(["e2", "e4"]);
-    expect(constraints.filter((c) => c.kind === "distance")).toEqual([
+    expect(constraints).toEqual([
       { kind: "distance", entity: "e1", value_mm: 40 },
       { kind: "distance", entity: "e2", value_mm: 25 },
-    ]);
-  });
-
-  it("closes the corner loop end-to-start all the way round", () => {
-    const coincident = drawDimensionConstraints(
-      "rect",
-      ["e1", "e2", "e3", "e4"],
-      rectFields,
-      { width: 40 },
-    ).filter((c) => c.kind === "coincident");
-    expect(
-      coincident.map((c) =>
-        c.kind === "coincident" ? [c.a.entity, c.b.entity] : null,
-      ),
-    ).toEqual([
-      ["e1", "e2"],
-      ["e2", "e3"],
-      ["e3", "e4"],
-      ["e4", "e1"],
     ]);
   });
 
@@ -259,6 +231,54 @@ describe("drawDimensionConstraints", () => {
     expect(
       drawDimensionConstraints("circle", ["e1"], fields, { radius: 8 }),
     ).toEqual([{ kind: "radius", entity: "e1", value_mm: 8 }]);
+  });
+});
+
+describe("shapeRigidity (RECT-1)", () => {
+  const ids = ["e1", "e2", "e3", "e4"];
+
+  it("holds a drawn rectangle together whether or not it is dimensioned", () => {
+    const constraints = shapeRigidity("rect", ids);
+    // 4 corner coincidences + 2 horizontal + 2 vertical. 16 DOF − 12 = 4
+    // (x, y, w, h), so the set is exact: no redundancy to report, and the
+    // rectangle is still free to translate and resize as an undimensioned
+    // profile should be.
+    expect(constraints).toHaveLength(8);
+    expect(constraints.filter((c) => c.kind === "coincident")).toHaveLength(4);
+    expect(
+      constraints
+        .filter((c) => c.kind === "horizontal")
+        .map((c) => (c.kind === "horizontal" ? c.entity : null)),
+    ).toEqual(["e1", "e3"]);
+    expect(
+      constraints
+        .filter((c) => c.kind === "vertical")
+        .map((c) => (c.kind === "vertical" ? c.entity : null)),
+    ).toEqual(["e2", "e4"]);
+  });
+
+  it("closes the corner loop end-to-start all the way round", () => {
+    const coincident = shapeRigidity("rect", ids).filter(
+      (c) => c.kind === "coincident",
+    );
+    expect(
+      coincident.map((c) =>
+        c.kind === "coincident" ? [c.a.entity, c.b.entity] : null,
+      ),
+    ).toEqual([
+      ["e1", "e2"],
+      ["e2", "e3"],
+      ["e3", "e4"],
+      ["e4", "e1"],
+    ]);
+  });
+
+  it("gives a circle nothing — one entity has no topology to hold", () => {
+    expect(shapeRigidity("circle", ["e1"])).toEqual([]);
+  });
+
+  it("refuses a short id list rather than authoring a partial loop", () => {
+    expect(shapeRigidity("rect", ["e1", "e2", "e3"])).toEqual([]);
   });
 });
 

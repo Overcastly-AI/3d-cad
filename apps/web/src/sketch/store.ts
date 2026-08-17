@@ -61,6 +61,7 @@ import {
   drawDimensionFields,
   drawShapeOf,
   resizeDrawn,
+  shapeRigidity,
   type DrawDimensionField,
   type DrawDimensionKey,
   type DrawDimensionValues,
@@ -175,6 +176,19 @@ export interface SketchState {
   entities: SketchEntity[];
   /** Constraints authored this session (persisted with the entities). */
   constraints: SketchConstraint[];
+  /**
+   * Has the USER authored a constraint, as opposed to the draw authoring one
+   * for them? RECT-1 made every drawn rectangle arrive with its rigidity set,
+   * and `PartPage`'s persist gate used to read `constraints.length > 0` as
+   * "this sketch is worth binding" — so without this flag a rectangle would
+   * bind the instant it was drawn and the "Discard N unsaved entities" exit
+   * confirm would silently vanish for rectangles while surviving for lines and
+   * circles. That inconsistency is worse than either rule, and changing WHEN a
+   * sketch persists is not RECT-1's business, so placement deliberately leaves
+   * this false. Whether drawing alone SHOULD auto-bind is a real product
+   * question, filed as RECT-2 rather than decided here.
+   */
+  userConstrained: boolean;
   /** Next sketch-local id index (`e1`, `e2`, …). */
   nextIdIndex: number;
   /** GRID snap toggle (G). Entity snapping is always live — Ctrl/Cmd suppresses. */
@@ -537,6 +551,7 @@ const INITIAL = {
   pending: [],
   entities: [],
   constraints: [],
+  userConstrained: false,
   nextIdIndex: 1,
   snapEnabled: true,
   snapStepMm: DEFAULT_SNAP_STEP_MM,
@@ -803,7 +818,8 @@ const createSketchState = (
   },
 
   placeAt: (point) => {
-    const { tool, pending, nextIdIndex, entities, revision } = get();
+    const { tool, pending, nextIdIndex, entities, revision, constraints } =
+      get();
     const result = placePoint(tool, pending, point, nextIdIndex);
     const drawn = result.entities.length > 0;
     // A new placement supersedes the last shape's size cells: anything typed
@@ -812,10 +828,26 @@ const createSketchState = (
     // moment, so nothing vanishes without the user acting.
     const shape = drawShapeOf(tool);
     const from = pending[0];
+    // RECT-1 — the shape is held together AT THE DRAW, not at the first typed
+    // dimension. A rectangle is a closed axis-aligned profile the moment it
+    // exists; deferring its corner coincidences left the ordinary untyped
+    // gesture producing four disconnected lines that tear apart on the first
+    // re-drive. This is the ONLY author of the rigidity set — see the note in
+    // drawDimensions.ts for why emitting it again at commit would report an
+    // ordinary rectangle as over-constrained.
+    const rigidity =
+      drawn && shape !== null
+        ? shapeRigidity(
+            shape,
+            result.entities.map((entity) => entity.id),
+          )
+        : [];
     set({
       pending: result.pending,
       nextIdIndex: result.nextIdIndex,
       entities: drawn ? [...entities, ...result.entities] : entities,
+      constraints:
+        rigidity.length > 0 ? [...constraints, ...rigidity] : constraints,
       revision: drawn ? revision + 1 : revision,
       drawDimension:
         drawn && shape !== null && from !== undefined
@@ -857,6 +889,7 @@ const createSketchState = (
     set({
       entities: resizeDrawn(shape, ids, from, to, entities, typed),
       constraints: [...constraints, ...added],
+      userConstrained: true,
       revision: revision + 1,
       drawDimension: null,
       drawDimensionFocus: null,
@@ -985,6 +1018,7 @@ const createSketchState = (
             ...result.constraints,
             ...grounded.constraints,
           ],
+          userConstrained: true,
           revision: revision + 1,
           selection: [],
           hint: null,
@@ -1361,6 +1395,7 @@ const createSketchState = (
           );
     set({
       constraints: next,
+      userConstrained: true,
       revision: revision + 1,
       dimensionEdit: null,
       selection: [],

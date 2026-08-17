@@ -243,8 +243,29 @@ test.describe("sketcher constraints", () => {
     await expect(page.getByTestId("sketch-save")).toContainText("4 entities");
     await page.keyboard.press("Escape"); // back to the select tool
 
-    // 1) Horizontal on the bottom line — the first constraint persists the
-    //    sketch (POST) and starts the live solve loop.
+    // 1-3) RECT-1 — steps 1, 2 and 3 of this worked example USED to be typed by
+    //    hand here: horizontal on the bottom line, vertical on the right, and
+    //    coincident at the shared corner. They are exactly three of the eight
+    //    the draw now authors for itself, so the example no longer applies
+    //    them; it checks they arrived. Four corner coincidences first, then
+    //    horizontal on the two horizontal edges, vertical on the two vertical.
+    await expect(page.getByTestId("selection-readout")).toContainText(
+      "8 applied",
+    );
+    for (const i of [0, 1, 2, 3]) {
+      await expect(page.getByTestId(`glyph-${i}`)).toHaveText("C");
+    }
+    await expect(page.getByTestId("glyph-4")).toHaveText("H");
+    await expect(page.getByTestId("glyph-5")).toHaveText("H");
+    await expect(page.getByTestId("glyph-6")).toHaveText("V");
+    await expect(page.getByTestId("glyph-7")).toHaveText("V");
+
+    // 4) Distance 40 on the bottom line — the inline mm editor. This is now the
+    //    first constraint the USER authors, so it is the one that persists the
+    //    sketch (POST) and starts the live solve loop. The draw's own rigidity
+    //    set deliberately does NOT bind the sketch: see `userConstrained` in
+    //    the sketch store for why that would have removed the unsaved-exit
+    //    confirm for rectangles only.
     const created = page.waitForResponse(
       (r) =>
         r.url().includes(`/parts/${part.id}/features`) &&
@@ -252,36 +273,17 @@ test.describe("sketcher constraints", () => {
     );
     await clickPlane(page, at, { x: 20, y: 0 });
     await expect(page.getByTestId("selection-readout")).toContainText("1 ent");
-    await page.keyboard.press("h");
-    expect((await created).status()).toBe(201);
-    await expect(page.getByTestId("glyph-0")).toHaveText("H");
-    await expect(page.getByTestId("dro-solve")).toContainText(
-      "UNDER-CONSTRAINED",
-    );
-
-    // 2) Vertical on the right line (PATCH from here on).
-    await clickPlane(page, at, { x: 40, y: 12.5 });
-    await expect(page.getByTestId("selection-readout")).toContainText("1 ent");
-    await page.keyboard.press("v");
-    await expect(page.getByTestId("glyph-1")).toHaveText("V");
-
-    // 3) Coincident at the shared corner — two clicks cycle through the
-    //    stacked endpoints (e1.end, then e2.start).
-    await clickPlane(page, at, { x: 40, y: 0 });
-    await addPlane(page, at, { x: 40, y: 0 });
-    await expect(page.getByTestId("selection-readout")).toContainText("2 pts");
-    await page.keyboard.press("c");
-    await expect(page.getByTestId("glyph-2")).toHaveText("C");
-
-    // 4) Distance 40 on the bottom line — the inline mm editor.
-    await clickPlane(page, at, { x: 20, y: 0 });
     await page.keyboard.press("d");
     const input = page.getByTestId("dimension-input");
     await expect(input).toBeVisible();
     await expect(input).toHaveValue("40"); // measured: the calibrated draw
     await input.fill("40");
     await input.press("Enter");
-    await expect(page.getByTestId("glyph-3")).toHaveText("40");
+    expect((await created).status()).toBe(201);
+    await expect(page.getByTestId("glyph-8")).toHaveText("40");
+    await expect(page.getByTestId("dro-solve")).toContainText(
+      "UNDER-CONSTRAINED",
+    );
 
     // 5) Distance 25 on the right line.
     await clickPlane(page, at, { x: 40, y: 12.5 });
@@ -289,9 +291,9 @@ test.describe("sketcher constraints", () => {
     await expect(input).toBeVisible();
     await input.fill("25");
     await input.press("Enter");
-    await expect(page.getByTestId("glyph-4")).toHaveText("25");
+    await expect(page.getByTestId("glyph-9")).toHaveText("25");
     await expect(page.getByTestId("selection-readout")).toContainText(
-      "5 applied",
+      "10 applied",
     );
 
     // The solved payload: all five constraints hold at the §6 coordinates.
@@ -325,12 +327,12 @@ test.describe("sketcher constraints", () => {
 
     // The worked-example edit: click the 40, type 60, Enter — re-solve
     // moves the corners.
-    await page.getByTestId("glyph-3").click();
+    await page.getByTestId("glyph-8").click();
     await expect(input).toBeVisible();
     await expect(input).toHaveValue("40");
     await input.fill("60");
     await input.press("Enter");
-    await expect(page.getByTestId("glyph-3")).toHaveText("60");
+    await expect(page.getByTestId("glyph-8")).toHaveText("60");
     await expect
       .poll(() => {
         const sketch = latestSketch(evaluations);
@@ -372,9 +374,23 @@ test.describe("sketcher constraints", () => {
         feature: { params: { constraints: Array<{ kind: string }> } };
       }>;
     };
+    // What actually reached the SERVER — the check that the rigidity set is
+    // persisted geometry and not a client-side decoration. RECT-1's eight in
+    // emission order, then the user's two dimensions.
     expect(
       treeBody.features[0]?.feature.params.constraints.map((c) => c.kind),
-    ).toEqual(["horizontal", "vertical", "coincident", "distance", "distance"]);
+    ).toEqual([
+      "coincident",
+      "coincident",
+      "coincident",
+      "coincident",
+      "horizontal",
+      "horizontal",
+      "vertical",
+      "vertical",
+      "distance",
+      "distance",
+    ]);
   });
 
   test("conflicting constraints: visible diagnostic, flagged glyph, recovery", async ({
@@ -688,16 +704,17 @@ test.describe("sketcher constraints small laptop (1280×800)", () => {
     await clickPlane(page, at, { x: 40, y: 25 });
     await page.keyboard.press("Escape");
 
-    await clickPlane(page, at, { x: 20, y: 0 });
-    await page.keyboard.press("h");
-    await expect(page.getByTestId("glyph-0")).toHaveText("H");
+    // RECT-1: the draw already made this edge horizontal (glyph-4), so pressing
+    // `h` here would be refused. Go straight to the dimension, which is what
+    // the user actually has left to do.
+    await expect(page.getByTestId("glyph-4")).toHaveText("H");
     await clickPlane(page, at, { x: 20, y: 0 });
     await page.keyboard.press("d");
     const input = page.getByTestId("dimension-input");
     await expect(input).toBeVisible();
     await input.fill("40");
     await input.press("Enter");
-    await expect(page.getByTestId("glyph-1")).toHaveText("40");
+    await expect(page.getByTestId("glyph-8")).toHaveText("40");
     await expect(page.getByTestId("dro-solve")).toContainText(
       "UNDER-CONSTRAINED",
     );
@@ -872,7 +889,10 @@ test.describe("sketcher size/shape constraints", () => {
     await addPlane(page, at, { x: 15, y: -17 }); // + the centerline axis
     await expect(page.getByTestId("selection-readout")).toContainText("2 pts");
     await page.keyboard.press("s");
-    await expect(page.getByTestId("glyph-0")).toHaveText("⟷");
+    // After the rectangle's own eight (RECT-1) — the centerline is a plain
+    // drawn line and a construction flag is not a constraint, so the symmetric
+    // is the ninth.
+    await expect(page.getByTestId("glyph-8")).toHaveText("⟷");
 
     await expect
       .poll(() => {

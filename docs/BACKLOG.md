@@ -173,7 +173,7 @@ remain independent of all of the above.
       territory as SKETCH-2/the hydration-guard item below — do not run
       concurrently with either. agentType: frontend-builder.
 
-- [ ] (P0, S/M) **RECT-1 — a rectangle drawn WITHOUT typing a value during the
+- [x] (P0, S/M) **RECT-1 — a rectangle drawn WITHOUT typing a value during the
       draw gesture is four numerically-coincident but topologically
       DISCONNECTED lines, not a closed profile.** kind: capability (the
       product cannot author the rigidity a closed profile needs unless the
@@ -213,6 +213,52 @@ remain independent of all of the above.
       new e2e spec. **Shares `placeAt`/draw-commit territory with SNAP-2 and
       SNAP-3 below — see the Ready-section dispatch note; do not run these
       three in parallel across different agents.** agentType: frontend-builder.
+      **CLOSED 2026-08-16 (orchestrator, agents unavailable — session cap).**
+      The rigidity set MOVED rather than being added: it is now authored at
+      PLACEMENT by `shapeRigidity` and `drawDimensionConstraints` emits only
+      dimensions, because authoring in both places would double all twelve
+      equations and report an ordinary draw-then-dimension as OVER-CONSTRAINED
+      — a worse defect than the one being fixed. New `e2e/rect-rigidity.spec.ts`
+      carries the acceptance: draw 40x25, type nothing, dismiss the cell, then
+      re-drive the bottom edge to 60 and read the SOLVED payload — the opposite
+      edge follows to 60, the sides hold at 25, and all four corners still meet
+      within 0.01 mm. A second test reads the constraints back off the persisted
+      feature tree, because a client-side-only set would satisfy the first and
+      still lose the rectangle on re-open. Mutation: reverting `placeAt` reddens
+      19 unit tests and both new e2e assertions, and the e2e failure is the tear
+      itself (60 against a 40 that did not follow), not a bookkeeping mismatch.
+      SIDE EFFECT FOUND AND SCOPED OUT, not shipped: `PartPage.tsx` bound an
+      unsaved sketch on `constraints.length > 0`, so every rectangle would have
+      auto-persisted the instant it was drawn and the "Discard N unsaved
+      entities" exit confirm would have vanished for rectangles while surviving
+      for lines and circles. The gate now reads a `userConstrained` flag that
+      placement deliberately leaves false, so binding semantics are exactly
+      unchanged. Filed below as RECT-2 — whether drawing alone SHOULD auto-bind
+      is a real product question and was not decided here by accident.
+      Seven e2e specs were updated because the product genuinely changed; the
+      flagship "worked example: 40x25 rectangle, five constraints" was applying
+      by hand three of the eight the draw now authors, and both it and the
+      Phase 1 exit gate now assert the rectangle ARRIVES rigid and prove it from
+      the user's chair (pressing `h` on the bottom edge answers "Already
+      horizontal.").
+
+- [ ] (P2, S) **RECT-2 — should DRAWING alone persist a sketch?** kind: question
+      (product decision, not a defect). Raised by RECT-1, which made it live:
+      `PartPage.tsx`'s persist gate asks "has this sketch any constraints yet",
+      and a drawn rectangle now answers yes immediately. RECT-1 deliberately
+      preserved today's behaviour (bind only on a USER-authored constraint) so
+      that a constraint fix did not silently change the save model, but the
+      question is now worth answering on purpose. FOR auto-binding: Fusion and
+      Onshape both autosave, and losing a drawn profile to a stray Escape is a
+      real papercut. AGAINST: it creates a sketch feature for every exploratory
+      rectangle, and it removes the "Discard N unsaved entities" confirm that
+      the FB-13 flow work put there. Whichever way it goes it must apply to
+      LINES and CIRCLES too — the inconsistency is the only outcome that is
+      definitely wrong. ACCEPTANCE: a decision recorded in docs/VISION.md or
+      ROADMAP with its reasoning, and `userConstrained` either removed or
+      documented as deliberate. [src: RECT-1 implementation, 2026-08-16]
+      TERRITORY: `apps/web/src/routes/PartPage.tsx`,
+      `apps/web/src/sketch/store.ts`. agentType: frontend-builder.
 
 - [ ] (P0, M) **SNAP-3 — SNAP-2's own ticket text names this as "the general
       entity-snap case" without scoping it; promoted to its own item.**

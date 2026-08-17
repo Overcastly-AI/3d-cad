@@ -500,7 +500,11 @@ export function PartPage() {
   const cornerRequest = useSketchStore((state) => state.cornerRequest);
   const revision = useSketchStore((state) => state.revision);
   const featureId = useSketchStore((state) => state.featureId);
-  const constraintCount = useSketchStore((state) => state.constraints.length);
+  // RECT-1: the USER's authoring, not the raw count. A drawn rectangle now
+  // arrives with its rigidity set, so `constraints.length > 0` would bind every
+  // rectangle the instant it was drawn — removing the unsaved-exit confirm for
+  // rectangles while leaving it for lines and circles.
+  const userConstrained = useSketchStore((state) => state.userConstrained);
   const begin = useSketchStore((state) => state.begin);
   const setTool = useSketchStore((state) => state.setTool);
   const toggleSnap = useSketchStore((state) => state.toggleSnap);
@@ -869,13 +873,13 @@ export function PartPage() {
     if (mode !== "draw") return;
     if (revision === 0 || revision <= lastSynced.current) return;
     if (revision === failedRevision.current) return; // next edit retries
-    if (featureId === null && constraintCount === 0) return;
+    if (featureId === null && !userConstrained) return;
     const timer = window.setTimeout(
       () => persistBuffer(false),
       SYNC_DEBOUNCE_MS,
     );
     return () => window.clearTimeout(timer);
-  }, [mode, revision, featureId, constraintCount, syncPending, persistBuffer]);
+  }, [mode, revision, featureId, userConstrained, syncPending, persistBuffer]);
 
   // Feed the solve back in: adopt solved positions + diagnosis for the
   // bound feature (only when the buffer is clean — indices and positions

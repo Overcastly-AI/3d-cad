@@ -564,7 +564,10 @@ test.describe("SKETCH-2 — the frame never leads anywhere you cannot leave", ()
       "selected",
     );
     await page.keyboard.press("c"); // coincident — accepted, not refused
-    await expect(page.getByTestId("sketch-strip")).toContainText("1 applied");
+    // 9 = the draw's own rigidity set (RECT-1: 4 coincidences + 2 H + 2 V) plus
+    // this grounding one. The number that matters is that it GREW: a refused
+    // verb would have left it at eight.
+    await expect(page.getByTestId("sketch-strip")).toContainText("9 applied");
     await expect(page.getByTestId("constraint-hint")).toHaveCount(0);
     // …and the frame is really in the sketch now, which only a constraint that
     // names it can do. Tolerant of the throw: this sketch is unsaved, so there

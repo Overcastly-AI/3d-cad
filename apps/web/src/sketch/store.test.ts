@@ -5,9 +5,15 @@
  */
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { formatSolveCell, solveDiagnostic } from "./constraints";
+import {
+  constraintEntityRefs,
+  formatSolveCell,
+  solveDiagnostic,
+} from "./constraints";
 import { datumFrame } from "./datum";
+import { shapeRigidity } from "./drawDimensions";
 import { useSketchStore } from "./store";
+import type { Point2D } from "./plane";
 import type { SketchEntity } from "./tools";
 
 const rectangleAt = (store = useSketchStore.getState()) => {
@@ -18,6 +24,50 @@ const rectangleAt = (store = useSketchStore.getState()) => {
   useSketchStore.getState().placeAt({ x: 40, y: 25 });
   useSketchStore.getState().setTool("select");
 };
+
+/**
+ * How many constraints `rectangleAt` leaves behind before any test does
+ * anything: the RECT-1 rigidity set the draw itself authors. DERIVED from the
+ * real function rather than typed as 12, so it cannot drift away from the
+ * product — if the rigidity set changes, every delta assertion below moves
+ * with it instead of silently measuring the wrong window.
+ */
+const RECT_RIGIDITY = shapeRigidity("rect", ["e1", "e2", "e3", "e4"]).length;
+
+/**
+ * The constraints a test's OWN verb added, with the fixture's rigidity set
+ * dropped. Tests here are about what a verb does, not about how a rectangle is
+ * held together — that has its own coverage in `drawDimensions.test.ts` and in
+ * the `placeAt` describe below.
+ */
+const authored = () =>
+  useSketchStore.getState().constraints.slice(RECT_RIGIDITY);
+
+/**
+ * Author one constraint on the fixture rectangle that its rigidity set does NOT
+ * already imply, for the tests below that just need SOME authored constraint to
+ * push around (remove it, undo it, select its glyph).
+ *
+ * Horizontal/vertical used to be the cheap way to do that and no longer are:
+ * RECT-1 makes every edge horizontal or vertical at the draw, so the verb now
+ * correctly answers "Already horizontal." and authors nothing. `equal` between
+ * two edges is not in the rigidity set, so it lands.
+ */
+const authorEqual = (a: Point2D, b: Point2D) => {
+  const store = useSketchStore.getState;
+  store().selectAt(a, 2);
+  store().setSnapModifiers({ suppressed: false, axisLock: true }); // Shift: add
+  store().selectAt(b, 2);
+  store().setSnapModifiers({ suppressed: false, axisLock: false });
+  store().applyConstraint("equal");
+};
+
+/** The fixture rectangle's two horizontal edges (e1 bottom, e3 top). */
+const EDGE_BOTTOM = { x: 20, y: 0.5 } as const;
+const EDGE_TOP = { x: 20, y: 25 } as const;
+/** …and its two vertical ones (e2 right, e4 left). */
+const EDGE_RIGHT = { x: 40, y: 12 } as const;
+const EDGE_LEFT = { x: 0, y: 12 } as const;
 
 beforeEach(() => {
   useSketchStore.getState().exit();
@@ -92,7 +142,7 @@ describe("selection", () => {
       { kind: "entity", id: "e2" },
     ]);
     store().applyConstraint("perpendicular");
-    expect(store().constraints).toHaveLength(1);
+    expect(authored()).toHaveLength(1);
   });
 
   it("Ctrl/Cmd (snap-suppress modifier) adds too", () => {
@@ -211,15 +261,35 @@ describe("constraints", () => {
     rectangleAt();
     const store = useSketchStore.getState;
     const before = store().revision;
-    store().selectAt({ x: 20, y: 0.5 }, 2);
-    store().applyConstraint("horizontal");
-    expect(store().constraints).toEqual([{ kind: "horizontal", entity: "e1" }]);
+    // `equal` is a verb a rectangle does NOT already imply — the two horizontal
+    // edges are each horizontal, but nothing says they are the same LENGTH.
+    store().selectAt({ x: 20, y: 0.5 }, 2); // bottom line e1
+    store().setSnapModifiers({ suppressed: false, axisLock: true });
+    store().selectAt({ x: 20, y: 25 }, 2); // top line e3, Shift held
+    store().setSnapModifiers({ suppressed: false, axisLock: false });
+    store().applyConstraint("equal");
+    expect(authored()).toEqual([{ kind: "equal", a: "e1", b: "e3" }]);
     expect(store().revision).toBe(before + 1);
     expect(store().selection).toEqual([]); // applied verbs clear selection
 
     store().applyConstraint("coincident"); // nothing selected → hint
     expect(store().hint).toMatch(/two points/i);
     expect(store().revision).toBe(before + 1);
+  });
+
+  // RECT-1's most visible interaction, and the one that would have been an
+  // over-constraint report if the rigidity set were authored twice: the draw
+  // already made the bottom edge horizontal, so the verb must REFUSE and say
+  // so, not stack a redundant copy and let the solver complain later.
+  it("a verb the drawn rectangle already implies is refused, not stacked", () => {
+    rectangleAt();
+    const store = useSketchStore.getState;
+    const before = store().revision;
+    store().selectAt({ x: 20, y: 0.5 }, 2); // bottom line e1
+    store().applyConstraint("horizontal");
+    expect(authored()).toEqual([]);
+    expect(store().hint).toMatch(/already horizontal/i);
+    expect(store().revision).toBe(before); // a refusal is not an edit
   });
 
   it("distance opens the editor; commit appends and closes", () => {
@@ -240,7 +310,7 @@ describe("constraints", () => {
       name: null,
       driving: true,
     });
-    expect(store().constraints).toEqual([
+    expect(authored()).toEqual([
       {
         kind: "distance",
         entity: "e1",
@@ -265,11 +335,11 @@ describe("constraints", () => {
       name: null,
       driving: true,
     });
-    store().editDimension(0);
+    store().editDimension(RECT_RIGIDITY);
     expect(store().dimensionEdit).toMatchObject({
       initialMm: 40,
       initialDriving: true,
-      constraintIndex: 0,
+      constraintIndex: RECT_RIGIDITY,
     });
     store().commitDimension({
       valueMm: 60,
@@ -277,7 +347,7 @@ describe("constraints", () => {
       name: null,
       driving: true,
     });
-    expect(store().constraints).toEqual([
+    expect(authored()).toEqual([
       {
         kind: "distance",
         entity: "e1",
@@ -300,7 +370,7 @@ describe("constraints", () => {
       name: "half",
       driving: true,
     });
-    expect(store().constraints).toEqual([
+    expect(authored()).toEqual([
       {
         kind: "distance",
         entity: "e1",
@@ -323,7 +393,7 @@ describe("constraints", () => {
       name: null,
       driving: false,
     });
-    expect(store().constraints).toEqual([
+    expect(authored()).toEqual([
       {
         kind: "distance",
         entity: "e1",
@@ -347,7 +417,7 @@ describe("constraints", () => {
       name: null,
       driving: true,
     });
-    expect(store().constraints).toEqual([]);
+    expect(authored()).toEqual([]);
     expect(store().revision).toBe(revision);
     expect(store().dimensionEdit).not.toBeNull();
   });
@@ -355,14 +425,12 @@ describe("constraints", () => {
   it("removeConstraint reindexes the selected glyph", () => {
     rectangleAt();
     const store = useSketchStore.getState;
-    store().selectAt({ x: 20, y: 0.5 }, 2);
-    store().applyConstraint("horizontal");
-    store().selectAt({ x: 40, y: 12 }, 2); // right line
-    store().applyConstraint("vertical");
-    store().selectConstraint(1);
-    store().removeConstraint(0);
-    expect(store().constraints).toEqual([{ kind: "vertical", entity: "e2" }]);
-    expect(store().selectedConstraint).toBe(0);
+    authorEqual(EDGE_BOTTOM, EDGE_TOP); // equal(e1, e3)
+    authorEqual(EDGE_RIGHT, EDGE_LEFT); // equal(e2, e4)
+    store().selectConstraint(RECT_RIGIDITY + 1);
+    store().removeConstraint(RECT_RIGIDITY);
+    expect(authored()).toEqual([{ kind: "equal", a: "e2", b: "e4" }]);
+    expect(store().selectedConstraint).toBe(RECT_RIGIDITY);
   });
 });
 
@@ -575,7 +643,7 @@ describe("SKETCH-2 — the origin and axes are selectable constraint targets", (
     store().applyConstraint("coincident");
 
     // The authored constraint names the origin by the id the solver resolves.
-    expect(store().constraints[0]).toEqual({
+    expect(authored()[0]).toEqual({
       kind: "coincident",
       a: { entity: "e1", point: "start" },
       b: { entity: "origin", point: "position" },
@@ -589,7 +657,7 @@ describe("SKETCH-2 — the origin and axes are selectable constraint targets", (
       position: { x: 0, y: 0 },
       construction: true,
     });
-    expect(store().constraints).toContainEqual({
+    expect(authored()).toContainEqual({
       kind: "fixed",
       point: { entity: "origin", point: "position" },
     });
@@ -605,7 +673,7 @@ describe("SKETCH-2 — the origin and axes are selectable constraint targets", (
     store().selectAt({ x: 0, y: 30 }, 1, "add"); // the Y axis
     expect(store().selection).toHaveLength(3);
     store().applyConstraint("symmetric");
-    expect(store().constraints[0]).toMatchObject({
+    expect(authored()[0]).toMatchObject({
       kind: "symmetric",
       line: "y-axis",
     });
@@ -614,7 +682,7 @@ describe("SKETCH-2 — the origin and axes are selectable constraint targets", (
       construction: true,
     });
     expect(
-      store().constraints.filter(
+      authored().filter(
         (c) => c.kind === "fixed" && c.point.entity === "y-axis",
       ),
     ).toHaveLength(2);
@@ -633,7 +701,7 @@ describe("SKETCH-2 — the origin and axes are selectable constraint targets", (
     store().applyConstraint("perpendicular");
     expect(store().entities).toHaveLength(entities + 1); // the axis only
     expect(
-      store().constraints.filter(
+      authored().filter(
         (c) => c.kind === "fixed" && c.point.entity === "origin",
       ),
     ).toHaveLength(1);
@@ -649,7 +717,7 @@ describe("SKETCH-2 — the origin and axes are selectable constraint targets", (
       expect(store().hint).toMatch(/origin and axes are fixed/i);
       expect(store().dimensionEdit).toBeNull();
     }
-    expect(store().constraints).toEqual([]);
+    expect(authored()).toEqual([]);
     expect(store().entities).toHaveLength(before.entities.length);
     expect(store().revision).toBe(before.revision);
   });
@@ -680,6 +748,9 @@ describe("SKETCH-2 — the origin and axes are selectable constraint targets", (
     store().selectAt({ x: 20, y: 20 }, 1);
     store().selectAt({ x: ring, y: 0 }, 1, "add");
     store().applyConstraint("coincident");
+    // The FULL set, rigidity included — this is what `beginEdit` is handed, and
+    // a re-opened sketch that lost its rectangle's rigidity would be the RECT-1
+    // defect reintroduced through the save path.
     const saved = {
       entities: store().entities,
       constraints: store().constraints,
@@ -718,6 +789,8 @@ describe("SKETCH-2 — the origin and axes are selectable constraint targets", (
 
     // The two pins the store authored ARE the last two constraints, and the
     // index the solver flagged is the second of them.
+    // ABSOLUTE index: this is the number the SOLVER reports back in `redundant`,
+    // so it counts the rigidity set too.
     const pinAt = store().constraints.length - 1;
     expect(store().constraints[pinAt]).toEqual({
       kind: "fixed",
@@ -913,13 +986,12 @@ describe("escape cascade", () => {
   it("a selected constraint glyph is a selection rung, not an exit", () => {
     rectangleAt();
     const store = useSketchStore.getState;
-    store().selectAt({ x: 20, y: 0.5 }, 2);
-    store().applyConstraint("horizontal");
-    store().selectConstraint(0);
+    authorEqual(EDGE_BOTTOM, EDGE_TOP);
+    store().selectConstraint(RECT_RIGIDITY);
     store().escape();
     expect(store().mode).toBe("draw");
     expect(store().selectedConstraint).toBeNull();
-    expect(store().constraints).toHaveLength(1);
+    expect(authored()).toHaveLength(1);
   });
 
   it("still backs out of the plane-pick step (nothing drawn yet)", () => {
@@ -971,26 +1043,38 @@ describe("trim/extend edit + constraint reconciliation", () => {
   it("applyEditResult swaps entities, drops dangling constraints, notes the count", () => {
     rectangleAt();
     const store = useSketchStore.getState;
-    // Constrain e1 (bottom) horizontal, e2 (right) vertical.
-    store().selectAt({ x: 20, y: 0.5 }, 2);
-    store().applyConstraint("horizontal");
-    store().selectAt({ x: 40, y: 12 }, 2);
-    store().applyConstraint("vertical");
-    expect(store().constraints).toHaveLength(2);
+    authorEqual(EDGE_RIGHT, EDGE_LEFT); // equal(e2, e4) — dangles when e2 goes
+    authorEqual(EDGE_BOTTOM, EDGE_TOP); // equal(e1, e3) — survives
+    // RECT-1 makes this a real number rather than 1: the DRAW already named e2
+    // three times (its `vertical` and the two corner coincidences), so a
+    // whole-curve trim must take those with it. Counting the doomed set from
+    // the constraints themselves — rather than hard-coding 4 — is what makes
+    // this an assertion about reconciliation instead of about arithmetic.
+    const doomed = store().constraints.filter((c) =>
+      constraintEntityRefs(c).includes("e2"),
+    ).length;
+    expect(doomed).toBe(4);
 
     store().requestEdit("trim", "e2", { x: 40, y: 12 });
     const revision = store().revision;
-    // The result deletes e2 entirely (whole-curve trim) — its vertical
-    // constraint is now dangling and must be dropped.
     const kept = store().entities.filter((e) => e.id !== "e2");
     store().applyEditResult("trim", kept);
 
     expect(store().entities.map((e) => e.id)).toEqual(["e1", "e3", "e4"]);
-    expect(store().constraints).toEqual([{ kind: "horizontal", entity: "e1" }]);
+    // Every reference to the departed entity is gone…
+    expect(
+      store().constraints.some((c) => constraintEntityRefs(c).includes("e2")),
+    ).toBe(false);
+    // …and nothing that did NOT name it was collateral damage.
+    expect(store().constraints).toContainEqual({
+      kind: "equal",
+      a: "e1",
+      b: "e3",
+    });
     expect(store().revision).toBe(revision + 1);
     expect(store().editBusy).toBe(false);
     expect(store().edit).toBeNull();
-    expect(store().editNote).toMatch(/trimmed\. 1 constraint removed/i);
+    expect(store().editNote).toMatch(/trimmed\. 4 constraints removed/i);
   });
 
   it("a clean extend notes the verb without a removed count", () => {
@@ -1004,7 +1088,7 @@ describe("trim/extend edit + constraint reconciliation", () => {
     );
     store().applyEditResult("extend", grown);
     expect(store().editNote).toBe("Extended.");
-    expect(store().constraints).toEqual([]);
+    expect(authored()).toEqual([]);
     const e1 = store().entities.find((e) => e.id === "e1");
     expect(e1?.kind === "line" ? e1.start : null).toEqual({ x: -10, y: 0 });
   });
@@ -1054,9 +1138,8 @@ describe("offset — appends a parallel copy, no reconciliation", () => {
   it("applyOffsetResult APPENDS the new entity, bumps revision, keeps constraints", () => {
     rectangleAt();
     const store = useSketchStore.getState;
-    store().selectAt({ x: 20, y: 0.5 }, 2); // bottom line e1
-    store().applyConstraint("horizontal");
-    expect(store().constraints).toHaveLength(1);
+    authorEqual(EDGE_BOTTOM, EDGE_TOP);
+    expect(authored()).toHaveLength(1);
     const before = store().entities.length;
 
     store().beginOffset("e1");
@@ -1075,7 +1158,7 @@ describe("offset — appends a parallel copy, no reconciliation", () => {
     expect(store().entities).toHaveLength(before + 1);
     expect(store().entities.at(-1)).toEqual(added);
     // Nothing was deleted — the source's constraint survives untouched.
-    expect(store().constraints).toEqual([{ kind: "horizontal", entity: "e1" }]);
+    expect(authored()).toEqual([{ kind: "equal", a: "e1", b: "e3" }]);
     expect(store().revision).toBe(revision + 1);
     expect(store().editBusy).toBe(false);
     expect(store().offset).toBeNull();
@@ -1287,9 +1370,8 @@ describe("fillet/chamfer — two-line pick, rewrites in place", () => {
   it("applyCornerResult SWAPS the whole rewritten set, bumps revision, keeps ids' constraints", () => {
     rectangleAt();
     const store = useSketchStore.getState;
-    store().selectAt({ x: 20, y: 0.5 }, 2); // bottom line e1
-    store().applyConstraint("horizontal");
-    expect(store().constraints).toHaveLength(1);
+    authorEqual(EDGE_BOTTOM, EDGE_TOP);
+    expect(authored()).toHaveLength(1);
 
     store().setTool("fillet");
     store().pickCornerLine("e1");
@@ -1340,8 +1422,8 @@ describe("fillet/chamfer — two-line pick, rewrites in place", () => {
     store().applyCornerResult(rewritten);
 
     expect(store().entities).toEqual(rewritten);
-    // e1 kept its id, so its horizontal constraint survives the trim.
-    expect(store().constraints).toEqual([{ kind: "horizontal", entity: "e1" }]);
+    // e1 and e3 kept their ids, so the constraint between them survives.
+    expect(authored()).toEqual([{ kind: "equal", a: "e1", b: "e3" }]);
     expect(store().revision).toBe(revision + 1);
     expect(store().editBusy).toBe(false);
     expect(store().cornerRequest).toBeNull();
@@ -1595,15 +1677,30 @@ describe("draw-time dimensions", () => {
     store().commitDrawDimensions({});
     expect(store().drawDimension).toBeNull();
     expect(store().entities).toHaveLength(4); // still drawn
-    expect(store().constraints).toEqual([]); // and still free
-    expect(store().revision).toBe(before); // nothing to save
+    // RECT-1 — "undimensioned" is not "unconstrained". The draw itself made
+    // this a rectangle (4 coincidences + 2 H + 2 V), so it is a CLOSED profile
+    // free to translate and resize; it used to be four disconnected lines that
+    // tore apart the moment anyone dimensioned one edge. What must still be
+    // absent is a DIMENSION: nothing was typed, so nothing was measured.
+    expect(store().constraints).toHaveLength(RECT_RIGIDITY);
+    expect(
+      store().constraints.filter(
+        (c) => c.kind === "distance" || c.kind === "radius",
+      ),
+    ).toEqual([]);
+    expect(store().revision).toBe(before); // nothing further to save
   });
 
   it("rejects a zero or negative size rather than authoring it", () => {
     drawRect();
     const store = useSketchStore.getState;
     store().commitDrawDimensions({ width: 0, height: -5 });
-    expect(store().constraints).toEqual([]);
+    // The rigidity set is the draw's and stays; the rejected sizes author no
+    // dimension on top of it.
+    expect(store().constraints).toHaveLength(RECT_RIGIDITY);
+    expect(store().constraints.filter((c) => c.kind === "distance")).toEqual(
+      [],
+    );
   });
 
   it("Escape keeps the shape, drops the cells, and drops the tool in one go", () => {
@@ -1684,13 +1781,12 @@ describe("sketch-local history (founder, 2026-08-02: no undo/redo in the sketche
 
   it("undoes a CONSTRAINT — a sketch edit is not only geometry", () => {
     rectangleAt();
-    store().selectAt({ x: 20, y: 0 }, 2);
-    store().applyConstraint("horizontal");
-    expect(store().constraints).toHaveLength(1);
+    authorEqual(EDGE_BOTTOM, EDGE_TOP);
+    expect(authored()).toHaveLength(1);
     store().undo();
-    expect(store().constraints).toHaveLength(0);
+    expect(authored()).toHaveLength(0);
     store().redo();
-    expect(store().constraints).toHaveLength(1);
+    expect(authored()).toHaveLength(1);
   });
 
   it("re-solves and re-saves: every step bumps the revision the sync loop watches", () => {
