@@ -625,8 +625,8 @@ function MirrorPrompt({
         </div>
       ) : (
         <span data-testid="mirror-count">
-          Click a line to mirror {count} {noun} about it · reflects geometry
-          only
+          Click a line or an origin axis to mirror {count} {noun} about it ·
+          reflects geometry only
         </span>
       )}
     </div>

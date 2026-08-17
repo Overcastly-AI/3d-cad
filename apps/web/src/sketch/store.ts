@@ -66,7 +66,7 @@ import {
   type DrawDimensionValues,
   type DrawShape,
 } from "./drawDimensions";
-import { toggleMirrorTarget, type MirrorAxis } from "./mirror";
+import { mirrorAxisFor, toggleMirrorTarget, type MirrorAxis } from "./mirror";
 import { originIdentity } from "./origin";
 import type { DatumPlaneName, Point2D, SketchPlaneSpec } from "./plane";
 import {
@@ -1177,16 +1177,20 @@ const createSketchState = (
   },
 
   pickMirrorAxis: (id) => {
-    const { mirror, entities, editBusy, mirrorRequest } = get();
+    const { mirror, entities, editBusy, mirrorRequest, datumFrameHalfMm } =
+      get();
     if (mirror === null || mirror.phase !== "axis" || editBusy) return;
     if (id === null) {
       set({ hint: "Aim at a line to mirror about." });
       return;
     }
-    const axisEntity = entities.find((e) => e.id === id);
-    if (axisEntity === undefined || axisEntity.kind !== "line") {
+    // Resolve the pick against the drawn geometry PLUS the sketch's own frame
+    // (MIRROR-1): the origin axes are legal mirror axes, and a datum comes back
+    // as a POINTS axis so nothing has to be materialised — see `mirrorAxisFor`.
+    const axis = mirrorAxisFor(id, entities, datumFrame(datumFrameHalfMm));
+    if (axis === null) {
       // Pre-empt the backend's `sketch_mirror_axis_not_line` with an aim hint —
-      // only a line (construction or profile) is a valid axis.
+      // only a line (construction, profile or datum axis) is a valid axis.
       set({
         hint: "The mirror axis must be a line — pick a line or centerline.",
       });
@@ -1195,7 +1199,7 @@ const createSketchState = (
     set({
       mirrorRequest: {
         targets: mirror.targets,
-        axis: { kind: "entity", entity: id },
+        axis,
         nonce: (mirrorRequest?.nonce ?? 0) + 1,
       },
       editBusy: true,

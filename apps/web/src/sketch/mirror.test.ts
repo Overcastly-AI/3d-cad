@@ -6,7 +6,14 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  DATUM_X_AXIS_ID,
+  DATUM_Y_AXIS_ID,
+  datumEntities,
+  datumFrame,
+} from "./datum";
+import {
   axisLinePoints,
+  mirrorAxisFor,
   reflectEntity,
   reflectPoint,
   toggleMirrorTarget,
@@ -47,6 +54,73 @@ describe("axisLinePoints", () => {
   it("returns null for a non-line or missing id", () => {
     expect(axisLinePoints([line, circle], "c1")).toBeNull();
     expect(axisLinePoints([line, circle], "nope")).toBeNull();
+  });
+});
+
+describe("mirrorAxisFor — the frame is a legal axis (MIRROR-1)", () => {
+  const frame = datumFrame(80);
+  const L = frame.axisHalfLengthMm;
+  const drawn: SketchEntity = {
+    id: "e1",
+    kind: "line",
+    start: { x: 2, y: -5 },
+    end: { x: 2, y: 5 },
+    construction: true,
+  };
+  const circle: SketchEntity = {
+    id: "e2",
+    kind: "circle",
+    center: { x: 0, y: 0 },
+    radius: 3,
+    construction: false,
+  };
+
+  it("sends a drawn line as an ENTITY ref (the payload every sketch sends)", () => {
+    expect(mirrorAxisFor("e1", [drawn, circle], frame)).toEqual({
+      kind: "entity",
+      entity: "e1",
+    });
+  });
+
+  it("sends an UNMATERIALISED datum axis as a POINTS axis", () => {
+    // The frame is lazy: nothing named the Y axis, so it is not in `entities`
+    // and an entity ref would be `sketch_target_not_found` at the backend.
+    expect([drawn, circle].some((e) => e.id === DATUM_Y_AXIS_ID)).toBe(false);
+    expect(mirrorAxisFor(DATUM_Y_AXIS_ID, [drawn, circle], frame)).toEqual({
+      kind: "points",
+      a: { x: 0, y: -L },
+      b: { x: 0, y: L },
+    });
+    expect(mirrorAxisFor(DATUM_X_AXIS_ID, [drawn, circle], frame)).toEqual({
+      kind: "points",
+      a: { x: -L, y: 0 },
+      b: { x: L, y: 0 },
+    });
+  });
+
+  it("prefers a MATERIALISED datum's persisted geometry", () => {
+    // A re-opened sketch hands its grounded frame back as ordinary entities;
+    // the axis must be the line that was SAVED, not a freshly-derived one.
+    const derived = datumEntities(frame).find((e) => e.id === DATUM_Y_AXIS_ID);
+    expect(derived?.kind).toBe("line");
+    const persisted: SketchEntity = {
+      id: DATUM_Y_AXIS_ID,
+      kind: "line",
+      start: { x: 0, y: -12 },
+      end: { x: 0, y: 12 },
+      construction: true,
+    };
+    expect(mirrorAxisFor(DATUM_Y_AXIS_ID, [drawn, persisted], frame)).toEqual({
+      kind: "points",
+      a: { x: 0, y: -12 },
+      b: { x: 0, y: 12 },
+    });
+  });
+
+  it("refuses a non-line and an unknown id", () => {
+    expect(mirrorAxisFor("e2", [drawn, circle], frame)).toBeNull();
+    expect(mirrorAxisFor("origin", [drawn, circle], frame)).toBeNull();
+    expect(mirrorAxisFor("nope", [drawn, circle], frame)).toBeNull();
   });
 });
 
