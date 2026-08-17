@@ -314,6 +314,29 @@ def format_scale(scale: ViewScale) -> str:
     return f"{scale.numerator}:{scale.denominator}"
 
 
+def parse_scale_label(label: str) -> ViewScale:
+    """'1:2' -> ``ViewScale(1, 2)`` — the exact inverse of :func:`format_scale`.
+
+    The scale a :class:`ComposedSheet` was drawn at, recovered from the sheet as an
+    EXACT rational (never a re-derived float), so :func:`serialize_dxf` divides it back
+    out of a manufacturing view's model space by multiplying by ``d/n`` — one exact
+    rational — rather than dividing by the float ``n/d``. The pairing is the contract:
+    :func:`place_sheet` writes ``scale_label`` with :func:`format_scale` from the scale
+    the GEOMETRY was evaluated at, so every label this parses is in that function's
+    image (pinned by the round-trip test).
+
+    Raises:
+        ValueError: the label is not ``"<int>:<int>"`` with both parts >= 1 — i.e. it
+            did not come from :func:`format_scale`. Deliberately loud rather than
+            defaulted to 1:1: a silently assumed scale is exactly the wrong-size
+            cut path this seam exists to prevent (AUDIT-PRODUCT F-1).
+    """
+    numerator, _, denominator = label.partition(":")
+    if not (numerator.isdigit() and denominator.isdigit()):
+        raise ValueError(f"Not a scale label produced by format_scale: {label!r}")
+    return ViewScale(numerator=int(numerator), denominator=int(denominator))
+
+
 def _edge_points(edge: ProjectedViewEdge) -> list[Vec2]:
     """Every defining point of an edge, for the view's bounding box (layout.ts)."""
     pts: list[Vec2] = [_p2(edge.start), _p2(edge.end), _p2(edge.midpoint)]
@@ -1999,7 +2022,20 @@ def place_sheet(
         if ink is not None:
             ink_rects.append((view.projection, ink))
 
-    scale_label = format_scale(layout.views[0].scale) if layout.views else "1:1"
+    # The sheet's scale label is the scale the GEOMETRY WAS ACTUALLY DRAWN AT
+    # (`DrawingViewResult.scale`, echoed from the evaluate request), not the layout's
+    # authored intent. The two agree on every real request — the gateway refuses a
+    # sheet whose views disagree on scale and composes at view 0's (audit H2) — and
+    # where they cannot, the drawn geometry is the truth: a title block stamping the
+    # intent would mislabel the print. Load-bearing beyond the caption:
+    # `serialize_dxf` DIVIDES this label back out of a flat pattern's model space
+    # (AUDIT-PRODUCT F-1), so a label that disagreed with the geometry would ship a
+    # wrong-size cut path. Falls back to the layout only when there is nothing
+    # evaluated to be honest about (a part_error sheet has no views).
+    if evaluation.views:
+        scale_label = format_scale(evaluation.views[0].scale)
+    else:
+        scale_label = format_scale(layout.views[0].scale) if layout.views else "1:1"
     return ComposedSheet(
         width_mm=sheet_w,
         height_mm=sheet_h,
@@ -3091,15 +3127,109 @@ _LYR_HATCH = "HATCH"
 #: Mono text style — the consuming CAD supplies the Courier face (no embed).
 _DXF_STYLE = "LOFT_MONO"
 
+#: The view kinds whose DXF MODEL SPACE is a MANUFACTURING artifact rather than a
+#: picture of a drawing, and is therefore emitted 1:1 whatever scale the sheet draws
+#: them at (AUDIT-PRODUCT F-1). A ``flat_pattern`` is a CUT PATH: the file's purpose is
+#: to be imported into a nesting/CAM package and driven at a laser or turret punch, and
+#: every incumbent (SolidWorks' *Export to DXF/DWG → Sheet metal*, Onshape's and
+#: Fusion's flat-pattern DXF) treats 1:1 as invariant of any drawing-view scale. The
+#: orthographic quartet and ``section`` are NOT in this set: a DXF of a drawing view is
+#: a picture of a drawing, and the sheet's scale is its subject.
+_DXF_MODEL_TRUE_VIEWS: frozenset[ViewProjection] = frozenset({FLAT_PATTERN_PROJECTION})
+
+
+class _DxfFrame(NamedTuple):
+    """The ONE composed-sheet (mm, y-DOWN) -> DXF model-space (mm, y-UP) map.
+
+    EVERY DXF coordinate this module writes goes through :meth:`xy`, and every DXF
+    LENGTH through :meth:`scaled`. That is deliberate and it is the fix's real
+    content: the model-scale invariant below is then STRUCTURAL rather than a rule
+    each emitter has to remember, because there is no second way to place an entity —
+    a new entity type (or a new export path reusing these emitters) cannot silently
+    skip the correction the way it could when the emitters took raw sheet ``x`` and a
+    bare ``fy``.
+
+    Two jobs:
+
+    * the SINGLE y-flip (DXF model space is y-up, :class:`ComposedSheet` is y-down);
+    * the MODEL-SCALE correction (AUDIT-PRODUCT F-1). ``place_sheet`` bakes the view
+      scale into the placed coordinates — correctly: the SHEET is meant to draw a 1:2
+      view at half size, and the SVG/PDF do. But a ``flat_pattern``'s DXF model space
+      is a cut path, not a picture, so the DXF divides that scale back out about the
+      view's ``anchor``: the blank keeps its place on the sheet and measures its TRUE
+      developed size. Before this, a flat pattern placed on a 1:2 sheet exported an
+      86.09 x 20.00 mm blank as 43.05 x 10.00 mm while ``$INSUNITS`` still asserted
+      millimetres — a confidently wrong file, and half-size scrap at the vendor.
+
+    ``correction`` is 1.0 for sheet furniture and for picture views, where :meth:`xy`
+    reduces to the historical ``(x, sheet_height - y)`` exactly (no float drift), so
+    every non-flat-pattern DXF — and every 1:1 flat pattern — is byte-unchanged.
+    """
+
+    sheet_height: float
+    #: Fixed point of the correction, in composed-sheet (y-down) coordinates: the
+    #: view anchor, so a corrected view grows about where it was placed.
+    origin_x: float = 0.0
+    origin_y: float = 0.0
+    #: Multiplier applied about the origin — ``denominator/numerator`` of the drawn
+    #: scale for a model-true view, 1.0 everywhere else.
+    correction: float = 1.0
+
+    def xy(self, x: float, y: float) -> tuple[float, float]:
+        """One composed-sheet point as a DXF model-space point."""
+        if self.correction == 1.0:
+            return (x, self.sheet_height - y)
+        return (
+            self.origin_x + (x - self.origin_x) * self.correction,
+            self.sheet_height - (self.origin_y + (y - self.origin_y) * self.correction),
+        )
+
+    def scaled(self, length: float) -> float:
+        """One composed-sheet LENGTH (a radius) in DXF model space."""
+        return length * self.correction
+
+
+def _dxf_view_frame(
+    sheet: _DxfFrame, view: ComposedView, drawn: ViewScale
+) -> _DxfFrame:
+    """The frame one placed view's entities are emitted through.
+
+    The sheet frame for everything that is a picture of a drawing; a frame carrying
+    the inverse of the DRAWN scale, about the view's anchor, for a model-true
+    (manufacturing) view — see :data:`_DXF_MODEL_TRUE_VIEWS`. A FAILED view has no
+    geometry to keep honest (only the "VIEW FAILED" placeholder), so it stays on the
+    sheet frame and its bytes are unchanged.
+
+    The correction is the exact rational ``denominator/numerator``, not ``1/(n/d)``,
+    which keeps the round trip as tight as the placement arithmetic allows: MEASURED,
+    a 1:2 sheet's cut path differs from the 1:1 cut path by at most **2.8e-14 mm**
+    (the residue of the bounding-box centring between the two multiplies, not of the
+    multiplies themselves — those cancel exactly for a dyadic scale), against this
+    model's documented golden tolerance of 1e-9 mm.
+    """
+    if view.failed or view.projection not in _DXF_MODEL_TRUE_VIEWS:
+        return sheet
+    correction = drawn.denominator / drawn.numerator
+    if correction == 1.0:
+        return sheet
+    return _DxfFrame(sheet.sheet_height, view.anchor.x_mm, view.anchor.y_mm, correction)
+
 
 def _dxf_line(
-    msp: Modelspace, x1: float, y1: float, x2: float, y2: float, layer: str
+    msp: Modelspace,
+    frame: _DxfFrame,
+    x1: float,
+    y1: float,
+    x2: float,
+    y2: float,
+    layer: str,
 ) -> None:
-    msp.add_line((x1, y1), (x2, y2), dxfattribs={"layer": layer})
+    msp.add_line(frame.xy(x1, y1), frame.xy(x2, y2), dxfattribs={"layer": layer})
 
 
 def _dxf_text_entity(
     msp: Modelspace,
+    frame: _DxfFrame,
     text: str,
     x: float,
     y: float,
@@ -3109,8 +3239,13 @@ def _dxf_text_entity(
     *,
     centred: bool,
 ) -> None:
-    """A TEXT entity at (x, y) — ``centred`` uses MIDDLE_CENTER (SVG middle/central),
-    else LEFT (baseline-left, the title-block default)."""
+    """A TEXT entity at the sheet point (x, y) — ``centred`` uses MIDDLE_CENTER (SVG
+    middle/central), else LEFT (baseline-left, the title-block default).
+
+    The POSITION rides ``frame`` (so an annotation stays on the geometry it labels
+    under a model-scale correction); the text HEIGHT does not — type size is a
+    drafting choice, not a measurement, and a 1:2 flat pattern's dimension text must
+    stay legible rather than double."""
     entity = msp.add_text(
         text,
         dxfattribs={
@@ -3121,37 +3256,43 @@ def _dxf_text_entity(
         },
     )
     align = TextEntityAlignment.MIDDLE_CENTER if centred else TextEntityAlignment.LEFT
-    entity.set_placement((x, y), align=align)
+    entity.set_placement(frame.xy(x, y), align=align)
 
 
-def _dxf_edge(
-    msp: Modelspace, edge: ComposedEdge, fy: Callable[[float], float]
-) -> None:
+def _dxf_edge(msp: Modelspace, edge: ComposedEdge, frame: _DxfFrame) -> None:
     if edge.edge_role == "bend":
         layer = _LYR_BEND
     else:
         layer = _LYR_VISIBLE if edge.visible else _LYR_HIDDEN
     if isinstance(edge, ComposedLineEdge):
-        _dxf_line(msp, edge.x1, fy(edge.y1), edge.x2, fy(edge.y2), layer)
+        _dxf_line(msp, frame, edge.x1, edge.y1, edge.x2, edge.y2, layer)
     elif isinstance(edge, ComposedCircleEdge):
-        msp.add_circle((edge.cx, fy(edge.cy)), edge.r, dxfattribs={"layer": layer})
+        msp.add_circle(
+            frame.xy(edge.cx, edge.cy),
+            frame.scaled(edge.r),
+            dxfattribs={"layer": layer},
+        )
     else:
-        pts = [(p.x_mm, fy(p.y_mm)) for p in edge.points]
+        pts = [frame.xy(p.x_mm, p.y_mm) for p in edge.points]
         msp.add_lwpolyline(pts, dxfattribs={"layer": layer})
 
 
-def _dxf_dimension(
-    msp: Modelspace, dim: ComposedDimension, fy: Callable[[float], float]
-) -> None:
+def _dxf_dimension(msp: Modelspace, dim: ComposedDimension, frame: _DxfFrame) -> None:
     if isinstance(dim, ComposedDimensionError):
+        # The error marker's radius is a GLYPH size (like a text height), not a
+        # measurement, so it is not passed through `frame.scaled` — only its position
+        # rides the frame. Contrast `_dxf_edge`, where a circle IS geometry.
         msp.add_circle(
-            (dim.at.x_mm, fy(dim.at.y_mm)), 2.6, dxfattribs={"layer": _LYR_DIMENSION}
+            frame.xy(dim.at.x_mm, dim.at.y_mm),
+            2.6,
+            dxfattribs={"layer": _LYR_DIMENSION},
         )
         _dxf_text_entity(
             msp,
+            frame,
             "!",
             dim.at.x_mm,
-            fy(dim.at.y_mm),
+            dim.at.y_mm,
             3.0,
             0.0,
             _LYR_DIMENSION,
@@ -3161,9 +3302,10 @@ def _dxf_dimension(
         if dim.message and dim.text is not None:
             _dxf_text_entity(
                 msp,
+                frame,
                 dim.message,
                 dim.text.x_mm,
-                fy(dim.text.y_mm),
+                dim.text.y_mm,
                 _DIM_ERROR_TEXT_MM,
                 0.0,
                 _LYR_DIMENSION,
@@ -3171,18 +3313,19 @@ def _dxf_dimension(
             )
         return
     for line in dim.lines:
-        _dxf_line(msp, line.x1, fy(line.y1), line.x2, fy(line.y2), _LYR_DIMENSION)
+        _dxf_line(msp, frame, line.x1, line.y1, line.x2, line.y2, _LYR_DIMENSION)
     for arrow in dim.arrows:
         # A 3-point SOLID renders as a filled arrowhead triangle (deterministic; the
         # points already trace the perimeter tip→wingA→wingB, no bowtie).
-        pts = [(p.x_mm, fy(p.y_mm)) for p in arrow.points]
+        pts = [frame.xy(p.x_mm, p.y_mm) for p in arrow.points]
         msp.add_solid(pts, dxfattribs={"layer": _LYR_DIMENSION})
     # The SVG text angle is clockwise in y-down; the y-flip negates it in model space.
     _dxf_text_entity(
         msp,
+        frame,
         dim.text.value,
         dim.text.x,
-        fy(dim.text.y),
+        dim.text.y,
         _TXT,
         -dim.text.angle,
         _LYR_DIMENSION,
@@ -3190,40 +3333,42 @@ def _dxf_dimension(
     )
 
 
-def _dxf_hatch(
-    msp: Modelspace, hatch: ComposedHatch, fy: Callable[[float], float]
-) -> None:
+def _dxf_hatch(msp: Modelspace, hatch: ComposedHatch, frame: _DxfFrame) -> None:
     """Emit a section view's crosshatch as REAL LINE entities on the HATCH layer (§5).
 
     Honest CAD-editable strokes (not a fill picture), so the section reopens with its
-    hatch as geometry. The ONE y-flip (DXF model space is y-up) applied via ``fy``."""
+    hatch as geometry. The ONE y-flip (DXF model space is y-up) comes from ``frame``."""
     for line in hatch.lines:
-        _dxf_line(msp, line.x1, fy(line.y1), line.x2, fy(line.y2), _LYR_HATCH)
+        _dxf_line(msp, frame, line.x1, line.y1, line.x2, line.y2, _LYR_HATCH)
 
 
-def _dxf_view(
-    msp: Modelspace, view: ComposedView, fy: Callable[[float], float]
-) -> None:
+def _dxf_view(msp: Modelspace, view: ComposedView, frame: _DxfFrame) -> None:
+    """Emit one placed view through ``frame`` (:func:`_dxf_view_frame` picks it).
+
+    Geometry, its dimensions and its caption all ride the SAME frame, so a
+    model-scale-corrected flat pattern keeps its annotations on the edges they
+    measure — the correction is a property of the view, never of one entity kind."""
     if view.failed:
         ax = view.anchor.x_mm
         ay = view.anchor.y_mm
         corners = [
-            (ax - 26, fy(ay - 14)),
-            (ax + 26, fy(ay - 14)),
-            (ax + 26, fy(ay + 14)),
-            (ax - 26, fy(ay + 14)),
+            frame.xy(ax - 26, ay - 14),
+            frame.xy(ax + 26, ay - 14),
+            frame.xy(ax + 26, ay + 14),
+            frame.xy(ax - 26, ay + 14),
         ]
         msp.add_lwpolyline(corners, close=True, dxfattribs={"layer": _LYR_HIDDEN})
         _dxf_text_entity(
-            msp, "VIEW FAILED", ax, fy(ay - 1), 3.0, 0.0, _LYR_TITLE, centred=True
+            msp, frame, "VIEW FAILED", ax, ay - 1, 3.0, 0.0, _LYR_TITLE, centred=True
         )
         # The typed reason on the print (FINDINGS #15).
         if view.error is not None:
             _dxf_text_entity(
                 msp,
+                frame,
                 _fit(view.error.message, 40),
                 ax,
-                fy(ay + 4),
+                ay + 4,
                 2.1,
                 0.0,
                 _LYR_TITLE,
@@ -3231,16 +3376,17 @@ def _dxf_view(
             )
     else:
         if view.hatch is not None:
-            _dxf_hatch(msp, view.hatch, fy)
+            _dxf_hatch(msp, view.hatch, frame)
         for edge in view.edges:
-            _dxf_edge(msp, edge, fy)
+            _dxf_edge(msp, edge, frame)
         for dim in view.dimensions:
-            _dxf_dimension(msp, dim, fy)
+            _dxf_dimension(msp, dim, frame)
     _dxf_text_entity(
         msp,
+        frame,
         view.label,
         view.label_pos.x_mm,
-        fy(view.label_pos.y_mm),
+        view.label_pos.y_mm,
         3.4,
         0.0,
         _LYR_TITLE,
@@ -3248,28 +3394,26 @@ def _dxf_view(
     )
 
 
-def _dxf_title_block(
-    msp: Modelspace, tb: ComposedTitleBlock, fy: Callable[[float], float]
-) -> None:
+def _dxf_title_block(msp: Modelspace, tb: ComposedTitleBlock, frame: _DxfFrame) -> None:
     x, y, w, h = tb.x, tb.y, tb.width, tb.height
     box = [
-        (x, fy(y)),
-        (x + w, fy(y)),
-        (x + w, fy(y + h)),
-        (x, fy(y + h)),
+        frame.xy(x, y),
+        frame.xy(x + w, y),
+        frame.xy(x + w, y + h),
+        frame.xy(x, y + h),
     ]
     msp.add_lwpolyline(box, close=True, dxfattribs={"layer": _LYR_TITLE})
-    _dxf_line(msp, tb.split_x, fy(y), tb.split_x, fy(y + h), _LYR_TITLE)
-    _dxf_line(msp, tb.split_x, fy(tb.mid_y), x + w, fy(tb.mid_y), _LYR_TITLE)
+    _dxf_line(msp, frame, tb.split_x, y, tb.split_x, y + h, _LYR_TITLE)
+    _dxf_line(msp, frame, tb.split_x, tb.mid_y, x + w, tb.mid_y, _LYR_TITLE)
 
     def caption(cx: float, cy: float, text: str) -> None:
-        _dxf_text_entity(msp, text, cx, fy(cy), 2.3, 0.0, _LYR_TITLE, centred=False)
+        _dxf_text_entity(msp, frame, text, cx, cy, 2.3, 0.0, _LYR_TITLE, centred=False)
 
     def value(cx: float, cy: float, text: str) -> None:
-        _dxf_text_entity(msp, text, cx, fy(cy), 3.4, 0.0, _LYR_TITLE, centred=False)
+        _dxf_text_entity(msp, frame, text, cx, cy, 3.4, 0.0, _LYR_TITLE, centred=False)
 
     def field(cx: float, cy: float, text: str, size: float) -> None:
-        _dxf_text_entity(msp, text, cx, fy(cy), size, 0.0, _LYR_TITLE, centred=False)
+        _dxf_text_entity(msp, frame, text, cx, cy, size, 0.0, _LYR_TITLE, centred=False)
 
     caption(x + 4, y + 8, "TITLE")
     value(x + 4, y + 18, tb.title)
@@ -3285,9 +3429,7 @@ def _dxf_title_block(
         field(x + _TB_FIELD_VAL_DX, y + row.dy, row.value, _TB_FIELD_VAL_MM)
 
 
-def _dxf_bend_table(
-    msp: Modelspace, bt: ComposedBendTable, fy: Callable[[float], float]
-) -> None:
+def _dxf_bend_table(msp: Modelspace, bt: ComposedBendTable, frame: _DxfFrame) -> None:
     """Emit the flat-pattern bend-table block as DXF entities (§7).
 
     Columnar layout matching the DOM/SVG/PDF (canonical spec at
@@ -3297,17 +3439,23 @@ def _dxf_bend_table(
     columns line up because every renderer shares the offsets and cell strings, giving
     the shop the SAME reading as the screen."""
     x, y, w, h = bt.x, bt.y, bt.width, bt.height
-    box = [(x, fy(y)), (x + w, fy(y)), (x + w, fy(y + h)), (x, fy(y + h))]
+    box = [
+        frame.xy(x, y),
+        frame.xy(x + w, y),
+        frame.xy(x + w, y + h),
+        frame.xy(x, y + h),
+    ]
     msp.add_lwpolyline(box, close=True, dxfattribs={"layer": _LYR_TITLE})
     hy = y + _BEND_TABLE_HEADER_H
-    _dxf_line(msp, x, fy(hy), x + w, fy(hy), _LYR_TITLE)
+    _dxf_line(msp, frame, x, hy, x + w, hy, _LYR_TITLE)
     cap_y = y + _BEND_TABLE_HEADER_H - 2.4
     for dx, caption in zip(_BEND_COL_DX, _BEND_TABLE_CAPTIONS, strict=True):
         _dxf_text_entity(
             msp,
+            frame,
             caption,
             x + dx,
-            fy(cap_y),
+            cap_y,
             _BEND_TABLE_CAPTION_MM,
             0.0,
             _LYR_TITLE,
@@ -3318,9 +3466,10 @@ def _dxf_bend_table(
         for dx, cell in zip(_BEND_COL_DX, _bend_row_cells(row), strict=True):
             _dxf_text_entity(
                 msp,
+                frame,
                 cell,
                 x + dx,
-                fy(ry),
+                ry,
                 _BEND_TABLE_TEXT_MM,
                 0.0,
                 _LYR_BEND,
@@ -3329,7 +3478,7 @@ def _dxf_bend_table(
 
 
 def _dxf_thread_schedule(
-    msp: Modelspace, ts: ComposedThreadSchedule, fy: Callable[[float], float]
+    msp: Modelspace, ts: ComposedThreadSchedule, frame: _DxfFrame
 ) -> None:
     """Emit the thread-schedule block as DXF entities (BACKLOG #50).
 
@@ -3339,17 +3488,23 @@ def _dxf_thread_schedule(
     text, so a shop can read the callout in its own CAD, not just in a picture.
     """
     x, y, w, h = ts.x, ts.y, ts.width, ts.height
-    box = [(x, fy(y)), (x + w, fy(y)), (x + w, fy(y + h)), (x, fy(y + h))]
+    box = [
+        frame.xy(x, y),
+        frame.xy(x + w, y),
+        frame.xy(x + w, y + h),
+        frame.xy(x, y + h),
+    ]
     msp.add_lwpolyline(box, close=True, dxfattribs={"layer": _LYR_TITLE})
     hy = y + _THREAD_TABLE_HEADER_H
-    _dxf_line(msp, x, fy(hy), x + w, fy(hy), _LYR_TITLE)
+    _dxf_line(msp, frame, x, hy, x + w, hy, _LYR_TITLE)
     cap_y = y + _THREAD_TABLE_HEADER_H - 2.4
     for dx, caption in zip(_THREAD_COL_DX, _THREAD_TABLE_CAPTIONS, strict=True):
         _dxf_text_entity(
             msp,
+            frame,
             caption,
             x + dx,
-            fy(cap_y),
+            cap_y,
             _BEND_TABLE_CAPTION_MM,
             0.0,
             _LYR_TITLE,
@@ -3360,9 +3515,10 @@ def _dxf_thread_schedule(
         for dx, cell in zip(_THREAD_COL_DX, _thread_row_cells(row), strict=True):
             _dxf_text_entity(
                 msp,
+                frame,
                 cell,
                 x + dx,
-                fy(ry),
+                ry,
                 _BEND_TABLE_TEXT_MM,
                 0.0,
                 _LYR_TITLE,
@@ -3370,17 +3526,23 @@ def _dxf_thread_schedule(
             )
 
 
-def _dxf_note(
-    msp: Modelspace, note: ComposedNote, fy: Callable[[float], float]
-) -> None:
+def _dxf_note(msp: Modelspace, note: ComposedNote, frame: _DxfFrame) -> None:
     """Emit a placed free-text note as a DXF TEXT entity (design §2.2).
 
     A single left-anchored TEXT on the NOTES layer at the note's sheet anchor (the ONE
-    y-flip applied via ``fy``, DXF model space being y-up), so the note reopens as real,
-    editable CAD text — not a picture. Left alignment (``centred=False``) matches the
-    SVG/PDF baseline-left placement."""
+    y-flip applied via ``frame``, DXF model space being y-up), so the note reopens as
+    real, editable CAD text — not a picture. Left alignment (``centred=False``) matches
+    the SVG/PDF baseline-left placement."""
     _dxf_text_entity(
-        msp, note.text, note.x, fy(note.y), _NOTE_TEXT_MM, 0.0, _LYR_NOTE, centred=False
+        msp,
+        frame,
+        note.text,
+        note.x,
+        note.y,
+        _NOTE_TEXT_MM,
+        0.0,
+        _LYR_NOTE,
+        centred=False,
     )
 
 
@@ -3392,11 +3554,22 @@ def serialize_dxf(composed: ComposedSheet) -> bytes:
     reopens as CAD-editable geometry — a hole is a ``CIRCLE`` a CAM tool can path,
     not a polygon picture. Sampled arcs stay honest LWPOLYLINEs (no arc re-fitting).
     The single y-flip (DXF model space is y-UP, ComposedSheet y-DOWN) is applied once
-    here; placement math untouched. Byte-identical for the same ComposedSheet (§8.3),
+    here, by the ONE :class:`_DxfFrame` every emitted coordinate goes through;
+    placement math untouched. Byte-identical for the same ComposedSheet (§8.3),
     in-process and across an interpreter restart: ``write_fixed_meta_data_for_testing``
     pins the timestamps/GUIDs/handle-seed sentinels, entities are added in canonical
-    order, the version is pinned R2010. Text is a mono TEXT style (the consuming CAD
-    supplies the Courier face — no embed).
+    order, the version is pinned :data:`_DXF_VERSION` (R2000). Text is a mono TEXT style
+    (the consuming CAD supplies the Courier face — no embed).
+
+    **Model space is 1:1 for a manufacturing view, whatever the sheet scale**
+    (AUDIT-PRODUCT F-1). A ``flat_pattern``'s geometry is a CUT PATH bound for a
+    nesting/CAM package, not a picture of a drawing, so the sheet's view scale — which
+    ``place_sheet`` correctly baked into the placed coordinates, and which the SVG/PDF
+    correctly draw — is divided back out here about the view anchor. The blank in a
+    1:2 sheet's DXF therefore measures its TRUE developed size, agreeing with the
+    ``$INSUNITS = 6`` (millimetres) the header has always asserted. The picture views
+    (front/top/right/iso/section) keep the sheet scale: a DXF of a drawing view IS a
+    picture of a drawing. See :data:`_DXF_MODEL_TRUE_VIEWS` / :func:`_dxf_view_frame`.
     """
     previous = ezdxf.options.write_fixed_meta_data_for_testing
     ezdxf.options.write_fixed_meta_data_for_testing = True
@@ -3429,38 +3602,42 @@ def serialize_dxf(composed: ComposedSheet) -> bytes:
         doc.styles.add(_DXF_STYLE, font="cour.ttf")
         msp = doc.modelspace()
 
-        height = composed.height_mm
-
-        def fy(y: float) -> float:
-            return height - y
+        # Sheet furniture (border / title block / tables / notes / banner) is drawn at
+        # sheet scale — it IS the paper. Views get their own frame below.
+        sheet = _DxfFrame(composed.height_mm)
+        # The scale the geometry was DRAWN at, recovered exactly from the sheet
+        # (`place_sheet` stamps it from the evaluated view's own scale), so a
+        # manufacturing view can have it divided back out.
+        drawn = parse_scale_label(composed.scale_label)
 
         # Border frame (sheet furniture) → TITLE layer.
         margin = composed.margin_mm
         border = [
-            (margin, fy(margin)),
-            (composed.width_mm - margin, fy(margin)),
-            (composed.width_mm - margin, fy(composed.height_mm - margin)),
-            (margin, fy(composed.height_mm - margin)),
+            sheet.xy(margin, margin),
+            sheet.xy(composed.width_mm - margin, margin),
+            sheet.xy(composed.width_mm - margin, composed.height_mm - margin),
+            sheet.xy(margin, composed.height_mm - margin),
         ]
         msp.add_lwpolyline(border, close=True, dxfattribs={"layer": _LYR_TITLE})
 
         for view in composed.views:
-            _dxf_view(msp, view, fy)
-        _dxf_title_block(msp, composed.title_block, fy)
+            _dxf_view(msp, view, _dxf_view_frame(sheet, view, drawn))
+        _dxf_title_block(msp, composed.title_block, sheet)
         if composed.bend_table is not None:
-            _dxf_bend_table(msp, composed.bend_table, fy)
+            _dxf_bend_table(msp, composed.bend_table, sheet)
         if composed.thread_schedule is not None:
-            _dxf_thread_schedule(msp, composed.thread_schedule, fy)
+            _dxf_thread_schedule(msp, composed.thread_schedule, sheet)
         for note in composed.notes:
-            _dxf_note(msp, note, fy)
+            _dxf_note(msp, note, sheet)
         # The layout-issue banner (audit N2) — on the DIMENSION layer (the sheet's
         # "read me" ink), so a shop opening the DXF sees the collision called out.
         for line in banner_lines(composed):
             _dxf_text_entity(
                 msp,
+                sheet,
                 line.text,
                 line.x,
-                fy(line.y),
+                line.y,
                 _BANNER_TEXT_MM,
                 0.0,
                 _LYR_DIMENSION,
