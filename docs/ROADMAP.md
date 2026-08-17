@@ -2,60 +2,58 @@
 
 Status legend: ✅ done · 🚧 in progress · ⬜ planned
 
-**Current focus, corrected 2026-08-16 (backlog-groomer reconciliation pass
-6): GEOM-3 and PICK-1 are both SHIPPED** — GEOM-3 `1e39c14`, independently
-geometry-qa'd PASS `0628ceb`; PICK-1 `2b266b1`, shipped but NOT yet
-reviewed/QA'd. **Focus moves to SKETCH DRAW CORRECTNESS**, the
-vision-steward's 2026-08-16 competitive pass: a plain rectangle or
-hand-drawn profile is silently NOT rigid until a value is typed (RECT-1, new
-P0) or an entity endpoint is snapped (SNAP-3, new P0, the general case of
-the still-open SNAP-2), and the mirror-axis picker excludes the datum axis
-SKETCH-2 just made real (MIRROR-1, new P1). See BACKLOG Ready for territory
-— RECT-1/SNAP-2/SNAP-3 all touch `sketch/store.ts`'s `placeAt`/draw-commit
-path and should not be built in parallel by different agents. All four of
-the founder's 2026-08-01 sketcher reports
-now have answers: dimensions assign correctly (DIM-1, gate flipped to
-positive `810d9fb`), orbit-while-sketching reaches a trackpad (VP-1/VP-1a),
-a saved sketch re-opens (SKETCH-1), and "snap points do not work" resolved
-through SNAP-1 -> SKETCH-2 -> a follow-up fix (`8f00dec`/`09cec01`) that
-closed a blocking review finding (symmetric-about-a-datum-axis reported
-OVER-CONSTRAINED pointing at an invisible, undeletable pin) plus two QA
-defects in the original SKETCH-2 fixture. **None of DIM-1/SKETCH-1/VP-1/
-VP-1a/SKETCH-2 have an independent `code-reviewer` pass** — process debt,
-flagged for the orchestrator, not a product defect.
-**Sharper reading found by QA, now the top new item (SNAP-2, P0):** a snap to
-the origin/axis copies the coordinate but authors no constraint, so a
-grounded-looking corner silently drifts on its first later re-drive — same
-silent-trust-violation class DIM-1 was, correct now, wrong only later.
-**QAH-1 IS CLOSED — a range error in this pass briefly said otherwise, and
-that is now corrected.** This pass first searched only `a658db4..HEAD` (the
-window its dispatch brief specified), found no commit touching the
-`qa-harness.spec.ts` "renders while orbiting" assertion, and wrongly
-concluded QAH-1 was still open. The actual fix, `c3019b6`, is an ANCESTOR of
-`a658db4` (`git merge-base --is-ancestor c3019b6 a658db4` -> yes) — invisible
-to that range, ticked nowhere because the groomer held the board when it
-shipped and its author didn't contend for the file. Verified independently:
-`diagnostics.ts:193` carried a mutation-test constant
-(`rendersInProbeWindow: … ? null : 0, // MUTANT: always 0`) committed as
-product code by `0580f7d`'s reconciliation of a stopped agent's work, whose
-own e2e gate was never run; `c3019b6` removed it, with a live measurement
-(38-48 renders / ~18 units of camera motion while the collector reported 0,
-pre-fix) and ablations in both directions. This is a DIFFERENT defect from
-`8d5be24`'s `cameraPose: no camera captured` race (different spec, different
-mechanism) — that distinction was correct throughout and stands. See
-`docs/BACKLOG.md` Done archive for the full evidence and the process note on
-why a range-scoped re-derivation is only as trustworthy as the range.
-Also credited this pass: the mutation/debug-marker CI gate (`56297d2`,
-`docs/RETRO.md` §4b's ask, shipped with no BACKLOG ticket tracking it before
-now). New items filed: SNAP-2 (P0), SKETCH-3 (reserved-id hydration guard,
-gated on Phase 5), TOUCH-2, QA-SK2-3, SPEC-6/SPEC-7 (both flagged
-possibly-already-covered by a concurrent sweep of `pick-affordance.spec.ts` —
-check before duplicating). GEOM-2's tier 4 shipped (`8b95dac`) and closed
-M17's control case; a code review (`57711c4`) quantified its honest limit —
-GEOM-3 (P0, the durable fix) remains, plus GEOM-4/GEOM-5 (smaller
-follow-ups). See `docs/BACKLOG.md` Ready. (The flow-overhaul item formerly
-numbered FB-20 was renamed FLOW-1 — collided with the camera-stolen-after-
-extrude fix, also FB-20, closed below.)
+**Current focus, corrected 2026-08-17 (backlog-groomer pass 7): the
+2026-08-16 sketch-draw-correctness cluster is fully SHIPPED.** RECT-1
+(`6d0f456`), SNAP-2 + SNAP-3 (`c233a5b`), and MIRROR-1 (`a0cc3f7`) all
+landed 2026-08-17, closing every item the vision-steward's 2026-08-16
+competitive pass flagged. One real defect surfaced by the SNAP-3
+integration itself — an explicit Fix on a point the draw already grounded
+double-pins it and reports OVER-CONSTRAINED — filed as **SNAP-4** (P2,
+Next). GEOM-3/PICK-1 (pass 6) and QAH-1 remain shipped/closed; see
+`docs/BACKLOG.md` Done archive for all four's evidence and gates, and
+`docs/CHANGELOG.md` for the prior focus paragraphs this replaces.
+
+**Focus moves to the founder's 2026-08-17 directive** ("the main file page
+looks like an afterthought"; "the export button should not be with all the
+mass properties"). Two independent audits confirmed both claims with
+measurements: `docs/AUDIT-PRODUCT.md` ("Pass 2026-08-17 — … one file format
+as an export?") and `docs/UI-REVIEW.md` ("2026-08-17 — FOUNDER-DIRECTED
+AUDIT"). Findings, now Ready tickets:
+- **Export placement (EXPORT-1, P1):** export is the last cell of a
+  collapsible PROPERTIES panel and disappears entirely when it's collapsed
+  (53 Tab presses to reach it at 1600×1000); the fix already exists in-tree
+  as a pattern (`DrawingCommandBand.tsx`'s `ToolGroup eyebrow="Export"`) and
+  is missing from the part/assembly command bands — a DRY fix, not new
+  design.
+- **Parts register (REGISTER-1/2, P1):** the identifying NAME column (18%
+  width) hard-clips with no ellipsis while row-delete verbs get 27%; default
+  sort is oldest-first; the create control sits 5145px below the fold at 120
+  parts; header/sort/count are not sticky.
+- **ViewCube (VIEWCUBE-1, P1):** absent at every viewport height ≤800px
+  (1280×800, 1366×768) — the two commonest laptop frames, and a violation of
+  the design mandate's "table stakes" line for persistent view navigation.
+- **Export format fidelity + breadth (DXF-2a/2b/3, EXPORT-2, P0-P1):** a
+  flat-pattern DXF ships at half scale on a 1:2 sheet — **a kernel-architect
+  fix is IN FLIGHT for this specific defect, do not re-file it**; what
+  remains and is newly filed: the DXF's bend-table TEXT shares the `BEND`
+  layer with fold lines (breaks the only manual profile-only workaround),
+  there is no dedicated profile-only flat-pattern export at all (the
+  artifact fabricators ask for by name), the DXF is mojibake in any
+  conforming reader (`$DWGCODEPAGE ANSI_1252` declared, raw UTF-8 written),
+  and 3MF/glTF export are both near-zero-cost additions (lib3mf is already
+  locked+installed; GLB is already generated on every tessellate).
+- **STEP import healing (IMPORT-HEAL-1/2, P2, Next):** `import_no_solid` has
+  no recovery path today — audit's framing, preserved: export breadth is the
+  bigger *volume* gap, import robustness the bigger *severity* one, but the
+  audit itself costs healing as medium-large and ranks it P2 against the
+  near-zero DXF/3MF/glTF wins, which is why it sits in Next rather than
+  Ready.
+- **Stale scorecard rows flagged for the vision-steward** (not edited here):
+  `docs/COMPETITIVE.md:64` marks STEP/STL export ✅ against Fusion's eleven
+  formats; `docs/VISION.md:74`'s Interop row title names IGES (the audit's
+  #9-ranked format) as a pillar while omitting DXF/3MF/glTF, and its Notes
+  claim assembly product-structure import is unread when it ships. Ticket
+  filed in BACKLOG for the steward to correct.
 
 **QA7-1 CLOSED (`db144d7`, reviewed non-blocking `07c4005`) — the SEL-7
 Create-costs-nothing e2e wait wasn't waiting.** `expect.poll(...).not.toBe(

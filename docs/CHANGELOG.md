@@ -5,6 +5,17 @@ section each grooming pass (one-line-per-entry there; detail preserved
 here). Newest first. Evidence for shipped items also lives in the Done
 archive (`BACKLOG.md`) and per-item commits.
 
+## 2026-08-16 (groom pass 6 — PICK-1/GEOM-3 shipped; vision-steward's competitive pass turned into build-ready tickets)
+
+- **Groom pass 6 (backlog-groomer):** archived PICK-1 (`2b266b1`) + GEOM-3
+  (`1e39c14`, geometry-qa PASS `0628ceb`) shipped; filed GQA-1 (P2)/GQA-2/
+  GQA-3 (P3) from the geometry-qa pass. Turned the vision-steward's
+  2026-08-16 competitive findings into build-ready tickets — RECT-1 (P0),
+  SNAP-3 (P0), MIRROR-1 (P1), each verified against current HEAD by symbol,
+  each `kind: capability` — closing the gap where COMPETITIVE.md/VISION.md
+  prose could never reach the build loop's Ready queue. ROADMAP "Current
+  focus" corrected (was still pointing at GEOM-3/PICK-1 as "next").
+
 ## 2026-08-15 (groom passes 4-5 — DIM-1 top-of-Ready, all four founder sketcher reports answered)
 
 - **Groom pass 4 (backlog-groomer):** DIM-1 moved to top of Ready (QA

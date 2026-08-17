@@ -15,68 +15,99 @@ See VISION.md's table for current row text — the vision-steward re-scores it
 independently each pass; this note only points the queue at it, no
 duplication.
 
-- **Groom pass 6 (2026-08-16, this pass) — Sketching & constraints FLIPPED
-  ✅→➖ by the vision-steward this pass, and the reason is now three Ready
-  tickets, not prose.** VISION.md's 2026-08-16 correction: a plain
-  rectangle/hand-drawn profile is silently NOT rigid until a value is typed
-  (RECT-1, P0) or an entity endpoint is snapped (SNAP-3, P0, generalizing
-  the still-open SNAP-2), and the mirror-axis picker excludes the datum
-  SKETCH-2 made real (MIRROR-1, P1) — all filed this pass, all verified
-  against current HEAD by symbol (not trusted from the steward's read). Both
-  of pass 5's P0s shipped this window: **PICK-1** (`2b266b1`) and **GEOM-3**
-  (`1e39c14`, independently geometry-qa'd PASS `0628ceb` — filed GQA-1/2/3,
-  see Next/Later) — see Done archive. `docs/COMPETITIVE.md` is FRESH as of
-  this pass (2026-08-16 vision-steward read); no longer stale.
+- **Groom pass 7 (2026-08-17, this pass) — the sketch-draw-correctness
+  cluster is fully SHIPPED; Sketching & constraints stays flagged for the
+  vision-steward to re-score, not re-flipped here (I don't own VISION.md).**
+  RECT-1 (`6d0f456`), SNAP-2 + SNAP-3 (`c233a5b`), MIRROR-1 (`a0cc3f7`) all
+  landed 2026-08-17 — see Done archive. One real defect the SNAP-3
+  integration surfaced (explicit Fix on an already-snap-grounded point
+  double-pins it) filed as **SNAP-4** (P2, Next).
+- **File page / export — the founder's 2026-08-17 directive, now the
+  dominant thread.** Two independent audits (`docs/AUDIT-PRODUCT.md` "Pass
+  2026-08-17", `docs/UI-REVIEW.md` "2026-08-17 FOUNDER-DIRECTED AUDIT")
+  confirmed both complaints with measurement. This doesn't flip a scorecard
+  row on its own (Interop stays ➖, Sheet metal stays ➖) but it is squarely
+  inside CLAUDE.md's "flow" mandate (export is the terminal action of every
+  workspace and is currently 53 Tab-presses deep) and inside the audited
+  scope of both ➖ rows below. New Ready tickets: EXPORT-1 (export IA),
+  REGISTER-1/2 (parts register), VIEWCUBE-1 (viewport nav), DXF-2a/2b/3
+  (flat-pattern DXF fidelity — the scale defect itself is a kernel-architect
+  fix already IN FLIGHT, not re-filed here), EXPORT-2 (3MF+glTF, near-zero
+  cost). IMPORT-HEAL-1/2 (STEP import healing) filed to Next — audit ranks
+  it P2 on cost despite being the more *severe* gap (no recovery path from
+  `import_no_solid`); this is the volume-vs-severity tension the audit asks
+  to be preserved, not a disagreement I'm resolving by fiat.
 - **✅ rows, still qualified:** Part modeling is creation- and edit-capable
   (PICK-1 closed the non-tip-edit 422; GEOM-3 closed GEOM-2's vented-plate
   gap, with GQA-1's narrower rotation-invariance residual filed P2, not
-  blocking). None of DIM-1/SKETCH-1/VP-1/VP-1a/SKETCH-2/PICK-1/GEOM-3-fix
-  have an independent `code-reviewer` pass — process debt, flagged again.
+  blocking). None of DIM-1/SKETCH-1/VP-1/VP-1a/SKETCH-2/PICK-1/GEOM-3-fix/
+  RECT-1/SNAP-2/SNAP-3/MIRROR-1 have an independent `code-reviewer` pass —
+  process debt, flagged again.
 - **➖ rows (usable, short of incumbent parity):** Assemblies (export +
   interference shipped; import, exploded views, recursive BOM, part-version
-  pinning still missing). Interop (part STEP round-trips to 1e-9; assembly
-  import still the gap). Drawings (auto re-projection + associativity good;
-  printed-sheet title/dimension-overlap/title-block fields still missing —
-  M13). Sheet metal (bend chains/hems/edge-flange shipped; teardrop hems,
-  miters, tabs, gauge tables still missing).
+  pinning still missing). Interop (part STEP round-trips to 1e-9; export is
+  STEP+STL only against Fusion's eleven formats — see EXPORT-2/DXF tickets;
+  import healing is the severity gap — IMPORT-HEAL). Drawings (auto
+  re-projection + associativity good; printed-sheet title/dimension-overlap/
+  title-block fields still missing — M13). Sheet metal (bend chains/hems/
+  edge-flange shipped; flat-pattern DXF has a P0 scale defect in flight plus
+  the DXF-2a/2b/3 fidelity gaps below; teardrop hems, miters, tabs, gauge
+  tables still missing).
 - **❌ rows:** Performance (fixes shipped, no standing benchmark GATE yet).
   Collaboration & versioning and Extensibility/scripting+MCP untouched
   (Phase 3 / Phase 5).
+- **Stale rows flagged for the vision-steward, not edited here:**
+  `docs/COMPETITIVE.md:64` marks STEP/STL export ✅ against Fusion's eleven
+  formats; `docs/VISION.md:74`'s Interop row title names IGES (audit rank
+  #9) as a pillar while omitting DXF/3MF/glTF, and its Notes claim assembly
+  product-structure import is unread when it ships (`geometry.assembly.
+  import_step`, `SetNameMode(True)`). Ticket VISION-FIX-1 below.
 
 ## Ready (top of queue)
 
-**Dispatch order, groom pass 6 (2026-08-16) — GEOM-3 and PICK-1 both SHIPPED
-this window (see Done archive), closing the last two P0s from pass 5.**
-Focus moves to the vision-steward's 2026-08-16 competitive finding: an
-ordinary rectangle/hand-drawn profile is silently NOT rigid until a value is
-typed (**RECT-1**, new, P0) or an existing entity's endpoint is snapped
-(**SNAP-3**, new, P0, the general case SNAP-2's own text names but doesn't
-scope) — both flip VISION.md's Sketching row back toward ✅ and are the
-single highest-value close named there. **TERRITORY COLLISION, read before
-dispatching:** RECT-1, SNAP-2 (already Ready) and SNAP-3 ALL modify the same
-mechanism — constraint-authoring at draw/placement time in
-`apps/web/src/sketch/store.ts` (`placeAt`, `commitDrawDimensions`) and
-`drawDimensions.ts`/`snap.ts`. Do not dispatch these three to different
-agents in parallel; either one agent takes all three in sequence, or they
-run strictly serially with each integrated before the next starts. RECT-1
-and SNAP-2/3 are close enough in shape that the same author in the same
-sitting (as the steward suggested) is the cheapest path. **DIM-3 and ESC-2
-also collide with each other** (both `sketch/store.ts`, DIM-3 at
-`selectConstraint`/`togglePick`, ESC-2 at the escape cascade/`freshSession`)
-— different functions from the RECT-1/SNAP-2/SNAP-3 cluster and from each
-other, so a merge is mechanically low-risk, but they are P1 and should queue
-behind the P0 cluster regardless; ESC-2 is the simpler DRY fix and should go
-first between the two if both are picked up the same session. **MIRROR-1**
-(new, P1) is the only new item with NO overlap — its fix lives in
-`apps/web/src/viewport/SketchScene.tsx` (the mirror-axis pick + hover-ghost
-branches), not `store.ts` — safe to run fully in parallel with everything
-above. FB-21/FB-9 (frame-convention) and GQA-1 (§12b correction, P2, Next)
-remain independent of all of the above.
+**Dispatch order, groom pass 7 (2026-08-17).** The sketch-draw-correctness
+cluster (RECT-1/SNAP-2/SNAP-3/MIRROR-1) is fully shipped — see Done archive.
+Focus moves to the founder's file-page/export directive. **Two independent
+territory clusters, safe to run fully in parallel with each other; do not
+mix agents WITHIN a cluster on the same file.**
+
+**Cluster A — frontend IA/UX (apps/web), 4 file-page/export items across 5
+files:** EXPORT-1 (`CreateStrip.tsx` + `AssemblyCommandBand.tsx`),
+REGISTER-1 and REGISTER-2 (both `DocumentRegister.tsx`/
+`DocumentRegisterRow.tsx` — same files, sequence these two or give them the
+same agent), VIEWCUBE-1 (`Viewport.tsx`, unrelated to the other three).
+DIM-3/ESC-2 (carried over from pass 5/6, both `sketch/store.ts`, different
+functions — mergeable, ESC-2 first) are a separate pair, unrelated to all
+of the above (sketch editor, not file page/export) and can run in parallel
+with any of them.
+
+**Cluster B — drawing-export kernel (services/geometry/src/geometry/
+drawings/compose.py), 3 items, ONE file:** DXF-2a, DXF-2b, DXF-3 all edit
+`compose.py`'s `serialize_dxf`/flat-pattern emission path. **Do not dispatch
+these three to different agents in parallel — same agent in sequence, or
+strict hand-off with integration between each.** This is also the file the
+kernel-architect's in-flight flat-pattern-scale fix touches — confirm that
+fix has landed and is integrated before starting DXF-2a/2b/3, or take all
+four in one sitting with the scale fix first.
+
+**Cluster C — export format enum (cross-service), 1 item:** EXPORT-2 adds
+`3mf`+`glb` to `ExportFormat` (`packages/py-kit/src/py_kit/schemas/
+geometry.py`) plus the geometry-service writers and `ExportRow.tsx`'s
+`FORMATS` array. Touches `ExportRow.tsx`, which EXPORT-1 does NOT touch (it
+adds a *new* ToolGroup that renders `ExportRow`, doesn't edit it) — safe in
+parallel with Cluster A, but if both land the same session, integrate
+EXPORT-1 first (adds the mount point) then EXPORT-2 (adds the formats
+inside it) to avoid a merge on `ExportRow.tsx`'s prop list.
+
+**FB-21/FB-9** (frame-convention, `apps/web/src/viewport/**` /
+`sketch/plane.ts`) remain independent of everything above and of each
+other's cluster, but collide with each other (same suspected root cause) —
+sequence, don't parallelize.
 
 - [ ] (P1, S) **DIM-3 — the Dimension verb's ARMED state (c449235) is
       invisible, and a wrong-kind pick prints the exact sentence the arm-fix
-      exists to eliminate** (`apps/web/src/sketch/store.ts`). Two related
-      defects found reviewing c449235. (a) armed state is surfaced ONLY
+      exists to eliminate** (`apps/web/src/sketch/store.ts`). kind: defect.
+      Two related defects found reviewing c449235. (a) armed state is surfaced ONLY
       through `hint`, and two ordinary actions null the hint while leaving the
       verb armed — `selectConstraint` (`store.ts:1305`) and `togglePick`
       (`store.ts:909`) — so the next canvas click can open a dimension editor
@@ -100,8 +131,8 @@ remain independent of all of the above.
 
 - [ ] (P1, S) **ESC-2 — two implementations of the Escape cascade disagree
       about SAVE vs DISCARD for the same rung, kept apart only by an omitted
-      default argument — a latent FB-13 landmine.** `PartPage.tsx:1046`
-      re-derives the cascade with its own `escapeAction(...)` call, mapping
+      default argument — a latent FB-13 landmine.** kind: defect.
+      `PartPage.tsx:1046` re-derives the cascade with its own `escapeAction(...)` call, mapping
       `"exit"` to `finishSketch()` (SAVES); `store.ts:1467` maps the SAME verb
       to `freshSession()` (DISCARDS). They cannot disagree TODAY only because
       `PartPage.tsx` omits `escapeAction`'s 5th argument, so `unstarted`
@@ -123,124 +154,8 @@ remain independent of all of the above.
       TERRITORY: `apps/web/src/routes/PartPage.tsx`,
       `apps/web/src/sketch/store.ts`. agentType: frontend-builder.
 
-- [ ] (P0, M) **SNAP-2 — a snap to the origin/axis copies the COORDINATE but
-      authors no CONSTRAINT, so a grounded-looking sketch silently drifts on
-      its first re-drive.** Found by independent QA of SKETCH-2 (`docs/
-      UI-REVIEW.md` QA-SK2-4, `c82ff09`), confirmed against the real solver.
-      Draw a rect with its first corner SNAPPED to the origin: the marker
-      reads `origin`, the DRO reads `+0.00 / +0.00`, the strip reads "9
-      applied" — and there is **no `origin` entity and no constraint naming
-      it**. Re-drive a width 30 -> 40 and the part slides to **x = -7.1716
-      mm**; a genuinely grounded twin (corner joined with `c`) re-driven
-      40 -> 55 stays at exactly (0,0). QA's words: "there is no signal in
-      between — the mark looks identical, the count is identical, nothing
-      marks the corner." Same defect CLASS as DIM-1 before its fix (the tool
-      appears to have understood you and has not) but a different SEVERITY
-      profile, worth stating plainly rather than inheriting DIM-1's tier by
-      default: the geometry recorded at save time is exactly what was typed/
-      snapped — nothing is wrong YET — the wrongness is deferred to a LATER
-      edit, the same shape as PICK-1 (M9/M10) and GEOM-3, which is why this is
-      filed at their tier rather than DIM-1's "wrong the instant you look."
-      MECHANISM: `placeAt(point: Point2D)` (`apps/web/src/sketch/store.ts:805`)
-      receives only the resolved coordinate; the `SnapCandidate` already on
-      `resolution.candidate` (`apps/web/src/sketch/snap.ts:84-97`) carries
-      `entities: readonly string[]` — the exact id(s) an inferred coincident
-      needs — and nothing reads them at placement time. Fusion and SolidWorks
-      author that inferred constraint on snap; this is the gap between "aim
-      lands exactly on the target" (true here) and "stays attached" (false).
-      FIX: when `placeAt` resolves via an `origin`/`x-axis`/`y-axis`/endpoint/
-      midpoint snap (not the grid or a free point), author the matching
-      coincident (or on-axis) constraint against `resolution.candidate.
-      entities` at the same commit that adds the drawn entity — mirroring how
-      the drag-release gesture and the rigidity-set-on-first-dimension already
-      inject constraints alongside geometry. Needs a product decision on
-      SCOPE: infer for ALL entity-snap kinds (endpoint/midpoint too, closing a
-      second, older reading of "snap points don't work" — the corner separates
-      from its neighbour on edit) or just the datum frame (narrower, faster,
-      directly closes QA-SK2-4). Recommend shipping the datum-frame case first
-      (this ticket) and filing the general entity-snap case separately once
-      shipped, rather than blocking on the larger design. ACCEPTANCE: draw a
-      rect with a corner snapped to the origin, save, re-drive the width — the
-      corner stays at exactly (0,0), matching the `c`-grounded case; a new e2e
-      spec proves it, and a companion asserts the OLD behaviour (coordinate
-      copy, no constraint) is what's being replaced, i.e. the spec must fail
-      on current HEAD. Mutation check: skipping the inferred-constraint
-      authoring reddens the new spec's re-drive assertion only.
-      [src: independent QA of SKETCH-2, `docs/UI-REVIEW.md` QA-SK2-4,
-      2026-08-15]
-      TERRITORY: `apps/web/src/sketch/store.ts` (`placeAt`), `apps/web/src/
-      sketch/snap.ts`, `apps/web/src/sketch/datum.ts`, new e2e spec. Same
-      territory as SKETCH-2/the hydration-guard item below — do not run
-      concurrently with either. agentType: frontend-builder.
-
-- [x] (P0, S/M) **RECT-1 — a rectangle drawn WITHOUT typing a value during the
-      draw gesture is four numerically-coincident but topologically
-      DISCONNECTED lines, not a closed profile.** kind: capability (the
-      product cannot author the rigidity a closed profile needs unless the
-      user also types a dimension in the same gesture — a capability gap, not
-      a broken instance of an existing one). Verified on current HEAD, by
-      symbol not by the cited line numbers (they drift): `drawDimensions.ts`'s
-      `drawDimensionConstraints` — `const typed = fields.filter(...); if
-      (typed.length === 0) return [];` — is the ONLY call site anywhere under
-      `apps/web/src/sketch/**` (grepped) that invokes `rectangleRigidity` (the
-      function authoring the four corner `coincident` + 2H/2V constraints);
-      `tools.ts`'s `rectangleCorners`/`rectangleLines` store each corner as a
-      raw `{x,y}` pair with no id-sharing between adjacent lines; no
-      server-side point-merge exists anywhere in
-      `services/geometry/src/geometry/sketch/**` (grepped `merge`/`coincid`,
-      none found — `coincident` is authored, never inferred, in
-      `planegcs_solver.py`). Draw a rectangle, don't type a size, dismiss the
-      draw-dimension cell (Escape / click elsewhere) — a later horizontal or
-      vertical dimension on any ONE edge moves that edge alone; the other
-      three stay put and the rectangle tears at its corners on the first
-      re-drive. This is the single most common closed-profile gesture in the
-      sketcher. FIX: author the rectangle's rigidity set (4x coincident +
-      2H/2V) unconditionally at PLACEMENT time (`store.ts`'s `placeAt`, where
-      `result.entities` for a completed rectangle placement is already known)
-      rather than gating it behind `commitDrawDimensions`'s typed-value path;
-      decouple "the shape is closed" from "a size was typed." ACCEPTANCE: draw
-      a rectangle, do NOT type a value, dismiss the cell; a new e2e spec
-      re-drives one edge's dimension and asserts the OTHER three edges move
-      with it (closed profile), and a companion assertion proves this FAILS on
-      current HEAD (the other three edges stay put). Mutation check: reverting
-      the unconditional rigidity-authoring back to the typed-value gate
-      reddens the new spec's re-drive assertion only, and only that one.
-      [src: vision-steward competitive pass 2026-08-16, docs/COMPETITIVE.md
-      "Automatic constraint inference while sketching" row; docs/VISION.md
-      Sketching & constraints row, 2026-08-16 correction]
-      TERRITORY: `apps/web/src/sketch/drawDimensions.ts` (`rectangleRigidity`,
-      `drawDimensionConstraints`), `apps/web/src/sketch/store.ts` (`placeAt`),
-      new e2e spec. **Shares `placeAt`/draw-commit territory with SNAP-2 and
-      SNAP-3 below — see the Ready-section dispatch note; do not run these
-      three in parallel across different agents.** agentType: frontend-builder.
-      **CLOSED 2026-08-16 (orchestrator, agents unavailable — session cap).**
-      The rigidity set MOVED rather than being added: it is now authored at
-      PLACEMENT by `shapeRigidity` and `drawDimensionConstraints` emits only
-      dimensions, because authoring in both places would double all twelve
-      equations and report an ordinary draw-then-dimension as OVER-CONSTRAINED
-      — a worse defect than the one being fixed. New `e2e/rect-rigidity.spec.ts`
-      carries the acceptance: draw 40x25, type nothing, dismiss the cell, then
-      re-drive the bottom edge to 60 and read the SOLVED payload — the opposite
-      edge follows to 60, the sides hold at 25, and all four corners still meet
-      within 0.01 mm. A second test reads the constraints back off the persisted
-      feature tree, because a client-side-only set would satisfy the first and
-      still lose the rectangle on re-open. Mutation: reverting `placeAt` reddens
-      19 unit tests and both new e2e assertions, and the e2e failure is the tear
-      itself (60 against a 40 that did not follow), not a bookkeeping mismatch.
-      SIDE EFFECT FOUND AND SCOPED OUT, not shipped: `PartPage.tsx` bound an
-      unsaved sketch on `constraints.length > 0`, so every rectangle would have
-      auto-persisted the instant it was drawn and the "Discard N unsaved
-      entities" exit confirm would have vanished for rectangles while surviving
-      for lines and circles. The gate now reads a `userConstrained` flag that
-      placement deliberately leaves false, so binding semantics are exactly
-      unchanged. Filed below as RECT-2 — whether drawing alone SHOULD auto-bind
-      is a real product question and was not decided here by accident.
-      Seven e2e specs were updated because the product genuinely changed; the
-      flagship "worked example: 40x25 rectangle, five constraints" was applying
-      by hand three of the eight the draw now authors, and both it and the
-      Phase 1 exit gate now assert the rectangle ARRIVES rigid and prove it from
-      the user's chair (pressing `h` on the bottom edge answers "Already
-      horizontal.").
+**RECT-1, SNAP-2, SNAP-3 and MIRROR-1 are all SHIPPED — see Done archive
+for full evidence/gates.** Their two live follow-ups stay in Ready:
 
 - [ ] (P2, S) **SNAP-4 — an explicit Fix on a point the draw already grounded
       reads as OVER-CONSTRAINED, and the user did not ask for either half.**
@@ -293,91 +208,9 @@ remain independent of all of the above.
       TERRITORY: `apps/web/src/routes/PartPage.tsx`,
       `apps/web/src/sketch/store.ts`. agentType: frontend-builder.
 
-- [ ] (P0, M) **SNAP-3 — SNAP-2's own ticket text names this as "the general
-      entity-snap case" without scoping it; promoted to its own item.**
-      kind: capability. Snapping a new point onto an ALREADY-DRAWN entity's
-      endpoint or midpoint (the ordinary way to close a hand-drawn profile
-      edge-by-edge, as opposed to SNAP-2's datum-frame-only case) copies the
-      resolved coordinate with the identical no-constraint gap SNAP-2 fixes
-      for `origin`/`x-axis`/`y-axis`: the corner LOOKS joined (the DRO reads
-      the same number, the marker glyph lights up) and separates from its
-      neighbour on the first later re-drive. SolidWorks documents
-      automatic-coincident-on-point-over-point-during-a-line-draw as baseline
-      behavior ([SOLIDWORKS Sketch Relations Guide](https://www.goengineer.com/blog/solidworks-sketch-relations-guide)).
-      MECHANISM, same as SNAP-2's: `placeAt` (`store.ts`) receives only the
-      resolved coordinate from `aim()`; `SnapCandidate.entities` (`snap.ts`)
-      already carries the id(s) an inferred coincident needs and nothing
-      reads them for a plain entity-endpoint/midpoint snap (only SNAP-2's
-      fix, once shipped, will cover the datum-frame subset). FIX: extend
-      SNAP-2's inferred-constraint authoring at `placeAt` to the
-      endpoint/midpoint `SnapCandidate` kinds, not just
-      `origin`/`x-axis`/`y-axis`. Ship AFTER SNAP-2 lands (same call site,
-      same author preferred — see dispatch note) rather than as an
-      independent rewrite. ACCEPTANCE: draw two lines closing a triangle by
-      snapping the second line's endpoint onto the first line's start; save;
-      re-drive a dimension on the first line — the shared corner stays
-      joined (matches an explicit `coincident`-constrained twin), not the
-      coordinate-copy drift SNAP-2's own repro demonstrates. New e2e spec
-      proves it and includes a companion assertion that fails on
-      pre-SNAP-3 HEAD (same shape as SNAP-2's own acceptance criteria).
-      Mutation check: skipping the endpoint/midpoint branch of the
-      inferred-constraint authoring reddens the new spec's re-drive
-      assertion only.
-      [src: vision-steward competitive pass 2026-08-16, generalizing SNAP-2's
-      own text and docs/VISION.md's Sketching row 2026-08-16 correction]
-      TERRITORY: `apps/web/src/sketch/store.ts` (`placeAt`), `apps/web/src/
-      sketch/snap.ts`, new e2e spec. **Same placeAt/draw-commit territory as
-      SNAP-2 and RECT-1 above — sequence, don't parallelize.** agentType:
-      frontend-builder.
-
-- [ ] (P1, S) **MIRROR-1 — the mirror-axis picker explicitly excludes datum
-      entities, so mirroring a profile about the sketch's own centerline
-      (the origin/axis SKETCH-2 made real three days ago) is flatly
-      unavailable.** kind: capability. Verified on current HEAD:
-      `SketchScene.tsx`'s pointer-move (hover/ghost-preview) handler picks
-      via `pickCandidates(withoutDatums(state.entities), ...)` for every
-      `aimTool` other than `"select"` (mirror included), and the click
-      handler's `mirror` branch does the same
-      (`pickCandidates(withoutDatums(store.entities), ...)`, feeding both
-      `toggleMirrorTarget` in the targets phase and `store.pickMirrorAxis(id)`
-      in the axis phase) — so a datum axis can neither be HOVERED (no ghost
-      reflection preview) nor CLICKED as the mirror axis. `DrawLayer`'s own
-      `entities` (used to resolve `axisLinePoints` for the ghost) is ALSO
-      `withoutDatums(buffered)`, so the ghost-preview path has the identical
-      exclusion. This is not a store-level gap: `pickMirrorAxis`
-      (`store.ts:1179`) already accepts ANY `kind:"line"` entity including a
-      datum axis, and `axisLinePoints` (`mirror.ts`) works from an
-      unfiltered entity list when given one — the exclusion is entirely in
-      the two `SketchScene.tsx` pick call sites. Fusion/Onshape mirror
-      freely about any construction line including the origin axes; a
-      symmetric bracket profile (mirror a half-profile about the sketch
-      centerline) is the textbook case this blocks. FIX: in
-      `SketchScene.tsx`, when `store.mirror?.phase === "axis"` (both the
-      hover/aim handler and the click handler), pick from the FULL entity
-      list (or a datum-inclusive variant) instead of `withoutDatums(...)`;
-      leave the `"targets"` phase and every other tool's picks
-      datum-excluded as today (mirroring the datum axis itself, or letting
-      it become a plain click-select target, is out of scope). ACCEPTANCE:
-      start a mirror, select a target entity, advance to the axis phase,
-      hover and click the sketch's Y-axis (or X-axis) datum line — the ghost
-      preview renders and the mirror commits about it, producing the
-      backend's exact reflection. New e2e spec; a companion assertion shows
-      the axis click is a no-op (`hint: "Aim at a line to mirror about."`)
-      on pre-fix HEAD. Mutation check: reverting either pick call site back
-      to `withoutDatums` unconditionally reddens the new spec's axis-pick
-      assertion only.
-      [src: vision-steward competitive pass 2026-08-16, docs/COMPETITIVE.md
-      Sketching "Sketch mirror / pattern" row; docs/VISION.md Sketching row
-      2026-08-16 correction]
-      TERRITORY: `apps/web/src/viewport/SketchScene.tsx` (mirror hover +
-      click branches), new e2e spec. **No overlap with RECT-1/SNAP-2/SNAP-3
-      (different file) or DIM-3/ESC-2 (different `store.ts` functions) —
-      safe to dispatch in parallel with any of them.** agentType:
-      frontend-builder.
-
 - [ ] (P0, M) **FB-21 — the origin axis glyphs are labelled in KERNEL space but
       drawn in SCENE space, which the GLB rotation has already turned.**
-      Founder: *"check the axis. Turn on the axis and compare them to the view
+      kind: defect. Founder: *"check the axis. Turn on the axis and compare them to the view
       cube."* MEASURED: kernel +Z maps to scene +Y (glTF node rotation
       `[-0.7071,0,0,0.7071]`, a -90° turn about X, baked into the merged
       mesh buffer), but `OriginGeometry.AXIS_DIRECTION` draws the Z glyph at
@@ -399,7 +232,8 @@ remain independent of all of the above.
       `apps/web/src/sketch/plane.ts`, `apps/web/src/viewport/Viewport.tsx`
       (camera `upFor`). agentType: frontend-builder.
 
-- [ ] (P0, S) **FB-9 — "the extruded is not on the same plane"** (photographed
+- [ ] (P0, S) **FB-9 — "the extruded is not on the same plane"** kind: defect
+      (photographed
       by the founder, still open; POSSIBLY the same root cause as FB-21's
       kernel/scene frame mismatch above — check that first before treating as
       a separate bug). Original repro steps and photo evidence: see git
@@ -414,7 +248,294 @@ remain independent of all of the above.
       TERRITORY: TBD by reproduction — likely `apps/web/src/viewport/**` or
       `apps/web/src/sketch/plane.ts`. agentType: frontend-builder.
 
+- [ ] (P1, S) **EXPORT-1 — export is the last cell of a collapsible PROPERTIES
+      panel, and collapsing that panel removes the only way to issue a
+      file.** kind: defect. Founder, verbatim: *"the button to export should
+      not be with all the mass properties."* Measured (`docs/UI-REVIEW.md`
+      P1-1): with the Inspector collapsed via its own
+      `panel-collapse-inspector` control, `[data-testid="part-export-
+      controls"]` count = 0, visible = false — no File menu, no export in
+      the top toolbar, no export on the breadcrumb; **53 Tab presses** from
+      document start reach `part-export-step` at 1600×1000; the assembly
+      workspace repeats the defect (`ExportRow` pinned under the Solve/BOM/
+      Clash `SegmentedControl` in `AssemblyInspectorPanel.tsx:113`). The
+      fix already exists in-tree as a pattern:
+      `DrawingCommandBand.tsx:225`'s `<ToolGroup eyebrow="Export">` — this
+      is a DRY fix (apply an existing pattern to the two workspaces missing
+      it), not new design. FIX: add an `EXPORT` `ToolGroup` to the part
+      workspace's top command band (`CreateStrip.tsx`, which renders
+      HISTORY/CREATE/MODIFY/SHEET METAL/INSPECT — this is the component the
+      audit calls "TopToolbar") and to `AssemblyCommandBand.tsx`, each
+      rendering the existing export controls with the same `exportGate`
+      state (disabled + a reachable reason, `PanelActionCell` already
+      supports this). Keep the ruled `ExportRow` inside the inspector panel
+      too — the audit's own recommendation, it's the right place for the
+      "this file would be partial" notice; this ticket ADDS a document-level
+      entry point, it does not remove the existing one. ACCEPTANCE: with the
+      Inspector panel collapsed, an export control is visible and operable
+      in the top command band on both the part and assembly workspaces; new/
+      updated e2e asserts `part-export-controls` (or the new toolbar
+      testid)'s visibility after `panel-collapse-inspector`, and a
+      Tab-reachability assertion bounds the export action to a small,
+      documented number of presses (well under 53).
+      [src: UI-REVIEW.md P1-1, 2026-08-17 founder-directed audit]
+      TERRITORY: `apps/web/src/components/CreateStrip.tsx`,
+      `apps/web/src/components/AssemblyCommandBand.tsx`. Reads
+      `ExportRow.tsx` but does not edit it — safe to land before or after
+      EXPORT-2, though EXPORT-1 first avoids a merge on `ExportRow.tsx`'s
+      call sites if both ship the same session. agentType: frontend-builder.
+
+- [ ] (P1, S) **REGISTER-1 — the parts register's identifying NAME column
+      hard-clips with no ellipsis while row-delete verbs get 1.5x its
+      width.** kind: defect. Measured (`docs/UI-REVIEW.md` P1-2) at
+      1280×800: NAME 173px/18% (the only discriminating column) vs. Actions
+      256px/27% (RENAME/DUPLICATE/MOVE/DELETE on every row). The name is
+      hard-clipped with NO ellipsis and NO tooltip: `<td class="truncate">`
+      sets `text-overflow: ellipsis` but the anchor inside is `inline-flex`
+      (`DocumentRegisterRow.tsx:261`, an atomic inline box), so it clips
+      raw — computed `text-overflow: clip`, `title: null`. "Motor mount
+      adapter plate rev C" (207px) renders as "Motor mount adapter plat"
+      with no cue anything is missing. FIX: (a) collapse RENAME/DUPLICATE/
+      MOVE/DELETE into a single row overflow menu (a `⋯` button + the
+      existing `Flyout` primitive), reclaim the freed width for NAME; (b)
+      fix the primitive — make the row link `inline` (or apply
+      `overflow:hidden;text-overflow:ellipsis` directly to the anchor, not
+      just the `<td>`) and stamp `title` with the full name. ACCEPTANCE: a
+      register row whose name exceeds the column width renders with a
+      visible ellipsis and `title` equal to the full name, at both 1280px
+      and 1600px; DELETE still requires its existing confirmation, now
+      behind the overflow menu; e2e/unit test on a long-name fixture.
+      [src: UI-REVIEW.md P1-2, 2026-08-17 founder-directed audit]
+      TERRITORY: `apps/web/src/components/DocumentRegister.tsx` (`COLUMN`),
+      `apps/web/src/components/DocumentRegisterRow.tsx`. **Same files as
+      REGISTER-2 below — sequence these two or give them the same agent.**
+      agentType: frontend-builder.
+
+- [ ] (P1, S) **REGISTER-2 — the register returns oldest-first, its only
+      create control sits 5145px below the fold at 120 parts, and header/
+      sort/count scroll away.** kind: defect. Measured (`docs/UI-REVIEW.md`
+      P1-3) on a 120-part drawer at 1280×800: `aria-sort` on load = "Filed,
+      ascending" (creation order, oldest first — the register's own caption
+      says "Your parts, oldest first"); `main.scrollHeight` = 5145px against
+      `clientHeight` 756px, and the ONLY create control (the scribe line,
+      ordinal 121) sits at the bottom of that; `thead tr` computed
+      `position: static`, so scrolling loses the column headers, sort
+      controls, FILTER field and count simultaneously — at row 104 the
+      screen is six columns of unlabelled data with no way to re-sort
+      without scrolling back 4000px. FIX: (1) `DEFAULT_SORT` → LAST WORKED
+      descending, update the caption; (2) make the header row sticky within
+      the register's scroll container; (3) give the create affordance a
+      persistent secondary entry point (float or header-anchored) so it's
+      reachable without scrolling past ~13 parts — the scribe line can stay
+      as the in-place gesture. ACCEPTANCE: on the 120-part fixture,
+      `aria-sort` on load reads Last worked/descending; after scrolling to
+      row 104, the header row AND a create control are both still in the
+      viewport; new e2e asserts all three.
+      [src: UI-REVIEW.md P1-3, 2026-08-17 founder-directed audit]
+      TERRITORY: `apps/web/src/components/DocumentRegister.tsx`
+      (`DEFAULT_SORT`, `ScribeLine`), `apps/web/src/routes/PartsPage.tsx` if
+      the create-affordance placement needs a shell change. **Same primary
+      file as REGISTER-1 above — sequence, don't parallelize across
+      agents.** agentType: frontend-builder.
+
+- [ ] (P1, S) **VIEWCUBE-1 — the ViewCube is absent at every viewport height
+      ≤800px, violating the design mandate's "table stakes" line for
+      persistent view navigation.** kind: defect. Measured (`docs/
+      UI-REVIEW.md` P1-4), bracketed by capture: present at 1600×1000,
+      1440×900, 1280×900 (canvas ≥752px); absent at 1400×800, 1280×800,
+      1366×768 (canvas ≤652px) — height-driven (1280×900 has it, 1400×800
+      doesn't), and the break lands exactly on the two commonest laptop
+      frames CLAUDE.md's responsive floor names. The ViewBar (home/fit/
+      front/top/right/iso) is still present, so navigation is not fully
+      lost — only the cube. `Viewport.tsx:562`'s `GizmoHelper` uses
+      `margin=[96,96]`; `CUBE_MARGIN_PX = 96` against a `CUBE_FOOTPRINT_PX
+      = 120` cube suggests the sum exceeds something at short canvas
+      heights — needs root-causing, not a blind constant swap. ACCEPTANCE:
+      the cube renders (ink present, screenshot-verified — a naive canvas
+      `drawImage` readback does NOT discriminate here, it reads ~350
+      near-white pixels either way) at 1280×800 and 1366×768; new regression
+      test asserting cube ink at 1280×800.
+      [src: UI-REVIEW.md P1-4, 2026-08-17 founder-directed audit]
+      TERRITORY: `apps/web/src/viewport/Viewport.tsx` (`GizmoHelper` margin,
+      `CUBE_MARGIN_PX`/`CUBE_FOOTPRINT_PX`), the cube/gizmo component.
+      Unrelated to EXPORT-1/REGISTER-1/REGISTER-2 (different files) — safe
+      in parallel with any of them. agentType: frontend-builder.
+
+- [ ] (P1, S) **DXF-2a — bend-table row TEXT shares the `BEND` layer with
+      fold lines, so the one manual flat-pattern workaround (keep VISIBLE+
+      BEND, drop TITLE) still drags five text entities into the model
+      space.** kind: defect. Measured (`docs/AUDIT-PRODUCT.md` F-2b) on the
+      L-bracket fixture: filtering to `VISIBLE`+`BEND` layers still carries
+      `'bend-1'`, `'90.0Â°'`, `'R3.00'`, `'UP'`, `'6.09'` as TEXT entities
+      sitting ~170mm from the part, because the bend-table's row TEXT and
+      the fold LINE are both authored on `BEND`. FIX: move bend-table row
+      TEXT to a new dedicated layer (e.g. `BEND_TABLE` or `ANNOTATION`);
+      fold LINEs stay on `BEND`. ACCEPTANCE: filtering the DXF to
+      `VISIBLE`+`BEND` layers yields ONLY the cut outline + fold lines, no
+      TEXT entities, on the audit's L-bracket fixture; new/updated golden
+      asserts the layer split. **Sequence with the in-flight kernel-architect
+      flat-pattern-scale fix (same file) — confirm it has landed before
+      starting, or take both in one sitting with the scale fix first.**
+      [src: AUDIT-PRODUCT.md F-2b, 2026-08-17 pass]
+      TERRITORY: `services/geometry/src/geometry/drawings/compose.py`
+      (`serialize_dxf`'s `BEND` layer emission). **Same file as DXF-2b and
+      DXF-3 below — one agent in sequence, not three in parallel.**
+      agentType: kernel-architect.
+
+- [ ] (P1, M) **DXF-2b — no profile-only flat-pattern DXF export exists; the
+      only artifact ships wrapped in an A4 drawing sheet.** kind: capability.
+      Measured (`docs/AUDIT-PRODUCT.md` F-2a): cut geometry is 5 of 29
+      entities in the shipped DXF; the rest is A4 border/title block/
+      annotation (overall extents 10→287mm × 10→200mm). An operator must
+      import the sheet and manually delete the furniture, every revision.
+      SolidWorks/Onshape/Fusion all ship a one-click flat-pattern DXF
+      containing cut geometry (optionally bend lines on their own layer)
+      and nothing else — the artifact fabricators ask for by name. FIX: a
+      new profile-only export path, reusing `ComposedSheet`'s flat-pattern
+      view, emitting ONLY the cut outline + fold lines at 1:1, no sheet
+      border/title block/bend-table annotation, reachable in one action
+      from a sheet-metal PART (not requiring a drawing sheet to exist
+      first). ACCEPTANCE: new export path/endpoint returns a DXF whose
+      entities are cut geometry + fold lines only (matches DXF-2a's layer
+      split); golden fixture asserting entity count/extents on the audit's
+      L-bracket; test exercises the new action end-to-end from a part (not
+      via a drawing). Frontend trigger can land as a follow-up inside
+      EXPORT-1's new toolgroup or `CreateStrip`'s Sheet metal group — split
+      at pickup if the backend alone is a full session's work.
+      [src: AUDIT-PRODUCT.md F-2a, ranked #2 overall, 2026-08-17 pass]
+      TERRITORY: `services/geometry/src/geometry/drawings/compose.py` or
+      `flat_pattern.py` (new serializer), `services/geometry/src/geometry/
+      api.py` or gateway route (new export action), `apps/web` trigger.
+      **Same primary file as DXF-2a/DXF-3 — sequence.** agentType:
+      kernel-architect (backend first; frontend-builder for the trigger).
+
+- [ ] (P1, S) **DXF-3 — the DXF is mojibake in any conforming reader:
+      `$DWGCODEPAGE ANSI_1252` declared, raw UTF-8 written.** kind: defect.
+      Measured (`docs/AUDIT-PRODUCT.md` F-3): the file declares `$ACADVER =
+      AC1015` (R2000) and `$DWGCODEPAGE = ANSI_1252`, then writes raw UTF-8
+      bytes into TEXT entities; `ezdxf` — the same library that WRITES the
+      file — reads back `'90.0Â°'` where `'90.0°'` was intended, and
+      `'LOFT Â· PART DRAWING'` for `'LOFT · PART DRAWING'`. The bend-angle
+      column is the single most load-bearing field in a bend table. FIX:
+      bump to R2018 (`AC1032`, UTF-8-native) OR emit the DXF unicode escape
+      (`\U+00B0`)/AutoCAD `%%d` for the degree sign and drop the middot.
+      Also fix `serialize_dxf`'s stale docstring ("pinned R2010" vs. the
+      actual `_DXF_VERSION = "R2000"`) in the same commit. ACCEPTANCE: a new
+      test round-trips the emitted DXF through `ezdxf` and asserts the
+      bend-angle TEXT string equals `"90.0°"` exactly (not the mojibake
+      form).
+      [src: AUDIT-PRODUCT.md F-3, 2026-08-17 pass]
+      TERRITORY: `services/geometry/src/geometry/drawings/compose.py`
+      (`serialize_dxf`, `_DXF_VERSION`). **Same file as DXF-2a/DXF-2b —
+      sequence.** agentType: kernel-architect.
+
+- [ ] (P1, M) **EXPORT-2 — add 3MF and glTF/GLB to `ExportFormat`; both are
+      near-zero-cost.** kind: capability. Measured (`docs/AUDIT-PRODUCT.md`
+      F-4/F-5): `lib3mf 2.5.0` is already installed and locked in
+      `uv.lock` (BSD-2-Clause, clean), and `build123d`'s `Mesher` already
+      wraps it — a valid 3MF was written in-process this audit pass with no
+      new dependency. GLB is already generated on **every** tessellate
+      (`POST /api/v1/geometry/tessellate` → `model/gltf-binary`) and served
+      from a `mesh_store` keyed on its sha256 — it is simply not offered as
+      an *export*. 3MF carries units/colour/multi-object (STL carries
+      none — the oldest bug class in 3D printing); every current slicer
+      (Bambu/Prusa/Cura/Orca) prefers or defaults to it. glTF is the web-3D
+      lingua franca for anyone downstream of engineering (viewers, AR,
+      rendering, docs). FIX: add `"3mf"` and `"glb"` to `ExportFormat`;
+      `export_3mf_bytes` via `Mesher`; `export_glb_bytes` reusing the
+      tessellation pipeline's existing GLB bytes (no new mesh generation
+      path); wire both through the gateway export routes; add two tiles to
+      `ExportRow`'s `FORMATS` array. ACCEPTANCE: `POST /api/v1/geometry/
+      export` (and the part/assembly export wrappers) accept
+      `format: "3mf"|"glb"` and return valid containers (3MF: real zip with
+      `3D/3dmodel.model`; GLB: `model/gltf-binary`, magic `glTF`); new
+      goldens for both formats; existing STEP/STL behaviour byte-identical
+      (regression golden); `ExportRow` shows both new tiles behind the same
+      `exporter` prop, no new component needed.
+      [src: AUDIT-PRODUCT.md F-4/F-5, ranked #4/#5, 2026-08-17 pass]
+      TERRITORY: `packages/py-kit/src/py_kit/schemas/geometry.py`
+      (`ExportFormat`), `services/geometry/src/geometry/kernel/export.py`,
+      `services/gateway/src/gateway/features.py` (route dispatch),
+      `apps/web/src/components/ExportRow.tsx` (`FORMATS`). Reads/extends
+      `ExportRow.tsx` — land AFTER EXPORT-1 if both ship the same session
+      to avoid a merge on that file's call sites (EXPORT-1 adds the mount
+      point, EXPORT-2 adds formats inside it). agentType: kernel-architect
+      (backend) with a small frontend-builder follow-up for `ExportRow`.
+
+- [ ] (P1, XS) **VISION-FIX-1 — `docs/COMPETITIVE.md` and `docs/VISION.md`'s
+      interop rows are stale in ways that misdirect the roadmap.** kind:
+      defect (doc staleness). NOT edited here — owned by the
+      `vision-steward`, not the groomer. Evidence, measured this pass:
+      `docs/COMPETITIVE.md:64` marks `STEP/STL export | ✅` against Fusion's
+      eleven export formats (STEP, STL, 3MF, OBJ, DWG, DXF, IGES, SAT, SMT,
+      F3D, glTF) — a two-format export is not a ✅ row.
+      `docs/VISION.md:74`'s Interop row TITLE names **IGES** (the audit's
+      #9-ranked, lowest-value format) as one of three pillars while omitting
+      **DXF**, **3MF** and **glTF**, which is what 2026 handoff actually is
+      — a roadmap reading that title would build IGES and feel finished.
+      The row's Notes also claim assembly product-structure import "is not
+      read," which is factually stale: `py_kit.schemas.step_import`,
+      `geometry.assembly.import_step`, `geometry.kernel.step_assembly`, and
+      the gateway route all ship, and `_step_assembly_parse_worker` sets
+      `SetNameMode(True)`. ACCEPTANCE: `docs/COMPETITIVE.md:64` corrected
+      against the measured export list; `docs/VISION.md:74` retitled
+      (suggested: "Interop (import + export)") and re-scored/re-noted to
+      reflect DXF/3MF/glTF and the corrected assembly-import status.
+      [src: AUDIT-PRODUCT.md "Does this flip a scorecard row?", 2026-08-17
+      pass]
+      TERRITORY: `docs/COMPETITIVE.md`, `docs/VISION.md`. No code, no
+      overlap with any item above. agentType: vision-steward.
+
 ## Next (P2)
+
+- [ ] (P2, M) **IMPORT-HEAL-1 — a STEP import yielding zero solids has no
+      recovery path.** kind: capability. `geometry.kernel.imports` says
+      plainly "It does not sew/heal/repair, and IGES is deferred." Real
+      supplier/legacy STEP frequently arrives with gaps, tiny faces, or open
+      shells; a file yielding zero solids returns `import_no_solid` with NO
+      recovery — no "import as surfaces", no "attempt to sew", no partial
+      result. Preserve the audit's framing: this is the more SEVERE gap
+      (an unrecoverable dead end — with a missing export format you convert
+      elsewhere, with a dead import you cannot start at all) even though the
+      audit ranks it P2 by COST against the near-zero DXF/3MF/glTF wins in
+      Ready — that tension is deliberate, not an oversight. FIX: attempt
+      OCCT `ShapeFix`/`ShapeUpgrade` sew+heal before returning
+      `import_no_solid`; on success, the response carries a `repaired: true`
+      flag naming what was fixed (faces stitched, gaps closed). ACCEPTANCE:
+      a golden fixture with a small controlled defect (e.g. one face split
+      by a hairline slit) imports successfully post-fix where it failed
+      pre-fix; a genuinely unrecoverable fixture (no closed volume possible)
+      still returns `import_no_solid` unchanged — negative control.
+      [src: AUDIT-PRODUCT.md F-6.1, ranked #6, 2026-08-17 pass]
+      TERRITORY: `services/geometry/src/geometry/kernel/imports.py`,
+      `services/geometry/src/geometry/kernel/_step_parse_worker.py`.
+      agentType: kernel-architect.
+
+- [ ] (P2, S) **IMPORT-HEAL-2 — surface the healing report / partial-result
+      honesty in the import UI.** kind: capability. Depends on
+      IMPORT-HEAL-1's response shape landing first. ACCEPTANCE: when the
+      import response carries `repaired: true`, the import UI shows an
+      honest notice naming what was repaired rather than a silent success.
+      [src: AUDIT-PRODUCT.md F-6.1, 2026-08-17 pass]
+      TERRITORY: `apps/web` (the existing STEP-import flow, `CreateStrip`'s
+      Import button). agentType: frontend-builder.
+
+- [ ] (P2, XS) **EXPORT-ERR — an unsupported export format returns a raw
+      pydantic `literal_error` instead of a typed
+      `export_format_unsupported`.** kind: defect. Measured
+      (`docs/AUDIT-PRODUCT.md` F-7): asking for 3MF today gets
+      `{"type":"literal_error","loc":["body","format"],"msg":"Input should
+      be 'step' or 'stl'"}` — correct, but reads like a schema violation
+      rather than "not built yet," which matters for anyone driving the API
+      from a script or an agent. ACCEPTANCE: a typed error naming the
+      supported-formats list, using `py-kit`'s existing error envelope,
+      replaces the raw pydantic error on both export enums (`ExportFormat`,
+      `ArtifactFormat`); test asserts the error `type` and a `supported`
+      field.
+      [src: AUDIT-PRODUCT.md F-7, 2026-08-17 pass]
+      TERRITORY: `packages/py-kit/src/py_kit` (error envelope),
+      `services/gateway/src/gateway/features.py` or the geometry export
+      route. agentType: backend-builder.
 
 - [ ] (P2, S) **GQA-1 — the invariant triple tier 4a compares (outer area,
       perimeter, in-plane centroid) is NOT a fingerprint of the outer wire;
@@ -2234,6 +2355,44 @@ so it is the pre-`5bd4c46` camera snap or a stale Codespace bundle (see FB-11).
 
 ## Done — archive
 
+### RECT-1 + SNAP-2 + SNAP-3 + MIRROR-1 CLOSED — the vision-steward's 2026-08-16 competitive cluster (groom pass 7, 2026-08-17, backlog-groomer)
+
+- **RECT-1** — a rectangle drawn without typing a value was four
+  numerically-coincident but topologically disconnected lines, not a closed
+  profile. SHIPPED `6d0f456`: rigidity (4x coincident + 2H/2V) now authored
+  unconditionally at PLACEMENT (`shapeRigidity`); `drawDimensionConstraints`
+  emits only dimensions. `e2e/rect-rigidity.spec.ts` + a persisted-tree
+  assertion; 19 unit tests + both e2e assertions mutation-verified. Filed
+  RECT-2 (should drawing alone persist a sketch? — Ready) as a scoped-out
+  side question.
+- **SNAP-2 + SNAP-3** — a snap to the origin/axis or to an already-drawn
+  entity's endpoint/midpoint copied the resolved coordinate but authored no
+  constraint, so a grounded-looking corner silently drifted on its first
+  re-drive. SHIPPED together `c233a5b` (one mechanism, deliberately not two
+  code paths): `SnapCandidate` now carries the constraint address it took
+  its coordinate from (`SnapCandidate.ref`), and `inferredCoincidents` turns
+  the addresses a placed entity actually landed on into coincidents; origin
+  is just another addressable point, so SNAP-2 needed no separate branch.
+  `sketch-snap-coincident.spec.ts` (new, 610 lines) + updated dimension/
+  pick specs. Filed SNAP-4 (explicit Fix double-pins an already-snap-
+  grounded point → false OVER-CONSTRAINED — Ready) as a real interaction
+  defect the integration surfaced.
+- **MIRROR-1** — the mirror-axis picker excluded datum entities via
+  `withoutDatums(...)` at both `SketchScene.tsx` pick sites, so the sketch's
+  own centerline could be neither hovered nor clicked as a mirror axis.
+  SHIPPED `a0cc3f7`: the AXIS phase now picks through `pickWithDatums`;
+  `mirrorAxisFor` (new, `mirror.ts`) resolves a datum pick as a POINTS axis
+  needing no sketch entity, so mirroring about the centerline adds nothing
+  to the sketch (no construction line, no DOF churn). 6 sketch-mirror e2e +
+  12 datum/origin specs green; mutation-verified both directions.
+  Integration fix `9418263` re-based four specs' positional `glyph-N`
+  testids to value-based lookup (`glyphShowing`) after RECT-1+SNAP-3 shifted
+  constraint-array indices — filed as a lesson, not a ticket: positional
+  test IDs are the wrong handle for "the constraint this test just
+  authored."
+- None of the four have an independent `code-reviewer` pass — process debt,
+  carried forward in the Scorecard-gaps note above.
+
 ### PICK-1 + GEOM-3 CLOSED — the two P0s pass 5 flagged as longest-waiting (groom pass 6, 2026-08-16, backlog-groomer)
 
 - **PICK-1 (M16)** — a viewport pick was stamped with the TIP feature's id,
@@ -3068,17 +3227,15 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
-- 2026-08-15 — Groom pass 4: DIM-1 to top-of-Ready (silent wrong geometry);
-  archived QA7-1/GEOM-2/FB-19; filed GEOM-3/4/5, TOUCH-1.
-- 2026-08-15 evening — Groom pass 5 (+ correction): all four founder
-  2026-08-01 sketcher reports answered; archived DIM-1/SNAP-1/SKETCH-2; filed
-  SNAP-2, SKETCH-3, TOUCH-2, QA-SK2-3, SPEC-6/7; QAH-1 confirmed CLOSED after
-  an initial wrong-range re-derivation. Full detail: `docs/CHANGELOG.md`.
-- 2026-08-16 — **Groom pass 6 (backlog-groomer):** archived PICK-1 (`2b266b1`)
-  + GEOM-3 (`1e39c14`, geometry-qa PASS `0628ceb`) shipped; filed GQA-1
-  (P2)/GQA-2/GQA-3 (P3) from the geometry-qa pass. Turned the vision-steward's
-  2026-08-16 competitive findings into build-ready tickets — RECT-1 (P0),
-  SNAP-3 (P0), MIRROR-1 (P1), each verified against current HEAD by symbol,
-  each `kind: capability` — closing the gap where COMPETITIVE.md/VISION.md
-  prose could never reach the build loop's Ready queue. ROADMAP "Current
-  focus" corrected (was still pointing at GEOM-3/PICK-1 as "next").
+- 2026-08-16 — Groom pass 6: archived PICK-1/GEOM-3 shipped; filed GQA-1/2/3;
+  turned the vision-steward's competitive pass into RECT-1/SNAP-3/MIRROR-1.
+  Full detail: `docs/CHANGELOG.md`.
+- 2026-08-17 — **Groom pass 7 (backlog-groomer):** archived RECT-1/SNAP-2/
+  SNAP-3/MIRROR-1 shipped (all four `docs/AUDIT-PRODUCT.md`/`UI-REVIEW.md`
+  2026-08-17 founder-directed audits — "the file page looks like an
+  afterthought," "export shouldn't live with mass properties") turned into
+  9 Ready tickets (EXPORT-1, REGISTER-1/2, VIEWCUBE-1, DXF-2a/2b/3,
+  EXPORT-2, VISION-FIX-1) + 3 Next tickets (IMPORT-HEAL-1/2, EXPORT-ERR);
+  ROADMAP "Current focus" corrected. 7 defect / 2 capability in the new
+  Ready batch, kind-tagged per this pass's mandate (see contention map in
+  the dispatching agent's return for the full-queue ratio).
