@@ -956,6 +956,11 @@ export function AssemblyPage() {
             canCheckInterference={canCheckInterference}
             interferenceBusy={clashBusy}
             onCheckInterference={runInterference}
+            // Export is a document-level ACTION, so it rides the band as well
+            // as the Inspect panel's strip — the panel can be collapsed, and
+            // the file has to stay reachable when it is (EXPORT-1).
+            exporter={exporter}
+            exportDisabledReason={exportDisabledReason}
           />
         </TopToolbar>
         {/* Full-bleed scene; tree + inspector float over it (Batch 1, P0-4). */}

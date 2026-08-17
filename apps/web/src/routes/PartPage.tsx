@@ -210,6 +210,7 @@ import {
   withDefaultMaterial,
 } from "../features/materials";
 import { derivePartBuild, partialBodySentence } from "../features/partBuild";
+import { partExportBinding } from "../features/partExport";
 import {
   type BaseFlangeForm,
   canAuthorCornerRelief,
@@ -3819,6 +3820,15 @@ export function PartPage() {
       body.isFetching,
     ],
   );
+  // EXPORT, bound once and mounted twice: the Inspector's ruled strip (the
+  // NOTICE surface — it has room to say the file would be partial) and the
+  // command band's EXPORT group (the ACTION surface, which survives collapsing
+  // the panel). Both read this binding, so the gate and the filename cannot
+  // drift apart between them (EXPORT-1).
+  const partExport = useMemo(
+    () => partExportBinding(partId, build),
+    [partId, build],
+  );
   // The inspector appears when there's a body to inspect and we're not
   // sketching — sketch mode keeps the viewport dominant (chrome recedes).
   const showInspector = mode === "off" && bodyProperties !== null;
@@ -4098,6 +4108,10 @@ export function PartPage() {
                 useCommandActionStore.getState().requestSubmit()
               }
               onCommandCancel={closeEditor}
+              onExport={partExport.exporter}
+              exportDisabledReason={partExport.gate.blockedReason}
+              exportPartial={partExport.gate.partial}
+              exportState={partExport.gate.state}
             />
           ) : (
             <SketchStrip

@@ -16,7 +16,9 @@
 import { BandActionCell, ToolButton, ToolGroup, VerbGlyph } from "@loft/design";
 import { useRef } from "react";
 
+import type { ExportedFile, ExportFormat } from "../api/exportPart";
 import { useCommandActionStore } from "../features/commandActions";
+import { ExportToolGroup } from "./ExportToolGroup";
 import { HistoryGroup } from "./HistoryGroup";
 
 export interface CreateStripProps {
@@ -157,6 +159,24 @@ export interface CreateStripProps {
   onCommandOk?: () => void;
   /** Cancel the open command (the workspace closes the editor). */
   onCommandCancel?: () => void;
+  /**
+   * Write the part's current evaluated body to a file — the band's terminal
+   * verb. Omit it and the EXPORT group is not rendered at all.
+   *
+   * Export lives HERE, in document-level chrome, because it is an action and
+   * not a readout: it used to exist only as the last cell of the Inspector's
+   * readout stack, so collapsing that panel removed the only way to get a file
+   * out of the product (EXPORT-1; founder, 2026-08-17). The Inspector keeps its
+   * strip — that is the right place for the "this file would be partial"
+   * notice — but the affordance the user reaches for survives a panel collapse.
+   */
+  onExport?: (format: ExportFormat) => Promise<ExportedFile>;
+  /** Why export is inert (no body / a feature failed), or undefined when ready. */
+  exportDisabledReason?: string;
+  /** Allowed, but the file would be a prefix of the tree (a travel stop). */
+  exportPartial?: boolean;
+  /** QA hook: the export gate state name the workspace derived. */
+  exportState?: string;
 }
 
 export function CreateStrip({
@@ -206,6 +226,10 @@ export function CreateStrip({
   activeCommand = null,
   onCommandOk,
   onCommandCancel,
+  onExport,
+  exportDisabledReason,
+  exportPartial = false,
+  exportState,
 }: CreateStripProps) {
   const importInputRef = useRef<HTMLInputElement>(null);
   const importReady =
@@ -674,6 +698,25 @@ export function CreateStrip({
             onClick={onToggleMeasure}
           />
         </ToolGroup>
+
+        {/* EXPORT closes the band: the band reads left to right as the work —
+            undo the last edit, create, modify, fold, inspect — and ends in the
+            deliverable, the same order and the same `ToolGroup eyebrow="Export"`
+            the drawing band already uses. It is the LAST group and not a
+            document menu because there is no menu layer in this product, and a
+            verb hidden behind one more click is the defect this ticket exists
+            to fix, not a milder version of it. */}
+        {onExport !== undefined ? (
+          <ExportToolGroup
+            testIdPrefix="part-export-band"
+            exporter={onExport}
+            // An open command owns the picks, so export holds with the SAME
+            // one honest reason as every other tool in the locked band.
+            disabledReason={locked ? lockReason : exportDisabledReason}
+            partial={exportPartial}
+            state={exportState}
+          />
+        ) : null}
       </div>
     </div>
   );
