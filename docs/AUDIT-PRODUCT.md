@@ -1916,3 +1916,395 @@ Two more small readout faults seen in the same frames: the status bar reads
 `SOLVE SOLVING…` at the same instant the tree panel reads `SOLVE Solved`
 (`shots/a04`, `b04`) — two solve readouts that disagree; and `Solved` is used
 where the incumbents say `Fully constrained`, which means a different thing.
+
+---
+
+## Pass 2026-08-17 — founder question: "Are we only going to accept one file format as an export?" (HEAD `9418263`)
+
+**Setup.** Native boot (Docker registry blocked): geometry `:8002`, documents
+`:8001`, gateway `:8000`, own SQLite files (`pa-documents.db` / `pa-gateway.db`),
+all three `/healthz`+`/readyz` → 200. Branch
+`claude/branch-review-development-hkbbnb`, tip `9418263`. Every number below was
+measured against that running stack or against the installed kernel environment
+this pass; nothing is quoted from a doc.
+
+### The answer, in one paragraph
+
+**No — we already accept more than one, and the shipped list is wider than the
+question assumes: two 3D formats out (STEP AP214 exact B-rep, binary STL), three
+2D/drawing formats out (SVG, PDF, DXF — all verified working on a real sheet this
+pass), and STEP in (single-body, multi-solid, and full assembly product structure
+— also verified). So neither "one format" nor "export-only" is true. But the
+honest answer to the question *behind* the question — "is that enough for a
+working engineer to leave Fusion?" — is also no, and the reason is not the count.
+Three things are wrong, in this order. (1) We ship a **wrong** file, not just a
+narrow set: a sheet-metal flat pattern exported to DXF from a 1:2 drawing sheet
+contains a **half-size blank** in model space (measured 43.047 × 10.000 mm where
+the true developed blank is 86.095 × 20.000 mm), and that is the file a laser
+vendor cuts from — a scale defect in a shipped format outranks every missing
+format, because a missing format costs a conversion and a wrong one costs a batch
+of parts. (2) The flat pattern is only reachable **as a drawing sheet**, so the
+fabricator receives a cut path wrapped in an A4 border, a title block and 18 TEXT
+entities; every incumbent has a dedicated profile-only "export flat pattern to
+DXF" and that is the artifact shops ask for by name. (3) On the print/visualise
+half of the handoff we are genuinely thin — no 3MF, no glTF/GLB — and both are
+nearly free here: **3MF works today on this machine with zero new dependencies**
+(build123d's `Mesher` + `lib3mf`, already locked in `uv.lock` and installed —
+I wrote a valid 3MF in-process this pass), and **we already generate GLB on every
+tessellate** and serve it to our own viewport, so "export GLB" is largely a matter
+of exposing an artifact we already produce. Import, meanwhile, is in better shape
+than the word "accept" implies and is **not** our biggest hole — its remaining
+weakness is robustness (no sew/heal/repair, so the first messy supplier STEP is a
+dead end), not breadth.**
+
+---
+
+### What actually ships, verified against the running stack
+
+| Surface | Formats | Verified this pass |
+| --- | --- | --- |
+| Part / shape export (`POST /api/v1/geometry/export`, `POST /api/v1/parts/{id}/export`) | `step`, `stl` — nothing else | STEP 15 348 B in 354 ms; STL 684 B in 24 ms; every one of `3mf glb gltf obj iges igs x_t dxf ply jt sat` → 422 |
+| Assembly export (`POST /api/v1/geometry/assembly/export`) | same `ExportFormat` (`step`, `stl`) | schema shared with part export (`py_kit.schemas.assemblies` imports `ExportFormat`) |
+| Drawing export (`POST /api/v1/drawings/{id}/export`) | `svg`, `pdf`, `dxf` — a **separate** enum (`ArtifactFormat`) | SVG 5 140 B/153 ms, PDF 4 745 B/56 ms, DXF 19 222 B/76 ms on a real flat-pattern sheet |
+| Part import (`POST /api/v1/parts/{id}/features/import`) | STEP part-21 only, content-sniffed on `ISO-10303-21` | round-trip 201 in 48 ms; IGES / ASCII-STL / OBJ / 3MF-XML / Parasolid-x_t → `import_not_step`; SLDPRT (OLE magic) → "not valid text" |
+| Assembly import (`POST /api/v1/assemblies/import`) | STEP with product structure; falls back to single-body | 201 in 1 627 ms, returned `{"kind":"part", …}` for a single-solid file — the documented fallback, working |
+| Viewport transport (`POST /api/v1/geometry/tessellate`) | **GLB** (`model/gltf-binary`, magic `glTF`) — internal only, not an export format | 1 624 B in 23 ms |
+
+Two corrections to the framing I was handed, both material:
+
+- **The founder's premise "one format" is off by four.** Two 3D + three
+  drawing formats ship. Worth saying to him plainly, because the gap is not
+  where the question assumed.
+- **My brief's hypothesis that flat-pattern DXF is a hole is WRONG — it
+  ships.** `serialize_dxf` emits real model-space entities (`LINE` /
+  `LWPOLYLINE` / `CIRCLE` / `TEXT`) on a layer scheme (`VISIBLE` / `HIDDEN` /
+  `DIMENSION` / `TITLE` / `BEND`), `flat_pattern` is a first-class
+  `ViewProjection`, and `DrawingCommandBand` exposes **Export DXF** with a `D`
+  shortcut. Credit where due: that is more than "sheet metal without a flat
+  pattern", which is what the brief feared. The defects below are in the
+  artifact's *fidelity*, not its existence — which is a much better place to be
+  starting from, and a much cheaper set of fixes.
+
+---
+
+### F-1 — A flat-pattern DXF from a 1:2 sheet ships a half-size blank. **Rating 1/5 — this is scrap metal.** (P0)
+
+The single worst finding of the pass, and it is a correctness defect in a format
+we already claim, not a missing feature.
+
+Reproduced deterministically: same L-bracket (50 × 20 base flange, 2 mm gauge,
+R3, K 0.44, one 30 mm edge flange at 90°), two drawings, identical in every
+respect except the view's `scale`:
+
+```
+scale 1:1  → DXF model-space blank  86.095 × 20.000 mm   (correct developed blank)
+scale 1:2  → DXF model-space blank  43.047 × 10.000 mm   (exactly half)
+```
+
+The drawing view's scale is being applied to the **model space geometry** of the
+DXF. For an orthographic view that is arguably defensible (a DXF of a drawing is
+a picture of a drawing). For a **flat pattern** it is not: a flat pattern is not a
+picture, it is a **cut path**, and the file's whole purpose is to be imported into
+a nesting/CAM package and driven straight to a laser or turret punch. Every
+incumbent treats this as an invariant — SolidWorks' *Export to DXF/DWG → Sheet
+metal* writes 1:1 regardless of any drawing view scale, and so do Onshape's and
+Fusion's flat-pattern DXF exports; the drawing scale is presentation-only and
+never reaches the cut geometry.
+
+Mitigating fact, and it is thin: the title block does carry `SCALE 1:2` as TEXT,
+so it is not literally silent. But DXF-to-CAM workflows read model space and
+ignore title blocks — that is the entire reason DXF is the handoff format — and
+1:1 is such a universal convention that nobody checks. The failure mode is a
+vendor cutting a batch at half size and invoicing for it.
+
+`$INSUNITS = 6` (millimetres) is correctly set in both files, which makes it
+worse, not better: the file confidently asserts "these numbers are millimetres"
+while the numbers are halved.
+
+**Fix shape:** a `flat_pattern` view's contribution to the DXF is emitted at 1:1
+unconditionally (the sheet may still *draw* it scaled); or better, the
+profile-only export of F-2 below, which is 1:1 by construction and removes the
+question. Either is small and localised in `serialize_dxf` / `place_sheet`.
+
+### F-2 — The only way to get a flat pattern out is wrapped in an A4 drawing sheet. **Rating 2/5** (P1)
+
+Full entity dump of the shipped DXF for the L-bracket above — this is exactly what
+the fabricator opens:
+
+```
+VISIBLE  4 × LINE      the 86.095 × 20.000 cut outline          <- what they want
+BEND     1 × LINE      the fold line at x = 138.50              <- what they want
+BEND     5 × TEXT      'bend-1' '90.0Â°' 'R3.00' 'UP' '6.09'    <- bend-table ROW text
+TITLE    3 × LINE, 3 × LWPOLYLINE, 13 × TEXT                    <- sheet border, title block,
+                                                                   bend-table HEADER
+overall extents 10 → 287 mm × 10 → 200 mm (an A4 sheet)
+```
+
+Two problems in that dump.
+
+**(a) There is no profile-only mode.** The cut geometry is 5 of 29 entities. An
+operator must import the sheet and delete the furniture, every time, by hand, for
+every revision. SolidWorks, Onshape and Fusion all ship a one-click flat-pattern
+DXF that contains cut geometry (and optionally bend lines on their own layer) and
+nothing else — no border, no title block, no annotation. That is the artifact the
+sheet-metal vendor's quoting and nesting software ingests unmodified.
+
+**(b) The `BEND` layer is doing two jobs.** The fold LINE and the bend-table's row
+TEXT are both on `BEND`. So the layer-filtering workaround for (a) — "keep
+`VISIBLE` + `BEND`, drop `TITLE`" — still drags `'bend-1'`, `'90.0Â°'`, `'R3.00'`,
+`'UP'`, `'6.09'` into model space as text entities sitting at y ≈ 189, 170 mm away
+from the part. The one manual escape hatch we do have is broken by a layer
+assignment. Splitting annotation onto its own layer (`BEND_TABLE` / `ANNOTATION`)
+is a one-line change and makes the workaround actually work while F-2(a) is built.
+
+### F-3 — The DXF is mojibake in any conforming reader. **Rating 2/5** (P1, cheap)
+
+The file declares `$ACADVER = AC1015` (R2000) and `$DWGCODEPAGE = ANSI_1252`, and
+then writes **raw UTF-8 bytes** into its TEXT entities. Seven non-ASCII bytes in
+the file; a reader honouring the declared codepage decodes them as cp1252:
+
+```
+title block  'LOFT Â· PART DRAWING'    (should be 'LOFT · PART DRAWING')
+bend table   '90.0Â°'                  (should be '90.0°')
+```
+
+That is not my rendering — that is what `ezdxf`, the same library that *wrote*
+the file, reads back out of it. The bend angle column is the single most
+load-bearing field in a bend table and it is corrupted in the fabricator's
+viewer. Two correct fixes, both trivial: write R2018 (`AC1032`, UTF-8 native), or
+emit the DXF unicode escape (`\U+00B0`) / the AutoCAD `%%d` mtext code for the
+degree sign and drop the middot. Unrelated but adjacent: `compose.py`'s
+`serialize_dxf` docstring says "the version is pinned R2010" while
+`_DXF_VERSION = "R2000"` — a stale docstring in the same function.
+
+### F-4 — 3MF is missing and costs us essentially nothing. **Rating 2/5** (P1)
+
+Who needs it: anyone who prints — which for a self-hostable, MIT, no-seat-cost
+CAD tool is a very large share of the first cohort (makerspaces, hardware
+startups, small shops, prototyping engineers). Also increasingly production:
+multi-material and colour printing require it.
+
+What it unblocks that STL does not: 3MF carries **units** (STL carries none, which
+is why the mm-vs-inch scale error is the oldest joke in 3D printing), **colour and
+material**, **multiple objects in one file**, and **metadata/provenance**. Every
+current slicer — Bambu Studio, PrusaSlicer, Cura, OrcaSlicer — prefers or defaults
+to it. Handing a modern print service an STL in 2026 reads the way handing someone
+a DWF would.
+
+What it costs us: **nothing new.** Measured on this machine this pass —
+`lib3mf 2.5.0` is already installed and already locked in `uv.lock` (pulled in
+transitively; `py-lib3mf` on aarch64), and `build123d` already exposes a `Mesher`
+class over it. I wrote a valid 3MF from a `Box(40,25,10)` in-process:
+
+```
+Mesher().add_shape(Box(40,25,10)); .write(probe.3mf)  → 1 683 B
+zip members: ['3D/3dmodel.model', '[Content_Types].xml', '_rels/.rels']   (valid 3MF container)
+```
+
+`Mesher` also has `.read()`, so 3MF *import* comes along for the ride. Licence:
+lib3mf is BSD-2-Clause (3MF Consortium) — clean under RESEARCH §8, and it is
+already in the tree, already classified in `docs/LICENSING.md` §7's inventory. The
+work is a literal added to `ExportFormat`, a media type (`model/3mf`), a kernel
+branch, a golden, and a tile in `ExportRow`.
+
+### F-5 — glTF/GLB is missing and we already generate it. **Rating 2/5** (P1)
+
+`POST /api/v1/geometry/tessellate` returned `model/gltf-binary`, magic `glTF`,
+1 624 B in 23 ms, this pass. We produce binary glTF **on every viewport
+tessellation** and serve it from `GET /api/v1/geometry/meshes/{mesh_glb_id}` —
+there is a whole `mesh_store` keyed on the GLB's sha256. It is simply not offered
+as an *export*. OCCT's `RWGltf_CafWriter` is also present in this OCP build
+(imported clean this pass) if we want colours/names/hierarchy rather than the
+tessellation path's bare mesh.
+
+Who needs it: everyone downstream of engineering. Web/AR viewers (glTF is *the*
+web 3D format; `<model-viewer>`, USDZ conversion for iOS AR, Sketchfab), rendering
+(Blender, KeyShot, Substance all ingest glTF natively), documentation and sales
+decks, and the "send my colleague in marketing a link to the part" case that Fusion
+serves with its own web viewer and we currently serve with nothing. In 2026 this is
+table stakes for *sharing*, distinct from *manufacturing* — and it is the cheapest
+capability on this whole list because the artifact already exists in our own object
+store.
+
+### F-6 — Import: better than the brief feared, thinner than it looks in one specific way. **Rating 3/5**
+
+**Verdict up front: import is NOT the bigger hole than export.** I went looking for
+the "you cannot bring your existing parts in" adoption wall and did not find it.
+Measured this pass:
+
+- Single-body STEP → 201 in **48 ms**, becomes a base `import` feature, and the
+  part then re-exports as both STEP and STL.
+- Assembly STEP → `POST /api/v1/assemblies/import`, 201 in **1 627 ms**, with the
+  documented single-body fallback (`{"kind":"part"}`) working correctly on a
+  one-solid file.
+- The UI surfaces it: `CreateStrip`'s **Import** button with `accept=".step,.stp"`,
+  gated to base-feature-only, with a legible failure path.
+
+**This means `docs/VISION.md`'s interop row is stale in a way that understates
+us.** That row (line 74) still says "named product-structure (PRODUCT/ASSEMBLY
+entities, part names/hierarchy) is not read — a multi-solid file becomes one
+anonymous multi-lump BODY, not a Loft assembly document with named instances;
+that's a real, larger gap than 'rejected,' and is why this correction alone
+doesn't move the row." That is no longer true — `py_kit.schemas.step_import`,
+`geometry.assembly.import_step`, `geometry.kernel.step_assembly` and the gateway
+route all ship, and `_step_assembly_parse_worker` sets `SetNameMode(True)`.
+**Flagging as stale for the vision-steward; I have not edited VISION.md.**
+
+The residual import gaps, ranked by how much they actually cost:
+
+1. **No sew / heal / repair (the one that bites).** Documented explicitly in
+   `geometry.kernel.imports`: "It does not sew/heal/repair, and IGES is deferred."
+   Real supplier and legacy STEP frequently arrives with gaps, tiny faces, or
+   open shells; a file yielding zero solids is `import_no_solid` and the user has
+   **no recovery path at all** — no "import as surfaces", no "attempt to sew", no
+   partial result. That is a harder stop than any missing export format, because
+   there is no workaround: with a missing export you convert elsewhere; with a
+   dead import you cannot start. This is why I rank import *severity* high even
+   while ranking import *breadth* low.
+2. **No mesh import (STL / 3MF / OBJ).** You cannot bring in a scan, a printed
+   reference, or a vendor's mesh-only model to measure against or model around.
+   3MF read is free (F-4); STL read is `RWStl`, present in this OCP build.
+   Second-order because bought-part libraries (McMaster, TraceParts, 8020) all
+   publish STEP.
+3. **No IGES either direction.** Legacy, but it still arrives from older
+   suppliers and from surfacing tools. `IGESControl_Reader`/`IGESControl_Writer`
+   are both present in this OCP build — I wrote a valid IGES of a box in **5 ms**
+   this pass (13 608 B). Cheap; low value; do it when the queue is empty.
+4. **No native formats (SLDPRT / IPT / F3D / X_T).** Correctly out of reach and
+   *not* a customer-loser — STEP is the accepted lingua franca precisely because
+   nobody expects to read a competitor's native file. Our SLDPRT probe failed
+   with "not valid text", which is at least honest, if not friendly.
+
+### F-7 — Small flow faults on the export surface itself
+
+- **An unsupported format returns a raw pydantic error.** Asking for 3MF gets
+  `{"type":"literal_error","loc":["body","format"],"msg":"Input should be 'step'
+  or 'stl'"}`. Correct, and it reads like a schema violation rather than "we do
+  not support that yet". A typed `export_format_unsupported` with the supported
+  list would cost nothing and would be the difference between "this API is
+  broken" and "this feature is not built yet" for anyone driving us from a
+  script or an agent.
+- **The export UI is a row of per-format tiles, not an export dialog.**
+  `ExportRow` hard-codes a two-entry `FORMATS` array (STEP tile, STL tile) with a
+  status cell; the drawing band hard-codes three buttons (SVG/PDF/DXF, shortcuts
+  E/P/D). That is clean at 2–3 formats and stops scaling at ~5. Every incumbent
+  uses an **export dialog** — pick format, then the options that format actually
+  has (mesh deflection, binary vs ASCII, units, 1:1 vs scaled, "flat pattern
+  only"). Adopting that shape once is what makes format breadth feel like one
+  feature instead of N buttons, and it is where the F-1 1:1 toggle and F-2's
+  profile-only mode naturally live. Worth doing *before* adding 3MF and glTF,
+  not after.
+- **Two disjoint export vocabularies with no relationship in the UI.**
+  `ExportFormat` (step/stl) and `ArtifactFormat` (svg/pdf/dxf) are correctly
+  separate pipelines, but the user does not know that: they know they want "the
+  file for the shop", which is STEP *and* a PDF *and* a flat DXF. Nothing in the
+  product presents those as one handoff. A "Manufacturing handoff" action that
+  produces the set is a flow idea, not a format one, and it is the kind of thing
+  that would make an engineer notice we are not just cloning a menu.
+
+---
+
+### Ranked answer to "what do we lose customers over, and in what order"
+
+Ordered by expected customer loss, not by effort. Everything above the line is a
+defect in something we already claim; everything below is absence.
+
+| # | Item | Who needs it | Unblocks | Cost | Licence |
+| --- | --- | --- | --- | --- | --- |
+| 1 | **Flat-pattern DXF at 1:1, always** (F-1) | Sheet-metal fabricators | Stops shipping a wrong-size blank | Small, localised in `serialize_dxf`/`place_sheet` | none — ezdxf MIT, already in |
+| 2 | **Profile-only flat-pattern DXF export** (F-2a) + split annotation off the `BEND` layer (F-2b) | Laser/punch/waterjet vendors, nesting + quoting software | The one artifact fabricators ask for by name; makes our shipped sheet-metal pillar actually deliverable | Small–medium (reuse `ComposedSheet`, emit views-only) | none |
+| 3 | **DXF text encoding** (F-3) | Anyone opening our DXF | Bend angle column stops reading `90.0Â°` | Trivial (bump to R2018 or escape) | none |
+| 4 | **3MF export (and read)** (F-4) | Print services, in-house printers, prototyping | Units + colour + multi-object; the 2026 default slicer format | **Near-zero — lib3mf + build123d `Mesher` already installed and locked** | BSD-2-Clause, clean, already inventoried |
+| 5 | **glTF/GLB export** (F-5) | Non-CAD colleagues, web/AR viewers, rendering, docs | Sharing a model with anyone who does not own CAD | **Near-zero — we already generate GLB per tessellate**; `RWGltf_CafWriter` present for the richer path | OCCT LGPL-with-exception, already a dependency |
+| 6 | **STEP import healing / sew** (F-6.1) | Anyone receiving supplier or legacy CAD | Removes the only *unrecoverable* dead end in the product | Medium–large (OCCT `ShapeFix`/`ShapeUpgrade`, plus honest UX for partial results) | OCCT, already in |
+| 7 | **Mesh import (STL / 3MF / OBJ)** (F-6.2) | Scans, printed references, vendor mesh models | Model around something you were given as a mesh | Small (`RWStl` present; 3MF free with #4) | clean |
+| 8 | **STEP AP242 option + colour/name on part export** | Supplier portals, MBD/PMI-adjacent customers, aerospace/auto tiers | The AP the industry has moved to; we already use `STEPCAFControl_Writer` with `SetNameMode`/`SetColorMode` on the assembly path | Small (extend the existing CAF path to parts, add an AP toggle) | OCCT, already in |
+| 9 | **IGES import + export** (F-6.3) | Older suppliers, surfacing handoff | Legacy interop | Small — writer proven at **5 ms** this pass | OCCT, already in |
+| 10 | **OBJ / PLY / VRML export** | Viz, academia, legacy pipelines | Marginal beyond glTF+STL | Small; note `RWObj`/`RWPly` are **absent** from this OCP build, so we would write OBJ ourselves (trivial text) | clean |
+
+**Named non-starters — file these as decisions so nobody re-litigates them.**
+
+- **DWG.** The only viable open reader/writer is **libredwg, GPL-3.0** — a hard
+  violation of the MIT / no-GPL constraint in RESEARCH §8. The commercial
+  alternative (Open Design Alliance) is per-seat licensed and incompatible with a
+  self-hostable MIT product. **Do not recommend DWG. Our answer to a DWG request
+  is DXF**, which we already ship and which every DWG-native tool reads.
+- **Parasolid (`.x_t` / `.x_b`).** Requires a commercial Siemens Parasolid
+  licence; there is no lawful open implementation. Non-starter at any price we
+  can pay.
+- **ACIS SAT, JT, Creo, NX, Inventor, SolidWorks native.** Same class —
+  proprietary formats gated behind commercial toolkits. Non-starter. STEP (and
+  AP242 for the richer cases) is the correct and honest answer to every one of
+  these requests, and it is worth saying so publicly rather than leaving it
+  looking like an oversight.
+
+---
+
+### Does this flip a scorecard row? (CLAUDE.md ranks ❌/➖ flips above new pillars)
+
+**Not on its own — but two rows are stale in ways that are actively misdirecting
+the roadmap, and that is worth more than the flip.** I have not edited
+`docs/VISION.md` or `docs/COMPETITIVE.md`; flagging for the vision-steward.
+
+1. **`Interop (STEP/IGES/STL)` — ➖, and the row TITLE is the problem.** It names
+   **IGES** — a 1980s format now ranked #9 on my list — as one of three pillars,
+   while omitting **DXF**, **3MF** and **glTF**, which is what 2026 handoff
+   actually is. A roadmap reading that title will build IGES and feel finished.
+   Suggested retitle: **`Interop (import + export)`**. The row's Notes are also
+   factually stale on assembly product-structure import (F-6) — it says the
+   structure is not read, and it is. Items 4, 5 and 6 above would move this row
+   toward ✅; none of them alone gets there while healing is absent.
+2. **`Sheet metal` — ➖, and F-1/F-2 are defects *inside* its shipped claim.**
+   The row rests partly on flat-pattern export. A flat pattern that can ship at
+   half scale, wrapped in a title block, with a mojibake angle column, is not yet
+   a manufacturing deliverable. Items 1–3 are prerequisites for this row ever
+   reaching ✅ and should be read as sheet-metal work, not drawing work.
+3. **`docs/COMPETITIVE.md` line 64 — `STEP/STL export | ✅`.** Against the named
+   comparator (Fusion 360 exports STEP, STL, 3MF, OBJ, DWG, DXF, IGES, SAT, SMT,
+   F3D and glTF; Onshape and SolidWorks are comparably broad), a two-format
+   export is not a ✅ row. Row 63 (`STEP/IGES import + healing`) is closer to
+   honest but should now name **healing** as the live gap rather than assembly
+   structure. Sharpening, not duplicating, per the brief — the vision-steward
+   owns that file.
+
+---
+
+### Prioritized recommendations for the groomer
+
+- **P0 — A `flat_pattern` view's DXF model-space geometry is emitted at 1:1
+  regardless of the drawing view's scale** (measured: 1:2 sheet ⇒ 43.047 × 10.000
+  mm blank where the true blank is 86.095 × 20.000 mm); add a golden asserting
+  blank extents are scale-invariant.
+- **P0 — Profile-only flat-pattern DXF export** (cut outline + bend lines only,
+  1:1, no sheet border / title block / bend table), reachable in one action from
+  the sheet-metal part, not only via a drawing sheet.
+- **P1 — Move bend-table row TEXT off the `BEND` layer** onto its own annotation
+  layer so "keep VISIBLE+BEND, drop TITLE" is a working layer filter today.
+- **P1 — Fix DXF text encoding**: emit R2018 (`AC1032`) or escape non-ASCII
+  (`\U+00B0` / `%%d`) so the bend table reads `90.0°`, not `90.0Â°`; correct the
+  `serialize_dxf` docstring's "pinned R2010" against `_DXF_VERSION = "R2000"`.
+- **P1 — Add `3mf` to `ExportFormat`** via build123d's `Mesher` (lib3mf already
+  installed + locked, BSD-2-Clause); carry document units and body colour; golden
+  + round-trip gate.
+- **P1 — Add `glb` to `ExportFormat`**, reusing the GLB the tessellation pipeline
+  already produces and stores by sha256; media type `model/gltf-binary`.
+- **P1 — Replace the per-format tile row with an export dialog** (format, then
+  that format's own options — deflection, units, 1:1, profile-only) before the
+  format list grows past four buttons.
+- **P2 — Typed `export_format_unsupported` error** naming the supported formats,
+  instead of a raw pydantic `literal_error`, on both export enums.
+- **P2 — STEP import healing/sew** behind an explicit "attempt repair" affordance
+  with an honest report of what was fixed, so `import_no_solid` stops being an
+  unrecoverable dead end.
+- **P2 — STEP AP242 export option + names/colours on the PART export path**,
+  reusing the `STEPCAFControl_Writer` already used for assemblies.
+- **P2 — Mesh import (STL first, 3MF free with the 3MF work)** as a reference or
+  base body.
+- **P3 — IGES import + export** (writer proven at 5 ms this pass); low value,
+  near-zero cost, do it when the queue is empty.
+- **P3 — File a written decision record naming DWG (libredwg is GPL-3.0),
+  Parasolid, ACIS/SAT, JT and all vendor-native formats as licence/commercial
+  non-starters**, so the answer to "why no DWG?" is a documented position rather
+  than a gap.
+- **P3 — A single "Manufacturing handoff" action** producing STEP + drawing PDF +
+  1:1 flat DXF as one set, since that is the unit of work the user actually has.
