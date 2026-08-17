@@ -31,7 +31,7 @@ import type { PartResponse } from "../api/parts";
 const COPY: RegisterCopy = {
   title: "Parts register",
   caption:
-    "Your parts, oldest first. Open a part to model it, or delete it. Last worked reads the time since its most recent edit.",
+    "Your parts, most recently worked first. Open a part to model it, or delete it. Last worked reads the time since its most recent edit.",
   noun: "part",
   nounPlural: "parts",
   loading: "Loading parts…",

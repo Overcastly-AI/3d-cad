@@ -226,3 +226,119 @@ test.describe("parts register — one mark holds the row's verbs", () => {
     });
   });
 });
+
+/**
+ * THE RETURN TRIP (REGISTER-2 / UI-REVIEW P1-3). Measured before this change on
+ * a 120-part drawer at 1280x800: the register loaded FILED ascending so the part
+ * you touched last was row 120; `main.scrollHeight` was 5145 px against a 756 px
+ * frame with the only create control at the bottom of it; and `thead tr`
+ * computed `position: static`, so scrolling lost the column headers, the sort
+ * controls, the FILTER and the count together.
+ */
+test.describe("parts register — the return trip", () => {
+  /** 120 parts, filed oldest-first; the LAST one filed is the last one worked. */
+  async function seedDeepDrawer(page: import("@playwright/test").Page) {
+    const { token } = await seedSession(page);
+    for (let i = 1; i <= 120; i += 1) {
+      await createPartViaApi(page, token, `Part ${String(i).padStart(3, "0")}`);
+    }
+  }
+
+  test("opens on what you worked last, and says so on the header", async ({
+    page,
+  }) => {
+    await seedDeepDrawer(page);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto("/");
+    await expect(page.getByTestId("part-row")).toHaveCount(120, {
+      timeout: 60_000,
+    });
+
+    await expect(page.getByTestId("part-open").first()).toHaveText("Part 120");
+    await expect(
+      page.getByTestId("parts-sort-activity-header"),
+    ).toHaveAttribute("aria-sort", "descending");
+    // The order it replaced is one click away, and it still means what it said.
+    await page.getByTestId("parts-sort-filed").click();
+    await expect(page.getByTestId("part-open").first()).toHaveText("Part 001");
+  });
+
+  test("the drawer scrolls, the page does not, and the controls stay put", async ({
+    page,
+  }) => {
+    await seedDeepDrawer(page);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto("/");
+    await expect(page.getByTestId("part-row")).toHaveCount(120, {
+      timeout: 60_000,
+    });
+
+    const frame = await page.evaluate(() => {
+      const main = document.querySelector("main")!;
+      const scroller = document.querySelector<HTMLElement>(
+        '[data-testid="parts-scroll"]',
+      )!;
+      return {
+        pageOverflow: main.scrollHeight - main.clientHeight,
+        drawerOverflow: scroller.scrollHeight - scroller.clientHeight,
+        headerPosition: getComputedStyle(
+          document.querySelector('[data-testid="parts-sort-name-header"]')!,
+        ).position,
+      };
+    });
+    // Was 5145 - 756 = 4389 px of PAGE scroll. Now the page does not scroll at
+    // all and the rows do — which is what makes everything else here hold.
+    expect(frame.pageOverflow).toBeLessThanOrEqual(1);
+    expect(frame.drawerOverflow).toBeGreaterThan(1000);
+    expect(frame.headerPosition).toBe("sticky");
+
+    // The create control is ON SCREEN at 120 parts. It used to be at y = 5150.
+    const create = page.getByTestId("create-part-name");
+    await expect(create).toBeInViewport();
+
+    // …and it is still there at the bottom of the drawer, together with the
+    // sort controls, the FILTER and the count.
+    await page.evaluate(() => {
+      const scroller = document.querySelector<HTMLElement>(
+        '[data-testid="parts-scroll"]',
+      )!;
+      scroller.scrollTop = scroller.scrollHeight;
+    });
+    await expect(page.getByTestId("part-open").last()).toBeInViewport();
+    await expect(page.getByTestId("parts-sort-name-header")).toBeInViewport();
+    await expect(page.getByTestId("parts-filter")).toBeInViewport();
+    await expect(page.getByTestId("parts-count")).toBeInViewport();
+    await expect(create).toBeInViewport();
+
+    await page.screenshot({
+      path: `${SCREENSHOT_DIR}/parts-register-120-1280.png`,
+    });
+  });
+
+  test("filing from the pinned line still files into the register", async ({
+    page,
+  }) => {
+    await seedDeepDrawer(page);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto("/");
+    await expect(page.getByTestId("part-row")).toHaveCount(120, {
+      timeout: 60_000,
+    });
+    // The line carries the next ordinal for the WHOLE drawer, not the view.
+    await expect(page.getByTestId("create-part-name")).toBeInViewport();
+    await page
+      .getByTestId("create-part-name")
+      .fill("Filed from the pinned line");
+    await page.getByTestId("create-part-submit").click();
+    // Creating a part opens it (FINDINGS #22), which is the proof it was real.
+    await expect(page).toHaveURL(/\/parts\/[0-9a-f-]+$/, { timeout: 30_000 });
+    await page.goto("/");
+    await expect(page.getByTestId("part-row")).toHaveCount(121, {
+      timeout: 60_000,
+    });
+    // …and the newest work is the first row, which is the whole point.
+    await expect(page.getByTestId("part-open").first()).toHaveText(
+      "Filed from the pinned line",
+    );
+  });
+});

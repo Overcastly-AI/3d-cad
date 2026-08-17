@@ -598,16 +598,34 @@ describe("DocumentRegister — sort", () => {
   const names = () =>
     screen.getAllByTestId("part-open").map((node) => node.textContent);
 
-  it("defaults to the order the server returned, and says which column that is", () => {
-    renderRegister([a, b]);
+  it("defaults to what you touched LAST, and says which column that is", () => {
+    // REGISTER-2. `a` was created FIRST and worked LAST; the old default (filed
+    // ascending, the server's own order) put it first for the wrong reason, so
+    // this fixture only distinguishes the two rules through `b`, which is newer
+    // on disk and older in the hands.
+    renderRegister([b, a]);
     expect(names()).toEqual(["Rib 10", "Rib 2"]);
+    expect(screen.getByTestId("parts-sort-activity-header")).toHaveAttribute(
+      "aria-sort",
+      "descending",
+    );
     expect(screen.getByTestId("parts-sort-filed-header")).toHaveAttribute(
       "aria-sort",
-      "ascending",
+      "none",
     );
     expect(screen.getByTestId("parts-sort-name-header")).toHaveAttribute(
       "aria-sort",
       "none",
+    );
+  });
+
+  it("keeps FILED reachable — the order it replaced is one click away", () => {
+    renderRegister([b, a]);
+    fireEvent.click(screen.getByTestId("parts-sort-filed"));
+    expect(names()).toEqual(["Rib 10", "Rib 2"]);
+    expect(screen.getByTestId("parts-sort-filed-header")).toHaveAttribute(
+      "aria-sort",
+      "ascending",
     );
   });
 

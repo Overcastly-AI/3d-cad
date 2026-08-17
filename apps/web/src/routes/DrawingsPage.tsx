@@ -29,7 +29,7 @@ import { WorkspaceNav } from "../components/WorkspaceNav";
 const COPY: RegisterCopy = {
   title: "Drawing register",
   caption:
-    "Your drawings, oldest first. Open one to lay out its views, or delete it. Last worked reads the time since its most recent edit.",
+    "Your drawings, most recently worked first. Open one to lay out its views, or delete it. Last worked reads the time since its most recent edit.",
   noun: "drawing",
   nounPlural: "drawings",
   loading: "Loading drawings…",

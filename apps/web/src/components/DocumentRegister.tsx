@@ -248,11 +248,25 @@ export interface RegisterSort {
 }
 
 /**
- * FILED ascending — which is the order the server already returns (oldest
- * first), so the register's initial state is a true description of what is on
- * screen rather than a label applied to an arbitrary order.
+ * LAST WORKED, newest first (REGISTER-2, UI-REVIEW 2026-08-17 P1-3).
+ *
+ * It used to be FILED ascending, defended as "the order the server already
+ * returns, so the initial state is a true description rather than a label over
+ * an arbitrary order". That is a good argument about HONESTY and the wrong
+ * answer to the question the surface is asked. A returning engineer opens this
+ * page to get back into the thing they were doing; oldest-first put that at the
+ * BOTTOM — measured at row 120 of 120 — so the register's first screen was the
+ * work they had finished with. Fusion's Data Panel and Onshape both default to
+ * recently-modified-first for the same reason.
+ *
+ * The honesty argument survives intact: this order is SORTED, `aria-sort` says
+ * so on the LAST WORKED header from the first paint, and the caption says it in
+ * words. Nothing is unlabelled.
  */
-export const DEFAULT_SORT: RegisterSort = { key: "filed", direction: "asc" };
+export const DEFAULT_SORT: RegisterSort = {
+  key: "activity",
+  direction: "desc",
+};
 
 /**
  * Name-substring filter, case- and accent-insensitive, applied to the list the
@@ -505,58 +519,92 @@ export function DocumentRegister<T extends RegisterDocument>({
         />
       ) : (
         <div className="flex min-h-0 grow flex-col">
-          <RegisterTable
-            idPlural={idPlural}
-            idSingular={idSingular}
-            copy={copy}
-            documents={shown}
-            dividers={dividers}
-            folders={folders}
-            filtering={filtering}
-            showUnits={showUnits}
-            showHealth={showHealth}
-            sort={sort}
-            onSort={setSort}
-            openLink={openLink}
-            onRename={onRename}
-            onDuplicate={onDuplicate}
-            onDelete={onDelete}
-            onOpenFolder={setFolderId}
-            filing={filing}
-          />
-          {shown.length === 0 && filtering ? (
-            <NoMatches
+          {/*
+            THE ROWS SCROLL, THE DRAWER DOES NOT (REGISTER-2). Measured on a
+            120-part drawer at 1280x800 before this change: `main.scrollHeight`
+            5145 px against a 756 px frame, with the page as the scroller — so
+            the header rule, the FILTER, the count, the sort controls AND the
+            only create control all left the screen together. At row 104 the
+            user had six columns of unlabelled data and a 4000 px scroll back
+            to the controls.
+
+            Only the ROWS belong in the scroller. Everything that addresses the
+            drawer as a whole — the header above, the scribe line below, and the
+            column headers, which ARE the sort controls and so are `sticky`
+            inside it — stays on screen at any length.
+          */}
+          <div
+            // `relative` is LOAD-BEARING, not tidiness. Measured at 120 parts in
+            // Chromium: without it the table's scrollable overflow propagates
+            // straight past this clipping box to the PAGE — `main.scrollHeight`
+            // stays 5038 against a 756 px frame and `main.scrollTop = 9999`
+            // still drags the filter 4160 px off-screen, so the drawer looks
+            // pinned and is not. Positioning the scroll container makes its clip
+            // authoritative for the ancestor's overflow: 5038 -> 756.
+            // (`contain: paint` fixes it identically; `relative` is the cheaper
+            // promise to make.)
+            className="relative flex min-h-0 grow flex-col overflow-y-auto"
+            data-testid={`${idPlural}-scroll`}
+          >
+            <RegisterTable
               idPlural={idPlural}
+              idSingular={idSingular}
               copy={copy}
-              query={query.trim()}
-              onClear={() => setQuery("")}
+              documents={shown}
+              dividers={dividers}
+              folders={folders}
+              filtering={filtering}
+              showUnits={showUnits}
+              showHealth={showHealth}
+              sort={sort}
+              onSort={setSort}
+              openLink={openLink}
+              onRename={onRename}
+              onDuplicate={onDuplicate}
+              onDelete={onDelete}
+              onOpenFolder={setFolderId}
+              filing={filing}
             />
-          ) : (
-            <>
-              {shown.length === 0 && dividers.length === 0 ? (
-                <NothingHere
-                  idPlural={idPlural}
-                  copy={copy}
-                  folderName={path[path.length - 1]?.name ?? null}
-                />
-              ) : null}
-              <ScribeLine
-                idSingular={idSingular}
+            {shown.length === 0 && filtering ? (
+              <NoMatches
                 idPlural={idPlural}
                 copy={copy}
-                // While a filter is on, the rows above are numbered 1..n WITHIN
-                // the filtered view, so printing "6" under a row 2 would put two
-                // different counting systems in one column. The gutter goes blank
-                // rather than assert a position the view cannot support; filing
-                // still appends to the whole register.
-                nextOrdinal={filtering ? null : inScope.length + 1}
-                folderId={folderId}
-                onCreate={onCreate}
-                filing={filing}
+                query={query.trim()}
+                onClear={() => setQuery("")}
               />
-            </>
+            ) : shown.length === 0 && dividers.length === 0 ? (
+              <NothingHere
+                idPlural={idPlural}
+                copy={copy}
+                folderName={path[path.length - 1]?.name ?? null}
+              />
+            ) : null}
+            <RuledRemainder />
+          </div>
+          {/* The next line of the register, now PINNED to the drawer's bottom
+              rule. It is the same control it always was and it reads the same
+              way — a log book's writing line is at the end of the entries — but
+              at 120 parts "the end of the entries" was 5145 px down, i.e. the
+              one thing you cannot reach when you have the most work filed.
+              Suppressed only when a filter matched nothing, where `NoMatches`
+              owns the line: filing a new document is not the answer to "your
+              filter is too narrow". */}
+          {shown.length === 0 && filtering ? null : (
+            <ScribeLine
+              idSingular={idSingular}
+              idPlural={idPlural}
+              copy={copy}
+              // While a filter is on, the rows above are numbered 1..n WITHIN
+              // the filtered view, so printing "6" under a row 2 would put two
+              // different counting systems in one column. The gutter goes blank
+              // rather than assert a position the view cannot support; filing
+              // still appends to the whole register.
+              nextOrdinal={filtering ? null : inScope.length + 1}
+              folderId={folderId}
+              onCreate={onCreate}
+              filing={filing}
+            />
           )}
-          <RuledRemainder />
         </div>
       )}
     </section>
@@ -897,7 +945,10 @@ function RegisterTable<T extends RegisterDocument>({
     >
       <caption className="sr-only">{copy.caption}</caption>
       <thead>
-        <tr className="border-b border-hairline">
+        {/* No `border-b` on the row: a COLLAPSED table border does not travel
+            with a sticky cell, so the rule is drawn by each `Th`'s own hairline
+            (`STICKY_TH`) and stays under the headers wherever they are. */}
+        <tr>
           {/* A POSITION, not a name for the part in it — see `Gutter`. The
               glyph alone announced as "numero sign"; the word is what a screen
               reader gets. */}
@@ -933,7 +984,7 @@ function RegisterTable<T extends RegisterDocument>({
             sort={sort}
             onSort={onSort}
           />
-          <th className={COLUMN.action}>
+          <th className={`${STICKY_TH} ${COLUMN.action}`}>
             <span className="sr-only">Actions</span>
           </th>
         </tr>
@@ -981,6 +1032,22 @@ function RegisterTable<T extends RegisterDocument>({
   );
 }
 
+/**
+ * A COLUMN HEADER THAT STAYS (REGISTER-2). It is `sticky` to the top of the
+ * drawer's own scroller, because these headers are not labels — three of them
+ * ARE the sort controls, and losing them at row 104 left the reader with six
+ * columns of unlabelled data and no way to re-sort without scrolling back
+ * 4000 px.
+ *
+ * The hairline is drawn by a pseudo-element rather than by a `border-b` on the
+ * row: with `border-collapse: collapse` the collapsed rule belongs to the TABLE,
+ * not to the sticky cell, so it stays behind at the top of the scroll while the
+ * headers travel. `bg-anvil` is load-bearing too — a transparent sticky header
+ * lets the rows read through it.
+ */
+const STICKY_TH =
+  "sticky top-0 z-10 bg-anvil after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-px after:bg-hairline after:content-['']";
+
 function Th({
   children,
   className,
@@ -992,7 +1059,7 @@ function Th({
 }) {
   return (
     <th
-      className={`px-3 py-2 text-left font-display text-2xs uppercase tracking-[0.16em] text-gauge ${
+      className={`${STICKY_TH} px-3 py-2 text-left font-display text-2xs uppercase tracking-[0.16em] text-gauge ${
         className ?? ""
       }`}
       {...rest}
@@ -1040,7 +1107,7 @@ function SortableTh({
 
   return (
     <th
-      className={`px-3 py-2 text-left font-display text-2xs uppercase tracking-[0.16em] ${
+      className={`${STICKY_TH} px-3 py-2 text-left font-display text-2xs uppercase tracking-[0.16em] ${
         className ?? ""
       }`}
       aria-sort={active ? (ascending ? "ascending" : "descending") : "none"}
@@ -1129,7 +1196,10 @@ function ScribeLine({
   }, [focus]);
 
   return (
-    <div className="flex shrink-0 items-stretch border-b border-hairline">
+    // `border-t`, not `border-b`: the line is now pinned under the scrolling
+    // rows (REGISTER-2), so its rule closes the drawer rather than separating
+    // it from what used to follow.
+    <div className="flex shrink-0 items-stretch border-t border-hairline bg-anvil">
       <div
         className={`${COLUMN.gutter} shrink-0 border-l-2 border-transparent bg-carbide px-3 pt-3 text-right font-data text-xs tabular-nums text-gauge`}
         aria-hidden="true"
@@ -1196,8 +1266,12 @@ function ScribeLine({
  */
 function RuledRemainder() {
   return (
+    // `basis-0 min-h-0`: the blank lines fill what the filed rows LEAVE and
+    // nothing more. Before REGISTER-2 they were 24 real lines at the end of the
+    // page scroll, so a full drawer paid ~960 px of empty ruling for a flourish
+    // that only exists to keep a SHORT drawer from reading as a card in a void.
     <div
-      className="flex grow overflow-hidden"
+      className="flex min-h-0 shrink grow basis-0 overflow-hidden"
       aria-hidden="true"
       data-testid="register-ruled-remainder"
     >

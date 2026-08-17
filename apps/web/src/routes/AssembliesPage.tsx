@@ -31,7 +31,7 @@ import { usePreferencesStore } from "../settings/preferences";
 const COPY: RegisterCopy = {
   title: "Assembly register",
   caption:
-    "Your assemblies, oldest first. Open one to compose it, or delete it. Last worked reads the time since its most recent edit.",
+    "Your assemblies, most recently worked first. Open one to compose it, or delete it. Last worked reads the time since its most recent edit.",
   noun: "assembly",
   nounPlural: "assemblies",
   loading: "Loading assemblies…",

@@ -65,7 +65,16 @@ test.describe("workspace management", () => {
     await expect(page.getByTestId("part-row")).toHaveCount(3);
 
     // --- SORT ------------------------------------------------------------
-    // Default is FILED ascending: the order documents returned them in.
+    // Default is LAST WORKED, newest first (REGISTER-2): none of these three
+    // has been edited since it was filed, so the newest-filed is the newest
+    // worked and the drawer opens on the part the user just made.
+    expect(await rowNames(page)).toEqual(["Bracket plate", "Rib 2", "Rib 10"]);
+    await expect(
+      page.getByTestId("parts-sort-activity-header"),
+    ).toHaveAttribute("aria-sort", "descending");
+    // FILED ascending — the order documents returned them in — is still one
+    // click away and still means exactly that.
+    await page.getByTestId("parts-sort-filed").click();
     expect(await rowNames(page)).toEqual(["Rib 10", "Rib 2", "Bracket plate"]);
     await page.getByTestId("parts-sort-name").click();
     // Numeric collation — "Rib 2" before "Rib 10", which lexical sorting gets
@@ -176,10 +185,13 @@ test.describe("workspace management", () => {
     ).json()) as { features: { id: string }[] };
     expect(copied.features[0]!.id).not.toBe(sourceTree.features[0]!.id);
 
-    // Duplicating again counts up, so two copies never collide.
-    const firstRow = page.getByTestId("part-row").first();
-    await openRowActions(firstRow);
-    await firstRow.getByTestId("part-duplicate").click();
+    // Duplicating the SAME part again counts up, so two copies never collide.
+    // Addressed by name: the drawer opens newest-worked-first (REGISTER-2), so
+    // "the first row" is now the copy, and copying the copy would be a
+    // different (and much weaker) test.
+    const plateRow = page.locator(`[data-part-id="${part.id}"]`);
+    await openRowActions(plateRow);
+    await plateRow.getByTestId("part-duplicate").click();
     await expect(
       page.getByTestId("part-row").filter({ hasText: "Plate copy 2" }),
     ).toHaveCount(1);
