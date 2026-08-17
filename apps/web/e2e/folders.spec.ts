@@ -1,6 +1,11 @@
 import { expect, test } from "./fixtures";
 
-import { createPartViaApi, SCREENSHOT_DIR, seedSession } from "./support";
+import {
+  createPartViaApi,
+  openRowActions,
+  SCREENSHOT_DIR,
+  seedSession,
+} from "./support";
 
 /**
  * FOLDERS (#WS2) — filing driven through a real browser against the real stack
@@ -55,6 +60,7 @@ test.describe("folders", () => {
     const bracketRow = page
       .getByTestId("part-row")
       .filter({ hasText: "Bracket plate" });
+    await openRowActions(bracketRow);
     await bracketRow.getByTestId("part-move").click();
     await page
       .getByTestId("part-move-folder")
@@ -104,6 +110,7 @@ test.describe("folders", () => {
 
     // --- RENAME THE FOLDER, and the drawer agrees -------------------------
     await page.getByTestId("parts-breadcrumb-root").click();
+    await openRowActions(page, "parts-folder");
     await page.getByTestId("parts-folder-rename").click();
     await page.getByTestId("parts-folder-rename-name").fill("Gearbox v2");
     await page.getByTestId("parts-folder-rename-save").click();
@@ -116,6 +123,7 @@ test.describe("folders", () => {
     );
 
     // --- DELETE IS REFUSED, AND NAMES WHAT IS INSIDE ----------------------
+    await openRowActions(page, "parts-folder");
     await page.getByTestId("parts-folder-delete").click();
     await page.getByTestId("parts-folder-delete-confirm").click();
     const blocked = page.getByTestId("parts-folder-blocked");
@@ -166,6 +174,7 @@ test.describe("folders", () => {
       ).toHaveCount(1);
     }
 
+    await openRowActions(page);
     await page.getByTestId("part-move").click();
     await page.getByTestId("part-move-folder").selectOption({ label: "Left" });
     await page.getByTestId("part-move-save").click();

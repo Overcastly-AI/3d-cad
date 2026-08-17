@@ -1,6 +1,11 @@
 import { expect, test } from "./fixtures";
 
-import { createPartViaApi, SCREENSHOT_DIR, seedSession } from "./support";
+import {
+  createPartViaApi,
+  openRowActions,
+  SCREENSHOT_DIR,
+  seedSession,
+} from "./support";
 
 /**
  * WORKSPACE MANAGEMENT — the drawer on your tenth document, driven through a
@@ -82,6 +87,7 @@ test.describe("workspace management", () => {
     const bracketRow = page
       .getByTestId("part-row")
       .filter({ hasText: "Bracket plate" });
+    await openRowActions(bracketRow);
     await bracketRow.getByTestId("part-rename").click();
     await bracketRow.getByTestId("part-rename-name").fill("Bracket plate v2");
     await bracketRow.getByTestId("part-rename-name").press("Enter");
@@ -137,6 +143,7 @@ test.describe("workspace management", () => {
 
     await page.goto("/");
     await expect(page.getByTestId("part-row")).toHaveCount(1);
+    await openRowActions(page);
     await page.getByTestId("part-duplicate").click();
 
     // The SERVER names the copy; the register renders what came back.
@@ -170,11 +177,9 @@ test.describe("workspace management", () => {
     expect(copied.features[0]!.id).not.toBe(sourceTree.features[0]!.id);
 
     // Duplicating again counts up, so two copies never collide.
-    await page
-      .getByTestId("part-row")
-      .first()
-      .getByTestId("part-duplicate")
-      .click();
+    const firstRow = page.getByTestId("part-row").first();
+    await openRowActions(firstRow);
+    await firstRow.getByTestId("part-duplicate").click();
     await expect(
       page.getByTestId("part-row").filter({ hasText: "Plate copy 2" }),
     ).toHaveCount(1);
@@ -208,6 +213,7 @@ test.describe("workspace management", () => {
     expect(instance.ok()).toBeTruthy();
 
     await page.goto("/");
+    await openRowActions(page);
     await page.getByTestId("part-delete").click();
     await page.getByTestId("part-delete-confirm").click();
 

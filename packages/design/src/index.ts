@@ -53,10 +53,21 @@ export {
 export { Flyout, type FlyoutProps, type FlyoutItem } from "./primitives/Flyout";
 export {
   ContextMenu,
+  MENU_MIN_WIDTH,
   type ContextMenuProps,
   type ContextMenuItem,
   type ContextMenuSection,
 } from "./primitives/ContextMenu";
+export {
+  OverflowMenu,
+  type OverflowMenuProps,
+} from "./primitives/OverflowMenu";
+export {
+  Truncated,
+  truncatedProps,
+  TRUNCATED_CLASS,
+  type TruncatedProps,
+} from "./primitives/Truncated";
 export {
   SegmentedControl,
   type SegmentedControlProps,

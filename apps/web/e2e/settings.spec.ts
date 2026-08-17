@@ -57,12 +57,15 @@ test.describe("settings — 1440x900", () => {
       timeout: 30_000,
     });
 
-    // ...and the register agrees: the drawer's UNITS column reads it back.
+    // ...and the register agrees. It says so ONCE, on the header rule, because
+    // every part in this drawer is in inches (REGISTER-1: a per-row column
+    // repeating one unit spent 8 % of the table width saying nothing). The
+    // moment a drawer holds two units the per-row column comes back.
     await page.goto("/");
     await expect(page.getByTestId("part-row")).toHaveCount(1, {
       timeout: 30_000,
     });
-    await expect(page.getByTestId("part-row").first()).toContainText("in");
+    await expect(page.getByTestId("parts-drawer-units")).toHaveText("in");
 
     // ...and the preference survives a reload, which is what makes it a
     // preference rather than a session accident.

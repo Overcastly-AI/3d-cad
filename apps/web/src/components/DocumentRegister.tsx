@@ -316,10 +316,17 @@ export interface DocumentRegisterProps<T extends RegisterDocument> {
   isLoading: boolean;
   isError: boolean;
   error: unknown;
-  /** The row's link into its workspace — routes are typed per document kind. */
+  /**
+   * The row's link into its workspace — routes are typed per document kind.
+   *
+   * The props are SPREAD onto the anchor, all of them: `title` carries the full
+   * name so a clipped one is still readable (REGISTER-1), and it arrives here
+   * rather than being stamped by each page because a page that forgot it would
+   * reintroduce exactly the defect the primitive closes.
+   */
   openLink: (
     document: T,
-    props: { className: string; "data-testid": string },
+    props: { className: string; title: string; "data-testid": string },
   ) => ReactNode;
   /**
    * Create + invalidate (+ navigate, for parts). Rejects with a field error.
@@ -403,7 +410,23 @@ export function DocumentRegister<T extends RegisterDocument>({
    */
   const empty =
     !isLoading && !isError && documents.length === 0 && folders.length === 0;
-  const showUnits = documents.some((d) => d.length_unit !== undefined);
+  /**
+   * WHICH UNITS THIS DRAWER SPEAKS — the whole drawer, not the view, so the
+   * readout does not change meaning when a filter narrows the rows.
+   *
+   * One unit is a drawer-level fact and is stated once on the header rule; two
+   * or more is a per-row fact and earns the column back. Nothing is hidden
+   * either way (REGISTER-1: the old column spent 8 % of the table width on
+   * `mm, mm, mm, mm`).
+   */
+  const unitsInDrawer = useMemo(() => {
+    const seen = new Set<LengthUnit>();
+    for (const entry of documents) {
+      if (entry.length_unit !== undefined) seen.add(entry.length_unit);
+    }
+    return [...seen];
+  }, [documents]);
+  const showUnits = unitsInDrawer.length > 1;
   const showHealth = documents.some((d) => d.eval_state !== undefined);
 
   return (
@@ -427,6 +450,18 @@ export function DocumentRegister<T extends RegisterDocument>({
           />
         )}
         <span className="grow" />
+        {/* The drawer's unit, said once. Only when every document agrees on it
+            — the moment two disagree the UNITS column comes back and this goes
+            away, so there is never a second place saying the same word. */}
+        {empty || isLoading || isError || unitsInDrawer.length !== 1 ? null : (
+          <span
+            className="font-display text-2xs uppercase tracking-[0.16em] text-gauge"
+            data-testid={`${idPlural}-drawer-units`}
+            title={`Every ${copy.noun} in this drawer is dimensioned in ${unitsInDrawer[0]}`}
+          >
+            {unitsInDrawer[0]}
+          </span>
+        )}
         {isError ? null : (
           <span
             className="font-data text-xs tabular-nums text-gauge"
@@ -783,7 +818,28 @@ function NoMatches({
   );
 }
 
-/** Shared gutter width — the table's first column and the scribe line agree. */
+/**
+ * THE WIDTH BUDGET (REGISTER-1, 2026-08-17).
+ *
+ * Every column here is FIXED and NAME takes what is left, because NAME is the
+ * only column that tells two rows apart and it was the third-narrowest: 173 px
+ * of 957 at 1280 (18 %), against 256 px of row verbs (27 %) and 72 px of a UNITS
+ * column reading `mm, mm, mm, mm` (UI-REVIEW P1-2, measured in the running app).
+ *
+ * Two changes bought NAME 272 px:
+ *  - the four verbs became one `OverflowMenu` mark, so ACTION is now the
+ *    GUTTER'S width — the drawer reads with two equal scribed margins, an
+ *    ordinal in the left one and the row's verbs in the right;
+ *  - UNITS is no longer a per-row column when the drawer speaks one unit; it is
+ *    stated once on the header rule, the way a title block states it (see
+ *    `unitsInDrawer`). A column of one repeated value is not a column.
+ *
+ * FILED stayed, and that is a deliberate disagreement with the audit's "(c)
+ * reclaim FILED": it is the only column carrying a document's ABSOLUTE date, it
+ * is a live sort key, and its constancy in the audit's sample is an artifact of
+ * a drawer seeded in one session, not a property of the column. It is already
+ * dropped below `md`, where the width actually runs out.
+ */
 const COLUMN = {
   /** Scribed margin carrying the row ordinal — the table and the scribe line
    *  below it share this width so the log's left edge is one straight rule. */
@@ -793,11 +849,8 @@ const COLUMN = {
   /** Wide enough for the longest stamped verdict ("Clean to stop") unwrapped. */
   health: "w-[9rem]",
   filed: "w-[7rem]",
-  /** FOUR verbs, always visible (MOVE joined at #WS2) — see
-   *  `DocumentRegisterRow`. Widened from 13rem when the fourth arrived: at
-   *  13rem the verbs ran into the FILED date, which is a legibility defect, not
-   *  a spacing preference. */
-  action: "w-[16rem]",
+  /** ONE mark, at the gutter's width — the drawer's right-hand margin. */
+  action: "w-[3.5rem]",
 } as const;
 
 function RegisterTable<T extends RegisterDocument>({

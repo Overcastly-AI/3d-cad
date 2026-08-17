@@ -1032,3 +1032,37 @@ export const FolderUpIcon = (p: IconProps) => (
     <path d="M6 12 L12 6 L18 12" />
   </Icon>
 );
+
+// --- Row verbs (REGISTER-1) --------------------------------------------------
+//
+// The three glyphs a filed row's overflow menu needs. Drawn from the drawer's
+// own vocabulary rather than from an office icon set: the "more" mark is three
+// of the scribe's PUNCH MARKS (the same `Node` every sketch glyph sets its
+// defining points with), so the control that opens a row's verbs is made of the
+// marks the register is already drawn in; duplicate is two sheets offset on the
+// board; rename is the scribe itself, nib down on a ruled line.
+
+/** More verbs for this row — three punch marks, the drawer's own ink. */
+export const MoreIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <Node cx={5} cy={12} />
+    <Node cx={12} cy={12} />
+    <Node cx={19} cy={12} />
+  </Icon>
+);
+
+/** Duplicate — a second sheet laid over the first, offset on the board. */
+export const DuplicateIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M4 16 L4 4 L14 4" />
+    <rect x={8} y={8} width={12} height={12} />
+  </Icon>
+);
+
+/** Rename — the scribe, nib down, over the rule it is writing on. */
+export const RenameIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M5 15 L15 5 L19 9 L9 19 L5 19 Z" />
+    <path d="M4 22 L20 22" />
+  </Icon>
+);

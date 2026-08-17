@@ -1,7 +1,7 @@
 import { copyFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 
-import { expect, type Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 
 import { SESSION_STORAGE_KEY } from "../src/auth/session";
 
@@ -163,6 +163,25 @@ export async function createPartViaApi(
     );
   }
   return (await response.json()) as { id: string; name: string };
+}
+
+/**
+ * Open a register row's verb menu and hand back the row it belongs to.
+ *
+ * REGISTER-1 collapsed RENAME / DUPLICATE / MOVE / DELETE into one overflow
+ * mark per row (they were 27 % of the table's width against the NAME column's
+ * 18 %). The verbs kept their ids, so a spec that drove one only has to open the
+ * menu first — this is that step, in one place, so the next change of address
+ * costs one edit instead of a sweep through the suite.
+ *
+ * `scope` is a row locator when the drawer has more than one row; the default
+ * (the page) is right for the single-row specs.
+ */
+export async function openRowActions(
+  scope: Page | Locator,
+  idSingular = "part",
+): Promise<void> {
+  await scope.getByTestId(`${idSingular}-actions`).first().click();
 }
 
 /**

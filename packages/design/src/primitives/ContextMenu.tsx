@@ -69,8 +69,13 @@ export interface ContextMenuProps {
   "aria-label": string;
 }
 
-/** Estimated menu size for the first paint's clamp (refined after measure). */
-const MENU_MIN_WIDTH = 224;
+/**
+ * Estimated menu size for the first paint's clamp (refined after measure), and
+ * the `min-w-[14rem]` the card is drawn at. Exported because an ANCHORED opener
+ * (`OverflowMenu`) has to right-align the card to its trigger before the card
+ * exists to be measured.
+ */
+export const MENU_MIN_WIDTH = 224;
 
 /**
  * Can roving focus land here? Gated rows carry `aria-disabled` (they must stay

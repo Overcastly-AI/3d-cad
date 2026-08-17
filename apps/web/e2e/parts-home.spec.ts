@@ -1,6 +1,11 @@
 import { expect, test } from "./fixtures";
 
-import { createPartViaApi, SCREENSHOT_DIR, seedSession } from "./support";
+import {
+  createPartViaApi,
+  openRowActions,
+  SCREENSHOT_DIR,
+  seedSession,
+} from "./support";
 
 /**
  * BACKLOG #4: the parts home — the landing surface after sign-in. Everything
@@ -34,6 +39,7 @@ test.describe("parts home", () => {
     await expect(page.getByTestId("parts-count")).toHaveText("1 part");
 
     // Delete with a confirm — nothing destructive on a single click.
+    await openRowActions(page);
     await page.getByTestId("part-delete").click();
     await expect(page.getByTestId("part-delete-confirm")).toBeVisible();
     await page.getByTestId("part-delete-confirm").click();
@@ -52,6 +58,7 @@ test.describe("parts home", () => {
     await createPartViaApi(page, account.token, "Keep me");
     await page.goto("/");
 
+    await openRowActions(page);
     await page.getByTestId("part-delete").click();
     await page.getByTestId("part-delete-cancel").click();
     await expect(page.getByTestId("part-row")).toHaveCount(1);

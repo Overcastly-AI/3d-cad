@@ -10,6 +10,7 @@ import {
 } from "./partSeed";
 import {
   createPartViaApi,
+  openRowActions,
   SCREENSHOT_DIR,
   seedSession,
   withStableSessionEmail,
@@ -163,6 +164,7 @@ test.describe("register rebuild health — 1440x900", () => {
 
     // Prove the renumbering against the REAL delete, so the claim the column
     // makes is checked against the behaviour it has.
+    await openRowActions(rows.nth(0));
     await rows.nth(0).getByTestId("part-delete").click();
     await page.getByTestId("part-delete-confirm").click();
     await expect(page.getByTestId("part-row")).toHaveCount(4, {

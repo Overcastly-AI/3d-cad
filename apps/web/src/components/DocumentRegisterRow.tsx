@@ -1,4 +1,16 @@
-import { Button, SelectField, Stamp, TextField } from "@loft/design";
+import {
+  Button,
+  CloseIcon,
+  type ContextMenuSection,
+  DividerTabIcon,
+  DuplicateIcon,
+  OverflowMenu,
+  RenameIcon,
+  SelectField,
+  Stamp,
+  TextField,
+  truncatedProps,
+} from "@loft/design";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 
 import {
@@ -45,18 +57,27 @@ import type {
  *    say "in use" and it does not summarise a count: the user's next action is
  *    to go open those documents, so the refusal has to name them.
  *
- * FORM. The actions are three quiet display-face verbs in the action column,
- * always visible rather than revealed on hover — a destructive verb that hides
- * until you are already pointing at it is not discoverable and not reachable by
- * keyboard-only scanning. Rename edits IN the name cell, leaving units, activity
- * and rebuild health on screen, because you rename a part while looking at which
- * part it is. Delete takes the row over, because a confirmation that shares a
- * line with other data is a confirmation people click through.
+ * FORM. Rename edits IN the name cell, leaving units, activity and rebuild
+ * health on screen, because you rename a part while looking at which part it is.
+ * Delete takes the row over, because a confirmation that shares a line with
+ * other data is a confirmation people click through.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * THE VERBS MOVED INTO ONE MARK (REGISTER-1, 2026-08-17). They used to be four
+ * words printed on every row, and that was defended here as discoverability. The
+ * measurement retired the argument: at 1280 the four verbs held 256 px of 957
+ * (27 %) against the NAME column's 173 px (18 %), so the widest column in a file
+ * browser was row verbs at 1.5x the only column that tells two parts apart — and
+ * NAME, starved, clipped mid-glyph. The verbs are now an `OverflowMenu` (the
+ * shared `ContextMenu` card behind one punch-mark trigger), the column is 3.5 rem
+ * — the gutter's width, so the drawer has two equal margins — and every pixel
+ * freed went to NAME.
+ *
+ * What the old argument was right about is kept: the verbs are still reachable
+ * by keyboard (one tab stop per row instead of four, then arrows), DELETE still
+ * costs a confirmation, and nothing is hover-only — the trigger is always
+ * rendered, not revealed on pointer.
  */
-
-/** How the row's action buttons are inked — quiet by default, flag to destroy. */
-const ACTION_BUTTON =
-  "inline-flex min-h-target-dense items-center rounded-sm px-1 font-display text-2xs uppercase tracking-[0.14em] outline-none transition-colors duration-fast focus-visible:outline focus-visible:outline-2 focus-visible:outline-brass";
 
 export interface DocumentRegisterRowProps<T extends RegisterDocument> {
   idSingular: string;
@@ -253,17 +274,22 @@ export function DocumentRegisterRow<T extends RegisterDocument>({
             }}
           />
         ) : (
-          <span className="flex flex-wrap items-baseline gap-x-2">
+          <span className="flex min-w-0 items-baseline gap-x-2">
             {openLink(entry, {
-              className:
-                // `min-h-target-dense`: the row stays dense, the TAP TARGET does not go
-                // under the 24px floor (design `target` policy; it measured 84x18).
-                "inline-flex min-h-target-dense items-center rounded-sm font-body text-md text-mist underline-offset-4 outline-none hover:text-brass hover:underline focus-visible:text-brass focus-visible:underline",
+              // TRUNCATION IS THE PRIMITIVE'S JOB (`truncatedProps`): it carries
+              // the ellipsis, the `title` with the full name, and the 24 px tap
+              // target the old `inline-flex` was reaching for — and that
+              // inline-flex was exactly why the name clipped raw instead of
+              // ellipsising (UI-REVIEW P1-2).
+              ...truncatedProps(
+                entry.name,
+                "rounded-sm font-body text-md text-mist underline-offset-4 outline-none hover:text-brass hover:underline focus-visible:text-brass focus-visible:underline",
+              ),
               "data-testid": `${idSingular}-open`,
             })}
             {showLocation ? (
               <span
-                className="font-display text-2xs uppercase tracking-[0.14em] text-gauge"
+                className="shrink-0 font-display text-2xs uppercase tracking-[0.14em] text-gauge"
                 data-testid={`${idSingular}-location`}
                 title="Where this document is filed"
               >
@@ -320,61 +346,122 @@ export function DocumentRegisterRow<T extends RegisterDocument>({
                 {rowError}
               </span>
             ) : null}
-            <button
-              type="button"
-              onClick={() => {
-                setRowError(null);
-                setMode("rename");
-              }}
-              data-testid={`${idSingular}-rename`}
-              aria-label={`Rename ${entry.name}`}
-              className={`${ACTION_BUTTON} text-gauge hover:text-brass focus-visible:text-brass`}
-            >
-              Rename
-            </button>
-            <button
-              type="button"
-              onClick={() => void duplicate()}
-              disabled={pending}
-              data-testid={`${idSingular}-duplicate`}
-              aria-label={`Duplicate ${entry.name}`}
-              className={`${ACTION_BUTTON} text-gauge hover:text-brass focus-visible:text-brass disabled:text-etch`}
-            >
-              {pending ? "Copying…" : "Duplicate"}
-            </button>
-            {onMove === undefined ? null : (
-              <button
-                type="button"
-                onClick={() => {
+            <OverflowMenu
+              label={`Actions for ${entry.name}`}
+              data-testid={`${idSingular}-actions`}
+              sections={rowVerbs({
+                idSingular,
+                entry,
+                pending,
+                canMove: onMove !== undefined,
+                onRename: () => {
+                  setRowError(null);
+                  setMode("rename");
+                },
+                onDuplicate: () => void duplicate(),
+                onMove: () => {
                   setRowError(null);
                   setMode("move");
-                }}
-                data-testid={`${idSingular}-move`}
-                aria-label={`Move ${entry.name} to a folder`}
-                className={`${ACTION_BUTTON} text-gauge hover:text-brass focus-visible:text-brass`}
-              >
-                Move
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => {
-                setRowError(null);
-                setMode("confirm");
-              }}
-              data-testid={`${idSingular}-delete`}
-              aria-label={`Delete ${entry.name}`}
-              // 53x15 before the target policy — the one destructive verb in the
-              // register was its smallest control.
-              className={`${ACTION_BUTTON} text-gauge hover:text-flag focus-visible:text-flag`}
-            >
-              Delete
-            </button>
+                },
+                onDelete: () => {
+                  setRowError(null);
+                  setMode("confirm");
+                },
+              })}
+            />
           </div>
         )}
       </td>
     </tr>
   );
+}
+
+/**
+ * WHAT ONE ROW CAN DO, as menu sections.
+ *
+ * Two sections, and the split is the point: the three verbs that change a
+ * document sit together, DELETE sits alone below the rule in the flag ink. The
+ * old row printed all four at identical weight, which is how a destructive verb
+ * ends up looking like a fourth way to file something.
+ *
+ * The `data-testid`s are the ones the row has always carried (`part-rename`,
+ * `part-duplicate`, `part-move`, `part-delete`), so the suites that drive them
+ * only have to open the menu first — the verbs did not change, their address on
+ * screen did.
+ */
+function rowVerbs<T extends RegisterDocument>({
+  idSingular,
+  entry,
+  pending,
+  canMove,
+  onRename,
+  onDuplicate,
+  onMove,
+  onDelete,
+}: {
+  idSingular: string;
+  entry: T;
+  pending: boolean;
+  canMove: boolean;
+  onRename: () => void;
+  onDuplicate: () => void;
+  onMove: () => void;
+  onDelete: () => void;
+}): ContextMenuSection[] {
+  return [
+    {
+      key: "edit",
+      items: [
+        {
+          key: "rename",
+          label: "Rename",
+          icon: <RenameIcon />,
+          onSelect: onRename,
+          "data-testid": `${idSingular}-rename`,
+          "aria-label": `Rename ${entry.name}`,
+        },
+        {
+          key: "duplicate",
+          label: pending ? "Copying…" : "Duplicate",
+          icon: <DuplicateIcon />,
+          disabled: pending,
+          disabledReason: pending ? "A copy is already being made" : undefined,
+          onSelect: onDuplicate,
+          "data-testid": `${idSingular}-duplicate`,
+          "aria-label": `Duplicate ${entry.name}`,
+        },
+        // Absent, not inert, when the drawer has no folders — the same rule the
+        // row verb followed: a register cannot offer a filing gesture it has
+        // nowhere to file into.
+        ...(canMove
+          ? [
+              {
+                key: "move",
+                label: "Move to folder",
+                icon: <DividerTabIcon />,
+                onSelect: onMove,
+                "data-testid": `${idSingular}-move`,
+                "aria-label": `Move ${entry.name} to a folder`,
+              },
+            ]
+          : []),
+      ],
+    },
+    {
+      key: "destroy",
+      items: [
+        {
+          key: "delete",
+          label: "Delete",
+          icon: <CloseIcon />,
+          danger: true,
+          onSelect: onDelete,
+          "data-testid": `${idSingular}-delete`,
+          "aria-label": `Delete ${entry.name}`,
+        },
+      ],
+    },
+  ];
 }
 
 /**
