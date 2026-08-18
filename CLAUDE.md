@@ -955,6 +955,27 @@ recipe here in the same commit as the fix.**
   Playwright boots a fresh Vite proxying to the :8000 gateway `just e2e`
   starts. Agents booting an isolated frontend MUST kill their Vite in teardown,
   not just their uvicorns.
+- **A TAILWIND PRESET CHANGE IS A BUILD-CONFIG CHANGE, NOT A SOURCE CHANGE — a
+  running Vite will not pick it up, and the symptom is "your new feature is
+  broken", never a build error.** Measured 2026-08-17 recovering VIEWCUBE-1.
+  `packages/design/src/tailwind-preset.ts` gained `h-view-cube` /
+  `bottom-view-cube` utilities in the same change that used them. Against a Vite
+  started BEFORE the patch, those classes did not exist, so the host `div` had
+  no width, height or seat — and its child `<canvas>` fell back to the HTML
+  DEFAULT of **300x150 at the top-left**. The e2e probe therefore reported a
+  cube of the wrong size in the wrong corner, which reads exactly like a
+  half-finished component. I was one step from rewriting work that was already
+  correct; after killing Vite the same bytes measured **108x108 at (1130, 602)**
+  on a 1280x800 frame with every facet click steering the camera.
+  Two things generalise. (a) **`300x150` is a fingerprint, not a measurement** —
+  it is the intrinsic size of a `<canvas>` with no CSS size, so any element
+  reporting it is un-styled rather than mis-styled, and the question is why the
+  CSS is missing, not what the component did wrong. (b) The stale-Vite entry
+  above is about a stale PROXY TARGET (every spec 500s at register, loud and
+  obvious). This is the quieter half: a stale *config* yields a page that loads,
+  renders and lies. **Restart Vite after touching `tailwind-preset.ts`,
+  `tokens.ts`, `vite.config.ts`, or anything else Vite reads once at boot** —
+  the same reflex as regenerating contracts after a pydantic change.
 - **Run the batch-end `just e2e` in a QUIET window — never concurrent with
   heavy agents — and treat a red sweep run under CPU load as UNCONFIRMED.**
   Seen 2026-07-23: a batch-end sweep kicked off while 2-3 kernel agents were
