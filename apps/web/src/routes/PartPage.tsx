@@ -210,6 +210,7 @@ import {
   withDefaultMaterial,
 } from "../features/materials";
 import { derivePartBuild, partialBodySentence } from "../features/partBuild";
+import { downloadBlob, exportPartFlatPatternDxf } from "../api/exportPart";
 import { partExportBinding } from "../features/partExport";
 import {
   type BaseFlangeForm,
@@ -1401,6 +1402,12 @@ export function PartPage() {
   // navigates to it. Busy + the server envelope's own message on rejection.
   const [flatPatternBusy, setFlatPatternBusy] = useState(false);
   const [flatPatternError, setFlatPatternError] = useState<string | null>(null);
+  // The profile-only DXF cut path (AUDIT-PRODUCT F-2a) — a download, not a
+  // navigation, so it gets its own busy flag but SHARES the flat-pattern error
+  // surface: both are "the blank could not be produced", and a second alert box
+  // in the same corner saying a near-identical sentence is how a UI starts
+  // lying about how many things went wrong.
+  const [flatDxfBusy, setFlatDxfBusy] = useState(false);
   // Inline offset-plane authoring (the plane-pick "+ Offset plane" path).
   const [offsetPlaneBusy, setOffsetPlaneBusy] = useState(false);
   const [offsetPlaneError, setOffsetPlaneError] = useState<string | null>(null);
@@ -2247,6 +2254,30 @@ export function PartPage() {
       }
     })();
   }, [flatPatternBusy, part.data, partId, navigate]);
+
+  // Flat-pattern DXF (AUDIT-PRODUCT F-2a): the cut path a laser/turret vendor
+  // asks for by name, straight from the part — no drawing sheet to author, and
+  // no A4 border and title block to delete afterwards. 1:1 by construction on
+  // the server, so there is nothing to get wrong here.
+  const exportFlatDxf = useCallback(() => {
+    if (flatDxfBusy) return;
+    setFlatDxfBusy(true);
+    setFlatPatternError(null);
+    void (async () => {
+      try {
+        const file = await exportPartFlatPatternDxf(partId);
+        downloadBlob(file.blob, file.filename);
+      } catch (error) {
+        setFlatPatternError(
+          error instanceof Error
+            ? error.message
+            : "The flat-pattern DXF could not be written.",
+        );
+      } finally {
+        setFlatDxfBusy(false);
+      }
+    })();
+  }, [flatDxfBusy, partId]);
 
   // Combine needs ≥2 bodies to fuse (a boolean union names two of them). It
   // seeds the first two bodies in tree order; the user retargets either.
@@ -4098,6 +4129,8 @@ export function PartPage() {
               canFlatPattern={isSheetMetal}
               flatteningPattern={flatPatternBusy}
               onFlatPattern={openFlatPattern}
+              exportingFlatDxf={flatDxfBusy}
+              onExportFlatDxf={exportFlatDxf}
               canCombine={bodies.length >= 2}
               onCombine={openCreateCombine}
               canMeasure={hasBody}

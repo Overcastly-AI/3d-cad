@@ -310,6 +310,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/drawing/flat-pattern/dxf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Flat Pattern Dxf Route
+         * @description Export a sheet-metal part's flat pattern as a PROFILE-ONLY DXF (F-2a).
+         *
+         *     The one-action flat pattern every incumbent ships and we did not: the cut path a
+         *     laser/turret/waterjet vendor's nesting and quoting software ingests unmodified.
+         *     Until now the only flat pattern we could produce was a whole A4 DRAWING SHEET —
+         *     the product audit measured the cut geometry at **5 of 29 entities**, extents
+         *     10..287 x 10..200 mm — so an operator had to import the sheet and delete the
+         *     furniture by hand for every revision.
+         *
+         *     Takes a PART's feature tree, not a drawing: this must be reachable without
+         *     authoring a drawing sheet first. Internally it evaluates and places the pattern
+         *     through the SAME ``evaluate_drawing_views`` / ``place_sheet`` pipeline the drawing
+         *     uses, so the exported cut path and the drawn one are the same geometry, then
+         *     serializes only that view's edges. **1:1 by construction** — the request has no
+         *     scale to ask otherwise with. Identity-free (the gateway owns auth); deterministic
+         *     (RESEARCH §9): same request => identical bytes.
+         *
+         *     A part with no developable flat pattern is a typed 422, never an empty file.
+         */
+        post: operations["flat_pattern_dxf_route_api_v1_drawing_flat_pattern_dxf_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/evaluate": {
         parameters: {
             query?: never;
@@ -3681,6 +3718,58 @@ export interface components {
              */
             kind: "fixed";
             point: components["schemas"]["EntityPointRef"];
+        };
+        /**
+         * FlatPatternDxfRequest
+         * @description Export a sheet-metal part's flat pattern as a PROFILE-ONLY DXF.
+         *
+         *     The artifact a laser/turret/waterjet vendor asks for by name: the cut outline
+         *     and the fold lines at 1:1 in millimetres, and nothing else — no sheet border,
+         *     no title block, no bend table, no dimensions. Distinct from
+         *     :class:`ComposeDrawingRequest`'s ``format="dxf"``, which serializes a whole
+         *     DRAWING SHEET; there the cut geometry is a handful of entities inside an A4
+         *     page of furniture an operator has to delete by hand, every revision.
+         *
+         *     Takes a PART's feature tree, not a drawing: a fabricator's flat pattern must be
+         *     reachable from the part without authoring a drawing sheet first, which is how
+         *     every incumbent ships it. Extends :class:`EvaluateTreeRequest` VERBATIM (the same
+         *     ordered, rollback-applied prefix the evaluate/export routes take — one tree
+         *     contract) and adds only the download name, exactly as
+         *     :class:`~py_kit.schemas.features.ExportTreeRequest` does.
+         *
+         *     There is deliberately NO scale field. A flat pattern is a cut path, not a
+         *     picture, so 1:1 is not a default here — it is the only representable answer
+         *     (AUDIT-PRODUCT F-1, where a 1:2 drawing sheet shipped a half-size blank).
+         */
+        FlatPatternDxfRequest: {
+            /**
+             * Features
+             * @description Ordered prefix (rollback already applied), bounded by MAX_TREE_FEATURES (work bound, audit G2)
+             */
+            features: components["schemas"]["EvaluatedFeatureInput"][];
+            /**
+             * Linear Deflection
+             * @description Presentation parameter (mm), NEVER persisted per feature (design §8.3). Floored at MIN_LINEAR_DEFLECTION (work bound, audit G2).
+             * @default 0.1
+             */
+            linear_deflection: number;
+            /** @description What the part's bodies are made of (docs/design/materials.md): a document default plus per-body overrides. Omitted / null = no material, so the result reports NO mass (absent, not zero). Unlike length units — presentation metadata the kernel never sees — material is an INPUT to evaluation, because mass is derived from it. */
+            materials?: components["schemas"]["MaterialAssignment"] | null;
+            /**
+             * Name
+             * @description The part's human-readable document name. Names the download filename; omitted / null falls back to the part id. EXPORT-only on purpose (see DocumentName) — it is not on EvaluateTreeRequest, because a name must never be an input to geometry.
+             */
+            name?: string | null;
+            /**
+             * Part Id
+             * Format: uuid
+             */
+            part_id: string;
+            /**
+             * Tree Version
+             * @description The part tree_version documents composed this request from. Echoed back verbatim on the result, where it is the PROVENANCE stamp of the returned body (EvaluateTreeResult.tree_version) as well as a cache/correlation key.
+             */
+            tree_version: number;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -7344,6 +7433,37 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
+            };
+        };
+    };
+    flat_pattern_dxf_route_api_v1_drawing_flat_pattern_dxf_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FlatPatternDxfRequest"];
+            };
+        };
+        responses: {
+            /** @description The profile-only flat pattern as DXF (`image/vnd.dxf`): the cut outline and fold lines at 1:1 in millimetres, on the `VISIBLE` and `BEND` layers, with no sheet border, title block, bend table or dimensions. `Content-Disposition` carries the suggested download filename. Byte-deterministic: identical requests produce identical bytes. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/vnd.dxf": string;
+                };
+            };
+            /** @description The part has no flat pattern to cut — a `flat_pattern_not_sheet_metal` / `flat_pattern_failed` / `flat_pattern_empty` envelope. NEVER an empty DXF: a shop cannot tell an empty file from a broken export. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

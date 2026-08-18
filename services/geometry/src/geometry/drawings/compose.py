@@ -3205,7 +3205,7 @@ class _DxfFrame(NamedTuple):
     skip the correction the way it could when the emitters took raw sheet ``x`` and a
     bare ``fy``.
 
-    Two jobs:
+    Three jobs:
 
     * the SINGLE y-flip (DXF model space is y-up, :class:`ComposedSheet` is y-down);
     * the MODEL-SCALE correction (AUDIT-PRODUCT F-1). ``place_sheet`` bakes the view
@@ -3215,11 +3215,16 @@ class _DxfFrame(NamedTuple):
       view's ``anchor``: the blank keeps its place on the sheet and measures its TRUE
       developed size. Before this, a flat pattern placed on a 1:2 sheet exported an
       86.09 x 20.00 mm blank as 43.05 x 10.00 mm while ``$INSUNITS`` still asserted
-      millimetres — a confidently wrong file, and half-size scrap at the vendor.
+      millimetres — a confidently wrong file, and half-size scrap at the vendor;
+    * a model-space TRANSLATION (AUDIT-PRODUCT F-2a), used only by
+      :func:`serialize_flat_pattern_dxf`. A profile-only export has no sheet, so
+      carrying the A4 placement into it would encode a page that is not in the file;
+      the offsets park the blank's bounding box at the origin instead.
 
-    ``correction`` is 1.0 for sheet furniture and for picture views, where :meth:`xy`
-    reduces to the historical ``(x, sheet_height - y)`` exactly (no float drift), so
-    every non-flat-pattern DXF — and every 1:1 flat pattern — is byte-unchanged.
+    ``correction`` is 1.0 and the offsets are 0.0 for sheet furniture and for picture
+    views, where :meth:`xy` reduces to the historical ``(x, sheet_height - y)`` exactly
+    (no float drift), so every non-flat-pattern DXF — and every 1:1 flat pattern — is
+    byte-unchanged.
     """
 
     sheet_height: float
@@ -3230,15 +3235,25 @@ class _DxfFrame(NamedTuple):
     #: Multiplier applied about the origin — ``denominator/numerator`` of the drawn
     #: scale for a model-true view, 1.0 everywhere else.
     correction: float = 1.0
+    #: Rigid translation applied LAST, in DXF model space (mm, y-up). Zero for every
+    #: sheet export; set by the profile-only serializer to move the cut path's bounding
+    #: box to the origin. A translation is scale-free, so it cannot disturb the
+    #: correction above — the blank still measures its true developed size.
+    offset_x: float = 0.0
+    offset_y: float = 0.0
 
     def xy(self, x: float, y: float) -> tuple[float, float]:
         """One composed-sheet point as a DXF model-space point."""
         if self.correction == 1.0:
-            return (x, self.sheet_height - y)
-        return (
-            self.origin_x + (x - self.origin_x) * self.correction,
-            self.sheet_height - (self.origin_y + (y - self.origin_y) * self.correction),
-        )
+            px, py = x, self.sheet_height - y
+        else:
+            px = self.origin_x + (x - self.origin_x) * self.correction
+            py = self.sheet_height - (
+                self.origin_y + (y - self.origin_y) * self.correction
+            )
+        if self.offset_x == 0.0 and self.offset_y == 0.0:
+            return (px, py)
+        return (px + self.offset_x, py + self.offset_y)
 
     def scaled(self, length: float) -> float:
         """One composed-sheet LENGTH (a radius) in DXF model space."""
@@ -3742,6 +3757,144 @@ def serialize_dxf(composed: ComposedSheet) -> bytes:
                 _LYR_DIMENSION,
                 centred=False,
             )
+
+        stream = io.StringIO()
+        doc.write(stream)
+        return _dxf_bytes(doc, stream.getvalue())
+    finally:
+        ezdxf.options.write_fixed_meta_data_for_testing = previous
+
+
+# ---------------------------------------------------------------------------------
+# serialize_flat_pattern_dxf — the cut path, and nothing else (AUDIT-PRODUCT F-2a).
+# ---------------------------------------------------------------------------------
+
+
+class FlatPatternExportError(ValueError):
+    """A sheet carries no exportable flat pattern (typed, never a 500)."""
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
+
+
+def _flat_pattern_view(composed: ComposedSheet) -> ComposedView:
+    """The sheet's flat-pattern view, or a typed refusal.
+
+    A profile-only export has exactly one honest failure mode — there is no blank to
+    cut — and it must be an ERROR, never an empty-but-valid DXF. An empty file looks
+    like a part with nothing in it, and a shop that receives one has no way to tell
+    "this part is not sheet metal" from "the export broke".
+    """
+    for view in composed.views:
+        if view.projection != FLAT_PATTERN_PROJECTION:
+            continue
+        if view.failed:
+            error = view.error
+            raise FlatPatternExportError(
+                error.code if error is not None else "flat_pattern_failed",
+                error.message
+                if error is not None
+                else "The flat pattern could not be developed for this part.",
+            )
+        if not view.edges:
+            raise FlatPatternExportError(
+                "flat_pattern_empty",
+                "The flat pattern developed no cut geometry, so there is nothing to "
+                "export.",
+            )
+        return view
+    raise FlatPatternExportError(
+        "flat_pattern_not_sheet_metal",
+        "A flat-pattern DXF requires a sheet-metal body (a base flange + edge "
+        "flanges); this part has no sheet-metal feature.",
+    )
+
+
+def _edge_extremes(edge: ComposedEdge, frame: _DxfFrame) -> list[tuple[float, float]]:
+    """The model-space points that bound one edge (enough for a bounding box).
+
+    Goes through ``frame`` like every other coordinate in this module, so the box is
+    measured in the space the entities are actually written in — measuring it in sheet
+    space and mapping afterwards would be the second placement path :class:`_DxfFrame`
+    exists to forbid.
+    """
+    if isinstance(edge, ComposedLineEdge):
+        return [frame.xy(edge.x1, edge.y1), frame.xy(edge.x2, edge.y2)]
+    if isinstance(edge, ComposedCircleEdge):
+        cx, cy = frame.xy(edge.cx, edge.cy)
+        r = frame.scaled(edge.r)
+        return [(cx - r, cy - r), (cx + r, cy + r)]
+    return [frame.xy(p.x_mm, p.y_mm) for p in edge.points]
+
+
+def serialize_flat_pattern_dxf(composed: ComposedSheet) -> bytes:
+    """Render a sheet's flat pattern as a PROFILE-ONLY DXF (AUDIT-PRODUCT F-2a).
+
+    The artifact sheet-metal vendors ask for by name: the cut outline and the fold
+    lines, at 1:1, in millimetres, and NOTHING else. No sheet border, no title block,
+    no bend table, no dimensions, no view caption. The audit measured the only flat
+    pattern we could previously hand a fabricator — a full A4 drawing sheet in which
+    the cut geometry was **5 of 29 entities**, extents 10..287 x 10..200 mm — so an
+    operator had to import the sheet and delete the furniture by hand, every revision.
+    SolidWorks, Onshape and Fusion all ship a one-click flat-pattern DXF; this is ours.
+
+    Reuses the placed :class:`ComposedSheet`'s flat-pattern view rather than
+    re-projecting, so the cut path here is the SAME geometry the drawing shows — one
+    unfold, one truth. Two consequences fall out of that reuse and both are deliberate:
+
+    * **1:1 by construction.** The view rides :func:`_dxf_view_frame`, which divides
+      out whatever scale the sheet drew the pattern at (F-1). A caller cannot produce a
+      half-size cut path from this function at any sheet scale, because there is no
+      parameter with which to ask for one.
+    * **Parked at the origin.** The sheet placement is translated away (the frame's
+      ``offset_x`` / ``offset_y``) so the blank's bounding box starts at (0, 0). A file
+      with no sheet in it should not carry an A4 page's coordinates.
+
+    Layers are the F-2b split — ``VISIBLE`` for the cut outline, ``BEND`` for the fold
+    lines, ``HIDDEN`` only if the unfold ever emits one — declared only when used, so
+    a nesting package's layer mapping sees exactly the layers that have geometry in
+    them. Deterministic on the same input, by the same mechanism as
+    :func:`serialize_dxf`, and the bytes are :data:`DXF_ENCODING` (pure ASCII here in
+    practice: a profile-only file stamps no text at all).
+
+    Raises :class:`FlatPatternExportError` when there is no flat pattern to cut.
+    """
+    view = _flat_pattern_view(composed)
+    sheet = _DxfFrame(composed.height_mm)
+    placed = _dxf_view_frame(sheet, view, parse_scale_label(composed.scale_label))
+    points = [p for edge in view.edges for p in _edge_extremes(edge, placed)]
+    frame = placed._replace(  # pyright: ignore[reportPrivateUsage]
+        offset_x=-min(p[0] for p in points),
+        offset_y=-min(p[1] for p in points),
+    )
+
+    previous = ezdxf.options.write_fixed_meta_data_for_testing
+    ezdxf.options.write_fixed_meta_data_for_testing = True
+    try:
+        doc = ezdxf.new(_DXF_VERSION, setup=False)
+        roles = {
+            _LYR_BEND
+            if edge.edge_role == "bend"
+            else (_LYR_VISIBLE if edge.visible else _LYR_HIDDEN)
+            for edge in view.edges
+        }
+        if _LYR_HIDDEN in roles:
+            doc.linetypes.add(
+                "DASHED", pattern="A,2.0,-1.4", description="Loft hidden edge — 2/1.4"
+            )
+        doc.layers.add(_LYR_VISIBLE, color=7)
+        if _LYR_HIDDEN in roles:
+            doc.layers.add(_LYR_HIDDEN, color=8, linetype="DASHED")
+        if _LYR_BEND in roles:
+            # No DASHED linetype here: a fold line in a CUT-PATH file is a machine
+            # instruction to a press brake, not a drafting stroke, and dashing it
+            # would only matter to a human looking at the picture this file is not.
+            doc.layers.add(_LYR_BEND, color=5)
+        msp = doc.modelspace()
+        for edge in view.edges:
+            _dxf_edge(msp, edge, frame)
 
         stream = io.StringIO()
         doc.write(stream)

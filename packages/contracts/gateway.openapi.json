@@ -15413,6 +15413,56 @@
         ]
       }
     },
+    "/api/v1/parts/{part_id}/flat-pattern.dxf": {
+      "post": {
+        "description": "Export the part's flat pattern as a profile-only DXF cut path.\n\nThe artifact sheet-metal vendors ask for by name, in one action from the PART \u2014\nno drawing sheet required. The same two-hop aggregation as :func:`export_part`:\ndocuments serves the evaluation-ready feature list (rollback bar applied, params\nupcast) and the part's name, the gateway wraps them into a\n``FlatPatternDxfRequest``, and the stateless geometry service develops the blank\nand serializes only its cut geometry. Auth-scoped and rate-limited like every\nOCCT-CPU route. A part that is not sheet metal (or whose bends cannot be\nresolved) re-surfaces geometry's typed 422 verbatim.",
+        "operationId": "export_part_flat_pattern_api_v1_parts__part_id__flat_pattern_dxf_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "part_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Part Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "image/vnd.dxf": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The part's flat pattern as a profile-only DXF (`image/vnd.dxf`), proxied byte-exact from the geometry service: the cut outline (`VISIBLE`) and fold lines (`BEND`) at 1:1 in millimetres, and nothing else \u2014 no sheet border, title block, bend table or dimensions. `Content-Disposition` carries the suggested download filename. A part with no developable flat pattern is a 422 `flat_pattern_*` envelope, never an empty file."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Export Part Flat Pattern",
+        "tags": [
+          "features"
+        ]
+      }
+    },
     "/api/v1/parts/{part_id}/move": {
       "post": {
         "description": "File a part into a folder, or un-file it with ``folder_id: null``.\n\nReturns the part as STORED, so the register renders where the server put it.\nFiling is not a document edit: it moves neither ``tree_version`` nor\n``updated_at``, so LAST WORKED keeps meaning \"someone worked on it\".",

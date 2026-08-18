@@ -131,6 +131,16 @@ export interface CreateStripProps {
   flatteningPattern?: boolean;
   /** Unfold the sheet body onto a flat-pattern drawing (the model→flatten loop). */
   onFlatPattern?: () => void;
+  /** A profile-only flat-pattern DXF download is in flight. */
+  exportingFlatDxf?: boolean;
+  /**
+   * Download the flat pattern as a profile-only DXF cut path — the file a
+   * laser/turret vendor asks for by name (AUDIT-PRODUCT F-2a). Sits beside
+   * "Flat pattern" rather than in the Export group because it is a SHEET-METAL
+   * deliverable and shares that verb's gate: both need a sheet body, and the
+   * next thing a user wants after seeing the blank is to send it out.
+   */
+  onExportFlatDxf?: () => void;
   /**
    * Two or more bodies exist to fuse (a `merge: false` add / an import started a
    * second body). Below two bodies the Combine tool disables with its reason.
@@ -218,6 +228,8 @@ export function CreateStrip({
   canFlatPattern = false,
   flatteningPattern = false,
   onFlatPattern,
+  exportingFlatDxf = false,
+  onExportFlatDxf,
   canCombine = false,
   onCombine,
   canMeasure = false,
@@ -258,6 +270,11 @@ export function CreateStrip({
     treeReady &&
     !flatteningPattern &&
     onFlatPattern !== undefined;
+  const flatDxfReady =
+    canFlatPattern &&
+    treeReady &&
+    !exportingFlatDxf &&
+    onExportFlatDxf !== undefined;
 
   // An open command scopes the whole band: every tool locks with one honest
   // reason, so no click can discard the open command's picks (Track C P1).
@@ -674,6 +691,38 @@ export function CreateStrip({
             )}
             disabled={locked || !flatPatternReady}
             onClick={onFlatPattern}
+          />
+          {/*
+            The deliverable, next to the thing it delivers (AUDIT-PRODUCT F-2a).
+            A flat pattern exists to be CUT, so the step after seeing the blank is
+            sending it to a vendor — this writes the profile-only DXF cut path
+            directly, instead of the old route of authoring a drawing, exporting
+            it as DXF, and deleting the A4 border and title block by hand.
+
+            Here rather than in the Export group because a flat pattern is a
+            sheet-metal deliverable, not another format of the 3-D body: the
+            Export cells all write the solid, and dropping a 2-D cut path among
+            them would make that group mean two different things. It carries the
+            flat-pattern glyph for the same reason it carries that gate — same
+            subject, different verb, and the label says which.
+          */}
+          <ToolButton
+            icon={<VerbGlyph verb="flat_pattern" />}
+            showLabel
+            label="Flat DXF"
+            data-testid="export-flat-dxf"
+            aria-label={
+              canFlatPattern
+                ? "Flat DXF — download the flat pattern as a 1:1 DXF cut path (outline and fold lines only)"
+                : "Flat DXF — add a base flange first"
+            }
+            aria-busy={exportingFlatDxf}
+            caption={captionFor(
+              flatDxfReady,
+              exportingFlatDxf ? "Writing…" : "Add a base flange first",
+            )}
+            disabled={locked || !flatDxfReady}
+            onClick={onExportFlatDxf}
           />
         </ToolGroup>
 

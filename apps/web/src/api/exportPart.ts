@@ -133,6 +133,47 @@ export async function exportPartTree(
   return { blob, filename };
 }
 
+/**
+ * Export the current part's FLAT PATTERN as a profile-only DXF cut path
+ * (`POST /api/v1/parts/{id}/flat-pattern.dxf`).
+ *
+ * Not a format of {@link exportPartTree}, and deliberately so: those write the
+ * 3-D body, this writes the 2-D blank a laser or turret punch cuts — the outline
+ * and the fold lines at 1:1 in millimetres, with no drawing sheet around them.
+ * It is the artifact a sheet-metal vendor asks for by name, and until now the
+ * only way to get one was to author a drawing, export it as DXF, and delete the
+ * A4 border, title block and bend table by hand for every revision.
+ *
+ * A part that is not sheet metal is the gateway's typed 422, surfaced as the
+ * message rather than a mystery failure — an empty DXF would be worse than an
+ * error, because a shop cannot tell one from a broken export.
+ */
+export async function exportPartFlatPatternDxf(
+  partId: string,
+  client: GatewayClient = gatewayClient,
+): Promise<ExportedFile> {
+  const { data, error, response } = await client.POST(
+    "/api/v1/parts/{part_id}/flat-pattern.dxf",
+    { params: { path: { part_id: partId } }, parseAs: "blob" },
+  );
+  if (error !== undefined) {
+    throw new Error(
+      "This part has no flat pattern to cut — add a sheet-metal base flange first",
+    );
+  }
+  if (data === undefined) {
+    throw new Error("Flat-pattern DXF export returned no file");
+  }
+  // parseAs:"blob" makes the runtime payload a Blob (openapi-fetch pass-through);
+  // the OpenAPI schema types binary content as string.
+  const blob = data as unknown as Blob;
+  const filename = parseContentDispositionFilename(
+    response.headers.get("Content-Disposition"),
+    "flat-pattern.dxf",
+  );
+  return { blob, filename };
+}
+
 /** Hand a blob to the browser as a named file download (blob URL + anchor). */
 export function downloadBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);

@@ -1633,6 +1633,35 @@ export interface paths {
         patch: operations["suppress_feature_api_v1_parts__part_id__features__feature_id__suppress_patch"];
         trace?: never;
     };
+    "/api/v1/parts/{part_id}/flat-pattern.dxf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Export Part Flat Pattern
+         * @description Export the part's flat pattern as a profile-only DXF cut path.
+         *
+         *     The artifact sheet-metal vendors ask for by name, in one action from the PART —
+         *     no drawing sheet required. The same two-hop aggregation as :func:`export_part`:
+         *     documents serves the evaluation-ready feature list (rollback bar applied, params
+         *     upcast) and the part's name, the gateway wraps them into a
+         *     ``FlatPatternDxfRequest``, and the stateless geometry service develops the blank
+         *     and serializes only its cut geometry. Auth-scoped and rate-limited like every
+         *     OCCT-CPU route. A part that is not sheet metal (or whose bends cannot be
+         *     resolved) re-surfaces geometry's typed 422 verbatim.
+         */
+        post: operations["export_part_flat_pattern_api_v1_parts__part_id__flat_pattern_dxf_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/parts/{part_id}/move": {
         parameters: {
             query?: never;
@@ -12095,6 +12124,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FeatureMutationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_part_flat_pattern_api_v1_parts__part_id__flat_pattern_dxf_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                part_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The part's flat pattern as a profile-only DXF (`image/vnd.dxf`), proxied byte-exact from the geometry service: the cut outline (`VISIBLE`) and fold lines (`BEND`) at 1:1 in millimetres, and nothing else — no sheet border, title block, bend table or dimensions. `Content-Disposition` carries the suggested download filename. A part with no developable flat pattern is a 422 `flat_pattern_*` envelope, never an empty file. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/vnd.dxf": string;
                 };
             };
             /** @description Validation Error */

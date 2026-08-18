@@ -29,6 +29,11 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, BackgroundTasks, Query, Request, Response, status
 from py_kit import get_logger
+from py_kit.schemas.drawings import (
+    ARTIFACT_MEDIA_TYPES,
+    FlatPatternDxfRequest,
+    flat_pattern_filename,
+)
 from py_kit.schemas.features import (
     EvaluateTreeRequest,
     EvaluateTreeResult,
@@ -451,6 +456,89 @@ async def export_part(
         content=exported.content,
         media_type=EXPORT_MEDIA_TYPES[format],
         headers=headers,
+    )
+
+
+_FLAT_PATTERN_RESPONSES: dict[int | str, dict[str, Any]] = {
+    200: {
+        "content": {
+            ARTIFACT_MEDIA_TYPES["dxf"]: {
+                "schema": {"type": "string", "format": "binary"}
+            }
+        },
+        "description": (
+            "The part's flat pattern as a profile-only DXF (`image/vnd.dxf`), "
+            "proxied byte-exact from the geometry service: the cut outline "
+            "(`VISIBLE`) and fold lines (`BEND`) at 1:1 in millimetres, and nothing "
+            "else — no sheet border, title block, bend table or dimensions. "
+            "`Content-Disposition` carries the suggested download filename. A part "
+            "with no developable flat pattern is a 422 `flat_pattern_*` envelope, "
+            "never an empty file."
+        ),
+    }
+}
+
+
+@router.post(
+    "/{part_id}/flat-pattern.dxf",
+    response_class=Response,
+    responses=_FLAT_PATTERN_RESPONSES,
+    dependencies=[COMPUTE_RATE_LIMIT],
+)
+async def export_part_flat_pattern(
+    part_id: uuid.UUID,
+    user: CurrentUser,
+    http_request: Request,
+) -> Response:
+    """Export the part's flat pattern as a profile-only DXF cut path.
+
+    The artifact sheet-metal vendors ask for by name, in one action from the PART —
+    no drawing sheet required. The same two-hop aggregation as :func:`export_part`:
+    documents serves the evaluation-ready feature list (rollback bar applied, params
+    upcast) and the part's name, the gateway wraps them into a
+    ``FlatPatternDxfRequest``, and the stateless geometry service develops the blank
+    and serializes only its cut geometry. Auth-scoped and rate-limited like every
+    OCCT-CPU route. A part that is not sheet metal (or whose bends cannot be
+    resolved) re-surfaces geometry's typed 422 verbatim.
+    """
+    # (Comment, not docstring: a route docstring becomes the OpenAPI description.)
+    # The second documents read is the same trade `export_part` makes and for the
+    # same reason — a name must never be an input to geometry, so the one hop that
+    # holds both the verified principal and a file to name pays for it. The filename
+    # is then recomputed HERE rather than relayed, because the gateway is where the
+    # name lives; geometry's suggestion is a fallback for direct callers.
+    upstream = await forward_documents(
+        http_request, user, "GET", f"/api/v1/parts/{part_id}/evaluation-request"
+    )
+    if upstream.status_code != status.HTTP_200_OK:
+        raise_upstream_error(upstream, service=_SERVICE)
+    evaluation_request = EvaluateTreeRequest.model_validate_json(upstream.content)
+
+    part_upstream = await forward_documents(
+        http_request, user, "GET", f"/api/v1/parts/{part_id}"
+    )
+    if part_upstream.status_code != status.HTTP_200_OK:
+        raise_upstream_error(part_upstream, service=_SERVICE)
+    part = PartResponse.model_validate_json(part_upstream.content)
+
+    flat_request = FlatPatternDxfRequest.model_validate(
+        {**evaluation_request.model_dump(mode="json"), "name": part.name}
+    )
+    exported = await forward_geometry(
+        http_request,
+        str(user.id),
+        "POST",
+        "/api/v1/drawing/flat-pattern/dxf",
+        service=_GEOMETRY,
+        json_content=flat_request.model_dump_json(),
+    )
+    if exported.status_code != status.HTTP_200_OK:
+        raise_upstream_error(exported, service=_GEOMETRY)
+    filename = flat_pattern_filename(flat_request)
+    return Response(
+        content=exported.content,
+        media_type=ARTIFACT_MEDIA_TYPES["dxf"],
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
