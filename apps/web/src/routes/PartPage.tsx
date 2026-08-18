@@ -322,7 +322,7 @@ import {
 import { type HistoryStep, undoRedoStep } from "../lib/undoRedoShortcut";
 import { FacePickOverlay } from "../viewport/FacePickOverlay";
 import { useSketchStore } from "../sketch/store";
-import { escapeAction, TOOL_SHORTCUTS } from "../sketch/tools";
+import { TOOL_SHORTCUTS } from "../sketch/tools";
 import {
   KEY_MEASURE,
   KEY_SNAP,
@@ -1048,21 +1048,21 @@ export function PartPage() {
           setFacePlaneError(null);
           return;
         }
-        // Mirror and the corner tools run their own cascades (mirror: axis →
-        // targets → drop tool; corner: close editor / clear picks → drop tool)
-        // and never exit the sketch mid-flow.
-        if (store.mirror !== null || store.corner !== null) {
-          store.escape();
-          return;
-        }
-        const action = escapeAction(
-          store.tool,
-          store.pending.length,
-          store.selection.length > 0 || store.selectedConstraint !== null,
-          store.dimensionEdit !== null || store.offsetDraft !== null,
-        );
-        if (action === "exit") finishSketch();
-        else store.escape();
+        // ONE cascade, and the store owns it (ESC-2). Every rung — the mirror
+        // and corner sub-cascades, the armed-dimension disarm, and the final
+        // `unstarted` exit — is performed by `store.escape()`.
+        //
+        // This handler used to re-derive the rung with its own call to the
+        // cascade's pure function and map `"exit"` to `finishSketch()`, which
+        // SAVES, while the store maps that same verb to a fresh session, which
+        // DISCARDS. The two could not disagree only because this call omitted
+        // that function's fifth argument, so `unstarted` defaulted false,
+        // `"exit"` was unreachable and the `finishSketch()` was dead — every press
+        // fell through to `store.escape()` anyway. That is FB-13 ("a key that
+        // sometimes saves and sometimes discards") lying dormant: passing that
+        // argument, for any reason, would have armed it silently. A second
+        // derivation of the same decision is the defect, so there is none.
+        store.escape();
         return;
       }
       if (mode !== "draw") return;
@@ -1111,7 +1111,7 @@ export function PartPage() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [mode, finishSketch, setTool, toggleSnap, facePicking]);
+  }, [mode, setTool, toggleSnap, facePicking]);
 
   // Trim/extend: the scene arms an edit on a target click; this effect owns
   // the one network hop (the store stays side-effect-free). On success the

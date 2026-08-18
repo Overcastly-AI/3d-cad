@@ -3,6 +3,8 @@
  * revision bookkeeping the live save loop depends on (user edits bump
  * `revision`; adopting solved geometry must NOT).
  */
+import { readFileSync } from "node:fs";
+
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
@@ -1020,6 +1022,97 @@ describe("escape cascade", () => {
     expect(store().tool).toBe("line");
     store().escape(); // resets the tool
     expect(store().tool).toBe("select");
+  });
+});
+
+/**
+ * ESC-2 — ONE cascade, and this store owns it.
+ *
+ * There were two. `PartPage`'s keydown handler re-derived the rung with its own
+ * `escapeAction(…)` call and mapped `"exit"` to `finishSketch()` — which SAVES —
+ * while `escape` maps that same verb to a fresh session — which DISCARDS. They
+ * agreed only because that call omitted `escapeAction`'s fifth argument, so
+ * `unstarted` defaulted false, `"exit"` was unreachable there, and the
+ * `finishSketch()` never ran. FB-13 is "a key that sometimes saves and sometimes
+ * discards"; this was that defect one argument away from waking up, in a verb
+ * whose name says nothing about which of the two it means.
+ *
+ * So the guard has two halves, because a mapping cannot be tested by its own
+ * output: what the exit rung DOES (below), and that nothing derives it twice.
+ */
+describe("ESC-2 — one Escape cascade, owned by the store", () => {
+  /** The armed-verb state the keyboard reaches, on a sketch holding no work. */
+  const armedOnEmptySketch = () => {
+    const store = useSketchStore.getState;
+    store().begin();
+    store().choosePlane("XY");
+    store().applyConstraint("distance");
+    return store;
+  };
+
+  it("the armed verb is a rung of its own — Escape disarms before it exits", () => {
+    const store = armedOnEmptySketch();
+    expect(store().dimensionPick).toBe("distance");
+
+    store().escape();
+
+    expect(store().dimensionPick).toBeNull();
+    expect(store().mode).toBe("draw"); // the sketch is still open
+  });
+
+  it("the exit rung DISCARDS, and leaves nothing for a save loop to flush", () => {
+    const store = armedOnEmptySketch();
+    store().escape(); // disarm
+    store().escape(); // …and now the last rung
+
+    // DISCARD, stated as the whole of it: the session is gone, not handed to
+    // the persistence effect. `PartPage`'s save loop keys on `mode === "draw"`
+    // and a `revision` above the last synced one, so a fresh session is exactly
+    // "nothing to write". This is safe only because the rung is `unstarted`.
+    expect(store().mode).toBe("off");
+    expect(store().entities).toEqual([]);
+    expect(store().constraints).toEqual([]);
+    expect(store().revision).toBe(0);
+    expect(store().featureId).toBeNull();
+    // And `userConstrained` is untouched by the cascade: it records that the
+    // USER asked for a relation, which is what the unsaved-exit confirm reads.
+    // Escape must not be able to set it, or backing out of an empty sketch
+    // would start claiming there was work in it.
+    expect(store().userConstrained).toBe(false);
+  });
+
+  it("still exits an unstarted sketch with no verb armed", () => {
+    const store = useSketchStore.getState;
+    store().begin();
+    store().choosePlane("XY");
+    store().escape();
+    expect(store().mode).toBe("off");
+  });
+
+  it("PartPage routes Escape here instead of re-deriving the rung", () => {
+    // The structural half. A behavioural test cannot see this: the second
+    // mapping was DEAD code, so it broke nothing until an argument reached it —
+    // which is the whole reason it survived to be filed. What can be asserted
+    // is that the second derivation does not exist.
+    const partPage = readFileSync(
+      new URL("../routes/PartPage.tsx", import.meta.url),
+      "utf8",
+    );
+    // Non-vacuity: a moved handler, or a renamed file, must fail loudly here
+    // rather than pass by finding nothing to object to.
+    expect(partPage).toMatch(/event\.key === "Escape"/);
+    expect(partPage).toContain("store.escape()");
+
+    // `escapeAction` maps state → verb; whoever calls it then owns a mapping
+    // from that verb to an ACTION, and two such mappings can disagree. One
+    // caller, one mapping. (Matching the CALL rather than the bare name is
+    // deliberate — the handler's comment has to be able to name the function
+    // it no longer calls, or the code cannot explain itself.)
+    expect(partPage).not.toMatch(/\bescapeAction\s*\(/);
+    const toolsImport =
+      /import\s*\{([^}]*)\}\s*from\s*"\.\.\/sketch\/tools"/.exec(partPage);
+    expect(toolsImport).not.toBeNull();
+    expect(toolsImport?.[1]).not.toMatch(/escapeAction/);
   });
 });
 

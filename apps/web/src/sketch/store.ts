@@ -570,6 +570,15 @@ export interface SketchState {
    * Escape leaves the sketch only when there is no work to lose (`escapeAction`
    * `unstarted`); with entities drawn it answers with a hint naming the chip
    * that finishes (FB-13).
+   *
+   * THE ONLY CASCADE (ESC-2). Every Escape — keyboard or chip — routes here;
+   * no caller re-derives the rung with its own `escapeAction(…)` call, because
+   * the last rung's MEANING lives in the mapping and not in the verb. Here
+   * `"exit"` is a fresh session: it DISCARDS, which is safe precisely because
+   * `unstarted` means there is nothing to discard. `PartPage` used to map the
+   * same verb to `finishSketch()`, which SAVES; the two agreed only by the
+   * accident of an omitted default argument, which is FB-13 ("a key that
+   * sometimes saves and sometimes discards") waiting for someone to pass it.
    */
   escape: () => void;
   /** Leave sketch mode, discarding the local buffer. */
