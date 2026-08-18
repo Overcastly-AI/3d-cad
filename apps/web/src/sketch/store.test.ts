@@ -14,7 +14,7 @@ import {
 } from "./constraints";
 import { datumFrame } from "./datum";
 import { shapeRigidity } from "./drawDimensions";
-import { useSketchStore } from "./store";
+import { DIMENSION_PICK_HINT, useSketchStore } from "./store";
 import type { Point2D } from "./plane";
 import type { SketchEntity } from "./tools";
 
@@ -508,7 +508,13 @@ describe("dimension verb with nothing selected — arms instead of refusing", ()
     store().selectAt({ x: 10, y: 0 }, 2); // on the circle
     expect(store().dimensionEdit).toBeNull();
     expect(store().dimensionPick).toBe("distance");
-    expect(store().hint).toMatch(/one line/i);
+    // It names what was picked (DIM-3). This assertion used to read
+    // `/one line/i`, which passed on "Select one line to dimension." — the
+    // selection-first refusal this whole verb exists to eliminate, and false
+    // while armed besides: the user clicked, they did not select.
+    expect(store().hint).toBe(
+      "That is a circle. Click a line to dimension it.",
+    );
   });
 
   it("radius arms the same way, and picks the circle", () => {
@@ -554,6 +560,135 @@ describe("dimension verb with nothing selected — arms instead of refusing", ()
     store().applyConstraint("coincident");
     expect(store().dimensionPick).toBeNull();
     expect(store().hint).toMatch(/two points/i);
+  });
+});
+
+/**
+ * DIM-3 — the two things reviewing the arm-fix (c449235) turned up.
+ *
+ * (a) ARMED WAS INVISIBLE. `dimensionPick` has no surface but `hint`, and
+ * ordinary actions clear the hint as a matter of course when their own message
+ * is over — so the verb stayed armed and went silent, and the NEXT canvas click
+ * opened a dimension editor with nothing on screen to have predicted it. Held
+ * now as an invariant (`withArmedPrompt`) rather than as care at each site,
+ * which is why the third case below matters as much as the two that were filed.
+ *
+ * (b) A WRONG-KIND PICK REUSED THE REFUSAL SENTENCE. "Select one line to
+ * dimension." is the dead end arming exists to remove, and it is false while
+ * armed: the user clicked. It now names what they hit.
+ */
+describe("DIM-3 — an armed verb is never silent, and never answers with the refusal", () => {
+  /** A rectangle, then Distance armed exactly as the strip arms it. */
+  const armedOnRectangle = () => {
+    rectangleAt();
+    useSketchStore.getState().applyConstraint("distance");
+    return useSketchStore.getState;
+  };
+
+  it("selecting a constraint glyph leaves the armed prompt standing", () => {
+    const store = armedOnRectangle();
+    expect(store().hint).toBe(DIMENSION_PICK_HINT.distance);
+
+    // WHICH glyph is not the claim — any constraint the rectangle carries will
+    // do — so index 0 here is a fixture detail, not an assertion about order.
+    store().selectConstraint(0);
+
+    expect(store().dimensionPick).toBe("distance"); // still armed…
+    expect(store().hint).toBe(DIMENSION_PICK_HINT.distance); // …and still says so
+  });
+
+  it("toggling a pick leaves the armed prompt standing", () => {
+    const store = armedOnRectangle();
+    store().togglePick({ kind: "entity", id: "e1" });
+    expect(store().dimensionPick).toBe("distance");
+    expect(store().hint).toBe(DIMENSION_PICK_HINT.distance);
+  });
+
+  it("…and so does a site nobody filed — the invariant, not two patches", () => {
+    // `toggleConstruction` clears the hint too, and was never mentioned in the
+    // report. It is fixed by the same rule, which is the whole argument for
+    // making this an invariant: the third site costs nothing to cover.
+    const store = armedOnRectangle();
+    store().togglePick({ kind: "entity", id: "e1" });
+    store().toggleConstruction();
+    expect(store().dimensionPick).toBe("distance");
+    expect(store().hint).toBe(DIMENSION_PICK_HINT.distance);
+  });
+
+  it("does NOT keep talking once the verb is disarmed", () => {
+    // The other direction, so the invariant cannot pass by shouting forever:
+    // Escape disarms, and the prompt goes with the arming.
+    const store = armedOnRectangle();
+    store().escape();
+    expect(store().dimensionPick).toBeNull();
+    expect(store().hint).toBeNull();
+  });
+
+  it("names the picked kind under Radius too, not just Distance", () => {
+    const store = useSketchStore.getState;
+    rectangleAt();
+    store().applyConstraint("radius");
+    store().selectAt({ x: 20, y: 0.5 }, 2); // a LINE, under Radius
+
+    expect(store().hint).toBe(
+      "That is a line. Click a circle or arc to dimension it.",
+    );
+    expect(store().dimensionPick).toBe("radius"); // still armed
+    expect(store().dimensionEdit).toBeNull();
+  });
+
+  it("never answers a click with the selection-first refusal, either verb", () => {
+    /** A rectangle AND a circle, so each verb has a wrong kind to be handed. */
+    const both = () => {
+      rectangleAt();
+      useSketchStore.getState().setTool("circle");
+      useSketchStore.getState().placeAt({ x: 80, y: 0 });
+      useSketchStore.getState().placeAt({ x: 90, y: 0 });
+      useSketchStore.getState().setTool("select");
+    };
+    // Each pair is a verb and a point on geometry of the kind it CANNOT take.
+    const wrongKind = [
+      { verb: "distance", at: { x: 90, y: 0 } }, // the circle
+      { verb: "radius", at: { x: 20, y: 0.5 } }, // a line of the rectangle
+    ] as const;
+
+    for (const { verb, at } of wrongKind) {
+      both();
+      const store = useSketchStore.getState;
+      store().applyConstraint(verb);
+      store().selectAt(at, 2);
+
+      // Non-vacuity: this is only a statement about the wrong-kind reply if the
+      // click was in fact refused an editor and left the verb armed.
+      expect(store().dimensionEdit).toBeNull();
+      expect(store().dimensionPick).toBe(verb);
+
+      const hint = store().hint ?? "";
+      expect(hint).not.toBe("Select one line to dimension.");
+      expect(hint).not.toBe("Select one circle or arc to dimension.");
+      // …and not any future rewording of the same instruction: nothing said to
+      // someone who has just clicked should open by asking them to select.
+      expect(hint).not.toMatch(/^select /i);
+    }
+  });
+
+  it("passes the FRAME's refusal through — it is about the subject, not the kind", () => {
+    // SKETCH-2: the axes are refused as a SUBJECT ("constrain TO them"), which
+    // stays true while armed, so it must not be overwritten by a sentence about
+    // kinds — the axis IS a line, and "That is a line. Click a line…" would be
+    // the most confusing answer available.
+    const store = useSketchStore.getState;
+    store().begin();
+    store().choosePlane("XY");
+    store().setTool("rect");
+    store().placeAt({ x: 20, y: 20 });
+    store().placeAt({ x: 60, y: 45 });
+    store().setTool("select");
+    store().applyConstraint("distance");
+    store().selectAt({ x: -30, y: 0 }, 2); // the X axis, clear of the rectangle
+
+    expect(store().hint).toMatch(/origin and axes are fixed/i);
+    expect(store().dimensionPick).toBe("distance"); // still armed
   });
 });
 

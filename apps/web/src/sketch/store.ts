@@ -52,6 +52,7 @@ import {
   datumSafeSolve,
   DEFAULT_FRAME_HALF_HEIGHT_MM,
   groundDatums,
+  isDatumId,
   pickWithDatums,
   selectionTouchesDatum,
   withDatums,
@@ -112,6 +113,44 @@ export const DIMENSION_PICK_HINT: Readonly<
 > = {
   distance: "Click a line to dimension it.",
   radius: "Click a circle or arc to dimension it.",
+};
+
+/** How a picked entity is named back to the user ("That is a circle."). */
+const ENTITY_KIND_LABEL: Readonly<Record<SketchEntity["kind"], string>> = {
+  point: "a point",
+  line: "a line",
+  circle: "a circle",
+  arc: "an arc",
+  spline: "a spline",
+};
+
+/**
+ * What to say when an ARMED dimension verb is handed the wrong thing (DIM-3).
+ *
+ * NOT the selection-first refusal — "Select one line to dimension." is the exact
+ * sentence arming exists to eliminate, and while armed it is also false: the
+ * user DID click, and "select" names a step this flow no longer has. Answering
+ * a click with it reads as the dead end the fix was supposed to have removed.
+ * So the reply names what was picked and repeats the standing instruction,
+ * which is the truthful pair: this is not it, here is what is.
+ *
+ * THE FRAME IS THE EXCEPTION, and for a different reason: the origin and axes
+ * are refused as a SUBJECT rather than for their kind (SKETCH-2 — the axis is
+ * not yours to move), and that refusal stays true while armed. It is passed
+ * through from the verb that owns it rather than re-derived here.
+ */
+const wrongPickHint = (
+  armed: DimensionPickAction,
+  pickedId: string,
+  entities: readonly SketchEntity[],
+  refusal: string | null,
+): string => {
+  if (isDatumId(pickedId)) return refusal ?? DIMENSION_PICK_HINT[armed];
+  const picked = entities.find((entity) => entity.id === pickedId);
+  // An id the buffer cannot resolve names nothing, so say nothing about it and
+  // keep asking — better a repeated instruction than an invented noun.
+  if (picked === undefined) return DIMENSION_PICK_HINT[armed];
+  return `That is ${ENTITY_KIND_LABEL[picked.kind]}. ${DIMENSION_PICK_HINT[armed]}`;
 };
 
 /**
@@ -282,6 +321,11 @@ export interface SketchState {
    * Armed, the verb becomes a TOOL: the draw tool is dropped, the next entity
    * click opens that entity's dimension editor, and Escape disarms. The verb
    * proposes, the user disposes (CLAUDE.md flow rule) instead of dead-ending.
+   *
+   * ITS ONLY SURFACE IS `hint` (DIM-3) — there is no armed chip, no cursor
+   * change, nothing else to read. That makes "armed" and "silent" a broken
+   * pair, so the two are held apart by an invariant rather than by care at each
+   * call site: see `withArmedPrompt`.
    */
   dimensionPick: DimensionPickAction | null;
   /**
@@ -748,6 +792,36 @@ const withSketchHistory =
       });
     }, get);
 
+/**
+ * ARMED IS NEVER SILENT (DIM-3). `dimensionPick` has no surface of its own: the
+ * hint is the only thing on screen saying the next canvas click will open a
+ * dimension editor rather than select something. Clearing the hint is what an
+ * ordinary action DOES when its own message is over — `selectConstraint` and
+ * `togglePick` both did, correctly, and both left the verb armed and silent, so
+ * the click after them opened an editor with no visible cause.
+ *
+ * Restoring the prompt at those two call sites would have fixed the two we
+ * found and not the third. This is `withSketchHistory`'s argument again: a rule
+ * that has to be remembered at every site will be forgotten at one, and the
+ * cost here is a UI state that cannot be explained from the screen. So it is an
+ * INVARIANT, re-established after every transition — "armed with no hint" is
+ * not a state this store can be left in, by any action, present or future.
+ *
+ * Two things it deliberately does not do: it never overwrites a hint (a site
+ * with something more specific to say — the wrong-kind pick — keeps its own),
+ * and it never fires for a site that DISARMS, because clearing `dimensionPick`
+ * and the prompt together is the arming ending, not going quiet.
+ */
+const withArmedPrompt =
+  (creator: (set: SketchSet, get: () => SketchState) => SketchState) =>
+  (set: SketchSet, get: () => SketchState): SketchState =>
+    creator((partial) => {
+      set(partial);
+      const after = get();
+      if (after.dimensionPick === null || after.hint !== null) return;
+      set({ hint: DIMENSION_PICK_HINT[after.dimensionPick] });
+    }, get);
+
 /** Every action, over the recording `set` (never the raw one). */
 const createSketchState = (
   set: SketchSet,
@@ -1107,12 +1181,17 @@ const createSketchState = (
         return;
       }
       // Wrong KIND under the pointer (a circle while Distance is armed): say
-      // so and stay armed, so the next click is still a dimension pick.
+      // WHAT was picked and stay armed, so the next click is still a dimension
+      // pick — see `wrongPickHint` for why this is not the refusal sentence.
       set({
         selection: [],
         selectedConstraint: null,
-        hint:
-          result.outcome === "hint" ? result.hint : DIMENSION_PICK_HINT[armed],
+        hint: wrongPickHint(
+          armed,
+          entityPick.id,
+          state.entities,
+          result.outcome === "hint" ? result.hint : null,
+        ),
       });
       return;
     }
@@ -1743,5 +1822,8 @@ const createSketchState = (
 });
 
 export const useSketchStore = create<SketchState>()(
-  withSketchHistory(createSketchState),
+  // Inner to outer: actions → the armed-prompt invariant → the history
+  // recorder. The invariant's own repair is a hint-only write, so it bumps no
+  // revision and can never become an undo step.
+  withSketchHistory(withArmedPrompt(createSketchState)),
 );
