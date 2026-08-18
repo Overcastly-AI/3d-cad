@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "./fixtures";
+import { expect, test, type Locator, type Page } from "./fixtures";
 
 import { createPartViaApi, seedSession } from "./support";
 
@@ -14,13 +14,23 @@ import { createPartViaApi, seedSession } from "./support";
  * the menu shut; a right CLICK (including one with hand tremor) still opens it.
  */
 
+/**
+ * The SCENE canvas. The viewport holds TWO canvases since VIEWCUBE-1 — the
+ * scene, and the reference cube's own 108 px one in the HUD layer — so a bare
+ * `locator("canvas")` is a strict-mode violation. The scene is first in DOM
+ * order.
+ */
+function sceneCanvas(page: Page): Locator {
+  return page.getByTestId("viewport").locator("canvas").first();
+}
+
 async function openEmptyPart(page: Page): Promise<void> {
   const account = await seedSession(page);
   const part = await createPartViaApi(page, account.token, "Pan gestures");
   await page.goto(`/parts/${part.id}`);
   await expect(page.getByTestId("viewport")).toBeVisible();
   // The bench renders (grid + atmosphere) before any gesture is dispatched.
-  await expect(page.getByTestId("viewport").locator("canvas")).toBeVisible();
+  await expect(sceneCanvas(page)).toBeVisible();
 }
 
 /** Drag the right button from `from` by (dx, dy) in viewport pixels. */
@@ -41,10 +51,9 @@ test.describe("right-button gestures", () => {
     page,
   }) => {
     await openEmptyPart(page);
-    const viewport = page.getByTestId("viewport");
     const menu = page.getByTestId("viewport-context-menu");
 
-    const before = await viewport.locator("canvas").screenshot();
+    const before = await sceneCanvas(page).screenshot();
     await rightDrag(page, { x: 760, y: 420 }, 140, 90);
 
     // The menu never appeared — and stays away (give the handler a beat).
@@ -60,7 +69,7 @@ test.describe("right-button gestures", () => {
     await expect
       .poll(
         async () =>
-          Buffer.compare(before, await viewport.locator("canvas").screenshot()),
+          Buffer.compare(before, await sceneCanvas(page).screenshot()),
         { timeout: 10_000 },
       )
       .not.toBe(0);

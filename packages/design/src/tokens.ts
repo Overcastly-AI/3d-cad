@@ -748,6 +748,49 @@ export const duration = {
   base: 200,
 } as const;
 
+/**
+ * The REFERENCE CUBE — the machinist's block that names the view, and the one
+ * piece of geometry the DOM and the WebGL scene both have to agree on. ONE
+ * source, two renderers, exactly like the palette above.
+ *
+ * It is here rather than in `apps/web` because the two halves had already come
+ * apart. Until 2026-08-17 the placement lived in `viewport/Viewport.tsx` (a
+ * 96 px inset around a 120 px footprint, i.e. a 156 px corner) while the
+ * clearance the chrome kept for it lived here as a hand-copied `140` — so a
+ * right-hand rail was licensed to paint 16 px into a control the design mandate
+ * calls table stakes. That drift was NOT the cause of VIEWCUBE-1 (raising the
+ * band to 176 was measured and changed nothing; the cause was drei's two-pass
+ * `Hud` render — see `ViewCube.tsx`), but it was a second, quieter defect found
+ * in the same corner, and it is the reason the numbers are derived now. A
+ * number transcribed between two files is not a token; it is a copy waiting to
+ * drift, which is the DRY rule this repo enforces on API types and palettes and
+ * had not yet enforced on layout geometry.
+ *
+ * `face` is in SCENE units, which equal CSS px because the cube's camera is
+ * orthographic at zoom 1 over a host sized from these same numbers.
+ */
+const VIEW_CUBE_FACE = 60;
+const VIEW_CUBE_MARGIN = 96;
+/**
+ * The square the block needs on screen. Its ISO silhouette is the SPACE
+ * DIAGONAL, `face * sqrt(3)` ≈ 103.9 px across — not the face — plus 2 px each
+ * side so the hairline stroke on the far corner is never clipped. Getting this
+ * wrong is what made the old footprint constant (120) both too generous for
+ * the fit and, paired with a 140 px clearance, too mean for the chrome.
+ */
+const VIEW_CUBE_SIZE = Math.ceil(VIEW_CUBE_FACE * Math.sqrt(3)) + 4;
+
+export const viewCube = {
+  /** Face of the block, scene units == CSS px at zoom 1. */
+  face: VIEW_CUBE_FACE,
+  /** Centre of the block, inset from the frame's bottom-right corner. */
+  margin: VIEW_CUBE_MARGIN,
+  /** Side of the square DOM host the block is drawn into. */
+  size: VIEW_CUBE_SIZE,
+  /** Inset of that host's bottom/right edges — derived, never transcribed. */
+  inset: VIEW_CUBE_MARGIN - VIEW_CUBE_SIZE / 2,
+} as const;
+
 /** Fixed layout dimensions (px) of the shell. */
 export const layout = {
   toolbarHeight: 44,
@@ -831,11 +874,16 @@ export const layout = {
    */
   railPanelFloor: 120,
   /**
-   * Bottom band occupied by the in-canvas reference cube (drei GizmoHelper,
-   * bottom-RIGHT). A right-side panel clamps above it so a table-stakes nav
-   * element is never covered (mandate 3a).
+   * Bottom band occupied by the reference cube (bottom-RIGHT). A right-side
+   * panel clamps above it so a table-stakes nav element is never covered
+   * (mandate 3a).
+   *
+   * DERIVED from {@link viewCube}, not chosen: the cube's host reaches
+   * `inset + size` up from the frame's bottom edge, and the band adds the same
+   * 12 px gutter every other floating card breathes on. The hand-written 140
+   * this replaces was 16 px short of the cube's real 156 px reach.
    */
-  referenceCubeBand: 140,
+  referenceCubeBand: viewCube.inset + viewCube.size + spacing["3"],
   /**
    * Height of the bottom TIMELINE strip — the machine way the build travels
    * along, docked under the viewport (UI-W1, founder-directed 2026-07-30;

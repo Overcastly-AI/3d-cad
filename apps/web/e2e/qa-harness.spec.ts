@@ -971,8 +971,12 @@ test.describe("harness: the render clock (support.ts + Viewport RenderProbe)", (
    * wait that started after the work finished would prove nothing either way.
    */
   async function orbit(page: Page): Promise<void> {
+    // `.first()`: the viewport holds TWO canvases since VIEWCUBE-1 — the
+    // scene, then the reference cube's own 108 px one. Scene is first in
+    // DOM order; a bare locator is a strict-mode violation.
     const box = await page
       .locator('[data-testid="viewport"] canvas')
+      .first()
       .boundingBox();
     if (box === null) throw new Error("no viewport canvas to orbit");
     const cx = box.x + box.width / 2;

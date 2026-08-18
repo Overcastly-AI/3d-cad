@@ -446,7 +446,9 @@ test.describe("SEL-6 QA — the refusal, without a luminance proxy", () => {
       empty space by an unrelated layout shift is not a refusal gate — it is a
       gate that passes for free.
     */
-    const box = await page.locator(VIEWPORT_CANVAS).boundingBox();
+    // `.first()`: the viewport holds TWO canvases since VIEWCUBE-1 — the
+    // scene, then the reference cube's own. The scene is first in DOM order.
+    const box = await page.locator(VIEWPORT_CANVAS).first().boundingBox();
     expect(box, "the viewport canvas is on screen").not.toBeNull();
     if (box === null) return;
     report(

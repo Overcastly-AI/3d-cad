@@ -14,6 +14,7 @@ import {
   radius,
   spacing,
   target,
+  viewCube,
   zLayer,
 } from "./tokens";
 
@@ -67,12 +68,16 @@ export const loftPreset = {
         toolbar: px(layout.toolbarHeight),
         band: px(layout.commandBandHeight),
         timeline: px(layout.timelineHeight),
+        /** Square host of the reference cube — see `viewCube.size`. */
+        "view-cube": px(viewCube.size),
       },
       width: {
         inspector: px(layout.inspectorWidth),
         editor: px(layout.editorCardWidth),
         /** Caption column of a dense `FieldRow` — see `layout.fieldLabelWidth`. */
         "field-label": px(layout.fieldLabelWidth),
+        /** Square host of the reference cube — see `viewCube.size`. */
+        "view-cube": px(viewCube.size),
       },
       /**
        * The written TARGET-SIZE policy as utilities (`min-h-target`,
@@ -109,6 +114,14 @@ export const loftPreset = {
          * sight.
          */
         "cube-band": px(layout.referenceCubeBand),
+        /**
+         * The reference cube's own seat (`bottom-view-cube right-view-cube`).
+         * Derived so the block's centre lands on `viewCube.margin` from both
+         * edges — the placement the founder's 2026-07-31 capture settled — with
+         * the host's size and the chrome's clearance coming from the SAME
+         * numbers. Nothing here is transcribed.
+         */
+        "view-cube": px(viewCube.inset),
       },
       maxHeight: {
         /**

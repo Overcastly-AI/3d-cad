@@ -68,6 +68,13 @@ describe("tailwind utility resolution", () => {
           "max-h-rail-card",
           "min-h-rail-panel",
           "bottom-cube-band",
+          // The reference cube's own seat and size (VIEWCUBE-1). A dead class
+          // here would not throw — it would silently park a table-stakes nav
+          // control at the frame's top-left at 0x0.
+          "bottom-view-cube",
+          "right-view-cube",
+          "h-view-cube",
+          "w-view-cube",
           "rounded-none",
           "rounded-sm",
           "rounded-md",
