@@ -42,6 +42,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import NamedTuple
 
 import ezdxf
+from ezdxf.document import Drawing
 from ezdxf.enums import TextEntityAlignment
 from ezdxf.layouts import Modelspace
 from py_kit.schemas.drawings import (
@@ -3103,9 +3104,47 @@ def serialize_pdf(composed: ComposedSheet) -> bytes:
 # has no such object, so output is byte-identical across ANY hash seed — verified
 # across 14 seeds. R2000 supports every entity we emit (LINE/CIRCLE/LWPOLYLINE/
 # SOLID/TEXT) and is universally readable.
+#
+# ...and NOT R2018 either, which is the OTHER fix the mojibake below invites
+# (AUDIT-PRODUCT F-3 offered "bump to AC1032, UTF-8 native" as one of two options).
+# Re-measured on the SAME minimal document across 14 PYTHONHASHSEED values:
+#
+#     R2000  ->  14/14 identical            (one byte stream)
+#     R2018  ->  11 + 3                     (TWO distinct byte streams)
+#
+# so R2018 reintroduces exactly the hash-seed nondeterminism R2010 was rejected for,
+# and determinism is a product property here (RESEARCH §9), not a test convenience.
+# It would also drop the widest CAM seats: R2000 is the lowest common denominator
+# every nesting/quoting package still reads, and a fabricator whose importer predates
+# 2018 gets nothing at all from an AC1032 file — a worse failure than a mangled glyph.
+# So the version stays, and the ENCODING is fixed to match what the header declares.
 
 #: Pinned DXF version — R2000 (AC1015): hash-seed-independent + fully featured.
 _DXF_VERSION = "R2000"
+
+#: The encoding of the bytes :func:`serialize_dxf` returns, and the CONTRACT its
+#: callers decode by. It is not a free choice: a pre-R2007 DXF declares its code page
+#: in ``$DWGCODEPAGE`` (ezdxf writes ``ANSI_1252`` for :data:`_DXF_VERSION`), and the
+#: bytes must BE that code page or the file lies about itself.
+#:
+#: AUDIT-PRODUCT F-3 — this module used to hand back ``.encode("utf-8")``, so the
+#: header said cp1252 and the body was UTF-8. ``ezdxf``, the library that WROTE the
+#: file, read back ``'90.0Â°'`` for ``'90.0°'`` and ``'LOFT Â· PART DRAWING'``. The
+#: bend-angle column is the most load-bearing field a bend table has, so a fabricator
+#: reading a mojibake angle is a wrong part — the same class of defect as F-1's
+#: half-size blank, wearing a text costume.
+#:
+#: Encoding goes through :meth:`ezdxf.document.Drawing.encode`, i.e. this code page
+#: with ezdxf's ``dxfreplace`` error handler — byte-for-byte what ezdxf's own
+#: ``Drawing.saveas`` writes. Characters IN the code page (``°`` U+00B0, ``·``
+#: U+00B7) become their single cp1252 byte, which is what AutoCAD itself emits and
+#: what every DXF reader expects; characters OUTSIDE it (a part titled in CJK, an
+#: arrow in a note) become the DXF unicode escape ``\\U+xxxx`` rather than raising —
+#: so no title can ever make an export fail, and both forms decode back to the
+#: original string in a conforming reader. Verified by reading the shipped bytes
+#: back with ``ezdxf.recover.read``, which detects the encoding FROM the file's own
+#: ``$DWGCODEPAGE`` instead of taking this constant's word for it.
+DXF_ENCODING = "cp1252"
 
 #: Layer scheme — a drawing reopens legibly by intent (ACI colours; HIDDEN dashed).
 _LYR_VISIBLE = "VISIBLE"
@@ -3546,6 +3585,30 @@ def _dxf_note(msp: Modelspace, note: ComposedNote, frame: _DxfFrame) -> None:
     )
 
 
+def _dxf_bytes(doc: Drawing, text: str) -> bytes:
+    """The ONE str -> bytes step for every DXF this module ships (AUDIT-PRODUCT F-3).
+
+    ``ezdxf`` writes a DXF as TEXT; choosing its bytes is the caller's job, and the
+    only correct choice is the code page the document declares in ``$DWGCODEPAGE``.
+    Encoding through :meth:`Drawing.encode` (this code page + ezdxf's ``dxfreplace``
+    handler) makes our bytes byte-for-byte what ezdxf's own ``Drawing.saveas``
+    writes — see :data:`DXF_ENCODING` for why that beats both raw UTF-8 (the defect)
+    and an R2018 bump (nondeterministic).
+
+    The guard is the point of routing this through one function rather than inlining
+    ``doc.encode(...)`` at each serializer: :data:`DXF_ENCODING` is a PUBLIC promise
+    callers decode by, so a future :data:`_DXF_VERSION` bump that changes
+    ``output_encoding`` must fail loudly here instead of shipping bytes that disagree
+    with the constant — which is the F-3 defect again with the two sides swapped.
+    """
+    if doc.output_encoding != DXF_ENCODING:
+        raise RuntimeError(
+            f"DXF {_DXF_VERSION} writes {doc.output_encoding!r} but DXF_ENCODING "
+            f"promises {DXF_ENCODING!r}; update the constant with the version"
+        )
+    return doc.encode(text)
+
+
 def serialize_dxf(composed: ComposedSheet) -> bytes:
     """Render a :class:`ComposedSheet` to a deterministic, byte-stable DXF (DE-3).
 
@@ -3560,6 +3623,12 @@ def serialize_dxf(composed: ComposedSheet) -> bytes:
     pins the timestamps/GUIDs/handle-seed sentinels, entities are added in canonical
     order, the version is pinned :data:`_DXF_VERSION` (R2000). Text is a mono TEXT style
     (the consuming CAD supplies the Courier face — no embed).
+
+    **The bytes are :data:`DXF_ENCODING` (cp1252), the code page the file's own
+    ``$DWGCODEPAGE`` declares** (AUDIT-PRODUCT F-3). Callers decoding these bytes must
+    use that constant — or, better, let a real reader detect it from the header. Before
+    this, the header said cp1252 and the body was UTF-8, so ezdxf itself read the bend
+    angle back as ``'90.0Â°'``.
 
     **Model space is 1:1 for a manufacturing view, whatever the sheet scale**
     (AUDIT-PRODUCT F-1). A ``flat_pattern``'s geometry is a CUT PATH bound for a
@@ -3646,6 +3715,6 @@ def serialize_dxf(composed: ComposedSheet) -> bytes:
 
         stream = io.StringIO()
         doc.write(stream)
-        return stream.getvalue().encode("utf-8")
+        return _dxf_bytes(doc, stream.getvalue())
     finally:
         ezdxf.options.write_fixed_meta_data_for_testing = previous

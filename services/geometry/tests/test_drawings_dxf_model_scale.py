@@ -43,6 +43,7 @@ from pathlib import Path
 import ezdxf
 import pytest
 from geometry.drawings import (
+    DXF_ENCODING,
     evaluate_drawing_views,
     place_sheet,
     serialize_dxf,
@@ -150,7 +151,9 @@ def _dxf_cut_segments(raw: bytes) -> list[tuple[float, float, float, float]]:
     orthographic views under test here are prismatic, so LINE is the whole cut path;
     an arc-bearing view would need LWPOLYLINE/CIRCLE added to this measurement.
     """
-    doc = ezdxf.read(io.StringIO(raw.decode("utf-8")))
+    # Decoded as `DXF_ENCODING`, the code page the file declares — NOT as UTF-8,
+    # which was the F-3 mojibake defect and would now raise on the degree sign.
+    doc = ezdxf.read(io.StringIO(raw.decode(DXF_ENCODING)))
     segments: list[tuple[float, float, float, float]] = []
     for entity in doc.modelspace():
         # GEOMETRY only. The BEND layer also carries the bend-table's TEXT cells (the
@@ -254,9 +257,8 @@ def test_dxf_declares_millimetres_at_every_scale(
     made the file confidently wrong rather than obviously broken. Pinned alongside the
     geometry so the two can never drift apart again.
     """
-    doc = ezdxf.read(
-        io.StringIO(serialize_dxf(_compose(numerator, denominator)).decode("utf-8"))
-    )
+    raw = serialize_dxf(_compose(numerator, denominator))
+    doc = ezdxf.read(io.StringIO(raw.decode(DXF_ENCODING)))
     assert doc.header["$INSUNITS"] == 6
 
 

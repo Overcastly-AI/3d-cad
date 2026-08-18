@@ -16,12 +16,12 @@ route-level test below closes that gap for this feature: it POSTs to the real
 
 from __future__ import annotations
 
-import io
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 
-import ezdxf
 import pytest
+from ezdxf.document import Drawing
 from fastapi.testclient import TestClient
 from geometry.drawings import (
     evaluate_drawing_views,
@@ -226,7 +226,9 @@ def test_svg_stamps_the_designation_quantity_and_tap_drill() -> None:
         assert f">{caption}<" in svg
 
 
-def test_pdf_and_dxf_carry_the_same_callout_as_the_svg() -> None:
+def test_pdf_and_dxf_carry_the_same_callout_as_the_svg(
+    read_dxf: Callable[[bytes], Drawing],
+) -> None:
     """All three deliverables agree — a shop that gets the DXF reads the same thread.
 
     The PDF is checked through its uncompressed content stream (``pageCompression=0``,
@@ -250,9 +252,7 @@ def test_pdf_and_dxf_carry_the_same_callout_as_the_svg() -> None:
     assert b"TAP DRILL" in pdf
 
     dxf_bytes = serialize_dxf(sheet)
-    doc = ezdxf.read(  # pyright: ignore[reportPrivateImportUsage]
-        io.StringIO(dxf_bytes.decode("utf-8"))
-    )
+    doc = read_dxf(dxf_bytes)
     texts = {entity.dxf.text for entity in doc.modelspace().query("TEXT")}
     assert {"M10x1.5", "1x", "8.50", "THREAD", "TAP DRILL"} <= texts, (
         f"the DXF is missing thread-schedule text: {sorted(texts)}"

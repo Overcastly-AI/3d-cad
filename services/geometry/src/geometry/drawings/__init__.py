@@ -24,6 +24,7 @@ from geometry.drawings.assembly_project import (
     evaluate_assembly_drawing_views,
 )
 from geometry.drawings.compose import (
+    DXF_ENCODING,
     MIN_VIEW_CLEARANCE_MM,
     VIEW_GUTTER_MM,
     measure_layout_issues,
@@ -69,6 +70,7 @@ from geometry.drawings.section import (
 from geometry.drawings.thread_schedule import thread_schedule_rows
 
 __all__ = [
+    "DXF_ENCODING",
     "FLAT_PATTERN_VIEW",
     "MIN_VIEW_CLEARANCE_MM",
     "SECTION_VIEW",

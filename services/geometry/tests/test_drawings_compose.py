@@ -19,14 +19,13 @@ Three gates prove the server placement composer:
 
 from __future__ import annotations
 
-import io
 import subprocess
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
-import ezdxf
 import pytest
+from ezdxf.document import Drawing
 from fastapi.testclient import TestClient
 from geometry.drawings import (
     evaluate_drawing_views,
@@ -821,13 +820,15 @@ def test_golden_dxf_is_byte_identical_to_committed() -> None:
     assert _compose_golden_dxf() == expected
 
 
-def test_golden_dxf_reopens_as_real_entities() -> None:
-    """The DXF reopens cleanly (ezdxf.read → audit) as REAL model-space geometry on
-    the expected layers — a hole is a `CIRCLE`, not a polygon; the dimension values
-    are `TEXT` entities. Proves it's CAD-editable geometry, not a picture."""
-    doc = ezdxf.read(  # pyright: ignore[reportPrivateImportUsage]
-        io.StringIO(_compose_golden_dxf().decode("utf-8"))
-    )
+def test_golden_dxf_reopens_as_real_entities(
+    read_dxf: Callable[[bytes], Drawing],
+) -> None:
+    """The DXF reopens cleanly (ezdxf.recover.read → audit) as REAL model-space
+    geometry on the expected layers — a hole is a `CIRCLE`, not a polygon; the
+    dimension values are `TEXT` entities. Proves it's CAD-editable geometry, not a
+    picture. Read back through the `read_dxf` fixture, which derives the encoding from
+    the file's own `$DWGCODEPAGE` rather than assuming UTF-8 (AUDIT-PRODUCT F-3)."""
+    doc = read_dxf(_compose_golden_dxf())
     assert doc.dxfversion == "AC1015"  # R2000
     layers = {layer.dxf.name for layer in doc.layers}
     assert {"VISIBLE", "HIDDEN", "DIMENSION", "TITLE"} <= layers
@@ -946,12 +947,12 @@ def test_note_lands_at_sheet_point_in_svg() -> None:
     assert ">DEBURR ALL EDGES</text>" in svg
 
 
-def test_note_lands_at_sheet_point_in_dxf() -> None:
+def test_note_lands_at_sheet_point_in_dxf(
+    read_dxf: Callable[[bytes], Drawing],
+) -> None:
     """The DXF emits each note as a REAL TEXT entity on the NOTES layer at its
     (y-flipped) sheet anchor — CAD-editable text a shop reads, not a picture."""
-    doc = ezdxf.read(  # pyright: ignore[reportPrivateImportUsage]
-        io.StringIO(serialize_dxf(_compose_note_sheet()).decode("utf-8"))
-    )
+    doc = read_dxf(serialize_dxf(_compose_note_sheet()))
     assert "NOTES" in {layer.dxf.name for layer in doc.layers}
     notes = {
         e.dxf.text: (round(e.dxf.insert.x, 3), round(e.dxf.insert.y, 3))
@@ -1075,12 +1076,12 @@ def test_title_block_free_text_stamped_in_svg() -> None:
     assert ">DRAWN</text>" in svg and ">DATE</text>" in svg and ">NOTES</text>" in svg
 
 
-def test_title_block_free_text_in_dxf_is_real_text() -> None:
+def test_title_block_free_text_in_dxf_is_real_text(
+    read_dxf: Callable[[bytes], Drawing],
+) -> None:
     """The DXF emits each free-text value as a REAL TEXT entity on the TITLE layer —
     CAD-editable text a shop reads, not a picture."""
-    doc = ezdxf.read(  # pyright: ignore[reportPrivateImportUsage]
-        io.StringIO(serialize_dxf(_compose_tb_sheet()).decode("utf-8"))
-    )
+    doc = read_dxf(serialize_dxf(_compose_tb_sheet()))
     texts = {
         e.dxf.text
         for e in doc.modelspace()
