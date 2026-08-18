@@ -260,6 +260,38 @@ fi
 
 echo
 echo "== e2e leg 2/2: Playwright suite (@loft/web) =="
+
+# LOAD PREFLIGHT — say what the machine looked like at the start, and warn when
+# a red result will not be trustworthy.
+#
+# WHY THIS EARNS ITS LINES. The single largest recurring time sink in this repo
+# is a contention flake investigated as a regression. On 2026-08-17 alone it
+# cost THREE agents a full diagnosis each: every one of them found a red spec,
+# reasonably suspected their own diff, baselined it, and every one of those
+# failures then passed 2/2 in a quiet window. CLAUDE.md already documents the
+# discriminator (a flake's failure point MOVES between runs; a real regression
+# fails identically) but that is applied AFTER the twenty minutes are spent.
+# This is the same fact, printed BEFORE.
+#
+# It deliberately does NOT fail the run. A loaded machine still produces a
+# trustworthy GREEN — contention causes false failures, not false passes — and
+# refusing to run would block the batch-end sweep that CLAUDE.md asks for. The
+# only thing at stake is how a RED should be read, so this prints a line and
+# gets out of the way. Set LOFT_E2E_LOAD_LIMIT to tune, or 0 to silence.
+if [[ -r /proc/loadavg ]]; then
+  e2e_load1="$(cut -d' ' -f1 </proc/loadavg)"
+  e2e_cpus="$(nproc 2>/dev/null || echo 1)"
+  e2e_limit="${LOFT_E2E_LOAD_LIMIT:-$e2e_cpus}"
+  echo "e2e: 1-min load ${e2e_load1} on ${e2e_cpus} cpu(s)"
+  # awk, not bash — load average is a float and [[ -gt ]] cannot compare those.
+  if [[ "$e2e_limit" != "0" ]] &&
+    awk -v l="$e2e_load1" -v m="$e2e_limit" 'BEGIN{exit !(l>m)}'; then
+    echo "e2e: ::warning:: load ${e2e_load1} exceeds ${e2e_limit} — a FAILURE" \
+      "from this run is UNCONFIRMED. Re-run the failing spec alone on a quiet" \
+      "machine before diagnosing it; see CLAUDE.md on contention flakes. A" \
+      "PASS is still trustworthy." >&2
+  fi
+fi
 # Playwright's webServer sets reuseExistingServer, which is correct locally
 # (compose with a running `just dev`) and a trap in CI: a stray Vite proxies
 # /api at whatever gateway IT was told about, and every spec then 500s at
