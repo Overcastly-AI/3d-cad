@@ -43,7 +43,7 @@ from geometry.drawings import (
 )
 from geometry.drawings.compose import (
     _BEND_TABLE_CAPTIONS,  # pyright: ignore[reportPrivateUsage]
-    _LYR_BEND,  # pyright: ignore[reportPrivateUsage]
+    _LYR_BEND_TABLE,  # pyright: ignore[reportPrivateUsage]
     _bend_row_cells,  # pyright: ignore[reportPrivateUsage]
     _esc,  # pyright: ignore[reportPrivateUsage]
 )
@@ -175,12 +175,14 @@ def _svg_bend_rows(svg: str) -> list[list[str]]:
 def _dxf_bend_rows(
     dxf_texts: Callable[..., list[str]], dxf: bytes, ncols: int
 ) -> list[list[str]]:
-    """Ordered per-row cell strings from the DXF bend-table TEXT entities (chunked by
-    column count; only bend row CELLS live on that layer — captions are elsewhere).
+    """Ordered per-row cell strings from the DXF bend-table TEXT entities.
 
-    Read back through the `dxf_texts` fixture, which derives the encoding from the
-    file's own `$DWGCODEPAGE` rather than assuming UTF-8 (AUDIT-PRODUCT F-3)."""
-    texts = dxf_texts(dxf, layer=_LYR_BEND)
+    The whole block lives on `_LYR_BEND_TABLE` (AUDIT-PRODUCT F-2b — it used to be
+    split, row cells on the fold-line layer and captions on TITLE), emitted as the
+    caption row then one row per bend, so the first `ncols` strings are the header and
+    the rest chunk by column count. Read back through the `dxf_texts` fixture, which
+    derives the encoding from the file's own `$DWGCODEPAGE`, not UTF-8 (F-3)."""
+    texts = dxf_texts(dxf, layer=_LYR_BEND_TABLE)[ncols:]
     return [texts[i : i + ncols] for i in range(0, len(texts), ncols)]
 
 

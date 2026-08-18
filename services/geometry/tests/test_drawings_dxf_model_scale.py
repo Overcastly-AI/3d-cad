@@ -80,7 +80,9 @@ _TOL_MM = float(_EXPECTED["tolerance"])
 _SVG_QUANTUM_MM = 1e-4
 
 #: The DXF layers a flat pattern's CUT PATH lives on: the blank outline (VISIBLE) and
-#: the fold lines (BEND). Everything else in the file is sheet furniture.
+#: the fold lines (BEND). Everything else in the file is sheet furniture. Since
+#: AUDIT-PRODUCT F-2b these two layers carry GEOMETRY ONLY — the bend table moved to
+#: its own BEND_TABLE layer — so this selection is now exactly a cut path.
 _CUT_LAYERS = frozenset({"VISIBLE", "BEND"})
 
 #: The scales exercised. 1:1 is the identity (and pins the shipped byte goldens);
@@ -156,9 +158,10 @@ def _dxf_cut_segments(raw: bytes) -> list[tuple[float, float, float, float]]:
     doc = ezdxf.read(io.StringIO(raw.decode(DXF_ENCODING)))
     segments: list[tuple[float, float, float, float]] = []
     for entity in doc.modelspace():
-        # GEOMETRY only. The BEND layer also carries the bend-table's TEXT cells (the
-        # annotation/geometry mixing the same audit filed separately as F-2b) — text
-        # is not a cut path and is deliberately excluded from this measurement.
+        # GEOMETRY only. The entity-type filter predates F-2b, when the BEND layer
+        # also carried the bend-table's TEXT cells; it is kept because a cut path is
+        # LINEs by definition, so this measurement cannot silently widen if the layer
+        # scheme changes again.
         if entity.dxf.layer not in _CUT_LAYERS or entity.dxftype() != "LINE":
             continue
         segments.append(

@@ -3151,9 +3151,26 @@ _LYR_VISIBLE = "VISIBLE"
 _LYR_HIDDEN = "HIDDEN"
 _LYR_DIMENSION = "DIMENSION"
 _LYR_TITLE = "TITLE"
-#: Flat-pattern fold lines (sheet-metal.md §7) — added ONLY for a flat-pattern sheet,
-#: so a standard sheet's TABLES section (and thus its DXF bytes) is byte-unchanged.
+#: Flat-pattern fold LINES, and nothing else (sheet-metal.md §7) — added ONLY for a
+#: flat-pattern sheet, so a standard sheet's TABLES section (and thus its DXF bytes)
+#: is byte-unchanged.
+#:
+#: **Geometry only** (AUDIT-PRODUCT F-2b). This layer used to do two jobs: the fold
+#: LINE a press brake needs, and the bend TABLE's row TEXT. That broke the one manual
+#: escape hatch a fabricator had for the missing profile-only export — "keep VISIBLE +
+#: BEND, drop TITLE" — because it dragged ``'bend-1'``, ``'90.0°'``, ``'R3.00'``,
+#: ``'UP'``, ``'6.09'`` into the model space as text sitting ~170 mm from the part.
+#: A layer is a SELECTION, so a layer that mixes cut-path geometry with annotation
+#: cannot be selected on: whichever job you want, you get the other one too.
 _LYR_BEND = "BEND"
+#: The bend TABLE — box, header rule, captions and row cells (AUDIT-PRODUCT F-2b).
+#: The WHOLE block on ONE layer, so switching it off removes a table rather than
+#: leaving its header behind on ``TITLE`` while its numbers vanish; and switching it
+#: on cannot bring cut geometry with it. Added ONLY when the sheet carries a bend
+#: table, the same additive posture as :data:`_LYR_BEND`. Idiomatic for the format:
+#: incumbent flat-pattern DXFs ship cut / bend / bend-note as separate layers, which
+#: is exactly the split a nesting package's layer mapping expects.
+_LYR_BEND_TABLE = "BEND_TABLE"
 #: Free-text notes (design §2.2) — added ONLY when the sheet carries notes, so a
 #: note-free sheet's TABLES section (and thus its DXF bytes) is byte-unchanged (the
 #: same additive-layer posture as `_LYR_BEND`).
@@ -3476,7 +3493,15 @@ def _dxf_bend_table(msp: Modelspace, bt: ComposedBendTable, frame: _DxfFrame) ->
     ``_BEND_COL_DX`` column offset from the SAME ``_bend_row_cells``. DXF has no native
     table primitive, so the "table" is a box + header rule + column-placed TEXT — the
     columns line up because every renderer shares the offsets and cell strings, giving
-    the shop the SAME reading as the screen."""
+    the shop the SAME reading as the screen.
+
+    **Every entity here goes on :data:`_LYR_BEND_TABLE`** (AUDIT-PRODUCT F-2b). The
+    row cells used to ride :data:`_LYR_BEND` — the fold-line layer — so annotation and
+    cut-path geometry shared one selection and "keep VISIBLE + BEND" dragged five TEXT
+    entities into the model space; the box, rule and captions rode :data:`_LYR_TITLE`,
+    so the block was split across two layers that each meant something else. One block,
+    one layer, named for the block: turning it off removes a table, not a table's body.
+    """
     x, y, w, h = bt.x, bt.y, bt.width, bt.height
     box = [
         frame.xy(x, y),
@@ -3484,9 +3509,9 @@ def _dxf_bend_table(msp: Modelspace, bt: ComposedBendTable, frame: _DxfFrame) ->
         frame.xy(x + w, y + h),
         frame.xy(x, y + h),
     ]
-    msp.add_lwpolyline(box, close=True, dxfattribs={"layer": _LYR_TITLE})
+    msp.add_lwpolyline(box, close=True, dxfattribs={"layer": _LYR_BEND_TABLE})
     hy = y + _BEND_TABLE_HEADER_H
-    _dxf_line(msp, frame, x, hy, x + w, hy, _LYR_TITLE)
+    _dxf_line(msp, frame, x, hy, x + w, hy, _LYR_BEND_TABLE)
     cap_y = y + _BEND_TABLE_HEADER_H - 2.4
     for dx, caption in zip(_BEND_COL_DX, _BEND_TABLE_CAPTIONS, strict=True):
         _dxf_text_entity(
@@ -3497,7 +3522,7 @@ def _dxf_bend_table(msp: Modelspace, bt: ComposedBendTable, frame: _DxfFrame) ->
             cap_y,
             _BEND_TABLE_CAPTION_MM,
             0.0,
-            _LYR_TITLE,
+            _LYR_BEND_TABLE,
             centred=False,
         )
     for i, row in enumerate(bt.rows):
@@ -3511,7 +3536,7 @@ def _dxf_bend_table(msp: Modelspace, bt: ComposedBendTable, frame: _DxfFrame) ->
                 ry,
                 _BEND_TABLE_TEXT_MM,
                 0.0,
-                _LYR_BEND,
+                _LYR_BEND_TABLE,
                 centred=False,
             )
 
@@ -3613,7 +3638,8 @@ def serialize_dxf(composed: ComposedSheet) -> bytes:
     """Render a :class:`ComposedSheet` to a deterministic, byte-stable DXF (DE-3).
 
     REAL model-space entities (LINE / CIRCLE / LWPOLYLINE / SOLID / TEXT) on a clean
-    layer scheme (VISIBLE / HIDDEN [dashed] / DIMENSION / TITLE), so the drawing
+    layer scheme (VISIBLE / HIDDEN [dashed] / DIMENSION / TITLE, plus BEND [dashed] /
+    BEND_TABLE / NOTES / HATCH when the sheet has them), so the drawing
     reopens as CAD-editable geometry — a hole is a ``CIRCLE`` a CAM tool can path,
     not a polygon picture. Sampled arcs stay honest LWPOLYLINEs (no arc re-fitting).
     The single y-flip (DXF model space is y-UP, ComposedSheet y-DOWN) is applied once
@@ -3655,10 +3681,14 @@ def serialize_dxf(composed: ComposedSheet) -> bytes:
         doc.layers.add(_LYR_HIDDEN, color=8, linetype="DASHED")
         doc.layers.add(_LYR_DIMENSION, color=1)
         doc.layers.add(_LYR_TITLE, color=5)
-        # The BEND layer is added ONLY for a flat-pattern sheet, so a standard sheet's
-        # TABLES section (and its DXF bytes) is byte-unchanged (sheet-metal.md §7).
+        # The BEND / BEND_TABLE layers are added ONLY for a flat-pattern sheet, so a
+        # standard sheet's TABLES section (and its DXF bytes) is byte-unchanged
+        # (sheet-metal.md §7). BEND is dashed because it is a FOLD LINE; BEND_TABLE is
+        # continuous because it is a drawn table, and the two are separate layers so a
+        # fabricator can select cut-path geometry without annotation (F-2b).
         if composed.bend_table is not None:
             doc.layers.add(_LYR_BEND, color=5, linetype="DASHED")
+            doc.layers.add(_LYR_BEND_TABLE, color=5)
         # The NOTES layer is added ONLY when the sheet carries notes, so a note-free
         # sheet's TABLES section (and its DXF bytes) is byte-unchanged (design §2.2).
         if composed.notes:
