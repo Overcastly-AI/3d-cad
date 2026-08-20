@@ -203,6 +203,24 @@ agent's output mtime is under 30 minutes.
   poison every later e2e run and read exactly like a code regression.
 - **Founder updates are results-first**: what shipped with evidence, then what is
   running, then what is next.
+- **A CONTROL RUN UNDER THE SAME LOAD IS NOT A CONTROL.** The standard move when
+  a spec goes red is to revert your change and re-run: if it still fails it is
+  pre-existing, not yours. That reasoning is only valid if the *other* variable
+  is held still, and on this box it usually is not. Measured 2026-08-17/18: TWO
+  agents in a row ran that control at load ~3-9 on 4 cores, got a failure in
+  both arms, and correctly-by-their-evidence reported "pre-existing, not mine".
+  Both were wrong — `qa-sketch-frame:991` passes 4/4 on a quiet machine. A
+  contaminant that affects both arms cancels out of the comparison and leaves
+  you certain of the wrong thing. It is the same shape as the bisect that
+  reproduced a failure at a commit believed green (RETRO §4c): the shared cause
+  sat underneath every point sampled.
+  So the control has THREE arms, not two: your change under load, your change
+  QUIET, and reverted quiet. `scripts/e2e.sh` now prints the 1-minute load
+  average before the browser suite and warns when a red will be untrustworthy —
+  read that line before you read the failures. And when briefing a builder, say
+  this explicitly: *if you find a red spec, establish a pass rate on a QUIET
+  machine before you run the revert control, because a control under load proves
+  nothing.*
 
 ---
 
