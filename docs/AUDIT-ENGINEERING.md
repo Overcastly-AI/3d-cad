@@ -3768,3 +3768,574 @@ again. Whichever way TOUCH-1 goes, the agent definition has to stop claiming it.
   `goldens/`, 21 in `goldens-sheet-metal/`, plus `goldens-assembly/`);
   performance benchmarking (`just bench` is opt-in and I did not run it);
   `docs/PERF.md` content review beyond its staleness date.
+
+---
+
+## 2026-08-21 (later) — Pass 8: SOLVE-1 root-cause + the e2e suite Pass 7 could not run
+
+Scope: `6dfb597..c02743e` — 4 commits, **all of them docs/groom** (`024e83f`,
+`ab86441`, `dab2b3e`, `c02743e`); zero lines of `apps/`, `services/` or
+`packages/` changed since Pass 7. So this pass deliberately spends its budget on
+the two things Pass 7 named as *unverified*, not on re-reading a batch that does
+not exist:
+
+1. the browser suite — Pass 7 refused to run it under CPU contention and every
+   e2e claim in it came from `--list` and from reading specs;
+2. the board's new P0 cluster (SOLVE-1 / PICK-2), filed from a **product**
+   audit's browser session, which no engineering evidence yet supports or
+   refutes at the source level.
+
+Environment, because it bounds what follows and it is the opposite of Pass 7's:
+container **15 minutes old**, load average **0.07** on 4 cores, `ps` shows no
+uvicorn / vite / pytest / playwright from any other agent, 20 GB free. This is
+the quiet window CLAUDE.md asks for before an e2e sweep.
+
+### N1 — SOLVE-1 has a source-level root cause, and it is a "claim nobody measured" in PRODUCT code (P0, confirms the board)
+
+The board's SOLVE-1 (P0, filed by groom pass 8 from `docs/AUDIT-PRODUCT.md`
+R-5) is a browser observation. Here is the mechanism, derived independently from
+source and reproduced with a 90-line script against the real solver — no
+browser, no stack.
+
+**`services/geometry/src/geometry/sketch/planegcs_solver.py:118-149`
+(`_dimension_readouts`) reports a DRIVING dimension's value as the value that
+was *asked for*, never the value the solved geometry *has*:**
+
+```python
+value = (
+    driving_values[index]           # DRIVING: the requested number, unverified
+    if constraint.is_driving
+    else measure_dimension(constraint, entities_by_id)   # DRIVEN: measured
+)
+```
+
+and `solve()` (`:102-106`) returns the **unmodified input entities** when the
+solve did not succeed:
+
+```python
+entities = system.read_back() if solved else [e.model_copy(deep=True) for e in sketch.entities]
+```
+
+The two together make the payload internally inconsistent: `dimensions[i].value_mm`
+describes geometry that is not in `entities`. Reproduced
+(`scratchpad/solve_repro.py`, three collinear lines `8 + 22` spanning `30`,
+edit `8`→`12` so `12+22=34≠30`):
+
+```
+=== d_first requested = 8.0 ===
+status='overconstrained' dof=0 conflicting=[] redundant=[3, 9]
+  readout d_first: value_mm=8.0   MEASURED from solved geometry=8.000000  residual=+0.000000
+
+=== d_first requested = 12.0 ===
+status='conflicting' dof=None conflicting=[4, 5, 6, 7, 8, 9] redundant=[3]
+  readout d_first: value_mm=12.0  MEASURED from solved geometry=8.000000  residual=-4.000000
+  readout d_second: value_mm=22.0 MEASURED from solved geometry=22.000000 residual=+0.000000
+  readout d_span:  value_mm=30.0  MEASURED from solved geometry=30.000000 residual=+0.000000
+```
+
+The second block is the defect in one line: **the service reports a 12 mm
+dimension on an 8 mm line and no field in the payload contradicts it.** The
+frontend then renders exactly that number —
+`apps/web/src/sketch/constraints.ts:843` `const value = readout?.value_mm ??
+constraint.value_mm;` → `formatDimensionLabel(...)` — so the glyph beside the
+8 mm line reads `12`. That is the product audit's "a displayed driving dimension
+is violated by 1–3 mm" symptom, with a mechanism.
+
+Two engineering points the board's ticket does not yet carry:
+
+* **The right pattern already exists in this repo, in the sibling solver.** The
+  *assembly* solver defines `SATISFIED_TOL = 1e-7` and classifies a stationary
+  point with residual above it as a conflict, naming the offending mates
+  (`services/geometry/src/geometry/assembly/solver.py:69-83`, `:498`
+  `conflicting_mates=offending`). The *sketch* solver has no residual concept at
+  all — `grep -n residual services/geometry/src/geometry/sketch/` is empty. It
+  trusts planegcs's `diagnose()` and nothing else. So SOLVE-1's fix part (2)
+  ("never let a solve return geometry whose residual on any DRIVING dimension
+  exceeds tolerance") is not new engineering: it is applying an existing,
+  documented, tested pattern to the second solver. Worth saying in the ticket —
+  it changes the estimate.
+* **`measure_dimension` is already imported into that exact module** (`:26-28`)
+  and already runs for every driven dimension. The residual for a driving
+  dimension is `measure_dimension(c, by_id) - driving_values[i]` — one line,
+  same call, already in scope. There is no reason for this to be an expensive
+  fix, and no reason for the payload to be silent about it.
+
+**Severity P0** (concurs with the board), but note the split: my repro shows the
+DOF=0 conflicting case *is* detected and does *not* corrupt geometry (entities
+come back untouched) — what is wrong there is the **readout**, a P1-grade
+false claim. The P0 geometry corruption R-5 measured needs the DOF>0 slack path,
+which I could not reproduce in isolation at this level. Recommend the fix
+carries **both** gates: a residual assertion on driving dimensions *and* a
+regression that pins the readout to the geometry.
+
+### N2 — the readout inconsistency is untested in both languages
+
+`services/geometry/tests/test_sketch_solver.py` has three conflicting-solve
+tests (`:232`, `:493`, `:750`); every one of them asserts only `status`,
+`dof`, and the *indices* in `conflicting_constraints` (`:245-249`, `:511-515`,
+`:764-767`). None asserts anything about `result.dimensions` — so the 12-mm-on-
+an-8-mm-line payload above passes the entire suite. Same on the web side:
+`apps/web/src/sketch/constraints.test.ts:903-995` exercises the status plumbing
+with hand-written readout maps, never a map whose `value_mm` disagrees with the
+entity it labels. A test that constructed one would have failed for six weeks.
+
+### N3 — Pass 7's M7 is unchanged and I reproduced it; one of the two gates *prints its own vacuity* and still exits 0 (P2)
+
+Pass 7 recommended `EXPECTED_CHECKS` floors for `check-workflow-concurrency.py`
+and `check-mutation-markers.py`. Neither landed (nothing in `scripts/` changed
+in the range). Reproduced on scratch copies — the only edit is replacing the
+`results.append((label, ok))` line with `pass`:
+
+```
+$ python3 scratch/check-workflow-concurrency.py --self-test
+  ok   pull_request-only workflow is skipped, not failed → exit 0 (expected 0)
+check-workflow-concurrency: self-test passed — the gate can fail.       EXIT=0
+
+$ python3 scratch/check-mutation-markers.py --self-test
+check-mutation-markers: self-test passed - 0 cases; the real defect fails,
+prose does not, and an empty scan cannot report clean.                  EXIT=0
+```
+
+The second line is worth reading twice. **`check-mutation-markers` already has
+`len(results)` in hand, interpolates it into the success message, and does not
+compare it to anything** (`scripts/check-mutation-markers.py:1115-1121`). It
+announces "self-test passed - 0 cases" and returns 0. That is RETRO §4's defect
+class with the evidence printed on the same line as the false claim — the
+cheapest possible fix (`if len(results) < EXPECTED_CHECKS: return 1`, four lines,
+already written twice in this repo at `e2e-shard-audit.py:428` and
+`stage-doc-hunks.py:880`) has now been recommended twice and skipped twice.
+
+Scope check, since Pass 7 named two of five: `check-build-context.py:237-260`
+is NOT list-driven (two straight-line comparisons, `all([])` cannot arise), and
+`check-licences.py:898` has its own harness. So the exposure is exactly the two
+above — both wired into `just lint` (`justfile:78`, `:89`), i.e. both on the
+path every builder is told to trust.
+
+### N4 — first-ever Python dependency-vulnerability scan; the npm side is unchanged at 18 (P2, with one correction to Pass 7's framing)
+
+Nobody in this project has ever run a Python vulnerability scan. I ran one
+(`uv tool install pip-audit` — PyPI is on the proxy no-proxy list, ~40 s):
+
+```
+$ pip-audit --path .venv/lib/python3.12/site-packages
+Found 1 known vulnerability in 1 package
+Name         Version ID              Fix Versions
+cryptography 49.0.0  PYSEC-2026-3552 50.0.0        (CVE-2026-69247, GHSA-g6cj-pr64-35w5)
+```
+
+Reachability, checked rather than assumed:
+* The advisory is a Bleichenbacher oracle in `pkcs7_decrypt_{der,pem,smime}`.
+  `grep -rn pkcs7 --include=*.py services packages` → **no hits**. Not called.
+* `cryptography` enters only through `joserfc` ← `moto[s3,server]`, which is in
+  the root `dev` dependency group (`pyproject.toml:35`). The gateway's JWT
+  library is `pyjwt` (`services/gateway/pyproject.toml:14`), not joserfc.
+* Runtime images build with `uv sync --frozen --no-dev`
+  (`deploy/docker/service.Dockerfile:53,60`), so `cryptography` is **not in any
+  shipped image**.
+
+So: not exploitable, dev-path only — and that is a *measured* answer where
+before there was no instrument at all. `pnpm audit --audit-level=high` is
+unchanged at **18 (13 high / 5 moderate)**, and I re-derived the paths rather
+than inheriting Pass 7's claim: every one is `eslint` / `typescript-eslint` /
+`openapi-typescript` / `postcss` (build) / `jsdom` (vitest env) —
+`brace-expansion`, `js-yaml`, `nanoid`, `postcss`, `undici`. No runtime path.
+
+Correction to Pass 7's M8 framing, since it will be inherited otherwise: "all in
+dev/build paths" was true of the npm half and had never been tested on the
+Python half. It now has been, and it is also true there — but only because of
+`--no-dev` in the Dockerfile, which is a property worth an assertion, not a
+coincidence worth repeating.
+
+### N5 — an e2e assertion that silently no-ops when its subject is missing, on a MASS-PROPERTIES claim (P2, new)
+
+`apps/web/e2e/materials.spec.ts:267`:
+
+```ts
+const picker = page.getByTestId("material-default-select");
+if ((await picker.count()) === 0) return; // HEAD has no picker to drive.
+```
+
+Everything the "mixed-material part" test exists to prove is below that line —
+assigning aluminium to the part, steel to body 2, and asserting the combined
+mass reads `84.56` (`:272-275`). The same escape hatch guards the second half of
+the two `panel shots at ${width}` tests (`:249`).
+
+The comment's premise expired: `apps/web/src/components/MaterialSection.tsx:124`
+ships `data-testid="material-default-select"` today. What is left is only the
+failure mode — **if a regression removes, renames or fails to render the
+picker, this test stops asserting the mixed-material mass roll-up and reports
+PASS.** That is RETRO §4's class exactly ("a gate that cannot fail"), sitting on
+a geometric-correctness claim, which CLAUDE.md ranks above a green unit suite.
+Fix is one line: `await expect(picker).toHaveCount(1)` instead of the early
+return. I found no other instance of the shape in 126 spec files
+(`test.skip`/`test.fixme` count: **0**; the other three early returns —
+`sketch-origin-constraint.spec.ts:309`, `sketch-snap-coincident.spec.ts:270`,
+`fb19-chrome-density.spec.ts:390` — return a *counter* value or guard an
+optional second capture, not an assertion body).
+
+### N6 — PICK-2 has a one-line root cause, and it is not the one the ticket hypothesises (P0 cluster, saves a builder a day)
+
+The board's PICK-2 guesses "the pick raycast resolves against the TIP feature's
+body, and here the tip was SKIPPED, so … every click resolves to nothing." Close,
+but the mechanism is upstream of the raycast and much cheaper to fix. In
+`apps/web/src/routes/PartPage.tsx`:
+
+```
+554:  const meshGlbId = evaluation.data?.mesh_glb_id ?? null;
+...
+1448:  const holeOverlayQuery = useQuery({
+1452:    enabled: holeEditing && tree.data !== undefined && meshGlbId !== null,
+1459:  const holePickableFaces = holePick === "face" ? (holeOverlayQuery.data?.faces ?? null) : null;
+```
+
+When the tip produces no body, `mesh_glb_id` is null, so **every one of the six
+overlay queries is `enabled: false`** — face pick (`:1423`), datum face pick
+(`:1435`), hole (`:1452`), edge (`:1514`), shell (`:1550`), measure (`:662`) all
+carry the identical `meshGlbId !== null` guard. `holePickableFaces` is therefore
+`null`, `FacePickOverlay`'s `offered` list is `[]`
+(`apps/web/src/viewport/FacePickOverlay.tsx:59-68`), and there is no
+`PickSurface` and no `PickNode` anywhere in the scene. The panel still badges
+`PICKING`, because the badge is driven by `holePick === "face"`, which nothing
+resets. Five clicks landing on nothing, no message, stale readout — exactly the
+product audit's R-10, with no raycast involved at all.
+
+Note the overlay module's own docstring
+(`FacePickOverlay.tsx:8-10`): *"they are omitted, never a dead target."* True
+per FACE; the empty-overlay case is the hole in it — the whole surface becomes a
+dead target and says nothing. The fix is a state the code does not currently
+have: `facePicking && meshGlbId === null` must refuse to arm and say why
+("nothing to pick — the tip feature has no body"). Recommend the ticket be
+re-scoped to that, and to the `PICKING` badge's missing negative state, rather
+than to a raycast-target rewrite.
+
+### N7 — Loop health: the direction layer is running and the BUILD layer has been stopped for 78 hours (P1)
+
+| Measure | Pass 7 (`6dfb597`) | This pass (`c02743e`) |
+|---|---|---|
+| Hours since last `feat`/`fix` on `apps/`/`services/`/`packages/` | ~35 | **78.2** (`5bfb528`, 2026-08-18 13:33 → 2026-08-21 19:43) |
+| Commits since | — | 6, **all** `docs`/`groom`/`audit` |
+| Ready queue | 56 open (10 already shipped) | 14 open, reconciled |
+| Worktrees on disk | 16 / 7.0 GB (21 GB free) | **19 / 8.3 GB (17 GB free)** |
+| Worktree branches ahead of origin | 0 of 16 | **0 of 19** (nothing stranded) |
+
+Three of those worktrees are new since Pass 7, so agents *have* been dispatched
+in the interval — they were the groomer, the vision-steward and the two
+auditors. The board now carries a correctly-reconciled, correctly-prioritised
+P0 cluster (SOLVE-1 / PICK-2) filed **18.5 hours ago** and not dispatched. The
+loop is producing excellent direction and no product. Every commit since
+2026-08-18 13:33 is the org describing itself.
+
+Disk is the item with a clock on it: `.claude/worktrees` grew 1.3 GB while
+nothing was built, and free space fell from 21 GB to 17 GB. `git worktree prune`
++ `git branch -D worktree-agent-*` is safe today — I re-verified all 19 branches
+are 0 commits ahead of `origin/claude/branch-review-development-hkbbnb`, so
+nothing is stranded — and it is the third pass in a row this has been asked for.
+
+### N1 CORRECTED, same pass — I wrote a claim I had not measured, and the second derivation refuted half of it
+
+**Retract from N1:** *"The frontend then renders exactly that number …
+so the glyph beside the 8 mm line reads `12`."* That is **false on the
+application path**, and I inherited it from a grep instead of tracing the call.
+`services/geometry/src/geometry/features/evaluate.py:943-950` converts a
+`conflicting` solve into a `FeatureError(code="sketch_conflicting", …)`; it
+never becomes a `solved_sketch`, so `PartPage.tsx:934-943` takes the error
+branch and calls `store.adoptSolved(null, {...})` with **no** `dimensions`
+argument, and `store.ts:1692-1694` therefore leaves `solvedDimensions` at its
+last-good value. The inconsistent payload N1 measured exists in the service's
+return value; it does not reach a glyph. Severity of that half drops from P1 to
+**P3 (API hygiene)**. The source facts in N1 stand — the readout is unverified,
+and the sketch solver has no residual concept where the assembly solver has one.
+
+**And the second derivation found the thing the first one missed, which is why
+this is worth the words.** I set out to reproduce SOLVE-1's stated mechanism —
+the board says *"the diagnosis is reachable only when a NEW constraint is added,
+not when an EXISTING dimension's VALUE is edited, which is the commoner path"*
+— and it does not exist. `PlanegcsSketchSolver.solve()` is **stateless and
+whole-definition**: it rebuilds the entire planegcs system from the submitted
+`SketchDefinition` on every call (`planegcs_solver.py:68-76`,
+`_GcsBuild.__init__:243-246`). A value edit and a new constraint are the SAME
+code path, differing only in the bytes submitted. There is no second path to
+route anything through. Measured in four configurations of a conflicting trio
+(`8 + 22` spanning `30`, edited to `12`), varying free DOF and constraint mix:
+
+```
+slack=False all_horizontal=True : status=conflicting dof=None conflicting=[4,5,6,7,8,9]
+slack=False all_horizontal=False: status=conflicting dof=1    conflicting=[2,3,4,5,6,7]
+slack=True  all_horizontal=True : status=conflicting dof=4    conflicting=[4,5,6,7,8,9]
+slack=True  all_horizontal=False: status=conflicting dof=5    conflicting=[2,3,4,5,6,7]
+```
+
+Every one diagnosed, including with 4-5 DOF of slack present. **A conflicting
+value edit is already refused, and the geometry is already left untouched.**
+Building "route a dimension-VALUE edit through the conflict-detection path"
+(SOLVE-1 fix part 1) would be building a path that exists.
+
+**What IS reproducible is R-5b, and it is a different defect: an
+under-constrained solve is not idempotent.** Same chain, `Fixed` and the span's
+`Horizontal` removed so the system genuinely floats (`dof=3`), solving 10 → 14 →
+10:
+
+```
+initial  d=10: underconstrained dof=3  L1=(-0.477,-0.132)→(8.077,5.047)
+edited   d=14: underconstrained dof=3  L1=(-0.505,-0.875)→(9.383,9.037)
+retyped  d=10: underconstrained dof=3  L1=(-0.474,-0.087)→(8.093,5.071)
+restored exactly? False       max coordinate delta: 0.045 mm
+```
+
+Two things there, both matching the product audit's numbers in kind:
+* the profile **moved off its authored position on the FIRST solve** — the
+  author put `L1.start` at `(0, 0)` and got `(-0.477, -0.132)`; that is R-5's
+  "slid 3.08 mm below its own origin plane", at this fixture's scale;
+* **retyping the original value does not restore the original geometry**
+  (0.045 mm here), because DogLeg starts from the CURRENT positions
+  (`planegcs_solver.py:10-14` says so explicitly) — so the solve is a function
+  of history, not of the constraint set. That is R-5b exactly.
+
+Consequence for the ticket, and it changes both the fix and the owner: SOLVE-1
+is **not** a missing conflict path, it is *under-constrained solve behaviour that
+nobody reports*. Candidate fixes are (a) hold unconstrained geometry still —
+weight the free DOF toward the input positions, or anchor the profile — so an
+edit changes only what it names; (b) make the status line say what MOVED, not
+just `UNDER-CONSTRAINED`; (c) the residual assertion from N1, which is still
+worth having and is the cheap half. **Before dispatching: replay the audit's
+actual six-dimension `SketchDefinition` against `PlanegcsSketchSolver` in a
+30-line script** (mine are in this pass's scratch) — if it comes back
+`conflicting`, the defect is in the web layer's handling of the refusal, not in
+the kernel, and the P0 goes to a different agent entirely.
+
+Method note, since this pass is partly about RETRO §4: the first derivation
+(read the module, grep the consumer) produced a confident wrong sentence, and
+the second (run the thing, trace the branch) caught it inside an hour. The
+difference was not care, it was **execution against the real artefact**. That is
+the same lesson the Stop-hook fixture taught, and it applies to auditors too.
+
+### N8 — Security: spot-checks re-derived, one observability gap (P3)
+
+No code changed in the range, so I did not repeat Pass 7's full route sweep;
+I re-derived the primitives instead, because those are what an inherited
+"posture is fine" claim actually rests on.
+
+* **Boundaries: clean.** No `OCP`/`build123d` import outside
+  `services/geometry` except the known
+  `services/gateway/tests/test_assembly_import_chain.py:56` (a test, already a
+  P3 carry-over). No `sqlalchemy`/`asyncpg`/`psycopg`/`alembic` anywhere in
+  `services/geometry/src`. No `:8001`/`:8002` in `apps/web/src`. No ad-hoc SQL
+  (`text("…")`) in any service or package.
+* **JWT:** explicit `algorithms=[JWT_ALGORITHM]` with
+  `options={"require": ["exp", "sub"]}` (`gateway/auth/security.py:193-197`) —
+  no `alg=none` / algorithm-confusion surface; the dev-only secret relaxation
+  is gated on an explicit `LOFT_ENV=dev` (`:11`, `:96`).
+* **Passwords:** argon2id, offloaded to a thread, with a length cap applied on
+  BOTH register and login so the hash cannot be a CPU-DoS vector
+  (`auth/schemas.py:18-19`, `auth/routes.py:109`, `:151`), and a burned
+  verification on the unknown-user path for anti-enumeration (`:178`).
+* **SSRF: no surface.** The only outbound `httpx` clients are the readiness
+  probe (`gateway/main.py:167`) and the fixed-upstream pool
+  (`gateway/upstream.py:117`). Nothing fetches a user-supplied URL. STEP import
+  is a size-capped multipart upload (`gateway/step_import.py:77-106`).
+* **Mesh reads are a capability, not a tenancy hole:** `GET /meshes/{id}`
+  requires auth and takes a `sha256:<64 hex>` content address
+  (`gateway/geometry.py:328`, `:344-356`). Cross-user read requires knowing the
+  exact digest of the exact GLB, which requires already having the identical
+  geometry. Documented at `:357-363`. Fine as designed — worth keeping in the
+  design record rather than rediscovering.
+* **CORS:** no middleware installed anywhere in the gateway (grep clean), so
+  the browser same-origin default holds. Correct for a proxied SPA.
+
+**The one gap (P3):** the rate limiter fails OPEN on any Redis error
+(`packages/py-kit/src/py_kit/ratelimit.py:164-170`) — a deliberate,
+documented availability choice — but the event emits a `warning` log line and
+**no metric**. `grep -n rate_limit packages/py-kit/src/py_kit/metrics.py
+docs/OBSERVABILITY.md` is empty. So the failure mode of the only control
+protecting the expensive service (geometry compute) is invisible on a
+self-hoster's dashboard, and its symptom is *fewer* 429s — i.e. it looks like
+things got better. A counter on `rate_limit_backend_unavailable` is ~5 lines
+and makes the fail-open honest.
+
+### N9 — Smaller items, measured this pass
+
+* **DRY / design tokens: healthy.** Exactly **7** hex literals in
+  `apps/web/src` outside tests, and all seven are justified (three are contrast
+  ratios quoted in comments, four are the black/white stops of a gradient ramp
+  in `viewport/bluingWash.ts:57-62`). No palette duplication between DOM and
+  WebGL. No hand-written API-type duplicates in `apps/web` (grep for
+  `interface *Request|*Response|type *Result = {`: zero hits). Service `main.py`
+  modules share no boilerplate — a `difflib` pass over the documents/geometry
+  mains finds exactly one matching run ≥6 lines, and it is
+  `app = build_app()` / `def run()`.
+* **Contracts: no drift.** `just gen-check` → "contracts + ts-client match
+  generated output."
+* **Ad-hoc epsilons: 13 inline, 9 of them in one file (P3).** Named, documented
+  tolerance constants are the rule (`assembly/solver.py:69-98` is exemplary),
+  but 13 bare `1e-9`/`1e-12`/`1e-6` literals sit inline in comparisons —
+  `drawings/compose.py` (:286, :792, :940, :1056, :1316, :1356, :1386, :1391),
+  `sheet_metal/corner_relief.py:80,83`, `sheet_metal/unfold.py:761`,
+  `sheet_metal/edge_flange.py:103`, `kernel/extrude.py:183`. They are
+  degeneracy guards rather than geometric tolerances, which is why this is P3
+  and not P2, but CLAUDE.md's rule ("never ad-hoc epsilons") does not carve out
+  that distinction and a reader cannot tell one from the other at the call
+  site. One named `_DEGENERATE_LEN_MM` per file would settle it.
+* **README's negative claims re-verified** (they are the ones that rot
+  silently): "there are no WebSocket routes" — `grep -rn websocket
+  --include=*.py services packages` returns one COMMENT saying so and no route.
+  True.
+* **e2e suite size unchanged at 547 tests / 115 files** (`playwright test
+  --list`), identical to Pass 7 — as expected, since no spec commit landed.
+  The CI-4 shard-cost trend Pass 7 flagged has not moved because nothing has
+  been built.
+
+### N10 — **P1: I ran the browser suite Pass 7 could not, and CI-4's root cause has TWO more live instances — deterministically red at HEAD, with a control/hypothesis pair that proves the fix**
+
+Environment correction first, because it changes what the header of this pass
+claims: the machine was quiet when I started (19:33, load 0.07, nothing
+running), and at **19:34 another agent booted a full native stack** on the
+shared ports — `ps` shows `uvicorn geometry.main:app --port 8002`,
+`documents … 8001`, `gateway … 8000` and a Vite on `:5173`, writing
+`scratchpad/pa2-*.db`. So a `just e2e` was off the table for the second pass
+running: it would have reused their Vite and their gateway and written into
+their session. I ran an **isolated** stack instead — gateway `:8010`,
+documents `:8011`, geometry `:8012`, Vite `:5199`, my own `ea8-*.db` files, a
+private Playwright config under `apps/web/node_modules/.vp1a/` — exactly the
+recipe CLAUDE.md prescribes for a mid-batch stack, and tore it down afterwards
+(verified: my four ports down, their four still up, `git status` clean but for
+this file).
+
+**Result, `sketch-drag-draw.spec.ts` at `c02743e`: 3 of 10 tests fail, in four
+consecutive runs, at the same three lines, including in isolation on a quiet
+CPU.**
+
+```
+✓ :108 a drag draws the rectangle, showing its size as it forms
+✓ :185 typed width and height drive the solved geometry
+✘ :221 Tab walks the cells and wraps — a dimension pair is a loop
+✓ :237 drawing without typing leaves an undimensioned rectangle
+✓ :267 a circle is dimensioned by radius as it is dragged
+✘ :300 founder shot 1600: size forming under the drag, then typed
+✘ :300 founder shot 1280: size forming under the drag, then typed
+3 failed / 7 passed (58.5s)
+```
+
+By CLAUDE.md's own discriminator this is NOT contention flake — the failure
+point does not move. (For contrast, in the same batch
+`sketch-on-face.spec.ts:346` failed once with `Save sketch0 entities` and
+passed on re-run: *that* one is the wandering kind.
+`interaction-depth`, `sketch-datum-flow`, `sketch-visibility`,
+`full-flow`, `sketch-dimension-typing` and `rect-rigidity` all passed.)
+
+**Root cause, proven with a control rather than argued.** The failing tests
+press `Tab` / type a digit in the same tick as `mouse.up()`; the passing
+sibling `:185` waits for `sketch-save` to read `4 entities` first. So the
+armed dimension cells do not exist yet when the key is delivered. Probe (three
+tests, identical but for the wait; run three times, same result every time):
+
+```
+✘ control:      Tab with no wait (the shipped :221 sequence)     — FAILS 3/3
+✓ hypothesis 1: Tab after data-state="armed"                      — PASSES 3/3
+✓ hypothesis 2: Tab after the save cell reads "4 entities" (:185) — PASSES 3/3
+```
+
+This is **the same defect CI-4(d) root-caused on 2026-08-16** in
+`sketch-datum-flow.spec.ts:323` — "the spec gates on the KEYSTROKE, not on the
+ANSWER … it had always been a race and it passed for two months only by
+WINNING". That entry called itself "the FIRST instance of this umbrella to be
+root-caused rather than hypothesised". Here are the second and third, in a
+different file, found by running the suite rather than by reading it. The fix
+is one line each (`await expect(page.getByTestId("draw-dimensions"))
+.toHaveAttribute("data-state", "armed")` before the first key), and the
+negative control is already written: reverting the wait reproduces the failure
+deterministically.
+
+Three consequences worth separating:
+
+1. **CI-4's "resource pressure" hypothesis is now partly falsified, in a useful
+   direction.** At least three of the umbrella's failures are a *spec-authoring
+   pattern* — a keystroke racing an async state commit — which loses the race
+   under load, on a slower runner, or (as here) simply on this machine. That is
+   a bounded, greppable class, not a mysterious substrate. A sweep for
+   `mouse.up()` / `dragDraw(...)` immediately followed by `keyboard.` across all
+   115 specs is a half-day and would retire most of CI-4.
+2. **There is a small PRODUCT flow risk behind it** (the reason this is not
+   purely a test finding): the armed cells appear one React commit after the
+   mouse release, and the "type anywhere to start dimensioning" handler
+   (`SketchScene.tsx:1046-1068`) is registered in that same commit. A user who
+   releases and types *immediately* loses the first character — which is
+   precisely the FB-16 promise ("capture intent where it forms"). Worth a
+   `data-state`-gated buffer or an earlier arm, and worth measuring before
+   dismissing.
+3. **Nobody can currently say whether CI is green on this**, and that is the
+   third pass in a row where a recommendation terminates in a CI read only the
+   orchestrator can do. If the last `e2e` run is green on `sketch-drag-draw`,
+   then this machine is slower than the runner and the specs are latent
+   land-mines; if it is red, the board has been red on a *deterministic*
+   failure and the "one spec of 115, never the same one" story needs updating.
+
+### Gate results, this pass, at `c02743e`
+
+| Gate | Result | Evidence |
+|---|---|---|
+| `just lint` | **GREEN (exit 0)** | ruff, ruff-format, pyright 0/0, eslint+prettier, `pnpm -r typecheck`, all six `scripts/` gates incl. three `--self-test`s |
+| `just test` | **GREEN (exit 0)** | python **3 735 passed / 1 skipped / 5 deselected in 1 106 s**; `packages/design` 101/16 files; `apps/web` 1 754/122 files — identical to Pass 7, as expected for a docs-only range |
+| `just gen-check` | **GREEN** | "contracts + ts-client match generated output" |
+| `pnpm audit --audit-level=high` | **18 advisories (13 high / 5 moderate)** | all dev/build paths, re-derived not inherited (N4) |
+| `pip-audit` (first ever) | **1 advisory** | `cryptography 49.0.0` PYSEC-2026-3552; dev-only via `moto`, absent from images (N4) |
+| `playwright test --list` | **547 tests / 115 files** | unchanged from Pass 7 |
+| **Browser suite (isolated stack, 8 spec files)** | **RED — 3 deterministic failures** | `sketch-drag-draw.spec.ts:221`, `:300`×2, 4/4 runs (N10) |
+| Probe: control vs. two hypotheses | control FAILS 3/3, both hypotheses PASS 3/3 | root cause proven (N10) |
+| Self-test vacuity reproduction | **2 of 5 gates still vacuous** | both print "self-test passed" with every check removed (N3) |
+| Service boundaries / ad-hoc SQL | **CLEAN** | greps in N8 |
+| Worktree branches ahead of origin | **0 of 19** | nothing stranded (N7) |
+
+### Prioritized recommendations for the groomer
+
+| # | Sev | Item | Why now |
+|---|-----|------|---------|
+| 1 | **P0** | **Re-scope SOLVE-1 before dispatching it, using N1-CORRECTED.** Its stated mechanism ("conflict detection is not reached on a dimension-VALUE edit") does not exist — the solver is stateless and whole-definition, and conflicts ARE diagnosed and refused in all four configurations I measured. What IS reproducible is non-idempotent under-constrained solving (10→14→10 does not return; the profile leaves its authored origin on the first solve). Step one is 30 lines: replay the audit's own six-dimension sketch against `PlanegcsSketchSolver` and read the status. | The board's #1 P0 would otherwise be built against a hypothesis a one-hour measurement contradicts — and if the replay comes back `conflicting`, the defect is in the WEB layer's handling of the refusal and the ticket belongs to a different agent entirely. |
+| 2 | **P1** | **N10 — fix `sketch-drag-draw.spec.ts:221` and `:300` (one `await expect(...).toHaveAttribute("data-state","armed")` each), then SWEEP all 115 specs for `mouse.up()`/`dragDraw(...)` immediately followed by `keyboard.*`.** Ship the sweep as a lint-able check if the pattern is common. | Three deterministic reds at HEAD in four consecutive runs, and they are the SAME class CI-4(d) root-caused in a sibling spec on 2026-08-16. This is the largest identified chunk of CI-4, it is greppable, and the fix has a proven negative control. The e2e gate cannot be trusted per-commit while known-red specs sit in it. |
+| 3 | **P1** | **N6 — re-scope PICK-2 too: the cause is `meshGlbId === null` disabling all six overlay queries** (`PartPage.tsx:554`, `:662`, `:1423`, `:1435`, `:1452`, `:1514`, `:1550`), not the raycast. Fix = refuse to arm a pick when there is no tip body, and say so. | Same cluster, same dispatch, and the ticket currently points a frontend builder at a raycast rewrite that would not touch the cause. Small, certain, and it removes a dead end from the P0 recovery path. |
+| 4 | **P1** | **N7 — dispatch a BUILD batch.** 78 hours and six commits since the last line of product code, all of them the org describing itself. Also `git worktree prune` + `git branch -D worktree-agent-*` (19 worktrees, 8.3 GB, 17 GB free, all verified 0 ahead). | Throughput, and disk has a clock on it: worktrees grew 1.3 GB while nothing was built. Third consecutive pass asking. |
+| 5 | **P2** | **N3 — the four-line `EXPECTED_CHECKS` floor in `check-workflow-concurrency.py:481` and `check-mutation-markers.py:1115`.** | Second consecutive pass; reproduced again. One of them *prints* `self-test passed - 0 cases` and returns 0 — it has the number in hand and does not look at it. Both are wired into `just lint`. |
+| 6 | **P2** | **N5 — replace `if ((await picker.count()) === 0) return;` with `await expect(picker).toHaveCount(1)` in `materials.spec.ts:249,267`.** | An e2e test that silently stops asserting a MASS-PROPERTIES claim when its subject disappears — a gate that cannot fail, on geometric correctness, guarded by a comment whose premise expired when `MaterialSection.tsx:124` shipped. |
+| 7 | **P2** | **N4 — wire the vulnerability gates:** `.github/dependabot.yml` (npm + pip + actions), `pnpm audit --audit-level=high` in `ci.yml`, and `pip-audit` (~40 s, PyPI is reachable here). Assert `--no-dev` in the image build while you are there. | Now measured on BOTH ecosystems for the first time. The Python answer is currently good *because* of a Dockerfile flag no test asserts. |
+| 8 | **P2** | **Serialize the two auditors, or give the product auditor a documented isolated-port profile.** | Two passes in a row the engineering audit could not run the shared `just e2e` because the product auditor held `:8000-:8002` + `:5173`; this pass it cost an hour of stack-building to get the finding in N10 at all. The auditors are explicitly told not to coordinate — which means the *scheduler* has to keep them off the same single-tenant resource. |
+| 9 | **P3** | **N8/N9 batch:** a metric for `rate_limit_backend_unavailable`; name the 13 inline geometry epsilons (9 in `drawings/compose.py`); `pytest.fail` instead of `pytest.skip` under `CI` in `services/documents/tests/conftest.py:173-193` — but note the correction below before restating Pass 7's M4 claim; move `services/gateway/tests/test_assembly_import_chain.py:56`'s live `build123d` import behind a fixture. | Unchanged remainder; each is small. |
+
+**Correction to Pass 7's M4, since it will otherwise be inherited as fact.**
+Pass 7 wrote that CI "installs no PostgreSQL" and therefore 172 documents tests
+"disappear with exit 0". The first half is true of `ci.yml`; the conclusion is
+not established. `find_pg_bin()` (`conftest.py:52-65`) falls back to
+`/usr/lib/postgresql/*/bin`, and the GitHub `ubuntu-latest` image ships
+PostgreSQL 16 at exactly that path with the service stopped — which is also why
+those 172 tests ran here (this container has `/usr/lib/postgresql/16/bin/initdb`
+and no `PG_BIN_DIR` set). So the likely truth is that CI *does* run them, and
+the real defect is narrower and still worth fixing: **a silent skip means
+nobody can tell from the log which of the two happened.** Make it loud; do not
+also add a `services: postgres` block on the strength of the old claim.
+
+### Confidence ledger for this pass
+
+* **Ran myself, full output captured:** `just lint` (0), `just test` (0,
+  3 735/101/1 754), `just gen-check`, `pnpm audit` (+ `--json` path
+  attribution), `pip-audit` (installed for this pass), `playwright test
+  --list`, four runs of `sketch-drag-draw.spec.ts` plus seven other spec files
+  against an isolated three-service stack I booted and tore down, three runs of
+  the control/hypothesis probe, four solver repro scripts against
+  `PlanegcsSketchSolver`, the two self-test vacuity reproductions on scratch
+  copies, the worktree/branch census, and the boundary/DRY/epsilon greps.
+* **N10, N3 and the N1 correction are not arguable** — each is a command with
+  two outputs differing only in the one variable named.
+* **N1 as first written was WRONG and is retracted in place**; the corrected
+  version is the measured one. I have left both in the record deliberately —
+  RETRO §4's defect class does not spare auditors, and the retraction is the
+  evidence that the second derivation is what catches it.
+* **NOT verified by me:** the full 547-test suite (I ran 8 spec files, ~40 of
+  547 tests); the compose/`deploy-path` runtime (registry blocked); `just
+  bench`; whether CI is green on `sketch-drag-draw` (subagent —
+  `api.github.com` is policy-denied). Recommendations 2 and the M4 correction
+  both terminate in a CI read only the orchestrator can perform.
+* **Environment caveat, stated because it bounds N10:** another agent's stack
+  was live on `:8000-:8002`/`:5173` from 19:34 onward and its browser session
+  ran throughout (load 1.2-1.6 on 4 cores). The three failures I report are
+  deterministic across four runs INCLUDING isolated single-file runs, and the
+  probe's two hypothesis tests passed 3/3 under the same load — so load is not
+  the discriminator here. A green result under load is strong evidence; I have
+  not reported any red as confirmed unless it repeated.
