@@ -104,6 +104,21 @@ of truth for what phase we're in.
   published gateway port ([`deploy-path.yml`](./.github/workflows/deploy-path.yml),
   i.e. `just compose-smoke`).
 
+**Known correctness gap, filed and not yet fixed:** editing an existing
+driving dimension to a value that conflicts with the rest of the sketch is
+silently *accepted* rather than refused — the status line still reads
+`UNDER-CONSTRAINED`, the solver returns a least-squares compromise that
+violates the number you just typed, and retyping the original value does not
+restore the original geometry. A downstream feature reference (e.g. a hole on
+a face) can also fail to survive a parameter edit to its own generating
+sketch, and the UI's "Re-pick face" repair does not currently work. Tracked
+as `SOLVE-1` / `PICK-2` (both P0); measured reproduction in
+[`docs/AUDIT-PRODUCT.md`](./docs/AUDIT-PRODUCT.md). This is why the
+[daily-driver scorecard](./docs/VISION.md#daily-driver-scorecard) currently
+rates Sketching & constraints and Part modeling ➖, not ✅ — ordinary drawing,
+all constraint kinds, and dimension expressions remain genuinely usable; the
+gap is specifically editing an *existing* dimension into conflict.
+
 ![The Loft viewport showing a bearing hub: a three-feature tree — sketch,
 revolve, fillet — and a turned flanged part with a through
 bore](./docs/screenshots/part-hub-1600.png)
