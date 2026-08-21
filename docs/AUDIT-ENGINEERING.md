@@ -3200,3 +3200,571 @@ a reminder that `ci.yml:78-82`'s 30-minute ceiling is still argued from
   geometry goldens were not re-run beyond their inclusion in `just test`
   (50 goldens, +1 this batch: `revise-thickness-and-hole-dia-100x40x14`);
   performance benchmarking; `docs/PERF.md` freshness.
+
+## 2026-08-21 — Pass 7: post-MIRROR/SNAP/RECT/EXPORT-2/DXF-2b batch (deep engineering audit)
+
+Scope: `55800db..6dfb597` — 27 commits since Pass 6 (2026-08-16), spanning the
+four-features-in-a-day batch RETRO §4d is about (RECT-1, SNAP-2/3, MIRROR-1,
+EXPORT-1/EXPORT-2), the DXF flat-pattern work (DXF-2a/2b, code pages, layers,
+model scale), the register/export UI rework, VIEWCUBE-1, ESC-2, DIM-3, and the
+spec-hardening commits that followed each of them.
+
+Auditor's environment note, because it bounds what follows: the container was
+**20 minutes old** when this pass started (`uptime`), and another agent was
+booting a three-service stack from the same shared scratchpad throughout
+(`ps` showed `scratchpad/boot.sh` live at pass start). Everything below that is
+a measurement says which command produced it.
+
+### M1 — Pass 6's P0 is CLOSED, verified on committed bytes
+
+`just lint` at `6dfb597`: **exit 0**.
+
+```
+uv run ruff check .          All checks passed!
+uv run ruff format --check . 346 files already formatted
+uv run pyright               0 errors, 0 warnings, 0 informations
+eslint . && prettier --check .   All matched files use Prettier code style!
+pnpm -r --if-present run typecheck   (ts-client, design, web) Done
++ check-licences / check-build-context / check-workflow-concurrency (+self-test)
++ check-mutation-markers (+self-test) / stage-doc-hunks --self-test
+```
+
+Both Pass-6 recommendations #1 and #2 landed in `eslint.config.js`: the
+`.claude/workflows/**/*.js` globals block (lines 30-52) and the
+`.claude/worktrees/**` ignore (line 26), each carrying the measurement that
+earned it. This is the ideal outcome for an audit finding — fixed *and* the
+reason written down where the next person will trip over it.
+
+### M2 — **P1: the in-commit doc tick has stopped happening entirely, and the board now hands out work that is already in the tree**
+
+CLAUDE.md's "Keep the docs in sync — NON-NEGOTIABLE" says: *"Every commit that
+lands a feature/fix MUST, in the same commit, update `docs/ROADMAP.md` and
+`docs/BACKLOG.md`."* Measured over all 27 commits in `55800db~1..HEAD`:
+
+```
+$ for c in $(git rev-list 55800db~1..HEAD); do ... git show --name-only ... done
+… R=0 B=0  feat(drawings): DXF-2b — export a flat pattern as a cut path…
+… R=0 B=0  fix(web): an armed dimension verb says so … (DIM-3)
+… R=0 B=0  fix(web): one Escape cascade … (ESC-2)
+… R=0 B=0  fix(web): VIEWCUBE-1 — the reference cube exists at laptop heights
+… R=0 B=0  feat(geometry): EXPORT-2 — 3MF and glTF/GLB export …
+… R=0 B=0  fix(web): REGISTER-2 …
+… R=0 B=0  fix(web): REGISTER-1 …
+… R=0 B=0  fix(web): EXPORT-1 …
+… R=1 B=1  groom(backlog): pass 7 …          ← the ONLY ROADMAP tick
+… R=0 B=1  groom(backlog): file A11Y-TOOLBTN-1
+… R=0 B=1  test(web): stop indexing constraint glyphs by position, and file …
+… R=0 B=1  feat(web): a rectangle you drew is a rectangle …
+… R=0 B=1  test(web): the over-constraint guard was decided by a race …
+```
+
+**1 of 27 commits touched `docs/ROADMAP.md`; 5 of 27 touched
+`docs/BACKLOG.md`; ZERO of the eleven feature/fix commits ticked either.**
+This is not a near-miss on a fussy rule — it has produced the exact failure the
+rule exists to prevent. Cross-checking every open `- [ ]` ticket against commit
+subjects in the same range:
+
+| Backlog line | Ticket, still `- [ ]` and P1-Ready | Shipped by |
+|---|---|---|
+| `docs/BACKLOG.md:107` | DIM-3 | `71b04ef` |
+| `docs/BACKLOG.md:132` | ESC-2 | `6fbeca0` |
+| `docs/BACKLOG.md:251` | EXPORT-1 | `3a7c4ca` |
+| `docs/BACKLOG.md:288` | REGISTER-1 | `044f1f7` |
+| `docs/BACKLOG.md:314` | REGISTER-2 | `e024daa` |
+| `docs/BACKLOG.md:341` | VIEWCUBE-1 | `c28fbbc` |
+| `docs/BACKLOG.md:364` | DXF-2a | `a915bf1` (subject names no id) |
+| `docs/BACKLOG.md:385` | DXF-2b | `5bfb528` |
+| `docs/BACKLOG.md:412` | DXF-3 | `fe72e4d` (subject names no id) |
+| `docs/BACKLOG.md:432` | EXPORT-2 | `1880db2` |
+
+**10 of the 56 open items (18 %) are already implemented.** Eight are found mechanically by matching the ticket id against a commit subject; the two DXF ones (`a915bf1` "the BEND layer is fold lines; the bend table gets its own" = DXF-2a, `fe72e4d` "a DXF's bytes ARE the code page its header declares" = DXF-3) name no id at all, so only reading the tree finds them — which is why the tick has to be a gate on the commit rather than a reconciliation done later from `git log`.
+
+The board is not
+merely stale — it is actively wrong in the direction that costs the most: the
+groomer's next pass reads these as Ready P1 work and the loop dispatches a
+builder to re-do a shipped feature. `docs/BACKLOG.md:75-99` even carries a
+carefully-reasoned *sequencing* plan ("EXPORT-1 first (adds the mount point)
+then EXPORT-2 (adds the formats)…", "REGISTER-1 and REGISTER-2 … sequence,
+don't parallelize") for work that landed four days ago.
+
+`docs/ROADMAP.md:5-49` is the same picture: its "Current focus" block, dated
+2026-08-17, still describes EXPORT-1, REGISTER-1/2, VIEWCUBE-1, DXF-2a/2b/3 and
+EXPORT-2 as the findings-turned-Ready-tickets to be worked. Every one of them
+is in `git log`. Four ticket IDs — DXF-2a, DXF-2b, ESC-2, DIM-3, REGISTER-1/2 —
+appear **zero** times in `docs/ROADMAP.md` at all, so the "source of truth for
+what phase are we in" has no record that they exist, let alone shipped.
+
+Why I rate this P1 rather than a docs nit: CLAUDE.md's Definition of Done makes
+the tick part of *done*, and this repo's own `docs/AUTONOMOUS-LOOP.md` is built
+on the board being the dispatch queue. An 18 %-wrong queue is a defect in the
+loop's input, not in its documentation.
+
+**Root cause is structural and worth naming for the groomer:** every one of
+these features was built in an isolated worktree (16 of them are still on disk,
+below). CLAUDE.md's whole staging protocol — `stage-doc-hunks.py`, hunk
+granularity, the sweep warnings — is written for the SHARED-tree case. In a
+worktree the agent is on its own branch, so a doc tick there is not shared with
+anybody and the elaborate protocol is unnecessary; what appears to have happened
+instead is that the tick got dropped along with the protocol. The fix is not
+more staging machinery, it is a **gate**: a commit whose diff touches
+`apps/`, `services/` or `packages/` and whose subject is `feat`/`fix` and which
+touches neither doc should fail a cheap `scripts/` check, the same shape as
+`check-mutation-markers.py`. That gate can be written to fail (run it against
+`5bfb528` and it must exit non-zero) — which is the RETRO §4 bar.
+
+### M3 — Security posture re-measured: unchanged and correct; the gate that would keep it that way is now on its FIFTH recommendation
+
+I re-ran the route sweep myself (script: this pass's scratch, `eng-routes2.py`
+/ `eng-routes3.py`; it recurses `_IncludedRouter.original_router` because
+FastAPI ≥0.139 does not flatten included routers into `app.routes`).
+
+| Service | API routes | Unauthenticated / unscoped | Verdict |
+|---|---|---|---|
+| gateway | **88** | 5 — `POST /api/v1/auth/login`, `POST /api/v1/auth/register`, `/healthz`, `/readyz`, `/metrics` | correct; +1 route since Pass 6 (`POST /api/v1/parts/{id}/flat-pattern.dxf`) and it is `CurrentUser`-typed and `COMPUTE_RATE_LIMIT`-ed (`services/gateway/src/gateway/features.py:482-492`) |
+| documents | **64** | 4 — `GET /api/v1/materials` (a catalogue, not tenant data) + the three probes | correct; 60/64 owner-scoped |
+| geometry | 28 | all 28 (stateless, identity-free by design; not published by compose) | correct |
+
+Two supporting checks, both clean:
+
+* **Tenancy on the new DXF route.** It takes `CurrentUser`, and both upstream
+  hops go through `forward_documents(http_request, user, …)`, so a part id
+  belonging to another owner 404s at documents rather than leaking a cut path.
+* **No `Content-Disposition` header injection**, which is the obvious risk in
+  `features.py:541` (`f'attachment; filename="{filename}"'` built from a
+  user-chosen part NAME). `flat_pattern_filename` → `document_slug`
+  (`packages/py-kit/src/py_kit/schemas/features.py:3688`) is
+  `re.sub(r"[^a-z0-9]+", "-", name.strip().lower()).strip("-")`, so the value
+  reaching the header is `[a-z0-9-]*` — CR/LF and `"` are unrepresentable. Also
+  a genuine DRY win: one slug rule shared by four filename builders.
+* **Still no SSRF surface.** The only outbound HTTP in `services/*/src` remains
+  the config-supplied upstreams; nothing takes a URL from a request body.
+
+**And I reproduced the exact defect the gate is supposed to prevent, by
+accident.** My first sweep walked `app.routes` naively and reported *"gateway:
+3 routes, 3 without a user-typed param"* — it had walked past all 85 product
+routes. That is verbatim the failure
+`packages/py-kit/src/py_kit/metrics.py:545-551` documents ("that version was
+written, and it passed its unit tests"). So the posture is correct, is trivially
+mis-measured, and **is asserted by no test in the repo**:
+
+```
+$ grep -rln "original_router|CurrentUser" services/*/tests packages/py-kit/tests scripts
+(no matches)
+```
+
+A route added tomorrow that forgets `CurrentUser` ships silently and green.
+This is the fourth consecutive pass to recommend the fix (J7 → K2 → L3 → M3);
+it remains the highest security coverage per line available in the repo.
+
+### M4 — **P1: 172 documents tests — 37 % of that service's suite, including the entire alembic migration chain — skip silently when PostgreSQL binaries are absent, and CI installs none**
+
+`services/documents/tests/conftest.py:173-193` skips the `pg_server` fixture
+when `initdb` cannot be found. Measured here, same command, same tree, one
+environment variable apart:
+
+```
+$ uv run pytest services/documents/tests/ -p no:cacheprovider --no-header
+468 passed in 110.05s                                            exit 0
+
+$ PG_BIN_DIR=/nonexistent uv run pytest services/documents/tests/ -p no:cacheprovider --no-header
+296 passed, 172 skipped in 64.93s                                exit 0
+```
+
+**172 tests vanish and the exit code does not change.** The dot-line even looks
+busy (`.s.s.s.s.s…`), so a human skimming the log sees a passing suite.
+
+`.github/workflows/ci.yml:81-107` — the `python` job — is
+`checkout → setup-uv → uv sync --locked → ruff → pyright → uv run pytest`. It
+installs no PostgreSQL, declares no `services:` container, and sets no
+`PG_BIN_DIR`. Whether those 172 tests run in CI therefore depends entirely on
+whether the `ubuntu-latest` image happens to ship server binaries under
+`/usr/lib/postgresql/*/bin` — an implicit dependency on a third party's image
+contents, with **no assertion either way** and a `success` conclusion in both
+cases. (It works here: this container has `/usr/lib/postgresql/16`, which is
+also why Pass 6's whole-suite reading was "3 566 passed, **1 skipped**" — the
+local number tells you nothing about the runner's.)
+
+I cannot settle it: reading a CI log is orchestrator-only. That is precisely
+the point. **Nobody in this project can currently say how many tests CI ran**,
+and the difference between the two possible answers is 172.
+
+This is RETRO §4's class exactly — not a gate that is wrong, a gate that can
+**stop existing** without anyone being told. It is worse than the enumerated-
+subset problem `e2e.yml:50-57` argues against, because the enumeration is
+somebody else's runner image. And the thing it covers is not marginal:
+`test_migrations.py` is the only check that the 16-migration alembic chain
+upgrades, downgrades and matches the models — the seam a `Base.metadata.
+create_all`-based suite is structurally blind to (Pass 5 K10 / Pass 6 L10 filed
+the gateway half of this as "no `alembic check` fast gate").
+
+Cheap fix, and it can be shown failing: make the skip conditional —
+`pytest.fail(...)` instead of `pytest.skip(...)` when `os.environ.get("CI")` is
+set (or a `LOFT_REQUIRE_PG=1` the CI job passes). Negative control: run the
+suite with `CI=1 PG_BIN_DIR=/nonexistent` and demand a red.
+
+### M5 — CI-4: the browser suite has grown another 6 % and the decision rule still has no reading
+
+```
+$ PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers pnpm exec playwright test --list
+Total: 547 tests in 115 files
+```
+
+Trend, all from this file's own record: **352** (when `e2e.yml`'s cost model was
+argued) → 467 (08-11) → 516 (08-16, Pass 6) → **547 (today)**. That is +55 %
+against the cost model, and the model's own conclusion — "past ~30 min per
+shard, raise the matrix to 6" — is still keyed to a blank:
+
+```
+.github/workflows/e2e.yml:88
+#   per-shard wall on a hosted runner: ____ min (fill in from `e2e complete`)
+```
+
+The instrument to fill it in (`e2e-shard-audit.py --timeline`, printed on every
+run including green ones) has existed for **ten days**. This is not a gap in
+engineering, it is a gap in *reading*, and it is orchestrator-only work
+(`api.github.com` is denied to me). Same recommendation as Pass 6 #3, one
+datapoint more urgent.
+
+Credit where due, since RETRO §4 names this file's own prior findings: the
+`--fail-on-flaky` guard that used to match its own prose is now genuinely
+hardened — `e2e.yml:396` assembles the literal from two pieces
+(`flag="--""fail-on-flaky"`), scopes the search to joined, comment-stripped
+lines that actually invoke the audit script, and uses ALL-semantics with an
+`n >= 1` vacuity floor (`e2e.yml:389-420`). I could not construct a mutation
+that passes it. Likewise `apps/web/src/test/tailwindUtilities.test.ts` — a
+`candidates.length > 100` vacuity guard AND a negative fixture that demands five
+out-of-scale utilities still be reported (`:116-128`). Those two are the
+standard the rest of the gates should be held to.
+
+### M6 — Loop health
+
+**The good news first, because Pass 6's #6 asked for exactly this reading.**
+The feat/fix ratio has turned around completely. Pass 6 measured four product
+features in sixty commits (6.7 %), three of the seven `feat`s being loop
+machinery. This batch:
+
+```
+$ git log --format='%s' 55800db~1..HEAD | cut -d: -f1 | sort | uniq -c | sort -rn
+      9 fix        6 feat        5 test        5 docs        2 groom
+```
+
+**15 of 27 commits (56 %) are product `feat`/`fix`**, and only ONE of the six
+`feat`s is loop machinery (`821f5b1`, the e2e load preflight). Five product
+capabilities shipped — MIRROR-1, RECT-1, SNAP-2/3, EXPORT-2, DXF-2b — plus nine
+defect fixes. The five `test(web)` commits are spec-hardening driven by RETRO
+§4d, i.e. the org fixing a defect class it had just measured. On the ratio the
+loop asked to be judged on, this batch is a clear pass and I want that on the
+record as loudly as Pass 6's criticism.
+
+Three things are wrong anyway:
+
+**(a) A 58-hour stall.** `git log` timestamps:
+
+```
+5bfb528  2026-08-18 13:33:41   feat(drawings): DXF-2b …          ← last CODE commit
+22a44bb  2026-08-20 23:54:07   docs(orchestrator): …             ← 58.3 h later
+6dfb597  2026-08-21 00:06:31   docs(vision): …
+```
+
+`uptime` at the start of this pass read **20 minutes**, so the container was
+reclaimed and the loop restarted by hand — RETRO §1.1's "the scheduler is
+session-only, and it has died SEVEN times", now eight. Nothing new to diagnose;
+what is new is that the gap is now the *dominant* term in throughput. This batch
+produced five features in ~26 wall-clock hours of activity spread over 4.5
+calendar days. RETRO §1.1 already names the fix (a durable server-side Routine,
+denied four times, needs one founder approval) and calls it "the single highest-
+value unblock available". It still is, and it is the only item in this audit the
+engineering org cannot fix for itself.
+
+**(b) 16 abandoned worktrees, 7.0 GB.** `git worktree list` shows sixteen
+`.claude/worktrees/agent-*` checkouts, the oldest dated 08-16, every one on a
+`worktree-agent-*` branch that has been merged (`git rev-list --count
+origin/<branch>..<worktree-branch>` = **0 for all sixteen** — so no work is
+stranded, which is the important half). `du -sh .claude/worktrees/` = **7.0 G**
+against **21 G** free. Nothing is broken today; a `git worktree prune` +
+`git branch -D` sweep at batch end belongs in the loop's Integrate phase, and
+the "is any worktree branch ahead of the remote?" check I ran above belongs
+there too — it is the audit CLAUDE.md's silent-worktree-push recipe asks for and
+it takes one line.
+
+**(c) `frontend-qa` is now wired, so Pass 6 #4 is closed.**
+`.claude/workflows/loft-dev-loop.js:624` dispatches
+`{ label: 'design:frontend-qa', phase: 'Verify', agentType: 'frontend-qa' }`.
+All fourteen agents now appear in the loop definition.
+
+### M7 — **P2: two of the five `scripts/` gates still have the `all([]) is True` self-test, and I reproduced both** (RETRO §4, direct hit)
+
+The brief asked me to look for more gates that cannot fail. Here are two, in the
+same directory as — and directly beside — the two that were already fixed.
+
+`scripts/e2e-shard-audit.py:309-314` and `scripts/stage-doc-hunks.py:544-551`
+each carry a count floor, with an identical comment:
+
+> *"A count floor exists because the verdict is `all(ok for ok, _ in checks)`
+> and `all([])` is `True`: a `checks.append` lost to a refactor removes
+> coverage silently and the self-test still prints 'the gate can fail'."*
+
+The other two sibling gates use the same verdict expression and have **no
+floor**:
+
+* `scripts/check-workflow-concurrency.py:481` — `if all(ok for _, ok in results)`,
+  and it does not even print how many cases ran.
+* `scripts/check-mutation-markers.py:1115` — same expression; it *prints*
+  `len(results)` ("23 cases") but does not gate on it, so the evidence is there
+  for a human who happens to read it and absent from the exit code.
+
+Reproduced, not inferred. Copies in this pass's scratch, one simulated
+refactor-loss each:
+
+```
+# check-workflow-concurrency.py with `cases = []` injected at the top of self_test:
+$ python3 eng-cwc.py --self-test
+check-workflow-concurrency: self-test passed — the gate can fail.
+EXIT=0
+
+# check-mutation-markers.py with every `results.append` unreachable:
+$ python3 eng-cmm.py --self-test
+EXIT=0
+
+# unmodified control, same command:
+$ python3 scripts/check-mutation-markers.py --self-test
+check-mutation-markers: self-test passed - 23 cases; …
+```
+
+Both are wired into `just lint`, so the failure would be *"the batch gate went
+green and told you the gate can fail"* — the exact sentence RETRO §4 exists to
+make impossible. Neither is broken today; the point is that the repair applied
+to two gates was not applied to their neighbours, which is the same
+one-directional-guard pattern RETRO §4/CLAUDE.md already names twice.
+
+Fix is four lines each (`EXPECTED_CHECKS` + `if len(results) < EXPECTED_CHECKS:
+return 1`), copy-paste from the two that have it. For the record, the other
+three are clean: `check-build-context.py:256-268` asserts two named booleans
+(`before == 1 and after == 0`) rather than folding a list, and
+`check-licences.py`'s `self_test` is straight-line with explicit early returns —
+neither can be emptied.
+
+### M8 — **P2: there is no dependency-vulnerability gate of any kind, and a 60-second local run finds 18 advisories**
+
+```
+$ ls .github/            ISSUE_TEMPLATE  PULL_REQUEST_TEMPLATE.md  workflows
+$ cat .github/dependabot.yml                                   → does not exist
+$ grep -rn "pip-audit|npm audit|pnpm audit|osv|trivy|codeql" .github/ justfile scripts/
+(no matches)
+```
+
+No Dependabot, no `pnpm audit`, no `pip-audit`, no CodeQL, no container scan.
+The licence gate (`scripts/check-licences.py`) is excellent and covers a
+*different* question — what a dependency is licensed as, not whether it is
+vulnerable. Lockfiles have not moved in **21 days** (`uv.lock` last touched
+`0ba93b3`, 2026-07-31; `pnpm-lock.yaml` `0d3ea59`, same day), so nothing has
+been re-resolved against newer advisories either.
+
+Measured now:
+
+```
+$ pnpm audit --audit-level=moderate
+18 vulnerabilities found      Severity: 5 moderate | 13 high
+
+high      brace-expansion  x6  .>eslint>minimatch>brace-expansion
+high      js-yaml          x2  .>openapi-typescript>@redocly/openapi-core>js-yaml
+high      nanoid           x2  apps__web>postcss>nanoid
+high      postcss          x1  apps__web>postcss
+high      undici           x1  apps__web>jsdom>undici
+moderate  postcss          x1  apps__web>postcss
+moderate  undici           x4  apps__web>jsdom>undici
+```
+
+**The severity is P2 and not P1 because I checked where each path lands.**
+`eslint`, `openapi-typescript`, `postcss`, `jsdom` are all in
+`devDependencies` (`apps/web/package.json`, `package.json` root); `apps/web`'s
+`dependencies` are the eleven runtime packages and none of them appears in any
+finding. So nothing here reaches the shipped SPA bundle or a service image
+today. Two of them still deserve a look rather than a shrug: `js-yaml` runs
+inside `just gen`, and `postcss`/`nanoid` run at build time — a compromised
+build tool is a supply-chain path even when it is not a runtime one.
+
+The finding is the **absent gate**, not the 18 findings. Recommend: a
+`dependabot.yml` (npm + pip + github-actions ecosystems, weekly) and a
+non-blocking `pnpm audit --audit-level=high` step in `ci.yml`, so this is
+discovered by the loop rather than by an auditor who happened to type the
+command. Note also there is no equivalent for the Python half at all — `uv` has
+no audit subcommand, so that needs `pip-audit` wired explicitly against
+`uv.lock`.
+
+#### M5 addendum — shard balance measured, and the runway to the decision point
+
+Playwright's filesystem shard split is still even by test count, which is the
+thing that matters for wall clock:
+
+```
+$ pnpm exec playwright test --list --shard=i/4
+shard 1/4: 137 tests in 37 files    shard 3/4: 137 tests in 22 files
+shard 2/4: 138 tests in 25 files    shard 4/4: 135 tests in 31 files
+```
+
+Extrapolating `e2e.yml`'s own measured 12.7 min / 86 tests to 137 gives
+**≈20 min per shard on this container**, against the file's "raise the matrix to
+6 past ~30 min" rule. So N=4 is still right today. But the suite grew from 352
+to 547 in twenty days (+55 %), and at that slope 30 min/shard arrives inside
+three weeks. That is a reason to fill in `e2e.yml:88` NOW, while the answer is
+comfortable, rather than during the batch where a shard first blows the ceiling
+and reports `cancelled` — the word this repo has already lost time to twice.
+
+### M9 — Two ownerless surfaces, and an agent brief that asks for something the config cannot do
+
+**(a) `docs/QA-REVIEW.md` has no owner and has not moved in 20 days.**
+Doc last-touched dates:
+
+```
+2026-07-31  ARCHITECTURE.md  FINDINGS.md  QUICKSTART.md  UX-FLOW-AUDIT.md
+2026-08-01  OBSERVABILITY.md  OPERATIONS.md  PERF.md  QA-REVIEW.md
+2026-08-16  GEOMETRY-QA.md
+2026-08-17  RESEARCH.md
+```
+
+CLAUDE.md assigns `geometry-qa` → `docs/GEOMETRY-QA.md` and `frontend-qa` →
+`docs/UI-REVIEW.md` (both current — 08-16 and 08-17). `qa-tester` is named with
+no output doc at all, and `docs/QA-REVIEW.md` is referenced by ROADMAP and
+BACKLOG but by no agent definition (`grep -rn QA-REVIEW .claude/agents/` → no
+matches). The loop dispatches `qa-tester` on every non-kernel item
+(`loft-dev-loop.js:511`), so it is running and its findings are going into
+return reports rather than into the repo — which is the exact problem
+`docs/RETRO.md`'s opening paragraph is about ("loop memory belongs in git").
+Either give `qa-tester` `docs/QA-REVIEW.md` explicitly in its agent definition,
+or delete the file so nothing cites a document nobody maintains.
+
+**(b) `docs/PERF.md` is 20 days old while the suites it sizes grew 55 %.** The
+`python` job's 30-minute ceiling is still argued in `ci.yml:83-89` from
+"~2 958 tests" and a 14m31s measurement; the browser suite's cost model is
+argued from 352 tests. Both numbers are now historical (see M5, and the
+`just test` reading in the gate table). Nothing is failing; the *arguments* the
+config rests on have expired.
+
+**(c) `qa-tester.md:16-19` instructs "run the Playwright suite in both
+projects" — there are no projects.** `apps/web/playwright.config.ts` still
+declares no `projects` array at all (`grep -n projects` → no match; the file has
+`workers: 1` and a single `use:` block). This is already filed as TOUCH-1, but
+the ticket treats it as a coverage gap; the sharper version is that **the agent
+brief asks for a step the configuration makes impossible**, so every QA run
+either silently does half of what it reports or burns time discovering this
+again. Whichever way TOUCH-1 goes, the agent definition has to stop claiming it.
+
+### M10 — Smaller items and carry-overs
+
+* **`ci.yml`'s 30-minute python ceiling is argued from numbers that have
+  expired.** `just test` at `6dfb597` here: **3 735 passed, 1 skipped,
+  5 deselected in 1 280.7 s (21m20s)** under load. The ceiling was raised to 30
+  when the suite was "~2 958 tests" and pytest measured 14m31s (`ci.yml:83-89`).
+  Naively scaling that measurement to 3 735 tests gives ≈18m20s, so the margin
+  is still real but has roughly halved, and the previous ceiling failed at
+  15m16s against 15. Worth a reading off a green run rather than a re-estimate —
+  same request as M5, same one API call. P3, but it is on the same clock.
+* **42 of 100 SHAs cited in ROADMAP + BACKLOG do not resolve to branch
+  history, and 23 of those do not exist in this repository at all** (`git
+  cat-file -e <sha>^{commit}` fails: `0ed9f74 137a929 1e3d422 245f4a9 …
+  e46db16`). The other 19 exist but are on `worktree-agent-*` branches, not
+  ancestors of HEAD. Up from 23 last pass. Evidence that cannot be looked up is
+  not evidence, and the "every number must be one somebody measured" rule in
+  RETRO §4 is undermined by citations nobody can check. P3, one grooming slice.
+* **`viewport-makeover.spec.ts:373`** — unchanged since Pass 5: still the one
+  surviving `waitForTimeout(1200)` followed by non-retrying numeric assertions
+  (`expect(Math.abs(after[0]-before[0])).toBeLessThan(1e-3)`). Suite-wide
+  `waitForTimeout` count is now **24** (was 22); the rest are settles before
+  retrying assertions. P3.
+* **`check-compose.py:156-161`** — dev-overlay half is still a hand-list beside
+  a half that sweeps every service. Fourth pass unchanged. P3.
+* **No `alembic check` fast gate for the gateway** (K10 → L10 → M10). The
+  gateway has 1 migration for 1 table and builds its test schema with
+  `Base.metadata.create_all`, so model↔migration drift surfaces only in
+  `deploy-path`. See M4 — the documents half has the gate and can silently
+  lose it. P3.
+* **QA7-1b is still exactly as filed.** `apps/web/e2e/qa-sel7-verify.spec.ts:947`
+  still binds via `/const (\w+) = page\.getByTestId\("eval-status"\)/g` and
+  `:954` still scopes to `'"eval-status"'`, so `page.locator("[data-testid=
+  eval-status]")` slips past, and the scanner still covers one file rather than
+  `apps/web/e2e/**`. Nothing is unguarded today. P3.
+* **Typing hygiene is exemplary and worth recording:** zero `as any`, zero
+  `@ts-ignore`/`@ts-expect-error`, zero `eslint-disable` across `apps/web/src`
+  and `packages/design/src`; pyright strict is 0/0 over 346 files; the only
+  literal hex colours in the web app are the black/white gradient stops in
+  `viewport/bluingWash.ts:57-62`, which are not palette values.
+* **Service boundaries are clean.** No OCP/build123d import outside
+  `services/geometry` except `services/gateway/tests/test_assembly_import_chain.py:56`
+  (a test fixture building a solid to feed the import chain — defensible, but it
+  is the one place the rule is bent and it should be a `pytest.importorskip` or
+  a committed fixture file rather than a live kernel import in gateway
+  territory). No SQLAlchemy/psycopg/alembic anywhere in `services/geometry/src`;
+  no kernel symbol in `services/documents/src`; no direct `fetch`/`axios` to a
+  non-gateway origin in `apps/web/src`. All `sa.text(...)` uses are
+  `server_default` / partial-index predicates inside declarative models — no
+  ad-hoc SQL.
+* **Licence audit: no-op this pass, correctly.** `git diff` over
+  `uv.lock`/`pnpm-lock.yaml`/all `pyproject.toml`/`package.json` across the
+  27-commit range is EMPTY — zero new dependencies. `python3
+  scripts/check-licences.py --profile source-env` → `check-licences: clean`
+  (8/8 GCC-runtime libraries identified, corresponding source recorded for
+  OCCT/planegcs/LibRaw). No GPL/AGPL exposure. See M8 for the security half
+  that this gate is *not* about.
+
+### Gate results, this pass, at `6dfb597`
+
+| Gate | Result |
+|---|---|
+| `just lint` | **GREEN (exit 0)** — ruff, ruff-format (346 files), pyright 0/0, eslint, prettier, `pnpm -r typecheck`, and all six standalone `scripts/` gates incl. three `--self-test`s. Pass 6's P0 is closed. |
+| `just test` | **GREEN (exit 0)** — python **3 735 passed / 1 skipped / 5 deselected in 1 280.7 s**; `packages/design` 101 tests / 16 files; `apps/web` 1 754 tests / 122 files. (Pass 6: 3 566 / 88 / 1 684.) |
+| `just gen-check` | **GREEN** — "contracts + ts-client match generated output". |
+| `check-licences --profile source-env` | **GREEN** — clean. |
+| Route-authorisation sweep (mine) | gateway 88/5 exempt, documents 64/4 exempt, geometry 28 identity-free — **correct, and asserted by nothing** (M3). |
+| `playwright test --list` | **547 tests / 115 files**, shards 137/138/137/135 (M5). |
+| Documents suite without PG binaries | **296 passed, 172 skipped, exit 0** (M4). |
+| `pnpm audit` | **18 advisories (13 high, 5 moderate)**, all in dev/build paths (M8). |
+| `just e2e` | **NOT RUN** — see the confidence ledger. |
+
+### Prioritized recommendations for the groomer
+
+| # | Sev | Item | Why now |
+|---|-----|------|---------|
+| 1 | **P1** | **M2 — reconcile the board against `git log`, then GATE the tick.** Close DIM-3, ESC-2, EXPORT-1, EXPORT-2, REGISTER-1, REGISTER-2, VIEWCUBE-1, DXF-2b (+ DXF-2a and the code-page item, which ship under subjects that do not name an id); update ROADMAP's "Current focus". Then add `scripts/check-doc-tick.py`: a `feat`/`fix` commit touching `apps/`, `services/` or `packages/` must touch `docs/ROADMAP.md` or `docs/BACKLOG.md`. Ship it with a `--self-test` that reproduces the failure against `5bfb528` and demands exit 1. | **10 of 56 open Ready items are already implemented.** The board is the loop's dispatch queue; an 18 %-wrong queue means the next groom pass hands a builder a shipped feature. 1 of 27 commits ticked ROADMAP, 5 of 27 ticked BACKLOG, and ZERO of the eleven feature/fix commits ticked either — this is not drift, it is a control that has stopped running. |
+| 2 | **P1** | **M4 — make the PostgreSQL skip loud in CI.** `pytest.fail` instead of `pytest.skip` in `services/documents/tests/conftest.py:173-193` when `CI`/`LOFT_REQUIRE_PG` is set, and add the install (or a `services: postgres` block) to `ci.yml`'s `python` job. | **172 tests — 37 % of the documents suite, including the entire 16-migration alembic chain — disappear with exit 0** when `initdb` is absent, and `ci.yml` installs no PostgreSQL. Nobody in this project can currently say how many tests CI ran; the difference between the two possible answers is 172. Measured both ways in this pass. |
+| 3 | **P2** | **M3 — the route-authorisation sweep gate.** Recurse `_IncludedRouter.original_router`; assert gateway's literal 5-route exempt list, documents' owner scoping on all but `GET /materials` + probes, and carry count floors (88/64/28 as `>=`). | **Fourth consecutive pass recommending it.** Posture is correct today (I re-measured) and asserted by nothing, so a route that forgets `CurrentUser` ships green. My own first attempt walked `app.routes` naively and reported 3 routes instead of 88 — the exact mis-measurement `py_kit/metrics.py:545` documents, which is the argument for a gate rather than an audit. |
+| 4 | **P2** | **M7 — add `EXPECTED_CHECKS` floors to `check-workflow-concurrency.py:481` and `check-mutation-markers.py:1115`.** Copy the four-line pattern already in `e2e-shard-audit.py:309` and `stage-doc-hunks.py:544`. | RETRO §4's named defect, still live in two of the five `scripts/` gates, both wired into `just lint`. **Reproduced in this pass**: both return exit 0 and print "self-test passed — the gate can fail" with every check removed. The fix was applied to two neighbours and not these; that is the one-directional-guard pattern RETRO §4 already names twice. |
+| 5 | **P2** | **M8 — a dependency-vulnerability gate.** `.github/dependabot.yml` (npm + pip + github-actions, weekly) and a `pnpm audit --audit-level=high` step in `ci.yml`; `pip-audit` against `uv.lock` for the Python half. | There is **no** vulnerability scanning of any kind, lockfiles have not moved in 21 days, and 60 seconds of `pnpm audit` finds 18 advisories (13 high). All are in `devDependencies` today, which is why this is P2 and not P1 — but "we happen to be lucky about the paths" is not a control, and the licence gate covers a different question entirely. |
+| 6 | **P2** | **M5 + M10 — read the CI numbers that three config decisions rest on** and write them into `e2e.yml:88` and `ci.yml:83`. Orchestrator-only work: `actions_list` → the latest green `e2e complete` job log for `--timeline`, and the `python` job's Pytest step duration. | The browser suite is **547 tests** (+55 % over the cost model) and the "raise the matrix to 6 past 30 min/shard" rule has had an instrument for **ten days and no reading**; extrapolation puts a shard at ~20 min and the slope reaches 30 in about three weeks. The python job's 30-min ceiling is argued from 2 958 tests and the suite is 3 735. Both are cheap to settle and expensive to discover as a `cancelled` run. |
+| 7 | **P2** | **M6(a) — RETRO §1.1's durable Routine.** Needs one founder approval; nothing else in this audit is blocked on a human. | The loop lost **58.3 hours** between `5bfb528` (08-18 13:33) and `22a44bb` (08-20 23:54), and the container was 20 minutes old when this pass began — reclamation, for the eighth time. The batch itself was excellent (**15 of 27 commits are product `feat`/`fix`, 56 %**, against 6.7 % last pass); the stall is now the dominant term in throughput, not the work rate. |
+| 8 | **P3** | **M9 — ownership hygiene.** Give `qa-tester` `docs/QA-REVIEW.md` in its agent definition (or delete the file); fix `qa-tester.md:16-19`, which instructs "run the Playwright suite in both projects" when `playwright.config.ts` declares none (TOUCH-1); refresh `docs/PERF.md`. | `QA-REVIEW.md` and `PERF.md` are both 20 days stale with no owner while the agent that would write them runs every batch. A brief that asks for an impossible step is a defect in the dispatch layer, which is the layer this repo just spent two audits repairing. |
+| 9 | **P3** | **M6(b) + M10 batch — housekeeping, one slice.** `git worktree prune` + `git branch -D worktree-agent-*` at batch end (16 worktrees, **7.0 GB** of 21 GB free; all sixteen verified 0 commits ahead, so nothing is stranded) and add the `rev-list --count origin/<branch>..<worktree-branch>` check to the Integrate phase; stop citing SHAs that do not exist (**23 of 100** board citations have no object in this repo); anchor `viewport-makeover.spec.ts:373` to render ticks; sweep the dev-overlay half of `check-compose.py:156-161`; `alembic check` for the gateway; widen QA7-1b's binding regex; move `services/gateway/tests/test_assembly_import_chain.py:56`'s live `build123d` import behind a fixture. | Each is small and none is urgent; together they are the unchanged remainder of three passes' P3 lists. The worktree sweep is the one with a clock on it (disk). |
+
+### Confidence ledger for this pass
+
+* **Ran myself, output captured in full:** `just lint` (exit 0), `just test`
+  (exit 0; 3 735 / 101 / 1 754), `just gen-check` (clean),
+  `scripts/check-licences.py --profile source-env` (clean), the three-service
+  route sweep (scripts in this pass's scratch, both the naive version that
+  mis-measured and the corrected recursive one), `pytest
+  services/documents/tests/` with and without `PG_BIN_DIR=/nonexistent`
+  (468 vs 296+172), `pnpm audit` (+ `--json` path attribution),
+  `playwright test --list` whole-suite and per-shard, the per-commit
+  ROADMAP/BACKLOG tick census, the open-ticket-vs-commit-subject cross-check,
+  the board-SHA object resolver, `git worktree list` + per-branch
+  `rev-list --count`, and the two self-test vacuity reproductions (M7) on
+  scratch copies.
+* **M2, M4 and M7 are not arguable** — each is a command with two outputs
+  differing only in the one variable named, run on committed bytes.
+* **NOT verified by me: the browser suite. I did not run `just e2e`.** Another
+  agent was booting a three-service stack from the shared scratchpad for the
+  duration of this pass (`ps` at pass start; load average 2.15-2.40 on four
+  cores throughout), and CLAUDE.md's own rule is that a red e2e under CPU
+  contention is UNCONFIRMED — plus booting a second stack risks its SQLite
+  files (the measured 2026-08-02 cross-agent unlink). Every e2e claim in M5 and
+  M9 is from `--list`, from reading the specs, and from reading `e2e.yml`, not
+  from executing the suite.
+* **I cannot read CI** (subagent; `api.github.com` is policy-denied).
+  Recommendations #2 and #6 both terminate in a CI read that only the
+  orchestrator can perform, and M4's central question — how many tests CI
+  actually ran — is unanswerable from inside this session by construction.
+* **Not covered this pass:** the compose/`deploy-path` runtime (registry
+  blocked); geometry goldens beyond their inclusion in `just test` (51 in
+  `goldens/`, 21 in `goldens-sheet-metal/`, plus `goldens-assembly/`);
+  performance benchmarking (`just bench` is opt-in and I did not run it);
+  `docs/PERF.md` content review beyond its staleness date.
