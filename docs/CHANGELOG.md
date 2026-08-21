@@ -441,3 +441,14 @@ STEP hardening + WB-64/TB-1 dogfooding)
   discovery pass + a code-inspection finding (Fillet/Chamfer buttons wired
   but never connected — `PartPage` never passes `onFillet`/`onChamfer`).
   [backlog-groomer]
+- **2026-08-21 — Groom pass 8 (backlog-groomer):** reconciled 10 shipped-
+  but-unticked tickets (pass 7's export cluster, `docs/AUDIT-ENGINEERING.md`
+  Pass 7 M2 found 0/27 commits ticked ROADMAP/BACKLOG) into Done; filed
+  DOCTICK-GATE to close the hole. New P0 cluster from the fresh "rotational
+  part" audit — SOLVE-1 (silently wrong geometry on a conflicting dimension
+  edit) + PICK-2 (inert repair button) — outranks the standing FB-21/FB-9
+  frame-convention P0s. 6 new engineering tickets from the same audit round
+  (DOCTICK-GATE, PGTEST-GATE, K2 bumped P1, GATE-FLOOR, DEP-AUDIT, plus 2 P3
+  housekeeping items). Top 3 dispatched: SOLVE-1 (kernel-architect), PICK-2
+  (frontend-builder), DOCTICK-GATE (platform-builder). Batch kind split:
+  2 defect / 1 capability.

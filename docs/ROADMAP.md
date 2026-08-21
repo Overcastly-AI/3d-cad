@@ -40,6 +40,47 @@ platform-builder, all disjoint from the frontend/kernel work above. Full
 detail in `docs/AUDIT-PRODUCT.md` "Pass 2026-08-21" and
 `docs/AUDIT-ENGINEERING.md` "Pass 7", both cited per-ticket in BACKLOG.
 
+**Groom pass 9 (2026-08-21, backlog-groomer) — SOLVE-1 and PICK-2 RE-SCOPED
+before dispatch, and a second uncommitted audit doubles the P0 cluster.**
+Two more audit passes were written and never committed (containers
+reclaimed mid-write, same shape as `dab2b3e`) — recovered and preserved
+this pass (`3c82384`). `docs/AUDIT-ENGINEERING.md` "Pass 8" traced SOLVE-1
+and PICK-2 to source and found BOTH tickets' stated mechanisms wrong:
+SOLVE-1's "conflict detection unreached on a value edit" does not exist
+(the solver is stateless/whole-definition and conflicts ARE diagnosed and
+refused in four measured configurations) — the real, reproduced defect is
+that an UNDER-CONSTRAINED solve is not idempotent (10→14→10 does not
+return, 0.045 mm drift, because planegcs's DogLeg starts from current
+positions, not the constraint set). PICK-2's raycast-fallback hypothesis
+is replaced by the actual cause: six pick-overlay queries are gated on
+`meshGlbId !== null`, so the picking surface is EMPTY when the tip has no
+body, not merely missed by a bad raycast — a cheaper, more certain fix.
+`docs/AUDIT-PRODUCT.md`'s "second pass today" (a sheet-metal fabrication
+handoff — bracket → flat pattern → assembly → print, deliberately
+different job from the rotational-part pass) found FIVE fresh P0s: a
+flat-pattern DXF/on-screen view that drops every through-feature (**DXF-4**
+— send a bracket with 4 holes to `export-flat-dxf` and get zero CIRCLEs
+back), a DXF `$INSUNITS` header declaring METRES not millimetres (**DXF-5**,
+1000x error, and the source's OWN comment states the wrong code), an edge
+flange buildable off a sheet's own 2 mm thickness edge reporting OK
+(**EDGEFLANGE-1**), a mate-target face structurally unreachable at ANY
+camera angle — 11 orbits, 10 zooms, always the wrong marker on top
+(**MATE-1**) — and a feature reference that survives the first edit after
+a clean rebuild and breaks on the second, because nothing re-stamps it
+after a successful match (**NAME-2**, the sharpest characterisation yet of
+the persistent-naming class M17/PICK-2 also sit in — the drawings module
+already solves this exact problem and re-anchors correctly; the feature
+resolver does not). **Top 3 dispatched this batch, fully disjoint:**
+SOLVE-1 (kernel-architect, `sketch/**`), PICK-2 (frontend-builder,
+`PartPage.tsx` + `FacePickOverlay.tsx`), DXF-4 (kernel-architect,
+`sheet_metal/**` + `drawings/flat_pattern.py`). DXF-5/EDGEFLANGE-1/NAME-2/
+MATE-1/DOCTICK-GATE queue immediately behind. Engineering Pass 8 also
+flagged **78 hours / 6 commits since the last line of product code** — the
+direction layer has been producing while the build layer sat idle; this
+dispatch is the direct answer to that, not a coincidence. Full detail
+per-ticket in `docs/BACKLOG.md`; sources `docs/AUDIT-PRODUCT.md` "Pass
+2026-08-21 (second pass today)" and `docs/AUDIT-ENGINEERING.md` "Pass 8".
+
 **QA7-1 CLOSED (`db144d7`, reviewed non-blocking `07c4005`) — the SEL-7
 Create-costs-nothing e2e wait wasn't waiting.** `expect.poll(...).not.toBe(
 "Evaluating")` was satisfied by its first sample ("Evaluating" occurs nowhere
