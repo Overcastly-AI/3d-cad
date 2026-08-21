@@ -5,6 +5,21 @@ section each grooming pass (one-line-per-entry there; detail preserved
 here). Newest first. Evidence for shipped items also lives in the Done
 archive (`BACKLOG.md`) and per-item commits.
 
+## 2026-08-17 (groom pass 7 — RECT-1/SNAP-2/SNAP-3/MIRROR-1 shipped; founder's file-page/export directive turned into 9 Ready tickets)
+
+- **Groom pass 7 (backlog-groomer):** archived RECT-1/SNAP-2/SNAP-3/MIRROR-1
+  shipped (all four `docs/AUDIT-PRODUCT.md`/`UI-REVIEW.md` 2026-08-17
+  founder-directed audits — "the file page looks like an afterthought,"
+  "export shouldn't live with mass properties") turned into 9 Ready tickets
+  (EXPORT-1, REGISTER-1/2, VIEWCUBE-1, DXF-2a/2b/3, EXPORT-2, VISION-FIX-1)
+  + 3 Next tickets (IMPORT-HEAL-1/2, EXPORT-ERR); ROADMAP "Current focus"
+  corrected. 7 defect / 2 capability in the new Ready batch, kind-tagged
+  per this pass's mandate. All 9 Ready tickets shipped by 2026-08-18 (see
+  groom pass 8's Done archive entry, `docs/BACKLOG.md`) — but ZERO of the
+  11 feature/fix commits that shipped them ticked ROADMAP/BACKLOG
+  (`docs/AUDIT-ENGINEERING.md` Pass 7 M2), so pass 8 spent its first cycle
+  on pure reconciliation before any new dispatch.
+
 ## 2026-08-16 (groom pass 6 — PICK-1/GEOM-3 shipped; vision-steward's competitive pass turned into build-ready tickets)
 
 - **Groom pass 6 (backlog-groomer):** archived PICK-1 (`2b266b1`) + GEOM-3

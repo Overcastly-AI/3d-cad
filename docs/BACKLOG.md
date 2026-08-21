@@ -15,144 +15,172 @@ See VISION.md's table for current row text — the vision-steward re-scores it
 independently each pass; this note only points the queue at it, no
 duplication.
 
-- **Groom pass 7 (2026-08-17, this pass) — the sketch-draw-correctness
-  cluster is fully SHIPPED; Sketching & constraints stays flagged for the
-  vision-steward to re-score, not re-flipped here (I don't own VISION.md).**
-  RECT-1 (`6d0f456`), SNAP-2 + SNAP-3 (`c233a5b`), MIRROR-1 (`a0cc3f7`) all
-  landed 2026-08-17 — see Done archive. One real defect the SNAP-3
-  integration surfaced (explicit Fix on an already-snap-grounded point
-  double-pins it) filed as **SNAP-4** (P2, Next).
-- **File page / export — the founder's 2026-08-17 directive, now the
-  dominant thread.** Two independent audits (`docs/AUDIT-PRODUCT.md` "Pass
-  2026-08-17", `docs/UI-REVIEW.md` "2026-08-17 FOUNDER-DIRECTED AUDIT")
-  confirmed both complaints with measurement. This doesn't flip a scorecard
-  row on its own (Interop stays ➖, Sheet metal stays ➖) but it is squarely
-  inside CLAUDE.md's "flow" mandate (export is the terminal action of every
-  workspace and is currently 53 Tab-presses deep) and inside the audited
-  scope of both ➖ rows below. New Ready tickets: EXPORT-1 (export IA),
-  REGISTER-1/2 (parts register), VIEWCUBE-1 (viewport nav), DXF-2a/2b/3
-  (flat-pattern DXF fidelity — the scale defect itself is a kernel-architect
-  fix already IN FLIGHT, not re-filed here), EXPORT-2 (3MF+glTF, near-zero
-  cost). IMPORT-HEAL-1/2 (STEP import healing) filed to Next — audit ranks
-  it P2 on cost despite being the more *severe* gap (no recovery path from
-  `import_no_solid`); this is the volume-vs-severity tension the audit asks
-  to be preserved, not a disagreement I'm resolving by fiat.
-- **✅ rows, still qualified:** Part modeling is creation- and edit-capable
-  (PICK-1 closed the non-tip-edit 422; GEOM-3 closed GEOM-2's vented-plate
-  gap, with GQA-1's narrower rotation-invariance residual filed P2, not
-  blocking). None of DIM-1/SKETCH-1/VP-1/VP-1a/SKETCH-2/PICK-1/GEOM-3-fix/
-  RECT-1/SNAP-2/SNAP-3/MIRROR-1 have an independent `code-reviewer` pass —
-  process debt, flagged again.
+- **Groom pass 8 (2026-08-21, this pass) — the file-page/export cluster
+  (pass 7's Ready batch: EXPORT-1/2, REGISTER-1/2, VIEWCUBE-1, DXF-2a/2b/3,
+  DIM-3, ESC-2) is fully SHIPPED — see Done archive.** VISION-FIX-1 (Interop
+  retitle) closed by the vision-steward `6dfb597`; Sketching & constraints
+  flipped back ➖→✅ same commit (RECT-1/SNAP-2/SNAP-3/MIRROR-1 all
+  verified against current source, not commit subjects).
+- **`Part modeling (features, history)` — the vision-steward's own ✅ is
+  contradicted by the auditor two commits later; not re-flipped here (I
+  don't own VISION.md), flagged loud.** `docs/AUDIT-PRODUCT.md`'s fresh
+  "rotational part" pass (2026-08-21) found the canonical parametric-edit
+  demo — change a dimension, rebuild — produces WRONG geometry, an orphaned
+  hole, a cascade of skipped features, blocked export, and an inert repair
+  button (SOLVE-1/PICK-2/EXPORT-3 below). This is the most severe finding in
+  the project's audit history: silently wrong geometry with a status line
+  that denies it, on the ordinary parametric-edit path, not an edge case.
+  **This outranks everything else on the board — P0, above the frame-
+  convention P0s (FB-21/FB-9) which are real but do not corrupt geometry.**
+- **✅ rows, still qualified:** process debt unchanged — none of DIM-1/
+  SKETCH-1/VP-1/VP-1a/SKETCH-2/PICK-1/GEOM-3-fix/RECT-1/SNAP-2/SNAP-3/
+  MIRROR-1/EXPORT-1/REGISTER-1/REGISTER-2/VIEWCUBE-1/DXF-2a/2b/3/EXPORT-2
+  have an independent `code-reviewer` pass.
 - **➖ rows (usable, short of incumbent parity):** Assemblies (export +
-  interference shipped; import, exploded views, recursive BOM, part-version
-  pinning still missing). Interop (part STEP round-trips to 1e-9; export is
-  STEP+STL only against Fusion's eleven formats — see EXPORT-2/DXF tickets;
-  import healing is the severity gap — IMPORT-HEAL). Drawings (auto
-  re-projection + associativity good; printed-sheet title/dimension-overlap/
-  title-block fields still missing — M13). Sheet metal (bend chains/hems/
-  edge-flange shipped; flat-pattern DXF has a P0 scale defect in flight plus
-  the DXF-2a/2b/3 fidelity gaps below; teardrop hems, miters, tabs, gauge
-  tables still missing).
-- **❌ rows:** Performance (fixes shipped, no standing benchmark GATE yet).
-  Collaboration & versioning and Extensibility/scripting+MCP untouched
-  (Phase 3 / Phase 5).
-- **Stale rows flagged for the vision-steward, not edited here:**
-  `docs/COMPETITIVE.md:64` marks STEP/STL export ✅ against Fusion's eleven
-  formats; `docs/VISION.md:74`'s Interop row title names IGES (audit rank
-  #9) as a pillar while omitting DXF/3MF/glTF, and its Notes claim assembly
-  product-structure import is unread when it ships (`geometry.assembly.
-  import_step`, `SetNameMode(True)`). Ticket VISION-FIX-1 below.
+  interference shipped; import, exploded views, recursive BOM missing).
+  Interop (4 export formats now — STEP/STL/3MF/GLB; import healing is the
+  severity gap, IMPORT-HEAL-1, promoted to Ready this pass). Drawings
+  (title-block fields still missing — M13). Sheet metal (all four flat-
+  pattern DXF fidelity defects closed this batch; teardrop hems, miters,
+  tabs, gauge tables still missing).
+- **❌ rows:** Performance (R-13 this pass gave VISION.md its first real
+  end-to-end numbers — flagged for the vision-steward, not re-scored here).
+  Collaboration & versioning and Extensibility/scripting+MCP untouched.
+- **Engineering audit pass 7 (2026-08-21):** found the board itself was
+  18% wrong (10 shipped tickets still marked Ready) because zero of 27
+  commits in the range ticked ROADMAP/BACKLOG — this groom pass is that
+  reconciliation. Filed a gate so it can't recur silently
+  (**DOCTICK-GATE**), plus PGTEST-GATE (172 tests silently skip in CI), K2
+  bumped to P1 (route-authz gate, 4th consecutive pass recommending it),
+  GATE-FLOOR, DEP-AUDIT — all in Ready/Next, all platform-builder.
 
 ## Ready (top of queue)
 
-**Dispatch order, groom pass 7 (2026-08-17).** The sketch-draw-correctness
-cluster (RECT-1/SNAP-2/SNAP-3/MIRROR-1) is fully shipped — see Done archive.
-Focus moves to the founder's file-page/export directive. **Two independent
-territory clusters, safe to run fully in parallel with each other; do not
-mix agents WITHIN a cluster on the same file.**
+**Dispatch order, groom pass 8 (2026-08-21).** Pass 7's file-page/export
+cluster (EXPORT-1/2, REGISTER-1/2, VIEWCUBE-1, DXF-2a/2b/3, DIM-3, ESC-2) is
+fully SHIPPED — see Done archive. Focus moves to the freshest, most severe
+finding in the project's audit history (`docs/AUDIT-PRODUCT.md` "Pass
+2026-08-21"): a conflicting dimension edit silently corrupts geometry. **Top
+3 disjoint items for immediate parallel dispatch, one per worktree:**
 
-**Cluster A — frontend IA/UX (apps/web), 4 file-page/export items across 5
-files:** EXPORT-1 (`CreateStrip.tsx` + `AssemblyCommandBand.tsx`),
-REGISTER-1 and REGISTER-2 (both `DocumentRegister.tsx`/
-`DocumentRegisterRow.tsx` — same files, sequence these two or give them the
-same agent), VIEWCUBE-1 (`Viewport.tsx`, unrelated to the other three).
-DIM-3/ESC-2 (carried over from pass 5/6, both `sketch/store.ts`, different
-functions — mergeable, ESC-2 first) are a separate pair, unrelated to all
-of the above (sketch editor, not file page/export) and can run in parallel
-with any of them.
+1. **SOLVE-1** (P0, kernel-architect, `services/geometry/src/geometry/
+   sketch/**`) — wrong geometry, the board's #1 priority.
+2. **PICK-2** (P0, frontend-builder, `apps/web/src/viewport/**` +
+   `apps/web/src/routes/PartPage.tsx`) — inert repair button on the same
+   audit cluster. **FB-21/FB-9 (below) share this territory — sequence
+   after PICK-2, do not parallelize with it.**
+3. **DOCTICK-GATE** (P1, platform-builder, `scripts/`, `.github/workflows/
+   ci.yml`) — closes the exact hole that let pass 7's 10-item staleness
+   happen; fully disjoint from the two above.
 
-**Cluster B — drawing-export kernel (services/geometry/src/geometry/
-drawings/compose.py), 3 items, ONE file:** DXF-2a, DXF-2b, DXF-3 all edit
-`compose.py`'s `serialize_dxf`/flat-pattern emission path. **Do not dispatch
-these three to different agents in parallel — same agent in sequence, or
-strict hand-off with integration between each.** This is also the file the
-kernel-architect's in-flight flat-pattern-scale fix touches — confirm that
-fix has landed and is integrated before starting DXF-2a/2b/3, or take all
-four in one sitting with the scale fix first.
+Everything else below is reprioritized but not yet dispatched this batch.
 
-**Cluster C — export format enum (cross-service), 1 item:** EXPORT-2 adds
-`3mf`+`glb` to `ExportFormat` (`packages/py-kit/src/py_kit/schemas/
-geometry.py`) plus the geometry-service writers and `ExportRow.tsx`'s
-`FORMATS` array. Touches `ExportRow.tsx`, which EXPORT-1 does NOT touch (it
-adds a *new* ToolGroup that renders `ExportRow`, doesn't edit it) — safe in
-parallel with Cluster A, but if both land the same session, integrate
-EXPORT-1 first (adds the mount point) then EXPORT-2 (adds the formats
-inside it) to avoid a merge on `ExportRow.tsx`'s prop list.
+- [ ] (P0, M) **SOLVE-1 — a dimension edit that conflicts with existing
+      constraints is silently absorbed into a least-squares compromise; the
+      solve reports `UNDER-CONSTRAINED` while a displayed driving dimension
+      is violated by 1-3 mm, and retyping the original value does NOT
+      restore the original geometry.** kind: defect (wrong geometry, P0 by
+      CLAUDE.md's standing rule). MEASURED (`docs/AUDIT-PRODUCT.md` R-5/
+      R-5b/R-5c, 2026-08-21 pass, a revolved flanged-coupling sketch with six
+      consistent driving dims 27/8/21/22/6/30): editing `8`->`12` (which
+      cannot coexist with the `30` spanning it: 12+22=34≠30) is accepted;
+      the sketch reports `DOF 7 · UNDER-CONSTRAINED`; the resulting solid is
+      70x70x**33.08** mm (should be bounded by the displayed dims) and has
+      slid **3.08 mm below its own origin plane** — with NO conflict dialog,
+      no red dimension, no change to the status line. Typing `8` back does
+      NOT restore 70x70x30: it comes back 69.81x69.81x**32.16**, because 7
+      DOF of slack absorbed the edit into the *geometry*, not just the
+      display. A second instance (R-5c) moved the wrong dimension entirely —
+      editing the flange's bottom edge silently changed the shaft BORE by
+      2.24 mm instead. VISION.md's Sketching row (flipped ➖→✅ same-day,
+      `6dfb597`) explicitly claims a typed `SketchConstraintDiagnosis`
+      (`sketch_conflicting`, offending ids, `suggested_fix`) for exactly
+      this case — it did not fire; the audit's read is that the diagnosis is
+      reachable only when a NEW constraint is added, not when an EXISTING
+      dimension's VALUE is edited, which is the commoner path. FIX (two
+      parts, both needed): (1) route a dimension-VALUE edit through the same
+      conflict-detection path new-constraint authoring uses, so an edit that
+      cannot be satisfied is REFUSED with the typed diagnosis naming the
+      conflicting dimensions, not silently applied; (2) never let a solve
+      return geometry whose residual on any DRIVING dimension exceeds
+      tolerance — fail the solve and say which dimension could not be met,
+      rather than accepting a least-squares compromise as if it were exact.
+      ACCEPTANCE: reproduce R-5 on a fixture with the audit's six dims;
+      after the fix, editing `8`->`12` is REFUSED (or produces a typed
+      conflict naming `8`/`22`/`30`), the geometry is unchanged from before
+      the attempted edit, and the status line does not claim
+      UNDER-CONSTRAINED for a rejected edit; a genuinely under-constrained
+      edit (add DOF, don't conflict) still succeeds — negative control.
+      Golden/e2e asserting the bounding box does NOT silently drift on a
+      conflicting edit.
+      [src: docs/AUDIT-PRODUCT.md "Pass 2026-08-21" R-5/R-5b/R-5c, filed by
+      backlog-groomer pass 8]
+      TERRITORY: `services/geometry/src/geometry/sketch/**` (constraint
+      solve + diagnosis path), `apps/web/src/sketch/store.ts` (surfacing the
+      refusal). agentType: kernel-architect (backend first; small frontend
+      follow-up to surface the refusal if the typed diagnosis isn't already
+      wired end-to-end — check `sketch_conflicting`'s frontend consumer
+      before assuming it needs new UI).
 
-**FB-21/FB-9** (frame-convention, `apps/web/src/viewport/**` /
-`sketch/plane.ts`) remain independent of everything above and of each
-other's cluster, but collide with each other (same suspected root cause) —
-sequence, don't parallelize.
+- [ ] (P0, S) **PICK-2 — the "Re-pick face" repair button is inert when the
+      TIP feature failed to build: five clicks in two views never replace
+      the stored face, so a broken parametric model has no recovery except
+      Undo.** kind: defect. MEASURED (`docs/AUDIT-PRODUCT.md` R-10,
+      2026-08-21 pass): SOLVE-1's edit above orphaned `Hole1`
+      (`SUBSHAPE_UNRESOLVED`), which skipped `Pattern1`/`Fillet1`. The failed
+      `Hole1`'s `Re-pick face` button opens EDIT HOLE badged `PICKING`;
+      clicking the target face at 5 distinct points across 2 camera angles
+      leaves the panel reading the SAME stale `Face at 0, 0, 8 mm` every
+      time, and `Save` reproduces the identical `SUBSHAPE_UNRESOLVED`. Likely
+      same root cause as M16/PICK-1 (`2b266b1`, shipped): the pick raycast
+      resolves against the TIP feature's body, and here the tip (`Fillet1`)
+      was SKIPPED, so there is no tip body to raycast against and every
+      click resolves to nothing — PICK-1 fixed pick STAMPING for a healthy
+      tip, not raycast TARGET SELECTION when the tip has no body at all.
+      FIX: when the tip has no built body (a skipped/failed downstream
+      feature), the re-pick raycast must fall back to the LAST successfully-
+      built body in the tree, not the (absent) tip. ACCEPTANCE: reproduce
+      R-10 (or a smaller fixture: a hole whose face-generating sketch
+      dimension changes, breaking `Hole1`, with at least one feature after it
+      skipped) — clicking the correct face in `Re-pick face` mode NOW
+      updates the stored face reference and `Save` rebuilds successfully;
+      existing `repick-face.spec.ts` (healthy-tip case) stays green —
+      regression guard. Mutation check: reverting the fallback reddens only
+      the new skipped-tip case.
+      [src: docs/AUDIT-PRODUCT.md "Pass 2026-08-21" R-10, filed by
+      backlog-groomer pass 8]
+      TERRITORY: `apps/web/src/viewport/**` (face-pick raycast target
+      resolution), `apps/web/src/routes/PartPage.tsx` (re-pick invocation).
+      Investigate first — exact call site TBD; likely the same raycast
+      surface PICK-1/SEL-1 touched. **Same territory as FB-21/FB-9 below —
+      land this first, then FB-21/FB-9.** agentType: frontend-builder.
 
-- [ ] (P1, S) **DIM-3 — the Dimension verb's ARMED state (c449235) is
-      invisible, and a wrong-kind pick prints the exact sentence the arm-fix
-      exists to eliminate** (`apps/web/src/sketch/store.ts`). kind: defect.
-      Two related defects found reviewing c449235. (a) armed state is surfaced ONLY
-      through `hint`, and two ordinary actions null the hint while leaving the
-      verb armed — `selectConstraint` (`store.ts:1305`) and `togglePick`
-      (`store.ts:909`) — so the next canvas click can open a dimension editor
-      with no visible cause. (b) a wrong-kind pick while armed (e.g. a circle
-      under Distance) prints `"Select one line to dimension."` (`store.ts:
-      890-895`) — the exact pre-fix refusal sentence, and FALSE while armed
-      (the user clicked, they did not select — "select" describes the OLD
-      selection-first flow); the committed test enshrines this wrong string.
-      FIX: (a) an armed-state affordance that survives `selectConstraint`/
-      `togglePick` (don't null `hint` while `dimensionPick` is set, or add a
-      dedicated indicator); (b) a wrong-kind message that doesn't reuse the
-      refusal sentence, e.g. names the picked kind. ACCEPTANCE: (1) arm
-      Dimension, call `selectConstraint`/`togglePick`, confirm the armed
-      affordance still shows before the next click; (2) wrong-kind pick while
-      armed shows a message that is not "Select one line to dimension." and
-      stays armed; new/updated `store.test.ts` cases for both. Mutation check:
-      reverting either half reddens its own assertion only.
-      [src: code review of c449235, orchestrator dispatch 2026-08-14]
-      TERRITORY: `apps/web/src/sketch/store.ts`,
-      `apps/web/src/sketch/store.test.ts`. agentType: frontend-builder.
-
-- [ ] (P1, S) **ESC-2 — two implementations of the Escape cascade disagree
-      about SAVE vs DISCARD for the same rung, kept apart only by an omitted
-      default argument — a latent FB-13 landmine.** kind: defect.
-      `PartPage.tsx:1046` re-derives the cascade with its own `escapeAction(...)` call, mapping
-      `"exit"` to `finishSketch()` (SAVES); `store.ts:1467` maps the SAME verb
-      to `freshSession()` (DISCARDS). They cannot disagree TODAY only because
-      `PartPage.tsx` omits `escapeAction`'s 5th argument, so `unstarted`
-      defaults false and `"exit"` is unreachable there — `finishSketch()` at
-      that call site is dead code. This is exactly the "a key that sometimes
-      saves and sometimes discards" defect CLAUDE.md's flow mandate names
-      (FB-13's class), lying dormant: any future change that makes `unstarted`
-      reachable from `PartPage.tsx` reintroduces FB-13 silently, because the
-      two cascades are two separate implementations. FIX (DRY — CLAUDE.md
-      non-negotiable): ONE cascade, owned by `sketch/store.ts` (already
-      exercised by tests); `PartPage.tsx` calls it instead of re-deriving
-      `escapeAction`. ACCEPTANCE: `PartPage.tsx`'s escape handling calls the
-      SAME function `store.ts` uses; a new test exercises the `"exit"` rung
-      reachable from `PartPage.tsx`'s entry point (armed pick, empty/unstarted
-      sketch) and asserts it DISCARDS, matching `store.ts`'s existing
-      semantics. Mutation check: reintroducing a second independent mapping
-      reddens the new test.
-      [src: code review of c449235, orchestrator dispatch 2026-08-14]
-      TERRITORY: `apps/web/src/routes/PartPage.tsx`,
-      `apps/web/src/sketch/store.ts`. agentType: frontend-builder.
+- [ ] (P1, S) **DOCTICK-GATE — no gate enforces CLAUDE.md's "every feat/fix
+      commit ticks ROADMAP/BACKLOG in the same commit," and it silently
+      stopped happening for an entire batch.** kind: capability (the loop
+      cannot currently verify doc-sync at all). MEASURED
+      (`docs/AUDIT-ENGINEERING.md` "Pass 7" M2): over 27 commits, 1 touched
+      `docs/ROADMAP.md`, 5 touched `docs/BACKLOG.md`, and **ZERO of the 11
+      feature/fix commits touched either** — the exact batch this groom pass
+      is reconciling (EXPORT-1/2, REGISTER-1/2, VIEWCUBE-1, DXF-2a/2b/3,
+      DIM-3, ESC-2 all shipped with no tick). Root cause per the audit: every
+      one of those commits landed from an isolated worktree, where the
+      shared-tree staging protocol doesn't apply and the tick got dropped
+      along with it. FIX: `scripts/check-doc-tick.py` — a commit whose diff
+      touches `apps/`, `services/`, or `packages/` and whose subject is
+      `feat`/`fix` must also touch `docs/ROADMAP.md` or `docs/BACKLOG.md`;
+      wire into `just lint` (local, informational — a single commit can't be
+      checked against a range locally) and as a CI job step over the pushed
+      commit range. ACCEPTANCE: `--self-test` reproduces the failure against
+      a fixture shaped like `5bfb528` (app-code diff, no doc diff, `feat:`
+      subject) and demands the gate exits 1; a fixture with a doc-touching
+      commit passes; the two `check-mutation-markers.py`/`check-workflow-
+      concurrency.py`-style vacuity traps (empty check list, no count floor)
+      are avoided from the start — see GATE-FLOOR below for why that matters.
+      [src: docs/AUDIT-ENGINEERING.md "Pass 7" M2, filed by backlog-groomer
+      pass 8]
+      TERRITORY: `scripts/check-doc-tick.py` (new), `justfile`,
+      `.github/workflows/ci.yml`. agentType: platform-builder.
 
 **RECT-1, SNAP-2, SNAP-3 and MIRROR-1 are all SHIPPED — see Done archive
 for full evidence/gates.** Their two live follow-ups stay in Ready:
@@ -248,243 +276,84 @@ for full evidence/gates.** Their two live follow-ups stay in Ready:
       TERRITORY: TBD by reproduction — likely `apps/web/src/viewport/**` or
       `apps/web/src/sketch/plane.ts`. agentType: frontend-builder.
 
-- [ ] (P1, S) **EXPORT-1 — export is the last cell of a collapsible PROPERTIES
-      panel, and collapsing that panel removes the only way to issue a
-      file.** kind: defect. Founder, verbatim: *"the button to export should
-      not be with all the mass properties."* Measured (`docs/UI-REVIEW.md`
-      P1-1): with the Inspector collapsed via its own
-      `panel-collapse-inspector` control, `[data-testid="part-export-
-      controls"]` count = 0, visible = false — no File menu, no export in
-      the top toolbar, no export on the breadcrumb; **53 Tab presses** from
-      document start reach `part-export-step` at 1600×1000; the assembly
-      workspace repeats the defect (`ExportRow` pinned under the Solve/BOM/
-      Clash `SegmentedControl` in `AssemblyInspectorPanel.tsx:113`). The
-      fix already exists in-tree as a pattern:
-      `DrawingCommandBand.tsx:225`'s `<ToolGroup eyebrow="Export">` — this
-      is a DRY fix (apply an existing pattern to the two workspaces missing
-      it), not new design. FIX: add an `EXPORT` `ToolGroup` to the part
-      workspace's top command band (`CreateStrip.tsx`, which renders
-      HISTORY/CREATE/MODIFY/SHEET METAL/INSPECT — this is the component the
-      audit calls "TopToolbar") and to `AssemblyCommandBand.tsx`, each
-      rendering the existing export controls with the same `exportGate`
-      state (disabled + a reachable reason, `PanelActionCell` already
-      supports this). Keep the ruled `ExportRow` inside the inspector panel
-      too — the audit's own recommendation, it's the right place for the
-      "this file would be partial" notice; this ticket ADDS a document-level
-      entry point, it does not remove the existing one. ACCEPTANCE: with the
-      Inspector panel collapsed, an export control is visible and operable
-      in the top command band on both the part and assembly workspaces; new/
-      updated e2e asserts `part-export-controls` (or the new toolbar
-      testid)'s visibility after `panel-collapse-inspector`, and a
-      Tab-reachability assertion bounds the export action to a small,
-      documented number of presses (well under 53).
-      [src: UI-REVIEW.md P1-1, 2026-08-17 founder-directed audit]
-      TERRITORY: `apps/web/src/components/CreateStrip.tsx`,
-      `apps/web/src/components/AssemblyCommandBand.tsx`. Reads
-      `ExportRow.tsx` but does not edit it — safe to land before or after
-      EXPORT-2, though EXPORT-1 first avoids a merge on `ExportRow.tsx`'s
-      call sites if both ship the same session. agentType: frontend-builder.
+**EXPORT-1, REGISTER-1, REGISTER-2, VIEWCUBE-1, DXF-2a, DXF-2b, DXF-3,
+EXPORT-2, VISION-FIX-1 are all SHIPPED — see Done archive** (`3a7c4ca`,
+`044f1f7`, `e024daa`, `c28fbbc`, `a915bf1`, `5bfb528`, `fe72e4d`, `1880db2`,
+vision-steward `6dfb597`). Fresh Ready items from the same 2026-08-21
+rotational-part audit that produced SOLVE-1/PICK-2 above:
 
-- [ ] (P1, S) **REGISTER-1 — the parts register's identifying NAME column
-      hard-clips with no ellipsis while row-delete verbs get 1.5x its
-      width.** kind: defect. Measured (`docs/UI-REVIEW.md` P1-2) at
-      1280×800: NAME 173px/18% (the only discriminating column) vs. Actions
-      256px/27% (RENAME/DUPLICATE/MOVE/DELETE on every row). The name is
-      hard-clipped with NO ellipsis and NO tooltip: `<td class="truncate">`
-      sets `text-overflow: ellipsis` but the anchor inside is `inline-flex`
-      (`DocumentRegisterRow.tsx:261`, an atomic inline box), so it clips
-      raw — computed `text-overflow: clip`, `title: null`. "Motor mount
-      adapter plate rev C" (207px) renders as "Motor mount adapter plat"
-      with no cue anything is missing. FIX: (a) collapse RENAME/DUPLICATE/
-      MOVE/DELETE into a single row overflow menu (a `⋯` button + the
-      existing `Flyout` primitive), reclaim the freed width for NAME; (b)
-      fix the primitive — make the row link `inline` (or apply
-      `overflow:hidden;text-overflow:ellipsis` directly to the anchor, not
-      just the `<td>`) and stamp `title` with the full name. ACCEPTANCE: a
-      register row whose name exceeds the column width renders with a
-      visible ellipsis and `title` equal to the full name, at both 1280px
-      and 1600px; DELETE still requires its existing confirmation, now
-      behind the overflow menu; e2e/unit test on a long-name fixture.
-      [src: UI-REVIEW.md P1-2, 2026-08-17 founder-directed audit]
-      TERRITORY: `apps/web/src/components/DocumentRegister.tsx` (`COLUMN`),
-      `apps/web/src/components/DocumentRegisterRow.tsx`. **Same files as
-      REGISTER-2 below — sequence these two or give them the same agent.**
+- [ ] (P1, S) **EXPORT-3 — one failed downstream feature disables export of
+      the ENTIRE tree, including the good body already built and rendered.**
+      kind: defect. MEASURED (`docs/AUDIT-PRODUCT.md` R-6, the same
+      2026-08-21 pass as SOLVE-1/PICK-2, and flagged as "still live" from
+      the prior 2026-08-16 pass too): after `Hole1` fails, all four export
+      formats (STEP/STL/3MF/GLB) show `Hole1 failed` and are disabled, even
+      though the part built cleanly through `Revolve1` and that partial
+      solid is exactly what the audit calls "what I would send a machinist
+      for a first look." FIX: allow export of the last good body (the tip of
+      the longest unbroken prefix of the tree) with an explicit label naming
+      what's excluded (e.g. "exported to Revolve1, 2 features excluded"),
+      instead of disabling every format. ACCEPTANCE: on a tree with a failed
+      mid-tree feature and at least one healthy feature before it, export
+      succeeds and the downloaded artifact matches the pre-failure body;
+      the export UI names the truncation point; a tree with NO successfully
+      built feature still disables export (negative control — nothing to
+      export).
+      [src: docs/AUDIT-PRODUCT.md "Pass 2026-08-21" R-6, previously noted
+      2026-08-16 pass, filed by backlog-groomer pass 8]
+      TERRITORY: `apps/web/src/components/ExportRow.tsx` /
+      `ExportToolGroup.tsx` (export gate condition), gateway export route if
+      the gate is server-side. agentType: frontend-builder.
+
+- [ ] (P1, M) **REVOLVE-1 — the revolve axis list offers only edges INSIDE
+      the profile sketch, defaults to the wrong one with no preview, and
+      hovering an option highlights nothing.** kind: capability (no origin/
+      datum/model-edge axis exists at all). MEASURED (`docs/AUDIT-PRODUCT.md`
+      R-2): `revolve-axis`'s `<select>` lists only profile edges
+      (`Horizontal · 27 mm · profile edge (e1)`, etc.) — no origin X/Y/Z, no
+      datum axis, no picked model edge. With no construction geometry drawn,
+      the tool silently defaults to `e1` and builds a DISC, not the intended
+      revolve, with no preview to warn you. The correct workaround (draw a
+      construction line, `L` then `N`) exists, ranks first once drawn, and
+      is undiscoverable — nothing in the empty-part hint or the revolve form
+      mentions it. FIX: add origin X/Y/Z axes and picked model edges to the
+      axis list; default to a sketch's construction centreline when one
+      exists rather than the first profile edge; preview the swept body
+      before Create. ACCEPTANCE: a profile with no construction geometry and
+      an origin axis selected revolves correctly with a live preview; the
+      axis list includes at least one origin axis by default; hovering an
+      axis option highlights the corresponding geometry in the viewport.
+      [src: docs/AUDIT-PRODUCT.md "Pass 2026-08-21" R-2, filed by
+      backlog-groomer pass 8]
+      TERRITORY: `apps/web/src/routes/PartPage.tsx` (revolve axis form/
+      preview), `apps/web/src/sketch/**` (construction-centreline default).
       agentType: frontend-builder.
 
-- [ ] (P1, S) **REGISTER-2 — the register returns oldest-first, its only
-      create control sits 5145px below the fold at 120 parts, and header/
-      sort/count scroll away.** kind: defect. Measured (`docs/UI-REVIEW.md`
-      P1-3) on a 120-part drawer at 1280×800: `aria-sort` on load = "Filed,
-      ascending" (creation order, oldest first — the register's own caption
-      says "Your parts, oldest first"); `main.scrollHeight` = 5145px against
-      `clientHeight` 756px, and the ONLY create control (the scribe line,
-      ordinal 121) sits at the bottom of that; `thead tr` computed
-      `position: static`, so scrolling loses the column headers, sort
-      controls, FILTER field and count simultaneously — at row 104 the
-      screen is six columns of unlabelled data with no way to re-sort
-      without scrolling back 4000px. FIX: (1) `DEFAULT_SORT` → LAST WORKED
-      descending, update the caption; (2) make the header row sticky within
-      the register's scroll container; (3) give the create affordance a
-      persistent secondary entry point (float or header-anchored) so it's
-      reachable without scrolling past ~13 parts — the scribe line can stay
-      as the in-place gesture. ACCEPTANCE: on the 120-part fixture,
-      `aria-sort` on load reads Last worked/descending; after scrolling to
-      row 104, the header row AND a create control are both still in the
-      viewport; new e2e asserts all three.
-      [src: UI-REVIEW.md P1-3, 2026-08-17 founder-directed audit]
-      TERRITORY: `apps/web/src/components/DocumentRegister.tsx`
-      (`DEFAULT_SORT`, `ScribeLine`), `apps/web/src/routes/PartsPage.tsx` if
-      the create-affordance placement needs a shell change. **Same primary
-      file as REGISTER-1 above — sequence, don't parallelize across
-      agents.** agentType: frontend-builder.
-
-- [ ] (P1, S) **VIEWCUBE-1 — the ViewCube is absent at every viewport height
-      ≤800px, violating the design mandate's "table stakes" line for
-      persistent view navigation.** kind: defect. Measured (`docs/
-      UI-REVIEW.md` P1-4), bracketed by capture: present at 1600×1000,
-      1440×900, 1280×900 (canvas ≥752px); absent at 1400×800, 1280×800,
-      1366×768 (canvas ≤652px) — height-driven (1280×900 has it, 1400×800
-      doesn't), and the break lands exactly on the two commonest laptop
-      frames CLAUDE.md's responsive floor names. The ViewBar (home/fit/
-      front/top/right/iso) is still present, so navigation is not fully
-      lost — only the cube. `Viewport.tsx:562`'s `GizmoHelper` uses
-      `margin=[96,96]`; `CUBE_MARGIN_PX = 96` against a `CUBE_FOOTPRINT_PX
-      = 120` cube suggests the sum exceeds something at short canvas
-      heights — needs root-causing, not a blind constant swap. ACCEPTANCE:
-      the cube renders (ink present, screenshot-verified — a naive canvas
-      `drawImage` readback does NOT discriminate here, it reads ~350
-      near-white pixels either way) at 1280×800 and 1366×768; new regression
-      test asserting cube ink at 1280×800.
-      [src: UI-REVIEW.md P1-4, 2026-08-17 founder-directed audit]
-      TERRITORY: `apps/web/src/viewport/Viewport.tsx` (`GizmoHelper` margin,
-      `CUBE_MARGIN_PX`/`CUBE_FOOTPRINT_PX`), the cube/gizmo component.
-      Unrelated to EXPORT-1/REGISTER-1/REGISTER-2 (different files) — safe
-      in parallel with any of them. agentType: frontend-builder.
-
-- [ ] (P1, S) **DXF-2a — bend-table row TEXT shares the `BEND` layer with
-      fold lines, so the one manual flat-pattern workaround (keep VISIBLE+
-      BEND, drop TITLE) still drags five text entities into the model
-      space.** kind: defect. Measured (`docs/AUDIT-PRODUCT.md` F-2b) on the
-      L-bracket fixture: filtering to `VISIBLE`+`BEND` layers still carries
-      `'bend-1'`, `'90.0Â°'`, `'R3.00'`, `'UP'`, `'6.09'` as TEXT entities
-      sitting ~170mm from the part, because the bend-table's row TEXT and
-      the fold LINE are both authored on `BEND`. FIX: move bend-table row
-      TEXT to a new dedicated layer (e.g. `BEND_TABLE` or `ANNOTATION`);
-      fold LINEs stay on `BEND`. ACCEPTANCE: filtering the DXF to
-      `VISIBLE`+`BEND` layers yields ONLY the cut outline + fold lines, no
-      TEXT entities, on the audit's L-bracket fixture; new/updated golden
-      asserts the layer split. **Sequence with the in-flight kernel-architect
-      flat-pattern-scale fix (same file) — confirm it has landed before
-      starting, or take both in one sitting with the scale fix first.**
-      [src: AUDIT-PRODUCT.md F-2b, 2026-08-17 pass]
-      TERRITORY: `services/geometry/src/geometry/drawings/compose.py`
-      (`serialize_dxf`'s `BEND` layer emission). **Same file as DXF-2b and
-      DXF-3 below — one agent in sequence, not three in parallel.**
-      agentType: kernel-architect.
-
-- [ ] (P1, M) **DXF-2b — no profile-only flat-pattern DXF export exists; the
-      only artifact ships wrapped in an A4 drawing sheet.** kind: capability.
-      Measured (`docs/AUDIT-PRODUCT.md` F-2a): cut geometry is 5 of 29
-      entities in the shipped DXF; the rest is A4 border/title block/
-      annotation (overall extents 10→287mm × 10→200mm). An operator must
-      import the sheet and manually delete the furniture, every revision.
-      SolidWorks/Onshape/Fusion all ship a one-click flat-pattern DXF
-      containing cut geometry (optionally bend lines on their own layer)
-      and nothing else — the artifact fabricators ask for by name. FIX: a
-      new profile-only export path, reusing `ComposedSheet`'s flat-pattern
-      view, emitting ONLY the cut outline + fold lines at 1:1, no sheet
-      border/title block/bend-table annotation, reachable in one action
-      from a sheet-metal PART (not requiring a drawing sheet to exist
-      first). ACCEPTANCE: new export path/endpoint returns a DXF whose
-      entities are cut geometry + fold lines only (matches DXF-2a's layer
-      split); golden fixture asserting entity count/extents on the audit's
-      L-bracket; test exercises the new action end-to-end from a part (not
-      via a drawing). Frontend trigger can land as a follow-up inside
-      EXPORT-1's new toolgroup or `CreateStrip`'s Sheet metal group — split
-      at pickup if the backend alone is a full session's work.
-      [src: AUDIT-PRODUCT.md F-2a, ranked #2 overall, 2026-08-17 pass]
-      TERRITORY: `services/geometry/src/geometry/drawings/compose.py` or
-      `flat_pattern.py` (new serializer), `services/geometry/src/geometry/
-      api.py` or gateway route (new export action), `apps/web` trigger.
-      **Same primary file as DXF-2a/DXF-3 — sequence.** agentType:
-      kernel-architect (backend first; frontend-builder for the trigger).
-
-- [ ] (P1, S) **DXF-3 — the DXF is mojibake in any conforming reader:
-      `$DWGCODEPAGE ANSI_1252` declared, raw UTF-8 written.** kind: defect.
-      Measured (`docs/AUDIT-PRODUCT.md` F-3): the file declares `$ACADVER =
-      AC1015` (R2000) and `$DWGCODEPAGE = ANSI_1252`, then writes raw UTF-8
-      bytes into TEXT entities; `ezdxf` — the same library that WRITES the
-      file — reads back `'90.0Â°'` where `'90.0°'` was intended, and
-      `'LOFT Â· PART DRAWING'` for `'LOFT · PART DRAWING'`. The bend-angle
-      column is the single most load-bearing field in a bend table. FIX:
-      bump to R2018 (`AC1032`, UTF-8-native) OR emit the DXF unicode escape
-      (`\U+00B0`)/AutoCAD `%%d` for the degree sign and drop the middot.
-      Also fix `serialize_dxf`'s stale docstring ("pinned R2010" vs. the
-      actual `_DXF_VERSION = "R2000"`) in the same commit. ACCEPTANCE: a new
-      test round-trips the emitted DXF through `ezdxf` and asserts the
-      bend-angle TEXT string equals `"90.0°"` exactly (not the mojibake
-      form).
-      [src: AUDIT-PRODUCT.md F-3, 2026-08-17 pass]
-      TERRITORY: `services/geometry/src/geometry/drawings/compose.py`
-      (`serialize_dxf`, `_DXF_VERSION`). **Same file as DXF-2a/DXF-2b —
-      sequence.** agentType: kernel-architect.
-
-- [ ] (P1, M) **EXPORT-2 — add 3MF and glTF/GLB to `ExportFormat`; both are
-      near-zero-cost.** kind: capability. Measured (`docs/AUDIT-PRODUCT.md`
-      F-4/F-5): `lib3mf 2.5.0` is already installed and locked in
-      `uv.lock` (BSD-2-Clause, clean), and `build123d`'s `Mesher` already
-      wraps it — a valid 3MF was written in-process this audit pass with no
-      new dependency. GLB is already generated on **every** tessellate
-      (`POST /api/v1/geometry/tessellate` → `model/gltf-binary`) and served
-      from a `mesh_store` keyed on its sha256 — it is simply not offered as
-      an *export*. 3MF carries units/colour/multi-object (STL carries
-      none — the oldest bug class in 3D printing); every current slicer
-      (Bambu/Prusa/Cura/Orca) prefers or defaults to it. glTF is the web-3D
-      lingua franca for anyone downstream of engineering (viewers, AR,
-      rendering, docs). FIX: add `"3mf"` and `"glb"` to `ExportFormat`;
-      `export_3mf_bytes` via `Mesher`; `export_glb_bytes` reusing the
-      tessellation pipeline's existing GLB bytes (no new mesh generation
-      path); wire both through the gateway export routes; add two tiles to
-      `ExportRow`'s `FORMATS` array. ACCEPTANCE: `POST /api/v1/geometry/
-      export` (and the part/assembly export wrappers) accept
-      `format: "3mf"|"glb"` and return valid containers (3MF: real zip with
-      `3D/3dmodel.model`; GLB: `model/gltf-binary`, magic `glTF`); new
-      goldens for both formats; existing STEP/STL behaviour byte-identical
-      (regression golden); `ExportRow` shows both new tiles behind the same
-      `exporter` prop, no new component needed.
-      [src: AUDIT-PRODUCT.md F-4/F-5, ranked #4/#5, 2026-08-17 pass]
-      TERRITORY: `packages/py-kit/src/py_kit/schemas/geometry.py`
-      (`ExportFormat`), `services/geometry/src/geometry/kernel/export.py`,
-      `services/gateway/src/gateway/features.py` (route dispatch),
-      `apps/web/src/components/ExportRow.tsx` (`FORMATS`). Reads/extends
-      `ExportRow.tsx` — land AFTER EXPORT-1 if both ship the same session
-      to avoid a merge on that file's call sites (EXPORT-1 adds the mount
-      point, EXPORT-2 adds formats inside it). agentType: kernel-architect
-      (backend) with a small frontend-builder follow-up for `ExportRow`.
-
-- [ ] (P1, XS) **VISION-FIX-1 — `docs/COMPETITIVE.md` and `docs/VISION.md`'s
-      interop rows are stale in ways that misdirect the roadmap.** kind:
-      defect (doc staleness). NOT edited here — owned by the
-      `vision-steward`, not the groomer. Evidence, measured this pass:
-      `docs/COMPETITIVE.md:64` marks `STEP/STL export | ✅` against Fusion's
-      eleven export formats (STEP, STL, 3MF, OBJ, DWG, DXF, IGES, SAT, SMT,
-      F3D, glTF) — a two-format export is not a ✅ row.
-      `docs/VISION.md:74`'s Interop row TITLE names **IGES** (the audit's
-      #9-ranked, lowest-value format) as one of three pillars while omitting
-      **DXF**, **3MF** and **glTF**, which is what 2026 handoff actually is
-      — a roadmap reading that title would build IGES and feel finished.
-      The row's Notes also claim assembly product-structure import "is not
-      read," which is factually stale: `py_kit.schemas.step_import`,
-      `geometry.assembly.import_step`, `geometry.kernel.step_assembly`, and
-      the gateway route all ship, and `_step_assembly_parse_worker` sets
-      `SetNameMode(True)`. ACCEPTANCE: `docs/COMPETITIVE.md:64` corrected
-      against the measured export list; `docs/VISION.md:74` retitled
-      (suggested: "Interop (import + export)") and re-scored/re-noted to
-      reflect DXF/3MF/glTF and the corrected assembly-import status.
-      [src: AUDIT-PRODUCT.md "Does this flip a scorecard row?", 2026-08-17
-      pass]
-      TERRITORY: `docs/COMPETITIVE.md`, `docs/VISION.md`. No code, no
-      overlap with any item above. agentType: vision-steward.
+- [ ] (P1, S) **SEL-8 — armed edge picks (Fillet's `PICK EDGES` mode) are 21
+      floating DOM proxy diamonds with NO hover highlight on the real edge —
+      apparently contradicting SEL-4 (`docs/BACKLOG.md` Done archive,
+      "armed edge/shell/draft picks got the shared raycast hit-test").**
+      kind: defect. MEASURED (`docs/AUDIT-PRODUCT.md` R-8, 2026-08-21 pass):
+      switching Fillet to `PICK EDGES` spawns 21 `edge-pick-N` 24x24px
+      diamonds, several sitting mid-FACE rather than on any visible edge; a
+      5px-step sweep straight across the hub/flange junction produced no
+      hover highlight, no readout, no preselection anywhere along the real
+      edge — only its diamond is a target. **CHECK FIRST**: SEL-4 is
+      recorded shipped; determine whether this is a REGRESSION, whether
+      SEL-4's raycast hit-test covered CLICK but never HOVER, or whether
+      Fillet's edge-pick mode specifically never got wired to it (grep
+      `PickNode`/raycast usage across fillet/chamfer/shell/draft call
+      sites) — do not assume duplication or regression without checking.
+      ACCEPTANCE: hovering the real edge geometry (not just its diamond) in
+      Fillet's `PICK EDGES` mode highlights it; a regression test pins
+      whichever of the three causes above is found, with a mutation check
+      proving it would have caught SEL-4's actual gap.
+      [src: docs/AUDIT-PRODUCT.md "Pass 2026-08-21" R-8, filed by
+      backlog-groomer pass 8]
+      TERRITORY: `apps/web/src/viewport/**` (edge pick overlay/raycast),
+      investigate before assuming file scope. **Shares viewport territory
+      with FB-21/FB-9/PICK-2 — sequence after those land.** agentType:
+      frontend-builder.
 
 - [ ] (P2, S) **A11Y-TOOLBTN-1 — `ToolButton` only wires `aria-describedby`
       to its caption while DISABLED, so an enabled-but-QUALIFIED state is
@@ -552,6 +421,73 @@ for full evidence/gates.** Their two live follow-ups stay in Ready:
       `ExportToolGroup.tsx` in the same session.** agentType:
       frontend-builder.
 
+- [ ] (P1, S) **PGTEST-GATE — 172 of the documents service's tests (37% of
+      that suite, including the entire alembic migration chain) silently
+      skip with exit 0 when PostgreSQL server binaries are absent, and CI
+      installs none.** kind: defect. MEASURED
+      (`docs/AUDIT-ENGINEERING.md` "Pass 7" M4): `pytest services/documents/
+      tests/` gives 468 passed with `PG_BIN_DIR` pointing at real binaries,
+      296 passed + **172 skipped** with `PG_BIN_DIR=/nonexistent` — same exit
+      code (0) both times, dot-line still looks busy. `.github/workflows/
+      ci.yml`'s `python` job installs no PostgreSQL and sets no
+      `PG_BIN_DIR`/`services:` container, so whether those 172 tests
+      (including the only check that the 16-migration alembic chain
+      upgrades/downgrades/matches models) run in CI depends entirely on
+      undocumented `ubuntu-latest` image contents. FIX:
+      `services/documents/tests/conftest.py:173-193`'s `pg_server` fixture
+      calls `pytest.fail(...)` instead of `pytest.skip(...)` when
+      `os.environ.get("CI")` (or a new `LOFT_REQUIRE_PG=1`) is set and
+      `initdb` cannot be found; `ci.yml`'s `python` job installs PostgreSQL
+      (package or a `services:` block) so the fail path is never hit for
+      real. ACCEPTANCE: `CI=1 PG_BIN_DIR=/nonexistent uv run pytest
+      services/documents/tests/` exits non-zero (negative control — proves
+      the gate can fail); the real CI run installs PG and all 468 tests run.
+      [src: docs/AUDIT-ENGINEERING.md "Pass 7" M4, filed by backlog-groomer
+      pass 8]
+      TERRITORY: `services/documents/tests/conftest.py`,
+      `.github/workflows/ci.yml`. agentType: platform-builder.
+
+- [ ] (P2, XS) **GATE-FLOOR — two of the five `scripts/` lint gates still
+      have the `all([]) is True` vacuity hole that was already fixed in
+      their two neighbours.** kind: defect. MEASURED
+      (`docs/AUDIT-ENGINEERING.md` "Pass 7" M7, reproduced not inferred):
+      `check-workflow-concurrency.py:481` and `check-mutation-markers.py:
+      1115` both use `if all(ok for ok, _ in results)` with no count floor;
+      injecting an empty check list into each makes `--self-test` print
+      "self-test passed — the gate can fail" / exit 0. `e2e-shard-audit.py:
+      309` and `stage-doc-hunks.py:544` already carry the fix (an
+      `EXPECTED_CHECKS` constant + `if len(results) < EXPECTED_CHECKS:
+      return 1`). FIX: copy that four-line pattern into the two gates named
+      above. ACCEPTANCE: the same empty-list injection that currently prints
+      "the gate can fail" now correctly fails; `just lint` stays green on
+      the real gates.
+      [src: docs/AUDIT-ENGINEERING.md "Pass 7" M7, filed by backlog-groomer
+      pass 8]
+      TERRITORY: `scripts/check-workflow-concurrency.py`,
+      `scripts/check-mutation-markers.py`. agentType: platform-builder.
+
+- [ ] (P2, S) **DEP-AUDIT — no dependency-vulnerability gate exists anywhere
+      in the repo; a 60-second local `pnpm audit` finds 18 advisories (13
+      high).** kind: capability. MEASURED (`docs/AUDIT-ENGINEERING.md`
+      "Pass 7" M8): no `.github/dependabot.yml`, no `pnpm audit`/`pip-audit`
+      step in CI, no CodeQL, no container scan — the licence gate
+      (`check-licences.py`) answers a different question entirely (what a
+      dependency is licensed as, not whether it's vulnerable). All 18
+      current findings are in `devDependencies` (eslint/openapi-typescript/
+      postcss/jsdom chains), none reach the shipped SPA bundle or a service
+      image today — P2, not P1, because of that path check, but two
+      (`js-yaml` inside `just gen`, `postcss`/`nanoid` at build time) are a
+      supply-chain path even so. FIX: `.github/dependabot.yml` (npm + pip +
+      github-actions ecosystems, weekly); a non-blocking `pnpm audit
+      --audit-level=high` step in `ci.yml`; `pip-audit` against `uv.lock`
+      for the Python half (no `uv audit` subcommand exists). ACCEPTANCE:
+      dependabot.yml present and valid; CI runs both audit commands and
+      surfaces (not blocks) results.
+      [src: docs/AUDIT-ENGINEERING.md "Pass 7" M8, filed by backlog-groomer
+      pass 8]
+      TERRITORY: `.github/dependabot.yml` (new), `.github/workflows/ci.yml`.
+      agentType: platform-builder.
+
 ## Next (P2)
 
 - [ ] (P2, M) **IMPORT-HEAL-1 — a STEP import yielding zero solids has no
@@ -589,11 +525,15 @@ for full evidence/gates.** Their two live follow-ups stay in Ready:
 - [ ] (P2, XS) **EXPORT-ERR — an unsupported export format returns a raw
       pydantic `literal_error` instead of a typed
       `export_format_unsupported`.** kind: defect. Measured
-      (`docs/AUDIT-PRODUCT.md` F-7): asking for 3MF today gets
+      (`docs/AUDIT-PRODUCT.md` F-7, 2026-08-17): asking for a format outside
+      `ExportFormat`'s literal (3MF/glTF have since shipped via EXPORT-2 and
+      no longer trigger this — the example is stale, the underlying gap
+      isn't: try `dwg` or `obj` today) gets
       `{"type":"literal_error","loc":["body","format"],"msg":"Input should
-      be 'step' or 'stl'"}` — correct, but reads like a schema violation
-      rather than "not built yet," which matters for anyone driving the API
-      from a script or an agent. ACCEPTANCE: a typed error naming the
+      be 'step', 'stl', '3mf' or 'glb'"}` — correct, but reads like a schema
+      violation rather than "not built yet," which matters for anyone
+      driving the API from a script or an agent. ACCEPTANCE: a typed error
+      naming the
       supported-formats list, using `py-kit`'s existing error envelope,
       replaces the raw pydantic error on both export enums (`ExportFormat`,
       `ArtifactFormat`); test asserts the error `type` and a `supported`
@@ -602,6 +542,46 @@ for full evidence/gates.** Their two live follow-ups stay in Ready:
       TERRITORY: `packages/py-kit/src/py_kit` (error envelope),
       `services/gateway/src/gateway/features.py` or the geometry export
       route. agentType: backend-builder.
+
+- [ ] (P2, XS) **SOLVE-2 — the feature-tree panel's SOLVE cell and the
+      sketch DRO's SOLVE cell can read `Solved` and `DOF 6 ·
+      UNDER-CONSTRAINED` simultaneously, on the same screen, for the same
+      sketch.** kind: defect. MEASURED (`docs/AUDIT-PRODUCT.md` R-3,
+      2026-08-21 pass): both are technically true (the solve converged; six
+      DOF remain) but a user scanning "is this locked down?" gets a yes and
+      a no at once, ~500px apart, with no cue which cell answers the
+      question. Incumbents publish ONE status. FIX: the tree cell should
+      carry the DOF verdict too, or drop the word SOLVE there and say
+      `Converged`/`Failed`. ACCEPTANCE: the two cells no longer present
+      contradictory verdicts for the same sketch state; unit test on the
+      tree cell's label given an under-constrained-but-converged sketch.
+      [src: docs/AUDIT-PRODUCT.md "Pass 2026-08-21" R-3, filed by
+      backlog-groomer pass 8]
+      TERRITORY: `apps/web/src/routes/PartPage.tsx` (feature-tree SOLVE
+      cell). agentType: frontend-builder.
+
+- [ ] (P2, M) **PATTERN-1 — Pattern repeats the whole BODY with no seed
+      selector; there is no way to say "pattern this hole/boss," which is
+      the majority of pattern use in mechanical CAD.** kind: capability.
+      MEASURED (`docs/AUDIT-PRODUCT.md` R-7, 2026-08-21 pass): the form is
+      Count/Axis/Axis-point/Angle only, no seed field. A whole-body-repeat
+      circular pattern on a subtractive seed (a bolt-circle of holes)
+      happened to produce the CORRECT result (union takes care of it), but
+      the vocabulary doesn't describe what happened and the same logic on
+      an ADDITIVE seed (a boss, a rib) is untested and its correctness is
+      unknown from the UI. FIX: let Pattern take a feature (hole/cut/boss)
+      as the seed, name it in the form ("Pattern: Hole1"); add "about a
+      picked cylindrical face/axis" beyond the six signed global axis
+      directions. ACCEPTANCE: patterning a named feature (not just the
+      body) produces the same numeric result the whole-body path does today
+      on the audit's bolt-circle fixture (regression); an additive-seed
+      circular pattern (a boss patterned 4x) produces 4 non-overlapping
+      bosses, not a union — new golden.
+      [src: docs/AUDIT-PRODUCT.md "Pass 2026-08-21" R-7, filed by
+      backlog-groomer pass 8]
+      TERRITORY: `services/geometry/src/geometry/kernel/pattern.py` (or
+      equivalent), `apps/web` pattern form. agentType: kernel-architect
+      (backend seed semantics) with frontend-builder for the form.
 
 - [ ] (P2, S) **GQA-1 — the invariant triple tier 4a compares (outer area,
       perimeter, in-plane centroid) is NOT a fingerprint of the outer wire;
@@ -711,8 +691,9 @@ for full evidence/gates.** Their two live follow-ups stay in Ready:
       cross-ref product-auditor M4(a)]
       TERRITORY: `apps/web/src/routes/PartPage.tsx`,
       `apps/web/src/viewport/**` (hover affordance rendering), new e2e spec.
-      agentType: frontend-builder. DEMOTED from Ready 2026-08-14 (queue-thinning
-      groom pass — pure flow polish, no correctness defect, not yet dispatched).
+      agentType: frontend-builder. **Founder reports outrank everything —
+      this is next up in `apps/web/src/viewport/**` once PICK-2/FB-21/FB-9/
+      SEL-8 clear that territory this batch (contention, not demotion).**
 
 - [ ] (P2, XS) **ESC-3 — the one scenario where c449235's Escape-disarm rung
       actually prevents an exit (armed Dimension in an EMPTY sketch) is
@@ -891,19 +872,24 @@ for full evidence/gates.** Their two live follow-ups stay in Ready:
       `pipefail`), `--self-test` against a harness-produced fixture with 4
       negative controls. [src: engineering-auditor pass 5, 2026-08-14 (K7)]
 
-- [ ] (P2, S) **K2 — no route-sweep authn gate exists; the gateway's
-      unauthenticated surface has grown from 71 to 87 routes in two weeks with
-      nothing to catch a new route shipping without `CurrentUser`**
-      (`services/gateway/tests`). Posture is correct TODAY (swept by hand:
-      only `/auth/{login,register}` + the 3 infra probes are unauth'd; 60/64
-      documents routes carry `owner_id`) but nothing enforces it going
-      forward. NOTE for whoever builds this: FastAPI 0.139 no longer flattens
-      included routers into `app.routes` (`_IncludedRouter` wraps them) — a
-      naive walk sees ~3 routes and reads as "nothing to check"; recurse
+- [ ] (P1, S) **K2 — BUMPED P2→P1 this pass: no route-sweep authn gate
+      exists, and this is the FOURTH consecutive engineering-audit pass
+      recommending it (J7→K2→L3→M3).** The gateway's unauthenticated surface
+      is now 88 routes with nothing to catch a new one shipping without
+      `CurrentUser` (`services/gateway/tests`). Posture is STILL correct
+      (re-swept `docs/AUDIT-ENGINEERING.md` "Pass 7" M3: gateway 88/5 exempt,
+      documents 64/4 exempt, geometry 28 identity-free, all correct) but
+      remains asserted by nothing — and the auditor's own FIRST naive sweep
+      attempt this pass mis-measured it as "3 routes, nothing to check,"
+      reproducing live the exact failure the gate exists to prevent. NOTE
+      for whoever builds this: FastAPI ≥0.139 does not flatten included
+      routers into `app.routes` (`_IncludedRouter` wraps them) — recurse
       through `_IncludedRouter.original_router.routes`. Gate must carry a
-      COUNT FLOOR (`all([])` over 3 infra routes is vacuously true — the
-      repo's recurring gate-cannot-fail shape).
-      [src: engineering-auditor pass 5, 2026-08-14 (K2); was J7, 2026-07-30]
+      COUNT FLOOR (`>= 88`/`>= 64`/`>= 28` as appropriate — `all([])` over an
+      empty walk is vacuously true, this repo's recurring gate-cannot-fail
+      shape, see GATE-FLOOR above for two other live instances of it).
+      [src: engineering-auditor pass 5, 2026-08-14 (K2); was J7, 2026-07-30;
+      re-recommended AUDIT-ENGINEERING.md Pass 7 M3, 2026-08-21]
 
 - [ ] (P2, S) **K3 — no automated licence gate over the ~1,036-package npm
       tree; `check-licences.py` covers the Python environment only**
@@ -1843,6 +1829,56 @@ frame refactor are v2/§11. Spike de-collected.
 
 ## Later (P3)
 
+- [ ] (P3, S) **AUDIT-HOUSEKEEPING — bundle of small engineering-audit
+      carry-overs (`docs/AUDIT-ENGINEERING.md` "Pass 7" M6(b)+M10), one
+      slice, none urgent alone.** (a) `git worktree prune` + `git branch -D
+      worktree-agent-*` at batch end — 16 abandoned worktrees measured at
+      7.0 GB of 21 GB free, all sixteen verified 0 commits ahead of origin
+      (nothing stranded); add the `rev-list --count origin/<branch>..
+      <worktree-branch>` check to the loop's Integrate phase (the worktree
+      sweep is the one item here with a clock on it — disk). (b) 23 of 100
+      SHAs cited across ROADMAP+BACKLOG do not resolve to any commit object
+      in this repo (`git cat-file -e <sha>^{commit}` fails) — a grooming
+      sweep to prune or correct dead citations. (c) anchor
+      `viewport-makeover.spec.ts:373`'s surviving `waitForTimeout(1200)` to
+      a render-tick wait instead. (d) `check-compose.py:156-161`'s
+      dev-overlay half is still a hand-list beside a half that sweeps every
+      service — unify. (e) no `alembic check` fast gate for the gateway
+      (1 migration, 1 table, `Base.metadata.create_all`-tested — model/
+      migration drift is invisible until `deploy-path`; documents already
+      has the equivalent). (f) `services/gateway/tests/
+      test_assembly_import_chain.py:56` is the one place a kernel
+      (`build123d`) import leaks outside `services/geometry` — move behind
+      `pytest.importorskip` or a committed fixture file.
+      [src: docs/AUDIT-ENGINEERING.md "Pass 7" M6(b)+M10, filed by
+      backlog-groomer pass 8]
+      TERRITORY: `.claude/workflows/*.js` (Integrate phase), `docs/ROADMAP.md`
+      + `docs/BACKLOG.md` (citation sweep), `apps/web/e2e/
+      viewport-makeover.spec.ts`, `scripts/check-compose.py`, gateway
+      alembic config, `services/gateway/tests/
+      test_assembly_import_chain.py`. agentType: platform-builder.
+
+- [ ] (P3, XS) **QA-REVIEW-OWNER — `docs/QA-REVIEW.md` is cited by ROADMAP
+      and BACKLOG but owned by no agent, and `qa-tester.md` instructs
+      "run the Playwright suite in both projects" when
+      `playwright.config.ts` declares none.** kind: defect (process).
+      MEASURED (`docs/AUDIT-ENGINEERING.md` "Pass 7" M9): `docs/QA-REVIEW.md`
+      + `docs/PERF.md` are both 20 days stale with no agent definition
+      writing them (`grep -rn QA-REVIEW .claude/agents/` → no matches),
+      while `qa-tester` runs every non-kernel batch and its findings go into
+      return reports instead of the repo. FIX: either give `qa-tester`
+      `docs/QA-REVIEW.md` explicitly in its agent definition, or delete the
+      file so nothing cites a document nobody maintains; fix
+      `qa-tester.md:16-19`'s "both projects" instruction to match TOUCH-1's
+      reality (no `projects` array exists). ACCEPTANCE: `docs/QA-REVIEW.md`
+      either has a real writer or is deleted with its citations removed;
+      `qa-tester.md` no longer asks for a step the config can't do.
+      [src: docs/AUDIT-ENGINEERING.md "Pass 7" M9, filed by backlog-groomer
+      pass 8]
+      TERRITORY: `.claude/agents/qa-tester.md`, `docs/QA-REVIEW.md`,
+      `docs/ROADMAP.md`/`docs/BACKLOG.md` citations. agentType:
+      platform-builder.
+
 - [ ] (P3, XS) **GQA-2 — a selector "authored before the GEOM-3 change" and
       "OCCT couldn't build the outer-wire region at pick time" produce the
       IDENTICAL stored signature, so a future document-side re-emit cannot
@@ -2418,8 +2454,60 @@ so it is the pre-`5bd4c46` camera snap or a stale Codespace bundle (see FB-11).
 - [ ] (P2, S) Watchdog — arm the stall-recovery routine per
       `docs/AUTONOMOUS-LOOP.md` §1.4 once the loop runs unattended.
       [src: retro]
+- [ ] (P2, XS) **Fill in `e2e.yml:88` and `ci.yml:83`'s CI numbers**
+      (`docs/AUDIT-ENGINEERING.md` "Pass 7" M5+M10) — orchestrator-only, a CI
+      read no subagent can perform. Browser suite: 547 tests, ~20 min/shard
+      extrapolated (was 352 when the "raise matrix to 6 past 30 min" rule
+      was set; +55% in 20 days, 30 min/shard arrives in ~3 weeks —
+      `e2e-shard-audit.py --timeline` has printed this on every run for ten
+      days, unread). Python job: `just test` measured 3735 passed / 1
+      skipped / 1280.7s (21m20s) locally, against a 30-min ceiling argued
+      from ~2958 tests/14m31s. Read the latest green `e2e complete` job log
+      for `--timeline` and the `python` job's Pytest step duration; write
+      both numbers into the two files' comments. [src: AUDIT-ENGINEERING.md
+      Pass 7 M5+M10]
+- [ ] (P2, S) **RETRO §1.1's durable server-side Routine** — needs one
+      founder approval, denied four times; the loop lost 58.3 hours between
+      `5bfb528` and `22a44bb` (container reclaimed, restarted by hand, an
+      8th recurrence) while the batch's own work rate was excellent (56%
+      feat/fix). This is now the dominant term in throughput, not the work
+      rate itself — "the single highest-value unblock available"
+      (`docs/RETRO.md` §1.1), and the only item in either audit this batch
+      the engineering org cannot fix for itself. [src: AUDIT-ENGINEERING.md
+      Pass 7 M6(a); docs/RETRO.md §1.1]
 
 ## Done — archive
+
+### EXPORT-1/2 + REGISTER-1/2 + VIEWCUBE-1 + DXF-2a/2b/3 + DIM-3 + ESC-2 + VISION-FIX-1 CLOSED — the founder's 2026-08-17 file-page/export directive (groom pass 8, 2026-08-21, backlog-groomer)
+
+**Reconciled from `docs/AUDIT-ENGINEERING.md` "Pass 7" M2: 10 of the prior
+56 open Ready tickets were already shipped and the board didn't know —
+ZERO of 27 commits in the range ticked ROADMAP/BACKLOG. See DOCTICK-GATE
+(Ready) for the fix so this can't recur silently.**
+
+- **EXPORT-1** (`3a7c4ca`) — export `ToolGroup` added to `CreateStrip.tsx`/
+  `AssemblyCommandBand.tsx`; export reachable with the Inspector collapsed.
+- **REGISTER-1** (`044f1f7`) — NAME column widened, ellipsis + `title` on
+  overflow; **REGISTER-2** (`e024daa`) — default sort → last-worked
+  descending, sticky header, persistent create affordance.
+- **VIEWCUBE-1** (`c28fbbc`) — cube renders at 1280×800/1366×768.
+- **DXF-2a** (`a915bf1`) — bend-table TEXT moved off the `BEND` layer;
+  **DXF-2b** (`5bfb528`) — profile-only flat-pattern DXF export path;
+  **DXF-3** (`fe72e4d`) — DXF bumped to a UTF-8-correct codepage, no more
+  mojibake degree signs. The flat-pattern 1:1 scale fix (`0bcb768`, the
+  kernel-architect work these three sequenced behind) also landed.
+- **EXPORT-2** (`1880db2`) — 3MF + glTF/GLB added to `ExportFormat`.
+- **DIM-3** (`71b04ef`) — Dimension's armed state now has a visible
+  affordance surviving `selectConstraint`/`togglePick`; wrong-kind-pick
+  message no longer reuses the pre-arm refusal sentence.
+- **ESC-2** (`6fbeca0`) — `PartPage.tsx`'s Escape handling now calls
+  `store.ts`'s single cascade instead of re-deriving its own (FB-13
+  landmine defused).
+- **VISION-FIX-1** — closed by the vision-steward (`6dfb597`): Interop row
+  retitled "(import + export)", assembly-import claim corrected, DXF/3MF/
+  glTF picked up.
+- **Process debt, unchanged:** none of the above have an independent
+  `code-reviewer` pass.
 
 ### RECT-1 + SNAP-2 + SNAP-3 + MIRROR-1 CLOSED — the vision-steward's 2026-08-16 competitive cluster (groom pass 7, 2026-08-17, backlog-groomer)
 
@@ -3293,15 +3381,21 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
-- 2026-08-16 — Groom pass 6: archived PICK-1/GEOM-3 shipped; filed GQA-1/2/3;
-  turned the vision-steward's competitive pass into RECT-1/SNAP-3/MIRROR-1.
-  Full detail: `docs/CHANGELOG.md`.
-- 2026-08-17 — **Groom pass 7 (backlog-groomer):** archived RECT-1/SNAP-2/
-  SNAP-3/MIRROR-1 shipped (all four `docs/AUDIT-PRODUCT.md`/`UI-REVIEW.md`
-  2026-08-17 founder-directed audits — "the file page looks like an
-  afterthought," "export shouldn't live with mass properties") turned into
-  9 Ready tickets (EXPORT-1, REGISTER-1/2, VIEWCUBE-1, DXF-2a/2b/3,
-  EXPORT-2, VISION-FIX-1) + 3 Next tickets (IMPORT-HEAL-1/2, EXPORT-ERR);
-  ROADMAP "Current focus" corrected. 7 defect / 2 capability in the new
-  Ready batch, kind-tagged per this pass's mandate (see contention map in
-  the dispatching agent's return for the full-queue ratio).
+- 2026-08-17 — Groom pass 7: pass 6's competitive cluster archived;
+  founder's file-page/export directive turned into 9 Ready + 3 Next
+  tickets. Full detail: `docs/CHANGELOG.md`.
+- 2026-08-21 — **Groom pass 8 (backlog-groomer):** reconciled 10 shipped-
+  but-unticked tickets (pass 7's export cluster, `docs/AUDIT-ENGINEERING.md`
+  Pass 7 M2 found 0/27 commits ticked ROADMAP/BACKLOG) into Done; filed
+  DOCTICK-GATE to close the hole. New P0 cluster from the fresh
+  "rotational part" audit — SOLVE-1 (silently wrong geometry on a
+  conflicting dimension edit, the most severe finding to date) + PICK-2
+  (inert repair button) — outranks the standing FB-21/FB-9 frame-convention
+  P0s (real, but not geometry-corrupting; queued behind PICK-2, same
+  territory). 6 new engineering tickets from the same audit round
+  (DOCTICK-GATE, PGTEST-GATE, K2 bumped P1, GATE-FLOOR, DEP-AUDIT, plus 2
+  P3 housekeeping items). Top 3 dispatched this batch: SOLVE-1
+  (kernel-architect), PICK-2 (frontend-builder), DOCTICK-GATE
+  (platform-builder) — fully disjoint territories. Batch kind split:
+  2 defect / 1 capability (see dispatching agent's return for the
+  whole-board ratio).

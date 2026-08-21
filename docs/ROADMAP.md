@@ -2,58 +2,43 @@
 
 Status legend: ✅ done · 🚧 in progress · ⬜ planned
 
-**Current focus, corrected 2026-08-17 (backlog-groomer pass 7): the
-2026-08-16 sketch-draw-correctness cluster is fully SHIPPED.** RECT-1
-(`6d0f456`), SNAP-2 + SNAP-3 (`c233a5b`), and MIRROR-1 (`a0cc3f7`) all
-landed 2026-08-17, closing every item the vision-steward's 2026-08-16
-competitive pass flagged. One real defect surfaced by the SNAP-3
-integration itself — an explicit Fix on a point the draw already grounded
-double-pins it and reports OVER-CONSTRAINED — filed as **SNAP-4** (P2,
-Next). GEOM-3/PICK-1 (pass 6) and QAH-1 remain shipped/closed; see
-`docs/BACKLOG.md` Done archive for all four's evidence and gates, and
-`docs/CHANGELOG.md` for the prior focus paragraphs this replaces.
+**Current focus, corrected 2026-08-21 (backlog-groomer pass 8): the
+2026-08-17 founder file-page/export directive is fully SHIPPED.** EXPORT-1
+(`3a7c4ca`), REGISTER-1 (`044f1f7`), REGISTER-2 (`e024daa`), VIEWCUBE-1
+(`c28fbbc`), DXF-2a (`a915bf1`), DXF-2b (`5bfb528`), DXF-3 (`fe72e4d`),
+EXPORT-2 (`1880db2`), the flat-pattern 1:1 scale fix (`0bcb768`), DIM-3
+(`71b04ef`) and ESC-2 (`6fbeca0`) all landed 2026-08-17→18. VISION-FIX-1
+(Interop row retitle) closed by the vision-steward `6dfb597`. **Engineering
+audit pass 7 (2026-08-21) measured that 10 of the prior 56 open tickets were
+already implemented — ZERO of the 11 feature/fix commits in that range
+ticked ROADMAP or BACKLOG** — this correction is that reconciliation; a doc-
+tick CI gate is now filed (**DOCTICK-GATE**, Ready) so it can't recur
+silently. None of the ten have an independent `code-reviewer` pass yet. See
+`docs/BACKLOG.md` Done archive for evidence/gates and `docs/CHANGELOG.md`
+for the prior focus paragraphs this replaces.
 
-**Focus moves to the founder's 2026-08-17 directive** ("the main file page
-looks like an afterthought"; "the export button should not be with all the
-mass properties"). Two independent audits confirmed both claims with
-measurements: `docs/AUDIT-PRODUCT.md` ("Pass 2026-08-17 — … one file format
-as an export?") and `docs/UI-REVIEW.md` ("2026-08-17 — FOUNDER-DIRECTED
-AUDIT"). Findings, now Ready tickets:
-- **Export placement (EXPORT-1, P1):** export is the last cell of a
-  collapsible PROPERTIES panel and disappears entirely when it's collapsed
-  (53 Tab presses to reach it at 1600×1000); the fix already exists in-tree
-  as a pattern (`DrawingCommandBand.tsx`'s `ToolGroup eyebrow="Export"`) and
-  is missing from the part/assembly command bands — a DRY fix, not new
-  design.
-- **Parts register (REGISTER-1/2, P1):** the identifying NAME column (18%
-  width) hard-clips with no ellipsis while row-delete verbs get 27%; default
-  sort is oldest-first; the create control sits 5145px below the fold at 120
-  parts; header/sort/count are not sticky.
-- **ViewCube (VIEWCUBE-1, P1):** absent at every viewport height ≤800px
-  (1280×800, 1366×768) — the two commonest laptop frames, and a violation of
-  the design mandate's "table stakes" line for persistent view navigation.
-- **Export format fidelity + breadth (DXF-2a/2b/3, EXPORT-2, P0-P1):** a
-  flat-pattern DXF ships at half scale on a 1:2 sheet — **a kernel-architect
-  fix is IN FLIGHT for this specific defect, do not re-file it**; what
-  remains and is newly filed: the DXF's bend-table TEXT shares the `BEND`
-  layer with fold lines (breaks the only manual profile-only workaround),
-  there is no dedicated profile-only flat-pattern export at all (the
-  artifact fabricators ask for by name), the DXF is mojibake in any
-  conforming reader (`$DWGCODEPAGE ANSI_1252` declared, raw UTF-8 written),
-  and 3MF/glTF export are both near-zero-cost additions (lib3mf is already
-  locked+installed; GLB is already generated on every tessellate).
-- **STEP import healing (IMPORT-HEAL-1/2, P2, Next):** `import_no_solid` has
-  no recovery path today — audit's framing, preserved: export breadth is the
-  bigger *volume* gap, import robustness the bigger *severity* one, but the
-  audit itself costs healing as medium-large and ranks it P2 against the
-  near-zero DXF/3MF/glTF wins, which is why it sits in Next rather than
-  Ready.
-- **Stale scorecard rows flagged for the vision-steward** (not edited here):
-  `docs/COMPETITIVE.md:64` marks STEP/STL export ✅ against Fusion's eleven
-  formats; `docs/VISION.md:74`'s Interop row title names IGES (the audit's
-  #9-ranked format) as a pillar while omitting DXF/3MF/glTF, and its Notes
-  claim assembly product-structure import is unread when it ships. Ticket
-  filed in BACKLOG for the steward to correct.
+**Focus moves to the fresh product audit's P0 cluster (2026-08-21, "can I
+model a ROTATIONAL part?") — the most severe finding this project has
+produced: a conflicting dimension edit is silently absorbed into a
+least-squares compromise that violates a displayed driving dimension, the
+status line still reads `UNDER-CONSTRAINED`, and the only escape is Undo —
+retyping the original number does NOT restore the original geometry.**
+Filed as **SOLVE-1** (P0). The same edit cascades: a hole/face reference
+does not survive a parameter change to its own generating sketch (persistent
+naming, the M17 class recurring on a revolved part), and the `Re-pick face`
+repair button it offers is **inert** — five clicks in two views never
+replace the stored face, because the tip feature failed to build and there
+is no tip body left to raycast against. Filed as **PICK-2** (P0). A third,
+smaller finding in the same cluster — export of the last GOOD body should
+not be blocked by one downstream feature failing — is **EXPORT-3** (P1).
+**FB-21/FB-9** (the 2026-08-02 axis-glyph/frame-convention P0s) remain open
+and unclaimed three weeks on; they queue behind PICK-2 (same
+`apps/web/src/viewport/**` territory) rather than in parallel with it.
+Engineering audit pass 7 findings (M2/M4/M3/M7/M8) are filed as
+DOCTICK-GATE, PGTEST-GATE, K2 (bumped P1), GATE-FLOOR, DEP-AUDIT — all
+platform-builder, all disjoint from the frontend/kernel work above. Full
+detail in `docs/AUDIT-PRODUCT.md` "Pass 2026-08-21" and
+`docs/AUDIT-ENGINEERING.md` "Pass 7", both cited per-ticket in BACKLOG.
 
 **QA7-1 CLOSED (`db144d7`, reviewed non-blocking `07c4005`) — the SEL-7
 Create-costs-nothing e2e wait wasn't waiting.** `expect.poll(...).not.toBe(
