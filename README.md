@@ -1,6 +1,7 @@
 # Loft (working name)
 
 [![ci](https://github.com/Overcastly-AI/3d-cad/actions/workflows/ci.yml/badge.svg)](https://github.com/Overcastly-AI/3d-cad/actions/workflows/ci.yml)
+[![e2e](https://github.com/Overcastly-AI/3d-cad/actions/workflows/e2e.yml/badge.svg)](https://github.com/Overcastly-AI/3d-cad/actions/workflows/e2e.yml)
 [![deploy-path](https://github.com/Overcastly-AI/3d-cad/actions/workflows/deploy-path.yml/badge.svg)](https://github.com/Overcastly-AI/3d-cad/actions/workflows/deploy-path.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
@@ -60,13 +61,17 @@ of truth for what phase we're in.
   exact OCCT HLR, section views, model-true dimensions, and SVG / PDF / DXF
   export.
 - **Sheet metal (v1)** — base flange + edge flange, provenance-driven
-  flat-pattern unfold (bend allowance / K-factor), and the flat pattern as a
-  drawing view with a bend table.
+  flat-pattern unfold (bend allowance / K-factor), the flat pattern as a
+  drawing view with a bend table, and a one-click **profile-only flat-pattern
+  DXF** — cut geometry alone, no border/title/bend-table text on the layer a
+  fabricator's nesting software selects — for handoff to shop tooling.
 - **Materials & mass properties** — assign a material and get real mass and a
   mass-weighted centre of mass. Both are `null` — never zero — until a
   material is assigned, on purpose.
 - **Interop** — STEP import (including multi-solid files as one multi-lump
-  body); STEP / STL export.
+  body); STEP / STL / 3MF / glTF-GLB export for parts and assemblies, each
+  format declaring its own length unit correctly (3MF's explicit
+  `unit="millimeter"`, glTF's metres-by-spec).
 - **Three FastAPI services** (`gateway`, `documents`, `geometry`) on a shared
   service kit (`packages/py-kit`: config, JSON logging, health/readiness,
   error envelope, metrics, rate limiting, response compression, queue client),
@@ -83,9 +88,15 @@ of truth for what phase we're in.
 - **Quality gates** — `just lint` (ruff + ruff format + pyright strict +
   eslint + prettier + tsc) and `just test` green. Run `just test` for the
   count at your commit; a number pinned here goes stale the week it's
-  written. Alongside the unit suites: a property-based feature-composition
-  matrix, geometry golden models with hand-derived analytic expectations,
-  STEP round-trips, determinism gates, and 78 Playwright specs.
+  written (same reason a spec count isn't pinned either — check
+  `apps/web/e2e` for the current tally). Alongside the unit suites: a
+  property-based feature-composition matrix, geometry golden models with
+  hand-derived analytic expectations, STEP round-trips, determinism gates,
+  and a Playwright browser suite that CI drives against a real running
+  stack ([`e2e.yml`](./.github/workflows/e2e.yml)) — added specifically
+  because a correct behaviour change once shipped with a red spec while
+  five straight CI runs reported green, and nothing before this workflow
+  drove a browser at all.
 - **Compose stack** — Postgres 16 + Redis 7 + MinIO + the three services,
   **proven end to end in CI**: every push builds the images, boots the stack,
   migrates both schemas, and drives a real modeling round-trip (register →

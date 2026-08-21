@@ -56,14 +56,18 @@ packages/design     Design tokens + UI primitives + fonts
 
 ## The gates
 
-Every PR must pass what CI runs (`.github/workflows/ci.yml`):
+Every PR must pass what CI runs, across three workflows:
 
-| Gate                     | Command                    |
-| ------------------------ | -------------------------- |
-| Lint + typecheck         | `just lint`                |
-| Unit tests               | `just test`                |
-| Contract drift           | `just gen-check`           |
-| Compose config validates | `docker compose config -q` |
+| Gate                                                                                             | Command                                           | Workflow          |
+| ------------------------------------------------------------------------------------------------ | ------------------------------------------------- | ----------------- |
+| Lint + typecheck                                                                                 | `just lint`                                       | `ci.yml`          |
+| Unit tests (py + ts)                                                                             | `just test`                                       | `ci.yml`          |
+| Contract drift                                                                                   | `just gen-check`                                  | `ci.yml`          |
+| Compose config, build-context, workflow-concurrency guards                                       | `just lint`'s compose-related steps               | `ci.yml`          |
+| No-GPL licence gate (reads the shipped binaries, not just wheel metadata)                        | `python3 scripts/check-licences.py`               | `ci.yml`          |
+| Cross-process mesh-store smoke (real MinIO)                                                      | `pytest services/geometry/tests/test_s3_store.py` | `ci.yml`          |
+| Browser e2e (Playwright, real running stack)                                                     | `just e2e` (web leg)                              | `e2e.yml`         |
+| Self-host proof: image build + boot + migrate + a real modeling round-trip; backup/restore drill | `just compose-smoke`, `just backup-drill`         | `deploy-path.yml` |
 
 If you change any API surface (pydantic models, routes), run `just gen` and
 commit the regenerated `packages/contracts` + `packages/ts-client` output —
@@ -71,11 +75,12 @@ CI fails on drift. Kernel-adjacent changes additionally need geometry
 correctness coverage (golden models / analytic assertions — see the existing
 tests in `services/geometry/tests`).
 
-`just e2e` is the local end-to-end gate (not yet a CI job): it runs the
-geometry golden + STEP round-trip suites, then the Playwright browser tests
-for `@loft/web`, booting the geometry and gateway services itself (or
-reusing healthy ones already listening on :8002/:8000). Run it for any
-user-facing or kernel-adjacent change.
+`just e2e` is the same script `e2e.yml` runs in CI: it runs the geometry
+golden + STEP round-trip suites, then the Playwright browser tests for
+`@loft/web`, booting the geometry and gateway services itself (or reusing
+healthy ones already listening on :8002/:8000). Run it locally for any
+user-facing or kernel-adjacent change — it reproduces the CI job with one
+command.
 
 ## Conventions (short version — CLAUDE.md is authoritative)
 
