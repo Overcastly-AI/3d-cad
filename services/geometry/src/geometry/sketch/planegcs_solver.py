@@ -12,12 +12,27 @@ the solve uses planegcs's default DogLeg algorithm from the input positions
 as the starting guess, and PlaneGCS itself is deterministic (no random
 restarts). Same definition in → bitwise-identical solution out (asserted by
 the unit suite; RESEARCH §9 "solver determinism" gate).
+
+**An under-constrained solve HOLDS the input geometry** (SOLVE-1, RESEARCH §2).
+DogLeg starting from the current positions is not the same thing as leaving the
+free degrees of freedom alone: it walks a trajectory, so a value edit that only
+adds slack drags geometry the edit never named, the result is a function of
+solve HISTORY rather than of the constraint set, and re-typing the original
+number does not restore the original shape. Measured on the product audit's own
+six-dimension coupling profile (docs/AUDIT-PRODUCT.md R-5/R-5b), whose free
+hexagon has DOF 6: editing one dimension 8 → 12 slid the whole profile to
+``y[-3.079, 30]`` — the audit's "-3.08 below its own origin plane" — and typing
+``8`` back landed **2.162 mm** from where it started. :meth:`_GcsBuild.settle`
+closes that: after the solve converges, every input coordinate the constraints
+still admit is pinned back to the value the author gave it, so the same edit now
+moves exactly ONE corner and the retype returns to within 6.4e-14 mm.
 """
 
 import math
 from typing import assert_never
 
 from planegcs import ArcId, CircleId, LineId, PointId
+from planegcs import ConstraintTag as GcsConstraintTag
 from planegcs import Sketch as GcsSystem
 from planegcs import SolveStatus as GcsSolveStatus
 from py_kit.schemas.sketch import spline_fit_index
@@ -55,6 +70,23 @@ from geometry.sketch.schemas import (
     VerticalConstraint,
 )
 from geometry.sketch.solver import SketchDefinitionError
+
+# --- tuned, documented tolerances (never ad-hoc; RESEARCH §9) -------------------
+
+#: Largest per-constraint residual at which a constraint counts as SATISFIED.
+#: planegcs reports it through ``constraint_error(tag)`` (the RMS error of the
+#: constraints carrying that tag) in the constraint's own units — mm for a
+#: distance/radius, dimensionless-or-radian for the angular kinds — and 1e-7 is
+#: below both scales' meaningful resolution while sitting three orders of
+#: magnitude under the kernel linear tolerance (1e-7 m = 1e-4 mm), so a solve
+#: this suite calls satisfied can never carry a kernel-relevant error.
+#:
+#: Deliberately the same number and the same role as the ASSEMBLY solver's
+#: ``SATISFIED_TOL`` (``geometry/assembly/solver.py``): a converged numeric
+#: solve is not evidence that the constraints hold, so both solvers ask the
+#: residual before believing their own optimiser. This module had no residual
+#: concept at all until SOLVE-1 (docs/AUDIT-ENGINEERING.md Pass 8 N1).
+SATISFIED_TOL_MM = 1e-7
 
 
 class PlanegcsSketchSolver:
@@ -99,11 +131,32 @@ class PlanegcsSketchSolver:
                 if tag in system.tag_to_index
             }
         )
-        entities = (
-            system.read_back()
+        if solved and not diagnosis.conflicting and diagnosis.dof > 0:
+            # SOLVE-1: the free DOF are the author's to keep, not the
+            # optimiser's to spend. Skipped entirely at DOF 0 (nothing is free)
+            # and when the system conflicts (the geometry below is the input).
+            entities = system.settle()
+        elif solved:
+            entities = system.read_back()
+        else:
+            entities = [entity.model_copy(deep=True) for entity in sketch.entities]
+
+        # A converged optimiser is not evidence that the DRIVING dimensions hold
+        # (the assembly solver's SATISFIED_TOL posture, applied here). A payload
+        # may not report a number the geometry beside it contradicts, so a solve
+        # whose geometry violates a driving dimension is reclassified as the
+        # conflict it is, and — like every other conflicting solve — returns the
+        # input geometry untouched rather than a silent least-squares compromise.
+        violated = (
+            _violated_driving_dimensions(sketch.constraints, entities, driving_values)
             if solved
-            else [entity.model_copy(deep=True) for entity in sketch.entities]
+            else []
         )
+        if violated:
+            status = "conflicting"
+            entities = [entity.model_copy(deep=True) for entity in sketch.entities]
+            conflicting = sorted(set(conflicting) | set(violated))
+
         dimensions = _dimension_readouts(sketch.constraints, entities, driving_values)
         return SolvedSketch(
             status=status,
@@ -113,6 +166,29 @@ class PlanegcsSketchSolver:
             redundant_constraints=redundant,
             dimensions=dimensions,
         )
+
+
+def _violated_driving_dimensions(
+    constraints: list[SketchConstraint],
+    entities: list[SketchEntity],
+    driving_values: dict[int, float],
+) -> list[int]:
+    """Indices of DRIVING dimensions the solved geometry does not satisfy.
+
+    The residual is ``measure_dimension(c) - requested`` — the same measurement
+    already run for every DRIVEN dimension, asked of the driving ones too. It is
+    compared against :data:`SATISFIED_TOL_MM` in mm, which is what both dimension
+    kinds (distance, radius) measure in.
+    """
+    entities_by_id = {entity.id: entity for entity in entities}
+    return [
+        index
+        for index, constraint in enumerate(constraints)
+        if isinstance(constraint, DimensionConstraint)
+        and index in driving_values
+        and abs(measure_dimension(constraint, entities_by_id) - driving_values[index])
+        > SATISFIED_TOL_MM
+    ]
 
 
 def _dimension_readouts(
@@ -126,16 +202,28 @@ def _dimension_readouts(
     expression / literal); a driven dimension reports the value MEASURED back
     from the solved geometry (the read-only readout that tracks the geometry it
     dimensions). One entry per dimension constraint, in input order.
+
+    **Invariant (SOLVE-1): no readout disagrees with the ``entities`` beside it
+    in the same payload by more than :data:`SATISFIED_TOL_MM`.** A driving
+    dimension's requested value is therefore VERIFIED against the geometry
+    before it is reported, and where it does not describe that geometry — a
+    conflicting or diverged solve returns the input entities untouched, so the
+    requested number is exactly the one they do not have — the MEASURED value is
+    reported instead. Reporting the request unchecked is how the service came to
+    claim a 12 mm dimension on an 8 mm line (docs/AUDIT-ENGINEERING.md Pass 8
+    N1); nothing in the payload contradicted it.
     """
     entities_by_id = {entity.id: entity for entity in entities}
     readouts: list[SolvedDimension] = []
     for index, constraint in enumerate(constraints):
         if not isinstance(constraint, DimensionConstraint):
             continue
+        measured = measure_dimension(constraint, entities_by_id)
+        requested = driving_values.get(index)
         value = (
-            driving_values[index]
-            if constraint.is_driving
-            else measure_dimension(constraint, entities_by_id)
+            requested
+            if requested is not None and abs(measured - requested) <= SATISFIED_TOL_MM
+            else measured
         )
         readouts.append(
             SolvedDimension(
@@ -505,6 +593,201 @@ class _GcsBuild:
             self._points[(constraint.a, "center")],
             self._points[(constraint.b, "center")],
         )
+
+    # -- holding the free DOF (SOLVE-1) --------------------------------------
+
+    def _input_points(self) -> dict[tuple[str, str], tuple[float, float]]:
+        """``(entity id, point name)`` → the coordinate the AUTHOR submitted.
+
+        Read from ``self.sketch`` rather than from the solver, so it is the
+        input position even after :meth:`settle` has moved the system around.
+        """
+        positions: dict[tuple[str, str], tuple[float, float]] = {}
+        for entity in self.sketch.entities:
+            match entity:
+                case SketchPoint():
+                    positions[(entity.id, "position")] = (
+                        entity.position.x,
+                        entity.position.y,
+                    )
+                case SketchLine():
+                    positions[(entity.id, "start")] = (entity.start.x, entity.start.y)
+                    positions[(entity.id, "end")] = (entity.end.x, entity.end.y)
+                case SketchCircle():
+                    positions[(entity.id, "center")] = (
+                        entity.center.x,
+                        entity.center.y,
+                    )
+                case SketchArc():
+                    positions[(entity.id, "center")] = (
+                        entity.center.x,
+                        entity.center.y,
+                    )
+                    positions[(entity.id, "start")] = (entity.start.x, entity.start.y)
+                    positions[(entity.id, "end")] = (entity.end.x, entity.end.y)
+                case SketchSpline():
+                    for index, point in enumerate(entity.points):
+                        positions[(entity.id, f"fit{index}")] = (point.x, point.y)
+        return positions
+
+    def _constraints_satisfied(self, extra: list[GcsConstraintTag]) -> bool:
+        """Is every CALLER constraint (plus ``extra``) within tolerance?
+
+        ``constraint_error`` is only meaningful for tags the Sketch API
+        registered: planegcs's internally-added rules (the arc rules behind
+        ``add_arc_cse``) all share tag 0, whose error reads ``nan`` — asking for
+        it would reject every trial, so the caller's own tags are the honest
+        scope. ``nan`` from any tag fails the comparison, which is the safe
+        direction (a hold is rejected, never wrongly accepted).
+        """
+        solver = self.gcs.solver
+        return all(
+            abs(solver.constraint_error(tag)) <= SATISFIED_TOL_MM
+            for tag in [*self.tag_to_index, *extra]
+        )
+
+    def _keep_or_roll_back(self, added: list[GcsConstraintTag]) -> bool:
+        """Re-solve with ``added`` in place; keep them only if everything holds.
+
+        A hold is accepted only when the re-solve converges AND leaves every
+        caller constraint — including the new pins — satisfied, so settling can
+        only ever return geometry at least as correct as the unsettled solve.
+        """
+        status = self.gcs.solve()
+        if status in (
+            GcsSolveStatus.Success,
+            GcsSolveStatus.Converged,
+        ) and self._constraints_satisfied(added):
+            return True
+        for tag in added:
+            self.gcs.solver.clear_by_tag(tag)
+        self.gcs.solve()  # back to a solution of the un-held system
+        return False
+
+    def _try_hold_point(
+        self, point_id: PointId, axes: tuple[int, ...], target: tuple[float, float]
+    ) -> bool:
+        """Pin ``axes`` of ``point_id`` at their input values, if it still solves."""
+        added: list[GcsConstraintTag] = []
+        for axis in axes:
+            anchor = self.gcs.add_param(target[axis], fixed=True)
+            added.append(
+                self.gcs.coordinate_x(point_id, anchor)
+                if axis == 0
+                else self.gcs.coordinate_y(point_id, anchor)
+            )
+        return self._keep_or_roll_back(added)
+
+    def _try_hold_everything(
+        self, targets: dict[tuple[str, str], tuple[float, float]]
+    ) -> bool:
+        """Pin EVERY free parameter at once — the whole settle in one solve.
+
+        A performance fast path with no semantic content, and it is safe for a
+        reason worth stating: when this succeeds, every input coordinate and
+        radius is retained AND every caller constraint holds, which is the
+        maximum the per-point passes below can ever achieve. So a success here
+        and a full run of those passes return the same geometry; this just
+        reaches it in ONE solve instead of one per point.
+
+        It matters because of the product's own feedback loop. ``PartPage``
+        adopts solved positions back into the sketch, and a tree rebuild
+        re-solves every sketch from its STORED positions — which are the
+        previous solve's output, i.e. already an exact solution. Holding all of
+        it therefore succeeds outright for every solve that is not reacting to
+        an edit, which is most of them. Measured on a 96-line closed polygon
+        (192 points, DOF 96) whose stored positions already solve: **45 ms**
+        unsettled, **11 050 ms** through the per-point passes, **147 ms** (n=4,
+        146-153 ms) through this one — settling a sketch nothing has disturbed
+        costs 3.3x rather than 245x. The growth is what forces the path: the
+        per-point passes run a solve per point, so they scale about n^3 (5 /
+        17 / 95 / 936 / 11 050 ms at n = 6 / 12 / 24 / 48 / 96 lines), and a
+        live sketcher re-solves on every keystroke of a dimension edit.
+
+        On failure ``_keep_or_roll_back`` clears the pins and re-solves, and
+        the per-point passes run exactly as before, one wasted solve later.
+        """
+        added: list[GcsConstraintTag] = []
+        for key, point_id in self._points.items():  # input order — deterministic
+            target = targets.get(key)
+            if target is None:  # pragma: no cover - every registered point has one
+                continue
+            added.append(
+                self.gcs.coordinate_x(
+                    point_id, self.gcs.add_param(target[0], fixed=True)
+                )
+            )
+            added.append(
+                self.gcs.coordinate_y(
+                    point_id, self.gcs.add_param(target[1], fixed=True)
+                )
+            )
+        for entity in self.sketch.entities:
+            if isinstance(entity, SketchCircle):
+                added.append(
+                    self.gcs.set_circle_radius(self._circles[entity.id], entity.radius)
+                )
+        return self._keep_or_roll_back(added)
+
+    def _try_hold_radius(self, circle_id: CircleId, radius: float) -> bool:
+        """Pin a circle's radius at its input value, if it still solves.
+
+        A circle's radius is a free parameter exactly as its centre is, and it
+        drifts the same way: the product audit's R-5c is a dimension edit that
+        left the geometry it named alone and silently opened a Ø16 bore to
+        Ø18.24. Arcs need no equivalent — their radius and angles are derived by
+        planegcs's arc rules from the centre/start/end points, which pass 1 holds.
+        """
+        return self._keep_or_roll_back([self.gcs.set_circle_radius(circle_id, radius)])
+
+    def settle(self) -> list[SketchEntity]:
+        """Re-solve holding every input coordinate the constraints still allow.
+
+        Runs only on an under-constrained, non-conflicting solve. Four passes,
+        in input entity order (so the result is deterministic, RESEARCH §9):
+
+        0. :meth:`_try_hold_everything` — every parameter at once. Pure
+           performance; when it succeeds it returns what passes 1-3 would have
+           returned, in one solve rather than one per point.
+        1. **whole points**, both coordinates at once. Atomicity matters and is
+           not a micro-optimisation: pinning x and then y walks the system
+           through a TANGENTIAL configuration (with ``|e|`` and ``x`` fixed, ``y``
+           sits at an extremum of the length constraint), where the Jacobian is
+           singular and the coordinate error is the *square root* of the residual
+           tolerance. Measured on the R-5b fixture, coordinate-at-a-time settling
+           returns to 2.09e-5 mm and point-at-a-time to **6.4e-14 mm**.
+        2. the coordinates of the points pass 1 could not hold whole — a corner
+           that must move in x can still be held in y.
+        3. **circle radii**, the one free parameter that is not a coordinate.
+
+        The pins are internal: the reported DOF is the user's sketch's, taken
+        from the pre-settle diagnosis, because their sketch really does still
+        have those degrees of freedom.
+
+        Falls back to the unsettled solution if the settled system does not
+        satisfy every caller constraint, so this can never return worse geometry
+        than the plain solve — the guarantee is checked, not assumed.
+        """
+        baseline = self.read_back()
+        targets = self._input_points()
+        if self._try_hold_everything(targets):
+            return self.read_back()
+        deferred: list[tuple[PointId, tuple[float, float]]] = []
+        for key, point_id in self._points.items():
+            target = targets.get(key)
+            if target is None:  # pragma: no cover - every registered point has one
+                continue
+            if not self._try_hold_point(point_id, (0, 1), target):
+                deferred.append((point_id, target))
+        for point_id, target in deferred:
+            for axis in (0, 1):
+                self._try_hold_point(point_id, (axis,), target)
+        for entity in self.sketch.entities:
+            if isinstance(entity, SketchCircle):
+                self._try_hold_radius(self._circles[entity.id], entity.radius)
+        if not self._constraints_satisfied([]):
+            return baseline
+        return self.read_back()
 
     # -- results -------------------------------------------------------------
 

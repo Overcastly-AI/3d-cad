@@ -59,12 +59,43 @@ corners; solutions are **bitwise deterministic** across runs and fresh solver
 instances (RESEARCH §9 gate), and — fully constrained — insensitive to a
 displaced starting guess. Diagnosis is first-class: remaining DOF count,
 conflicting and redundant constraints reported as indices into the input
-constraint list (planegcs constraint tags mapped back). Underconstrained
-sketches still solve and stay **near the input positions** (the entity
-positions are the starting guess) — deterministic, but guess-*dependent* by
-design; only fully-constrained sketches are guess-independent. No iteration
-count is exposed; the default DogLeg algorithm is used with no random
-restarts.
+constraint list (planegcs constraint tags mapped back). No iteration count is
+exposed; the default DogLeg algorithm is used with no random restarts.
+
+**An UNDER-CONSTRAINED solve HOLDS the input geometry — the free degrees of
+freedom belong to the author, not to the optimiser** (SOLVE-1, 2026-08-22;
+supersedes this section's earlier "stays *near* the input positions, guess-
+dependent by design"). "Near" was the defect, not a caveat. DogLeg started from
+the current positions is not the same thing as leaving the free DOF alone: it
+walks a trajectory, so a dimension edit that merely adds slack spends it moving
+geometry the edit never named, and the answer becomes a function of solve
+HISTORY rather than of the constraint set. Measured on the product audit's
+flanged-coupling profile (`docs/AUDIT-PRODUCT.md` R-5/R-5b/R-5c — six consistent
+driving dims, DOF 6): editing one dimension `8 -> 12` slid the whole profile to
+`y[-3.0795, 30]` (a solid 3.08 mm below its own origin plane), and typing `8`
+back landed **2.162 mm** from where it started, leaving a flange at Ø69.81 under
+dimensions that still read Ø70. So `PlanegcsSketchSolver` **settles**: after an
+under-constrained, non-conflicting solve converges, every input coordinate and
+circle radius the constraints still admit is pinned back to the author's value
+and the system re-solved, keeping a hold only when the re-solve converges AND
+every caller constraint stays within `SATISFIED_TOL_MM` (1e-7) — so settling can
+never return worse geometry than the plain solve. The same edit then moves
+exactly one corner and the retype returns to **6.4e-14 mm**. Determinism is
+unaffected: the passes run in input entity order, and the whole sequence is
+asserted bitwise (§9). Fully-constrained sketches are untouched (nothing is
+free) and remain guess-independent.
+
+**A driving dimension is VERIFIED against the geometry before it is reported.**
+A converged optimiser is not evidence that the constraints hold — the same
+posture the assembly solver already took with its `SATISFIED_TOL`. A solve whose
+geometry violates a driving dimension is reclassified as the `conflicting` it
+is, returns the input entities untouched, and reaches the caller through the one
+existing typed `SketchConstraintDiagnosis` (`sketch_conflicting`, offending
+indices, `suggested_fix`) rather than a second diagnosis written for value
+edits. The invariant: **no dimension readout disagrees with the entities shipped
+beside it in the same payload by more than `SATISFIED_TOL_MM`** — reporting the
+request unchecked is how the service came to claim a 12 mm dimension on an 8 mm
+line with nothing in the payload contradicting it.
 
 **Spline FIT POINTS are constrainable (v1.1, 2026-07-15); the spline CURVE is
 not.** planegcs still has no spline primitive, so the curve carries no
@@ -334,7 +365,11 @@ Correctness gates no web app needs, run in CI and by the `geometry-qa` agent:
   emitting a spec-violating package would discard the reason to support the
   format. STEP, STL and GLB still export that body.
 - **Solver determinism:** same sketch + constraints → identical solution
-  across runs.
+  across runs. Asserted bitwise over a *sequence* of solves, not one, since
+  SOLVE-1 (§2): the sketcher feeds each solve's output back in as the next
+  solve's input, so a per-solve assertion would miss drift that only accumulates
+  across an edit history. The settling passes run in input entity order for
+  exactly this reason.
 - **Feature-set determinism:** where a feature names a SET of other features,
   it applies them in **tree order, never request-array order** — an array order
   is UI-incidental (which item the user ctrl-clicked first) and honouring it
