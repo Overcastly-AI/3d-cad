@@ -78,12 +78,37 @@ dimensions that still read Ø70. So `PlanegcsSketchSolver` **settles**: after an
 under-constrained, non-conflicting solve converges, every input coordinate and
 circle radius the constraints still admit is pinned back to the author's value
 and the system re-solved, keeping a hold only when the re-solve converges AND
-every caller constraint stays within `SATISFIED_TOL_MM` (1e-7) — so settling can
-never return worse geometry than the plain solve. The same edit then moves
-exactly one corner and the retype returns to **6.4e-14 mm**. Determinism is
-unaffected: the passes run in input entity order, and the whole sequence is
-asserted bitwise (§9). Fully-constrained sketches are untouched (nothing is
-free) and remain guess-independent.
+every caller constraint stays within `SATISFIED_TOL_MM` (1e-7). The same edit
+then moves exactly one corner and the retype returns to **6.4e-14 mm**.
+Determinism is unaffected: the passes run in input entity order, and the whole
+sequence is asserted bitwise (§9). Fully-constrained sketches are untouched
+(nothing is free) and remain guess-independent.
+
+**A settle must REFINE the plain solve, never re-orient it** (SETTLE-2,
+2026-08-22; corrects SOLVE-1's claim above that a satisfied-constraint check
+alone means settling "can never return worse geometry than the plain solve" — it
+does not). A sketch with free DOF generally has several disconnected branches of
+solution, and every one satisfies every constraint exactly, so a settle that
+lands on a different branch passes a residual check with a clean conscience.
+Measured on the SKETCH-2 datum walk (`sketch-datum-flow.spec.ts`) — a rigid
+rectangle at y ∈ [8, 24] made symmetric about the X axis: the plain solve
+translates it to y ∈ [-8, 8], and settling instead REFLECTED it, holding the two
+bottom corners at their submitted y and sending the top pair past them. Same
+rectangle in space, opposite traversal — which flips the face normals every
+downstream feature is built on and makes a stored reference to "the top edge"
+resolve to the bottom one (§9, topological naming). The guard is one dot product
+per entity over the finished settle: if any line or arc runs backwards relative
+to the plain solve, the plain solve is returned instead. Two things it is
+deliberately NOT, both built and measured first: (a) **not a distance
+threshold** — no displacement statistic separates the reflection from the R-5b
+correction it must keep (sum of squares, worst point, points moved and sum of
+displacements all rank the two fixtures the same way, because a least-squares
+solve is already near the minimum-norm correction while what SOLVE-1 wants is
+the SPARSE correction, and a reflection is sparse too); and (b) **not per-hold**
+— refusing only the reflecting holds leaves the ones pinning the top corners at
+y = 24 and symmetry then drives the bottom pair to -24, a rectangle stretched
+from 16 mm to 48 mm. Holding a SUBSET of a rigid body's points distorts the
+body, so the choice is all of them or none.
 
 **A driving dimension is VERIFIED against the geometry before it is reported.**
 A converged optimiser is not evidence that the constraints hold — the same

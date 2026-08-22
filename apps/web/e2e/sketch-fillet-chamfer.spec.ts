@@ -22,12 +22,47 @@ interface Pt {
 interface SketchEntity {
   id: string;
   kind: string;
+  construction?: boolean;
   start?: Pt;
   end?: Pt;
   center?: Pt;
 }
 
 const dist = (a: Pt, b: Pt): number => Math.hypot(a.x - b.x, a.y - b.y);
+
+/**
+ * The PROFILE half of a corner-op payload.
+ *
+ * Both corner tests draw their L **from the plane zero**, so SNAP-3's
+ * automatic coincident-on-snap grounds the datum origin into the buffer as a
+ * pinned construction point — and the corner endpoints call carries it, since
+ * the endpoint sends the whole sketch. That is correct: the frame is
+ * scaffolding the solver needs, and construction geometry is excluded from the
+ * closed-wire profile downstream.
+ *
+ * These specs originally asserted `body.entities` had length 3, which made
+ * them a test of HOW MANY DATUMS HAPPEN TO BE MATERIALISED rather than of the
+ * rewrite contract, and they went red the moment snapping started grounding
+ * the origin. The rewrite invariant — trim in place, ids preserved, one fresh
+ * bridge — is a statement about the geometry the user DREW, so that is what is
+ * filtered for here. The frame is asserted separately, once, by
+ * `expectFrameIntact`: a rewrite that ate the origin would be a real defect and
+ * must not hide behind the filter.
+ */
+const drawnOf = (entities: SketchEntity[]): SketchEntity[] =>
+  entities.filter((entity) => entity.construction !== true);
+
+/** The corner ops leave the grounded frame exactly as they found it. */
+function expectFrameIntact(entities: SketchEntity[]): void {
+  expect(entities.filter((entity) => entity.construction === true)).toEqual([
+    {
+      id: "origin",
+      kind: "point",
+      construction: true,
+      position: { x: 0, y: 0 },
+    },
+  ]);
+}
 
 /** The endpoint of `line` nearest to `corner` — the one a corner op trims. */
 function nearEndpoint(line: SketchEntity, corner: Pt): Pt {
@@ -180,9 +215,11 @@ test.describe("sketch fillet / chamfer", () => {
       radius: number;
     };
     const body = (await fillet.json()) as { entities: SketchEntity[] };
+    expectFrameIntact(body.entities);
+    const drawn = drawnOf(body.entities);
     // REWRITE, not append: 2 source lines (ids preserved, trimmed) + 1 arc.
-    expect(body.entities).toHaveLength(3);
-    const arcs = body.entities.filter((e) => e.kind === "arc");
+    expect(drawn).toHaveLength(3);
+    const arcs = drawn.filter((e) => e.kind === "arc");
     expect(arcs).toHaveLength(1);
     const arc = arcs[0] as SketchEntity;
     // The tangent arc carries the radius we asked for.
@@ -192,7 +229,7 @@ test.describe("sketch fillet / chamfer", () => {
     // the near-corner endpoint moved from the shared vertex (0,0) to r=2 away.
     const corner: Pt = { x: 0, y: 0 };
     for (const id of [req.a, req.b]) {
-      const leg = body.entities.find((e) => e.id === id) as SketchEntity;
+      const leg = drawn.find((e) => e.id === id) as SketchEntity;
       expect(leg.kind).toBe("line");
       expect(dist(nearEndpoint(leg, corner), corner)).toBeCloseTo(2, 1);
     }
@@ -260,19 +297,19 @@ test.describe("sketch fillet / chamfer", () => {
 
     const req = chamfer.request().postDataJSON() as { a: string; b: string };
     const body = (await chamfer.json()) as { entities: SketchEntity[] };
+    expectFrameIntact(body.entities);
+    const drawn = drawnOf(body.entities);
     // REWRITE: 2 trimmed source lines + 1 straight bridge — all lines, no arc.
-    expect(body.entities).toHaveLength(3);
-    expect(body.entities.every((e) => e.kind === "line")).toBe(true);
+    expect(drawn).toHaveLength(3);
+    expect(drawn.every((e) => e.kind === "line")).toBe(true);
     // Exactly one line is the fresh bridge (id neither source leg).
-    const bridges = body.entities.filter(
-      (e) => e.id !== req.a && e.id !== req.b,
-    );
+    const bridges = drawn.filter((e) => e.id !== req.a && e.id !== req.b);
     expect(bridges).toHaveLength(1);
 
     // Both legs survive by id, trimmed back the setback distance (3 mm).
     const corner: Pt = { x: 0, y: 0 };
     for (const id of [req.a, req.b]) {
-      const leg = body.entities.find((e) => e.id === id) as SketchEntity;
+      const leg = drawn.find((e) => e.id === id) as SketchEntity;
       expect(dist(nearEndpoint(leg, corner), corner)).toBeCloseTo(3, 1);
     }
 

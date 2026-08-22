@@ -26,6 +26,15 @@ hexagon has DOF 6: editing one dimension 8 → 12 slid the whole profile to
 closes that: after the solve converges, every input coordinate the constraints
 still admit is pinned back to the value the author gave it, so the same edit now
 moves exactly ONE corner and the retype returns to within 6.4e-14 mm.
+
+**A settle REFINES that solve; it never re-orients it** (SETTLE-2, RESEARCH §2).
+Free DOF generally leave several disconnected branches of solution, all of them
+satisfying every constraint exactly, so "the residuals are still fine" does not
+mean settling stayed on the branch the plain solve found — it reflected a
+rectangle on the SKETCH-2 datum walk, with a SMALLER residual than the answer it
+replaced. :func:`_turns_geometry_inside_out` is the guard, and
+:meth:`_GcsBuild.settle`'s docstring carries the two cheaper-looking fixes that
+were measured and rejected.
 """
 
 import math
@@ -300,6 +309,50 @@ def _referenced_fit_points(constraints: list[SketchConstraint]) -> set[tuple[str
             if spline_fit_index(ref.point) is not None:
                 referenced.add((ref.entity, ref.point))
     return referenced
+
+
+def _directions(entities: list[SketchEntity]) -> dict[str, tuple[float, float]]:
+    """Entity id → the vector whose SENSE says which way the entity runs.
+
+    A line's start->end; an arc's start->end chord. Points, circles and splines
+    have no such sense and are absent. Used only to compare two solutions of the
+    SAME sketch, so the ids line up by construction.
+    """
+    senses: dict[str, tuple[float, float]] = {}
+    for entity in entities:  # input order — deterministic (RESEARCH §9)
+        match entity:
+            case SketchLine() | SketchArc():
+                senses[entity.id] = (
+                    entity.end.x - entity.start.x,
+                    entity.end.y - entity.start.y,
+                )
+            case _:
+                pass
+    return senses
+
+
+def _turns_geometry_inside_out(
+    settled: list[SketchEntity], baseline: list[SketchEntity]
+) -> bool:
+    """Does ``settled`` run any entity BACKWARDS relative to ``baseline``?
+
+    The invariant separating a settle that REFINES the plain solve from one that
+    has jumped to a different branch of the solution manifold. Settling only
+    ever pulls coordinates back toward the values the author submitted, and the
+    plain solve is itself a walk from those same values, so the two must agree
+    about which way every edge runs. A negative dot product means they disagree
+    by more than a right angle, which no refinement does.
+
+    Cheap, scale-free, and needs no tolerance: a degenerate entity has a zero
+    vector, whose dot product is ``0.0`` and so never trips the strict ``< 0``
+    (CLAUDE.md — no ad-hoc epsilons).
+    """
+    before = _directions(baseline)
+    for entity_id, (x, y) in _directions(settled).items():
+        before_x, before_y = before[entity_id]
+        if x * before_x + y * before_y < 0.0:
+            return True
+    return False
 
 
 class _GcsBuild:
@@ -652,6 +705,20 @@ class _GcsBuild:
         A hold is accepted only when the re-solve converges AND leaves every
         caller constraint — including the new pins — satisfied, so settling can
         only ever return geometry at least as correct as the unsettled solve.
+
+        **Orientation is deliberately NOT judged here, per hold — it is judged
+        once, over the finished settle, in :meth:`settle`.** The per-hold
+        placement is the tempting one (drop only the guilty hold, keep the
+        innocent ones) and it is measurably worse, because on a shape whose SIZE
+        is a free degree of freedom the holds are not independent. On the
+        SKETCH-2 datum fixture — a rigid rectangle made symmetric about the X
+        axis — refusing only the reflecting holds leaves the ones that pin the
+        two TOP corners at their submitted ``y = 24``, and symmetry then drives
+        the bottom corners to ``-24``: a rectangle stretched from 16 mm tall to
+        48 mm, right way up. Correct by every per-hold rule and further from what
+        the author drew than doing nothing at all. Holding a SUBSET of a rigid
+        body's points distorts the body; the choice is all of them or none, and
+        that is the choice ``settle`` makes.
         """
         status = self.gcs.solve()
         if status in (
@@ -764,14 +831,55 @@ class _GcsBuild:
         from the pre-settle diagnosis, because their sketch really does still
         have those degrees of freedom.
 
-        Falls back to the unsettled solution if the settled system does not
-        satisfy every caller constraint, so this can never return worse geometry
-        than the plain solve — the guarantee is checked, not assumed.
+        Falls back to the unsettled solution on EITHER of two checks, so this
+        can never return worse geometry than the plain solve — the guarantee is
+        checked, not assumed:
+
+        * every caller constraint is still satisfied, and
+        * no entity has been turned round (:func:`_turns_geometry_inside_out`).
+
+        **The second check is not belt-and-braces; constraint satisfaction
+        cannot see the failure it catches, and neither can any measure of
+        distance from the input.** A sketch with free DOF generally has several
+        disconnected branches of solution, every one of them satisfying every
+        constraint exactly, so a settle that lands on a DIFFERENT branch from the
+        plain solve passes the first check with a clean conscience. Measured on
+        the SKETCH-2 datum fixture — a rigid rectangle at y in [8, 24] made
+        symmetric about the X axis — the plain solve translates it to y in
+        [-8, 8] and settling instead reflected it, holding the two bottom corners
+        at their submitted y and sending the two top corners past them. Same
+        rectangle in space, opposite traversal: the profile's wire now runs the
+        other way, which flips the face normals every downstream feature is
+        built on, and a stored topological reference to "the top edge" resolves
+        to the bottom one (RESEARCH §9).
+
+        Reaching for a displacement metric here is the obvious move and it does
+        not work — measured, both fixtures, four metrics, all four ranking the
+        two cases the SAME way, so no threshold on any of them can separate the
+        correction from the reflection:
+
+        ==========================  ==============  ==============
+        settled vs. plain solve     R-5b (want      SKETCH-2 (want
+                                    the settle)     the plain solve)
+        ==========================  ==============  ==============
+        sum of squared displacement 32.20 vs 20.72  4096 vs 2048
+        worst single point          4.01 vs 3.08    32.00 vs 16.01
+        points moved at all         2 vs 10         4 vs 8
+        sum of displacements        8.024 vs 8.048  128.000 vs 128.002
+        REVERSED ENTITIES           **none**        **e2, e4**
+        ==========================  ==============  ==============
+
+        The reason is structural rather than bad luck: a least-squares solve is
+        already close to the minimum-norm correction, so it always WINS on total
+        displacement, while what SOLVE-1 wants is the sparse correction that
+        moves the fewest points — and the reflection is sparse too. Only the
+        last row tells them apart, and it is the one that names the actual
+        defect instead of a symptom of it.
         """
         baseline = self.read_back()
         targets = self._input_points()
         if self._try_hold_everything(targets):
-            return self.read_back()
+            return self._refinement_or(self.read_back(), baseline)
         deferred: list[tuple[PointId, tuple[float, float]]] = []
         for key, point_id in self._points.items():
             target = targets.get(key)
@@ -787,7 +895,21 @@ class _GcsBuild:
                 self._try_hold_radius(self._circles[entity.id], entity.radius)
         if not self._constraints_satisfied([]):
             return baseline
-        return self.read_back()
+        return self._refinement_or(self.read_back(), baseline)
+
+    @staticmethod
+    def _refinement_or(
+        settled: list[SketchEntity], baseline: list[SketchEntity]
+    ) -> list[SketchEntity]:
+        """``settled`` unless it re-oriented the geometry rather than refining it.
+
+        Applied to the ``_try_hold_everything`` fast path as well as the
+        per-point one — an exempt branch is a branch nobody checks, and here it
+        costs a dot product per entity beside a solve.
+        """
+        if _turns_geometry_inside_out(settled, baseline):
+            return baseline
+        return settled
 
     # -- results -------------------------------------------------------------
 
