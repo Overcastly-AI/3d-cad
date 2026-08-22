@@ -99,6 +99,54 @@ function lineLength(entities: SolvedEntity[], id: string): number | null {
   return Math.hypot(line.end.x - line.start.x, line.end.y - line.start.y);
 }
 
+function midpoint(
+  entities: SolvedEntity[],
+  id: string,
+): { x: number; y: number } | null {
+  const line = entities.find((e) => e.id === id);
+  if (line?.start === undefined || line.end === undefined) return null;
+  return {
+    x: (line.start.x + line.end.x) / 2,
+    y: (line.start.y + line.end.y) / 2,
+  };
+}
+
+/**
+ * Where entity `id` IS, per the latest solved payload — not where it was drawn.
+ *
+ * A hardcoded plane coordinate for an entity BODY is a standing bet that the
+ * solver will leave that entity where the spec drew it, and this file kept
+ * losing the bet. `height = width/2` shortens `e2` from the 30 mm it was drawn
+ * to 10 mm, and since SOLVE-1 an under-constrained solve HOLDS the input, so
+ * the shortening comes entirely out of the END (`(0,-15) -> (10,-15)`) rather
+ * than being shared about the midpoint the way a least-squares solve used to
+ * share it. The drawn midpoint `(15, -15)` then sits 5 mm PAST the line.
+ *
+ * The failure that produces is quietly misleading, which is the reason for the
+ * helper rather than for another set of numbers: the miss selects nothing and
+ * says nothing, so the assertion that breaks is the readout after the NEXT
+ * pick — `"1 ent"` where the spec wanted `"2 ent"` — and it accuses `e3`, whose
+ * own coordinate was still fine at that point. Address the entity by IDENTITY
+ * and let the payload say where it is; then no solver change can move the pick
+ * out from under the spec, and the same class of stale-coordinate defect that
+ * SETTLE-2 repaired in the fillet and chamfer specs cannot recur here.
+ */
+async function bodyOf(
+  evaluations: EvaluateBody[],
+  id: string,
+): Promise<{ x: number; y: number }> {
+  await expect
+    .poll(
+      () =>
+        midpoint(latestSketch(evaluations)?.data?.entities ?? [], id) !== null,
+      { timeout: 15_000 },
+    )
+    .toBe(true);
+  const at = midpoint(latestSketch(evaluations)?.data?.entities ?? [], id);
+  if (at === null) throw new Error(`entity ${id} is absent from the payload`);
+  return at;
+}
+
 async function enterSketch(page: Page, plane: "XY" | "XZ" | "YZ") {
   await page.getByTestId("new-sketch").click();
   await page.getByTestId(`plane-${plane}`).click();
@@ -243,7 +291,7 @@ test.describe("sketch dimension expressions (desktop 1440)", () => {
     await expect(glyph(page, 1)).toHaveText("20");
 
     // height = width/2 — an EXPRESSION dimension on e2.
-    await clickPlane(page, at, { x: 15, y: -15 });
+    await clickPlane(page, at, await bodyOf(evaluations, "e2"));
     await expect(page.getByTestId("selection-readout")).toContainText("1 ent");
     await page.keyboard.press("d");
     await expect(value).toBeVisible();
@@ -287,17 +335,31 @@ test.describe("sketch dimension expressions (desktop 1440)", () => {
     await expect(page.getByTestId("dimension-editor")).toHaveCount(0);
 
     // Tie e3 EQUAL to e2, so e3's length tracks the expression (both = 10).
-    await clickPlane(page, at, { x: 15, y: -15 }); // e2 body
-    await addPlane(page, at, { x: 12, y: -30 }); // + e3 body
+    await clickPlane(page, at, await bodyOf(evaluations, "e2"));
+    await addPlane(page, at, await bodyOf(evaluations, "e3"));
     await expect(page.getByTestId("selection-readout")).toContainText("2 ent");
     await page.keyboard.press("e");
     await expect(glyph(page, 3)).toHaveText("=");
+    // Wait for the SOLVE, not just the glyph: `e3` is 25 mm until equal carries
+    // the expression to it, and the pick below is placed from the payload.
+    await expect
+      .poll(
+        () => {
+          const es = latestSketch(evaluations)?.data?.entities ?? [];
+          const length = lineLength(es, "e3");
+          return length === null
+            ? null
+            : Math.abs(length - 10) < SOLVE_TOLERANCE_MM;
+        },
+        { timeout: 15_000 },
+      )
+      .toBe(true);
 
     // ---- Driven (reference) dimension: measured, can't over-constrain. ----
     // e3's length is already determined (equal → e2 → width/2), so a DRIVING
     // distance on e3 would over-constrain it. Author this one DRIVEN instead:
     // excluded from the solver, it just measures — the sketch keeps solving.
-    await clickPlane(page, at, { x: 12, y: -30 });
+    await clickPlane(page, at, await bodyOf(evaluations, "e3"));
     await page.keyboard.press("d");
     await expect(page.getByTestId("dimension-editor")).toBeVisible();
     await page.getByTestId("dimension-driven").click();
