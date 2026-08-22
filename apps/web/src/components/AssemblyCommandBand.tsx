@@ -192,6 +192,12 @@ export function AssemblyCommandBand({
       {exporter !== undefined ? (
         <ExportToolGroup
           testIdPrefix="assembly-export-band"
+          // Export outranks the verb groups here for the same reason it does
+          // on the part band: "STEP" is an identifier no glyph can spell,
+          // while a mate glyph IS the vocabulary this workspace teaches. The
+          // other groups stay at the default and shed together — this band
+          // still fits its labels, so ranking them further would be guessing.
+          labelPriority={40}
           exporter={exporter}
           disabledReason={exportDisabledReason}
         />

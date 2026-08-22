@@ -48,14 +48,14 @@ export interface ToolButtonProps extends Omit<
   active?: boolean;
   /**
    * Show the `label` text beside the icon. Inside a `CommandBand`, labels are
-   * a MEASURED tier, not a constant: the band probes whether the fully
-   * labeled row fits its own width and stamps `data-band-tier` — when it
-   * steps to the icon tier this label collapses via ancestor-attribute CSS
-   * (icon + group eyebrow + tooltip carry the names), so the no-wrap band can
-   * never clip or hide a tool group at any width, including when future
-   * groups land. No viewport-breakpoint arithmetic to go stale (the
-   * 2026-07-24 audit P0 was exactly that staleness). Outside a band the
-   * label simply shows.
+   * a MEASURED tier, not a constant: the band probes the row's natural width
+   * and sheds labels a `ToolGroup.labelPriority` level at a time until what
+   * remains fits, writing `data-labels` on each group. This label collapses
+   * via ancestor-attribute CSS when its own group is shed (icon + group
+   * eyebrow + tooltip carry the name), so the no-wrap band can never clip or
+   * hide a tool group at any width, including when future groups land. No
+   * viewport-breakpoint arithmetic to go stale (the 2026-07-24 audit P0 was
+   * exactly that staleness). Outside a band the label simply shows.
    */
   showLabel?: boolean;
   /** Quiet supplement (count / reason) — engraved in the tooltip, not stacked. */
@@ -145,8 +145,17 @@ export function ToolButton({
         // 2026-07-30, when `py-1.5` turned out to be a class the closed spacing
         // scale never emitted, leaving every band tool 16px tall.
         "min-h-8",
+        // The enclosing group's `data-labels` is the ONE mechanism that hides
+        // a label. There used to be a second, keyed on the band's own
+        // `data-band-tier=icon` — with graduated shedding that selector is
+        // actively harmful, not merely redundant: the band passes THROUGH the
+        // icon tier while it buys labels back, so a band-level rule would keep
+        // every label hidden during the probe, report that each tranche
+        // "fits", and then show all of them at once when the final tier lands.
+        // Measured exactly that on the part band: 2650.88px of row in a 1280px
+        // frame, tier reported "mixed", every group labeled.
         showLabel
-          ? "gap-2 px-3 [[data-band-tier=icon]_&]:px-2"
+          ? "gap-2 px-3 [[data-labels=off]_&]:px-2"
           : "min-w-8 justify-center px-2",
         "transition-colors duration-fast",
         "focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brass",
@@ -158,7 +167,7 @@ export function ToolButton({
     >
       <span className="flex shrink-0 items-center">{icon}</span>
       {showLabel ? (
-        <span className="block min-w-0 truncate text-left font-display text-2xs uppercase tracking-[0.12em] [[data-band-tier=icon]_&]:hidden">
+        <span className="block min-w-0 truncate text-left font-display text-2xs uppercase tracking-[0.12em] [[data-labels=off]_&]:hidden">
           {label}
         </span>
       ) : null}
@@ -212,15 +221,36 @@ export function ToolButton({
 export interface ToolGroupProps extends HTMLAttributes<HTMLDivElement> {
   /** Tracked-caps cluster name (encodes the real taxonomy, not decoration). */
   eyebrow?: string;
+  /**
+   * How hard this group holds on to its labels when the band runs out of room
+   * — HIGHER keeps its words longer (`CommandBand` guarantee #3). Groups that
+   * share a value are shed together, so peers are never half-dressed.
+   *
+   * The scale is per-band and means nothing on its own; what it encodes is
+   * INFORMATION PER PIXEL. A label earns its width when the glyph cannot carry
+   * the identity — a format code like "3MF" is an identifier no picture can
+   * spell, while "Extrude" merely repeats a glyph the eyebrow and tooltip
+   * already name. Rank accordingly, and say why at the call site.
+   *
+   * Left at the default, every group on a surface shares one level and the
+   * band flips as a unit — the two-tier behaviour that predates this.
+   */
+  labelPriority?: number;
 }
 
 /**
  * A labeled cluster of tools — the Fusion-style "group" rendered in
  * Plasticity density. The eyebrow names the family (Geometric / Dimensional /
  * Relational / Create); the members sit in a tight row beneath it.
+ *
+ * `data-labels` is written by the enclosing `CommandBand` after it measures,
+ * never rendered here: React would fight the imperative probe for it, and a
+ * group that has not been measured yet must default to showing its labels so
+ * the band's first measurement sees the widest configuration.
  */
 export function ToolGroup({
   eyebrow,
+  labelPriority = 0,
   className,
   children,
   ...rest
@@ -229,6 +259,7 @@ export function ToolGroup({
     <div
       role="group"
       aria-label={eyebrow}
+      data-label-priority={labelPriority}
       className={cx("flex flex-col justify-center px-1.5 py-1", className)}
       {...rest}
     >

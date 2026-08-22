@@ -222,7 +222,10 @@ export function DrawingCommandBand({
           </>
         )}
       </ToolGroup>
-      <ToolGroup eyebrow="Export">
+      {/* Export outranks the sheet verbs (see `CreateStrip.tsx`): these cells
+          are distinguished by their FORMAT, and a format is an identifier the
+          glyph cannot spell. The Sheet group stays at the default. */}
+      <ToolGroup eyebrow="Export" labelPriority={40}>
         <ToolButton
           icon={<SheetExportIcon />}
           label="Export SVG"

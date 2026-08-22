@@ -21,6 +21,40 @@ import { useCommandActionStore } from "../features/commandActions";
 import { ExportToolGroup } from "./ExportToolGroup";
 import { HistoryGroup } from "./HistoryGroup";
 
+/**
+ * Which groups keep their words when the band runs out of room (higher holds
+ * on longer — `CommandBand` guarantee #3). Ordered by INFORMATION PER PIXEL,
+ * measured on this band at the icon tier vs the labeled one:
+ *
+ *   Export       +160px   format CODES — "STEP" / "STL" / "3MF" / "GLB". Three
+ *                         of the four glyphs are the same mesh strip with one
+ *                         differentiating mark, and no picture can spell a
+ *                         format name. These labels are the only ones here
+ *                         carrying information the icon cannot, and export is
+ *                         the verb EXPORT-1 exists to keep findable.
+ *   Inspect       +37px   the cheapest words on the band, and its one tool is
+ *                         a MODE you toggle rather than a feature you add — a
+ *                         distinction the caliper glyph does not draw.
+ *   Create       +407px   the family a newcomer reaches for before the icons
+ *                         are learned, so it is the first VERB group to earn
+ *                         its width.
+ *   Modify       +475px   same class as Create, reached once the tool set is
+ *                         already familiar.
+ *   Sheet metal  +524px   the widest labels on the band for a family that is
+ *                         inert on every part that is not sheet metal — last
+ *                         to earn 524px.
+ *
+ * History is icon-only by construction (frontend-qa 07-17 P2), so it has no
+ * words to shed and sits at the default.
+ */
+const LABEL_PRIORITY = {
+  export: 40,
+  inspect: 30,
+  create: 20,
+  modify: 10,
+  sheetMetal: 0,
+} as const;
+
 export interface CreateStripProps {
   /** The feature tree has loaded (buttons stay disabled until it has). */
   treeReady: boolean;
@@ -385,7 +419,7 @@ export function CreateStrip({
           onRedo={onRedo}
         />
 
-        <ToolGroup eyebrow="Create">
+        <ToolGroup eyebrow="Create" labelPriority={LABEL_PRIORITY.create}>
           <ToolButton
             icon={<VerbGlyph verb="import_step" />}
             showLabel
@@ -498,7 +532,7 @@ export function CreateStrip({
           />
         </ToolGroup>
 
-        <ToolGroup eyebrow="Modify">
+        <ToolGroup eyebrow="Modify" labelPriority={LABEL_PRIORITY.modify}>
           <ToolButton
             icon={<VerbGlyph verb="fillet" />}
             showLabel
@@ -618,7 +652,10 @@ export function CreateStrip({
           />
         </ToolGroup>
 
-        <ToolGroup eyebrow="Sheet metal">
+        <ToolGroup
+          eyebrow="Sheet metal"
+          labelPriority={LABEL_PRIORITY.sheetMetal}
+        >
           <ToolButton
             icon={<VerbGlyph verb="sheet_metal_base_flange" />}
             showLabel
@@ -726,7 +763,7 @@ export function CreateStrip({
           />
         </ToolGroup>
 
-        <ToolGroup eyebrow="Inspect">
+        <ToolGroup eyebrow="Inspect" labelPriority={LABEL_PRIORITY.inspect}>
           <ToolButton
             icon={<VerbGlyph verb="measure" />}
             showLabel
@@ -758,6 +795,7 @@ export function CreateStrip({
         {onExport !== undefined ? (
           <ExportToolGroup
             testIdPrefix="part-export-band"
+            labelPriority={LABEL_PRIORITY.export}
             exporter={onExport}
             // An open command owns the picks, so export holds with the SAME
             // one honest reason as every other tool in the locked band.

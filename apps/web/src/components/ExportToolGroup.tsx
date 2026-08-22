@@ -21,6 +21,12 @@ export interface ExportToolGroupProps {
    * derived, so a spec asserts the DECISION, not the sentence it produced.
    */
   state?: string;
+  /**
+   * How hard this group holds its labels as the band narrows (`ToolGroup`).
+   * Bands rank export HIGHEST: these labels are format CODES, and a code is
+   * an identifier no glyph can spell — see the table in `CreateStrip.tsx`.
+   */
+  labelPriority?: number;
 }
 
 /**
@@ -49,6 +55,7 @@ export function ExportToolGroup({
   disabledReason,
   partial = false,
   state,
+  labelPriority,
 }: ExportToolGroupProps) {
   const { busy, failed, run } = useExportAction(exporter);
   const blocked = disabledReason !== undefined;
@@ -59,6 +66,7 @@ export function ExportToolGroup({
   return (
     <ToolGroup
       eyebrow="Export"
+      labelPriority={labelPriority}
       data-testid={`${testIdPrefix}-controls`}
       data-export-state={state}
     >
