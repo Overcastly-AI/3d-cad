@@ -35,9 +35,38 @@ rectangle on the SKETCH-2 datum walk, with a SMALLER residual than the answer it
 replaced. :func:`_turns_geometry_inside_out` is the guard, and
 :meth:`_GcsBuild.settle`'s docstring carries the two cheaper-looking fixes that
 were measured and rejected.
+
+**A settle sacrifices the COARSEST hold the constraints will still admit, entity
+by entity** (SETTLE-3, RESEARCH §2). When the author's values cannot all be kept,
+something must give, and "whichever pass happened to run last" is not a policy:
+a separate radius pass, running after the point passes, made a circle's SIZE the
+sacrifice by arithmetic, so a line 20 mm from an r10 circle was made tangent by
+doubling the circle. :meth:`_GcsBuild.settle` now walks a per-entity ladder —
+the whole entity, then its SHAPE alone (:meth:`_GcsBuild._shape_pins`: a
+circle's radius, a line's end-to-end vector, an arc's centre-to-endpoint
+vectors), then single points, then single coordinates — which is SETTLE-2's own
+finding, *holding a subset of a rigid body's points distorts the body*, applied
+to the single entity. The shape rung fires only where it costs no OTHER entity
+anything, which is SOLVE-1's principle turned on the settle itself; unconditional
+it regresses R-5b by 10.285 mm. Its docstring carries both measurements.
+
+**And the settle's only safety net gets a second, independently-derived opinion**
+(SETTLE-3). ``constraint_error(tag)`` is the solver's report on its own parameter
+array, and a hold is accepted on ``SolveStatus.Converged``, which is DogLeg
+saying it STOPPED rather than that it succeeded — so that report is the whole of
+the net, asked of the thing under test. It is also scoped to the CALLER's tags,
+which excludes planegcs's internal arc rules (tag ``0``, ``nan``): nothing asked
+whether the arc ``read_back`` is about to ship is still an arc.
+:mod:`geometry.sketch.residual` re-derives every residual from the DTO entities
+instead, and both must hold. The same predicate then gates the PAYLOAD, because
+the sweep that went looking for a lying residual found a lying STATUS instead:
+planegcs returns ``Success`` with ``conflicting=[]`` on a sketch carrying
+``parallel`` and ``perpendicular`` between the same two lines
+(:func:`_violated_constraints`).
 """
 
 import math
+from collections.abc import Callable
 from typing import assert_never
 
 from planegcs import ArcId, CircleId, LineId, PointId
@@ -50,6 +79,7 @@ from geometry.sketch.expression import (
     evaluate_driving_dimensions,
     measure_dimension,
 )
+from geometry.sketch.residual import geometric_residuals, worst_residual
 from geometry.sketch.schemas import (
     CoincidentConstraint,
     ConcentricConstraint,
@@ -150,16 +180,14 @@ class PlanegcsSketchSolver:
         else:
             entities = [entity.model_copy(deep=True) for entity in sketch.entities]
 
-        # A converged optimiser is not evidence that the DRIVING dimensions hold
-        # (the assembly solver's SATISFIED_TOL posture, applied here). A payload
-        # may not report a number the geometry beside it contradicts, so a solve
-        # whose geometry violates a driving dimension is reclassified as the
-        # conflict it is, and — like every other conflicting solve — returns the
-        # input geometry untouched rather than a silent least-squares compromise.
+        # A converged optimiser is not evidence that the constraints hold (the
+        # assembly solver's SATISFIED_TOL posture, applied here). A payload may
+        # not ship geometry its own constraints contradict, so a solve whose
+        # geometry violates one is reclassified as the conflict it is, and —
+        # like every other conflicting solve — returns the input geometry
+        # untouched rather than a silent least-squares compromise.
         violated = (
-            _violated_driving_dimensions(sketch.constraints, entities, driving_values)
-            if solved
-            else []
+            _violated_constraints(sketch, entities, driving_values) if solved else []
         )
         if violated:
             status = "conflicting"
@@ -177,26 +205,55 @@ class PlanegcsSketchSolver:
         )
 
 
-def _violated_driving_dimensions(
-    constraints: list[SketchConstraint],
+def _submitted_points(
+    entities: list[SketchEntity],
+) -> dict[tuple[str, str], tuple[float, float]]:
+    """``(entity id, point name)`` -> coordinate, over a list of entities."""
+    return {
+        (entity.id, name): (point.x, point.y)
+        for entity in entities
+        for name, point in _entity_point_names(entity)
+    }
+
+
+def _violated_constraints(
+    sketch: SketchDefinition,
     entities: list[SketchEntity],
     driving_values: dict[int, float],
 ) -> list[int]:
-    """Indices of DRIVING dimensions the solved geometry does not satisfy.
+    """Indices of the constraints the solved geometry does not satisfy.
 
-    The residual is ``measure_dimension(c) - requested`` — the same measurement
-    already run for every DRIVEN dimension, asked of the driving ones too. It is
-    compared against :data:`SATISFIED_TOL_MM` in mm, which is what both dimension
-    kinds (distance, radius) measure in.
+    Measured from the ENTITIES, by :func:`geometry.sketch.residual`, so the one
+    predicate answers this for the payload and for every settle hold. It began
+    (SOLVE-1) as a check on DRIVING DIMENSIONS only — the reasoning being that a
+    payload may not report a number the geometry beside it contradicts — and the
+    narrowness was the defect, not the reasoning: a payload may not ship geometry
+    ANY of its constraints contradicts, and a relational constraint is no less
+    load-bearing than a dimension for having no readout.
+
+    **planegcs's own verdict is not sufficient to close this, which is why the
+    check exists at the payload level and not only inside the settle.** Found
+    2026-08-22 by a randomised sweep over 400 generated sketches: on a sketch
+    carrying both ``parallel`` and ``perpendicular`` between the same two lines
+    — flatly unsatisfiable — ``diagnose()`` returns ``conflicting=[]`` and
+    ``solve()`` returns ``SolveStatus.Success``, and the service shipped
+    ``status="underconstrained"`` with the two lines at 67 degrees to each
+    other. Seven of the 155 solvable sketches in that sweep shipped a violated
+    constraint the same way. The solver's STATUS is a self-report exactly as its
+    residual is; the geometry is the evidence.
     """
-    entities_by_id = {entity.id: entity for entity in entities}
     return [
         index
-        for index, constraint in enumerate(constraints)
-        if isinstance(constraint, DimensionConstraint)
-        and index in driving_values
-        and abs(measure_dimension(constraint, entities_by_id) - driving_values[index])
-        > SATISFIED_TOL_MM
+        for index, residual in geometric_residuals(
+            sketch.constraints,
+            entities,
+            # A ``fixed`` constraint pins a point to the coordinate the AUTHOR
+            # submitted, so its reference is the input sketch, never the solved
+            # entities — against those it would be trivially satisfied.
+            _submitted_points(sketch.entities),
+            driving_values,
+        )
+        if residual > SATISFIED_TOL_MM
     ]
 
 
@@ -329,6 +386,37 @@ def _directions(entities: list[SketchEntity]) -> dict[str, tuple[float, float]]:
             case _:
                 pass
     return senses
+
+
+def _entity_point_names(entity: SketchEntity) -> list[tuple[str, Point2D]]:
+    """``(point name, submitted coordinate)`` for every point an entity owns.
+
+    The one enumeration of "which points does this kind of entity have", in the
+    order the solver registers them, shared by the placement targets
+    (:meth:`_GcsBuild._input_points`) and the shape pins
+    (:meth:`_GcsBuild._shape_pins`) — the two must agree about the point set or
+    a settle would hold one view of the entity against another.
+
+    A circle contributes only its centre: its radius is a shape parameter, not
+    a point, and is pinned separately.
+    """
+    match entity:
+        case SketchPoint():
+            return [("position", entity.position)]
+        case SketchLine():
+            return [("start", entity.start), ("end", entity.end)]
+        case SketchCircle():
+            return [("center", entity.center)]
+        case SketchArc():
+            return [
+                ("center", entity.center),
+                ("start", entity.start),
+                ("end", entity.end),
+            ]
+        case SketchSpline():
+            return [(f"fit{index}", point) for index, point in enumerate(entity.points)]
+        case _:  # pragma: no cover — the entity union is closed
+            assert_never(entity)
 
 
 def _turns_geometry_inside_out(
@@ -655,35 +743,9 @@ class _GcsBuild:
         Read from ``self.sketch`` rather than from the solver, so it is the
         input position even after :meth:`settle` has moved the system around.
         """
-        positions: dict[tuple[str, str], tuple[float, float]] = {}
-        for entity in self.sketch.entities:
-            match entity:
-                case SketchPoint():
-                    positions[(entity.id, "position")] = (
-                        entity.position.x,
-                        entity.position.y,
-                    )
-                case SketchLine():
-                    positions[(entity.id, "start")] = (entity.start.x, entity.start.y)
-                    positions[(entity.id, "end")] = (entity.end.x, entity.end.y)
-                case SketchCircle():
-                    positions[(entity.id, "center")] = (
-                        entity.center.x,
-                        entity.center.y,
-                    )
-                case SketchArc():
-                    positions[(entity.id, "center")] = (
-                        entity.center.x,
-                        entity.center.y,
-                    )
-                    positions[(entity.id, "start")] = (entity.start.x, entity.start.y)
-                    positions[(entity.id, "end")] = (entity.end.x, entity.end.y)
-                case SketchSpline():
-                    for index, point in enumerate(entity.points):
-                        positions[(entity.id, f"fit{index}")] = (point.x, point.y)
-        return positions
+        return _submitted_points(self.sketch.entities)
 
-    def _constraints_satisfied(self, extra: list[GcsConstraintTag]) -> bool:
+    def _solver_says_satisfied(self, extra: list[GcsConstraintTag]) -> bool:
         """Is every CALLER constraint (plus ``extra``) within tolerance?
 
         ``constraint_error`` is only meaningful for tags the Sketch API
@@ -692,6 +754,10 @@ class _GcsBuild:
         it would reject every trial, so the caller's own tags are the honest
         scope. ``nan`` from any tag fails the comparison, which is the safe
         direction (a hold is rejected, never wrongly accepted).
+
+        **This is the solver's opinion of its own parameter array, and it is not
+        sufficient on its own** — see :meth:`_geometry_says_satisfied`, which is
+        asked alongside it by :meth:`_constraints_satisfied`.
         """
         solver = self.gcs.solver
         return all(
@@ -699,12 +765,56 @@ class _GcsBuild:
             for tag in [*self.tag_to_index, *extra]
         )
 
-    def _keep_or_roll_back(self, added: list[GcsConstraintTag]) -> bool:
+    def _geometry_says_satisfied(self) -> bool:
+        """Do the ENTITIES this solve would ship satisfy the caller's constraints?
+
+        The second, independently-derived opinion (SETTLE-3, module docstring).
+        :meth:`_solver_says_satisfied` asks the solver about its own parameters;
+        this re-derives every residual from the DTOs :meth:`read_back` produces,
+        through :mod:`geometry.sketch.residual`, and covers two things the first
+        opinion structurally cannot: an arc whose endpoints have stopped
+        agreeing about their own centre (planegcs's tag-0 arc rules, outside the
+        caller-tag scope), and any state where the parameter array and the
+        entities read out of it have come apart.
+
+        The two share the ``SATISFIED_TOL_MM`` scale deliberately — the formulas
+        are planegcs's own, re-implemented over different data — so a
+        disagreement means the geometry and the solver disagree, not that two
+        conventions were compared. Measured agreement across the solver suite's
+        fixtures: worst gap ``3.3e-12`` mm, five orders under the tolerance.
+        """
+        return (
+            worst_residual(
+                self.sketch.constraints,
+                self.read_back(),
+                self._input_points(),
+                self.driving_values,
+            )
+            <= SATISFIED_TOL_MM
+        )
+
+    def _constraints_satisfied(self, extra: list[GcsConstraintTag]) -> bool:
+        """Both opinions, because one of them is the thing under test.
+
+        CLAUDE.md's standing answer to a self-verifying check: *a wrong claim
+        verifies happily against itself* — get a second opinion from a different
+        derivation, not a louder assertion of the first.
+        """
+        return self._solver_says_satisfied(extra) and self._geometry_says_satisfied()
+
+    def _keep_or_roll_back(
+        self,
+        added: list[GcsConstraintTag],
+        also: Callable[[], bool] | None = None,
+    ) -> bool:
         """Re-solve with ``added`` in place; keep them only if everything holds.
 
         A hold is accepted only when the re-solve converges AND leaves every
         caller constraint — including the new pins — satisfied, so settling can
         only ever return geometry at least as correct as the unsettled solve.
+        Note ``Converged`` is accepted as convergence and, in FreeCAD's DogLeg,
+        means the iteration STOPPED rather than that it found a root: the
+        residual check is not a formality here, it is the whole of the gate.
 
         **Orientation is deliberately NOT judged here, per hold — it is judged
         once, over the finished settle, in :meth:`settle`.** The per-hold
@@ -719,12 +829,17 @@ class _GcsBuild:
         the author drew than doing nothing at all. Holding a SUBSET of a rigid
         body's points distorts the body; the choice is all of them or none, and
         that is the choice ``settle`` makes.
+
+        ``also`` is an extra acceptance predicate evaluated on the re-solved
+        system, used by :meth:`_try_hold_shape` for the one question a residual
+        cannot answer: *what did this hold cost everybody else?*
         """
         status = self.gcs.solve()
-        if status in (
-            GcsSolveStatus.Success,
-            GcsSolveStatus.Converged,
-        ) and self._constraints_satisfied(added):
+        if (
+            status in (GcsSolveStatus.Success, GcsSolveStatus.Converged)
+            and self._constraints_satisfied(added)
+            and (also is None or also())
+        ):
             return True
         for tag in added:
             self.gcs.solver.clear_by_tag(tag)
@@ -745,17 +860,49 @@ class _GcsBuild:
             )
         return self._keep_or_roll_back(added)
 
-    def _try_hold_everything(
-        self, targets: dict[tuple[str, str], tuple[float, float]]
-    ) -> bool:
+    def _placement_pins(self, entities: list[SketchEntity]) -> list[GcsConstraintTag]:
+        """Pin ``entities`` completely: every coordinate AND every radius.
+
+        Everything the author gave the entity — what it is and where it sits.
+        Passed the whole sketch this is the settle's fast path; passed one
+        entity it is the top rung of the per-entity ladder in :meth:`settle`.
+        """
+        pins: list[GcsConstraintTag] = []
+        for entity in entities:  # input order — deterministic (RESEARCH §9)
+            for name, point in _entity_point_names(entity):
+                point_id = self._points.get((entity.id, name))
+                if point_id is None:  # an unreferenced spline fit point
+                    continue
+                pins.append(
+                    self.gcs.coordinate_x(
+                        point_id, self.gcs.add_param(point.x, fixed=True)
+                    )
+                )
+                pins.append(
+                    self.gcs.coordinate_y(
+                        point_id, self.gcs.add_param(point.y, fixed=True)
+                    )
+                )
+            if isinstance(entity, SketchCircle):
+                pins.append(
+                    self.gcs.set_circle_radius(self._circles[entity.id], entity.radius)
+                )
+        return pins
+
+    def _try_hold_placement(self, entities: list[SketchEntity]) -> bool:
+        """Hold ``entities`` completely, if the system still solves."""
+        pins = self._placement_pins(entities)
+        return self._keep_or_roll_back(pins) if pins else True
+
+    def _try_hold_everything(self) -> bool:
         """Pin EVERY free parameter at once — the whole settle in one solve.
 
         A performance fast path with no semantic content, and it is safe for a
         reason worth stating: when this succeeds, every input coordinate and
         radius is retained AND every caller constraint holds, which is the
-        maximum the per-point passes below can ever achieve. So a success here
+        maximum the per-entity passes below can ever achieve. So a success here
         and a full run of those passes return the same geometry; this just
-        reaches it in ONE solve instead of one per point.
+        reaches it in ONE solve instead of one per entity and point.
 
         It matters because of the product's own feedback loop. ``PartPage``
         adopts solved positions back into the sketch, and a tree rebuild
@@ -772,60 +919,195 @@ class _GcsBuild:
         live sketcher re-solves on every keystroke of a dimension edit.
 
         On failure ``_keep_or_roll_back`` clears the pins and re-solves, and
-        the per-point passes run exactly as before, one wasted solve later.
+        the per-entity passes run exactly as before, one wasted solve later.
         """
-        added: list[GcsConstraintTag] = []
-        for key, point_id in self._points.items():  # input order — deterministic
-            target = targets.get(key)
+        return self._try_hold_placement(self.sketch.entities)
+
+    def _shape_pins(self, entities: list[SketchEntity]) -> list[GcsConstraintTag]:
+        """Pin every entity's INTRINSIC geometry, leaving where it sits free.
+
+        An entity's shape is what the author drew; its placement is what the
+        constraints are for. The two are expressed differently in the solver and
+        that is the whole point:
+
+        * a **circle**'s shape is its radius — one scalar, ``set_circle_radius``;
+        * every other entity's shape is its points measured RELATIVE to its
+          first point, pinned with ``difference`` on the x and y parameters. Two
+          such pins on a line hold its length *and* its direction while leaving
+          it free to translate; on an arc, the centre-to-start and centre-to-end
+          vectors hold radius and both endpoint angles, i.e. the whole arc.
+        * a **point** has no intrinsic shape, and a **spline**'s is the shape of
+          its fit polygon (only the fit points a constraint references are in
+          the system at all — an unreferenced one is not the solver's to move).
+
+        Absolute coordinates cannot express this. Pinning both endpoints of a
+        line holds its shape *and* nails it down, so a constraint that needs the
+        line to move can only be satisfied by refusing the hold outright — and
+        then the single-axis fallback pins ONE coordinate of ONE endpoint, which
+        is SETTLE-2's own finding (holding a subset of a rigid body's points
+        distorts the body) applied, unintentionally, to a single entity. With
+        the shape held first, that fallback can only slide the entity.
+        """
+        gcs = self.gcs
+        pins: list[GcsConstraintTag] = []
+        for entity in entities:  # input order — deterministic (RESEARCH §9)
+            if isinstance(entity, SketchCircle):
+                pins.append(
+                    gcs.set_circle_radius(self._circles[entity.id], entity.radius)
+                )
+                continue
+            named = [
+                (name, point)
+                for name, point in _entity_point_names(entity)
+                if (entity.id, name) in self._points
+            ]
+            if len(named) < 2:
+                continue
+            anchor_name, anchor = named[0]
+            anchor_x, anchor_y = gcs.get_point_param_ids(
+                self._points[(entity.id, anchor_name)]
+            )
+            for name, point in named[1:]:
+                point_x, point_y = gcs.get_point_param_ids(
+                    self._points[(entity.id, name)]
+                )
+                pins.append(
+                    gcs.difference(
+                        anchor_x, point_x, gcs.add_param(point.x - anchor.x, fixed=True)
+                    )
+                )
+                pins.append(
+                    gcs.difference(
+                        anchor_y, point_y, gcs.add_param(point.y - anchor.y, fixed=True)
+                    )
+                )
+        return pins
+
+    def _drift_of_everything_else(
+        self, entity_id: str, targets: dict[tuple[str, str], tuple[float, float]]
+    ) -> float:
+        """How far the REST of the sketch currently sits from the author's input (mm).
+
+        Every registered point and every circle radius that does not belong to
+        ``entity_id``, worst case. Deliberately absolute rather than relative to
+        the plain solve: the question :meth:`_try_hold_shape` asks with it is
+        whether a hold made anybody else worse, which is a comparison of this
+        number against itself before and after.
+        """
+        worst = 0.0
+        for (owner, name), point_id in self._points.items():  # input order
+            if owner == entity_id:
+                continue
+            target = targets.get((owner, name))
             if target is None:  # pragma: no cover - every registered point has one
                 continue
-            added.append(
-                self.gcs.coordinate_x(
-                    point_id, self.gcs.add_param(target[0], fixed=True)
-                )
-            )
-            added.append(
-                self.gcs.coordinate_y(
-                    point_id, self.gcs.add_param(target[1], fixed=True)
-                )
-            )
+            x, y = self.gcs.get_point(point_id)
+            worst = max(worst, abs(x - target[0]), abs(y - target[1]))
         for entity in self.sketch.entities:
-            if isinstance(entity, SketchCircle):
-                added.append(
-                    self.gcs.set_circle_radius(self._circles[entity.id], entity.radius)
-                )
-        return self._keep_or_roll_back(added)
+            if entity.id == entity_id or not isinstance(entity, SketchCircle):
+                continue
+            solved = self.gcs.get_circle(self._circles[entity.id])
+            worst = max(worst, abs(solved.radius - entity.radius))
+        return worst
 
-    def _try_hold_radius(self, circle_id: CircleId, radius: float) -> bool:
-        """Pin a circle's radius at its input value, if it still solves.
+    def _try_hold_shape(
+        self, entity: SketchEntity, targets: dict[tuple[str, str], tuple[float, float]]
+    ) -> bool:
+        """Hold ``entity``'s shape — but only if it costs no OTHER entity anything.
 
-        A circle's radius is a free parameter exactly as its centre is, and it
-        drifts the same way: the product audit's R-5c is a dimension edit that
-        left the geometry it named alone and silently opened a Ø16 bore to
-        Ø18.24. Arcs need no equivalent — their radius and angles are derived by
-        planegcs's arc rules from the centre/start/end points, which pass 1 holds.
+        The extra condition is not caution, it is what makes this rung a policy
+        instead of a bias, and it is SOLVE-1's own principle turned on the settle
+        itself: *an edit may not move geometry it never named*, so neither may a
+        hold. A shape pin constrains a RELATIONSHIP rather than a value, so —
+        unlike a coordinate pin, which the system can only satisfy by putting
+        that coordinate where it was asked — it can be satisfied by shoving
+        everything attached to the entity somewhere else, and the plain
+        "does it still solve" test cannot see the difference.
+
+        Measured, and this is the whole reason the rung is conditional. On the
+        tangent fixture the circle is already held complete, so pinning the
+        line's end-to-end vector moves nobody: drift elsewhere stays ``0`` and
+        the line slides. On the R-5b coupling the same rung pins ``e3``'s
+        direction inside a closed six-edge chain whose free DOF ARE the corner
+        angles, and the chain answers by shifting: ``e4``, ``e5`` and ``e6`` —
+        edges the edit never named — move **10.285 mm**, and the settle returns
+        geometry worse than doing nothing. Unconditional, this rung is a
+        regression; conditional, it fires exactly where a rigid body has room to
+        be one.
         """
-        return self._keep_or_roll_back([self.gcs.set_circle_radius(circle_id, radius)])
+        pins = self._shape_pins([entity])
+        if not pins:
+            return False
+        before = self._drift_of_everything_else(entity.id, targets)
+        return self._keep_or_roll_back(
+            pins,
+            also=lambda: (
+                self._drift_of_everything_else(entity.id, targets)
+                <= before + SATISFIED_TOL_MM
+            ),
+        )
 
     def settle(self) -> list[SketchEntity]:
-        """Re-solve holding every input coordinate the constraints still allow.
+        """Re-solve holding every input value the constraints still allow.
 
-        Runs only on an under-constrained, non-conflicting solve. Four passes,
-        in input entity order (so the result is deterministic, RESEARCH §9):
+        Runs only on an under-constrained, non-conflicting solve. The passes run
+        in input entity order (so the result is deterministic, RESEARCH §9), and
+        their order is the POLICY, not an implementation detail (SETTLE-3):
 
         0. :meth:`_try_hold_everything` — every parameter at once. Pure
-           performance; when it succeeds it returns what passes 1-3 would have
-           returned, in one solve rather than one per point.
-        1. **whole points**, both coordinates at once. Atomicity matters and is
-           not a micro-optimisation: pinning x and then y walks the system
-           through a TANGENTIAL configuration (with ``|e|`` and ``x`` fixed, ``y``
-           sits at an extremum of the length constraint), where the Jacobian is
-           singular and the coordinate error is the *square root* of the residual
-           tolerance. Measured on the R-5b fixture, coordinate-at-a-time settling
-           returns to 2.09e-5 mm and point-at-a-time to **6.4e-14 mm**.
-        2. the coordinates of the points pass 1 could not hold whole — a corner
-           that must move in x can still be held in y.
-        3. **circle radii**, the one free parameter that is not a coordinate.
+           performance; when it succeeds it returns what the passes below would
+           have returned, in one solve rather than one per entity and point.
+        1. **each entity COMPLETELY** — every coordinate *and* its radius. What
+           the author drew and where they put it, together.
+        2. failing that, **that entity's SHAPE** (:meth:`_shape_pins`) — a
+           circle's radius, a line's end-to-end vector, an arc's centre-to-
+           endpoint vectors — so it keeps what it IS and moves as a rigid body.
+        3. failing that, its **whole points**, both coordinates at once.
+           Atomicity matters and is not a micro-optimisation: pinning x and then
+           y walks the system through a TANGENTIAL configuration (with ``|e|``
+           and ``x`` fixed, ``y`` sits at an extremum of the length constraint),
+           where the Jacobian is singular and the coordinate error is the *square
+           root* of the residual tolerance. Measured on the R-5b fixture,
+           coordinate-at-a-time settling returns to 2.09e-5 mm and
+           point-at-a-time to **6.4e-14 mm**.
+        4. and last, single coordinates — a corner that must move in x can still
+           be held in y.
+
+        **What a settle sacrifices when values compete: the COARSEST hold that
+        the constraints will still admit, entity by entity — never "whichever
+        pass happened to run last".** There used to be a separate radius pass,
+        after the point passes, so a circle whose centre those passes had already
+        nailed down lost its radius by arithmetic: the tangent case in
+        ``constraints.spec.ts``, where a line 20 mm from an r10 circle was made
+        tangent by growing the circle to **r20** and not moving the line at all.
+        Running radii FIRST only moves the arbitrariness — measured on the same
+        fixture, the line's start point then holds and its far end swings, so a
+        line the author drew vertical comes back slanted. Both answers sacrifice
+        a quantity the author DREW to keep one the solver exists to DERIVE, and
+        neither is a policy; each is a consequence of a pass number.
+
+        The ladder is a policy, and it is SETTLE-2's own finding — *holding a
+        SUBSET of a rigid body's points distorts the body; the choice is all of
+        them or none* — applied one level down, to the single entity. Rung 2 is
+        the rung that was missing: without it, an entity that cannot stay where
+        it is has no way to move except by having some of its coordinates pinned
+        and the rest dragged, which deforms it. On the tangent fixture rung 1
+        holds the circle outright (r10 at the origin), rung 1 refuses the line,
+        rung 2 holds its length and direction, and the 10 mm the constraint needs
+        comes out of the one quantity the user asked the solver to work out:
+        where the line sits. It slides to x = 10.
+
+        **Both orders above were measured, and so was the tempting generalisation
+        that rung 2 should come FIRST for every entity ("shape before
+        placement").** That one is falsified by R-5b, which is why the ladder is
+        per-entity rather than a global precedence: on the coupling profile the
+        six free DOF ARE the corner angles, so pinning six line directions and
+        six lengths against a closure the edit has changed is infeasible, the
+        refusals cascade, and ``e4`` — an edge the edit never named — moves
+        **10.285 mm**. The author's placement is achievable there and their
+        directions are not; on the tangent fixture it is the other way round. No
+        fixed precedence between shape and placement can be right for both, and
+        the coarsest-hold-that-fits rule needs no such precedence.
 
         The pins are internal: the reported DOF is the user's sketch's, taken
         from the pre-settle diagnosis, because their sketch really does still
@@ -835,8 +1117,16 @@ class _GcsBuild:
         can never return worse geometry than the plain solve — the guarantee is
         checked, not assumed:
 
-        * every caller constraint is still satisfied, and
+        * every caller constraint is still satisfied, judged by BOTH witnesses
+          (:meth:`_constraints_satisfied`), and
         * no entity has been turned round (:func:`_turns_geometry_inside_out`).
+
+        **"No worse than the plain solve" is a relative guarantee and SOLVE-1
+        read it as an absolute one.** The plain solve can itself be wrong:
+        planegcs returns ``Success`` with an empty conflict list on sketches
+        nothing can satisfy, so the baseline this falls back to is not a floor
+        (:func:`_violated_constraints`, which is why the payload is checked
+        separately from the settle).
 
         **The second check is not belt-and-braces; constraint satisfaction
         cannot see the failure it catches, and neither can any measure of
@@ -878,21 +1168,23 @@ class _GcsBuild:
         """
         baseline = self.read_back()
         targets = self._input_points()
-        if self._try_hold_everything(targets):
+        if self._try_hold_everything():
             return self._refinement_or(self.read_back(), baseline)
         deferred: list[tuple[PointId, tuple[float, float]]] = []
-        for key, point_id in self._points.items():
-            target = targets.get(key)
-            if target is None:  # pragma: no cover - every registered point has one
+        for entity in self.sketch.entities:  # input order — deterministic
+            if self._try_hold_placement([entity]):
                 continue
-            if not self._try_hold_point(point_id, (0, 1), target):
-                deferred.append((point_id, target))
+            self._try_hold_shape(entity, targets)
+            for name, _ in _entity_point_names(entity):
+                point_id = self._points.get((entity.id, name))
+                target = targets.get((entity.id, name))
+                if point_id is None or target is None:
+                    continue  # an unreferenced spline fit point
+                if not self._try_hold_point(point_id, (0, 1), target):
+                    deferred.append((point_id, target))
         for point_id, target in deferred:
             for axis in (0, 1):
                 self._try_hold_point(point_id, (axis,), target)
-        for entity in self.sketch.entities:
-            if isinstance(entity, SketchCircle):
-                self._try_hold_radius(self._circles[entity.id], entity.radius)
         if not self._constraints_satisfied([]):
             return baseline
         return self._refinement_or(self.read_back(), baseline)

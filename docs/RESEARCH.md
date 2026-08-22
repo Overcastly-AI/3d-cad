@@ -110,17 +110,66 @@ y = 24 and symmetry then drives the bottom pair to -24, a rectangle stretched
 from 16 mm to 48 mm. Holding a SUBSET of a rigid body's points distorts the
 body, so the choice is all of them or none.
 
-**A driving dimension is VERIFIED against the geometry before it is reported.**
+**Every CONSTRAINT is verified against the geometry before the payload ships.**
 A converged optimiser is not evidence that the constraints hold — the same
 posture the assembly solver already took with its `SATISFIED_TOL`. A solve whose
-geometry violates a driving dimension is reclassified as the `conflicting` it
-is, returns the input entities untouched, and reaches the caller through the one
+geometry violates a constraint is reclassified as the `conflicting` it is,
+returns the input entities untouched, and reaches the caller through the one
 existing typed `SketchConstraintDiagnosis` (`sketch_conflicting`, offending
 indices, `suggested_fix`) rather than a second diagnosis written for value
-edits. The invariant: **no dimension readout disagrees with the entities shipped
-beside it in the same payload by more than `SATISFIED_TOL_MM`** — reporting the
-request unchecked is how the service came to claim a 12 mm dimension on an 8 mm
-line with nothing in the payload contradicting it.
+edits. The invariant: **nothing in a payload disagrees with the entities shipped
+beside it by more than `SATISFIED_TOL_MM`** — reporting the request unchecked is
+how the service came to claim a 12 mm dimension on an 8 mm line with nothing in
+the payload contradicting it.
+
+This began (SOLVE-1) as a check on DRIVING DIMENSIONS only, and **the narrowness
+was the defect, not the reasoning** (SETTLE-3, 2026-08-22): a relational
+constraint is no less load-bearing for having no readout. planegcs's own verdict
+does not close the gap, which is the finding that forced the widening — on a
+sketch carrying both `parallel` and `perpendicular` between the same two lines,
+flatly unsatisfiable, `diagnose()` returns `conflicting=[]` and `solve()` returns
+`SolveStatus.Success`, and the service shipped `underconstrained` with the two
+lines 67° apart. Found by a randomised sweep over 400 generated sketches; **7 of
+the 155 solvable ones shipped a violated constraint the same way.** The solver's
+STATUS is a self-report exactly as its residual is, and neither is evidence.
+
+**The settle's safety net has a SECOND, independently-derived opinion**
+(SETTLE-3). `_constraints_satisfied` was the only thing between a settle and
+wrong geometry and it asked one witness — planegcs's `constraint_error(tag)`,
+read off the parameter array the solver had just produced — while accepting
+`SolveStatus.Converged`, which in FreeCAD's DogLeg means the iteration STOPPED
+rather than that it found a root. It is also scoped to the CALLER's tags, which
+correctly excludes planegcs's internal arc rules (tag `0`, error `nan`) and
+thereby leaves *nothing at all* asking whether the arc about to be shipped is
+still an arc: `read_back` reads an arc's `start`/`end` points, which are solver
+parameters distinct from its `center`/`radius` and tied to them only by those
+unasked rules. `geometry.sketch.residual` re-derives every residual from the DTO
+entities, and both opinions must hold. It is deliberately never the STRICTER
+witness: both are required, so an over-strict residual does not catch more, it
+silently refuses correct settles and reverts the product to its pre-SOLVE-1
+behaviour with every gate green. Two bugs of exactly that shape were caught
+before shipping by comparing the two AWAY from a solution — comparing them after
+a converged solve compares `0.0` against `0.0` and proves nothing.
+
+**A settle sacrifices the COARSEST hold the constraints still admit, entity by
+entity** (SETTLE-3; supersedes the separate radius pass SOLVE-1 shipped). When
+the author's values cannot all be kept, something must give, and a pass ORDER is
+not a policy. Measured on `constraints.spec.ts`'s tangent case — an r10 circle at
+the origin, a vertical line 20 mm away, made tangent: radii pinned LAST grew the
+circle to **r20** and never moved the line; radii pinned FIRST kept r10 and
+pivoted the line about its start corner, so a line drawn vertical came back
+slanted. Both sacrifice a quantity the author DREW to keep one the solver exists
+to DERIVE. The ladder — whole entity, then its SHAPE alone (a circle's radius, a
+line's end-to-end vector, an arc's centre-to-endpoint vectors), then single
+points, then single coordinates — is SETTLE-2's finding that *holding a subset of
+a rigid body's points distorts the body* applied to the single entity, and it
+gives the answer a modelling tool gives: the circle keeps r10 at the origin, the
+line keeps its length and direction, and it slides to x = 10. **"Shape before
+placement" as a GLOBAL precedence was tried and is falsified by R-5b**, whose six
+free DOF *are* the corner angles: pinning six directions against a closure the
+edit has changed cascades, and `e4` — an edge the edit never named — moves
+10.285 mm. Hence per-entity, and hence the shape rung fires only where it costs
+no other entity anything (SOLVE-1's principle turned on the settle itself).
 
 **Spline FIT POINTS are constrainable (v1.1, 2026-07-15); the spline CURVE is
 not.** planegcs still has no spline primitive, so the curve carries no
