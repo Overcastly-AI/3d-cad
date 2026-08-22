@@ -15,7 +15,64 @@ See VISION.md's table for current row text — the vision-steward re-scores it
 independently each pass; this note only points the queue at it, no
 duplication.
 
-- **Groom pass 9 (2026-08-21, this pass) — two more audit passes recovered
+- **Groom pass 10 (2026-08-22, this pass) — SOLVE-1 SHIPPED (`7183955`),
+  ticked here (the builder deliberately left ROADMAP/BACKLOG untouched to
+  avoid racing a live sibling, and said so in the commit message).**
+  Evidence preserved rather than summarized, because it is unusually
+  strong: root cause was that DogLeg starting from CURRENT positions is
+  not the same as leaving free DOF alone — it walks a trajectory, so a
+  value edit that only adds slack drags geometry the edit never named, and
+  the result becomes a function of solve HISTORY rather than of the
+  constraint set. `_GcsBuild.settle()` now pins every input coordinate the
+  constraints still admit back to the author's value after convergence.
+  Measured, independently reproduced from the audit's own R-2 description:
+  return deviation after retyping the original value **2.162284 mm →
+  6.394885e-14 mm**; bbox after the 8→12 edit `70×70×33.0795` with the
+  profile 3.0795 mm below its origin plane → `70×70×30`, on-plane;
+  entities moved by the edit: all six → e2+e3 only. 8 regression tests
+  (`test_sketch_free_dof_hold.py`) assert properties, not totals; a
+  mutation check that disabled `settle()` alone reddened 4 of them with the
+  audit's exact numbers. **A 245x performance regression the rescued patch
+  shipped with was found and fixed in the same commit** (n^3 per-point
+  passes — 11,050 ms at 96 lines against 45 ms unsettled — replaced by a
+  semantics-free `_try_hold_everything` fast path, 147 ms). **Coverage
+  gap worth naming: our goldens top out at 12 entities, so no existing
+  gate could have caught that regression** — a candidate for a
+  geometry-QA perf golden at realistic sketch size, not filed as a ticket
+  here since it's a gate-authoring question, not a product gap.
+  `docs/RESEARCH.md` §2/§9 corrected in the same commit: §2's claim that
+  under-constrained solves are "guess-dependent by design" is now false,
+  and the determinism gate is sequence-level rather than single-solve.
+  **SNAP-5 filed underneath it** (Ready, P1/S, frontend-builder): line-by-
+  line drawing infers coincidence (SNAP-3) but never horizontal/vertical,
+  verified against `apps/web/src/sketch/store.ts` and `drawDimensions.ts`
+  source directly — it is why the auditor's axis-aligned profile solved at
+  DOF 6 instead of DOF 2, and therefore why incumbents refuse the 8→12
+  edit and we accept it (given the constraint set we actually author,
+  accepting is correct — SOLVE-1 makes that acceptance safe, it does not
+  make our sketches as constrained as Fusion's). Already half-flagged as
+  gap (3) of three on `docs/COMPETITIVE.md`'s "Automatic constraint
+  inference" row (2026-08-16); RECT-1/SNAP-3 closed the other two, this is
+  the last one standing and SOLVE-1 is independent evidence it is not
+  merely cosmetic parity.
+  **CORRECTION to both audit docs — do not act on the superseded framing.**
+  (1) `docs/AUDIT-PRODUCT.md`'s "Scorecard rows that look stale" item 2
+  claims the typed `SketchConstraintDiagnosis` "is reachable only when a
+  *new* constraint is added, not when an existing dimension's *value* is
+  edited." SOLVE-1's builder measured the ORIGINAL (pre-fix) bytes
+  returning `status=conflicting` with 12 offending indices for a pure
+  value edit on an axis-aligned profile — the claim does not hold at the
+  solver level; a value edit and a new constraint are the same code path
+  (`solve()` is stateless/whole-definition). (2) R-5c was not a conflict
+  at all: with no H/V constraints authored (see SNAP-5 above), `12+22≠30`
+  is not a contradiction, since a hexagon with those six side lengths
+  closes geometrically. `docs/AUDIT-ENGINEERING.md` "Pass 8" already
+  retracted the "new constraint only" hypothesis independently (N1-
+  CORRECTED) — this note cross-references both docs for the next reader
+  rather than rewriting either (auditor-owned). If VISION.md's Sketching
+  row narrative needs a matching correction, that's the vision-steward's
+  call — flagging, not editing.
+- **Groom pass 9 (2026-08-21) — two more audit passes recovered
   from the working tree, uncommitted, and preserved first** (`3c82384`,
   same RETRO §1.2 shape as `dab2b3e`). **SOLVE-1 and PICK-2 are RE-SCOPED
   this pass, not just re-filed** — `docs/AUDIT-ENGINEERING.md` "Pass 8"
@@ -55,10 +112,10 @@ duplication.
 - **`Part modeling (features, history)`** — unchanged from pass 8's flag:
   the canonical parametric-edit demo (change a dimension, rebuild)
   produces wrong geometry / orphaned references on the ordinary edit path,
-  not an edge case. **Wrong-geometry P0s (SOLVE-1, DXF-4, DXF-5,
-  EDGEFLANGE-1, NAME-2) outrank everything else on the board**, above the
-  frame-convention P0s (FB-21/FB-9) which are real but don't corrupt
-  geometry.
+  not an edge case. **SOLVE-1 CLOSED this pass (`7183955`) — remaining
+  wrong-geometry P0s (DXF-4, DXF-5, EDGEFLANGE-1, NAME-2) still outrank
+  everything else on the board**, above the frame-convention P0s
+  (FB-21/FB-9) which are real but don't corrupt geometry.
 - **✅ rows, still qualified:** process debt unchanged — none of the
   ~18 shipped items on this board have an independent `code-reviewer`
   pass.
@@ -85,109 +142,42 @@ duplication.
 
 ## Ready (top of queue)
 
-**Dispatch order, groom pass 9 (2026-08-21).** SOLVE-1 and PICK-2 are
-RE-SCOPED this pass (`docs/AUDIT-ENGINEERING.md` "Pass 8" traced both to
-source and found their original mechanisms wrong — see the tickets below
-for what changed and what a builder should do BEFORE writing code). Five
-new P0s from a second, uncommitted-then-preserved product audit
-(sheet-metal fabrication handoff) join the queue: DXF-4, DXF-5,
-EDGEFLANGE-1, MATE-1, NAME-2. **Top 3 disjoint items for immediate parallel
-dispatch, one per worktree:**
+**Dispatch order, groom pass 10 (2026-08-22).** **SOLVE-1 SHIPPED
+(`7183955`) — see Done archive; its fix (`_GcsBuild.settle`) HOLDS free DOF
+at the author's input instead of walking wherever DogLeg's trajectory lands,
+so an under-constrained edit no longer moves geometry the edit never named.**
+PICK-2 and DXF-4 remain live/in-flight from pass 9. A new item, **SNAP-5**,
+joins the queue: SOLVE-1's own reproduction shows our sketches solve at more
+DOF than an axis-aligned drawing looks like it should, because line-by-line
+drawing infers coincidence (SNAP-3) but never horizontal/vertical — the
+auditor's six-dimension profile solved at DOF 6, not the DOF 2 an
+axis-aligned hexagon would carry with H/V inferred, and SOLVE-1 is a safety
+net for that looseness, not a fix for it. **Disjoint items for immediate
+parallel dispatch, one per worktree:**
 
-1. **SOLVE-1** (P0, kernel-architect, `services/geometry/src/geometry/
-   sketch/planegcs_solver.py`) — wrong geometry, the board's #1 priority.
-   **Read the "BEFORE BUILDING" step in the ticket first** — it may
-   re-route to frontend-builder.
-2. **PICK-2** (P0, frontend-builder, `apps/web/src/routes/PartPage.tsx` +
+1. **PICK-2** (P0, frontend-builder, `apps/web/src/routes/PartPage.tsx` +
    `apps/web/src/viewport/FacePickOverlay.tsx`) — re-scoped, cheaper fix
    than originally filed. **MATE-1/FB-21/FB-9/SEL-8/ORTHO-1 (below) share
    viewport territory — sequence after PICK-2, do not parallelize with
    it.**
-3. **DXF-4** (P0, kernel-architect, `services/geometry/src/geometry/
+2. **DXF-4** (P0, kernel-architect, `services/geometry/src/geometry/
    sheet_metal/**` + `services/geometry/src/geometry/drawings/
-   flat_pattern.py`) — a fabrication cut file with no holes in it; fully
-   disjoint from SOLVE-1 (different subfolder of `services/geometry`) and
-   from PICK-2 (frontend).
+   flat_pattern.py`) — a fabrication cut file with no holes in it.
+3. **DXF-5** (P0, kernel-architect, `services/geometry/src/geometry/
+   drawings/compose.py`) — promoted into the active batch now that
+   SOLVE-1's kernel-architect slot is free; disjoint from DXF-4's files, can
+   run concurrently with it.
+4. **SNAP-5** (P1, frontend-builder, `apps/web/src/sketch/**`) — disjoint
+   from PICK-2's viewport/PartPage territory, safe to parallelize with it.
 
-**Next up, sequenced immediately behind the three above** (disjoint from
-each other and from the batch, ready to dispatch as slots free): DXF-5
-(kernel-architect, `drawings/compose.py` — disjoint from DXF-4's files,
-could in fact run concurrently with it), EDGEFLANGE-1 (kernel-architect,
-`sheet_metal/edge_flange.py`), NAME-2 (kernel-architect, investigate
-`kernel/**` naming resolution), MATE-1 (frontend-builder, viewport — after
-PICK-2), DOCTICK-GATE (platform-builder, `scripts/` + `ci.yml`).
+**Next up, sequenced immediately behind the four above** (disjoint from
+each other and from the batch, ready to dispatch as slots free):
+EDGEFLANGE-1 (kernel-architect, `sheet_metal/edge_flange.py`), NAME-2
+(kernel-architect, investigate `kernel/**` naming resolution), MATE-1
+(frontend-builder, viewport — after PICK-2), DOCTICK-GATE (platform-builder,
+`scripts/` + `ci.yml`).
 
 Everything else below is reprioritized but not yet dispatched this batch.
-
-- [ ] (P0, M) **SOLVE-1 — RE-SCOPED this pass (was: "route a dimension-value
-      edit through conflict detection"; that path already exists and works
-      correctly). The real, reproduced defect: the sketch solver's
-      under-constrained solve is NOT idempotent — it is a function of solve
-      HISTORY, not just the constraint set, so an edit that only adds slack
-      moves the whole profile off its authored position, and retyping the
-      original value does NOT restore the original geometry.** kind: defect
-      (wrong geometry, P0 by CLAUDE.md's standing rule).
-      WHAT CHANGED FROM THE ORIGINAL TICKET (`docs/AUDIT-ENGINEERING.md`
-      "Pass 8" N1/N1-CORRECTED, uncommitted, recovered and preserved this
-      pass): the auditor replayed the product audit's exact six-dimension
-      sketch directly against `PlanegcsSketchSolver` — no browser, no stack
-      — in four DOF/topology configurations and got `status=conflicting`
-      with the correct offending-constraint ids EVERY time, including with
-      4-5 DOF of slack present. `solve()` is stateless and whole-definition
-      (rebuilds the entire planegcs system from the submitted
-      `SketchDefinition` on every call, `planegcs_solver.py:68-76`), so a
-      value edit and a new constraint are the SAME code path. The original
-      hypothesis ("the diagnosis is reachable only when a NEW constraint is
-      added") does not hold at the solver level — it was retracted in
-      place by the auditor's own second derivation.
-      WHAT IS REAL (R-5b, reproduced): an under-constrained sketch — no
-      conflict, genuinely floating, DOF>0 — solved 10→14→10 does NOT
-      return to its start: `initial d=10: L1=(-0.477,-0.132)→(8.077,5.047)`
-      (already off the authored (0,0) on the FIRST solve) `... restored
-      exactly? False, max coordinate delta 0.045 mm`. Cause: planegcs's
-      DogLeg solve starts from the CURRENT positions, not the constraint
-      set alone (`planegcs_solver.py:10-14` documents this), so the result
-      is a function of history. This matches R-5/R-5b's numbers in kind
-      (the product audit's "slid 3.08 mm off its own origin plane" at part
-      scale) — same defect, correct mechanism this time.
-      BEFORE BUILDING: replay the product audit's ACTUAL six-dimension
-      `SketchDefinition` (not a toy fixture) against `PlanegcsSketchSolver`
-      directly (~30 lines, pattern in the audit's N1/N1-corrected).
-      **If that comes back `conflicting`, this ticket is wrong for a THIRD
-      reason and the defect is in the WEB layer's handling of the refusal
-      — re-route to frontend-builder rather than build a kernel fix on an
-      unconfirmed hypothesis.** If `underconstrained`, proceed below.
-      FIX (candidates, audit's preference order — pick and justify): (a)
-      weight free DOF toward their INPUT positions so an edit changes only
-      what it names, not the whole profile's placement; (b) the status
-      line names WHAT MOVED, not just `UNDER-CONSTRAINED`, when a solve
-      displaces previously-placed geometry; (c) a residual assertion on
-      driving dimensions — cheap, already half-built (`measure_dimension`
-      is imported into `planegcs_solver.py` and already runs for every
-      DRIVEN dimension; the residual for a driving one is
-      `measure_dimension(c, by_id) - driving_values[i]`, one line, same
-      call already in scope) — mirrors the ASSEMBLY solver's existing
-      `SATISFIED_TOL`/`conflicting_mates` pattern
-      (`services/geometry/src/geometry/assembly/solver.py:69-83`), which
-      the SKETCH solver has no equivalent of at all (`grep -n residual
-      services/geometry/src/geometry/sketch/` is empty).
-      ACCEPTANCE: reproduce R-5b (an under-constrained sketch, solve
-      A→B→A) and confirm the geometry returns to A within the solver's own
-      tolerance (not 0.045 mm off); a driving dimension's reported
-      `value_mm` never disagrees with the solved geometry by more than
-      tolerance — closes N2's separate gap too (neither
-      `test_sketch_solver.py`'s three conflicting-solve tests nor
-      `constraints.test.ts`'s readout-map tests assert `dimensions[i].
-      value_mm` against the entities it labels; add that assertion in
-      both). A genuinely conflicting edit still refuses cleanly
-      (regression — this path already works, don't break it).
-      [src: docs/AUDIT-PRODUCT.md "Pass 2026-08-21" R-5/R-5b/R-5c (original
-      filing); RE-SCOPED by docs/AUDIT-ENGINEERING.md "Pass 8" N1/N1-
-      CORRECTED, recovered and preserved by backlog-groomer pass 9]
-      TERRITORY: `services/geometry/src/geometry/sketch/planegcs_solver.py`,
-      `services/geometry/tests/test_sketch_solver.py`,
-      `apps/web/src/sketch/constraints.test.ts` (N2's web-side gap, same
-      agent). agentType: kernel-architect.
 
 - [ ] (P0, S) **PICK-2 — RE-SCOPED this pass (was: raycast falls back to
       last-good body; the real cause is upstream and the fix is cheaper).
@@ -237,6 +227,74 @@ Everything else below is reprioritized but not yet dispatched this batch.
       FacePickOverlay.tsx`. **Same territory as MATE-1/FB-21/FB-9/SEL-8/
       ORTHO-1 below — land this first (it's the P0), sequence the others
       after.** agentType: frontend-builder.
+
+- [ ] (P1, S) **SNAP-5 — line-by-line drawing never infers horizontal/
+      vertical, and SOLVE-1's own reproduction is independent evidence for
+      why that is more than a convenience gap: it is why an axis-aligned
+      profile solves at a materially higher DOF than it looks like it
+      should.** kind: capability. VERIFIED against source (not assumed from
+      `docs/COMPETITIVE.md`'s prior flag): `shapeRigidity`
+      (`apps/web/src/sketch/drawDimensions.ts:272-276`) authors rigidity
+      only for `shape === "rect"` (`rectangleRigidity`, four coincidences +
+      2H/2V) — `"line"` and `"circle"` return `[]`. `store.ts` infers
+      coincidence on snap (SNAP-3, `inferredCoincidents`,
+      `store.ts:974-1129`) but has no equivalent inference for H/V anywhere
+      in the module (`grep -n horizontal apps/web/src/sketch/store.ts`
+      empty). So a line-by-line-drawn profile — the ordinary way to sketch
+      anything that isn't a rectangle — carries no axis constraints at all
+      unless the user explicitly adds them.
+      WHY THIS MATTERS MORE THAN THE PRIOR "P3, convenience" FILING
+      (`docs/COMPETITIVE.md`'s "Automatic constraint inference" row,
+      2026-08-16/21 passes): SOLVE-1 (`7183955`, closed above) fixed the
+      sketch solver to HOLD free DOF at the author's input rather than let
+      an edit walk them wherever DogLeg's trajectory lands — but it is a
+      safety net for looseness, not a substitute for the constraints a
+      real CAD tool would have inferred in the first place. The auditor's
+      flanged-coupling profile (six consistent driving dims: 27, 8, 21, 22,
+      6, 30 — consistent by construction as an axis-aligned staircase
+      outline: 21+6=27 horizontal, 8+22=30 vertical) solved at **DOF 6, not
+      the DOF 2 an H/V-inferred version of the same axis-aligned shape
+      would carry** (per the SOLVE-1 builder's own report). No H or V
+      constraint was ever authored on any of its six edges, because
+      line-by-line drawing doesn't author them — that gap is what this
+      ticket closes. Given the constraint set we actually build today,
+      SOLVE-1's hold-the-input behavior is the CORRECT response to an
+      edit — that is not in question. What SNAP-5 closes is why the set
+      is looser than Fusion's/SolidWorks'/Onshape's would be for the
+      identical drawn shape, which is the reason our sketches carry more
+      accepted-but-unintended DOF than an incumbent's for the same
+      gesture.
+      FIX: extend `shapeRigidity`'s pattern to the `"line"` case — when a
+      freshly-drawn line's angle is within a tolerance of axis-aligned
+      (mirror Fusion's near-axis-aligned threshold; cite the source before
+      picking a number), author a `horizontal`/`vertical` constraint on it
+      at placement, the same moment `rectangleRigidity` authors a rect's
+      four coincidences. No modifier-key opt-out infrastructure exists in
+      `apps/web/src/sketch/*.ts` today (`grep -n ctrlKey\|metaKey` is
+      empty) — decide and justify whether SNAP-5 ships without an opt-out
+      gesture (simplest, matches "we don't have this machinery yet") or
+      adds the minimal plumbing for one; don't silently drop the Fusion
+      parity claim either way, name the decision in the commit.
+      ACCEPTANCE: a line drawn within tolerance of horizontal/vertical
+      carries the matching constraint immediately at placement (assert on
+      the returned `SketchConstraint[]`, mirroring
+      `drawDimensions.test.ts`'s existing `rectangleRigidity` coverage); a
+      line drawn clearly off-axis carries none (regression guard — this
+      must not become RECT-1's bug in the other direction, forcing
+      geometry the user did NOT draw); an e2e spec draws a near-axis-
+      aligned two-point line and confirms the H/V glyph and DOF count both
+      reflect the inferred constraint. Does not reopen VISION.md's
+      Sketching row by itself — filed as a capability gap, not a defect;
+      that's the vision-steward's call.
+      [src: docs/COMPETITIVE.md "Automatic constraint inference while
+      sketching" row (2026-08-16, re-verified 2026-08-21, residual (3) of
+      three); independent severity evidence from SOLVE-1's DOF-6-vs-DOF-2
+      reproduction, filed by backlog-groomer pass 10]
+      TERRITORY: `apps/web/src/sketch/drawDimensions.ts`,
+      `apps/web/src/sketch/store.ts`, `apps/web/src/sketch/
+      drawDimensions.test.ts`. Disjoint from PICK-2/MATE-1's
+      `PartPage.tsx`/`viewport/**` territory — safe to parallelize.
+      agentType: frontend-builder.
 
 - [ ] (P0, M) **DXF-4 — a flat-pattern DXF (and the on-screen Flat Pattern
       view) drops every through-feature: holes, slots, cutouts are simply
@@ -3051,6 +3109,33 @@ so it is the pre-`5bd4c46` camera snap or a stale Codespace bundle (see FB-11).
 
 ## Done — archive
 
+### SOLVE-1 CLOSED — an under-constrained solve now HOLDS the input geometry (groom pass 10, 2026-08-22, backlog-groomer)
+
+**`7183955` (kernel-architect). AUDIT-PRODUCT R-5/R-5b/R-5c, P0 wrong
+geometry.** Root cause: DogLeg starting from current positions is not the
+same as leaving free DOF alone — it walks a trajectory, so a value edit
+that only adds slack drags geometry the edit never named, and the result
+becomes a function of solve HISTORY rather than the constraint set.
+`_GcsBuild.settle()` pins every input coordinate the constraints still
+admit back to the author's value after convergence. Measured, independently
+reproduced from the audit's own R-2 description: return deviation after
+retyping the original value **2.162284 mm → 6.394885e-14 mm**; bbox after
+the 8→12 edit `70×70×33.0795` (profile 3.0795 mm below its origin plane) →
+`70×70×30`, on-plane; entities moved by the edit: all six → e2+e3 only.
+8 regression tests (`test_sketch_free_dof_hold.py`) assert properties, not
+totals; mutation check (disable `settle()` alone) reddened 4 with the
+audit's exact numbers. A **245x performance regression** in the rescued
+patch was found and fixed in the same commit (n^3 per-point passes,
+11,050 ms at 96 lines vs 45 ms unsettled, → 147 ms fast path) — our
+goldens top out at 12 entities, so no existing gate could have caught it.
+`docs/RESEARCH.md` §2/§9 corrected: §2's "guess-dependent by design" claim
+for under-constrained solves is now false; the determinism gate is
+sequence-level. Gates: full geometry suite green twice (~2661 tests,
+18m41s), `just lint` + pyright clean, `just gen-verify` clean. See
+"Groom pass 10" note at the top of this doc for the correction this
+evidence made to `docs/AUDIT-PRODUCT.md`'s over-constraint-diagnosis claim,
+and for SNAP-5, the capability gap filed underneath it.
+
 ### EXPORT-1/2 + REGISTER-1/2 + VIEWCUBE-1 + DXF-2a/2b/3 + DIM-3 + ESC-2 + VISION-FIX-1 CLOSED — the founder's 2026-08-17 file-page/export directive (groom pass 8, 2026-08-21, backlog-groomer)
 
 **Reconciled from `docs/AUDIT-ENGINEERING.md` "Pass 7" M2: 10 of the prior
@@ -3959,25 +4044,13 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 - 2026-08-21 — Groom pass 8: reconciled 10 shipped-but-unticked tickets,
   filed the SOLVE-1/PICK-2 P0 cluster + 6 engineering tickets. Full detail:
   `docs/CHANGELOG.md`.
-- 2026-08-21 — **Groom pass 9 (backlog-groomer):** preserved two more
-  uncommitted audit passes (`3c82384`) — a sheet-metal fabrication-handoff
-  product audit and an engineering pass that traced SOLVE-1/PICK-2 to
-  source. **RE-SCOPED SOLVE-1 and PICK-2** (both tickets' original
-  mechanisms were disproven by measurement; rewrote the fix and acceptance
-  criteria for each — see tickets). Filed 5 new P0s from the fabrication
-  job (DXF-4 flat-pattern drops all holes, DXF-5 wrong DXF units, 1000x;
-  EDGEFLANGE-1 flange off a thickness edge; MATE-1 unreachable mate face;
-  NAME-2 feature ref not re-stamped after match) + 7 P1s (SPEC-9 e2e race,
-  ORTHO-1, HEM-1, MATEUI-1, LAYOUT-1, GHOST-1, STEPNAME-1) + smaller P2s
-  (SPEC-8, AUDITOR-PORTS-1, SIGNIN-1, SM-POLISH-1 bucket). Corrected
-  PGTEST-GATE's fix per the auditor's own retraction (CI likely already
-  runs the 172 tests; don't add a `services: postgres` block on the old
-  claim); bumped GATE-FLOOR P2→P1 (reproduced unfixed twice) and PATTERN-1
-  P2→P1 (corroborated twice, blocks the commonest pattern use). Top 3
-  dispatched this batch, fully disjoint: SOLVE-1 (kernel-architect,
-  `sketch/**`), PICK-2 (frontend-builder, `PartPage.tsx`+
-  `FacePickOverlay.tsx`), DXF-4 (kernel-architect, `sheet_metal/**`+
-  `drawings/flat_pattern.py`). Batch kind: **13 defect / 1 capability**
-  (DOCTICK-GATE carries over from pass 8 unbuilt; every NEW item this pass
-  is a defect repair, see dispatching agent's return for the 30-commit
-  ratio and the reasoning).
+- 2026-08-21 — Groom pass 9: RE-SCOPED SOLVE-1/PICK-2 before dispatch;
+  second uncommitted audit filed 5 new P0s (DXF-4/5, EDGEFLANGE-1, MATE-1,
+  NAME-2) + 7 P1s. Full detail: `docs/CHANGELOG.md`.
+- 2026-08-22 — **Groom pass 10 (backlog-groomer):** ticked SOLVE-1 shipped
+  (`7183955`, Done archive) and filed SNAP-5 underneath it (no auto-H/V on
+  line-by-line drawing — why the audited profile solved at DOF 6 not DOF
+  2). Corrected AUDIT-PRODUCT's over-constraint-diagnosis claim and R-5c's
+  "conflict" framing against the builder's measurement (see Scorecard gaps
+  note at top). Promoted DXF-5 into the active batch (SOLVE-1's
+  kernel-architect slot freed).

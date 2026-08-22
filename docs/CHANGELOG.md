@@ -5,6 +5,29 @@ section each grooming pass (one-line-per-entry there; detail preserved
 here). Newest first. Evidence for shipped items also lives in the Done
 archive (`BACKLOG.md`) and per-item commits.
 
+## 2026-08-21 (groom pass 9 — SOLVE-1/PICK-2 RE-SCOPED before dispatch; second uncommitted audit doubled the P0 cluster)
+
+- **Groom pass 9 (backlog-groomer):** preserved two more uncommitted audit
+  passes (`3c82384`) — a sheet-metal fabrication-handoff product audit and
+  an engineering pass that traced SOLVE-1/PICK-2 to source. **RE-SCOPED
+  SOLVE-1 and PICK-2** (both tickets' original mechanisms were disproven by
+  measurement; rewrote the fix and acceptance criteria for each — see
+  tickets). Filed 5 new P0s from the fabrication job (DXF-4 flat-pattern
+  drops all holes, DXF-5 wrong DXF units, 1000x; EDGEFLANGE-1 flange off a
+  thickness edge; MATE-1 unreachable mate face; NAME-2 feature ref not
+  re-stamped after match) + 7 P1s (SPEC-9 e2e race, ORTHO-1, HEM-1,
+  MATEUI-1, LAYOUT-1, GHOST-1, STEPNAME-1) + smaller P2s (SPEC-8,
+  AUDITOR-PORTS-1, SIGNIN-1, SM-POLISH-1 bucket). Corrected PGTEST-GATE's
+  fix per the auditor's own retraction (CI likely already runs the 172
+  tests; don't add a `services: postgres` block on the old claim); bumped
+  GATE-FLOOR P2→P1 (reproduced unfixed twice) and PATTERN-1 P2→P1
+  (corroborated twice, blocks the commonest pattern use). Top 3 dispatched
+  this batch, fully disjoint: SOLVE-1 (kernel-architect, `sketch/**`),
+  PICK-2 (frontend-builder, `PartPage.tsx`+`FacePickOverlay.tsx`), DXF-4
+  (kernel-architect, `sheet_metal/**`+`drawings/flat_pattern.py`). Batch
+  kind: **13 defect / 1 capability** (DOCTICK-GATE carries over from pass 8
+  unbuilt; every NEW item this pass is a defect repair).
+
 ## 2026-08-17 (groom pass 7 — RECT-1/SNAP-2/SNAP-3/MIRROR-1 shipped; founder's file-page/export directive turned into 9 Ready tickets)
 
 - **Groom pass 7 (backlog-groomer):** archived RECT-1/SNAP-2/SNAP-3/MIRROR-1

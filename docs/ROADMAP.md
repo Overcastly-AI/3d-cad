@@ -81,6 +81,34 @@ dispatch is the direct answer to that, not a coincidence. Full detail
 per-ticket in `docs/BACKLOG.md`; sources `docs/AUDIT-PRODUCT.md` "Pass
 2026-08-21 (second pass today)" and `docs/AUDIT-ENGINEERING.md` "Pass 8".
 
+**SOLVE-1 CLOSED (`7183955`, groom pass 10, 2026-08-22) — an
+under-constrained sketch solve now HOLDS the author's input geometry
+instead of walking wherever DogLeg's trajectory lands, so a value edit
+that only adds slack no longer moves geometry the edit never named.**
+`_GcsBuild.settle()` pins every free coordinate back to the author's value
+after convergence, only keeping a hold when the re-solve still satisfies
+every driving constraint. Return deviation on the audit's exact repro:
+2.162284 mm → 6.394885e-14 mm. A 245x perf regression in the rescued patch
+was found and fixed in the same commit (n^3 → a semantics-free fast path,
+11,050 ms → 147 ms on a 96-line sketch) — our goldens top out at 12
+entities, so no gate could have caught it; noted as a coverage gap, not
+filed as a separate ticket. `docs/RESEARCH.md` §2/§9 corrected: an
+under-constrained solve is no longer "guess-dependent by design," and the
+determinism gate is sequence-level. **SNAP-5 filed underneath it**
+(Ready, P1/S, frontend-builder): line-by-line drawing infers coincidence
+but never horizontal/vertical, verified against source — the reason the
+audited profile solved at DOF 6 rather than DOF 2, and independent
+evidence for why `docs/COMPETITIVE.md`'s residual auto-H/V gap is more
+than cosmetic parity. **Correction filed against both audit docs**
+(`docs/BACKLOG.md`'s "Groom pass 10" scorecard-gaps note): the claim that
+the typed `SketchConstraintDiagnosis` fires only for added constraints,
+never an edited value, did not survive measurement against the original
+bytes (`status=conflicting` reproduced on a pure value edit); R-5c was not
+a conflict at all, since the profile carried no H/V constraints to
+contradict. PICK-2 and DXF-4 remain in flight from pass 9; DXF-5 promoted
+into the active batch with SOLVE-1's kernel-architect slot now free — see
+`docs/BACKLOG.md` Ready section for current dispatch order.
+
 **QA7-1 CLOSED (`db144d7`, reviewed non-blocking `07c4005`) — the SEL-7
 Create-costs-nothing e2e wait wasn't waiting.** `expect.poll(...).not.toBe(
 "Evaluating")` was satisfied by its first sample ("Evaluating" occurs nowhere
