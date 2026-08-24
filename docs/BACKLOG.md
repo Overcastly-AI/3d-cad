@@ -142,40 +142,49 @@ duplication.
 
 ## Ready (top of queue)
 
-**Dispatch order, groom pass 10 (2026-08-22).** **SOLVE-1 SHIPPED
-(`7183955`) — see Done archive; its fix (`_GcsBuild.settle`) HOLDS free DOF
-at the author's input instead of walking wherever DogLeg's trajectory lands,
-so an under-constrained edit no longer moves geometry the edit never named.**
-PICK-2 and DXF-4 remain live/in-flight from pass 9. A new item, **SNAP-5**,
-joins the queue: SOLVE-1's own reproduction shows our sketches solve at more
-DOF than an axis-aligned drawing looks like it should, because line-by-line
-drawing infers coincidence (SNAP-3) but never horizontal/vertical — the
-auditor's six-dimension profile solved at DOF 6, not the DOF 2 an
-axis-aligned hexagon would carry with H/V inferred, and SOLVE-1 is a safety
-net for that looseness, not a fix for it. **Disjoint items for immediate
-parallel dispatch, one per worktree:**
+**Dispatch order, groom pass 11 (2026-08-24).** SOLVE-1 shipped pass 10;
+SETTLE-2/SETTLE-3/CommandBand-label-shedding shipped and reconciled this
+pass (Done archive). **Six items are IN FLIGHT right now, in worktrees —
+do not re-dispatch them; the notes below on each entry say so:** NAME-2
+(widened to include T-21/T-8, kernel-architect), DXF-5 (widened to include
+T-16, kernel-architect), DXF-4 (kernel-architect), EDGEFLANGE-1
+(kernel-architect), REPICK-1/T-22 (new this pass, frontend-builder),
+LAYOUT-1/T-18 (frontend-builder). **Everything below this line is what is
+actually available to dispatch next, ranked by the operating question**
+("would a working engineer model a real part in this today?"). Top of the
+available queue, disjoint, parallel-dispatchable:
 
-1. **PICK-2** (P0, frontend-builder, `apps/web/src/routes/PartPage.tsx` +
-   `apps/web/src/viewport/FacePickOverlay.tsx`) — re-scoped, cheaper fix
-   than originally filed. **MATE-1/FB-21/FB-9/SEL-8/ORTHO-1 (below) share
-   viewport territory — sequence after PICK-2, do not parallelize with
-   it.**
-2. **DXF-4** (P0, kernel-architect, `services/geometry/src/geometry/
-   sheet_metal/**` + `services/geometry/src/geometry/drawings/
-   flat_pattern.py`) — a fabrication cut file with no holes in it.
-3. **DXF-5** (P0, kernel-architect, `services/geometry/src/geometry/
-   drawings/compose.py`) — promoted into the active batch now that
-   SOLVE-1's kernel-architect slot is free; disjoint from DXF-4's files, can
-   run concurrently with it.
-4. **SNAP-5** (P1, frontend-builder, `apps/web/src/sketch/**`) — disjoint
-   from PICK-2's viewport/PartPage territory, safe to parallelize with it.
-
-**Next up, sequenced immediately behind the four above** (disjoint from
-each other and from the batch, ready to dispatch as slots free):
-EDGEFLANGE-1 (kernel-architect, `sheet_metal/edge_flange.py`), NAME-2
-(kernel-architect, investigate `kernel/**` naming resolution), MATE-1
-(frontend-builder, viewport — after PICK-2), DOCTICK-GATE (platform-builder,
-`scripts/` + `ci.yml`).
+1. **PICK-2** (P0, S, frontend-builder, `apps/web/src/routes/PartPage.tsx` +
+   `apps/web/src/viewport/FacePickOverlay.tsx`) — still unfixed (verified:
+   all six `meshGlbId !== null` guards unchanged at HEAD). Front of the
+   viewport-territory queue — **MATE-1/FB-21/FB-9/SEL-8/ORTHO-1 share this
+   territory, sequence after PICK-2, don't parallelize with it.**
+2. **MATE-1** (P0, M, frontend-builder, `apps/web/src/viewport/**`) —
+   corroborated this pass by T-13 (hover highlight is a depth-less disc
+   unrelated to the face; cylindrical faces not in the pick set at all) and
+   T-14 (a measure click can land on nothing under a marker cloud) — same
+   root cause (DOM-proxy picking, no real-geometry raycast), widening the
+   fix's justification. Sequence after PICK-2.
+3. **PATTERN-1** (P1, M, kernel-architect + frontend-builder,
+   `services/geometry/src/geometry/kernel/pattern.py` + pattern form) —
+   corroborated a THIRD time this pass (T-11): patterned a hole with tip
+   `Hole2`, then patterned the WHOLE BODY with tip `Pattern1` on the
+   identical dialog, `STATUS: Up to date` reported on the wrong result.
+4. **SNAP-5** (P1, S, frontend-builder, `apps/web/src/sketch/**`) — still
+   available, disjoint from PICK-2/MATE-1's territory.
+5. **SKETCH-VOCAB-1** (P1, M, new this pass — kernel-architect +
+   frontend-builder) — no angle/diameter dimension, no midpoint/collinear,
+   `Symmetric` refuses two lines + an axis. See Next section for full
+   ticket.
+6. **FB-21** (P0, M, frontend-builder, `apps/web/src/viewport/**`) — three
+   weeks open, unclaimed; sequence behind PICK-2/MATE-1 (shared territory).
+7. **FB-9** (P0, S, frontend-builder) — re-verify against current HEAD
+   first (may be FB-21's duplicate); sequence with the viewport batch above.
+8. **DOCTICK-GATE** (P1, S, platform-builder, `scripts/` + `ci.yml`) —
+   corroborated a THIRD time this pass (engineering Pass 9 N5): 22 of the
+   last 24 feat/fix/test commits carried no ROADMAP/BACKLOG tick, including
+   all five product commits of the SETTLE batch. Disjoint from every item
+   above — safe to run in parallel with any of them.
 
 Everything else below is reprioritized but not yet dispatched this batch.
 
@@ -296,7 +305,8 @@ Everything else below is reprioritized but not yet dispatched this batch.
       `PartPage.tsx`/`viewport/**` territory — safe to parallelize.
       agentType: frontend-builder.
 
-- [ ] (P0, M) **DXF-4 — a flat-pattern DXF (and the on-screen Flat Pattern
+- [ ] (P0, M) **IN FLIGHT (kernel-architect, groom pass 11).**
+      **DXF-4 — a flat-pattern DXF (and the on-screen Flat Pattern
       view) drops every through-feature: holes, slots, cutouts are simply
       not in the unfolded blank.** kind: defect (wrong geometry — the
       unfold, not the writer, is dropping the cuts). MEASURED
@@ -328,7 +338,10 @@ Everything else below is reprioritized but not yet dispatched this batch.
       `services/geometry/goldens-sheet-metal/**`. agentType:
       kernel-architect.
 
-- [ ] (P0, XS) **DXF-5 — every exported DXF's `$INSUNITS` header declares
+- [ ] (P0, S) **IN FLIGHT (kernel-architect, groom pass 11) — SCOPE WIDENED
+      by T-16 below, told to the builder: the defect is on TWO export
+      paths and carries a silent scale error, not just the header code.**
+      **DXF-5 — every exported DXF's `$INSUNITS` header declares
       METRES (code 6) on a millimetre file — any CAM/nesting package that
       honours the field reads a 109 mm blank as 109 METRES, a 1000x
       error.** kind: defect. MEASURED (`docs/AUDIT-PRODUCT.md` "Pass
@@ -354,6 +367,23 @@ Everything else below is reprioritized but not yet dispatched this batch.
       silently.
       [src: docs/AUDIT-PRODUCT.md "Pass 2026-08-21 (second pass today)"
       S-11, filed by backlog-groomer pass 9]
+
+      **WIDENED, groom pass 11 (2026-08-24) — T-16 (fourth product pass):
+      the SAME `$INSUNITS = 6` defect is on the STANDARD DRAWING DXF too,
+      not just flat-pattern, and the sheet DXF also carries a silent scale
+      error.** Exported `mmp-001.dxf` (a standard drawing sheet, not a flat
+      pattern) and read `$INSUNITS` = 6 directly. Compounding: the sheet is
+      written in PAPER SPACE at the drawing scale (1:2 in the audit's
+      case) — the four bolt-hole circles came out at `r = 1.65` and the
+      bore at `r = 6.25`, exactly half the true 3.3 / 12.5 mm, with nothing
+      in the file or UI stating the sheet is scaled. A fix scoped to only
+      the flat-pattern path (or only the unit code, not the scale) leaves
+      half the defect standing. ACCEPTANCE (additive): both DXF export
+      paths (drawing sheet AND flat-pattern) assert `$INSUNITS==4`; either
+      export circles at true 1:1 mm regardless of sheet scale, or the
+      exported file/filename states the scale explicitly — name the
+      decision in the commit. [src: docs/AUDIT-PRODUCT.md "Pass 2026-08-24
+      (fourth pass)" T-16, filed by backlog-groomer pass 11]
       TERRITORY: `services/geometry/src/geometry/drawings/compose.py`
       (`serialize_dxf`), `services/geometry/tests/
       test_drawings_dxf_model_scale.py` or a new units-focused test.
@@ -361,7 +391,8 @@ Everything else below is reprioritized but not yet dispatched this batch.
       fine to run concurrently, different files (compose.py vs
       unfold.py/flat_pattern.py).**
 
-- [ ] (P0, S) **EDGEFLANGE-1 — an edge flange can be built off a sheet's
+- [ ] (P0, S) **IN FLIGHT (kernel-architect, groom pass 11).**
+      **EDGEFLANGE-1 — an edge flange can be built off a sheet's
       own 2 mm THICKNESS edge, and the tool reports OK/Solved/Up to date
       on a feature that cannot physically exist.** kind: defect. MEASURED
       (`docs/AUDIT-PRODUCT.md` "Pass 2026-08-21 (second pass today)" S-4):
@@ -426,12 +457,55 @@ Everything else below is reprioritized but not yet dispatched this batch.
       hit-test change reddens only the new overlap case.
       [src: docs/AUDIT-PRODUCT.md "Pass 2026-08-21 (second pass today)"
       S-15/S-5, filed by backlog-groomer pass 9]
+      **CORROBORATED, groom pass 11 (2026-08-24), widening the fix's own
+      justification — same root cause, two more surfaces.** T-13 (fourth
+      product pass): hovering a face proxy draws a translucent ellipse
+      "floating mostly BELOW the plate," drawn without depth test and
+      bearing no relation to the face's actual outline; cylindrical faces
+      are not in the pick set AT ALL (a bore wall cannot be selected as a
+      face, even after the bore is cut). T-14: a Measure click at the exact
+      centre of a marker's own bounding box registered no selection because
+      a neighbouring proxy sat on top of it (Playwright's own actionability
+      check refused it as "not stable") — same DOM-proxy-grid mechanism
+      MATE-1's fix already targets, just triggered by Measure instead of
+      mate authoring. [src: docs/AUDIT-PRODUCT.md "Pass 2026-08-24 (fourth
+      pass)" T-13/T-14]
       TERRITORY: `apps/web/src/viewport/**` (pick marker / raycast model),
       mate-authoring UI. **Same territory as PICK-2/FB-21/FB-9/SEL-8/
       ORTHO-1 above/below — sequence after PICK-2 (the P0 dispatched this
       batch); do not parallelize with it.** agentType: frontend-builder.
 
-- [ ] (P0, M) **NAME-2 — a feature's matched reference is not re-stamped
+- [ ] (P0, S) **IN FLIGHT (frontend-builder, groom pass 11, alongside
+      LAYOUT-1/T-18).** **REPICK-1 — the new `Re-pick face` repair action
+      silently RESETS the feature's own parameters, unrecoverably.** kind:
+      defect (a repair path that destroys data). MEASURED (`docs/
+      AUDIT-PRODUCT.md` "Pass 2026-08-24 (fifth pass)" T-22): using
+      `Re-pick face` on `Hole2` to recover from a broken reference reset the
+      hole's in-face position from `-23.5, -23.5` to `0, 0` — confirmed by
+      reopening the feature (`hole-position-x`/`hole-position-y` both read
+      `0`). The original values are not recoverable from anywhere in the
+      UI; the next rebuild then fails with a SECOND error
+      (`HOLE_OFF_BODY`, "Inside the Ø25 mm opening — move it onto
+      material") caused by the repair itself. Repair is also strictly
+      serial — the tree reveals only ONE failure at a time, and the app's
+      own error message already admits downstream features that don't
+      depend on the failed one could still be attempted (see NAME-2's
+      widened scope, T-21, for the anchor-identity root cause this repair
+      path exists to work around). FIX: `Re-pick face` must preserve every
+      OTHER parameter on the feature — only the broken reference changes.
+      ACCEPTANCE: reproduce T-22 (a hole with an authored off-centre
+      position, broken reference, `Re-pick face`) — the hole's position is
+      unchanged after repair; a regression test pins it; mutation check
+      (skip the preserve step) reddens only this case.
+      [src: docs/AUDIT-PRODUCT.md "Pass 2026-08-24 (fifth pass)" T-22,
+      filed by backlog-groomer pass 11]
+      TERRITORY: the `Re-pick face` repair handler (`apps/web/src/routes/
+      PartPage.tsx` — same file PICK-2 investigates; coordinate territory
+      with that ticket once dispatched). agentType: frontend-builder.
+
+- [ ] (P0, M) **IN FLIGHT (kernel-architect, groom pass 11) — SCOPE WIDENED
+      by T-21/T-8 below; the builder's brief already covers both.**
+      **NAME-2 — a feature's matched reference is not re-stamped
       after a successful re-match: the FIRST parameter edit after a clean
       rebuild survives, the SECOND consecutive edit breaks — reproduced on
       a THIRD part class (sheet metal), the same class as M17/PICK-2's
@@ -466,6 +540,32 @@ Everything else below is reprioritized but not yet dispatched this batch.
       second-consecutive-edit case.
       [src: docs/AUDIT-PRODUCT.md "Pass 2026-08-21 (second pass today)"
       S-24/S-24b/S-27, filed by backlog-groomer pass 9]
+
+      **WIDENED, groom pass 11 (2026-08-24) — T-21 and T-8 are the SAME
+      defect family, worse: it doesn't take a SECOND edit, a FIRST ordinary
+      edit is enough, because there is no topological reference at all,
+      only coordinate/geometric-property matching.** T-21 (`docs/
+      AUDIT-PRODUCT.md` fifth pass, P0, THE FINDING OF THAT PASS): an
+      extrude depth change 8mm→12mm — no topology change whatsoever —
+      destroys 6 of 8 features. The hole's own anchor readout says `FACE
+      Face at 0, 0, 8 mm` — a COORDINATE, not a topological identity — so
+      moving the top face to z=12 orphans it. Part collapses from 8
+      features/15 faces/90,291 mm³ to a bare 6-face slab. T-8 (fourth pass,
+      P0): growing a plate 120mm→150mm destroys a corner fillet built on
+      the same four edges, which kept their ORDINALS through the resize
+      (`Edge 1/2/5/8` before and after, same curve type, same adjacent
+      faces — only X moved). The matcher is built from `curve / endpoints /
+      midpoint / length`, which a resize changes BY CONSTRUCTION, so it
+      cannot survive one by design — the edges never needed re-MATCHING at
+      all, since their topological identity never moved. FreeCAD (whose
+      topological naming is its most-criticised subsystem) still carries a
+      hole/fillet through both edits. ACCEPTANCE (additive to the above):
+      the audit's two minimal repros — an extrude-depth change with a hole
+      on the far face, and a rectangle resize with a corner fillet — both
+      survive with the SAME feature reference (not a re-match); a golden
+      per case. [src: docs/AUDIT-PRODUCT.md "Pass 2026-08-24 (fourth pass)"
+      T-8, "Pass 2026-08-24 (fifth pass)" T-21, filed by backlog-groomer
+      pass 11]
       TERRITORY: investigate first — the feature-reference resolution path
       in `services/geometry/src/geometry/kernel/**` (topological naming /
       subshape matching), cross-reference
@@ -1109,7 +1209,9 @@ rotational-part audit that produced SOLVE-1/PICK-2 above:
       agentType: frontend-builder (or backend-builder if the string is
       assembled server-side).
 
-- [ ] (P1, XS) **LAYOUT-1 — the inspector panel overlaps its own content at
+- [ ] (P1, XS) **IN FLIGHT (frontend-builder, groom pass 11) —
+      CORROBORATED A THIRD TIME (T-18).** **LAYOUT-1 — the inspector panel
+      overlaps its own content at
       the documented responsive floor (1280x800), violating CLAUDE.md's
       stated quality floor directly.** kind: defect. MEASURED
       (`docs/AUDIT-PRODUCT.md` "Pass 2026-08-21 (second pass today)" S-29):
@@ -1123,6 +1225,13 @@ rotational-part audit that produced SOLVE-1/PICK-2 above:
       inspector's sections; visual regression screenshot at that width.
       [src: docs/AUDIT-PRODUCT.md "Pass 2026-08-21 (second pass today)"
       S-29, filed by backlog-groomer pass 9]
+      **THIRD CORROBORATION, groom pass 11 (2026-08-24): T-18 (fourth
+      product pass) re-measured the identical overlap on a finished part —
+      `Min` row at y 474..491, export panel at y 459..589,
+      `elementFromPoint(985, 482)` returns the Export panel's own `SPAN`,
+      and walking the ancestor chain finds NO `overflow: auto|scroll`
+      container, so the content is unreachable by scrolling either.** [src:
+      docs/AUDIT-PRODUCT.md "Pass 2026-08-24 (fourth pass)" T-18]
       TERRITORY: apps/web inspector panel component (grep `part-export-
       controls` / `BOUNDING BOX` section). agentType: frontend-builder.
 
@@ -3108,6 +3217,35 @@ so it is the pre-`5bd4c46` camera snap or a stale Codespace bundle (see FB-11).
       Pass 7 M6(a); docs/RETRO.md §1.1]
 
 ## Done — archive
+
+### SETTLE-2 + SETTLE-3 + CommandBand label-shedding CLOSED (groom pass 11, 2026-08-24, backlog-groomer)
+
+**Two SOLVE-1 regressions caught and fixed the same day, plus an unrelated
+e2e breakage from EXPORT-1's sixth command-band group.** `SETTLE-2`
+(`4fef60a`, kernel-architect) — `settle()` could satisfy every constraint
+while reflecting a rigid shape across its own symmetry axis (a plain-solve
+REFINEMENT must never re-orient); root-caused with a control (reverting only
+`planegcs_solver.py` isolates the solver as the sole variable) and fixed by
+constraining the hold to orientation-preserving corrections. `SETTLE-3`
+(`8b239e5`, kernel-architect) — a settle could sacrifice a circle's RADIUS
+while pinning its centre (pass-ordering artifact: coordinate passes ran
+before radius pins, so whichever ran last "won" arbitrarily); fixed with a
+per-entity ladder (whole entity → shape-only → nothing) and a second,
+independently-derived residual witness (`residual.py`) that a 400-sketch
+randomised sweep used to find 7/155 solvable sketches shipping a violated
+constraint despite `status=Success`. `ae1cea0` (frontend-builder) — EXPORT-1's
+sixth command-band group broke two width-probe e2e specs; fixed by shedding
+labels one `ToolGroup.labelPriority` level at a time instead of an all-or-
+nothing label/icon switch. Engineering audit Pass 9 (`8b16b21`) verified all
+three independently (full praise for the second-witness pattern, the
+documented rejected-alternative measurements, and the named `SATISFIED_TOL_MM`
+constant) and flagged four gaps that follow this batch, filed below: the
+400-sketch sweep generator was never committed (no `hypothesis` dep, no
+seeded regression test — **PBT-1**), `settle()` has no cost bound or
+benchmark despite an n^3 worst case (**SETTLE-BENCH-1**), the OpenAPI
+docstring for `SolvedDimension.value_mm` still describes pre-SOLVE-1
+semantics (**CONTRACT-1**), and `geometry-qa` has not reviewed the batch at
+all (8 days since its last entry — folded into the QA-dispatch note below).
 
 ### SOLVE-1 CLOSED — an under-constrained solve now HOLDS the input geometry (groom pass 10, 2026-08-22, backlog-groomer)
 
