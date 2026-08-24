@@ -2,7 +2,24 @@
 
 Status legend: ✅ done · 🚧 in progress · ⬜ planned
 
-**Current focus, corrected 2026-08-24 (backlog-groomer pass 11).**
+**Current focus, corrected 2026-08-24 (backlog-groomer pass 12).** No new
+commits landed since pass 11 (`8dcd0c3` still HEAD); the same five builders
+(NAME-2, DXF-4, DXF-5, EDGEFLANGE-1, LAYOUT-1/T-18) are still in flight.
+What changed: an UNCOMMITTED `docs/AUDIT-ENGINEERING.md` "Pass 10" found on
+disk mid-groom measured SOLVE-1's `settle()` at **1,560x slower** than the
+pre-SOLVE-1 solver on a 48-line dimension edit (8.3ms→12,944ms) and **230
+seconds** on a 96-line one — against a gateway that gives up at 90s and
+never cancels the upstream (DoS-shaped, fires on the single commonest
+sketcher interaction). Filed as `docs/BACKLOG.md` **SETTLE-PERF-1** (was
+SETTLE-BENCH-1, P1→P0), now top of the Ready queue ahead of PICK-2. Also
+filed **SPEC-10** (`constraints.spec.ts:240` asserts a pre-settle
+transient, same class as SPEC-9/CI-4(d)). Two stale framings in the
+grooming brief corrected against evidence already on the board rather than
+re-filed: "snap points don't work" was reproduced and closed
+(SNAP-1→SNAP-2/SNAP-3, `c233a5b`); trackpad orbit-while-sketching shipped
+as VP-1a (`32e5b87`).
+
+**Prior focus, corrected 2026-08-24 (backlog-groomer pass 11).**
 SOLVE-1 (pass 10) shipped clean; the same day it shipped two of its own
 regressions were caught and fixed — **SETTLE-2** (`4fef60a`, a settle could
 reflect a rigid shape across its own symmetry axis) and **SETTLE-3**

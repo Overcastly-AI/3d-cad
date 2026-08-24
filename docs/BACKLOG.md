@@ -15,7 +15,36 @@ See VISION.md's table for current row text — the vision-steward re-scores it
 independently each pass; this note only points the queue at it, no
 duplication. **Older pass detail (8, 9, 10) moved to `docs/CHANGELOG.md`.**
 
-- **Groom pass 11 (2026-08-24, this pass).** Vision-steward pass 15
+- **Groom pass 12 (2026-08-24, this pass).** No new commits landed since
+  pass 11 (`8dcd0c3` still HEAD); the five in-flight kernel/frontend items
+  are unchanged. What changed is an UNCOMMITTED `docs/AUDIT-ENGINEERING.md`
+  "Pass 10" found on disk mid-groom: a live, measured **1,560x** slowdown
+  of the sketch settle on an ordinary dimension edit (48 lines: 8.3ms ->
+  12,944ms; 96 lines: 230 seconds against a gateway that gives up at 90s
+  and never cancels the upstream) — this reprioritises the already-filed
+  SETTLE-BENCH-1 to **P0 (renamed SETTLE-PERF-1)**, now top of Ready. Also
+  new: `constraints.spec.ts:240` asserts a pre-settle transient (filed
+  SPEC-10, same class as CI-4(d)/SPEC-9). **Correction to this board's own
+  prior framing:** the grooming brief's assumption that "snap points do not
+  work" is unreproduced and unticketed is stale — it WAS reproduced
+  (`dbd7140`, 6 specs), root-caused as a duplicate of SKETCH-2 (origin/axes
+  not selectable), and closed via SNAP-1 -> SNAP-2/SNAP-3 (`c233a5b`,
+  shipped; see Done archive). Likewise VP-1a (Alt/Option+drag orbit for
+  trackpads) is not a gap to re-file — it shipped (`32e5b87`) as the
+  trackpad-reachable follow-up to VP-1's middle-button binding, closing the
+  founder's orbit-while-sketching report on a trackpad specifically.
+  **Process/loop-health flag, sharpened this pass:** `docs/GEOMETRY-QA.md`
+  is now stale across TWO consecutive engineering-audit passes covering the
+  SOLVE-1/SETTLE batch — the batch the uncommitted Pass 10 just found a
+  live P0 performance defect in. Dispatch `geometry-qa` this batch.
+  **✅ rows, still qualified:** none of the ~20 shipped items on this board
+  have an independent `code-reviewer` pass. **➖ rows:** Interop, Drawings.
+  **❌ rows:** Assemblies, Sheet metal (MATE-1/DXF-4 open), Performance
+  (SETTLE-PERF-1 is now direct evidence for this row, not just an
+  inference), Collaboration & versioning, Extensibility/scripting+MCP,
+  Selection & direct manipulation.
+
+- **Groom pass 11 (2026-08-24).** Vision-steward pass 15
   (`fc5cf41`) flipped Sketching ➖→✅ on SOLVE-1 (independently re-attacked
   twice more the same day — SETTLE-2/SETTLE-3, both closed, Done archive —
   before being trusted) and Assemblies + Sheet metal ➖→❌ on MATE-1/DXF-4.
@@ -52,51 +81,172 @@ duplication. **Older pass detail (8, 9, 10) moved to `docs/CHANGELOG.md`.**
 
 ## Ready (top of queue)
 
-**Dispatch order, groom pass 11 (2026-08-24).** SOLVE-1 shipped pass 10;
-SETTLE-2/SETTLE-3/CommandBand-label-shedding shipped and reconciled this
-pass (Done archive); so did REPICK-1/T-22 (`4c98ee0`, mid-pass). **Five
-items are IN FLIGHT right now, in worktrees — do not re-dispatch them; the
-notes below on each entry say so:** NAME-2
-(widened to include T-21/T-8, kernel-architect), DXF-5 (widened to include
+**Dispatch order, groom pass 12 (2026-08-24).** SOLVE-1/SETTLE-2/SETTLE-3/
+CommandBand-label-shedding/REPICK-1 all shipped and reconciled pass 11
+(Done archive); no new commits landed since (`8dcd0c3` is still HEAD). **The
+same five items are STILL IN FLIGHT, in worktrees — do not re-dispatch
+them:** NAME-2 (widened to T-21/T-8, kernel-architect), DXF-5 (widened to
 T-16, kernel-architect), DXF-4 (kernel-architect), EDGEFLANGE-1
-(kernel-architect), LAYOUT-1/T-18 (frontend-builder). **Everything below this line is what is
-actually available to dispatch next, ranked by the operating question**
-("would a working engineer model a real part in this today?"). Top of the
-available queue, disjoint, parallel-dispatchable:
+(kernel-architect), LAYOUT-1/T-18 (frontend-builder).
+**New this pass: `docs/AUDIT-ENGINEERING.md` has an UNCOMMITTED "Pass 10"
+on disk (read for this groom, not yet landed — reconcile the citation once
+it commits) that found a live P0: SOLVE-1's `settle()` is measured
+**1,560x slower** than the pre-SOLVE-1 solver on a 48-line dimension edit
+(8.3ms -> 12,944ms) and **230 SECONDS** on a 96-line one — against a
+gateway that gives up at 90s and deliberately does not cancel the
+upstream. This fires on the single commonest sketcher interaction (typing
+a new dimension value) and is authenticated-DoS-shaped. It upgrades the
+already-filed **SETTLE-BENCH-1 (P1->P0, renamed SETTLE-PERF-1)** to the
+front of the queue — see full ticket below.** Also new: a second red-e2e
+root cause, `constraints.spec.ts:240` asserting a pre-settle transient
+readout (filed as **SPEC-10**, disjoint territory from SPEC-9). Ranked by
+the operating question ("would a working engineer model a real part in
+this today?"), disjoint, parallel-dispatchable:
 
-1. **PICK-2** (P0, S, frontend-builder, `apps/web/src/routes/PartPage.tsx` +
+1. **SETTLE-PERF-1** (P0, M, kernel-architect,
+   `services/geometry/src/geometry/sketch/planegcs_solver.py` +
+   `services/geometry/tests/test_benchmarks.py`) — see full ticket below.
+   Disjoint from every other item on this list; disjoint from the five
+   in-flight kernel items too (they touch drawings/sheet_metal/naming, not
+   the sketch solver).
+2. **PICK-2** (P0, S, frontend-builder, `apps/web/src/routes/PartPage.tsx` +
    `apps/web/src/viewport/FacePickOverlay.tsx`) — still unfixed (verified:
    all six `meshGlbId !== null` guards unchanged at HEAD). Front of the
    viewport-territory queue — **MATE-1/FB-21/FB-9/SEL-8/ORTHO-1 share this
    territory, sequence after PICK-2, don't parallelize with it.**
-2. **MATE-1** (P0, M, frontend-builder, `apps/web/src/viewport/**`) —
+3. **MATE-1** (P0, M, frontend-builder, `apps/web/src/viewport/**`) —
    corroborated this pass by T-13 (hover highlight is a depth-less disc
    unrelated to the face; cylindrical faces not in the pick set at all) and
    T-14 (a measure click can land on nothing under a marker cloud) — same
    root cause (DOM-proxy picking, no real-geometry raycast), widening the
    fix's justification. Sequence after PICK-2.
-3. **PATTERN-1** (P1, M, kernel-architect + frontend-builder,
+4. **PATTERN-1** (P1, M, kernel-architect + frontend-builder,
    `services/geometry/src/geometry/kernel/pattern.py` + pattern form) —
    corroborated a THIRD time this pass (T-11): patterned a hole with tip
    `Hole2`, then patterned the WHOLE BODY with tip `Pattern1` on the
    identical dialog, `STATUS: Up to date` reported on the wrong result.
-4. **SNAP-5** (P1, S, frontend-builder, `apps/web/src/sketch/**`) — still
+   Disjoint from SETTLE-PERF-1 (different file under `kernel/`).
+5. **SNAP-5** (P1, S, frontend-builder, `apps/web/src/sketch/**`) — still
    available, disjoint from PICK-2/MATE-1's territory.
-5. **SKETCH-VOCAB-1** (P1, M, new this pass — kernel-architect +
+6. **SPEC-10** (P1, XS, frontend-builder, `apps/web/e2e/constraints.spec.ts`)
+   — new this pass, see full ticket below. Disjoint from every item above.
+7. **SKETCH-VOCAB-1** (P1, M, new pass 11 — kernel-architect +
    frontend-builder) — no angle/diameter dimension, no midpoint/collinear,
    `Symmetric` refuses two lines + an axis. See Next section for full
    ticket.
-6. **FB-21** (P0, M, frontend-builder, `apps/web/src/viewport/**`) — three
+8. **FB-21** (P0, M, frontend-builder, `apps/web/src/viewport/**`) — three
    weeks open, unclaimed; sequence behind PICK-2/MATE-1 (shared territory).
-7. **FB-9** (P0, S, frontend-builder) — re-verify against current HEAD
+9. **FB-9** (P0, S, frontend-builder) — re-verify against current HEAD
    first (may be FB-21's duplicate); sequence with the viewport batch above.
-8. **DOCTICK-GATE** (P1, S, platform-builder, `scripts/` + `ci.yml`) —
-   corroborated a THIRD time this pass (engineering Pass 9 N5): 22 of the
-   last 24 feat/fix/test commits carried no ROADMAP/BACKLOG tick, including
-   all five product commits of the SETTLE batch. Disjoint from every item
-   above — safe to run in parallel with any of them.
+10. **DOCTICK-GATE** (P1, S, platform-builder, `scripts/` + `ci.yml`) —
+    corroborated a THIRD time (engineering Pass 9 N5): 22 of the last 24
+    feat/fix/test commits carried no ROADMAP/BACKLOG tick, including all
+    five product commits of the SETTLE batch. Disjoint from every item
+    above — safe to run in parallel with any of them.
+
+**Process/loop-health flag, sharpened this pass (not a ticket):**
+`docs/GEOMETRY-QA.md` is now 8+ days stale across TWO engineering-audit
+passes in a row (Pass 9 N9, Pass 10) — the SOLVE-1/SETTLE batch (a
+1,300-line solver rewrite moving 70/75 golden sketches' solve path) has
+never had an independent `geometry-qa` review, and that same batch is the
+one the uncommitted Pass 10 just found a 1,560x live performance defect
+in. Dispatch `geometry-qa` this batch; it is the instrument that would
+have caught this class of gap before an auditor had to hand-roll the
+comparison.
 
 Everything else below is reprioritized but not yet dispatched this batch.
+
+- [ ] (P0, M) **SETTLE-PERF-1 (was SETTLE-BENCH-1, P1->P0 this pass on live
+      measurement) — SOLVE-1's `settle()` is 1,560x slower than the
+      pre-SOLVE-1 solver on an ordinary dimension edit, and 230 seconds on
+      a realistic 96-line sketch — against a gateway that gives up at 90s
+      and deliberately never cancels the upstream.** kind: defect (severe
+      performance regression, DoS-shaped). MEASURED
+      (`docs/AUDIT-ENGINEERING.md` "Pass 10" N11, uncommitted at grooming
+      time — read for this groom, reconcile the citation once it lands):
+      the pre-SOLVE-1 solver was materialised from git (`git show
+      c02743e:.../planegcs_solver.py`) and run in the SAME process as HEAD
+      against IDENTICAL fixtures — same statuses both arms (not a different
+      answer, the same answer, much slower). Closed rectilinear outline,
+      one driving dimension edited (the ordinary "type a new number into an
+      existing dimension" interaction): 8 lines 1.6ms->144.9ms (91x), 16
+      lines 3.0->608.8ms (203x), 32 lines 2.7->3,092.3ms (1,145x), 48 lines
+      **8.3ms->12,944.0ms (1,560x)**. Open-chain fixture (higher DOF): 72
+      lines 71,355ms, 96 lines **230,385ms (230s)**, growth ~n^4. 48 lines
+      is not a stress test — it's an everyday bracket outline; the
+      product's own accepted ceiling is `MAX_SKETCH_ENTITIES = 2000`. The
+      gateway's `DEFAULT_GEOMETRY_TIMEOUT_S = 90.0`
+      (`services/gateway/src/gateway/geometry.py:93`) gives up at 90s and
+      `services/gateway/src/gateway/upstream.py:141-146` says explicitly
+      "Nothing here cancels it, on purpose" — its 504 body invites a
+      retry, so a 96-line edit is a 230-second CPU burn per abandoned
+      request against a single-worker geometry service, repeatable by any
+      authenticated user (registration is open; the only control is a
+      request-count rate limit, which does not bound cost). This is a
+      live, reproducible resource-exhaustion path in the pillar the
+      scorecard just flipped to ✅.
+      FIX, in order of leverage: (a) a wall-clock budget inside `settle()`
+      that returns `baseline` (the still-residual-checked, pre-settle
+      solution already in hand at `planegcs_solver.py:1169`) on expiry —
+      ~10 lines, caps blast radius immediately; (b) stop rebuilding every
+      DTO and re-deriving every residual on every hold attempt in
+      `_geometry_says_satisfied` (`:768-794`) — today O(n) DTO builds x O(n)
+      holds; restrict re-derivation to constraints touching the pinned
+      entity, keep one full check at the end (already exists at `:1188`);
+      (c) bisect the hold set (`:1174-1187` runs one `gcs.solve()` per
+      entity/point today) instead of one at a time — O(log n) solves for
+      the common few-conflicts case; (d) re-derive whether
+      `MAX_SKETCH_ENTITIES = 2000` is still defensible at the resulting
+      per-entity cost.
+      ACCEPTANCE: new `sketch_solve` group in
+      `services/geometry/tests/test_benchmarks.py` with an already-solved
+      fixture (fast path — must stay fast) AND an edited-dimension fixture
+      (the slow path measured above) at 2+ sizes, both ceilinged; mutation
+      check — reverting the fix reddens the edited-fixture ceiling only,
+      not the fast one. A 96-line edited fixture completes within the new
+      deadline and returns `baseline` (never an error, never >90s). Record
+      the cost model in `docs/PERF.md`.
+      [src: docs/AUDIT-ENGINEERING.md "Pass 9" N4 (SETTLE-BENCH-1, original
+      filing, groom pass 11) + "Pass 10" N11 (uncommitted at grooming
+      time — live measurement of the same defect; RE-PRIORITISED P1->P0
+      this pass on that evidence, groom pass 12)]
+      TERRITORY: `services/geometry/src/geometry/sketch/planegcs_solver.py`,
+      `services/geometry/tests/test_benchmarks.py`, `docs/PERF.md`.
+      agentType: kernel-architect.
+
+- [ ] (P1, XS) **SPEC-10 — `constraints.spec.ts:240` is intermittently red
+      (1 pass / 3 fail across 4 runs) because it asserts a PRE-SETTLE
+      transient, not the settled answer — same defect class as CI-4(d)/
+      SPEC-9, new instance.** kind: defect (test). MEASURED
+      (`docs/AUDIT-ENGINEERING.md` "Pass 10" N13(b), uncommitted at
+      grooming time): same failing line every run (a stationary failure
+      point, not the wandering-point flake signature CLAUDE.md's own
+      discriminator calls out) — `Received string: "DOF 0 · CONVERGED"`
+      where the spec expects `/DOF \d+ · UNDER-CONSTRAINED/` at `:337`.
+      `DOF 0 · CONVERGED` is ARITHMETICALLY CORRECT for the constraint set
+      the spec's own comment enumerates (11 constraints removing 16 DOF
+      from 4 lines) — the spec's poll (`:320-333`) and assertion (`:337`)
+      describe an intermediate evaluation, and the one run that "passed"
+      did so by sampling the readout before the final solve landed. A
+      green result there was never evidence of anything.
+      HYPOTHESIS, not a claim (discriminator given, don't skip it): the
+      same batch's SETTLE-PERF-1 slowdown (a rectangle dimension edit went
+      0.2ms->17.2ms) may have widened the window during which the stale
+      readout is visible — i.e. this may be newly-EXPOSED rather than
+      newly-introduced. Verify by running this one spec against a geometry
+      service built from `c02743e` (pre-SOLVE-1) and counting passes;
+      record the result in the commit either way, since it decides whether
+      this is "fix the assertion" alone or also a product-latency note
+      back onto SETTLE-PERF-1.
+      FIX: assert the settled answer, not a transient (same shape as
+      CI-4(d)'s fix) — poll until status/DOF stabilizes across consecutive
+      reads before asserting, and make sure the worked-example screenshot
+      two lines later captures the settled state too.
+      ACCEPTANCE: `constraints.spec.ts:240` passes 4/4 consecutive runs.
+      [src: docs/AUDIT-ENGINEERING.md "Pass 10" N13(b), uncommitted at
+      grooming time, filed by backlog-groomer pass 12]
+      TERRITORY: `apps/web/e2e/constraints.spec.ts`. agentType:
+      frontend-builder.
 
 - [ ] (P0, S) **PICK-2 — RE-SCOPED this pass (was: raycast falls back to
       last-good body; the real cause is upstream and the fix is cheaper).
@@ -1669,38 +1819,11 @@ rotational-part audit that produced SOLVE-1/PICK-2 above:
       `services/geometry/pyproject.toml` (dev deps) or new sweep file.
       agentType: kernel-architect.
 
-- [ ] (P1, S) **SETTLE-BENCH-1 — `settle()` runs on essentially every
-      sketch edit and has a documented n^3 worst case, an 11-second
-      keystroke on a 96-line sketch, and NOTHING gates its cost.** kind:
-      capability (perf risk on a hot, latency-sensitive path). MEASURED
-      (`docs/AUDIT-ENGINEERING.md` "Pass 9" N4): the fast path
-      (`_try_hold_everything`) is the only thing standing between the
-      product and that 11s keystroke, and `just bench`'s 22-case corpus
-      (`services/geometry/tests/test_benchmarks.py`) has **no sketch-solve
-      group at all** — a future change that breaks the fast path's
-      applicability turns 147ms into 11s with every existing gate green.
-      Per-request cost is also unbounded against the schema's own
-      2000-entity/4000-constraint ceiling, while STEP import (the repo's
-      other "degenerate/adversarial input" surface) already treats this
-      class of risk seriously: a SIGKILL-able subprocess with a 20s CPU /
-      60s wall timeout. `settle()` has no equivalent, despite `baseline`
-      (the pre-settle, still-correct answer) already being in hand at the
-      point a deadline would need to fall back to it.
-      FIX: (a) add a `sketch_solve` `just bench` group — an already-solved
-      fixture (fast path) and an edited one (slow path) at two sizes,
-      ceilinged; (b) give `settle()` a wall-clock budget that falls back to
-      `baseline` on expiry; (c) re-derive whether 2000 entities is still a
-      defensible ceiling given the superlinear per-entity cost.
-      ACCEPTANCE: the new bench group fails if `_try_hold_everything`
-      regresses to the per-point path (mutation check: disable the fast
-      path, confirm the bench catches it); a deliberately slow-path fixture
-      completes within the new deadline and returns `baseline`, not an
-      error.
-      [src: docs/AUDIT-ENGINEERING.md "Pass 9" N4, filed by backlog-groomer
-      pass 11]
-      TERRITORY: `services/geometry/src/geometry/sketch/planegcs_solver.py`,
-      `services/geometry/tests/test_benchmarks.py`, `docs/PERF.md`.
-      agentType: kernel-architect.
+**SETTLE-BENCH-1 RENAMED/ELEVATED -> SETTLE-PERF-1 (P1->P0), groom pass
+12.** Uncommitted engineering-audit Pass 10 turned the "documented n^3
+worst case" into a live measurement (1,560x at 48 lines, 230s at 96 —
+DoS-shaped against the gateway's 90s no-cancel timeout). Full ticket moved
+to the Ready section, top of queue.
 
 - [ ] (P2, XS) **CONTRACT-1 — `SolvedDimension.value_mm`'s OpenAPI
       docstring still describes pre-SOLVE-1 semantics, and `gen-check`
@@ -4339,23 +4462,22 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
 
 ## Changelog
 
-- 2026-08-17 — Groom pass 7: file-page/export directive turned into
-  Ready/Next tickets. Full detail: `docs/CHANGELOG.md`.
-- 2026-08-21 — Groom pass 8: reconciled 10 shipped-but-unticked tickets,
-  filed the SOLVE-1/PICK-2 P0 cluster + 6 engineering tickets. Full detail:
+- 2026-08-17..22 — Groom passes 7-10: file-page/export tickets, 10
+  shipped-but-unticked reconciled, SOLVE-1/PICK-2 P0 cluster filed and
+  re-scoped, SOLVE-1 ticked shipped, SNAP-5 filed. Full detail:
   `docs/CHANGELOG.md`.
-- 2026-08-21 — Groom pass 9: RE-SCOPED SOLVE-1/PICK-2 before dispatch;
-  second uncommitted audit filed 5 new P0s (DXF-4/5, EDGEFLANGE-1, MATE-1,
-  NAME-2) + 7 P1s. Full detail: `docs/CHANGELOG.md`.
-- 2026-08-22 — **Groom pass 10 (backlog-groomer):** ticked SOLVE-1 shipped
-  (`7183955`, Done archive) and filed SNAP-5 underneath it (no auto-H/V on
-  line-by-line drawing — why the audited profile solved at DOF 6 not DOF
-  2). Corrected AUDIT-PRODUCT's over-constraint-diagnosis claim and R-5c's
-  "conflict" framing against the builder's measurement (see Scorecard gaps
-  note at top). Promoted DXF-5 into the active batch (SOLVE-1's
-  kernel-architect slot freed).
 - 2026-08-24 — **Groom pass 11 (backlog-groomer):** ticked SETTLE-2/
   SETTLE-3/CommandBand-label-shedding shipped; filed audit passes 4-5
   (widened NAME-2 with T-21/T-8, DXF-5 with T-16, new REPICK-1/T-22); six
   items marked IN FLIGHT and excluded from a re-derived Ready queue. Full
   detail: `docs/CHANGELOG.md`.
+- 2026-08-24 — **Groom pass 12 (backlog-groomer):** no new commits since
+  pass 11; found an UNCOMMITTED engineering-audit "Pass 10" on disk mid-
+  groom measuring SOLVE-1's settle at 1,560x slower on a 48-line dimension
+  edit and 230s on 96 lines (vs. the gateway's 90s no-cancel timeout) —
+  elevated SETTLE-BENCH-1 P1->P0 (renamed SETTLE-PERF-1), now top of Ready.
+  Filed SPEC-10 (constraints.spec.ts:240 asserts a pre-settle transient,
+  same class as SPEC-9/CI-4(d)). Corrected two stale framings in this
+  board's own prior brief: "snap points don't work" was reproduced and
+  closed (SNAP-1->SNAP-2/SNAP-3, `c233a5b`); trackpad orbit-while-sketching
+  shipped as VP-1a (`32e5b87`) — neither needed re-filing.
