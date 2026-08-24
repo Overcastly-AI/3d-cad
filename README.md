@@ -56,15 +56,21 @@ of truth for what phase we're in.
 - **Assemblies** — a distinct document type: part instances + mates
   (coincident / concentric / lock) solved by an in-house, GPL-free 6-DOF
   rigid-body solver, byte-deterministic across machines. Includes
-  interference/clash detection and assembly STEP import/export.
+  interference/clash detection and assembly STEP import/export. **The mate
+  solver is solid; picking the face you want to mate is not always possible
+  today** — see "Known correctness gaps" below (`MATE-1`).
 - **Drawings** — associative standard views (front / top / right / iso) via
   exact OCCT HLR, section views, model-true dimensions, and SVG / PDF / DXF
-  export.
+  export. The DXF unit-header bug below (`DXF-5`) applies here too, not just
+  to sheet metal.
 - **Sheet metal (v1)** — base flange + edge flange, provenance-driven
   flat-pattern unfold (bend allowance / K-factor), the flat pattern as a
   drawing view with a bend table, and a one-click **profile-only flat-pattern
   DXF** — cut geometry alone, no border/title/bend-table text on the layer a
   fabricator's nesting software selects — for handoff to shop tooling.
+  **Do not trust that DXF as-is today: it can drop through-holes entirely
+  and its unit header is wrong by 1000x** — see "Known correctness gaps"
+  below (`DXF-4`, `DXF-5`) before sending anything to a shop.
 - **Materials & mass properties** — assign a material and get real mass and a
   mass-weighted centre of mass. Both are `null` — never zero — until a
   material is assigned, on purpose.
@@ -104,20 +110,42 @@ of truth for what phase we're in.
   published gateway port ([`deploy-path.yml`](./.github/workflows/deploy-path.yml),
   i.e. `just compose-smoke`).
 
-**Known correctness gap, filed and not yet fixed:** editing an existing
-driving dimension to a value that conflicts with the rest of the sketch is
-silently *accepted* rather than refused — the status line still reads
-`UNDER-CONSTRAINED`, the solver returns a least-squares compromise that
-violates the number you just typed, and retyping the original value does not
-restore the original geometry. A downstream feature reference (e.g. a hole on
-a face) can also fail to survive a parameter edit to its own generating
-sketch, and the UI's "Re-pick face" repair does not currently work. Tracked
-as `SOLVE-1` / `PICK-2` (both P0); measured reproduction in
-[`docs/AUDIT-PRODUCT.md`](./docs/AUDIT-PRODUCT.md). This is why the
-[daily-driver scorecard](./docs/VISION.md#daily-driver-scorecard) currently
-rates Sketching & constraints and Part modeling ➖, not ✅ — ordinary drawing,
-all constraint kinds, and dimension expressions remain genuinely usable; the
-gap is specifically editing an *existing* dimension into conflict.
+**Known correctness gaps, filed and not yet fixed.** The
+[daily-driver scorecard](./docs/VISION.md#daily-driver-scorecard) is the
+source of truth for pillar-by-pillar status; these are the specific defects
+holding rows below ✅ as of this commit:
+
+- **Part modeling (➖)** — a feature reference into a body (e.g. a hole placed
+  on a face) does not reliably survive a *second* parameter edit to its own
+  generating sketch: the first edit re-anchors correctly, the second compares
+  against geometry that is already one edit stale and can orphan the
+  reference (`SUBSHAPE_UNRESOLVED`). The UI's advertised repair, "Re-pick
+  face," is currently inert on a tip that failed to build — there is no body
+  left to pick against. Tracked as `PICK-2` / `NAME-2` (both P0). Note the
+  sketch solver itself is **not** the gap here: an under-constrained solve
+  now holds the input geometry and a conflicting dimension edit is refused
+  (`SOLVE-1`, closed), which is why Sketching & constraints already rates ✅.
+- **Assemblies (❌)** — mate authoring can hit a face that is structurally
+  unreachable in the viewport: an ordinary bracket-to-plate mate was
+  unpickable across 11 camera orbits and 10 zoom levels because a same-size
+  proxy for a *different* face sits on top with no z-order tiebreak. Mate
+  solving itself is not the gap — 5 mate types, interference detection, and
+  assembly STEP round-trip all measure correct — the entry point is. Tracked
+  as `MATE-1` (P0).
+- **Sheet metal (❌)** — flat-pattern DXF export can ship **zero holes** for
+  a part that visibly has them (a bracket's 4 through-holes vanish in both
+  the on-screen flat-pattern view and the exported file) — a cut file that
+  silently omits every through-feature, not merely an incomplete one.
+  Separately, every exported DXF's `$INSUNITS` header declares **metres**,
+  not millimetres — a 1000x error for CAM/nesting software that honours the
+  field, and not limited to sheet metal: it hits the general Drawings DXF
+  export too. **Do not send an as-shipped DXF from this build to a
+  fabricator without manually verifying hole count and units.** Tracked as
+  `DXF-4` / `DXF-5` (both P0).
+
+Measured reproductions for all of the above are in
+[`docs/AUDIT-PRODUCT.md`](./docs/AUDIT-PRODUCT.md); live status and territory
+in [`docs/BACKLOG.md`](./docs/BACKLOG.md).
 
 ![The Loft viewport showing a bearing hub: a three-feature tree — sketch,
 revolve, fillet — and a turned flanged part with a through
