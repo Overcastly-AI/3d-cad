@@ -3841,3 +3841,190 @@ Named views are perspective, so `FRONT` cannot be used to check alignment or
 read a section, and the ViewCube's face clicks land you in a perspective view of
 a face. Every incumbent defaults named views to orthographic; this is table
 stakes for a modelling tool, and it is the third consecutive pass reporting it.
+
+**T-21 — 🔴 P0, THE FINDING OF THIS PASS. Changing an extrude depth from 8 mm to
+12 mm — a change that alters no topology whatsoever — destroys SIX of the eight
+features.** Opened `02 Extrude1` from the tree (2.5 s), changed `8` → `12`,
+saved. Rebuild 3.8 s, and:
+```
+03 Hole1   ERR  SUBSHAPE_UNRESOLVED  "The referenced face can no longer be
+                found — an earlier edit changed the body. Re-pick the face."
+                "Not attempted: the 5 features below. The build stops at the
+                 first failure, even for a feature that does not depend on Hole1."
+04 Hole2   SKIP   05 Pattern1 SKIP   06 Hole3 SKIP
+07 Pattern2 SKIP  08 Fillet1  SKIP
+```
+The part collapsed from 8 features / 15 faces / 90,291 mm³ to a bare slab:
+**6 faces, 144,000 mm³**. The mechanism is visible in the hole's own anchor
+readout — it says `FACE Face at 0, 0, 8 mm`, i.e. the hole is anchored to a face
+identified by its **coordinates**, and moving the top face to z = 12 orphans it.
+Nothing about the top face changed except its height.
+**This is the operating question answered in the negative.** A part that cannot
+survive a thickness change is not a parametric model, it is a one-shot sculpt
+with a history panel attached. Every incumbent — including FreeCAD, whose
+topological naming is its most criticised subsystem — carries a hole on a face
+through a depth change.
+
+**T-22 — 🔴 P0 (the repair path loses the feature's parameters).** There IS now a
+`Re-pick face` action in the failed tree row (new since the previous pass, which
+reported the error naming a control that did not exist — credit where due). But
+using it on `Hole2` **reset the hole's in-face position from `-23.5, -23.5` to
+`0, 0`**, which I confirmed by reopening the feature (`hole-position-x` = `0`,
+`hole-position-y` = `0`) — and the original values are not recoverable from
+anywhere in the UI, because the feature's own parameters were overwritten. The
+next rebuild then failed with `HOLE_OFF_BODY`, whose diagnostic is admittedly
+excellent: *"Inside the Ø25 mm opening — move it onto material."* Repair is also
+strictly serial: the tree only ever reveals ONE failure at a time, so recovering
+this part is `re-pick → 3.8 s rebuild → discover the next failure → repeat`,
+roughly six rounds plus four edge re-picks for the fillet, ~2–3 minutes of pure
+repair for changing one number. Two sub-recommendations fall straight out:
+preserve the feature's parameters across a re-pick, and re-attempt the features
+BELOW a failure that do not depend on it (the message already admits it does not).
+
+**T-23 — 🟡 nothing proposes the next step, and there is not a single drag handle
+in the product.** Queried the whole DOM in every state I reached:
+`[data-testid*="handle|gizmo|drag|arrow|manip"]` → **`[]`**, and
+`[data-testid*="palette|search|command"]` → **`[]`**. Concretely: extrude is a
+form with a numeric field and a live coloured preview but **no draggable arrow**;
+after saving a solved sketch nothing appears offering to extrude it (the profile
+is pre-selected once you *choose* Extrude from the toolbar — good — but the tool
+never proposes itself); the empty-part state has a good hint ("Start with a
+Sketch — pick a plane, then draw") and there is no equivalent hint at any later
+state. The design mandate names direct manipulation as "the single biggest 'does
+not feel like a modeling tool' gap we have, bigger than any missing feature";
+this pass confirms it is still 100 % unaddressed.
+
+**T-24 — a stray "Hem / Add a base flange first" tooltip was left painted in the
+viewport with the cursor elsewhere** (`62-laptop-1280.png`, at y ≈ 105), and the
+inspector prints `Centre of mass 0, -0, 4` and `Centroid 0, -0, 4` as two rows
+carrying the same number by definition. Both are the "every element earns its
+place" rule, in miniature. Also, `Fit model 0` remained painted over the viewport
+in an earlier capture (`24-extruded-iso.png`). No moments of inertia anywhere,
+which a mass-properties panel is expected to carry.
+
+**T-25 — creating a drawing does not open it.** `Create first drawing` returns
+you to the register and you then click the row — while `Create first part` opens
+the part immediately. The previous pass reported the same inconsistency for
+assemblies (S-17). Three creation flows, two different behaviours.
+
+**T-26 — good things worth not regressing.** The DOF readout stepping
+`2 → 1 → 0 · CONVERGED` as constraints land; the rectangle's live `W`/`H` cells;
+constraint glyphs drawn on the geometry; `Fillet` by RULE (all edges / parallel
+to X/Y/Z) which no incumbent offers in that form; the hole anchor's explicit
+`FRAME 0, 0, 8 mm · X→+X · Y→+Y` plus the `On solid material.` / `Inside the
+Ø25 mm opening` checks; the typed error vocabulary (`SUBSHAPE_UNRESOLVED`,
+`HOLE_OFF_BODY`) and the `Partial · Fillet1 failed · built to Pattern2` status;
+per-format export blocking with the reason on each tile; undo restoring a bad
+pattern in 3.2 s and a five-feature rebuild in ~3 s; exact mass on assignment
+(90,291.5 mm³ × 2.70 = 243.7871 g); the drawings module end to end.
+
+### Ratings — 1–5 daily-driver readiness (this pass: the design-change loop)
+
+| Capability | Rating | One-line reason |
+| --- | --- | --- |
+| Sketch drawing + typed sizes | 4 | Drag-draw with live W/H cells, inferred constraint glyphs, hover pre-highlight, `DOF 0 · CONVERGED`; the cells are not focused after the drag (T-4) and sit 800 px from the cursor |
+| Sketch constraint vocabulary | **2** | No **angle** and no **diameter** dimension; no midpoint/collinear; `Symmetric` refuses two lines + an axis (T-5) |
+| Part modeling — first build | 4 | Every volume exact to the displayed digit across 8 features; broad verb set (revolve/sweep/loft/shell/draft/mirror/combine present) |
+| **Parametric edit / rebuild** | **1** | A depth change 8→12 orphans 6 of 8 features (T-21); a width change 120→150 kills a corner fillet (T-8). Both are the most ordinary edits in CAD |
+| Failure *reporting* | **5** | Typed codes, the exact matcher that failed, `Partial · built to Pattern2`, per-format export blocking, red timeline chip — better than SolidWorks' rebuild list |
+| Failure *recovery* | **2** | A `Re-pick face` action now exists (up from 1), but it **discards the feature's position** (T-22), only one failure is revealed at a time, and the pick proxies can be off-screen (T-9) |
+| Selection (faces / edges / vertices) | **1** | 24 px DOM proxies; hover "highlight" is a depth-less disc unrelated to the face (T-13); a measure click landed on nothing under 65 overlapping markers (T-14); cylindrical faces not pickable |
+| Pattern | **1** | No seed picker, no preview; patterned a hole in one invocation and the whole body in the next, with `STATUS: Up to date` on the wrong result (T-11) |
+| Measure | 2 | Vertex-to-vertex exact and labelled; two hole circles give a distance that is not centre-to-centre and is not explained (T-14) |
+| Drawings | 4 | Correct third-angle HLR with hidden lines, per-view edge counts, real Ø dimensions, PDF in 249 ms; 1:2 on a third of an A3, `Ø25.000`, no tolerances, no centre marks |
+| Export (STEP/STL/3MF/GLB) | **5** | 97–158 ms, round-trip exact to the digit, filenames from the part name |
+| Import (STEP) | 4 | 3.0 s, geometry identical on re-read |
+| **DXF deliverable** | **1** | `$INSUNITS = 6` (metres) and silently written at 1:2 sheet scale (T-16) |
+| Materials / mass | 4 | Exact mass on assignment; duplicate Centroid/Centre-of-mass rows, no inertia tensor |
+| Workspace / register | 4 | Filter, sort, folders, real filenames, rebuild-health column; creating a drawing does not open it (T-25) |
+| Viewport feel | 3 | Grid to the horizon, gradient sky, a convincing metal matcap on the part; **no drawn edges on shaded bodies, no contact shadow** — the part floats |
+| View navigation | **2** | ViewCube correct and well-seated; **no orthographic projection at all** (T-20); four orientation buttons differentiated by a 1.4 px dot (T-19); the camera is left un-framed after a rebuild (T-9) |
+| Command flow (what next?) | **2** | Live preview and a pre-selected profile are real wins; **zero drag handles in the entire product**, nothing proposes the next verb (T-23) |
+| Layout robustness | **2** | The inspector overlaps its own content at the stated 1280x800 floor with no scroll container (T-18) |
+| First run | **2** | Sign-in card pinned to a corner at 5 % of the frame (T-1); a `422` on a `.test` email renders as "Request validation failed." (T-2) |
+| Performance | 4 | 2.4–3.8 s per feature/rebuild, 187 ms sign-in, 3.0 s STEP import, 97 ms STEP export |
+
+### Scorecard rows that look stale (`docs/VISION.md`) — for the vision-steward
+
+1. **`Part modeling (features, history)` — ➖ cannot be supported by this pass;
+   recommend ❌.** The row's Notes flipped it toward ✅ on shell/draft/multi-body
+   arriving. Those are real, but this pass shows the *history* half of the row is
+   the weakest thing in the product: **two independent, minimal parametric edits
+   each destroyed most of the feature tree** (T-8, T-21), and the anchor readout
+   shows why — features reference faces by coordinate. "Persistent topological
+   naming" is not a nice-to-have inside this row, it IS this row.
+2. **`Sheet metal` — ❌ is right, and the DXF unit defect is NOT sheet-metal
+   specific.** `$INSUNITS = 6` appears in the *drawing* DXF too (T-16), so the
+   Notes should move that claim out of the sheet-metal row and into `Interop`,
+   where it also belongs.
+3. **`Interop (import + export)` — ➖ is generous while a DXF ships in metres.**
+   STEP/STL/3MF/GLB genuinely earn ➖ or better (exact round-trip, sub-160 ms).
+   DXF is the outlier and it is the format that reaches a machine. Split the row
+   or name DXF explicitly in the Notes.
+4. **`Sketching & constraints` — ✅ is not supportable with no angle and no
+   diameter dimension.** The solver work behind the ✅ (SOLVE-1/SETTLE-2/
+   SETTLE-3) is real and this pass saw it behave well. But a ✅ means "better than
+   SolidWorks/Fusion/Onshape", and all three ship angle, diameter, midpoint and
+   collinear, and all three accept two lines for a symmetry constraint (T-5).
+   Recommend ➖ until the dimensional vocabulary is complete.
+5. **A row for `Selection & direct manipulation` still does not exist and still
+   should.** Second pass making this recommendation. It is the common cause
+   behind the Pattern, Measure, Fillet-repair and Hole-repair findings here, and
+   it is invisible on a scorecard organised by capability. Add it at ❌: 24 px
+   proxies, no face highlight, no drag handles anywhere in the product.
+6. **`Performance on real parts` — ➖ is fair and one Note is now wrong.** STEP
+   import measured **3.0 s** this pass (the previous pass's 12.1 s is quoted in
+   the Notes); re-measure before repeating either number.
+
+### Prioritized recommendations (P0–P3, one line each, buildable)
+
+- **P0 — Anchor a hole to a topological face reference, not to `Face at 0, 0, 8 mm`**: persist the face's identity (ordinal + adjacency + surface type) so an extrude-depth change re-resolves it, with a golden that changes a depth and asserts every downstream feature still builds (T-21).
+- **P0 — Re-match a picked EDGE by topology, not by `curve / endpoints / midpoint / length`**: the four corner edges kept their ordinals (`Edge 1/2/5/8`) through a 120→150 resize, so a topological signature would have re-matched trivially (T-8).
+- **P0 — A `Re-pick face` must PRESERVE the feature's parameters**: Hole2's `-23.5, -23.5` was silently reset to `0, 0` and is unrecoverable (T-22).
+- **P0 — Write `$INSUNITS = 4` in every DXF and gate it**: read the header back in a test and fail on any value but 4; the drawing DXF and the flat-pattern DXF are both affected (T-16).
+- **P0 — State the DXF's scale, or export sheet DXFs at 1:1**: the circles came out at r 1.65 / 6.25 for real radii of 3.3 / 12.5 with nothing in the file or UI saying so (T-16).
+- **P0 — Give Pattern a seed selection** ("features to pattern", defaulting to the tip) plus a ghosted preview before OK; today the same dialog patterned a hole once and the whole body the next time, reporting `Up to date` on the wrong result (T-11).
+- **P0 — Make faces and edges hover-pickable on the real geometry**, with the actual face tinted inside its own boundary and a "select other" cycle for coincident candidates (T-13, T-14).
+- **P1 — Continue the rebuild past a failed feature** for features that do not depend on it — the app's own message already admits it does not (T-21).
+- **P1 — Add ANGLE and DIAMETER dimensions to the sketcher** (plus midpoint and collinear), and let `Symmetric` accept two lines + an axis (T-5).
+- **P1 — Add an orthographic/perspective toggle and default the named views to orthographic** (T-20; third consecutive pass).
+- **P1 — Fit the view after a rebuild, and clamp or hide pick proxies that project outside the frame**: three of four edges I had to re-pick were at y = −186, y = 1017 and x = −4 (T-9).
+- **P1 — Fix the 1280x800 inspector overlap and give the inspector a scroll container**: `elementFromPoint` at the `Min` row returns the Export panel; Min/Max/TOPOLOGY/STATUS are unreachable (T-18).
+- **P1 — Ghost the body automatically while a sketch is being edited**, reusing the GHOST opacity already in the BODIES panel — today the profile is drawn *under* an opaque white body (T-3 shot `41-after-dblclick.png`).
+- **P1 — Render a `422`'s `details[]` as per-field errors**: the gateway already returns the exact reason, the UI prints "Request validation failed." (T-2).
+- **P1 — Centre the sign-in card** — fourth pass reporting a 5 %-of-frame panel in the corner as the product's first frame (T-1).
+- **P1 — Drag handles on extrude** (arrow on the preview, numeric field as the precision fallback) — the mandate's own named biggest gap, still at zero (T-23).
+- **P2 — Fix circular-edge labels: report the CENTRE, not centre-minus-radius** — four symmetric holes are currently labelled at −26.7 and +20.3 (T-12).
+- **P2 — Measure: label what was measured and offer centre-to-centre / diameter / radius on circular edges**; add coordinates to `measure-edge-*` labels (T-14).
+- **P2 — Focus the W/H cells on mouse-up after a drag-draw and place them near the cursor**, so "Type a size" is true (T-4).
+- **P2 — Tolerances on drawing dimensions** (`±`, limit, and a fit class) and suppress trailing zeros (`Ø25`, not `Ø25.000`) (T-17).
+- **P2 — Auto-layout should fill the sheet**: pick the largest standard scale that fits and centre the block (T-17).
+- **P2 — Centre marks and centrelines on circular views**, and a hole table (T-17).
+- **P2 — Give the four orientation buttons legible glyphs** — a 1.4 px dot on a 24 px cube is not a differentiator (T-19).
+- **P2 — Draw edges on shaded bodies** (a *Shaded With Edges* default) and add a contact shadow so parts do not float (viewport feel).
+- **P2 — Make cylindrical faces selectable** — a bore wall is not in the face pick set (T-13).
+- **P2 — Name the selection, do not just count it**: `3 ents` told me nothing when `Symmetric` refused my picks (T-6).
+- **P3 — Opening a newly created drawing should navigate into it**, as creating a part does (T-25).
+- **P3 — Put Loft in the STEP originating-system field and write a real timestamp** instead of `2000-01-01T00:00:00` / `Open CASCADE` / `Author` (T-15).
+- **P3 — Delete the duplicate `Centroid` / `Centre of mass` row and add an inertia tensor**; clear stray tooltips left painted in the viewport (T-24).
+- **P3 — Unify the wording of a subshape failure**: the banner says "edge … Re-pick it", the tree row says "face … Re-pick the face", for the same fillet failure (T-10).
+
+### Evidence & reproduction
+
+Native no-Docker boot at HEAD `fc5cf41`; gateway :8000, documents :8001,
+geometry :8002 on per-agent SQLite files, Vite :5173, Chromium 141 headless
+(ANGLE/SwiftShader — verified `WEBGL_debug_renderer_info` reports
+`SwiftShader Device (Subzero)` before any viewport claim was made) driven
+through a long-lived Playwright driver. Screenshots `00-boot.png` …
+`67-hole2-after-repick.png` and the artefacts (`plate.step`, `plate.stl`,
+`sheet.pdf`, `sheet.dxf`) are in this pass's scratchpad (`.../scratchpad/pa3/`),
+not in `docs/screenshots/`, because the auditor is read-only outside this file;
+every finding above is reproducible from the steps written into it. The part:
+**Motor mount plate** — 150 x 80 x 8 aluminium 6061, Ø25 centre bore, 4 x Ø6.6
+on a 47 mm square, R10 corners, 8 features, 15 faces, 90,291.5 mm³, 243.7871 g.
+One methodological note for future passes: a bare `chrome --headless --disable-gpu`
+launched by hand has **no WebGL at all** in this container and the app's viewport
+canvas then reports the un-styled `300x150` fingerprint — the same false signal
+CLAUDE.md records for a stale Tailwind preset. Launch the browser through
+Playwright (which supplies the ANGLE/SwiftShader flags) and assert the renderer
+string before believing any viewport observation.
