@@ -161,6 +161,21 @@ export interface HoleForm {
   threadNominalMm: number;
   /** Thread pitch (mm) — one of that nominal's standard pitches, coarse first. */
   threadPitchMm: number;
+  /**
+   * The placement is the MODELLER'S, not a seed (T-22). False on a fresh form
+   * and while the only position it holds is a face centroid the editor supplied;
+   * true once the position came from the user — typed into the X/Y cells, picked
+   * as a point in the viewport, or loaded from an existing hole's stored params.
+   *
+   * It exists because {@link applyHoleFace} is BOTH "place this new hole on the
+   * face I just clicked" and "re-attach this existing hole to the face I just
+   * re-picked", and those two want opposite things from the position. Adopting a
+   * face used to re-seed unconditionally, so the failed-feature row's
+   * `Re-pick face` repair reset a hole authored at `-23.5, -23.5` to `0, 0` and
+   * the values were unrecoverable — the repair destroyed what it repaired. A
+   * re-pick changes the ANCHOR and nothing else.
+   */
+  placementAuthored: boolean;
 }
 
 /**
@@ -198,6 +213,7 @@ function emptyHoleForm(): HoleForm {
     tapped: false,
     threadNominalMm: DEFAULT_THREAD_NOMINAL_MM,
     threadPitchMm: DEFAULT_THREAD_PITCH_MM,
+    placementAuthored: false,
   };
 }
 
@@ -252,6 +268,9 @@ export function formFromHoleParams(
     tapped: thread != null,
     threadNominalMm: thread?.nominal_diameter_mm ?? base.threadNominalMm,
     threadPitchMm: thread?.pitch_mm ?? base.threadPitchMm,
+    // A stored position IS the modeller's placement, whatever put it there, so
+    // a later re-pick re-anchors it rather than re-seeding it (T-22).
+    placementAuthored: true,
   };
 }
 
@@ -261,16 +280,43 @@ function formatAngle(value: number): string {
 }
 
 /**
- * Fold a picked face into the form: adopt the face AND seed the drill position
- * to its centroid (a point guaranteed on the face), so the form is immediately
- * submittable and the point pick only REFINES the placement.
+ * Fold a picked face into the form. Two cases, and conflating them was T-22:
+ *
+ * - **No placement of the modeller's yet** (a fresh hole, or one whose position
+ *   is still the seed a previous face supplied) — adopt the face AND seed the
+ *   drill position to its centroid, a point guaranteed on the face, so the form
+ *   is immediately submittable and the point pick only REFINES the placement.
+ * - **A placement the modeller authored** (typed, point-picked, or loaded from
+ *   the stored feature) — RE-ANCHOR: keep the in-face X/Y exactly and re-derive
+ *   the world point in the new face's frame. This is the `Re-pick face` repair
+ *   path, where the whole point is that only the anchor changes; re-seeding
+ *   there silently overwrote the feature's own parameters with `0, 0` and left
+ *   nothing in the UI to recover them from.
+ *
+ * The frame ({@link faceFrame}) is origin-at-part-origin, so the same physical
+ * face re-picked yields the same numbers, and a face that MOVED (the depth
+ * change that orphaned it) keeps the hole at the coordinates it was drilled at.
  */
 export function applyHoleFace(
   form: HoleForm,
   face: HoleFace,
   unit: LengthUnit,
 ): HoleForm {
-  return placeHole({ ...form, face }, face.signature.centroid, unit);
+  const next: HoleForm = { ...form, face };
+  const previous = form.face;
+  if (form.placementAuthored && previous !== null && form.position !== null) {
+    // Carried through the FULL-PRECISION face point, not the rendered X/Y
+    // strings: a re-pick of the same face must be a no-op on the position, and
+    // round-tripping through a formatted input would quantize it.
+    const point = toFacePoint(faceFrame(previous.signature), form.position);
+    return {
+      ...next,
+      position: toWorldPoint(faceFrame(face.signature), point),
+      xInput: lengthInputValue(point.x, unit),
+      yInput: lengthInputValue(point.y, unit),
+    };
+  }
+  return placeHole(next, face.signature.centroid, unit);
 }
 
 /** Fold a picked world point into the form as the drill position. */
@@ -279,7 +325,9 @@ export function applyHolePosition(
   position: Vec3,
   unit: LengthUnit,
 ): HoleForm {
-  return placeHole(form, position, unit);
+  // A point picked in the viewport is the modeller's placement — a later
+  // re-pick of the face must not throw it away (T-22).
+  return placeHole({ ...form, placementAuthored: true }, position, unit);
 }
 
 /**
@@ -315,8 +363,11 @@ export function applyHoleCoordinate(
   raw: string,
   unit: LengthUnit,
 ): HoleForm {
+  // Typing a coordinate is authoring the placement, so a later face re-pick
+  // re-anchors it instead of re-seeding to the new face's centroid (T-22).
+  const typed: HoleForm = { ...form, placementAuthored: true };
   const next: HoleForm =
-    axis === "x" ? { ...form, xInput: raw } : { ...form, yInput: raw };
+    axis === "x" ? { ...typed, xInput: raw } : { ...typed, yInput: raw };
   if (next.face === null) return next;
   const x = parseSignedLengthMm(next.xInput, unit);
   const y = parseSignedLengthMm(next.yInput, unit);

@@ -81,8 +81,17 @@ async function createFeature(
   };
 }
 
-/** Seed a 20 mm cube plus a hole whose placement face cannot be resolved. */
-async function seedUnresolvableHole(page: Page): Promise<string> {
+/**
+ * Seed a 20 mm cube plus a hole whose placement face cannot be resolved.
+ *
+ * `position` is the stored world drill point. Its default is the bogus face's
+ * own centre; T-22's test passes an OFF-CENTRE point so a repair that re-seeds
+ * the placement is distinguishable from one that preserves it.
+ */
+async function seedUnresolvableHole(
+  page: Page,
+  position: { x: number; y: number; z: number } = { x: 500, y: 500, z: 500 },
+): Promise<string> {
   const account = await seedSession(page);
   const part = await createPartViaApi(page, account.token, "Re-pick plate");
   const sketch = await createFeature(page, account.token, part.id, {
@@ -128,7 +137,7 @@ async function seedUnresolvableHole(page: Page): Promise<string> {
             },
           },
         },
-        position: { x: 500, y: 500, z: 500 },
+        position,
         diameter_mm: 5,
         depth: { kind: "through_all" },
       },
@@ -136,6 +145,28 @@ async function seedUnresolvableHole(page: Page): Promise<string> {
     expected_tree_version: extrude.tree_version,
   });
   return part.id;
+}
+
+/**
+ * Click the body's TOP face pick node — chosen by the greatest z in the node's
+ * accessible name, so it never depends on screen projection or a face index.
+ */
+async function clickTopFaceNode(page: Page): Promise<void> {
+  const nodes = page.locator('[data-testid^="plane-pick-face-"]');
+  await expect(nodes.first()).toBeVisible({ timeout: 20_000 });
+  const count = await nodes.count();
+  let bestZ = -Infinity;
+  let bestIndex = 0;
+  for (let i = 0; i < count; i += 1) {
+    const label = (await nodes.nth(i).getAttribute("aria-label")) ?? "";
+    const nums = label.match(/-?\d+(?:\.\d+)?/g) ?? [];
+    const z = Number.parseFloat(nums[nums.length - 1] as string);
+    if (Number.isFinite(z) && z > bestZ) {
+      bestZ = z;
+      bestIndex = i;
+    }
+  }
+  await nodes.nth(bestIndex).click();
 }
 
 test.describe("re-pick repair — a lost face reference is re-attachable", () => {
@@ -182,6 +213,80 @@ test.describe("re-pick repair — a lost face reference is re-attachable", () =>
     // After: the hole editor open, face selection re-armed.
     await page.screenshot({
       path: `${SCREENSHOT_DIR}/repick-face-armed-desktop.png`,
+    });
+  });
+
+  /**
+   * T-22 — the repair must not destroy what it repairs. `Re-pick face` used to
+   * fold the new face in through the same path a BRAND NEW hole takes, which
+   * re-seeds the drill point to the face's centroid: a hole authored off-centre
+   * came back at 0, 0 with its own parameters overwritten and nothing in the UI
+   * to recover them from, and the next rebuild failed `hole_off_body`.
+   *
+   * The stored hole here sits at face-frame (14.5, 5.5) on a plane the resolver
+   * cannot match. Re-picking the cube's real top face must move it to that
+   * face's plane and NOTHING else — same in-face coordinates, same diameter,
+   * same depth — so the rebuild succeeds where the audit's ended in an error.
+   */
+  test("Re-pick face preserves the hole's position — only the anchor changes", async ({
+    page,
+  }) => {
+    // Face frame on a +Z face is origin-at-part-origin with u = +X, v = +Y, so
+    // this stored point reads as (14.5, 5.5) in the editor's X/Y cells — well
+    // off the 20 mm cube's top-face centre of (10, 10), which is what a
+    // re-seeding repair would produce.
+    const partId = await seedUnresolvableHole(page, {
+      x: 14.5,
+      y: 5.5,
+      z: 500,
+    });
+    await page.goto(`/parts/${partId}`);
+
+    await expect(page.getByTestId("eval-status")).toHaveText("Failed", {
+      timeout: 30_000,
+    });
+    await expect(page.getByTestId("feature-error-2")).toContainText(
+      "subshape_unresolved",
+    );
+
+    await page.getByTestId("feature-repick-face-2").click();
+    await expect(page.getByTestId("hole-editor")).toBeVisible();
+
+    // The feature's OWN parameters, as stored — the baseline the repair must
+    // not move.
+    const x = page.getByTestId("hole-position-x");
+    const y = page.getByTestId("hole-position-y");
+    await expect(x).toHaveValue("14.5");
+    await expect(y).toHaveValue("5.5");
+    await expect(page.getByTestId("hole-diameter")).toHaveValue("5");
+
+    // Re-attach the reference: click the cube's real top face (z = 20).
+    await clickTopFaceNode(page);
+
+    // Only the anchor changed. Under the defect these read "10" and "10".
+    await expect(x).toHaveValue("14.5");
+    await expect(y).toHaveValue("5.5");
+    await expect(page.getByTestId("hole-diameter")).toHaveValue("5");
+
+    // And the repaired hole rebuilds: 20^3 less a Ø5 through-all bore.
+    await page.getByTestId("hole-submit").click();
+    await expect(page.getByTestId("eval-status")).toHaveText("Solved", {
+      timeout: 30_000,
+    });
+    await expect(page.getByTestId("feature-error-2")).toHaveCount(0);
+    await expect(page.getByTestId("prop-volume")).toContainText("7,607", {
+      timeout: 30_000,
+    });
+
+    // Reopening the feature shows the values survived the write, which is how
+    // the audit confirmed the loss in the first place.
+    await page.getByTestId("feature-select-2").click();
+    await expect(page.getByTestId("hole-editor")).toBeVisible();
+    await expect(page.getByTestId("hole-position-x")).toHaveValue("14.5");
+    await expect(page.getByTestId("hole-position-y")).toHaveValue("5.5");
+
+    await page.screenshot({
+      path: `${SCREENSHOT_DIR}/repick-face-preserved-desktop.png`,
     });
   });
 });
