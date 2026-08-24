@@ -2,7 +2,39 @@
 
 Status legend: ✅ done · 🚧 in progress · ⬜ planned
 
-**Current focus, corrected 2026-08-21 (backlog-groomer pass 8): the
+**Current focus, corrected 2026-08-24 (backlog-groomer pass 11).**
+SOLVE-1 (pass 10) shipped clean; the same day it shipped two of its own
+regressions were caught and fixed — **SETTLE-2** (`4fef60a`, a settle could
+reflect a rigid shape across its own symmetry axis) and **SETTLE-3**
+(`8b239e5`, a settle could sacrifice a circle's radius while pinning its
+centre, plus a second independently-derived residual witness after a
+400-sketch sweep found `status=Success` on a relationally-contradictory
+sketch 7/155 times) — alongside an unrelated e2e fix for EXPORT-1's sixth
+command-band group (`ae1cea0`). The vision-steward's fifteenth pass
+(`fc5cf41`) then flipped `Sketching & constraints` ➖→✅ on that chain and
+`Assemblies` + `Sheet metal` ➖→❌ on MATE-1/DXF-4 (both still open).
+**Two more audit passes landed same-day** (`8b16b21` engineering Pass 9 +
+product pass 4; `a547a6d` product pass 5) and were reconciled this groom
+pass: NAME-2 widened by T-21/T-8 (a topology-preserving extrude-depth or
+resize edit orphans features anchored by coordinate, not identity — a
+FIRST ordinary edit is enough, not just a second) and DXF-5 widened by
+T-16 (the unit defect is on the standard drawing DXF too, plus a silent
+1:2 scale error). **Five builders were dispatched from pass 10's queue and
+are still in flight as of this groom pass:** NAME-2, DXF-4, DXF-5,
+EDGEFLANGE-1, LAYOUT-1/T-18 — a sixth, REPICK-1/T-22 (`4c98ee0`, the
+`Re-pick face` repair path resetting a feature's own parameters), shipped
+while this groom pass was running and is reconciled into the Done archive
+already. See `docs/BACKLOG.md` Ready section for the re-derived dispatch
+order once the five land: PICK-2 → MATE-1 → PATTERN-1/SNAP-5/
+SKETCH-VOCAB-1 → FB-21/FB-9 → DOCTICK-GATE. **Hygiene note for the next
+groom pass:** this section has accumulated detailed per-pass history back
+to the licensing work (LIC-2/LIC-4, 2026-08-01) — a proper archive sweep
+into `docs/CHANGELOG.md` (one paragraph per closed item, matching what
+this pass did for `docs/BACKLOG.md`'s Scorecard-gaps section) is overdue
+and was deliberately NOT attempted this pass to keep the reconciliation
+focused; budget a dedicated pass for it.
+
+**Prior focus, corrected 2026-08-21 (backlog-groomer pass 8): the
 2026-08-17 founder file-page/export directive is fully SHIPPED.** EXPORT-1
 (`3a7c4ca`), REGISTER-1 (`044f1f7`), REGISTER-2 (`e024daa`), VIEWCUBE-1
 (`c28fbbc`), DXF-2a (`a915bf1`), DXF-2b (`5bfb528`), DXF-3 (`fe72e4d`),
