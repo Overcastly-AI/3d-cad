@@ -305,6 +305,43 @@ Everything else below is reprioritized but not yet dispatched this batch.
       `PartPage.tsx`/`viewport/**` territory — safe to parallelize.
       agentType: frontend-builder.
 
+- [ ] (P1, M) **SKETCH-VOCAB-1 — the sketcher has no angle or diameter
+      dimension, no midpoint/collinear constraint, and `Symmetric` refuses
+      the selection every engineer makes first.** kind: capability
+      (scorecard-relevant — see below). MEASURED (`docs/AUDIT-PRODUCT.md`
+      "Pass 2026-08-24 (fourth pass)" T-5), enumerated live from the three
+      constraint menus: geometric = horizontal, vertical, parallel,
+      perpendicular, tangent; dimensional = distance, radius, equal;
+      relational = coincident, concentric, symmetric, fixed. Missing
+      against every incumbent: **angle** (any non-orthogonal rib, gusset or
+      dovetail is un-dimensionable), **diameter** (holes are specified by
+      diameter on every drawing and fastener table; forcing a halved radius
+      into the model means the on-screen number never matches the
+      drawing), **midpoint**, **collinear**. `Symmetric` also accepts only
+      *two points + a line* — two parallel *lines* + an axis, which is
+      what an engineer selects first and what SolidWorks/Onshape both
+      accept, is refused with "Select two points and a line."
+      SCORECARD: the vision-steward's fifth-pass note recommends
+      `Sketching & constraints` move ✅→➖ on this gap alone — SOLVE-1/
+      SETTLE-2/SETTLE-3 (closed, Done archive) fixed the solver behaving
+      well with the constraints we DO have; a ✅ means "better than
+      SolidWorks/Fusion/Onshape," and all three ship this vocabulary.
+      FIX: add angle and diameter dimensional-constraint types (kernel:
+      planegcs constraint authoring; frontend: the dimension-type chooser),
+      midpoint and collinear geometric constraints, and accept two lines +
+      an axis for Symmetric. ACCEPTANCE: an angle dimension between two
+      non-orthogonal lines solves and displays; a diameter dimension on a
+      circle displays `⌀N` and drives the same radius internally; Symmetric
+      accepts two parallel lines + an axis and produces the same result as
+      the existing two-points-and-a-line path on an equivalent fixture.
+      [src: docs/AUDIT-PRODUCT.md "Pass 2026-08-24 (fourth pass)" T-5,
+      filed by backlog-groomer pass 11]
+      TERRITORY: `services/geometry/src/geometry/sketch/**` (constraint
+      types), `apps/web/src/sketch/**` (dimension-type UI). agentType:
+      kernel-architect (constraint solving) + frontend-builder (UI),
+      split like PATTERN-1. Disjoint from PICK-2/MATE-1's viewport
+      territory.
+
 - [ ] (P0, M) **IN FLIGHT (kernel-architect, groom pass 11).**
       **DXF-4 — a flat-pattern DXF (and the on-screen Flat Pattern
       view) drops every through-feature: holes, slots, cutouts are simply
@@ -596,6 +633,15 @@ Everything else below is reprioritized but not yet dispatched this batch.
       are avoided from the start — see GATE-FLOOR below for why that matters.
       [src: docs/AUDIT-ENGINEERING.md "Pass 7" M2, filed by backlog-groomer
       pass 8]
+      **CORROBORATED A THIRD TIME, groom pass 11 (2026-08-24, engineering
+      Pass 9 N5): 22 of the last 24 feat/fix/test commits carried NO
+      ROADMAP/BACKLOG tick, including all five product commits of the
+      SOLVE-1/SETTLE batch.** Also flags that CLAUDE.md and
+      `.claude/ORCHESTRATOR.md` now disagree about who owns the tick ("every
+      commit MUST" vs. "the groomer owns BACKLOG.md") — in practice the
+      groomer reconciles after the fact, which this gate would make
+      visible rather than eliminate; worth the orchestrator's attention
+      alongside the build fix. [src: docs/AUDIT-ENGINEERING.md "Pass 9" N5]
       TERRITORY: `scripts/check-doc-tick.py` (new), `justfile`,
       `.github/workflows/ci.yml`. agentType: platform-builder.
 
@@ -931,6 +977,15 @@ rotational-part audit that produced SOLVE-1/PICK-2 above:
       consecutive passes recommending an already-written four-line fix
       with zero action is a process signal on its own, independent of the
       gate's own severity.
+      **REPRODUCED UNCHANGED A THIRD TIME, groom pass 11 (2026-08-24,
+      engineering Pass 9 N8a):** re-ran with `tail`-swallowed exit-code
+      measurement corrected (a methodological note worth keeping: piping
+      `--self-test` through `tail` reports `tail`'s exit code, not the
+      gate's, and would print 0 for a gate that correctly exited 1) — both
+      gates still print their own vacuity and exit 0. Three passes, zero
+      action, four-line fix each: this is now the board's clearest example
+      of the "gate hygiene items don't get built" pattern the same audit
+      names in N10.
       TERRITORY: `scripts/check-workflow-concurrency.py`,
       `scripts/check-mutation-markers.py`. agentType: platform-builder.
 
@@ -963,6 +1018,9 @@ rotational-part audit that produced SOLVE-1/PICK-2 above:
       alongside `pnpm audit`; also add a test asserting `--no-dev` in the
       image build, since the Python answer is currently good only because
       of an untested Dockerfile flag, not because of anything enforced.
+      **STILL UNBUILT, groom pass 11 (2026-08-24, engineering Pass 9 N10):**
+      `.github/dependabot.yml` still absent, no `pnpm audit`/`pip-audit`
+      step in any workflow.
       TERRITORY: `.github/dependabot.yml` (new), `.github/workflows/ci.yml`.
       agentType: platform-builder.
 
@@ -983,6 +1041,11 @@ rotational-part audit that produced SOLVE-1/PICK-2 above:
       confirm green.
       [src: docs/AUDIT-ENGINEERING.md "Pass 8" N5, filed by backlog-groomer
       pass 9]
+      **STILL UNFIXED, groom pass 11 (2026-08-24, engineering Pass 9 N8d):**
+      both early returns unchanged at `:249`/`:267`; re-swept all 126 spec
+      files and confirmed the other four early-return sites are TypeScript
+      narrowing after an explicit `not.toBeNull()`, not the same escape —
+      the exposure is exactly these two lines.
       TERRITORY: `apps/web/e2e/materials.spec.ts`. agentType:
       frontend-builder.
 
@@ -1008,6 +1071,31 @@ rotational-part audit that produced SOLVE-1/PICK-2 above:
       platform-builder.
 
 ## Next (P2)
+
+- [ ] (P2, S) **FLOW-POLISH-1 — four small flow-capture defects from the
+      fourth product-audit pass, bucketed to keep the board a workable
+      size.** Each independently shippable; pull by finding id and re-
+      derive acceptance from the finding text. **P1** — a `422` with a
+      `details[]` array renders as the generic envelope message
+      ("Request validation failed") instead of the per-field reason the
+      gateway already returns (T-2: registering `audit4@loft.test` fails
+      with no indication the problem is a reserved-TLD email — the exact
+      first interaction an air-gapped-shop evaluator would have). **P2** —
+      after a drag-drawn rectangle, `document.activeElement` is `BODY`
+      instead of the size cell 800px away in the corner that reads "Type a
+      size" (T-4, half of FB-16's "capture intent where it forms" promise);
+      the selection readout counts entities (`3 ents`) but never names
+      them, so a refused selection (e.g. Symmetric wanting points, not
+      edges) gives no way to tell what was actually picked without
+      screenshotting the viewport (T-6); circular-edge aria-labels report
+      the CENTRE MINUS THE RADIUS, not the centre (T-12: four holes at the
+      provably symmetric ±23.5,±23.5 are labelled at the asymmetric -26.7
+      and +20.3 — reads as a modelling error in a part that is correct).
+      [src: docs/AUDIT-PRODUCT.md "Pass 2026-08-24 (fourth pass)"
+      T-2/T-4/T-6/T-12, filed by backlog-groomer pass 11]
+      TERRITORY: varies — auth error rendering (T-2), sketch drag-draw
+      focus (T-4), selection readout (T-6), edge-pick aria-label
+      generation (T-12), all `apps/web/**`. agentType: frontend-builder.
 
 - [ ] (P2, M) **IMPORT-HEAL-1 — a STEP import yielding zero solids has no
       recovery path.** kind: capability. `geometry.kernel.imports` says
