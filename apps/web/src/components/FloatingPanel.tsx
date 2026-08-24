@@ -8,7 +8,7 @@
  * Pure positioning + collapse chrome: the content keeps its own testids and
  * scroll. Default is expanded — collapse is a real, user-driven state.
  */
-import { cx } from "@loft/design";
+import { cx, ScrollRegion } from "@loft/design";
 import { useEffect, useState, type ReactNode } from "react";
 
 import { announceChromeChange } from "../viewport/fitFraming";
@@ -147,7 +147,14 @@ export function FloatingPanel({
       >
         {side === "left" ? "◂" : "▸"}
       </button>
-      <div className="min-h-0 overflow-y-auto shadow-float">{children}</div>
+      {/* The body scrolls, and SAYS SO — see `ScrollRegion`. It was a bare
+          `overflow-y-auto` div until T-18: correct, invisible, and therefore
+          read (three audit passes running) as a panel that truncates. The
+          primitive owns the scrollbar, the break rule and the keyboard seat;
+          nothing here restyles them. */}
+      <ScrollRegion label={`${title} readouts`} className="shadow-float">
+        {children}
+      </ScrollRegion>
       {footer !== undefined ? (
         <div
           className="shrink-0 shadow-float"

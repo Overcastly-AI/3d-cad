@@ -100,6 +100,11 @@ export { TextField, type TextFieldProps } from "./primitives/TextField";
 export { Checkbox, type CheckboxProps } from "./primitives/Checkbox";
 export { Disclosure, type DisclosureProps } from "./primitives/Disclosure";
 export {
+  ScrollRegion,
+  type ScrollRegionProps,
+  type ScrollEdges,
+} from "./primitives/ScrollRegion";
+export {
   SelectField,
   type SelectFieldProps,
   type SelectFieldOption,

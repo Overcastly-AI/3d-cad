@@ -36,7 +36,7 @@
  * up below the fold while "C'sink angle" was on screen (UI-W4) — so the slot
  * that holds them does not scroll, by construction.
  */
-import { cx } from "@loft/design";
+import { cx, ScrollRegion } from "@loft/design";
 import type { HTMLAttributes, ReactNode } from "react";
 import { createPortal } from "react-dom";
 
@@ -113,7 +113,13 @@ export function EditorCard({
       {...rest}
     >
       {header !== undefined ? <div className="shrink-0">{header}</div> : null}
-      <div className="flex min-h-0 flex-col overflow-y-auto">{children}</div>
+      {/* Same primitive, same reason as `FloatingPanel` (T-18): a clamped body
+          that clips mid-field with no scrollbar and no rule reads as a card
+          that ends there. The tallest editors (an M10 countersunk blind tapped
+          hole) are exactly where that costs a field. */}
+      <ScrollRegion label="Editor fields" contentClassName="flex flex-col">
+        {children}
+      </ScrollRegion>
       {footer !== undefined ? <div className="shrink-0">{footer}</div> : null}
     </div>
   );

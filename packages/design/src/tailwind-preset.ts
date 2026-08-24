@@ -3,6 +3,7 @@
  * DOM half of "one palette, two renderers". No hex literals here.
  */
 import type { Config } from "tailwindcss";
+import plugin from "tailwindcss/plugin";
 
 import {
   color,
@@ -156,6 +157,39 @@ export const loftPreset = {
       ) as Record<keyof typeof zLayer, string>,
     },
   },
+  plugins: [
+    /**
+     * `scrollbar-instrument` — the scribed scrollbar every clamped panel body
+     * wears (`ScrollRegion`). A defect this repo has now paid for three times
+     * (AUDIT-PRODUCT T-18) is a panel that silently truncates: with the
+     * platform's overlay scrollbars, an `overflow-y-auto` region that is
+     * hiding four sections looks exactly like one that has nothing more to
+     * show. So the bar is ALWAYS drawn while the region overflows, slim and
+     * square-cornered in the panel's own ink — an instrument, not a widget.
+     *
+     * Both engines, from the same tokens: the standard `scrollbar-width` /
+     * `scrollbar-color` pair (Firefox) and the WebKit pseudo-elements, which
+     * Chromium still needs for the square corners and the exact width.
+     */
+    plugin(({ addUtilities }) => {
+      addUtilities({
+        ".scrollbar-instrument": {
+          "scrollbar-width": "thin",
+          "scrollbar-color": `${color.etch} ${color.anvil}`,
+          "&::-webkit-scrollbar": { width: px(spacing["1.5"]) },
+          "&::-webkit-scrollbar-track": {
+            background: color.anvil,
+            "border-left": `1px solid ${color.hairline}`,
+          },
+          "&::-webkit-scrollbar-thumb": {
+            background: color.etch,
+            "border-radius": "0",
+          },
+          "&::-webkit-scrollbar-thumb:hover": { background: color.gauge },
+        },
+      });
+    }),
+  ],
 } satisfies Partial<Config>;
 
 export default loftPreset;
