@@ -4339,3 +4339,441 @@ also add a `services: postgres` block on the strength of the old claim.
   probe's two hypothesis tests passed 3/3 under the same load — so load is not
   the discriminator here. A green result under load is strong evidence; I have
   not reported any red as confirmed unless it repeated.
+
+---
+
+## 2026-08-24 — Pass 9: the SOLVE-1/SETTLE-2/SETTLE-3 solver batch, and what it did not bring with it
+
+Scope: `c02743e..fc5cf41` — 10 commits, of which **five touch product code**, all
+landed on 2026-08-22: `7183955` (SOLVE-1, free-DOF hold), `4fef60a` (SETTLE-2,
+orientation guard), `8b239e5` (SETTLE-3, per-entity ladder + `residual.py` second
+witness), `ae1cea0` (CommandBand label shedding), `cfe9b1d` (an e2e spec
+hardening). The rest are groom/docs/vision. Net +~2 400 lines of solver and
+solver tests — the largest single-subsystem change since Pass 5.
+
+Environment, because it bounds every timing claim below: container 12 min old at
+start, **load 0.31 on 4 cores**, `ps` shows no other agent's uvicorn / vite /
+pytest / playwright, 14 GB free. This is the quiet window CLAUDE.md asks for.
+
+**Verification posture for this pass.** Pass 8 spent its budget on the two
+things it could not previously measure; the batch it was waiting for has now
+landed, so this pass (a) re-runs the gates, (b) reads the new solver as a
+principal engineer would read a 1 300-line hot-path rewrite, and (c) goes back
+to RETRO §4's question — *which gates here cannot fail* — with a new instrument
+(AST sweeps over every test in the repo) rather than by re-reading the same
+five scripts.
+
+### Gate re-verification (ran myself)
+
+| Gate | Result | Evidence |
+|---|---|---|
+| `just lint` | **GREEN (exit 0)** | `LINT_EXIT=0`; ruff + ruff-format + pyright `0 errors, 0 warnings, 0 informations` + eslint/prettier + `pnpm -r typecheck` + all six `scripts/` gates |
+| `just test` | see below | run in the same quiet window |
+| `just gen-check` | see below | |
+
+### N1 — The batch is genuinely good engineering, and saying so is load-bearing for what follows
+
+I want the severity of the findings below read against this: the SOLVE-1 →
+SETTLE-2 → SETTLE-3 chain is the best-evidenced work in this repo. Specifically,
+verified by reading rather than inherited from the commit messages:
+
+* **The second-witness pattern is real, not decorative.**
+  `_constraints_satisfied` (`planegcs_solver.py:796-803`) requires BOTH
+  `_solver_says_satisfied` (planegcs's `constraint_error` over caller tags) and
+  `_geometry_says_satisfied` (`residual.py`'s re-derivation from the shipped
+  DTOs). The module docstring for `residual.py:1-60` names two failure classes
+  the first witness structurally cannot see (planegcs tag-`0` arc rules read
+  `nan`; `SolveStatus.Converged` means DogLeg *stopped*), and both are covered by
+  tests (`test_sketch_residual_agreement.py:397`, `:431`).
+* **The payload-level check closes Pass 8's N1 properly and then goes further
+  than the ticket asked.** `_dimension_readouts:289-293` now reports the
+  MEASURED value whenever the requested one disagrees by more than
+  `SATISFIED_TOL_MM`, and `_violated_constraints:219-257` widened the check from
+  driving dimensions to *every* constraint after a 400-sketch randomised sweep
+  found planegcs returning `Success` + `conflicting=[]` on a
+  parallel+perpendicular contradiction (7 of 155 solvable sketches shipped a
+  violated constraint). That is the defect class this repo keeps naming — a
+  self-report trusted as evidence — found by fuzzing rather than by argument.
+* **The rejected alternatives are recorded with their measurements**
+  (`settle()` docstring, `planegcs_solver.py:1050-1167`): the four displacement
+  metrics that all rank the R-5b correction and the SKETCH-2 reflection the same
+  way, so no threshold on any of them separates the two; the unconditional
+  shape rung that regresses R-5b by 10.285 mm; coordinate-at-a-time settling
+  returning to 2.09e-5 mm vs point-at-a-time's 6.4e-14 mm. A future agent cannot
+  cheaply re-introduce any of them.
+* **`SATISFIED_TOL_MM = 1e-7`** (`:128`) is a named, derived constant tied to the
+  assembly solver's `SATISFIED_TOL` — not an ad-hoc epsilon. `residual.py` adds
+  **zero** bare epsilons.
+* Determinism is asserted per fixture, not assumed
+  (`test_sketch_free_dof_hold.py:328`, `test_sketch_settle_orientation.py:279`,
+  `test_sketch_settle_sacrifice.py:190` — the last one over a *sequence* of
+  solves, which is the product's actual feedback loop).
+
+Everything below is what this batch did **not** bring with it.
+
+### N2 — **P1: the instrument that found this batch's two worst bugs was thrown away.** The repo has no property-based testing at all
+
+Both of the genuinely *novel* defects in this batch were found by the same
+thing, and the commits say so:
+
+* `test_sketch_residual_agreement.py:377` — *"Found by a randomised sweep that
+  reported five 'holes' in the solver's check, all five of them this bug"*
+  (planegcs's curve/curve tangency admits the INTERNAL branch, so an
+  external-only residual called a settled answer a 17.22 mm violation).
+* `test_sketch_residual_agreement.py:455` and `planegcs_solver.py:235-243` —
+  *"Found 2026-08-22 by a randomised sweep over 400 generated sketches"*: on a
+  parallel+perpendicular contradiction `diagnose()` returns `conflicting=[]`
+  and `solve()` returns `Success`, and **7 of the 155 solvable sketches in that
+  sweep shipped a violated constraint**.
+
+Neither the sweep nor its generator is in the repository:
+
+```
+$ grep -rn "random\|seed" services/geometry/tests/test_sketch_residual_agreement.py
+202:#: The sweep's own counter-example, coordinates verbatim (seed 20260822, trial …)
+377:    hold, and reverts the settle. Found by a randomised sweep …
+455:    sketches in a 400-sketch randomised sweep shipped a violated constraint …
+$ grep -c 'name = "hypothesis"' uv.lock
+0
+```
+
+What survives is three hand-transcribed counter-examples. What is gone is the
+generator that produced them. Consequences, in order of how much they cost:
+
+1. **The next solver change cannot be swept.** SETTLE-2 and SETTLE-3 each found
+   that the *previous* fix had a branch nobody had imagined (a reflection with a
+   smaller residual; a radius eaten by arithmetic). That is the signature of a
+   subsystem where hand-written fixtures under-sample the state space — and the
+   one tool that samples it now exists only in a scratch directory that is gone
+   with its container.
+2. **The 7-of-155 figure is unverifiable and unmonitored.** It is the single
+   most alarming number in the batch (4.5 % of solvable sketches shipped a
+   violated constraint) and there is no way to re-derive it, or to show it is now
+   0, or to notice it becoming non-zero again.
+3. **It is the RETRO §4 pattern one level up.** The gates that remain are the
+   ones that were green while all of these bugs were live; the gate that was red
+   is the one not committed.
+
+This repo already knows the counter-pattern and applies it elsewhere:
+`services/geometry/tests/test_faces_geom3_qa.py:253` sweeps and then asserts the
+sweep is real — `assert compared >= 1400  # measured 1440 — the sweep is real,
+not one lucky pair`. Recommendation: land the generator as a seeded,
+fixed-trial-count test (`seed 20260822`, N trials, asserting *zero* violated
+constraints and a floor on the number of solvable sketches actually exercised —
+the floor is what stops it silently becoming a no-op), or add `hypothesis` to
+the dev group. Cost is hours; it is the highest-leverage test in the subsystem.
+
+### N3 — **P2: the shipped API contract still describes the pre-SOLVE-1 semantics, and `gen-check` cannot see it**
+
+`_dimension_readouts` (`services/geometry/src/geometry/sketch/planegcs_solver.py:289-293`)
+now reports the MEASURED value whenever the requested one disagrees with the
+geometry by more than `SATISFIED_TOL_MM`:
+
+```python
+value = (
+    requested
+    if requested is not None and abs(measured - requested) <= SATISFIED_TOL_MM
+    else measured
+)
+```
+
+The pydantic docstring it is generated from was not updated, so **both committed
+OpenAPI documents — and therefore `packages/ts-client` — tell every client the
+opposite**:
+
+```
+$ python3 -c "…json.load(open('packages/contracts/gateway.openapi.json'))…['SolvedDimension']"
+"* **driving** — ``value_mm`` is the evaluated literal/expression value that
+  was fed to the solver …"
+"driving": {"description": "True = driving (value fed to the solver); …"}
+```
+
+Same text in `packages/contracts/geometry.openapi.json`. The field a client is
+told is "what you asked for" is now, in exactly the case SOLVE-1 exists to
+handle, "what you actually got" — with no field distinguishing the two (the
+`status`/`conflicting_constraints` pair is the only signal, and it is on a
+different object).
+
+Note *why* no gate caught it: `just gen-check` regenerates from the same
+docstring and diffs against the committed JSON, so a description that has gone
+false matches itself perfectly. It is CLAUDE.md's own "a gate is only as honest
+as its INPUT" in its mildest form. Fix is two sentences in
+`packages/py-kit/src/py_kit/schemas/sketch.py:575-605` plus `just gen`; consider
+also an explicit `verified: bool` (or `measured: bool`) on `SolvedDimension`, so
+the substitution is disclosed in the payload rather than inferred from a sibling
+field.
+
+### N4 — **P1: the new hot path has no cost bound and no benchmark, and the repo already ships the right pattern next door**
+
+`settle()` runs on **every** under-constrained, non-conflicting solve
+(`planegcs_solver.py:173-177`) — i.e. on essentially every keystroke in a live
+sketcher, since a sketch under construction is under-constrained by definition.
+Its own docstring states the cost model, and nothing gates it:
+
+> `_try_hold_everything` … Measured on a 96-line closed polygon (192 points,
+> DOF 96) whose stored positions already solve: **45 ms** unsettled,
+> **11 050 ms** through the per-point passes, **147 ms** through this one …
+> the per-point passes run a solve per point, so they scale about n^3
+> (5 / 17 / 95 / 936 / 11 050 ms at n = 6 / 12 / 24 / 48 / 96 lines)
+> — `planegcs_solver.py:897-923`
+
+Three separate problems follow, and only the first is a performance question.
+
+1. **The fast path is the only thing standing between the product and an
+   11-second keystroke, and no test asserts it exists.** `just bench`'s corpus
+   (`services/geometry/tests/test_benchmarks.py`, 22 `BenchCase`s across
+   `tree` / `tessellate` / `drawing` / `boolean` / `step_roundtrip` /
+   `sheet_metal` / `overlay` / `assembly`) contains **no sketch-solve group at
+   all** — the newest and most latency-sensitive path in the service is the one
+   operation the benchmark suite does not measure. A future change that breaks
+   `_try_hold_everything`'s applicability (e.g. anything that perturbs stored
+   positions by an ulp) turns a 147 ms solve into an 11 s one with every gate
+   green. The numbers in the docstring are exactly the "claim nobody measured"
+   shape RETRO §4 names, except that here they *were* measured — once, by hand,
+   and then not wired to anything.
+2. **The per-request cost is unbounded, and the schema cap is 2000.**
+   `MAX_SKETCH_ENTITIES = 2000` / `MAX_SKETCH_CONSTRAINTS = 4000`
+   (`packages/py-kit/src/py_kit/schemas/sketch.py:47-53`). Extrapolating the
+   authors' own n^3 fit from 96 lines / 11 s to the accepted ceiling is a number
+   with hours in it. The gateway's only control is a **rate** limit — 120
+   requests / 60 s per identity on compute routes
+   (`packages/py-kit/src/py_kit/config.py:149-151`,
+   `gateway/features.py:326` `dependencies=[COMPUTE_RATE_LIMIT]`) — which bounds
+   requests, not the CPU each one buys. Registration is open
+   (`gateway/auth/routes.py:142-150`: no invite, no allow-list, no
+   `registration_enabled` flag), compose runs **one** geometry container with
+   **one** uvicorn worker, and that limiter fails OPEN when Redis is unavailable
+   (`py_kit/ratelimit.py:164-170`).
+3. **The pattern this needs is already in the same service.** STEP import
+   treats a "degenerate/adversarial" input as a first-class threat:
+   `step_import_timeout_seconds = 20.0` CPU + `step_import_wall_timeout_seconds
+   = 60.0` wall, enforced in a **SIGKILL-able subprocess**
+   (`services/geometry/src/geometry/main.py:62-76`,
+   `geometry/step_cache.py:23,112-147`), surfacing as `import_parse_timeout`.
+   The sketch solver — which now does strictly more work per call than it did
+   before this batch — has no equivalent. A deadline on `settle()` that returns
+   the unsettled (still correct, still checked) solution is a natural fit,
+   because `settle` is by construction a *refinement*: `baseline` is already in
+   hand at `planegcs_solver.py:1169`.
+
+Recommendation: (a) add a `sketch_solve` benchmark group with both an
+already-solved fixture (the fast path) and an edited one (the slow path) at two
+sizes, ceilinged; (b) give `settle()` a wall-clock budget that falls back to
+`baseline`; (c) re-derive whether 2000 entities is a defensible ceiling now that
+per-entity cost is superlinear.
+
+*(Measured extension of this finding appended below once the suite finished — I
+would not run a timing measurement against a loaded box.)*
+
+### N5 — **P1 (loop health): CLAUDE.md's "NON-NEGOTIABLE" doc-tick rule is at 8 % compliance, and the gate to enforce it has been on the board since Pass 7**
+
+Measured over the last 24 `feat`/`fix`/`test` commits (`git show --name-only`
+per commit, counting hunks in `docs/ROADMAP.md` or `docs/BACKLOG.md`):
+
+```
+22 of 24 carry NO tick — including all five product commits of this batch:
+NOTICK cfe9b1d test(e2e): pick sketch entities by IDENTITY …
+NOTICK 8b239e5 fix(sketch): a settle sacrifices PLACEMENT … (SETTLE-3)
+NOTICK ae1cea0 fix(web): the command band sheds labels group by group …
+NOTICK 4fef60a fix(sketch): a settle REFINES the plain solve … (SETTLE-2)
+NOTICK 7183955 fix(sketch): an under-constrained solve HOLDS the input (SOLVE-1)
+```
+
+Pass 7 measured 0 of 11; the board filed `DOCTICK-GATE` (P1, S) with a complete
+acceptance spec including its own vacuity trap; two passes later the rate is
+unchanged and `scripts/check-doc-tick.py` does not exist. Note this is not
+merely a rule being missed — **CLAUDE.md and `.claude/ORCHESTRATOR.md` now
+disagree about who owns the board** ("every commit … MUST, in the same commit,
+update ROADMAP and BACKLOG" vs. "the `backlog-groomer` owns `docs/BACKLOG.md`"),
+and in practice the groomer reconciles afterwards (`98d686c`, `84b4675`). A rule
+that contradicts the org chart and is enforced by nothing is not a control. The
+groomer should either ship the gate or amend the rule to what the loop actually
+does — and the amendment is not free, because the reconciliation lag is exactly
+what produced the "10 shipped-unticked items" of groom pass 8.
+
+### N6 — Security pass: posture holds, with one missing negative control (P2) and one instrument correction
+
+No `services/gateway`, `services/documents`, `packages/contracts` or
+`packages/ts-client` line changed in this range
+(`git diff --stat c02743e..HEAD -- …` empty), so this is a re-derivation of the
+primitives, not a re-read of a diff.
+
+* **Authn coverage, measured rather than asserted.** Over the committed
+  contract: **85 operations, exactly 2 without a `security` requirement** —
+  `POST /api/v1/auth/login` and `POST /api/v1/auth/register`. Nothing else is
+  reachable unauthenticated.
+* **Instrument correction, in the spirit of this pass.** My first attempt to
+  measure that walked `app.routes` and reported "0 routes with no auth
+  dependency" — a *clean* result that was pure vacuity: FastAPI wraps
+  `include_router` results in `_IncludedRouter`, so the walk found **0 `/api`
+  routes at all** and dutifully found no problem with them. `py_kit/metrics.py:546`
+  documents this exact trap ("that version was written, and it passed its unit
+  tests"). The OpenAPI-based count above is the corrected instrument and its
+  denominator (85) is what makes it falsifiable.
+* **Tenancy.** `documents` derives the owner from the gateway-forwarded
+  principal header and every read is owner-scoped
+  (`documents/parts.py:53-77`, `:94`, `:117`, `:139`, `:163`); compose publishes
+  **only** the gateway (`docker-compose.yml:152-153`), with db/redis/minio bound
+  to `${BIND_IP:-127.0.0.1}`.
+* **The gateway cannot be made to forward a client-supplied principal**, because
+  it builds the upstream header set explicitly rather than proxying:
+  `upstream.py:186-189` is `{REQUEST_ID_HEADER: …, **(headers or {})}` and the
+  only caller that adds a principal is `parts.py:88`
+  (`headers={PRINCIPAL_HEADER: str(user.id)}`).
+* **(P2) …and no test pins that.** `grep -rn "spoof\|impersonat\|forged"
+  services/gateway/tests` finds only JWT-forgery tests
+  (`test_auth.py:280-282`); nothing asserts that a request arriving at the
+  gateway **with** an `X-Loft-Principal` header for another user is ignored and
+  not forwarded. The behaviour is correct today by construction, and the
+  construction is one plausible refactor away from being wrong ("forward the
+  client's `accept`/`content-type` through") with cross-tenant impersonation as
+  the failure mode. Two request-level tests, one per direction (client header
+  ignored; upstream header equals the token subject) close it — the second half
+  already exists (`test_assemblies_proxy.py:275`), so this is genuinely small.
+* **Registration is open by design** (`gateway/auth/routes.py:142`: no invite,
+  no allow-list, no `registration_enabled` setting). That is a defensible
+  self-host default, but it is the multiplier on N4's cost-bound gap and it is
+  worth an explicit line in `docs/OPERATIONS.md` rather than being implicit.
+
+### N7 — The goldens DO exercise the settle (unexpectedly), but only its fast path
+
+I expected the golden corpus to be fully constrained and therefore blind to
+SOLVE-1. Measured instead, by solving every sketch definition embedded in
+`services/geometry/goldens/**` through `PlanegcsSketchSolver` (75 sketches):
+
+```
+     5  converged dof=0
+    70  underconstrained dof=2..22   (dof=16: 24, dof=10: 14, dof=4: 20, …)
+```
+
+So **70 of 75 golden sketches now route through `settle()`**, and the batch
+changed **zero** golden bytes — which is itself the evidence that the fast path
+`_try_hold_everything` succeeds on all of them (their stored coordinates already
+solve, so holding everything is feasible and returns the input). Two
+consequences worth having on the record:
+
+* the strongest gate in the repo (goldens + cross-interpreter determinism) does
+  cover the settle's *entry* and its no-op behaviour — better than I assumed;
+* it covers **none of the ladder**: rungs 1-4, the orientation guard and the
+  drift condition are exercised only by the three new unit files' synthetic
+  fixtures. Every defect SETTLE-2 and SETTLE-3 found lives in that ladder. A
+  golden whose sketch is deliberately edited off its solution (one dimension
+  changed, so the fast path must fail) would put the ladder under the
+  determinism gate for the first time; there is currently no such golden.
+
+### N8 — RETRO §4 sweep: the two vacuous self-tests are unchanged (third pass), and a new AST instrument finds the rest of the repo clean
+
+**(a) The two known vacuous gates still print their own vacuity and exit 0.**
+Reproduced at `fc5cf41` on scratch copies whose only edit is
+`results.append((label, ok))` → `pass` (the substitution is asserted to have
+applied, so the probe itself cannot be vacuous):
+
+```
+--- check-workflow-concurrency: REAL EXIT=0
+check-workflow-concurrency: self-test passed — the gate can fail.
+--- check-mutation-markers: REAL EXIT=0
+check-mutation-markers: self-test passed - 0 cases; the real defect fails,
+prose does not, and an empty scan cannot report clean.
+```
+
+Inventory of the whole `scripts/` gate surface, so the scope is not guessed:
+
+| script | has `--self-test` | has a count floor |
+|---|---|---|
+| `stage-doc-hunks.py` | yes | **yes** (`EXPECTED_CHECKS = 19`) |
+| `e2e-shard-audit.py` | yes | **yes** (`= 14`) |
+| `check-licences.py` | yes (own harness) | n/a |
+| `check-build-context.py` | yes | n/a (straight-line, not list-driven) |
+| `check-mutation-markers.py` | yes | **NO** |
+| `check-workflow-concurrency.py` | yes | **NO** |
+| `check-compose.py` | **no self-test** | n/a — verified honest by reading: direct `base["minio"]` indexing raises on a missing service, and the one loop guards `bool(mappings) and all(...)` |
+
+Recommended for the third time, unchanged: four lines each, copied from the two
+scripts in the same directory that already do it.
+
+**(b) A methodological note that belongs in this section, because it happened
+to me.** My first measurement of the two exit codes was
+`python3 … --self-test | tail -3; echo "EXIT=$?"` — which reports **`tail`'s**
+exit status, not the gate's. It printed `EXIT=0` and would have printed `EXIT=0`
+for a gate that correctly exited 1. Re-measured with the pipe removed. The
+defect class this repo keeps naming is not a property of careless people; it is
+a property of the shortest path to a number.
+
+**(c) New instrument: an AST sweep for tests whose every assertion is inside a
+loop over a FILTERED collection** (the "subject disappeared, so the test asserted
+nothing" shape). Over every `test_*.py` in `services/` and `packages/`: 62
+functions assert only inside a loop, and exactly **one** loops over a filter
+with no non-empty guard —
+`services/geometry/tests/test_drawings_measure.py:898-910`:
+
+```python
+for arc_like in (e for e in top.edges if e.primitive in ("circle", "arc")):
+    assert arc_like.start_is_end_a is None, "a circle/arc has no endpoint bit"
+…
+for edge in right.edges:
+    if edge.source_edge is None:  # silhouette / un-dimensionable
+        assert edge.start_is_end_a is None, …
+```
+
+If projection ever stops emitting circle/arc edges (or silhouettes) the test
+passes while asserting nothing. P3, one line each
+(`assert len(...) >= 1`) — and note the repo already writes exactly that
+elsewhere: `test_faces_geom3_qa.py:253` `assert compared >= 1400  # the sweep is
+real, not one lucky pair`.
+
+**(d) The e2e side is unchanged from Pass 8**: `materials.spec.ts:249` and
+`:267` still carry `if ((await picker.count()) === 0) return;` above the
+mixed-material **mass** assertion (`84.56`), and the comment's premise
+("at HEAD there is no picker") is still expired —
+`apps/web/src/components/MaterialSection.tsx:124` ships the testid. I re-swept
+all 126 spec files: the other four early returns
+(`qa-sel4-verify.spec.ts:203,371,455,662`) are each preceded by an
+`expect(...).not.toBeNull()` and are TypeScript narrowing, not escapes. So the
+exposure is exactly the two lines Pass 8 named, still unfixed.
+
+### N9 — **P1 (loop health): the quality layer did not see this batch at all**
+
+CLAUDE.md's loop is *plan → implement → `code-reviewer` → `qa-tester`
+(+ `geometry-qa` when kernel-adjacent, `frontend-qa` spot-check) → tick → commit*.
+Last write to each quality agent's own record, measured from git:
+
+| record | owner | last entry | age at `fc5cf41` |
+|---|---|---|---|
+| `docs/GEOMETRY-QA.md` | `geometry-qa` | `0628ceb` 2026-08-16 | **8 days** |
+| `docs/UI-REVIEW.md` | `frontend-qa` | `190428a` 2026-08-17 | 7 days |
+| `docs/QA-REVIEW.md` | `qa-tester` | `e70159d` 2026-08-01 | **23 days** |
+
+`grep -c "settle\|SETTLE-" docs/GEOMETRY-QA.md` → **0**. So a 1 300-line rewrite
+of the constraint solver, which changes the returned coordinates of **70 of the
+75 sketches in the golden corpus** (N7) and which the batch's own commit messages
+describe as having needed *three* attempts to get right, shipped without a single
+`geometry-qa` pass — the one agent whose remit is exactly "golden models,
+round-trips, determinism". The builders' own gates were thorough (that is N1),
+but a builder verifying its own geometry is the self-report problem this batch
+spent 400 sketches proving matters.
+
+Same for the perf record: `docs/PERF.md` contains **no** entry for the settle,
+so the 11 050 ms / n^3 measurement in N4 exists only inside a Python docstring —
+not in the document a future perf agent would read, and not in any gate.
+
+### N10 — Carry-over ledger: what Pass 8 recommended and what landed
+
+| Pass 8 rec | Status at `fc5cf41` | Evidence |
+|---|---|---|
+| 1 — re-scope SOLVE-1 before dispatching | **DONE, and it mattered** | groom pass 9 (`84b4675`) re-scoped it; the shipped fix is the free-DOF hold the audit predicted, not the conflict path the ticket had hypothesised |
+| 2 — fix `sketch-drag-draw.spec.ts:221,:300`, then sweep the 115 specs | **NOT DONE** (filed as SPEC-9, P1, XS) | `sketch-drag-draw.spec.ts:221-224` still presses `Tab` in the same tick as `dragDraw`; no `data-state="armed"` wait |
+| 3 — re-scope PICK-2 to `meshGlbId === null` | filed; not built | board |
+| 4 — dispatch a build batch + prune worktrees | build batch **YES** (5 product commits); prune **NO** | 27 worktrees / **11 GB** (was 19 / 8.3 GB); free space 17 GB → **14 GB** |
+| 5 — `EXPECTED_CHECKS` floor on the two self-tests | **NOT DONE** (third pass) | N8(a), reproduced live |
+| 6 — `materials.spec.ts` `toHaveCount(1)` | **NOT DONE** | N8(d) |
+| 7 — dependabot + `pnpm audit`/`pip-audit` in CI | **NOT DONE** | `.github/dependabot.yml` missing; `grep -rn "pnpm audit\|pip-audit" .github/workflows/*.yml` empty |
+| 8 — serialize the two auditors / isolated-port profile | **effectively yes this pass** | the box was quiet at start (load 0.31, no foreign uvicorn/vite) |
+| 9 — rate-limit metric, named epsilons, loud PG skip | **NOT DONE** | `grep -n rate_limit packages/py-kit/src/py_kit/metrics.py` empty; the 8 inline epsilons in `drawings/compose.py:286,792,940,1056,1316,1356,1386,1391` unchanged |
+
+Also unchanged since Pass 7: `DOCTICK-GATE` (N5) and the
+`test_assembly_import_chain.py:56` live `build123d` import in gateway tests.
+
+Note the shape of this ledger: the **P0/P1 product** items got built, and every
+**gate-hygiene** item did not, three passes running. That is a prioritisation
+that is defensible once and structural after three times — the gates are what
+tell you whether the next P0 fix worked.
