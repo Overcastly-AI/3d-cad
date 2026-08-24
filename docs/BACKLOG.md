@@ -26,9 +26,11 @@ duplication. **Older pass detail (8, 9, 10) moved to `docs/CHANGELOG.md`.**
   identity — worse than NAME-2's original "second edit" framing, a FIRST
   ordinary edit is enough) and DXF-5 by T-16 (the unit defect is on the
   standard drawing DXF too, plus a silent 1:2 scale error). A new P0,
-  REPICK-1/T-22, joins them in flight: the `Re-pick face` repair path
-  itself resets the feature's own parameters, unrecoverably.
-  **Once the six in-flight items land, the front of the available queue is
+  REPICK-1/T-22 (the `Re-pick face` repair path resetting a feature's own
+  parameters), **SHIPPED (`4c98ee0`) while this pass was running** — see
+  Done archive.
+  **Once the remaining five in-flight items land, the front of the
+  available queue is
   PICK-2 → MATE-1 → PATTERN-1/SNAP-5/SKETCH-VOCAB-1 → FB-21/FB-9 →
   DOCTICK-GATE** — see Ready section.
   **SKETCH-VOCAB-1 filed** (P1): no angle/diameter dimension, no
@@ -52,12 +54,12 @@ duplication. **Older pass detail (8, 9, 10) moved to `docs/CHANGELOG.md`.**
 
 **Dispatch order, groom pass 11 (2026-08-24).** SOLVE-1 shipped pass 10;
 SETTLE-2/SETTLE-3/CommandBand-label-shedding shipped and reconciled this
-pass (Done archive). **Six items are IN FLIGHT right now, in worktrees —
-do not re-dispatch them; the notes below on each entry say so:** NAME-2
+pass (Done archive); so did REPICK-1/T-22 (`4c98ee0`, mid-pass). **Five
+items are IN FLIGHT right now, in worktrees — do not re-dispatch them; the
+notes below on each entry say so:** NAME-2
 (widened to include T-21/T-8, kernel-architect), DXF-5 (widened to include
 T-16, kernel-architect), DXF-4 (kernel-architect), EDGEFLANGE-1
-(kernel-architect), REPICK-1/T-22 (new this pass, frontend-builder),
-LAYOUT-1/T-18 (frontend-builder). **Everything below this line is what is
+(kernel-architect), LAYOUT-1/T-18 (frontend-builder). **Everything below this line is what is
 actually available to dispatch next, ranked by the operating question**
 ("would a working engineer model a real part in this today?"). Top of the
 available queue, disjoint, parallel-dispatchable:
@@ -420,33 +422,8 @@ Everything else below is reprioritized but not yet dispatched this batch.
       ORTHO-1 above/below — sequence after PICK-2 (the P0 dispatched this
       batch); do not parallelize with it.** agentType: frontend-builder.
 
-- [ ] (P0, S) **IN FLIGHT (frontend-builder, groom pass 11, alongside
-      LAYOUT-1/T-18).** **REPICK-1 — the new `Re-pick face` repair action
-      silently RESETS the feature's own parameters, unrecoverably.** kind:
-      defect (a repair path that destroys data). MEASURED (`docs/
-      AUDIT-PRODUCT.md` "Pass 2026-08-24 (fifth pass)" T-22): using
-      `Re-pick face` on `Hole2` to recover from a broken reference reset the
-      hole's in-face position from `-23.5, -23.5` to `0, 0` — confirmed by
-      reopening the feature (`hole-position-x`/`hole-position-y` both read
-      `0`). The original values are not recoverable from anywhere in the
-      UI; the next rebuild then fails with a SECOND error
-      (`HOLE_OFF_BODY`, "Inside the Ø25 mm opening — move it onto
-      material") caused by the repair itself. Repair is also strictly
-      serial — the tree reveals only ONE failure at a time, and the app's
-      own error message already admits downstream features that don't
-      depend on the failed one could still be attempted (see NAME-2's
-      widened scope, T-21, for the anchor-identity root cause this repair
-      path exists to work around). FIX: `Re-pick face` must preserve every
-      OTHER parameter on the feature — only the broken reference changes.
-      ACCEPTANCE: reproduce T-22 (a hole with an authored off-centre
-      position, broken reference, `Re-pick face`) — the hole's position is
-      unchanged after repair; a regression test pins it; mutation check
-      (skip the preserve step) reddens only this case.
-      [src: docs/AUDIT-PRODUCT.md "Pass 2026-08-24 (fifth pass)" T-22,
-      filed by backlog-groomer pass 11]
-      TERRITORY: the `Re-pick face` repair handler (`apps/web/src/routes/
-      PartPage.tsx` — same file PICK-2 investigates; coordinate territory
-      with that ticket once dispatched). agentType: frontend-builder.
+**REPICK-1/T-22 SHIPPED (`4c98ee0`) while this pass was running — see Done
+archive.**
 
 - [ ] (P0, M) **IN FLIGHT (kernel-architect, groom pass 11) — SCOPE WIDENED
       by T-21/T-8 below; the builder's brief already covers both.**
@@ -3387,6 +3364,21 @@ so it is the pre-`5bd4c46` camera snap or a stale Codespace bundle (see FB-11).
       Pass 7 M6(a); docs/RETRO.md §1.1]
 
 ## Done — archive
+
+### REPICK-1/T-22 CLOSED (`4c98ee0`, groom pass 11, 2026-08-24, backlog-groomer — shipped mid-pass by frontend-builder)
+
+`applyHoleFace` was the single path for both "place a new hole on the
+clicked face" and "re-attach an existing hole to a re-picked face," and
+unconditionally seeded position from the face's centroid — so a repair
+silently reset an authored placement. Fix: the form now tracks whether its
+placement was AUTHORED (typed, picked, or loaded from the stored feature)
+vs. seeded from a centroid; an authored placement is RE-ANCHORED (carried
+through the old frame, re-expressed in the new one) instead of re-seeded,
+so a re-pick of the same face is a no-op on position and a MOVED face
+keeps the hole at its drilled coordinates. 5 unit cases + a real-stack e2e
+spec, each with a negative control reproducing the audit's exact reset
+(`hole-position-x` "10" against the old code). Closes the P0 filed this
+same pass from `docs/AUDIT-PRODUCT.md` "Pass 2026-08-24 (fifth pass)" T-22.
 
 ### SETTLE-2 + SETTLE-3 + CommandBand label-shedding CLOSED (groom pass 11, 2026-08-24, backlog-groomer)
 
