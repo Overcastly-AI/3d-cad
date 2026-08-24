@@ -66,6 +66,29 @@ _SPAN_TOL_REL = 1e-6
 #: are ulp-scale.
 _BASE_NORMAL_TOL = 1e-9
 _BASE_PLANE_TOL_MM = 1e-7
+#: SHEET-FACE (gauge-pair) classification tolerances (documented, NOT ad-hoc --
+#: §9), used by :func:`_is_sheet_face` to tell one of the sheet's two SKINS from a
+#: cut (thickness/rim) face. Two residuals are compared:
+#:
+#: * anti-parallelism of the two skins' outward normals. Same class and same
+#:   number as ``_BASE_NORMAL_TOL`` above and ``resolve._PERP_TOL``: authored
+#:   sheets are axis-aligned, so the residual is ulp-scale.
+#: * the partner skin's offset against the gauge. This is literally the comparison
+#:   ``resolve._THICKNESS_REL_TOL`` already makes for a bend
+#:   (``|(outer_radius - inner_radius) - thickness|``), so it takes the SAME rule
+#:   and the SAME number: relative 1e-6 against ``max(thickness, 1)``.
+#:
+#: Measured before it was set (geometry-gates skill), over every evaluable body in
+#: ``goldens-sheet-metal/`` (15 models, gauges 1.5 and 2.0 mm, plain plates through
+#: four-flange pans, hems and relieved corners): worst gauge-pair residual
+#: **1.554e-15 mm**; smallest offset to a NON-pair candidate (the discrimination
+#: gap the ceiling must stay under) **2.25 mm**. At the smaller gauge the ceiling
+#: is 1.5e-6 mm -- ~9 orders above the worst observed residual and ~6 orders below
+#: the smallest gap, so the classification can neither drift into a false refusal
+#: nor tie an unrelated face. Tighter than the standing kernel linear tolerance
+#: (1e-7 m = 1e-4 mm) at every gauge we ship.
+_GAUGE_ANTIPARALLEL_TOL = 1e-9
+_GAUGE_OFFSET_REL_TOL = 1e-6
 
 
 class EdgeFlangeError(SheetMetalUnfoldError):
@@ -73,8 +96,9 @@ class EdgeFlangeError(SheetMetalUnfoldError):
 
 
 class EdgeFlangeEdgeError(EdgeFlangeError):
-    """The picked edge is unsuitable for an edge flange — not a straight edge, or
-    not a clean plate-edge with a large reference face to fold from."""
+    """The picked edge is unsuitable for an edge flange — not a straight edge, not
+    incident to any planar face, or a THICKNESS (cut) edge with no sheet face to
+    fold from (:func:`_is_sheet_face`)."""
 
 
 @dataclass(frozen=True)
@@ -108,8 +132,56 @@ def _adjacent_faces(body: BodyShape, edge: Edge) -> list[Face]:
 
 
 def _close(a: object, b: object) -> bool:
-    """Two boundary ``Vec3`` within the linear subshape tolerance (mm)."""
+    """Two boundary ``Vec3`` within the linear subshape tolerance (mm).
+
+    ``a``/``b`` are ``Vec3`` DTOs from an :class:`EdgeSignature` (lowercase
+    ``.x/.y/.z``), not build123d ``Vector``s."""
     return math.dist((a.x, a.y, a.z), (b.x, b.y, b.z)) <= 1e-6  # type: ignore[attr-defined]
+
+
+def _is_sheet_face(body: BodyShape, face: Face, thickness_mm: float) -> bool:
+    """Is *face* one of the sheet's two SKINS (rather than a cut/thickness face)?
+
+    A sheet FACE is a flat of the gauge pair: a planar face that has a partner
+    planar face directly BEHIND it -- anti-parallel outward normal, exactly
+    ``thickness_mm`` into the material. A cut face (the sheet's 2 mm rim, or the
+    end face of a flange) has no such partner: its opposite number is the far rim,
+    the full width of the blank away.
+
+    The offset is measured as the ray-plane intersection along *face*'s own outward
+    normal ``n`` -- ``s = ((q - p) . m) / (n . m)`` for the partner's plane point
+    ``q`` and normal ``m`` -- so a partner whose normal is anti-parallel only to
+    ``_GAUGE_ANTIPARALLEL_TOL`` contributes no lateral-tilt error to ``s``, however
+    long the face is. Substituting a centroid-to-centroid projection here would
+    couple the answer to face length and is measurably wrong at the tolerances
+    involved.
+
+    **THE SIGN IS THE PREDICATE, not the distance.** ``s`` must be ``-thickness``:
+    the partner sits one gauge BEHIND the face, with material between them. The
+    walls of a gauge-WIDE slot are also anti-parallel and one gauge apart, but at
+    ``s = +thickness`` -- the gap between them is air, and folding a flange out of
+    a slot wall is the same physical nonsense as folding one out of the sheet's cut
+    edge. A distance-only test would accept both.
+
+    Deliberately an EXISTENCE test over the whole body: a skin may be split into
+    several coplanar faces by a cut or a bend-end relief, so the partner need only
+    be SOME planar face satisfying the pair condition, never a unique one.
+    """
+    p = face.center(CenterOf.MASS)
+    n = face.normal_at(p).normalized()
+    tol = _GAUGE_OFFSET_REL_TOL * max(thickness_mm, 1.0)
+    for other in body.faces():
+        if other.geom_type != GeomType.PLANE:
+            continue
+        q = other.center(CenterOf.MASS)
+        m = other.normal_at(q).normalized()
+        dot = float(n.dot(m))
+        if dot > -(1.0 - _GAUGE_ANTIPARALLEL_TOL):
+            continue
+        offset = float((q - p).dot(m)) / dot
+        if abs(offset + thickness_mm) <= tol:
+            return True
+    return False
 
 
 def build_edge_flange(
@@ -141,9 +213,18 @@ def build_edge_flange(
     into the base flat (size = 1 x gauge along the edge, 1 x gauge deep beyond the
     bend tangent line, through-thickness — §4.5.2); a blank-corner end gets none.
 
+    SHEET-FACE GUARD (EDGEFLANGE-1 / audit S-4): *edge* must border one of the
+    sheet's SKINS. A THICKNESS edge — the gauge-long cut edge at a corner of the
+    plate — borders only rim faces, and folding a flange out of a cut edge is
+    physically impossible (there is no material there to bend); it used to build a
+    ``flange_length x gauge`` sliver tab and report success. It is now an
+    ``EdgeFlangeEdgeError``, i.e. a typed ``edge_flange_bad_edge``. The guard sits
+    HERE rather than in either caller so the hem (parity §2, same fold machinery)
+    inherits it.
+
     Raises:
-        EdgeFlangeEdgeError: *edge* is not a straight edge, or lacks a clean plate
-            reference face to fold from.
+        EdgeFlangeEdgeError: *edge* is not a straight edge, is not incident to a
+            planar face, or borders no sheet face (a thickness/cut edge).
         EdgeFlangeError: the width/offset span exceeds the resolved edge, the fold
             geometry is degenerate, or the fuse/relief produced other than one
             solid (e.g. a radius/length that self-intersects the sheet).
@@ -188,11 +269,28 @@ def build_edge_flange(
         raise EdgeFlangeEdgeError(
             "The picked edge is not incident to a planar face of the sheet body."
         )
-    # Reference face = the larger adjacent flat (the plate face the flange extends
-    # from); the smaller is the thickness face. Deterministic: max area, tie-broken
-    # by the face's signature centroid so the pick never depends on face order.
+    # The flange must fold out of one of the sheet's SKINS, so only a gauge-pair
+    # face can be the reference (EDGEFLANGE-1 / audit S-4). A thickness edge -- the
+    # 2 mm cut edge at a corner of the plate -- is incident to two RIM faces and no
+    # skin, and there is no material in a cut edge to bend a flange out of; every
+    # incumbent refuses that pick. Refused with a typed error naming the rule rather
+    # than filtered out of sight, so a user who tries it learns why.
+    sheet_faces = [f for f in faces if _is_sheet_face(body, f, thickness_mm)]
+    if not sheet_faces:
+        raise EdgeFlangeEdgeError(
+            f"An edge flange folds off a boundary edge of one of the sheet's FLAT "
+            f"faces, but the picked edge borders only cut (thickness) faces of the "
+            f"{thickness_mm:g} mm sheet; there is no material in a cut edge to bend "
+            f"a flange out of. Pick an edge of the flat face you want to fold from."
+        )
+    # Reference face = the larger adjacent skin (the plate face the flange extends
+    # from). Deterministic: max area, tie-broken by the face's signature centroid so
+    # the pick never depends on face order. Filtering to skins FIRST leaves every
+    # legitimate pick unchanged -- an ordinary boundary edge borders exactly one
+    # skin and one rim, and the skin is the larger of the two -- so the shipped
+    # goldens keep byte-identical geometry.
     reference = max(
-        faces,
+        sheet_faces,
         key=lambda f: (float(f.area), _sig_key(f)),
     )
     n = reference.normal_at(reference.center(CenterOf.MASS)).normalized()
