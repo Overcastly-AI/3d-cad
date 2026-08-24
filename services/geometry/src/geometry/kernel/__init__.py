@@ -25,11 +25,15 @@ from geometry.kernel.datum import (
 from geometry.kernel.degenerate import ZeroWidthSlit, find_zero_width_slits
 from geometry.kernel.draft import DraftError, draft_body
 from geometry.kernel.edges import (
+    EdgeMatchTier,
     EdgeRecord,
     NoEdgesSelectedError,
+    ResolvedEdge,
+    durable_edge_match,
     edge_signature_dto,
     enumerate_edges,
     resolve_edge,
+    resolve_edge_durable,
     select_edges,
 )
 from geometry.kernel.export import (
@@ -187,6 +191,7 @@ __all__ = [
     "CutRemovedNothingError",
     "DraftError",
     "EdgeIndexError",
+    "EdgeMatchTier",
     "EdgeRecord",
     "FaceProvenance",
     "FaceProvenanceRecorder",
@@ -224,6 +229,7 @@ __all__ = [
     "ProfileNotClosedError",
     "ProfileUnsupportedError",
     "ReadProduct",
+    "ResolvedEdge",
     "ResolvedThread",
     "RevolveError",
     "ShellError",
@@ -263,6 +269,7 @@ __all__ = [
     "cut_countersink",
     "cut_reflected_tools",
     "draft_body",
+    "durable_edge_match",
     "edge_signature_dto",
     "enumerate_edges",
     "evaluate_export",
@@ -302,6 +309,7 @@ __all__ = [
     "removal_reaches_body",
     "resolve_axis_line",
     "resolve_edge",
+    "resolve_edge_durable",
     "resolve_face_plane",
     "resolve_faces",
     "resolve_iso_metric_thread",

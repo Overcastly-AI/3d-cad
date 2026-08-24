@@ -198,7 +198,7 @@ from geometry.kernel import (
     reflect_tools,
     removal_reaches_body,
     resolve_axis_line,
-    resolve_edge,
+    resolve_edge_durable,
     resolve_face_plane,
     resolve_faces,
     resolve_iso_metric_thread,
@@ -1205,7 +1205,9 @@ def _fold_flange_off_edge(
     Both features fold a flange off a resolved base-flange edge via the SAME
     :func:`build_edge_flange` (a hem is an edge flange at a fixed 180 deg fold —
     parity §2 / DRY): resolve the picked edge (stage-1 :class:`EdgeSignature`,
-    :func:`resolve_edge`), inherit the part's gauge/K/radius defaults where the
+    :func:`resolve_edge_durable` — strict, then the durable re-match that carries
+    the fold through a base-sketch dimension edit, NAME-2 / audit S-24), inherit
+    the part's gauge/K/radius defaults where the
     per-feature value is omitted, build + fuse the bend, and record the bend
     provenance (§5) keyed by this feature id. Every failure is a TYPED per-feature
     error (never a raw kernel exception or an invalid solid — parity §3): no prior
@@ -1240,7 +1242,7 @@ def _fold_flange_off_edge(
         )
 
     try:
-        edge = resolve_edge(active, edge_ref.selector.signature)
+        edge = resolve_edge_durable(active, edge_ref.selector.signature).edge
     except SubshapeUnresolvedError as exc:
         return FeatureError(code="subshape_unresolved", message=str(exc))
     except SubshapeAmbiguousError as exc:
@@ -1283,7 +1285,9 @@ def _fold_flange_off_edge(
         state.sheet_metal_unfold_body = result.body
     else:
         try:
-            clean_edge = resolve_edge(prior_clean, edge_ref.selector.signature)
+            clean_edge = resolve_edge_durable(
+                prior_clean, edge_ref.selector.signature
+            ).edge
             clean_result = build_edge_flange(
                 prior_clean,
                 clean_edge,

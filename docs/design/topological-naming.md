@@ -1613,3 +1613,118 @@ numerically; if the pick path ever becomes hot, that is the lever.
 directions, because the arm that matters most here is the one proving an honest error
 stays honest, which is exactly what tier 4's first draft got wrong.
 
+---
+
+## 13. Scoping delta — the durable EDGE tier is PROMOTED to the kernel (2026-08-24)
+
+**This is §11's own follow-up, taken.** §11 ends: *"The tier belongs in
+`geometry.kernel.edges` beside `resolve_edge`, so a picked-edge FILLET/CHAMFER
+survives the same edits a dimension now does. It ships in `geometry.drawings` because
+the kernel module was held by another agent in this batch."* It is now in
+`geometry.kernel.edges` (`resolve_edge_durable`), and the drawings-side wrapper is
+deleted — see the honest exception at the end.
+
+**Problem (product audit 2026-08-21, S-24 / S-24b — P0, filed as NAME-2).** Sketch1's
+`120` retyped to `150` on a sheet-metal bracket: `03 Edge flange1 ERR
+SUBSHAPE_UNRESOLVED`, `04 Hem1 SKIP`, `05-08 Hole1..4 SKIP`, all four exports blocked.
+The audit noted the edge that broke is *topologically identical* — "the same y = +30
+boundary edge of the same face, just 30 mm longer" — and pointed straight at §11:
+*"The drawings subsystem already re-anchors exactly this; the feature subsystem does
+not."* A controlled ladder (S-24b) then read as **first edit OK, second edit BROKEN**,
+which the audit reasonably inferred meant a matched reference goes stale because it is
+never re-stamped, so edit N+1 compares against geometry from two edits ago.
+
+**The kernel measurement is blunter than that, and it changes the fix.** Reproduced
+against the `l-bracket-edge-flange` golden with the stored signature authored once and
+NEVER re-stamped — i.e. exactly the "stale" condition the audit hypothesised — every
+step of the ladder failed, including the first:
+
+```
+authored (50 x 20)                    OK
+edit -> 21   subshape_unresolved      edit -> 22   subshape_unresolved
+edit -> 23   subshape_unresolved      edit -> 24   subshape_unresolved
+```
+
+There was no tolerance to exhaust and nothing that could go stale-by-N: the feature
+tree had **no tolerant edge tier at all**. `resolve_edge` pins both endpoints, the
+midpoint AND the length, so the FIRST edit that moves a picked edge orphans it, and
+the second one fails for the identical reason. A face has had four tiers since
+§12a/§12b; an edge had one. That asymmetry is the whole defect. (The audit's ladder
+was observed through the UI, where a rebuild that is served without re-resolving reads
+as "OK"; the kernel-level ladder is the sharper instrument and disagrees with it in the
+first row only.)
+
+**Decision.** `geometry.kernel.edges.resolve_edge_durable(body, target) ->
+ResolvedEdge{edge, signature, tier}` — tier 1 the strict `edge_signatures_match`,
+tier 2 §11's two predicates promoted verbatim (`collinear_overlapping_match`,
+`concentric_same_station_match`), reached ONLY on an empty tier-1 result. Every
+feature-tree picked-edge consumer now goes through it: fillet and chamfer via
+`select_edges` -> `_resolve_picked_edges`, the sheet-metal edge flange and hem via
+`_fold_flange_off_edge` (both the live resolve and the clean-body re-fold).
+
+`resolve_edge` itself is deliberately UNCHANGED and stays strict-only, which is a
+contract split worth stating because the obvious refactor breaks a shipped feature:
+`geometry.drawings.anchor.resolve_anchor_edge` runs it as its tier 1 and reports
+`tier: exact` when it succeeds, so widening `resolve_edge` would make every
+re-anchored dimension report itself as exact and silence the `RE-ANCHORED … CONFIRM`
+chip §11 exists to raise. The assembly mate resolver wants the strict answer for the
+same reason. Gated by
+`test_edges.py::test_resolve_edge_stays_STRICT_for_drawings_and_mates`.
+
+**Why an INVARIANT tier needs no re-stamping — the half of NAME-2 that dissolves.**
+NAME-2's stated fix is "write the new signature back so the NEXT edit compares against
+current geometry". That is the right fix for a DRIFT-budget matcher, whose tolerance
+is spent against the authored state. These predicates do not measure drift: they
+compare quantities the edit does not move at all — a supporting line, a centre and an
+angular station — so the stored signature never goes stale, and the N-th consecutive
+edit resolves for the same reason the first one does. Gated at 41, 42, 43, 80 and
+400 mm from one signature authored at 40
+(`test_consecutive_edits_do_not_accumulate_drift`). Re-stamping remains worth
+REPORTING and the resolver returns what a client needs for it —
+`ResolvedEdge.signature` is the CURRENT signature and `.tier` says whether it moved,
+mirroring `DimensionAnchor` field for field — but it is no longer load-bearing for
+correctness. The remaining work to make it REACH a client (a field on `FeatureResult`
+and a web-side healer, the exact shape `DrawingPage.tsx` already implements for
+dimensions) is a py-kit + web change, not a kernel one, and is not in this commit.
+
+**What is NOT claimed, and what stays an honest error.** An edge that leaves its own
+supporting line — a top-front edge carried up when the plate is thickened — is still
+`subshape_unresolved`, and deliberately: freeing the perpendicular offset makes every
+parallel edge of the same length an equally good candidate, so the tier could only
+report an ambiguity or guess. That is the EDGE analogue of §12's tier 3 and it does
+not have §12's escape, because a face's area and in-plane centroid carry an identity
+that an edge's direction and length do not. Gated by
+`test_an_edge_that_left_its_supporting_line_still_fails_honestly`. Likewise the §11
+corner-round limit is unchanged (an R4 -> R6 arc moves its centre), and the overlap
+clause still refuses a collinear edge lying END-TO-END with the stored one.
+
+**Golden.** `revise-width-fillet-on-grown-edge-55x25x10` — the edge sibling of
+`revise-thickness-hole-on-moved-face-60x40x16`. It is
+`fillet-top-edge-40x25x10-r5` after the sketch's 40 is retyped to 55, with the fillet's
+stored `EdgeSignature` still naming the 40 mm edge. Closed forms `12375 + 343.75*pi`
+and `3750 + 150*pi`; measured deviations **1.8e-12 mm^3 / 9.1e-13 mm^2 / 1.8e-15 mm**
+at the documented 1e-9. Two free cross-checks fell out and are recorded in its
+`derivation`: the removed prism's cross-section does not depend on the edge's length,
+so `centroid.y` / `.z` must equal the 40 mm golden's *exactly* (they do), and a
+cylindrical face is ruled along its length, so the mesh closed form `26 + 4N` / `12 +
+4N` carries no length term and must predict 154 / 140 again (it does). `max.x = 55`
+and `centroid.x = 27.5` are the two witnesses that the fillet followed the edge to its
+NEW extent rather than stopping at the stale 40.
+
+**Mutation evidence.** Disabling tier 2 (`_match_edge_records` returning `[]` instead
+of the durable candidates) reddens **exactly four tests, all four of them the new
+golden's**, with `('...ee003', 'error', 'subshape_unresolved')` — the whole
+`test_goldens.py` suite is otherwise unaffected, so no existing golden was silently
+depending on the new tier, and the new one fails for the stated reason rather than on
+a number.
+
+**The one thing deliberately left undone.** `geometry.drawings.anchor` still carries
+its own copy of the two predicates (`_collinear_overlapping`,
+`_concentric_same_station`, `_circle_centre`) and should now delegate to the kernel's
+— a mechanical delete-and-import in that package. It is not in this commit for the
+same reason §11 shipped in drawings rather than the kernel: that package was held by
+another agent in this batch. The duplication is behaviour-identical (the predicates
+were promoted verbatim, and both read the same documented tolerances), and it is named
+here and in the kernel module's block comment rather than left silent, so the collapse
+is a known follow-up and not a second naming scheme.
+
