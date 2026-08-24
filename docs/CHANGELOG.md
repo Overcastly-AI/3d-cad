@@ -5,6 +5,38 @@ section each grooming pass (one-line-per-entry there; detail preserved
 here). Newest first. Evidence for shipped items also lives in the Done
 archive (`BACKLOG.md`) and per-item commits.
 
+## 2026-08-21 to 2026-08-22 (Scorecard-gaps notes, pruned from BACKLOG.md pass 11 — superseded by pass 11's own note)
+
+- **Groom pass 10 (2026-08-22) — SOLVE-1 SHIPPED (`7183955`).** Root cause:
+  DogLeg starting from CURRENT positions is not the same as leaving free DOF
+  alone — it walks a trajectory, so a value edit that only adds slack drags
+  geometry the edit never named. `_GcsBuild.settle()` now pins every input
+  coordinate the constraints still admit back to the author's value after
+  convergence. Return deviation 2.162284 mm → 6.394885e-14 mm; bbox after
+  the 8→12 edit `70×70×33.0795` (off-plane) → `70×70×30` (on-plane). A 245x
+  perf regression in the rescued patch (11,050ms → 147ms) was found and
+  fixed same-commit; goldens top out at 12 entities so no gate could have
+  caught it. `docs/RESEARCH.md` §2/§9 corrected. SNAP-5 filed underneath it
+  (line-by-line drawing never infers H/V). Correction filed against both
+  audit docs: the "conflict path unreached on a value edit" claim did not
+  survive measurement (status=conflicting reproduced on a pure value edit);
+  R-5c was not a conflict, since no H/V was authored to contradict.
+- **Groom pass 9 (2026-08-21) — two more audit passes recovered from the
+  working tree, uncommitted, preserved first** (`3c82384`). SOLVE-1 and
+  PICK-2 RE-SCOPED: SOLVE-1's real defect was a non-idempotent
+  under-constrained solve (10→14→10 doesn't return); PICK-2's real cause
+  was six pick-overlay queries gated on `meshGlbId !== null`, an empty
+  surface not a raycast miss. Five new P0s from a sheet-metal fabrication-
+  handoff pass: DXF-4 (flat-pattern drops every hole), DXF-5 ($INSUNITS
+  wrong, 1000x), EDGEFLANGE-1 (flange off a thickness edge), MATE-1
+  (mate face unreachable at any camera), NAME-2 (feature ref not
+  re-stamped after a successful match). Vision-steward flagged (not yet
+  actioned that pass): Sheet metal and Assemblies both ➖→❌ recommended; a
+  new `Selection & direct manipulation` row recommended. Engineering audit
+  pass 7/8: DOCTICK-GATE, PGTEST-GATE, K2 (P1), GATE-FLOOR (bumped P1),
+  DEP-AUDIT filed; SPEC-9/SPEC-8 filed; 78 hours / 6 commits since the last
+  line of product code flagged as the argument for that pass's dispatch.
+
 ## 2026-08-21 (groom pass 9 — SOLVE-1/PICK-2 RE-SCOPED before dispatch; second uncommitted audit doubled the P0 cluster)
 
 - **Groom pass 9 (backlog-groomer):** preserved two more uncommitted audit

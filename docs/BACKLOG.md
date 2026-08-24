@@ -13,132 +13,40 @@ P2 next / P3 later · size S/M/L. Checked `[x]` = done.
 
 See VISION.md's table for current row text — the vision-steward re-scores it
 independently each pass; this note only points the queue at it, no
-duplication.
+duplication. **Older pass detail (8, 9, 10) moved to `docs/CHANGELOG.md`.**
 
-- **Groom pass 10 (2026-08-22, this pass) — SOLVE-1 SHIPPED (`7183955`),
-  ticked here (the builder deliberately left ROADMAP/BACKLOG untouched to
-  avoid racing a live sibling, and said so in the commit message).**
-  Evidence preserved rather than summarized, because it is unusually
-  strong: root cause was that DogLeg starting from CURRENT positions is
-  not the same as leaving free DOF alone — it walks a trajectory, so a
-  value edit that only adds slack drags geometry the edit never named, and
-  the result becomes a function of solve HISTORY rather than of the
-  constraint set. `_GcsBuild.settle()` now pins every input coordinate the
-  constraints still admit back to the author's value after convergence.
-  Measured, independently reproduced from the audit's own R-2 description:
-  return deviation after retyping the original value **2.162284 mm →
-  6.394885e-14 mm**; bbox after the 8→12 edit `70×70×33.0795` with the
-  profile 3.0795 mm below its origin plane → `70×70×30`, on-plane;
-  entities moved by the edit: all six → e2+e3 only. 8 regression tests
-  (`test_sketch_free_dof_hold.py`) assert properties, not totals; a
-  mutation check that disabled `settle()` alone reddened 4 of them with the
-  audit's exact numbers. **A 245x performance regression the rescued patch
-  shipped with was found and fixed in the same commit** (n^3 per-point
-  passes — 11,050 ms at 96 lines against 45 ms unsettled — replaced by a
-  semantics-free `_try_hold_everything` fast path, 147 ms). **Coverage
-  gap worth naming: our goldens top out at 12 entities, so no existing
-  gate could have caught that regression** — a candidate for a
-  geometry-QA perf golden at realistic sketch size, not filed as a ticket
-  here since it's a gate-authoring question, not a product gap.
-  `docs/RESEARCH.md` §2/§9 corrected in the same commit: §2's claim that
-  under-constrained solves are "guess-dependent by design" is now false,
-  and the determinism gate is sequence-level rather than single-solve.
-  **SNAP-5 filed underneath it** (Ready, P1/S, frontend-builder): line-by-
-  line drawing infers coincidence (SNAP-3) but never horizontal/vertical,
-  verified against `apps/web/src/sketch/store.ts` and `drawDimensions.ts`
-  source directly — it is why the auditor's axis-aligned profile solved at
-  DOF 6 instead of DOF 2, and therefore why incumbents refuse the 8→12
-  edit and we accept it (given the constraint set we actually author,
-  accepting is correct — SOLVE-1 makes that acceptance safe, it does not
-  make our sketches as constrained as Fusion's). Already half-flagged as
-  gap (3) of three on `docs/COMPETITIVE.md`'s "Automatic constraint
-  inference" row (2026-08-16); RECT-1/SNAP-3 closed the other two, this is
-  the last one standing and SOLVE-1 is independent evidence it is not
-  merely cosmetic parity.
-  **CORRECTION to both audit docs — do not act on the superseded framing.**
-  (1) `docs/AUDIT-PRODUCT.md`'s "Scorecard rows that look stale" item 2
-  claims the typed `SketchConstraintDiagnosis` "is reachable only when a
-  *new* constraint is added, not when an existing dimension's *value* is
-  edited." SOLVE-1's builder measured the ORIGINAL (pre-fix) bytes
-  returning `status=conflicting` with 12 offending indices for a pure
-  value edit on an axis-aligned profile — the claim does not hold at the
-  solver level; a value edit and a new constraint are the same code path
-  (`solve()` is stateless/whole-definition). (2) R-5c was not a conflict
-  at all: with no H/V constraints authored (see SNAP-5 above), `12+22≠30`
-  is not a contradiction, since a hexagon with those six side lengths
-  closes geometrically. `docs/AUDIT-ENGINEERING.md` "Pass 8" already
-  retracted the "new constraint only" hypothesis independently (N1-
-  CORRECTED) — this note cross-references both docs for the next reader
-  rather than rewriting either (auditor-owned). If VISION.md's Sketching
-  row narrative needs a matching correction, that's the vision-steward's
-  call — flagging, not editing.
-- **Groom pass 9 (2026-08-21) — two more audit passes recovered
-  from the working tree, uncommitted, and preserved first** (`3c82384`,
-  same RETRO §1.2 shape as `dab2b3e`). **SOLVE-1 and PICK-2 are RE-SCOPED
-  this pass, not just re-filed** — `docs/AUDIT-ENGINEERING.md` "Pass 8"
-  traced both to source and found their stated mechanisms don't match the
-  code: SOLVE-1's "conflict path unreached on a value edit" doesn't exist
-  (conflicts ARE diagnosed in four measured configs); the real defect is
-  a non-idempotent under-constrained solve (10→14→10 doesn't return).
-  PICK-2's raycast-fallback hypothesis is replaced by the real, cheaper
-  cause: six pick-overlay queries gated on `meshGlbId !== null`, so the
-  surface is EMPTY, not merely mis-aimed. Dispatching either ticket
-  unchanged would have cost a builder real time on a hypothesis a
-  one-hour measurement already contradicted.
-- **Five new P0s from a fresh, deliberately different job** (`docs/
-  AUDIT-PRODUCT.md` "second pass today": sheet-metal fabrication handoff —
-  bracket → flat pattern → assembly → print — never exercised by the
-  rotational-part pass): a flat-pattern DXF/on-screen view that drops
-  EVERY through-feature (DXF-4 — a bracket with 4 holes exports zero
-  CIRCLEs); `$INSUNITS` declaring METRES not millimetres (DXF-5, 1000x
-  error); an edge flange buildable off a sheet's own thickness edge
-  reporting OK (EDGEFLANGE-1); a mate-target face unreachable at ANY
-  camera angle, 11 orbits / 10 zooms (MATE-1); and a feature reference
-  that survives the first edit and breaks the second because nothing
-  re-stamps it after a successful match (NAME-2 — the sharpest
-  characterisation yet of the persistent-naming class M17/PICK-2 sit in;
-  the DRAWINGS module already solves this and re-anchors correctly, the
-  feature resolver does not).
-- **Vision-steward: this pass's own recommendations, not yet actioned** (I
-  don't own VISION.md, flagging loud) — Sheet metal ➖→❌ ("a cut file that
-  omits the holes is a hazard, not a deliverable" — also stale in the GOOD
-  direction: hem + corner relief now ship, contradicting the row's own
-  Notes); Assemblies ➖→❌ ("I could not bolt two parts together — the face
-  the mate needs is unreachable at any camera"); Part modeling's ➖ Notes
-  gain S-24b's reproduction shape (first edit survives, second breaks); a
-  NEW `Selection & direct manipulation` row is recommended — proxy-marker
-  picking blocked sheet metal, assemblies AND measure in one session and is
-  currently invisible on a scorecard organised by capability.
-- **`Part modeling (features, history)`** — unchanged from pass 8's flag:
-  the canonical parametric-edit demo (change a dimension, rebuild)
-  produces wrong geometry / orphaned references on the ordinary edit path,
-  not an edge case. **SOLVE-1 CLOSED this pass (`7183955`) — remaining
-  wrong-geometry P0s (DXF-4, DXF-5, EDGEFLANGE-1, NAME-2) still outrank
-  everything else on the board**, above the frame-convention P0s
-  (FB-21/FB-9) which are real but don't corrupt geometry.
-- **✅ rows, still qualified:** process debt unchanged — none of the
-  ~18 shipped items on this board have an independent `code-reviewer`
-  pass.
-- **➖ rows (usable, short of incumbent parity):** unchanged from pass 8
-  (Assemblies, Interop, Drawings) except Sheet metal and Assemblies now
-  carry the vision-steward's ❌ recommendation above.
-- **❌ rows:** Performance, Collaboration & versioning, Extensibility/
-  scripting+MCP — unchanged.
-- **Engineering audit pass 7 (2026-08-21, unchanged from pass 8):** filed
-  DOCTICK-GATE, PGTEST-GATE (corrected this pass, see ticket), K2 (P1),
-  GATE-FLOOR (bumped P1 — reproduced unfixed a 2nd time), DEP-AUDIT
-  (addendum this pass: first-ever Python scan, 1 unreachable dev-only
-  advisory) — all platform-builder.
-- **Engineering audit pass 8 (2026-08-21, uncommitted, preserved this
-  pass):** re-scoped SOLVE-1/PICK-2 (above); found `sketch-drag-draw.spec.ts`
-  deterministically red at HEAD on the SAME keystroke-races-armed-state
-  class CI-4(d) already root-caused once (SPEC-9, new P1); a
-  `materials.spec.ts` assertion that silently stops checking a mass-roll-up
-  claim when its subject disappears (SPEC-8, new P2); and **78 hours / 6
-  commits since the last line of product code — the direction layer has
-  been producing and the build layer stopped.** That is the actual
-  argument for this pass's top-3 dispatch below, not a demotion of
-  anything on the board.
+- **Groom pass 11 (2026-08-24, this pass).** Vision-steward pass 15
+  (`fc5cf41`) flipped Sketching ➖→✅ on SOLVE-1 (independently re-attacked
+  twice more the same day — SETTLE-2/SETTLE-3, both closed, Done archive —
+  before being trusted) and Assemblies + Sheet metal ➖→❌ on MATE-1/DXF-4.
+  **All four wrong-geometry P0s (DXF-4, DXF-5, EDGEFLANGE-1, NAME-2) are
+  now IN FLIGHT** (five builders dispatched from pass 10's queue), widened
+  by two fresh audit passes: NAME-2 by T-21/T-8 (a topology-preserving
+  extrude-depth or resize edit orphans features anchored by coordinate, not
+  identity — worse than NAME-2's original "second edit" framing, a FIRST
+  ordinary edit is enough) and DXF-5 by T-16 (the unit defect is on the
+  standard drawing DXF too, plus a silent 1:2 scale error). A new P0,
+  REPICK-1/T-22, joins them in flight: the `Re-pick face` repair path
+  itself resets the feature's own parameters, unrecoverably.
+  **Once the six in-flight items land, the front of the available queue is
+  PICK-2 → MATE-1 → PATTERN-1/SNAP-5/SKETCH-VOCAB-1 → FB-21/FB-9 →
+  DOCTICK-GATE** — see Ready section.
+  **SKETCH-VOCAB-1 filed** (P1): no angle/diameter dimension, no
+  midpoint/collinear, `Symmetric` refuses two lines + an axis — the
+  vision-steward's own basis for keeping Sketching at ➖ rather than ✅ if
+  this pass hadn't already flipped it on SOLVE-1 alone; worth the
+  vision-steward's attention next pass.
+  **Process/loop-health flag, not a ticket (engineering Pass 9 N9):**
+  `docs/GEOMETRY-QA.md` is 8 days stale (last entry predates the entire
+  SOLVE-1/SETTLE batch — a 1,300-line solver rewrite that changed 70/75
+  golden sketches' solve path shipped with zero `geometry-qa` review);
+  `docs/UI-REVIEW.md` 7 days; `docs/QA-REVIEW.md` 23 days. Flagging for the
+  orchestrator to dispatch, not filing as a buildable item.
+  **✅ rows, still qualified:** none of the ~20 shipped items on this board
+  have an independent `code-reviewer` pass. **➖ rows:** Interop, Drawings
+  (Assemblies/Sheet metal now ❌, above). **❌ rows:** Performance,
+  Collaboration & versioning, Extensibility/scripting+MCP, Selection &
+  direct manipulation (vision-steward recommended, not yet added).
 
 ## Ready (top of queue)
 
@@ -1757,6 +1665,111 @@ rotational-part audit that produced SOLVE-1/PICK-2 above:
       [src: engineering-auditor pass 5, 2026-08-14 (K2); was J7, 2026-07-30;
       re-recommended AUDIT-ENGINEERING.md Pass 7 M3, 2026-08-21]
 
+- [ ] (P1, S) **PBT-1 — the property-based sweep that found this repo's two
+      worst latent solver bugs was never committed; there is no
+      `hypothesis` dependency and the generator is gone.** kind: capability
+      (test infra). MEASURED (`docs/AUDIT-ENGINEERING.md` "Pass 9" N2): both
+      SETTLE-2 and SETTLE-3's root causes were found by a randomised sweep
+      whose own commit messages say so ("found by a randomised sweep,"
+      "400 generated sketches"), but `grep -c 'name = "hypothesis"' uv.lock`
+      is 0 and only three hand-transcribed counter-examples survive in the
+      test files — the 400-sketch generator itself is gone. Consequence:
+      the next solver change cannot be swept the same way, and the
+      alarming headline number from that sweep (7 of 155 solvable sketches
+      shipped a violated constraint despite `status=Success`) is
+      unverifiable and unmonitored — no way to show it is now 0, or to
+      notice it regress. FIX: land the generator as a seeded
+      (`seed 20260822`), fixed-trial-count test asserting zero violated
+      constraints and a floor on solvable-sketch count (so it can't
+      silently become a no-op), OR add `hypothesis` to the dev group and
+      write the sweep as a proper `@given` test. ACCEPTANCE: the committed
+      test reproduces at least one of the three hand-transcribed
+      counter-examples from `test_sketch_residual_agreement.py` when run
+      against a deliberately-reverted `settle()`.
+      [src: docs/AUDIT-ENGINEERING.md "Pass 9" N2, filed by backlog-groomer
+      pass 11]
+      TERRITORY: `services/geometry/tests/test_sketch_residual_agreement.py`,
+      `services/geometry/pyproject.toml` (dev deps) or new sweep file.
+      agentType: kernel-architect.
+
+- [ ] (P1, S) **SETTLE-BENCH-1 — `settle()` runs on essentially every
+      sketch edit and has a documented n^3 worst case, an 11-second
+      keystroke on a 96-line sketch, and NOTHING gates its cost.** kind:
+      capability (perf risk on a hot, latency-sensitive path). MEASURED
+      (`docs/AUDIT-ENGINEERING.md` "Pass 9" N4): the fast path
+      (`_try_hold_everything`) is the only thing standing between the
+      product and that 11s keystroke, and `just bench`'s 22-case corpus
+      (`services/geometry/tests/test_benchmarks.py`) has **no sketch-solve
+      group at all** — a future change that breaks the fast path's
+      applicability turns 147ms into 11s with every existing gate green.
+      Per-request cost is also unbounded against the schema's own
+      2000-entity/4000-constraint ceiling, while STEP import (the repo's
+      other "degenerate/adversarial input" surface) already treats this
+      class of risk seriously: a SIGKILL-able subprocess with a 20s CPU /
+      60s wall timeout. `settle()` has no equivalent, despite `baseline`
+      (the pre-settle, still-correct answer) already being in hand at the
+      point a deadline would need to fall back to it.
+      FIX: (a) add a `sketch_solve` `just bench` group — an already-solved
+      fixture (fast path) and an edited one (slow path) at two sizes,
+      ceilinged; (b) give `settle()` a wall-clock budget that falls back to
+      `baseline` on expiry; (c) re-derive whether 2000 entities is still a
+      defensible ceiling given the superlinear per-entity cost.
+      ACCEPTANCE: the new bench group fails if `_try_hold_everything`
+      regresses to the per-point path (mutation check: disable the fast
+      path, confirm the bench catches it); a deliberately slow-path fixture
+      completes within the new deadline and returns `baseline`, not an
+      error.
+      [src: docs/AUDIT-ENGINEERING.md "Pass 9" N4, filed by backlog-groomer
+      pass 11]
+      TERRITORY: `services/geometry/src/geometry/sketch/planegcs_solver.py`,
+      `services/geometry/tests/test_benchmarks.py`, `docs/PERF.md`.
+      agentType: kernel-architect.
+
+- [ ] (P2, XS) **CONTRACT-1 — `SolvedDimension.value_mm`'s OpenAPI
+      docstring still describes pre-SOLVE-1 semantics, and `gen-check`
+      cannot see it because it regenerates from the same wrong docstring.**
+      kind: defect (contract/documentation drift a client relies on).
+      MEASURED (`docs/AUDIT-ENGINEERING.md` "Pass 9" N3): SOLVE-1's
+      `_dimension_readouts` now reports the MEASURED value whenever it
+      disagrees with the requested one by more than `SATISFIED_TOL_MM`, but
+      the pydantic docstring (`packages/py-kit/src/py_kit/schemas/
+      sketch.py:575-605`) and both committed OpenAPI docs still say
+      `value_mm` is "the evaluated literal/expression value that was fed to
+      the solver" — i.e. the opposite of what SOLVE-1 does in exactly the
+      case it exists to handle, with no field distinguishing requested-vs-
+      measured. FIX: correct the docstring in two sentences; consider an
+      explicit `verified`/`measured: bool` field so the substitution is
+      disclosed in the payload rather than inferred from a sibling
+      (`status`) on a different object. ACCEPTANCE: `just gen` regenerates
+      contracts with the corrected description; `packages/ts-client`
+      reflects it.
+      [src: docs/AUDIT-ENGINEERING.md "Pass 9" N3, filed by backlog-groomer
+      pass 11]
+      TERRITORY: `packages/py-kit/src/py_kit/schemas/sketch.py`. agentType:
+      kernel-architect (schema owner) or backend-builder.
+
+- [ ] (P2, S) **SEC-TEST-1 — no negative control proves the gateway
+      ignores a client-supplied principal header.** kind: capability (test
+      gap on a correct-today, refactor-fragile control). MEASURED (`docs/
+      AUDIT-ENGINEERING.md` "Pass 9" N6): `upstream.py:186-189` builds the
+      forwarded header set explicitly rather than proxying, and the only
+      caller adding a principal is `parts.py:88` — so a forged
+      `X-Loft-Principal` cannot reach `documents` today, but this is
+      correct BY CONSTRUCTION, one plausible refactor ("forward the
+      client's other headers through") away from being wrong, with
+      cross-tenant impersonation as the failure mode, and
+      `grep -rn "spoof\|impersonat\|forged" services/gateway/tests` finds
+      only JWT-forgery tests. FIX: two request-level tests — a
+      client-supplied `X-Loft-Principal` is dropped/ignored, and the
+      upstream header always equals the authenticated token's subject
+      (the second half already exists in `test_assemblies_proxy.py:275`).
+      ACCEPTANCE: both tests pass today and fail under a mutation that
+      merges client headers into the upstream set.
+      [src: docs/AUDIT-ENGINEERING.md "Pass 9" N6, filed by backlog-groomer
+      pass 11]
+      TERRITORY: `services/gateway/tests/test_upstream.py` or similar
+      (new). agentType: backend-builder.
+
 - [ ] (P2, S) **K3 — no automated licence gate over the ~1,036-package npm
       tree; `check-licences.py` covers the Python environment only**
       (`.github/workflows/ci.yml`, `scripts/`). `docs/LICENSING.md` §5's JS
@@ -2801,6 +2814,30 @@ frame refactor are v2/§11. Spike de-collected.
       TERRITORY: `services/geometry/src/geometry/kernel/faces.py`
       (outer-boundary invariant construction), `services/geometry/tests/
       test_benchmarks.py` (new overlay tripwire). agentType: kernel-architect.
+
+- [ ] (P2, XS) **GQA-4 — the golden corpus exercises `settle()`'s FAST path
+      only; every defect SETTLE-2/SETTLE-3 found lived in the ladder the
+      goldens never reach.** kind: capability (test-coverage gap). MEASURED
+      (`docs/AUDIT-ENGINEERING.md` "Pass 9" N7): solving all 75 golden
+      sketches through `PlanegcsSketchSolver` shows 70/75 route through
+      `settle()`, and the batch changed zero golden bytes — evidence the
+      fast path (`_try_hold_everything`) succeeds on all of them because
+      their stored coordinates already solve. None exercises rungs 1-4, the
+      orientation guard, or the drift condition — only the three new unit
+      files' synthetic fixtures do. FIX: add a golden whose sketch is
+      deliberately edited off its stored solution (one dimension changed,
+      so the fast path must fail and the ladder must run), putting the
+      ladder under the determinism gate for the first time. Also folds in
+      N8(c) (`docs/AUDIT-ENGINEERING.md` "Pass 9"): one AST-swept test,
+      `test_drawings_measure.py:898-910`, asserts only inside a loop over an
+      unguarded filter (`for arc_like in (e for e in top.edges if …)`) —
+      add a floor (`assert len(...) >= 1`) so an empty filter can't pass
+      silently, mirroring `test_faces_geom3_qa.py:253`'s existing pattern.
+      [src: docs/AUDIT-ENGINEERING.md "Pass 9" N7/N8(c), filed by
+      backlog-groomer pass 11]
+      TERRITORY: `services/geometry/goldens/**` (new fixture),
+      `services/geometry/tests/test_drawings_measure.py`. agentType:
+      kernel-architect.
 
 - [ ] (P3, XS) **REV-3 — FB-7's collapsed rail tab aligns to the wrong edge on
       the RIGHT rail** (`apps/web/components/FloatingPanel.tsx:94-95`). Filed
