@@ -4362,3 +4362,8 @@ Full evidence lives in `CHANGELOG.md`'s "Phase 3" + "Phase 4a" +
   "conflict" framing against the builder's measurement (see Scorecard gaps
   note at top). Promoted DXF-5 into the active batch (SOLVE-1's
   kernel-architect slot freed).
+- 2026-08-24 — **Groom pass 11 (backlog-groomer):** ticked SETTLE-2/
+  SETTLE-3/CommandBand-label-shedding shipped; filed audit passes 4-5
+  (widened NAME-2 with T-21/T-8, DXF-5 with T-16, new REPICK-1/T-22); six
+  items marked IN FLIGHT and excluded from a re-derived Ready queue. Full
+  detail: `docs/CHANGELOG.md`.

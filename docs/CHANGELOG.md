@@ -5,6 +5,30 @@ section each grooming pass (one-line-per-entry there; detail preserved
 here). Newest first. Evidence for shipped items also lives in the Done
 archive (`BACKLOG.md`) and per-item commits.
 
+## 2026-08-24 (groom pass 11 — reconciled SETTLE batch, filed audit passes 4-5, marked six items in flight)
+
+- **Groom pass 11 (backlog-groomer):** ticked SETTLE-2 (`4fef60a`, a settle
+  reflecting a rigid shape across its own symmetry axis), SETTLE-3
+  (`8b239e5`, a settle sacrificing a circle's radius while pinning its
+  centre + a second residual witness), and the CommandBand label-shedding
+  fix (`ae1cea0`) into the Done archive. Recovered and filed engineering
+  audit Pass 9 and product audit passes 4-5 (`8b16b21`, `a547a6d`, 697+187
+  lines). Widened NAME-2 with T-21/T-8 (a topology-preserving edit — depth
+  or resize — orphans features anchored by coordinate/property, not
+  identity; a FIRST ordinary edit is enough, not just a second) and DXF-5
+  with T-16 (the unit defect is on the drawing DXF too, plus a silent 1:2
+  scale). Filed REPICK-1/T-22 (P0: `Re-pick face` resets the feature's own
+  parameters). Corroborated PATTERN-1/SIGNIN-1(bumped P1)/ORTHO-1/FLOW-1/
+  LAYOUT-1/MATE-1/DOCTICK-GATE/GATE-FLOOR/DEP-AUDIT/SPEC-8 against the new
+  passes. Filed SKETCH-VOCAB-1 (P1, angle/diameter dimension gap),
+  FLOW-POLISH-1 bucket (P2), SM-POLISH-1 additions, and five engineering
+  tickets (PBT-1, SETTLE-BENCH-1, CONTRACT-1, SEC-TEST-1, GQA-4). Marked
+  NAME-2/DXF-5/DXF-4/EDGEFLANGE-1/REPICK-1/LAYOUT-1 IN FLIGHT (five
+  builders live in worktrees) and excluded them from a re-derived Ready
+  queue: PICK-2 → MATE-1 → PATTERN-1/SNAP-5/SKETCH-VOCAB-1 → FB-21/FB-9 →
+  DOCTICK-GATE. Moved pass 8-10's detailed Scorecard-gaps notes here
+  (below) to keep BACKLOG.md lean.
+
 ## 2026-08-21 to 2026-08-22 (Scorecard-gaps notes, pruned from BACKLOG.md pass 11 — superseded by pass 11's own note)
 
 - **Groom pass 10 (2026-08-22) — SOLVE-1 SHIPPED (`7183955`).** Root cause:
