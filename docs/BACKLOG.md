@@ -1117,6 +1117,14 @@ rotational-part audit that produced SOLVE-1/PICK-2 above:
       [src: docs/AUDIT-PRODUCT.md "Pass 2026-08-21" R-7 (original filing),
       "Pass 2026-08-21 (second pass today)" S-7 (corroboration), filed by
       backlog-groomer pass 8, bumped pass 9]
+      **CORROBORATED A THIRD TIME, groom pass 11 (2026-08-24, T-11):**
+      the exact same coin-flip reproduced with a two-case ladder on a fresh
+      part — tip `Hole2` patterned the hole (correct, useful); tip
+      `Pattern1` patterned the whole BODY, fusing a second plate 47mm away
+      and slicing the bore into a crescent, with `STATUS` still reading
+      **`Up to date`** on the wrong result. No seed field, no preview, no
+      warning — discovered only by reading the bounding box afterward.
+      [src: docs/AUDIT-PRODUCT.md "Pass 2026-08-24 (fourth pass)" T-11]
       TERRITORY: `services/geometry/src/geometry/kernel/pattern.py` (or
       equivalent), `apps/web` pattern form. agentType: kernel-architect
       (backend seed semantics) with frontend-builder for the form.
@@ -1140,6 +1148,11 @@ rotational-part audit that produced SOLVE-1/PICK-2 above:
       perspective remains available and toggle-able for free orbit.
       [src: docs/AUDIT-PRODUCT.md M18 (2026-08-14), R-11 (prior pass), S-31
       ("second pass today"), filed by backlog-groomer pass 9]
+      **CORROBORATED A FOURTH TIME, groom pass 11 (2026-08-24, T-20):**
+      `[data-testid*="ortho|persp|project"]` still `[]`; the full view-
+      control set remains `view-home, view-fit, view-front, view-top,
+      view-right, view-iso`, all perspective. [src: docs/AUDIT-PRODUCT.md
+      "Pass 2026-08-24 (fourth pass)" T-20]
       TERRITORY: `apps/web/src/viewport/**` (camera projection, view bar).
       agentType: frontend-builder. Shares viewport territory with PICK-2/
       MATE-1/FB-21/FB-9/SEL-8 — sequence behind the P0s above.
@@ -1274,24 +1287,27 @@ rotational-part audit that produced SOLVE-1/PICK-2 above:
       TERRITORY: `services/geometry/src/geometry/kernel/` STEP export path
       (assembly writer). agentType: kernel-architect.
 
-- [ ] (P2, XS) **SIGNIN-1 — the sign-in card is still 5.2% of the frame,
-      pinned bottom-right of an empty grid — third consecutive audit pass
-      flagging this, and it is the FIRST thing any evaluating engineer
-      sees.** kind: defect. MEASURED (`docs/AUDIT-PRODUCT.md` "Pass
-      2026-08-21 (second pass today)" S-1, repeat of R-1): 1600x1000
-      frame, card ~317x260 px at (1233, 692), 94.8% of the viewport empty
-      grid. Reads as a CSS layout fault, not a design choice. No
-      incumbent's sign-in is off-centre. Bumped P3→P2 this pass: the audit
-      itself calls it "a 60-second fix that changes the first impression
-      from broken to deliberate," and three passes reporting the same P3
-      with zero action is itself a signal the priority was wrong, not
-      that the fix is hard. FIX: centre the card on a branded field
-      (viewport background can stay — see the design mandate's atmosphere
-      requirement). ACCEPTANCE: screenshot at 1600x1000 shows the card
-      centred or otherwise intentionally composed, not corner-pinned;
-      before/after sent to the founder per the design mandate.
+- [ ] (P1, XS) **BUMPED P2→P1, groom pass 11 — FOURTH consecutive audit
+      pass (T-1). SIGNIN-1 — the sign-in card is still 5.2% of the frame,
+      pinned bottom-right of an empty grid — and it is the FIRST thing any
+      evaluating engineer sees.** kind: defect. MEASURED (`docs/
+      AUDIT-PRODUCT.md` "Pass 2026-08-21 (second pass today)" S-1, repeat of
+      R-1): 1600x1000 frame, card ~317x260 px at (1233, 692), 94.8% of the
+      viewport empty grid. Reads as a CSS layout fault, not a design
+      choice. No incumbent's sign-in is off-centre. FIX: centre the card on
+      a branded field (viewport background can stay — see the design
+      mandate's atmosphere requirement). ACCEPTANCE: screenshot at
+      1600x1000 shows the card centred or otherwise intentionally composed,
+      not corner-pinned; before/after sent to the founder per the design
+      mandate.
       [src: docs/AUDIT-PRODUCT.md R-1 (prior passes), S-1 ("second pass
       today"), filed by backlog-groomer pass 9]
+      **T-1, groom pass 11 (2026-08-24): "reported at P3 in the previous
+      two passes on the assumption it was a minute's work; it has now
+      survived three grooms" — re-filed at P1 by the auditor itself. Not
+      because the fix got harder — first-run impression is the entire top
+      of the adoption funnel this product's thesis depends on.** [src:
+      docs/AUDIT-PRODUCT.md "Pass 2026-08-24 (fourth pass)" T-1]
       TERRITORY: apps/web sign-in/auth page layout. agentType:
       frontend-builder.
 
@@ -1319,6 +1335,28 @@ rotational-part audit that produced SOLVE-1/PICK-2 above:
       part-create (S-17).
       [src: docs/AUDIT-PRODUCT.md "Pass 2026-08-21 (second pass today)",
       filed as a bucket by backlog-groomer pass 9]
+      **ADDED, groom pass 11 (2026-08-24), same bucket shape — pull by id,
+      re-derive acceptance from the finding:** **P1** — after a failed
+      rebuild, fit the view and clamp/hide pick proxies that render off
+      the visible frame (T-9: three of four repair-mode edge proxies
+      measured at y=-186, y=1017, x=-4 on a 1000px-tall window; the camera
+      is also left at the sketch-edit orientation rather than refit).
+      **P2** — Measure's circle-to-circle reading is not centre-to-centre
+      and doesn't say what it measured (T-14, corroborates S-33: two
+      Ø6.6 holes 47mm apart in both axes read `DISTANCE 70.9597mm`, which
+      is neither the 47mm nor the 66.468mm diagonal); drawing dimensions
+      have no tolerance field at all and print trailing zeros (`Ø25.000`)
+      — T-17, corroborates/extends S-35; no centre marks, centrelines, or
+      hole table on drawing views (T-17); orientation-button glyphs are
+      still only a 1.4px dot apart at 24px render size — T-19 corroborates
+      S-30, "half closed" (a per-facet dot now exists, still illegible).
+      **P3** — creating a DRAWING also fails to open it (T-25 extends
+      S-17's assembly finding to a third creation flow — three flows, two
+      behaviours); duplicate `Centroid`/`Centre of mass` rows carrying the
+      same number, no inertia tensor, and stray tooltips left painted in
+      the viewport after the cursor moved (T-24).
+      [src: docs/AUDIT-PRODUCT.md "Pass 2026-08-24" fourth/fifth passes
+      T-9/T-14/T-17/T-19/T-24/T-25, added by backlog-groomer pass 11]
       TERRITORY: varies per item — see the cited finding. agentType: varies
       (mostly frontend-builder; S-37's import recognition is
       kernel-architect).
@@ -1929,6 +1967,13 @@ rotational-part audit that produced SOLVE-1/PICK-2 above:
       finds no orthographic mode and a ViewCube that does not snap to the face
       clicked. This item stays open as the umbrella/parts-page tracker; treat
       the slices as the actual buildable work.
+      **CORROBORATED, groom pass 11 (2026-08-24, T-23): a full DOM sweep for
+      `[data-testid*="handle|gizmo|drag|arrow|manip"]` returns `[]` — the
+      mandate's own named "biggest gap," M5, is still at exactly zero, not
+      partially shipped. Extrude is a numeric field with a live coloured
+      preview and no draggable arrow; nothing proposes the next verb after a
+      solved sketch beyond pre-selecting the profile.** [src: docs/
+      AUDIT-PRODUCT.md "Pass 2026-08-24 (fifth pass)" T-23]
 - [ ] (P1, L) **QA3-2 — a sketch on an imported face has NO reference to the
       import, and its origin is the face's area centroid** (frontend + geometry).
       Two things compound: `faces._face_plane` puts the datum origin at the face's
