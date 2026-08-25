@@ -127,6 +127,31 @@ from geometry.sketch.solver import SketchDefinitionError
 #: concept at all until SOLVE-1 (docs/AUDIT-ENGINEERING.md Pass 8 N1).
 SATISFIED_TOL_MM = 1e-7
 
+#: Work the settle's per-entity ladder may spend on TRIAL solves, in units of
+#: "one trial solve on a one-entity sketch". A trial solve costs about ``E**2``
+#: of them on an ``E``-entity sketch (measured: 1.8 / 7.2 / 16.1 ms at E = 16 /
+#: 32 / 48, a clean quadratic — planegcs iterates more, and each iteration costs
+#: more, as the system grows), so the ladder is allowed
+#: ``SETTLE_WORK_UNITS // E**2`` trial solves and the wall clock stays flat
+#: instead of growing like ``E**3``.
+#:
+#: **Why a work budget and not a wall-clock deadline** (the shape the audit
+#: proposed, docs/AUDIT-ENGINEERING.md N11): the settle CHOOSES GEOMETRY, so a
+#: deadline would make the shipped shape a function of how busy the machine was
+#: — the same sketch settling further on an idle box than on a loaded one. That
+#: is precisely the property RESEARCH §9 forbids (same definition in, bitwise
+#: identical solution out), and the golden suite would flake on it. This budget
+#: is a function of the sketch alone, so the answer is reproducible.
+#:
+#: 43 000 puts the ladder's wall clock at roughly 300 ms at any size: 671 trial
+#: solves at E=8, 298 at E=12 (the largest sketch in the golden corpus, which
+#: needs far fewer, so no golden's answer changes), 41 at E=32, 18 at E=48, 4 at
+#: E=96, and 0 by E=210 — past which a settle simply is not affordable and the
+#: still-residual-checked plain solve is what ships. Raising it is a reviewed
+#: decision with a measurement, not a knob: it buys settle quality on large
+#: sketches and spends the interactive budget of every dimension keystroke.
+SETTLE_WORK_UNITS = 43_000
+
 
 class PlanegcsSketchSolver:
     """Solve :class:`SketchDefinition` sketches with planegcs.
@@ -368,6 +393,54 @@ def _referenced_fit_points(constraints: list[SketchConstraint]) -> set[tuple[str
     return referenced
 
 
+def _coincidence_classes(
+    constraints: list[SketchConstraint],
+) -> dict[tuple[str, str], tuple[str, str]]:
+    """``(entity id, point name)`` → the representative of its coincidence class.
+
+    Two points joined by ``coincident`` (or two centres joined by ``concentric``,
+    which :meth:`_GcsBuild._add_concentric` translates to exactly that) are ONE
+    location in every solution the caller's constraints admit. The settle uses
+    that to reason about pins it has already tried: pinning either member at the
+    same target is the same demand, so a refusal for one is a refusal for both
+    (:meth:`_GcsBuild._known_infeasible`). In a closed outline every corner is
+    shared by two entities, so this halves the questions the settle has to put to
+    the solver — before any of the other savings.
+
+    Union-find, merged in input constraint order, and the representative is the
+    smallest member by ``(entity id, point name)`` — so the map is a function of
+    the sketch alone, never of iteration order (RESEARCH §9).
+    """
+    parent: dict[tuple[str, str], tuple[str, str]] = {}
+
+    def find(key: tuple[str, str]) -> tuple[str, str]:
+        root = parent.setdefault(key, key)
+        while root != parent[root]:
+            root = parent[root]
+        while parent[key] != root:  # path compression
+            parent[key], key = root, parent[key]
+        return root
+
+    def union(a: tuple[str, str], b: tuple[str, str]) -> None:
+        root_a, root_b = find(a), find(b)
+        if root_a != root_b:
+            low, high = sorted((root_a, root_b))
+            parent[high] = low
+
+    for constraint in constraints:  # input order — deterministic (RESEARCH §9)
+        match constraint:
+            case CoincidentConstraint():
+                union(
+                    (constraint.a.entity, constraint.a.point),
+                    (constraint.b.entity, constraint.b.point),
+                )
+            case ConcentricConstraint():
+                union((constraint.a, "center"), (constraint.b, "center"))
+            case _:
+                pass
+    return {key: find(key) for key in parent}
+
+
 def _directions(entities: list[SketchEntity]) -> dict[str, tuple[float, float]]:
     """Entity id → the vector whose SENSE says which way the entity runs.
 
@@ -473,6 +546,61 @@ class _GcsBuild:
             self._add_entity(entity)
         for index, constraint in enumerate(sketch.constraints):
             self._add_constraint(index, constraint)
+        #: Every FREE parameter of the built system, in allocation order — the
+        #: whole of what a solve can move, and therefore the whole of what a
+        #: rolled-back trial has to put back (:meth:`_snapshot`). Fixed
+        #: parameters are excluded because no solve can change them, and the
+        #: settle's own anchors are all fixed, so this tuple is complete for the
+        #: life of the build even though :meth:`settle` keeps allocating.
+        self._free_params: tuple[int, ...] = self._free_param_ids()
+        #: Did the plain solve actually satisfy the caller's constraints?
+        #: Set by :meth:`settle`; see :meth:`_pins_already_hold` for why the
+        #: no-solve acceptance path may not be taken without it.
+        self._baseline_holds = False
+        #: ``(entity id, point name)`` → coincidence-class representative.
+        self._point_class = _coincidence_classes(sketch.constraints)
+        #: Every ``(class, axes, target)`` demand a trial has already refused —
+        #: see :meth:`_known_infeasible`.
+        self._refused: set[
+            tuple[tuple[str, str], tuple[int, ...], tuple[float, float]]
+        ] = set()
+        #: Trial solves the ladder may still spend — see :data:`SETTLE_WORK_UNITS`.
+        #: Set here as well as in :meth:`settle` so a build driven directly (the
+        #: white-box rung tests) behaves like one inside a settle.
+        self._trial_solves_left = self._ladder_budget()
+
+    def _ladder_budget(self) -> int:
+        """Trial solves the per-entity ladder may spend on this sketch.
+
+        A function of the entity count alone, so the settled geometry is a
+        function of the sketch alone (RESEARCH §9) — see
+        :data:`SETTLE_WORK_UNITS` for why that rules out a wall-clock deadline.
+        """
+        return SETTLE_WORK_UNITS // max(1, len(self.sketch.entities) ** 2)
+
+    def _free_param_ids(self) -> tuple[int, ...]:
+        """Ids of every free parameter planegcs allocated while building.
+
+        Parameter ids are dense and allocated sequentially from 0, so walking
+        up until the solver refuses the index enumerates the whole array; there
+        is no count accessor on the binding. Done once, at build time.
+
+        The walk is terminated by ``get_param``, which raises ``IndexError`` past
+        the end. ``is_param_fixed`` is the natural-looking terminator and is the
+        WRONG one: it answers ``False`` for any index, in range or not, so a loop
+        that trusts it never ends (measured — it hangs).
+        """
+        solver = self.gcs.solver
+        free: list[int] = []
+        index = 0
+        while True:
+            try:
+                solver.get_param(index)
+            except IndexError:
+                return tuple(free)
+            if not solver.is_param_fixed(index):
+                free.append(index)
+            index += 1
 
     # -- entities -----------------------------------------------------------
 
@@ -802,6 +930,48 @@ class _GcsBuild:
         """
         return self._solver_says_satisfied(extra) and self._geometry_says_satisfied()
 
+    def _snapshot(self) -> tuple[float, ...]:
+        """The current value of every free parameter — the whole solved state."""
+        get = self.gcs.solver.get_param
+        return tuple(get(index) for index in self._free_params)
+
+    def _restore(self, snapshot: tuple[float, ...]) -> None:
+        """Put a :meth:`_snapshot` back, bit for bit."""
+        set_param = self.gcs.solver.set_param
+        for index, value in zip(self._free_params, snapshot, strict=True):
+            set_param(index, value)
+
+    def _pins_already_hold(self, added: list[GcsConstraintTag]) -> bool:
+        """Is every pin in ``added`` ALREADY satisfied, with nothing moved?
+
+        The settle asks the same question of most of its pins twice over: a
+        corner is pinned once as ``e_i.end`` and again as ``e_{i+1}.start``, an
+        entity whose shape is held is fully determined by its first point, and a
+        rebuild re-solves from the previous solve's own output. When the pin's
+        residual is already zero the CURRENT parameter vector is a solution of
+        the augmented system, so a trial solve can only rediscover it — and the
+        settle's guarantee is untouched, because the acceptance test
+        (:meth:`_constraints_satisfied`) is a statement about that same vector,
+        which ``_baseline_holds`` records as already true and which nothing here
+        changes.
+
+        ``_baseline_holds`` is not a formality: planegcs returns ``Success`` on
+        sketches nothing can satisfy (:func:`_violated_constraints`), and on such
+        a solve the ladder's every trial is REFUSED today, because
+        ``_constraints_satisfied`` fails on the caller's own constraints rather
+        than on the pin. Skipping the solve there would accept holds the current
+        code rejects, so the fast path is only armed when the unsettled solution
+        genuinely satisfies everything.
+
+        A ``nan`` error — planegcs's internal arc rules share tag ``0`` — fails
+        the comparison and falls through to the solve, which is the safe
+        direction (:meth:`_solver_says_satisfied`).
+        """
+        if not self._baseline_holds:
+            return False
+        error = self.gcs.solver.constraint_error
+        return all(abs(error(tag)) <= SATISFIED_TOL_MM for tag in added)
+
     def _keep_or_roll_back(
         self,
         added: list[GcsConstraintTag],
@@ -833,7 +1003,28 @@ class _GcsBuild:
         ``also`` is an extra acceptance predicate evaluated on the re-solved
         system, used by :meth:`_try_hold_shape` for the one question a residual
         cannot answer: *what did this hold cost everybody else?*
+
+        **A refusal RESTORES the pre-trial parameter vector rather than
+        re-solving for one.** The old code cleared the tags and called
+        ``gcs.solve()`` again "back to a solution of the un-held system" — but
+        the un-held system's solution was already in hand, and DogLeg restarting
+        from wherever the FAILED trial abandoned the parameters is not obliged
+        to return to it. Writing the snapshot back is exact where the re-solve
+        was merely close, and it is the single largest saving in the settle:
+        refused trials outnumber accepted ones 5:3 on a rectilinear outline, so
+        the rollback solve was 15 % of the whole solve (SETTLE-PERF-1,
+        docs/PERF.md).
         """
+        if self._pins_already_hold(added) and (also is None or also()):
+            return True
+        if self._trial_solves_left <= 0:
+            # Budget spent (:meth:`settle`): refuse rather than solve. The pins
+            # were not already satisfied, so keeping them would need a solve.
+            for tag in added:
+                self.gcs.solver.clear_by_tag(tag)
+            return False
+        self._trial_solves_left -= 1
+        snapshot = self._snapshot()
         status = self.gcs.solve()
         if (
             status in (GcsSolveStatus.Success, GcsSolveStatus.Converged)
@@ -843,13 +1034,49 @@ class _GcsBuild:
             return True
         for tag in added:
             self.gcs.solver.clear_by_tag(tag)
-        self.gcs.solve()  # back to a solution of the un-held system
+        self._restore(snapshot)
         return False
 
-    def _try_hold_point(
-        self, point_id: PointId, axes: tuple[int, ...], target: tuple[float, float]
+    def _known_infeasible(
+        self, key: tuple[str, str], axes: tuple[int, ...], target: tuple[float, float]
     ) -> bool:
-        """Pin ``axes`` of ``point_id`` at their input values, if it still solves."""
+        """Has an EARLIER trial already proved this exact demand impossible?
+
+        Pins only ever accumulate: a refused trial is rolled back, an accepted one
+        stays. So the feasible set shrinks monotonically through a settle, and a
+        demand refused once can never become satisfiable later — asking again can
+        only spend another solve to be told the same thing.
+
+        Two moves make that worth doing. A demand is recorded against the point's
+        COINCIDENCE CLASS rather than the point, so a corner refused as
+        ``e3.end`` is refused as ``e4.start`` without a solve — and in a closed
+        outline every corner is authored twice. And a refused SINGLE axis
+        condemns any superset containing it, so a coordinate the chain has
+        already proved immovable also refuses the whole-point and whole-entity
+        holds that would have pinned it.
+
+        Deliberately one-directional: it turns refusals into free refusals and
+        never turns anything into an acceptance, so the worst it can do is hold
+        LESS — and the settle's two guarantees are checked over the finished
+        result either way (:meth:`settle`).
+        """
+        root = self._point_class.get(key, key)
+        return any(
+            (root, subset, target) in self._refused
+            for subset in ((0,), (1,), (0, 1))
+            if set(subset) <= set(axes)
+        )
+
+    def _try_hold_point(
+        self,
+        key: tuple[str, str],
+        axes: tuple[int, ...],
+        target: tuple[float, float],
+    ) -> bool:
+        """Pin ``axes`` of point ``key`` at their input values, if it still solves."""
+        if self._known_infeasible(key, axes, target):
+            return False
+        point_id = self._points[key]
         added: list[GcsConstraintTag] = []
         for axis in axes:
             anchor = self.gcs.add_param(target[axis], fixed=True)
@@ -858,7 +1085,10 @@ class _GcsBuild:
                 if axis == 0
                 else self.gcs.coordinate_y(point_id, anchor)
             )
-        return self._keep_or_roll_back(added)
+        if self._keep_or_roll_back(added):
+            return True
+        self._refused.add((self._point_class.get(key, key), axes, target))
+        return False
 
     def _placement_pins(self, entities: list[SketchEntity]) -> list[GcsConstraintTag]:
         """Pin ``entities`` completely: every coordinate AND every radius.
@@ -890,7 +1120,21 @@ class _GcsBuild:
         return pins
 
     def _try_hold_placement(self, entities: list[SketchEntity]) -> bool:
-        """Hold ``entities`` completely, if the system still solves."""
+        """Hold ``entities`` completely, if the system still solves.
+
+        Refused for free when a coordinate an earlier trial already proved
+        immovable is inside this pin set (:meth:`_known_infeasible`): a hold that
+        contains an infeasible demand is infeasible. On a closed outline that is
+        the whole of rung 1 after the first entity, because entity *i*'s start is
+        entity *i-1*'s end, which rung 3 has just finished refusing.
+        """
+        if any(
+            self._known_infeasible((entity.id, name), (0, 1), (point.x, point.y))
+            for entity in entities
+            for name, point in _entity_point_names(entity)
+            if (entity.id, name) in self._points
+        ):
+            return False
         pins = self._placement_pins(entities)
         return self._keep_or_roll_back(pins) if pins else True
 
@@ -918,9 +1162,32 @@ class _GcsBuild:
         17 / 95 / 936 / 11 050 ms at n = 6 / 12 / 24 / 48 / 96 lines), and a
         live sketcher re-solves on every keystroke of a dimension edit.
 
-        On failure ``_keep_or_roll_back`` clears the pins and re-solves, and
-        the per-entity passes run exactly as before, one wasted solve later.
+        **The wasted solve on failure is not affordable, and it does not have to
+        happen.** Holding everything means shipping the author's input geometry
+        unchanged, so it can succeed only if that geometry already satisfies
+        every constraint — which is a question about the DTOs, answerable by the
+        residual module in a few hundred microseconds, with no solver involved.
+        When it does not, the trial is refused here rather than by the most
+        expensive solve in the settle: this one pins every coordinate in the
+        sketch, so it is exactly the case DogLeg grinds hardest on. Measured on
+        the 48-line edited outline, that single doomed trial was **200 ms** —
+        about a tenth of the whole settle (SETTLE-PERF-1, docs/PERF.md).
+
+        The test is the same predicate the settle already trusts
+        (:func:`worst_residual`, SETTLE-3's second witness), asked of the input
+        rather than of the read-back, so it agrees with the trial it replaces by
+        construction rather than by coincidence.
         """
+        if (
+            worst_residual(
+                self.sketch.constraints,
+                self.sketch.entities,
+                self._input_points(),
+                self.driving_values,
+            )
+            > SATISFIED_TOL_MM
+        ):
+            return False
         return self._try_hold_placement(self.sketch.entities)
 
     def _shape_pins(self, entities: list[SketchEntity]) -> list[GcsConstraintTag]:
@@ -1113,6 +1380,21 @@ class _GcsBuild:
         from the pre-settle diagnosis, because their sketch really does still
         have those degrees of freedom.
 
+        **The ladder is bounded, and the bound is a function of the sketch, not
+        of the clock** (:data:`SETTLE_WORK_UNITS`, SETTLE-PERF-1). Every rung
+        asks the solver a yes/no question, so an unbounded ladder costs a solve
+        per entity on a system whose every solve is itself quadratic — ``E**3``,
+        which is how a 48-line outline came to spend 13 seconds on one dimension
+        edit, and a 96-line one 196 seconds, against a gateway that gives up at
+        90 and deliberately does not cancel the upstream.
+        Most of those questions are now answered without a solver at all (see
+        :meth:`_pins_already_hold` and :meth:`_known_infeasible`); the budget is
+        what makes the remainder finite. When it runs out the ladder keeps
+        walking — every pin that is already satisfied is still taken, for free —
+        but stops asking new questions, so the settle degrades toward the plain
+        solve rather than off a cliff, and BOTH final checks still run over
+        whatever it kept.
+
         Falls back to the unsettled solution on EITHER of two checks, so this
         can never return worse geometry than the plain solve — the guarantee is
         checked, not assumed:
@@ -1168,23 +1450,31 @@ class _GcsBuild:
         """
         baseline = self.read_back()
         targets = self._input_points()
+        self._baseline_holds = self._constraints_satisfied([])
+        # The ladder runs on a deterministic work budget (SETTLE_WORK_UNITS),
+        # plus ONE solve reserved for rung 0 — which is exempt on purpose: it
+        # now reaches the solver only when it is going to SUCCEED (its doomed
+        # case is refused from the input residual, with no solver involved), and
+        # it is the whole settle in one solve for every rebuild that is not
+        # reacting to an edit, at every size.
+        self._trial_solves_left = 1 + self._ladder_budget()
         if self._try_hold_everything():
             return self._refinement_or(self.read_back(), baseline)
-        deferred: list[tuple[PointId, tuple[float, float]]] = []
+        deferred: list[tuple[tuple[str, str], tuple[float, float]]] = []
         for entity in self.sketch.entities:  # input order — deterministic
             if self._try_hold_placement([entity]):
                 continue
             self._try_hold_shape(entity, targets)
             for name, _ in _entity_point_names(entity):
-                point_id = self._points.get((entity.id, name))
-                target = targets.get((entity.id, name))
-                if point_id is None or target is None:
+                key = (entity.id, name)
+                target = targets.get(key)
+                if key not in self._points or target is None:
                     continue  # an unreferenced spline fit point
-                if not self._try_hold_point(point_id, (0, 1), target):
-                    deferred.append((point_id, target))
-        for point_id, target in deferred:
+                if not self._try_hold_point(key, (0, 1), target):
+                    deferred.append((key, target))
+        for key, target in deferred:
             for axis in (0, 1):
-                self._try_hold_point(point_id, (axis,), target)
+                self._try_hold_point(key, (axis,), target)
         if not self._constraints_satisfied([]):
             return baseline
         return self._refinement_or(self.read_back(), baseline)

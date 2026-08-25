@@ -6522,3 +6522,57 @@ STEP round-trip harness green, both of which the new golden inherits automatical
 the canary). Every ablation was reverted from the original bytes and
 `git diff -- services/geometry/src packages/` verified EMPTY afterwards — no
 application code was touched by this pass.
+
+---
+
+## 2026-08-25 — SETTLE-PERF-1: the benchmark corpus grew a `sketch_solve` group, because 12 entities is not a part (kernel-architect)
+
+The corpus above is honest about its own gap ("not yet a library of
+engineer-scale reference parts") and this is the first time that gap cost
+something concrete. Every sketch the solver's correctness suite owns tops out at
+**12 entities**; the settle SOLVE-1/SETTLE-2/SETTLE-3 shipped was `O(E^3)`; and
+so a 48-line outline spent **12 944 ms** answering one dimension edit, and a
+96-line one **196 s**, with every gate in this file green throughout. An
+auditor found it, not a gate (`docs/AUDIT-ENGINEERING.md` N11).
+
+Full cost model, profile evidence, before/after tables at six sizes and the
+rejected alternative live in **`docs/PERF.md` (2026-08-25)** — not duplicated
+here. What belongs in this file is the gate:
+
+| group | operation | warm best-of-3 | CI ceiling ms | headroom |
+| --- | --- | ---: | ---: | ---: |
+| sketch_solve | outline-48-already-solved | 9.1 ms | 1000 | 110x |
+| sketch_solve | outline-96-already-solved | 40.0 ms | 1000 | 25x |
+| sketch_solve | outline-48-dimension-edit | 533.9 ms | 3000 | 5.6x |
+| sketch_solve | outline-96-dimension-edit | 222.3 ms | 3000 | 13x |
+
+Fixture: `services/geometry/tests/_sketch_outline_builder.py` — a closed
+rectilinear staircase outline, every edge horizontal or vertical, every corner
+coincident, one driving width dimension. The pair per size is the point: the
+already-solved row is what every tree REBUILD re-solves (the settle's one-solve
+fast path, which dominates rebuild latency), the edited row is what a user's
+every dimension keystroke costs. A change that buys the edit by giving up the
+fast path reddens the other row.
+
+**`CEILING_SKETCH_SETTLE_MS = 3000`, and it is the only ceiling here set for
+something that already went wrong.** 5.6x the warm 48-line reading — the same
+contention headroom the corpus's tightest existing case (19x on paper, 4.7x
+after a 4x slowdown) actually enjoys — while sitting 3.4x UNDER the regression it
+exists to catch. Explicitly not 2000 ms (only 3.7x warm, inside the contention
+band this file warns about) and explicitly not 10 000 ms (a ceiling a 10 316 ms
+regression squeaks under is a gate that cannot fail for its own reason).
+
+**Mutation check — the gate fails for the right reason, and only that reason.**
+With the pre-fix solver restored over the tree, the two **edited** rows go red
+(`outline-96-dimension-edit`: 166 319 ms vs 3 000 ms) and the two already-solved
+rows stay green.
+
+**Correctness is unchanged where it can be, and gated where it cannot.**
+Pre-fix and post-fix geometry was compared coordinate-by-coordinate over 24
+sketches (4..32 lines x undimensioned / edited / retyped): **bitwise identical
+up to 24 entities**, including every edited case. Above that the deterministic
+work budget bites and PLACEMENT differs; shape does not — the same single edge
+gives way at every size, gated by `test_sketch_settle_budget.py`, which also
+asserts the budget is a function of the sketch (not the clock) and that a
+budgeted settle is bitwise reproducible across repeats (RESEARCH §9). All 207
+tests of the SOLVE-1 / SETTLE-2 / SETTLE-3 suites are green.

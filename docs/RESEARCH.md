@@ -171,6 +171,33 @@ edit has changed cascades, and `e4` — an edge the edit never named — moves
 10.285 mm. Hence per-entity, and hence the shape rung fires only where it costs
 no other entity anything (SOLVE-1's principle turned on the settle itself).
 
+**And the ladder is BOUNDED, by a work budget that is a function of the sketch —
+never of the clock** (SETTLE-PERF-1, 2026-08-25). The three decisions above are
+stated as policies and were shipped without a cost model, and the model turned
+out to be cubic: the ladder puts one yes/no question to the solver per entity,
+per point and per coordinate, and each of those solves is itself quadratic in
+entity count. Measured (`docs/PERF.md` 2026-08-25, and
+`docs/AUDIT-ENGINEERING.md` N11): a 48-line rectilinear outline spent **12 944
+ms** answering one dimension edit — 1 560x the pre-SOLVE-1 solver, for the same
+answer — and a 96-line one **196 s**, against a gateway that gives up at 90 s
+and deliberately does not cancel the upstream, which made the sketcher's
+commonest interaction an authenticated resource-exhaustion route. Profiling put
+**96.8 %** of that inside planegcs and **85 %** of it in trials that were
+REFUSED and then undone, so most of the fix is refusing without solving — a pin
+already satisfied is accepted with no solve, a demand already refused is refused
+again for free (keyed on the point's coincidence class; pins only accumulate, so
+what was infeasible stays infeasible), and holding EVERYTHING is refused from the
+input residual, which is a question about the DTOs. What is left runs on
+`SETTLE_WORK_UNITS // entities**2` trial solves. **The budget deliberately is
+not the wall-clock deadline the audit proposed: a settle CHOOSES GEOMETRY, so a
+deadline would make the shipped shape a function of machine load, which §9's
+determinism gate forbids.** Running out removes QUESTIONS, not CHECKS — both
+final guarantees still run — so the settle degrades toward the plain solve
+rather than off a cliff. Result: 96 lines from 196 s to **0.22 s**, bitwise
+identical answers up to 24 entities, all 207 SOLVE-1/SETTLE-2/SETTLE-3 tests
+green, and a `sketch_solve` benchmark group at 48 and 96 lines because the
+correctness corpus tops out at twelve — which is why nobody saw this.
+
 **Spline FIT POINTS are constrainable (v1.1, 2026-07-15); the spline CURVE is
 not.** planegcs still has no spline primitive, so the curve carries no
 tangent/curvature constraints. What v1.1 adds is that each fit point is
