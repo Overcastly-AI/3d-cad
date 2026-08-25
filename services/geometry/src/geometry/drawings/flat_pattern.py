@@ -48,15 +48,23 @@ FLAT_PATTERN_VIEW = "flat_pattern"
 
 
 def _to_edges(pattern: FlatPattern, scale: float) -> list[ProjectedViewEdge]:
-    """The flat pattern's outline as neutral :class:`ProjectedViewEdge`s (§6).
+    """The flat pattern's outline + interior cuts as :class:`ProjectedViewEdge`s (§6).
 
-    Every flat-pattern outline entry is a straight segment, so each maps to a
+    Every flat-pattern OUTLINE entry is a straight segment, so each maps to a
     ``primitive="line"`` edge carrying its ``edge_role`` (``body`` cut edge or
     ``bend`` fold line). Coordinates are scaled by *scale* to match the view's echoed
     :class:`ViewScale` (the same view-mm convention the HLR views use); the order is
     the unfold's own deterministic outline order (body edges, then bend lines), so no
     re-sort is needed for byte-determinism. Endpoints are ``visible`` (a flat pattern
     has nothing to occlude — it is viewed along its own normal, §7).
+
+    The INTERIOR cuts (holes / slots / cutouts, DXF-4) follow in the unfold's own
+    deterministic cut order, as ``line`` / ``circle`` / ``arc`` primitives with
+    ``edge_role="body"`` — they are cut path, not fold line, so they belong on the same
+    layer as the outline. This is the ONLY translation of a blank into drawing edges:
+    the on-screen Flat Pattern and the exported DXF are the same list of
+    :class:`ProjectedViewEdge`s, one placed and one placed-then-unscaled, so they cannot
+    disagree about what is in the blank.
     """
     edges: list[ProjectedViewEdge] = []
     for e in pattern.outline:
@@ -69,6 +77,24 @@ def _to_edges(pattern: FlatPattern, scale: float) -> list[ProjectedViewEdge]:
                 end=ProjectedPoint(x_mm=x2, y_mm=y2),
                 midpoint=ProjectedPoint(x_mm=(x1 + x2) / 2.0, y_mm=(y1 + y2) / 2.0),
                 edge_role=e.role,
+            )
+        )
+    for c in pattern.cutouts:
+        centre = (
+            ProjectedPoint(x_mm=c.cx * scale, y_mm=c.cy * scale)
+            if c.cx is not None and c.cy is not None
+            else None
+        )
+        edges.append(
+            ProjectedViewEdge(
+                primitive=c.kind,
+                visible=True,
+                start=ProjectedPoint(x_mm=c.x1 * scale, y_mm=c.y1 * scale),
+                end=ProjectedPoint(x_mm=c.x2 * scale, y_mm=c.y2 * scale),
+                midpoint=ProjectedPoint(x_mm=c.xm * scale, y_mm=c.ym * scale),
+                center=centre,
+                radius=None if c.r is None else c.r * scale,
+                edge_role="body",
             )
         )
     return edges

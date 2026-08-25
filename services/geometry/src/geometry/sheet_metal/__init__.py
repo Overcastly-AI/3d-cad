@@ -13,6 +13,11 @@ from geometry.sheet_metal.corner_relief import (
     corner_relief_tools,
     cut_relief_tools,
 )
+from geometry.sheet_metal.cutouts import (
+    DevelopedRegion,
+    UnfoldCutoutError,
+    develop_cutouts,
+)
 from geometry.sheet_metal.edge_flange import (
     EdgeFlangeEdgeError,
     EdgeFlangeError,
@@ -21,6 +26,7 @@ from geometry.sheet_metal.edge_flange import (
 )
 from geometry.sheet_metal.flat_pattern import (
     BendLine,
+    FlatCutEdge2D,
     FlatEdge2D,
     FlatPattern,
 )
@@ -55,10 +61,12 @@ __all__ = [
     "BendProvenance",
     "CornerRelief",
     "CornerReliefError",
+    "DevelopedRegion",
     "EdgeFlangeEdgeError",
     "EdgeFlangeError",
     "EdgeFlangeResult",
     "FlangeFaceRecord",
+    "FlatCutEdge2D",
     "FlatEdge2D",
     "FlatPattern",
     "NoBendFoundError",
@@ -67,6 +75,7 @@ __all__ = [
     "ResolvedFlange",
     "SheetMetalDefaults",
     "SheetMetalUnfoldError",
+    "UnfoldCutoutError",
     "UnfoldFoldBackError",
     "UnfoldOverlapError",
     "UnfoldScopeError",
@@ -77,6 +86,7 @@ __all__ = [
     "corner_relief_tools",
     "cut_relief_tools",
     "cylindrical_face_signature",
+    "develop_cutouts",
     "resolve_bend_faces",
     "resolve_bends",
     "resolve_cylindrical_face",

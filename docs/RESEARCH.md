@@ -438,6 +438,24 @@ Correctness gates no web app needs, run in CI and by the `geometry-qa` agent:
   no topology at all, which is the failure class 3MF exists to remove, so
   emitting a spec-violating package would discard the reason to support the
   format. STEP, STL and GLB still export that body.
+- **A FABRICATION artifact is gated against the PART, not against itself.** The
+  flat-pattern suite asserted the blank's outline, its area and its byte-identity —
+  every one of them a statement about the blank — and a bracket with four Ø5.5 through
+  holes still exported six entities and zero CIRCLEs for weeks (DXF-4, audit
+  2026-08-21 S-10/S-13). Nothing was inconsistent: the unfold developed the boundary,
+  the DXF wrote what the unfold produced, and the on-screen view read the same object,
+  so the two renderers agreed perfectly on a blank that was missing every hole. The
+  gate that catches this compares the artifact to the FEATURE TREE — one developed cut
+  loop per `through_all` hole, at the drilled radius — and checks the development is an
+  ISOMETRY of the part (developed spacing == 3D spacing on each flat region) with the
+  part's HANDEDNESS (a cross-product sign; a mirrored blank keeps every distance and
+  folds into the part's reflection, which is scrap). Both are frame-free, so they say
+  nothing about how the blank is nested and everything about whether it is the part.
+  Generalises past sheet metal: for any file we hand a machine, at least one assertion
+  must originate outside the pipeline that wrote it. Interior cuts a layout cannot
+  place are a typed refusal (`UnfoldCutoutError` → `flat_pattern_failed`), same posture
+  as `find_zero_width_slits` — detect, degrade, name the fix; decision + scope in
+  docs/design/sheet-metal.md §6.1.
 - **Solver determinism:** same sketch + constraints → identical solution
   across runs. Asserted bitwise over a *sequence* of solves, not one, since
   SOLVE-1 (§2): the sketcher feeds each solve's output back in as the next

@@ -891,9 +891,14 @@ whose notched developed widths equal the live notched faces BY DESIGN — trips
 the invariant**. WF-1 layer 2 SHIPPED as edge-flange WIDTH EXTENTS +
 partial-width development (§4.5, 2026-07-22): the narrow flange is now directly
 authorable, so the cut hack is unnecessary and cut-after-fold REMAINS a typed
-reject by this invariant (by design, not as a stopgap). A cut that misses every
-bend (a hole in a flat) still develops without the hole and awaits the deferred
-runtime area invariant (BACKLOG).
+reject by this invariant (by design, not as a stopgap). **SUPERSEDED for the
+all-parallel path 2026-08-25 (DXF-4):** "a cut that misses every bend (a hole in
+a flat) still develops without the hole" was this note's standing caveat, and
+§6.1 now develops exactly that cut into `FlatPattern.cutouts` and reconciles the
+area it removes against the live body. Two consequences for reading WF-1: it was
+never the guard against a missing hole (it compares fold WIDTHS, so a hole in the
+middle of a bend changes nothing it measures — measured, §6.1), and the cases it
+does own are unchanged.
 
 ## 6. The unfold algorithm (v1 scope) and its output
 
@@ -991,6 +996,85 @@ body edges, and a fold line is a construction-style annotation, not either.
 existing drawing-view consumer — HLR views, dimensions, SVG export — is
 unaffected), so a bend line can render as its own dashed-blue stroke (§7)
 without overloading `visible`.
+
+## 6.1 Interior cuts — through-features carried into the blank (SHIPPED 2026-08-24, DXF-4)
+
+Steps 1–5 above develop the blank's OUTER boundary and the fold lines and nothing
+else, because the layouts are analytic: they place a base and its legs from scalars
+(developed length, width, bend allowance) and no line of that arithmetic ever looks
+inside a face. The product audit measured what that costs: a bracket with four Ø5.5
+through holes exported a flat pattern of **six entities and zero CIRCLEs** — a blank
+rectangle with two scribe lines — and the on-screen Flat Pattern panel agreed with
+it, because both read the same `FlatPattern`. A cut file that omits the holes is not
+an incomplete deliverable, it is a hazard: it looks finished, and it is scrap at the
+laser.
+
+**The mechanism (`geometry.sheet_metal.cutouts`).** A layout path publishes, per FLAT
+region it places, the rigid map from that region's 3D plane into developed `(u, v)` —
+a `DevelopedRegion`. The cut developer maps the INNER WIRES of that region's faces
+through it and appends them to `FlatPattern.cutouts` as `FlatCutEdge2D`s (`line` /
+`circle` / `arc`), which `drawings/flat_pattern.py` translates into
+`ProjectedViewEdge`s with `edge_role="body"` — a CUT, on the cut layer, never the
+`BEND` layer a fold line rides (a hole on the `BEND` layer would be scribed, not cut).
+Because that translation is the only one, the on-screen sheet and the exported DXF are
+the same list of edges and cannot disagree about what is in the blank.
+
+Three properties are structural rather than conventional:
+
+- **The frame cannot mirror.** `u = axis × n`, `v = axis`, so `(u, v, n)` is
+  right-handed on the base's outward normal whatever sign OCCT gives the bend axis.
+  Flipping the axis rotates the blank 180°; it never reflects it. A rotated cut path
+  is a nesting detail, a mirrored one is scrap.
+- **Through-ness is measured, not assumed.** A through cut breaks BOTH skins of the
+  sheet and the two loops develop to the same `(u, v)` (the tool axis is normal to the
+  sheet). Loops are paired within `CUT_MATCH_TOL_MM`; an unpaired loop is a BLIND
+  feature — a pocket or an emboss, formed rather than cut — and refuses.
+- **The developed area is reconciled against the LIVE body.** The unfold measures its
+  flange areas on the clean un-notched reference body (§4.4.4), which is frozen at the
+  last fold, so a hole drilled after the last flange is invisible to it and the blank
+  quotes material a shop never cuts. Each region records the area the layout charged
+  and the difference against the live skin is applied once.
+
+**Scope, and what refuses (§5 — never a silently wrong blank).** v1 develops cuts on
+the **all-parallel 1D strip** (the L-bracket / U-channel, the ordinary bracket). The
+relieved tray, the partial-width star and the depth-≥2 bend tree publish no map yet,
+so a cut on those bodies is a typed `UnfoldCutoutError` → `flat_pattern_failed`, as is
+a cut through a bend region, a blind feature, a loop bounded by a spline, and a cut on
+a face that TWO developed runs can honestly claim (a 180° hem folds one run back on
+top of another; taking the first match would place the hole by whichever face OCCT
+enumerated first — the DXF-4 defect in a subtler form). Refusing is the point: the
+alternative is that defect. §4.5.3's note that "the blank outline of a holed base is a
+documented follow-on" is now scoped to the partial-width path only, and §5's note that
+"a cut that misses every bend (a hole in a flat) still develops without the hole" is
+now false for this path — that is the whole change. Golden:
+`holed-bracket-flat-pattern-view`; a hemmed plate exercises both halves of the
+fold-back pair (a base hole develops, a hole in the return leg refuses).
+
+**The refusal is taken over EVERY face, and that is not a detail.** The first cut of
+`cutouts.py` scanned PLANE faces only — reasonably, since only a flat run has a
+developed map — and a Ø2 cut through the bend arc of the `holed-bracket` fixture
+(x = 51.5, between the tangent line at x = 50 and the outer skin) leaves both its loops
+on the bend's CYLINDRICAL faces. A planar-only scan therefore saw no evidence the cut
+existed, developed the four drilled holes, shipped the fifth as a bare rectangle of
+bend, and every other assertion in the suite stayed green. Note the WF-1 fold-back
+invariant does not cover it either: WF-1 compares developed fold WIDTHS, and a hole in
+the middle of a bend changes no width. So a curved face carrying an interior loop is
+its own named refusal — the accounting has to be over the body, not over the subset the
+module knows how to develop, because "I cannot see it" and "it is not there" are the
+same value downstream.
+
+**Known gap, measured — a cut that STRADDLES the tangent line is still silent.** A cut
+crossing from a flat run into the bend (measured: a Ø3 drill at x = 49.5 on the same
+fixture) bites the BOUNDARY of the planar skin and of the curved skin rather than
+puncturing either, so no face gains an inner wire and nothing above fires. The blank
+ships with its outline intact and 5.0 mm² of material missing from `flat_area_mm2`
+that no cut edge accounts for. This is an OUTLINE defect, not an interior-cut one: the
+analytic layouts derive the boundary from scalars (developed length, width, bend
+allowance) and never read the body's own outer wire, so the same silence covers any
+boundary notch, on any path, and predates DXF-4. Closing it means deriving the blank's
+outline from the body — a larger change than this one, and the natural next step for
+this module. Until then it is named here with its reproduction rather than left to be
+rediscovered.
 
 ## 7. Composing with what exists — reuse, not reinvention
 
