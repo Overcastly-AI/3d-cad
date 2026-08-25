@@ -4777,3 +4777,271 @@ Note the shape of this ledger: the **P0/P1 product** items got built, and every
 **gate-hygiene** item did not, three passes running. That is a prioritisation
 that is defensible once and structural after three times — the gates are what
 tell you whether the next P0 fix worked.
+
+### N11 — **P0: SOLVE-1's settle makes a dimension edit on an ordinary 48-line outline take 13 SECONDS — measured, with the pre-SOLVE-1 solver as the control**
+
+This is N4's "unbounded cost" turned into numbers, in the quiet window after
+`just test` finished (load < 0.5, nothing else running). Method: the
+pre-SOLVE-1 solver is materialised **from git** (`git show
+c02743e:…/planegcs_solver.py`) into the scratchpad and imported under a
+different module name, so both arms run in one process against identical
+fixtures and nothing in the working tree is touched.
+
+**Fixture A — a realistic part outline.** A closed rectilinear ("staircase")
+outline of *n* lines: every line `horizontal` or `vertical`, all ends
+`coincident`, one driving width dimension, authored at 10 and submitted at 14
+(i.e. the ordinary case of *typing a new number into an existing dimension*).
+DOF = n, which is what a real, partly-dimensioned sketch looks like.
+
+| lines | pre-SOLVE-1 (`c02743e`) | HEAD (`fc5cf41`) | factor |
+|---|---|---|---|
+| 8 | **1.6 ms** | **144.9 ms** | 91x |
+| 16 | 3.0 ms | 608.8 ms | 203x |
+| 32 | 2.7 ms | 3 092.3 ms | 1 145x |
+| 48 | 8.3 ms | **12 944.0 ms** | **1 560x** |
+
+Same statuses in both arms (`underconstrained`, same DOF), so this is not a
+different answer — it is the same answer, 1 560 times slower.
+
+**Fixture B — an open chain (higher DOF), including the pathological end.**
+
+```
+case                                      old ms    new ms       x
+rect 40x25, undimensioned (DOF>0)            1.4       0.5    0.3x   (fast path — faster!)
+rect 40x25, width edited 40->44              0.2      17.2  100.9x
+chain n=6,  first 10->14                     0.4      19.4   44.4x
+chain n=12, first 10->14                     0.6     135.9  242.9x
+chain n=24, first 10->14                     6.9    1289.7  185.9x
+chain n=48, first 10->14                     3.1   15081.4 4896.7x
+n=72 (HEAD only):  71 355 ms      n=96 (HEAD only): 230 385 ms
+```
+
+Growth on fixture B between 48 → 72 → 96 is **~n^4** (x4.7 for x1.5 size, x3.2
+for x1.33). Note the authors' own docstring measured 11 050 ms at 96 lines on a
+*different* fixture; the edit case is **20x worse than the number in the
+comment**, which is precisely why a measurement that lives only in a docstring
+is not a gate.
+
+**Why this is P0 and not P1:**
+
+* **48 lines is not a stress test.** It is a bracket outline with a few slots.
+  The product's own accepted ceiling is `MAX_SKETCH_ENTITIES = 2000`.
+* **It fires on the commonest interaction in the application.** Typing into a
+  dimension re-solves; the sketcher debounces but does not coalesce away the
+  cost, and every keystroke that lands a valid number pays it.
+* **The gateway gives up at 90 s and deliberately does NOT cancel the
+  upstream** (`gateway/geometry.py:93` `DEFAULT_GEOMETRY_TIMEOUT_S = 90.0`;
+  `gateway/upstream.py:141-146` *"Nothing here cancels it, on purpose"*), and
+  the 504 body **invites a retry** ("retrying costs less than the first
+  attempt"). On a 96-line sketch that is a 230-second CPU burn per abandoned
+  request on a service compose runs with **one** container and **one** uvicorn
+  worker — with the user, in good faith, pressing retry.
+* **It is also an authenticated DoS**, since registration is open and the only
+  control is a *rate* limit (120 req/60 s) that bounds requests, not their cost.
+* The fast path is real and works (`rect … undimensioned` is 0.3x — *faster*
+  than before), which is exactly why nothing caught this: every unedited solve,
+  every golden, and every already-solved rebuild takes it. **The slow path is
+  the interactive path.**
+
+Suggested shape of the fix, in the order that buys the most per hour:
+1. **A wall-clock budget inside `settle()` that returns `baseline`** — the
+   unsettled, still-residual-checked solution is already in hand at
+   `planegcs_solver.py:1169`, so a deadline degrades to *exactly* the
+   pre-SOLVE-1 behaviour rather than to an error. ~10 lines, and it caps the
+   blast radius of everything below.
+2. **Cut the per-hold `read_back()`**: `_geometry_says_satisfied`
+   (`:768-794`) rebuilds **every DTO in the sketch** and re-derives **every
+   residual** on **every hold attempt**, and there are O(n) holds — so the
+   second witness alone is O(n²) DTO constructions per solve. Restricting the
+   re-derivation to the constraints that touch the pinned entity (plus a full
+   check once at the end, which already exists at `:1188`) keeps the guarantee
+   and removes a factor of n.
+3. **Batch the ladder**: rung 1 currently runs one `gcs.solve()` per entity
+   (`:1174-1177`) and rungs 3-4 one per point/coordinate. A bisection over the
+   entity list ("hold this half; if it fails, split") reaches the same maximal
+   hold set in O(log n) solves for the common case where few holds actually
+   conflict.
+4. Only then revisit `MAX_SKETCH_ENTITIES`.
+
+And a gate, so the next regression is not found by an auditor: the
+`sketch_solve` benchmark group of N4, with **both** an already-solved fixture
+and an *edited* one, ceilinged — the edited one is the case the corpus is
+missing today.
+
+### N12 — Smaller items, measured this pass
+
+* **Contracts/DRY/typing: clean.** `just gen-check` → exit 0. No hand-written
+  API-type duplicates in `apps/web`; **7** hex literals in `apps/web/src`
+  outside tests (unchanged from Pass 8, all justified) and **0** in
+  `packages/design/src` outside `tokens`; no `: any`/`as any` in `apps/web/src`
+  or `packages/design/src` outside tests; `pyright` 0 errors/0 warnings.
+* **Service boundaries: clean.** No `OCP`/`build123d` import outside
+  `services/geometry` except the known `services/gateway/tests/
+  test_assembly_import_chain.py:56` (P3 carry-over); no
+  `sqlalchemy`/`asyncpg`/`psycopg`/`alembic` under `services/geometry/src`; no
+  `:8001`/`:8002` in `apps/web/src`; the only `sa.text(...)` uses in
+  `services/documents/src/documents/db.py` are `server_default`/partial-index
+  predicates inside model definitions, not ad-hoc queries.
+* **Determinism hazards in the new code: none found.** `_referenced_fit_points`
+  returns a `set` but is only ever membership-tested, never iterated;
+  every pass over entities/constraints is in input list order and says so;
+  `_solver_says_satisfied` iterates `tag_to_index` (dict, insertion-ordered).
+* **Licence audit: nothing to audit.** `git diff --stat c02743e..HEAD --
+  '**/pyproject.toml' pyproject.toml uv.lock pnpm-lock.yaml '**/package.json'`
+  is **empty** — zero dependency changes in the batch, so no new GPL/AGPL
+  exposure. planegcs's LGPL-2.1 posture is unchanged (still dynamically loaded,
+  still isolated to `services/geometry`; the batch adds no new linkage).
+* **Suite growth vs. the CI ceiling (P3, watch).** `just test` python leg:
+  **3 768 passed / 1 skipped / 5 deselected in 1 183.65 s (19m43s)** — up from
+  Pass 8's 3 735 / 1 106 s, i.e. +33 tests and +78 s. **No regression**: the
+  new solver files are not disproportionately expensive (I had suspected they
+  were, from watching the progress bar stall, and the stall turned out to be
+  the pre-existing STEP-import scaling tests — a `/proc` read showed pytest at
+  1 % CPU while `_step_parse_worker.py` burned 97 %). But the CI python job's
+  ceiling is **30 min** (`.github/workflows/ci.yml:89`) against a local 19m43s,
+  and the last time this repo let that margin close it cost a run
+  (CLAUDE.md: killed at 15m16s against a 15-min ceiling). ~10 min of headroom,
+  shrinking ~80 s per batch. Worth a shard before it bites, not after.
+* **Design-system nit (P3):** `CreateStrip.tsx` names its shedding order
+  (`LABEL_PRIORITY.export` etc.) while `AssemblyCommandBand.tsx:200` and
+  `DrawingCommandBand.tsx:228` both pass a bare `labelPriority={40}`. Three
+  surfaces, two conventions, and the magic number carries no statement of what
+  it outranks.
+* **e2e inventory: 548 tests in 115 files** (was 547/115 at Pass 8) —
+  `cfe9b1d` added one.
+
+### N13 — **P1: the browser suite is red at HEAD in a quiet window, and one of the four reds is a spec that can only pass by observing a STALE readout**
+
+Ran on an isolated native stack (gateway `:8020`, documents `:8021`, geometry
+`:8022`, Vite `:5189`, my own `ea9-*.db`, a private config under
+`apps/web/node_modules/.vp1a/`), after `just test` had finished, with nothing
+else on the box. Ten spec files in sketch territory — 48 tests:
+
+```
+  4 failed
+    constraints.spec.ts:240   worked example: 40×25 rectangle, five constraints…
+    sketch-drag-draw.spec.ts:166   Tab walks the cells and wraps
+    sketch-drag-draw.spec.ts:246   founder shot 1600
+    sketch-drag-draw.spec.ts:246   founder shot 1280
+  44 passed (10.7m)
+```
+
+**(a) The three `sketch-drag-draw` failures are SPEC-9, unchanged.** Pass 8
+root-caused them with a control/hypothesis pair and the board filed the fix as
+P1/XS; nothing landed, and they still fail on a quiet CPU. Nothing new to add
+except that they are now four passes old.
+
+**(b) `constraints.spec.ts:240` is the interesting one, and it is a new
+instance of the defect class this project keeps producing.** Re-run four times
+in total: **1 pass, 3 fail**, every failure at the same line with the same
+message — an intermittent race with a *stationary* failure point, which by
+CLAUDE.md's own discriminator is not CPU-contention flake:
+
+```
+constraints.spec.ts:337
+  Expected pattern: /DOF \d+ · UNDER-CONSTRAINED/
+  Received string:  "DOF 0 · CONVERGED"
+```
+
+The received value is **arithmetically correct**. The spec's own comment three
+lines earlier enumerates the constraint set — *"11 = RECT-1's eight, SNAP-3's
+origin coincident from the first corner, and the user's two dimensions"* — and
+that set removes exactly 16 DOF from four lines' 16: 4 coincident (8) + 2
+horizontal + 2 vertical (4) + origin coincident (2) + two dimensions (2). **DOF
+0 · CONVERGED is the right answer.** So the assertion at `:337`, and the
+`.poll(...).toEqual({… status: "underconstrained"})` at `:320-333` above it, both
+describe an *intermediate* evaluation — and the run that passed did so by
+sampling the DRO before the final solve landed. **A green result there was never
+evidence of anything.** That is RETRO §4's class in a spec that has been green
+for weeks.
+
+Why it started losing the race now is a hypothesis I did not close, and the
+groomer should not treat it as a claim: N11 shows a rectangle dimension edit
+went from **0.2 ms to 17.2 ms** in this batch, so the window during which the
+stale readout is visible has moved. The discriminator is cheap — run this one
+spec against a geometry service built from `c02743e` and count passes — and it
+matters, because it decides whether the fix is "correct the spec's expectation"
+(if it was always wrong) or "correct the expectation *and* treat the timing
+change as a product-latency signal" (if the batch flipped it).
+
+Either way the fix is the same shape as CI-4(d)'s: **assert the settled answer,
+not a transient**. `DOF 0 · CONVERGED` after five constraints is what the
+worked example should be showing the founder, and the screenshot two lines later
+is currently capturing whichever state won.
+
+**(c) What this says about CI-4 / QA7-1.** Two days ago the CommandBand commit
+recorded *"Full Playwright sweep 538 passed / 10 failed, every failure in sketch
+territory and reproduced identically with this change stashed"* — i.e. the
+builder measured the reds, proved they were not its own, and pushed anyway
+(correctly, per its brief). Nobody then owned the 10. Today, in one tenth of
+the suite, 4 are still there. The e2e gate cannot be trusted per commit while
+known-red specs sit in it, and the population is not mysterious: **of the four I
+have root-caused across two passes, all four are specs that gate on a keystroke
+or a transient rather than on an answer.** That is a bounded, greppable class,
+not a substrate problem — which is a *revision* to CI-4's stated
+resource-pressure hypothesis, and the second pass in a row to say so with
+measurements.
+
+### Gate results, this pass, at `fc5cf41`
+
+| Gate | Result | Evidence |
+|---|---|---|
+| `just lint` | **GREEN (exit 0)** | ruff + ruff-format + `pyright 0 errors, 0 warnings, 0 informations` + eslint/prettier + `pnpm -r typecheck` + six `scripts/` gates (incl. three `--self-test`s) |
+| `just test` | **GREEN (exit 0)** | python **3 768 passed / 1 skipped / 5 deselected in 1 183.65 s**; `packages/design` 105 tests / 16 files; `apps/web` 1 754 tests / 122 files |
+| `just gen-check` | **GREEN (exit 0)** | contracts + ts-client match generated output — **and that is exactly why N3's stale description is invisible to it** |
+| Browser suite (10 sketch-territory spec files, isolated stack, quiet box) | **RED — 4 of 48** | N13; `sketch-drag-draw` ×3 (SPEC-9, unfixed) + `constraints.spec.ts:240` (3 of 4 runs) |
+| `playwright test --list` | 548 tests / 115 files | +1 vs Pass 8 |
+| Solver cost, HEAD vs `c02743e`, identical fixtures | **1 560x slower at 48 lines** | N11 — 8.3 ms → 12 944 ms; 96-line chain edit **230 s** |
+| Golden sketch DOF census | 70 of 75 under-constrained ⇒ settle runs; 0 golden bytes changed | N7 |
+| Self-test vacuity reproduction | **2 of 6 `scripts/` gates still vacuous** | N8(a), both exit 0 with every check deleted |
+| AST sweep: tests asserting only inside a filtered loop | 1 of 62 unguarded | N8(c) |
+| Route authn (committed contract) | 85 operations, **2** unauthenticated (login/register) | N6 |
+| Service boundaries / ad-hoc SQL / `any` / hex literals | **CLEAN** | N12 |
+| `pnpm audit --audit-level=high` | 18 (13 high / 5 moderate), all dev/build | unchanged from Pass 8 |
+| `pip-audit` | 1 (`cryptography 49.0.0`, PYSEC-2026-3552) | dev-only via `moto`; absent from images (`--no-dev`) |
+| Dependency manifests changed this batch | **none** | no licence exposure to audit |
+| Worktrees / disk | **27 worktrees, 11 GB, 14 GB free** (was 19 / 8.3 GB / 17 GB) | all 0 commits ahead of origin |
+
+### Prioritized recommendations for the groomer
+
+| # | Sev | Item | Why now |
+|---|-----|------|---------|
+| 1 | **P0** | **Bound the settle's cost (N11).** A dimension edit on a 48-line rectilinear outline: **8.3 ms → 12 944 ms**, measured against the pre-SOLVE-1 solver on identical fixtures in one process; a 96-line sketch edit takes **230 s** against a gateway that gives up at 90 s, does not cancel the upstream, and tells the user to retry. Order: (a) wall-clock budget in `settle()` falling back to `baseline` (~10 lines, `planegcs_solver.py:1169`); (b) stop rebuilding every DTO in `_geometry_says_satisfied` per hold (`:768-794`) — that alone is a factor of n; (c) bisect the hold set instead of one `gcs.solve()` per entity/point (`:1174-1187`). | It fires on the commonest interaction in the product, on the pillar the scorecard just flipped to ✅, and it is invisible to every existing gate because goldens and unedited rebuilds all take the fast path. |
+| 2 | **P0** | **Ship the `sketch_solve` benchmark group with an EDITED fixture, ceilinged, before the fix lands** (`test_benchmarks.py`, 22 cases today, none of them a sketch solve). | Without it the fix in #1 is unverifiable and the regression is re-introducible by anyone. The authors' own 11 s docstring number is 20x optimistic against the edit case — a measurement that lives in a comment is not a gate. |
+| 3 | **P1** | **Land the randomised solver sweep as a seeded test (N2)** — the generator that found both novel defects in this batch (5 tangent "holes", 7 of 155 sketches shipping a violated constraint) exists nowhere in the repo, and there is no `hypothesis` dependency. Include a floor on the number of solvable sketches actually exercised. | The subsystem has now needed three attempts in four days, each finding a branch the previous author had not imagined. This is the only instrument that samples that space, and it was thrown away. |
+| 4 | **P1** | **Fix the four red e2e specs and adopt the rule they share (N13, SPEC-9):** assert the ANSWER, never a keystroke or a transient. `constraints.spec.ts:337` expects `UNDER-CONSTRAINED` where the constraint set gives DOF 0 — it passes only by sampling a stale readout (1 of 4 runs). Then sweep for the pattern. | Four of four e2e failures root-caused across two passes are this one class; CI-4's "resource pressure" framing needs updating in the ticket, and the suite cannot gate a commit while known reds sit in it. |
+| 5 | **P1** | **Route this batch through `geometry-qa` (N9)** — `docs/GEOMETRY-QA.md` has no entry since 2026-08-16 and zero mentions of the settle, on a change that moves the coordinates of 70 of 75 golden sketches. Add a golden whose sketch is deliberately off its solution so the ladder (not just the fast path) is under the determinism gate. `docs/QA-REVIEW.md` is 23 days stale. | The builders verified their own geometry. This batch spent 400 sketches proving why a self-report is not evidence. |
+| 6 | **P2** | **N3 — correct `SolvedDimension`'s docstring and regenerate**; consider a `verified`/`measured` boolean. The shipped OpenAPI (both services) still tells clients a driving `value_mm` is "the value fed to the solver" when it is now the measured value whenever they disagree. | `gen-check` regenerates from the same stale prose, so no gate can see it. Cheapest possible fix; it is the API contract. |
+| 7 | **P2** | **The gate-hygiene bundle, now three passes old:** `EXPECTED_CHECKS` floors in `check-mutation-markers.py:1115` and `check-workflow-concurrency.py:481`; `materials.spec.ts:249,267` → `toHaveCount(1)`; `DOCTICK-GATE`; dependabot + `pnpm audit`/`pip-audit` in CI. | Every P0/P1 *product* item from Pass 8 was built and every *gate* item was skipped, three passes running (N10). The gates are what tell you whether the next P0 fix worked — see #2. |
+| 8 | **P2** | **Reconcile CLAUDE.md's doc-tick rule with the org chart (N5)** — 22 of the last 24 feat/fix commits carry no ROADMAP/BACKLOG hunk while `.claude/ORCHESTRATOR.md` says the groomer owns the board. Either ship the gate or amend the rule. | A "NON-NEGOTIABLE" at 8 % compliance teaches every agent that the rules in that file are advisory. |
+| 9 | **P2** | **A negative test for principal-header spoofing (N6)** — nothing asserts that a client-supplied `X-Loft-Principal` at the gateway is ignored. | Correct today by construction (`upstream.py:186-189`); one refactor from cross-tenant impersonation, and the positive half of the test already exists. |
+| 10 | **P3** | **Housekeeping:** `git worktree prune` + `git branch -D worktree-agent-*` (27 worktrees, **11 GB**, free space 17 → 14 GB, all verified 0 ahead — fourth consecutive pass asking); name the 8 inline epsilons in `drawings/compose.py`; a `rate_limit_backend_unavailable` metric; a non-empty guard on `test_drawings_measure.py:898-910`; record the settle's cost model in `docs/PERF.md`; one `LABEL_PRIORITY` convention across the three command bands; watch the python CI job's 10-minute margin (19m43s of 30). | Each small; the disk one has a clock on it. |
+
+### Confidence ledger for this pass
+
+* **Ran myself, full output captured:** `just lint` (exit 0), `just test`
+  (exit 0), `just gen-check` (exit 0), `pnpm audit`, `pip-audit`,
+  `playwright test --list`, 48 browser tests across ten spec files on an
+  isolated three-service stack I booted and tore down, four runs of
+  `constraints.spec.ts:240`, the old-vs-new solver benchmark (two fixture
+  families, six sizes, both solvers in one process), the golden DOF census (75
+  sketches), the two self-test vacuity reproductions, the AST sweep over every
+  `test_*.py`, the route/authn count over the committed contract, and the
+  boundary/DRY/epsilon/manifest greps.
+* **N11 is not arguable**: same fixtures, same process, same statuses, one
+  variable (which `planegcs_solver.py` is imported), 1 560x.
+* **Two instrument corrections are recorded in place** — my first authn sweep
+  found "0 problems" because it had found 0 routes (N6), and my first exit-code
+  measurement read `tail`'s status (N8b). Both are the pass's own subject matter
+  happening to the auditor; I have left them in rather than quietly fixing them.
+* **Stated as hypothesis, not claim:** *why* `constraints.spec.ts:240` started
+  losing its race now (N13b). The discriminator is written down.
+* **NOT verified by me:** the other ~500 e2e tests (I ran 48); the compose /
+  `deploy-path` runtime (registry blocked); `just bench`; and **whether CI is
+  green on any commit in this range** — `api.github.com` is policy-denied to a
+  subagent, so recommendations 1, 4 and the CI-margin note in N12 all terminate
+  in a read only the orchestrator can perform.
+* **Environment:** container 12 min old at start, load 0.31, no foreign
+  uvicorn/vite/pytest/playwright at any point; the browser suite ran after
+  `just test` had exited, with the box otherwise idle. No red is reported here
+  that did not repeat.
