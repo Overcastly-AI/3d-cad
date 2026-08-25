@@ -163,6 +163,21 @@ export interface HoleEditorProps {
   /** Why a pick can't happen right now (no body / no anchor), or null. */
   pickError: string | null;
   /**
+   * PICK-2 — why picking is unavailable AT ALL right now, or null when it is
+   * available. Distinct from `pickError`, which reports a pick that was
+   * attempted and went wrong; this is a standing condition of the part (the
+   * build produced no body, so no overlay can populate) and it holds whether or
+   * not anything has been attempted.
+   *
+   * The row keeps its `Pick` button and DISABLES it with this as the reason,
+   * rather than hiding it: a control that vanishes teaches nothing, and the
+   * dead end this fixes was precisely a pick affordance that said nothing about
+   * why clicking the model did nothing. `canPickFace` still hides the button
+   * outright on a part that has no body-affecting feature at all — there the
+   * answer is "add one", which the value column already says.
+   */
+  pickBlockedReason: string | null;
+  /**
    * The picked face's own body is switched OFF, so the viewport is withholding
    * the whole placement overlay (SEL-7 — `viewport/HolePointOverlay`).
    *
@@ -339,6 +354,7 @@ export function HoleEditor({
   facePick,
   pointPick,
   pickError,
+  pickBlockedReason,
   placementHidden,
   edges,
   onPreviewChange,
@@ -416,14 +432,21 @@ export function HoleEditor({
   const faceValue =
     form.face !== null
       ? holeFaceReadout(form.face)
-      : !canPickFace
-        ? "Add a body to pick a face"
-        : activePick === "face"
-          ? // Short enough to fit the value column beside the armed button — a
-            // truncated instruction ("Click a face in the …") is not one. The
-            // gated Create cell carries the full sentence.
-            "Click a face"
-          : "No face chosen";
+      : // PICK-2: a part whose body-affecting feature FAILED already has the
+        // body the old copy asks for, so "Add a body" reads as the tool not
+        // knowing what the user can plainly see. The disabled Pick button's
+        // reason carries the fix; the value column stays two words wide,
+        // because it shares a line with that button and truncates.
+        pickBlockedReason !== null
+        ? "No body built"
+        : !canPickFace
+          ? "Add a body to pick a face"
+          : activePick === "face"
+            ? // Short enough to fit the value column beside the armed button — a
+              // truncated instruction ("Click a face in the …") is not one. The
+              // gated Create cell carries the full sentence.
+              "Click a face"
+            : "No face chosen";
   // …and when the face's body is switched off there is nothing on screen to
   // click, so the row names the view state instead of an instruction it cannot
   // honour. TWO WORDS, for the same reason `faceValue` above is short: the
@@ -615,7 +638,13 @@ export function HoleEditor({
               }
               pickTestId="hole-face-pick"
               pickAriaLabel="Pick the planar face to drill into"
-              showPick={canPickFace}
+              // PICK-2: keep the affordance and disable it with its reason when
+              // the part has a body-affecting feature that did not build. That
+              // is the state that used to arm a pick over an empty scene, and
+              // the row is where the user is already looking for the answer.
+              showPick={canPickFace || pickBlockedReason !== null}
+              disabled={pickBlockedReason !== null}
+              disabledReason={pickBlockedReason ?? undefined}
               onPick={() => onTogglePick("face")}
             />
             <AnchorRow

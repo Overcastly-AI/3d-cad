@@ -322,6 +322,7 @@ import {
 } from "../components/HistoryErrorAlert";
 import { type HistoryStep, undoRedoStep } from "../lib/undoRedoShortcut";
 import { FacePickOverlay } from "../viewport/FacePickOverlay";
+import { pickRefusal } from "../viewport/pickTargets";
 import { useSketchStore } from "../sketch/store";
 import { TOOL_SHORTCUTS } from "../sketch/tools";
 import {
@@ -598,6 +599,18 @@ export function PartPage() {
   }, [partId, queryClient]);
 
   const hasBody = body.data !== undefined;
+
+  /**
+   * PICK-2 — does ANY pick have something to pick? This is the exact predicate
+   * all six pick overlays are fetched on (`meshGlbId !== null`: face pick,
+   * datum face pick, hole, edge, shell, measure), lifted to one name so the
+   * arming guards below cannot drift away from the queries they guard.
+   *
+   * `hasBody` is NOT the same question and is not a substitute: it is true only
+   * once the GLB has been fetched, so it also reads false while the mesh is
+   * merely in flight. This says "an overlay can populate at all".
+   */
+  const hasPickTargets = meshGlbId !== null;
 
   // Face-pick (the plane-pick "Pick a face" path): arm → highlight the body's
   // planar faces → click one → author an on_face datum → seat the sketch.
@@ -1480,6 +1493,40 @@ export function PartPage() {
   const bodyFeatureId = useMemo(
     () => lastBodyFeatureId(tree.data?.features ?? []),
     [tree.data],
+  );
+
+  /**
+   * PICK-2 — what every arming guard below asks `pickRefusal` about. Split in
+   * two on purpose: a part that has never had a body-affecting feature needs
+   * "add one", while a part whose body-affecting feature exists but did not
+   * build needs "clear the error" — and telling a modeller to add the feature
+   * they can see in the tree is how a refusal stops being believed.
+   */
+  const pickTargetState = useMemo(
+    () => ({ hasPickTargets, hasBodyFeature: bodyFeatureId !== null }),
+    [hasPickTargets, bodyFeatureId],
+  );
+  /**
+   * PICK-2 — why the hole / datum / sketch face picks cannot be armed, or null.
+   *
+   * DERIVED, never mirrored into state. An armed pick whose targets disappear
+   * (the tip stops building while the editor is open) has to become honest at
+   * that instant, and a copy of the reason held in `holePickError` would only
+   * become honest the next time somebody pressed something. Each editor states
+   * its own refusal on a surface that is NOT gated on a pick being armed, so
+   * "refuse to arm" and "say why" are the same fact told once.
+   */
+  const holePickRefusal = pickRefusal(
+    pickTargetState,
+    "Add a feature that creates a body before drilling a hole.",
+  );
+  const datumPickRefusal = pickRefusal(
+    pickTargetState,
+    "Add a feature that creates a body before picking a face.",
+  );
+  const facePickRefusal = pickRefusal(
+    pickTargetState,
+    "Add a feature that creates a body before sketching on a face.",
   );
 
   // PICK-1 (M16) — the anchor a SUBSHAPE REFERENCE gets stamped with, which is
@@ -2483,12 +2530,18 @@ export function PartPage() {
   const repickFace = useCallback(
     (feature: FeatureResponse) => {
       selectFeature(feature);
-      if (feature.feature.type === "hole") {
-        setHolePickError(null);
-        setHolePick("face");
-      }
+      if (feature.feature.type !== "hole") return;
+      setHolePickError(null);
+      // PICK-2: the repair is offered ON a failed build, which is exactly the
+      // state that can leave the evaluation with no body — and with no body
+      // every pick overlay is disabled, so arming here would badge `Picking`
+      // over a scene that contains no pickable target at all. The editor opens
+      // either way (the feature is what the user asked to see) and states the
+      // refusal on its face row; only the ARMING is withheld.
+      if (holePickRefusal !== null) return;
+      setHolePick("face");
     },
-    [selectFeature],
+    [selectFeature, holePickRefusal],
   );
 
   const closeEditor = useCallback(() => {
@@ -3260,9 +3313,14 @@ export function PartPage() {
   // face-pick step (the same flow the sketch strip's "Pick face" button drives).
   const startSketchOnFace = useCallback(() => {
     handleNewSketch();
-    setFacePicking(true);
+    // PICK-2: the viewport menu reaches this without passing the strip's
+    // `canPickFace` gate, so the refusal has to be enforced here too. The
+    // sketch still opens — the plane picker's other routes (origin planes,
+    // offset) are all still available, and closing the sketch outright would
+    // punish the user for the tree's state.
     setFacePlaneError(null);
-  }, [handleNewSketch]);
+    setFacePicking(facePickRefusal === null);
+  }, [handleNewSketch, facePickRefusal]);
 
   // The inline "sketch at a height" path: author a datum feature, then enter
   // the sketcher on it. One extra field, not a separate multi-step ritual —
@@ -3380,9 +3438,18 @@ export function PartPage() {
 
   /** Arm/disarm the face-pick mode (clears any stale error on toggle). */
   const togglePickFace = useCallback(() => {
+    // Disarming is always allowed — a stand-down must never be blocked by the
+    // thing it stands down from.
+    if (facePicking) {
+      setFacePlaneError(null);
+      setFacePicking(false);
+      return;
+    }
+    // PICK-2: refuse to ARM over an overlay that cannot populate. The strip's
+    // prompt states the refusal (`FacePickPrompt`'s blocked reading).
     setFacePlaneError(null);
-    setFacePicking((armed) => !armed);
-  }, []);
+    setFacePicking(facePickRefusal === null);
+  }, [facePicking, facePickRefusal]);
 
   /**
    * New sketch — ON the pre-selected face when there is one (UI-W3).
@@ -3406,16 +3473,23 @@ export function PartPage() {
   // last body-affecting feature — the same rule sketch-on-face uses.
   const toggleDatumFacePick = useCallback(
     (slot: DatumFaceSlot) => {
-      if (!hasBody) {
-        setDatumFacePickError(
-          "Add a feature that creates a body before picking a face.",
-        );
+      // Disarming is always allowed (see `togglePickFace`).
+      if (datumFacePick === slot) {
+        setDatumFacePickError(null);
+        setDatumFacePick(null);
         return;
       }
+      // PICK-2: this already refused on `hasBody`, but said the wrong thing for
+      // the case that actually reaches a modeller — a part whose extrude is
+      // right there in the tree and simply did not build. The reason is NOT
+      // copied into `datumFacePickError` here: `datumPickRefusal` is already on
+      // screen the whole time the condition holds, and stating it twice would
+      // make one refusal look like two problems.
       setDatumFacePickError(null);
-      setDatumFacePick((current) => (current === slot ? null : slot));
+      if (datumPickRefusal !== null) return;
+      setDatumFacePick(slot);
     },
-    [hasBody],
+    [datumFacePick, datumPickRefusal],
   );
 
   const pickDatumFace = useCallback(
@@ -3486,16 +3560,20 @@ export function PartPage() {
   // the datum picker use.
   const toggleHolePick = useCallback(
     (target: HolePickTarget) => {
-      if (!hasBody) {
-        setHolePickError(
-          "Add a feature that creates a body before drilling a hole.",
-        );
+      // Disarming is always allowed (see `togglePickFace`).
+      if (holePick === target) {
+        setHolePickError(null);
+        setHolePick(null);
         return;
       }
+      // PICK-2, as `toggleDatumFacePick`: the refusal was already here, the
+      // honest reason was not — and it is stated once, by the face row's
+      // disabled Pick control, not copied into the error slot as well.
       setHolePickError(null);
-      setHolePick((current) => (current === target ? null : target));
+      if (holePickRefusal !== null) return;
+      setHolePick(target);
     },
-    [hasBody],
+    [holePick, holePickRefusal],
   );
 
   const pickHoleFace = useCallback(
@@ -4163,6 +4241,11 @@ export function PartPage() {
               facePicking={facePicking}
               authoringFace={facePlaneBusy}
               facePickError={facePlaneError}
+              // PICK-2: the prompt is mounted BY `facePicking`, so if the tip
+              // stops building while the pick is armed it goes on saying "click
+              // a highlighted planar face" at a scene that has none. This is the
+              // reason it says instead.
+              facePickBlocked={facePicking ? facePickRefusal : null}
             />
           )}
         </TopToolbar>
@@ -4328,11 +4411,15 @@ export function PartPage() {
                         saving={editorSaving}
                         error={editorError}
                         canPickFace={hasBody}
-                        activePick={holePick}
+                        // PICK-2: an armed pick whose overlay cannot populate is
+                        // not an armed pick. Reading `null` here is what stops
+                        // the row badging `Picking` over an empty scene.
+                        activePick={holePickRefusal === null ? holePick : null}
                         onTogglePick={toggleHolePick}
                         facePick={holeFacePicked}
                         pointPick={holePointPicked}
                         pickError={holePickError}
+                        pickBlockedReason={holePickRefusal}
                         placementHidden={holePlacementHidden}
                         edges={holeOverlayEdges}
                         onPreviewChange={onHolePreviewChange}
@@ -4402,10 +4489,16 @@ export function PartPage() {
                         saving={editorSaving}
                         error={editorError}
                         canPickFace={hasBody}
-                        activeFacePickSlot={datumFacePick}
+                        // PICK-2, as for the hole editor: an armed slot whose
+                        // overlay cannot populate reads as not armed…
+                        activeFacePickSlot={
+                          datumPickRefusal === null ? datumFacePick : null
+                        }
                         onToggleFacePick={toggleDatumFacePick}
                         facePick={datumFacePicked}
-                        facePickError={datumFacePickError}
+                        // …and the standing refusal is stated on the editor's
+                        // own (ungated) pick-error line rather than nowhere.
+                        facePickError={datumFacePickError ?? datumPickRefusal}
                       />
                     ) : (
                       <CombineEditor

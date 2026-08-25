@@ -361,6 +361,14 @@ export interface SketchStripProps {
   authoringFace?: boolean;
   /** On-face authoring failure, or null. */
   facePickError?: string | null;
+  /**
+   * PICK-2 — why the armed face pick has nothing to pick, or null when it has.
+   * The overlay that highlights pickable faces is fetched only while the tip
+   * feature has a built body; without one the viewport is empty, and a prompt
+   * that keeps saying "click a highlighted planar face" is the dead end this
+   * closes. Not an error — nothing was attempted — so it reads as direction.
+   */
+  facePickBlocked?: string | null;
 }
 
 const OFFSET_BASE_OPTIONS: ReadonlyArray<SegmentOption<DatumPlaneName>> =
@@ -502,10 +510,13 @@ function OffsetPlanePanel({
  */
 function FacePickPrompt({
   busy,
+  blocked,
   error,
   onCancel,
 }: {
   busy: boolean;
+  /** PICK-2 — why there is nothing to pick, or null. */
+  blocked: string | null;
   error: string | null;
   onCancel: () => void;
 }) {
@@ -514,19 +525,23 @@ function FacePickPrompt({
       <div
         role="status"
         data-testid="face-pick-prompt"
+        data-blocked={blocked !== null ? "true" : "false"}
         className="border border-hairline bg-anvil px-3 py-3 font-body text-xs text-gauge"
       >
         <h2 className="font-display text-2xs uppercase tracking-[0.18em] text-gauge">
-          Pick a face
+          {blocked !== null ? "Nothing to pick" : "Pick a face"}
         </h2>
-        <p className="mt-1.5 text-mist">
-          {busy
-            ? "Placing the sketch on the face…"
-            : "Click a highlighted planar face to sketch on it."}
+        <p className="mt-1.5 text-mist" data-testid="face-pick-prompt-body">
+          {blocked !== null
+            ? blocked
+            : busy
+              ? "Placing the sketch on the face…"
+              : "Click a highlighted planar face to sketch on it."}
         </p>
         <p className="mt-1.5 text-gauge">
-          Best-effort reference — a big change upstream can move it. Curved
-          faces aren’t pickable.
+          {blocked !== null
+            ? "Pick a datum plane above to keep sketching in the meantime."
+            : "Best-effort reference — a big change upstream can move it. Curved faces aren’t pickable."}
         </p>
         <div className="mt-2 flex justify-end">
           <button
@@ -730,6 +745,7 @@ export function SketchStrip({
   facePicking = false,
   authoringFace = false,
   facePickError = null,
+  facePickBlocked = null,
 }: SketchStripProps) {
   const mode = useSketchStore((state) => state.mode);
   const plane = useSketchStore((state) => state.plane);
@@ -1145,6 +1161,7 @@ export function SketchStrip({
         <div className="absolute left-editor top-full z-overlay mt-2">
           <FacePickPrompt
             busy={authoringFace}
+            blocked={facePickBlocked}
             error={facePickError}
             onCancel={onTogglePickFace}
           />

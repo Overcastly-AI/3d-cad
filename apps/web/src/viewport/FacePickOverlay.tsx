@@ -9,6 +9,15 @@
  * and are NOT pickable in v1 — they are omitted, never a dead target. So are
  * the faces of a SWITCHED-OFF body (`hiddenPicks.ts`).
  *
+ * "Omitted, never a dead target" was true PER FACE and false for the overlay as
+ * a whole (PICK-2). When the tip feature builds no body the parent's overlay
+ * query is disabled, `faces` arrives null, and this renders NOTHING — no
+ * `PickSurface`, no `PickNode` — so the entire viewport became the dead target
+ * the per-face rule forbids, and said nothing about it. That case is now
+ * refused BEFORE a pick is armed (`./pickTargets`), which is what makes the
+ * guarantee hold for the surface and not only for its parts: a mode that could
+ * only ever offer zero faces is not entered.
+ *
  * The pick reads as TOPOLOGY, not a blanket of floating squares (UI audit
  * #19a): the face under the cursor (hovered) — or the one currently armed —
  * also gets a translucent brass patch laid ON its plane (`FacePatch`), so the
