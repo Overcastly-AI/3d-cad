@@ -148,6 +148,44 @@ const skipAudit = !!(args && args.skipAudit)
 const skipDiscover = !!(args && args.skipDiscover)
 const skipCurate = !!(args && args.skipCurate)
 
+// BUILD SITS BEHIND FOUR OF THE MOST EXPENSIVE AGENTS IN THE SYSTEM, AND THAT
+// IS WHY THE LOOP KEPT PRODUCING NO CODE (measured 2026-08-24, three runs).
+//
+// The founder said "make sure to follow the workflow", twice. I started it three
+// times and got zero builders out of it, and misdiagnosed the Build phase as
+// broken. Build is fine. It is simply never REACHED: Discover -> Audit ->
+// Curate -> Groom are four sequential `await` barriers ahead of it — a
+// vision-steward, two deep auditors and an oss-curator, each a multi-hundred-
+// thousand-token run — and this container is reclaimed without warning. The
+// journals say it plainly:
+//   wf_5d45a0e8-a15: vision-steward result, product-auditor result,
+//                    engineering-auditor STARTED WITH NO RESULT -> the
+//                    `parallel()` barrier never resolved, run over.
+//   wf_595d52cf-5e0: oss-curator started, no result, run over.
+// Neither run ever evaluated a line of the Build phase.
+//
+// Two things follow, and the second is the one that generalises.
+//
+// (a) `seedItems` lets the orchestrator hand the batch straight in. `items`
+//     used to come ONLY from the groomer's return value, so a groomer that died
+//     — or was skipped — produced an empty batch and the early return below,
+//     which reads in the log exactly like "the board is empty" rather than "the
+//     agent that reads the board never came back". Same words, opposite cause.
+//
+// (b) A LONG PREFIX OF OPTIONAL EXPENSIVE WORK IN FRONT OF THE ONLY PHASE THAT
+//     SHIPS is a design defect, not a scheduling detail. Every phase ahead of
+//     Build must be individually skippable, and the caller that wants code this
+//     hour must be able to say so. The direction layer is not optional in
+//     GENERAL — it is the whole point of this file — but it is optional in any
+//     GIVEN batch, and conflating those two costs a batch each time.
+//
+// Note the front half was not idle while it died: passes 4 and 5 of
+// docs/AUDIT-PRODUCT.md and the engineering pass came out of these runs and had
+// to be rescued by hand from the working tree. Write-early earned its keep
+// again. But an audit nobody builds against is a report, not a loop.
+const skipGroom = !!(args && args.skipGroom)
+const seedItems = (args && Array.isArray(args.items) && args.items) || []
+
 // Which verifier an item gets. `geometry-qa` owns golden models, STEP
 // round-trips, solver determinism and benchmarks; CLAUDE.md says it runs
 // "whenever kernel-adjacent code changes", and it had NEVER been spawned in 108
@@ -329,7 +367,9 @@ these CANNOT be in this batch, so skip them however high they rank and say so:
 ${occupied.map((t) => `  - ${t}`).join('\n')}\n`
   : ''
 
-const ready = await agent(
+const ready = skipGroom
+  ? null
+  : await agent(
   `You own docs/BACKLOG.md. Reconcile it against git history, docs/ROADMAP.md,
 both audit docs, **docs/COMPETITIVE.md and docs/VISION.md's daily-driver
 scorecard**, docs/UI-REVIEW.md and docs/GEOMETRY-QA.md: dedupe, reprioritise,
@@ -374,9 +414,24 @@ explicitly told not to touch them.`,
   { label: 'groom', phase: 'Groom', agentType: 'backlog-groomer', schema: READY },
 )
 
-const items = ((ready && ready.items) || []).slice(0, batchSize)
+// Seeded items WIN over the groomer's: a caller that passed a batch in has
+// already decided, and silently preferring a groom result over an explicit
+// argument is the kind of surprise that costs a batch to notice.
+const items = (seedItems.length ? seedItems : (ready && ready.items) || []).slice(
+  0,
+  batchSize,
+)
 if (items.length === 0) {
-  log('Groomer returned no Ready items — nothing to build this batch.')
+  // Say WHICH emptiness this is. "Nothing to build" reads as "the board is
+  // clear" — a satisfying, wrong conclusion when the truth is that the agent
+  // which reads the board never came back.
+  log(
+    skipGroom
+      ? 'skipGroom was set and no seedItems were passed — nothing to build. Pass args.items.'
+      : ready
+        ? 'Groomer returned an empty Ready queue — nothing to build this batch.'
+        : 'Groomer produced NO RESULT (died, or was skipped). This is not an empty board.',
+  )
   return { built: [], greenBranches: [], note: 'Ready queue empty' }
 }
 log(`batch: ${items.map((i) => `${i.id}(${i.agentType}/${i.kind || '?'})`).join(', ')}`)
