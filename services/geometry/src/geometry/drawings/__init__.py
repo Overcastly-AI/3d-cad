@@ -25,6 +25,7 @@ from geometry.drawings.assembly_project import (
 )
 from geometry.drawings.compose import (
     DXF_ENCODING,
+    DXF_UNITS,
     MIN_VIEW_CLEARANCE_MM,
     VIEW_GUTTER_MM,
     FlatPatternExportError,
@@ -73,6 +74,7 @@ from geometry.drawings.thread_schedule import thread_schedule_rows
 
 __all__ = [
     "DXF_ENCODING",
+    "DXF_UNITS",
     "FLAT_PATTERN_VIEW",
     "MIN_VIEW_CLEARANCE_MM",
     "SECTION_VIEW",

@@ -42,6 +42,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import NamedTuple
 
 import ezdxf
+from ezdxf import units as ezdxf_units
 from ezdxf.document import Drawing
 from ezdxf.enums import TextEntityAlignment
 from ezdxf.layouts import Modelspace
@@ -3146,6 +3147,37 @@ _DXF_VERSION = "R2000"
 #: ``$DWGCODEPAGE`` instead of taking this constant's word for it.
 DXF_ENCODING = "cp1252"
 
+#: The unit every DXF this module ships DECLARES in ``$INSUNITS``, and the unit its
+#: coordinates are actually written in: **millimetres** (``ezdxf.units.MM`` == 4).
+#:
+#: AUDIT-PRODUCT T-16 / DXF-5 — both export paths used to declare ``6``, which is
+#: ``ezdxf.units.M``: **metres**. Nobody chose metres. ``ezdxf.new``'s signature is
+#: ``new(dxfversion, setup=False, units: int = 6)``, so the two ``ezdxf.new`` calls in
+#: this module inherited the library default while the docstring beside one of them
+#: asserted "``$INSUNITS = 6`` (millimetres)" — the code and the comment agreed with
+#: each other and both were wrong. Measured on the shipped bytes: the drawing sheet
+#: and the profile-only flat pattern BOTH emitted ``$INSUNITS = 6`` while
+#: ``$MEASUREMENT = 1`` (metric) contradicted it inside the same file.
+#:
+#: Why that is a wrong part and not a nit: a nesting/CAM front end that honours
+#: ``$INSUNITS`` scales the file by 1000. This is the F-1 half-size-blank defect with
+#: a different multiplier — a file that is confidently, machine-readably wrong, so
+#: every downstream check agrees with itself and the shop cuts the wrong part.
+#:
+#: Millimetres is the right answer for BOTH paths and there is no case for them to
+#: differ: :class:`ComposedSheet` is millimetres end to end (page size, margins,
+#: placement), :class:`_DxfFrame` maps sheet mm to model-space mm without a unit
+#: change, and the flat pattern's cut path is the same mm geometry with the drawn
+#: scale divided back out (F-1). The declaration is therefore a property of the
+#: MODULE, not of the serializer that happens to run — see :func:`_new_dxf_document`
+#: (the one place that decides it) and :func:`_dxf_bytes` (the guard that will not let
+#: a document out of here declaring anything else).
+#:
+#: Taken from ``ezdxf.units`` rather than written as ``4``: the enum belongs to the
+#: library that WRITES the header, so the value cannot drift from the meaning the way
+#: a restated magic number and a hand-written "(millimetres)" comment just did.
+DXF_UNITS: int = ezdxf_units.MM
+
 #: Layer scheme — a drawing reopens legibly by intent (ACI colours; HIDDEN dashed).
 _LYR_VISIBLE = "VISIBLE"
 _LYR_HIDDEN = "HIDDEN"
@@ -3214,8 +3246,11 @@ class _DxfFrame(NamedTuple):
       is a cut path, not a picture, so the DXF divides that scale back out about the
       view's ``anchor``: the blank keeps its place on the sheet and measures its TRUE
       developed size. Before this, a flat pattern placed on a 1:2 sheet exported an
-      86.09 x 20.00 mm blank as 43.05 x 10.00 mm while ``$INSUNITS`` still asserted
-      millimetres — a confidently wrong file, and half-size scrap at the vendor;
+      86.09 x 20.00 mm blank as 43.05 x 10.00 mm while the header still claimed to be
+      a millimetre file — a confidently wrong file, and half-size scrap at the vendor.
+      ``$INSUNITS`` itself said METRES at the time, which is DXF-5, fixed separately
+      (see :data:`DXF_UNITS`); two independent lies in one artifact is the argument for
+      routing BOTH the coordinates and the header through one place;
     * a model-space TRANSLATION (AUDIT-PRODUCT F-2a), used only by
       :func:`serialize_flat_pattern_dxf`. A profile-only export has no sheet, so
       carrying the A4 placement into it would encode a page that is not in the file;
@@ -3625,6 +3660,31 @@ def _dxf_note(msp: Modelspace, note: ComposedNote, frame: _DxfFrame) -> None:
     )
 
 
+def _new_dxf_document() -> Drawing:
+    """The ONE empty DXF document every serializer in this module starts from.
+
+    Both export paths — the drawing sheet (:func:`serialize_dxf`) and the profile-only
+    flat pattern (:func:`serialize_flat_pattern_dxf`) — construct their document here,
+    so the header's unit declaration is decided in ONE place and neither path can
+    disagree with the other about what its own coordinates mean. That is the same
+    structural move :class:`_DxfFrame` makes for coordinates: not a rule each
+    serializer has to remember, but the only way to get an object at all.
+
+    It exists because the alternative was measured and shipped. Two independent
+    ``ezdxf.new(_DXF_VERSION, setup=False)`` calls each silently took the library's
+    ``units=6`` default — metres — on a millimetre file (AUDIT-PRODUCT T-16 / DXF-5),
+    and the duplication is exactly why fixing "the writer you happen to find" would
+    have left the other path declaring metres. ``units`` is passed EXPLICITLY rather
+    than relying on any default, so a future ezdxf whose default moves changes nothing
+    here.
+
+    ``setup=False``: the standard-resource loader (``setup=True``) creates its
+    resources in a hash-seed-dependent order, a byte-stability hazard (§8.3). Each
+    serializer adds exactly the linetypes / layers / styles it uses.
+    """
+    return ezdxf.new(_DXF_VERSION, setup=False, units=DXF_UNITS)
+
+
 def _dxf_bytes(doc: Drawing, text: str) -> bytes:
     """The ONE str -> bytes step for every DXF this module ships (AUDIT-PRODUCT F-3).
 
@@ -3640,11 +3700,27 @@ def _dxf_bytes(doc: Drawing, text: str) -> bytes:
     callers decode by, so a future :data:`_DXF_VERSION` bump that changes
     ``output_encoding`` must fail loudly here instead of shipping bytes that disagree
     with the constant — which is the F-3 defect again with the two sides swapped.
+
+    The UNIT guard is the same guard for the same reason (AUDIT-PRODUCT T-16 / DXF-5).
+    :func:`_new_dxf_document` decides ``$INSUNITS`` once, but a factory can be bypassed
+    — the metres defect happened precisely because a second serializer called
+    ``ezdxf.new`` directly. Every DXF this module ships must pass through HERE to
+    become bytes, so this is the chokepoint where a third path that invents its own
+    document cannot get out of the module declaring a unit its coordinates are not in.
+    ``doc.units`` IS ``doc.header["$INSUNITS"]``, i.e. the value about to be written,
+    not a belief about it.
     """
     if doc.output_encoding != DXF_ENCODING:
         raise RuntimeError(
             f"DXF {_DXF_VERSION} writes {doc.output_encoding!r} but DXF_ENCODING "
             f"promises {DXF_ENCODING!r}; update the constant with the version"
+        )
+    if doc.units != DXF_UNITS:
+        raise RuntimeError(
+            f"DXF document declares $INSUNITS={doc.units} "
+            f"({ezdxf_units.decode(doc.units)}) but every coordinate this module "
+            f"writes is millimetres (DXF_UNITS={DXF_UNITS}, "
+            f"{ezdxf_units.decode(DXF_UNITS)}); build it with _new_dxf_document()"
         )
     return doc.encode(text)
 
@@ -3677,18 +3753,19 @@ def serialize_dxf(composed: ComposedSheet) -> bytes:
     ``place_sheet`` correctly baked into the placed coordinates, and which the SVG/PDF
     correctly draw — is divided back out here about the view anchor. The blank in a
     1:2 sheet's DXF therefore measures its TRUE developed size, agreeing with the
-    ``$INSUNITS = 6`` (millimetres) the header has always asserted. The picture views
-    (front/top/right/iso/section) keep the sheet scale: a DXF of a drawing view IS a
-    picture of a drawing. See :data:`_DXF_MODEL_TRUE_VIEWS` / :func:`_dxf_view_frame`.
+    millimetres the header declares — which it did NOT until DXF-5 corrected it from
+    metres (:data:`DXF_UNITS`). The picture views (front/top/right/iso/section) keep
+    the sheet scale: a DXF of a drawing view IS a picture of a drawing. See
+    :data:`_DXF_MODEL_TRUE_VIEWS` / :func:`_dxf_view_frame`.
     """
     previous = ezdxf.options.write_fixed_meta_data_for_testing
     ezdxf.options.write_fixed_meta_data_for_testing = True
     try:
-        # setup=False: the standard-resource loader (setup=True) creates its
-        # resources in a hash-seed-dependent order, another byte-stability hazard;
-        # with setup=False we add exactly the resources we use — a DASHED linetype
-        # (2.0 dash / 1.4 gap — the SVG/PDF `2 1.4` pattern) and a mono TEXT style.
-        doc = ezdxf.new(_DXF_VERSION, setup=False)
+        # The ONE document factory (`_new_dxf_document`): pinned version, no standard
+        # resources, and `$INSUNITS` = millimetres decided in one place for both export
+        # paths. We add exactly the resources we use — a DASHED linetype (2.0 dash /
+        # 1.4 gap — the SVG/PDF `2 1.4` pattern) and a mono TEXT style.
+        doc = _new_dxf_document()
         doc.linetypes.add(
             "DASHED", pattern="A,2.0,-1.4", description="Loft hidden edge — 2/1.4"
         )
@@ -3873,7 +3950,7 @@ def serialize_flat_pattern_dxf(composed: ComposedSheet) -> bytes:
     previous = ezdxf.options.write_fixed_meta_data_for_testing
     ezdxf.options.write_fixed_meta_data_for_testing = True
     try:
-        doc = ezdxf.new(_DXF_VERSION, setup=False)
+        doc = _new_dxf_document()
         roles = {
             _LYR_BEND
             if edge.edge_role == "bend"

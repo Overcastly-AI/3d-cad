@@ -6,7 +6,10 @@ L-bracket, two drawings identical but for the view scale, exported to DXF as
     scale 1:1  ->  model-space blank  86.095 x 20.000 mm   (the true developed blank)
     scale 1:2  ->  model-space blank  43.047 x 10.000 mm   (exactly half)
 
-with ``$INSUNITS = 6`` (millimetres) correctly set in BOTH files. A flat pattern is
+with the SAME ``$INSUNITS`` in BOTH files. (That header value was ``6`` — ``metres`` —
+which nobody noticed until AUDIT-PRODUCT T-16; see
+``test_drawings_dxf_units.py``. It is now ``4``, millimetres, on both export paths, so
+the sentence below is finally true rather than merely intended.) A flat pattern is
 not a picture of a drawing, it is a **cut path**: the file exists to be imported into
 a nesting/CAM package and driven at a laser or turret punch, which read model space
 and ignore the title block. The sheet's view scale is a drafting-presentation choice;
@@ -41,7 +44,9 @@ import re
 from pathlib import Path
 
 import ezdxf
+import ezdxf.units
 import pytest
+from ezdxf.entities import Text
 from geometry.drawings import (
     DXF_ENCODING,
     evaluate_drawing_views,
@@ -254,15 +259,21 @@ def test_flat_pattern_dxf_cut_path_is_invariant_across_sheet_scales() -> None:
 def test_dxf_declares_millimetres_at_every_scale(
     numerator: int, denominator: int
 ) -> None:
-    """``$INSUNITS = 6`` (mm) — the assertion the geometry must live up to.
+    """``$INSUNITS`` is millimetres — the declaration the geometry must live up to.
 
-    The header was always right; it was the numbers that were halved, which is what
-    made the file confidently wrong rather than obviously broken. Pinned alongside the
-    geometry so the two can never drift apart again.
+    **This test used to assert ``== 6`` and call it millimetres, and it was green the
+    whole time** (AUDIT-PRODUCT T-16 / DXF-5). ``6`` is ``ezdxf.units.M`` — metres;
+    millimetres is ``4``. So the F-1 fix landed against a header that was itself wrong
+    by 1000x, and this file's own docstring above ("with ``$INSUNITS = 6``
+    (millimetres) correctly set in BOTH files") inherited the same mistake from the
+    source comment it was written beside. A gate that restates the writer's belief
+    cannot falsify it; the expected value now comes from ``ezdxf.units``, the library
+    that writes the header, so the constant cannot drift from its meaning again.
     """
     raw = serialize_dxf(_compose(numerator, denominator))
     doc = ezdxf.read(io.StringIO(raw.decode(DXF_ENCODING)))
-    assert doc.header["$INSUNITS"] == 6
+    assert doc.header["$INSUNITS"] == ezdxf.units.MM
+    assert ezdxf.units.decode(doc.header["$INSUNITS"]) == "mm"
 
 
 # --- the other half: the sheet must still be DRAWN at the authored scale ----------
@@ -307,6 +318,118 @@ def test_picture_views_keep_the_sheet_scale_in_dxf() -> None:
     )
     assert front_1_2[0] == pytest.approx(front_1_1[0] / 2.0, abs=_TOL_MM)
     assert front_1_2[1] == pytest.approx(front_1_1[1] / 2.0, abs=_TOL_MM)
+
+
+# --- and the file SAYS so: the scale statement that makes that boundary honest -----
+#
+# AUDIT-PRODUCT T-16's second half, and the half that is easy to lose: it measured a
+# 1:2 sheet's bolt-hole circles at r = 1.65 against a true 3.3 mm and reported "nothing
+# in the file or UI stating the sheet is scaled". The acceptance offers two ways out —
+# export every view at true 1:1, or state the scale explicitly in the file — and DXF-5
+# takes the SECOND, deliberately:
+#
+#   * un-scaling the picture views alone would put true-size geometry inside a
+#     page-size border, so a 2:1 view would burst the sheet it is drawn on and the
+#     title block would no longer bound anything. The sheet DXF is a picture of a
+#     drawing; a picture with one object at a different scale is not a fix;
+#   * the MANUFACTURING path is already true 1:1 regardless of sheet scale — that is
+#     F-1, `_DXF_MODEL_TRUE_VIEWS`, and the invariance test above. Nobody cuts from
+#     the sheet DXF;
+#   * so the sheet's obligation is to be READABLE: state the ratio, in the file, next
+#     to the geometry it applies to, so a reader holding only these bytes can recover
+#     true size exactly. `_dxf_title_block` does — and nothing asserted it, which is
+#     precisely how the audit came to write "nothing in the file".
+#
+# The two tests below are that assertion: the statement is PRESENT and tracks the
+# sheet, and it is ACTIONABLE — the number it states is the number that undoes the
+# scaling. A statement that is merely present would satisfy the acceptance's letter
+# and still hand the shop a wrong part.
+
+#: The title-block caption for the scale field (`_dxf_title_block`). Its value shares
+#: the caption's insertion x, one row below.
+_SCALE_CAPTION = "SCALE"
+
+
+def _title_layer_texts(raw: bytes) -> list[tuple[str, float]]:
+    """Every TITLE-layer TEXT in the shipped bytes, as ``(string, insertion x)``.
+
+    Read back through a real DXF reader like every other measurement here: the question
+    is what a shop opening the file SEES, never what our writer meant to put in it.
+    """
+    doc = ezdxf.read(io.StringIO(raw.decode(DXF_ENCODING)))
+    return [
+        (str(entity.dxf.text), float(entity.dxf.insert.x))
+        for entity in doc.modelspace()
+        if isinstance(entity, Text) and entity.dxf.layer == "TITLE"
+    ]
+
+
+def _reads_as_a_scale(text: str) -> bool:
+    """Would a reader parse this string as a scale? ``parse_scale_label`` decides."""
+    try:
+        parse_scale_label(text)
+    except ValueError:
+        return False
+    return True
+
+
+def _stated_scale(raw: bytes) -> ViewScale:
+    """The scale THE FILE states, recovered the way a reader would recover it.
+
+    Deliberately not ``composed.scale_label``: that is the writer's intent, and this
+    module exists because intent and bytes came apart once already. The field is found
+    by its caption's insertion x and the value must parse as a scale, so a part title
+    that happened to read "1:2" could not be mistaken for the scale field.
+    """
+    texts = _title_layer_texts(raw)
+    captions = [x for text, x in texts if text == _SCALE_CAPTION]
+    assert len(captions) == 1, f"expected one {_SCALE_CAPTION} caption, got {captions}"
+    stated = [
+        text
+        for text, x in texts
+        if abs(x - captions[0]) <= _TOL_MM
+        and text != _SCALE_CAPTION
+        and _reads_as_a_scale(text)
+    ]
+    assert len(stated) == 1, f"expected one scale value in the field, got {stated}"
+    return parse_scale_label(stated[0])
+
+
+@each_scale
+def test_the_sheet_dxf_states_the_scale_it_was_drawn_at(
+    numerator: int, denominator: int
+) -> None:
+    """The exported sheet names its own ratio, and it tracks the sheet.
+
+    Parametrised over every scale so a hard-coded "1:1" — which would be green on the
+    byte goldens, all of which are 1:1 — cannot pass.
+    """
+    sheet = _compose(numerator, denominator, "front")
+    assert _stated_scale(serialize_dxf(sheet)) == parse_scale_label(sheet.scale_label)
+
+
+def test_the_stated_scale_recovers_true_size_from_the_sheet_dxf() -> None:
+    """The stated ratio is the one that undoes the scaling — measured, not assumed.
+
+    This is the assertion that makes "the file states the scale" worth anything: for
+    every scale, the front view's model-space extents multiplied by the reciprocal of
+    the ratio THE FILE ITSELF STATES land back on the 1:1 geometry. A reader with
+    nothing but these bytes therefore gets the true size right.
+    """
+    true_w, true_h = _extents(
+        _segment_points(_dxf_cut_segments(serialize_dxf(_compose(1, 1, "front"))))
+    )
+    for numerator, denominator in _SCALES:
+        raw = serialize_dxf(_compose(numerator, denominator, "front"))
+        stated = _stated_scale(raw)
+        drawn_w, drawn_h = _extents(_segment_points(_dxf_cut_segments(raw)))
+        factor = stated.denominator / stated.numerator
+        assert drawn_w * factor == pytest.approx(true_w, abs=_TOL_MM), (
+            f"the file says {format_scale(stated)} and draws {drawn_w:.6f} mm; "
+            f"undoing the stated ratio gives {drawn_w * factor:.6f} against a true "
+            f"{true_w:.6f} mm"
+        )
+        assert drawn_h * factor == pytest.approx(true_h, abs=_TOL_MM)
 
 
 # --- the datum the correction is derived from ------------------------------------

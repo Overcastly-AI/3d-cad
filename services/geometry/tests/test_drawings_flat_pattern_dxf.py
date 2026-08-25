@@ -29,6 +29,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+from ezdxf import units as ezdxf_units
 from ezdxf.document import Drawing
 from fastapi.testclient import TestClient
 from geometry.drawings import (
@@ -152,11 +153,20 @@ def test_it_declares_millimetres(
     compose_flat_pattern: Callable[..., ComposedSheet],
     read_dxf: Callable[[bytes], Drawing],
 ) -> None:
-    """``$INSUNITS = 6``. A cut path whose units are a guess is scrap metal — the
-    header must agree with the numbers, which is exactly what F-1 got wrong."""
+    """``$INSUNITS`` is millimetres. A cut path whose units are a guess is scrap metal.
+
+    **This assertion used to read ``== 6`` and was green** (AUDIT-PRODUCT T-16 /
+    DXF-5): ``6`` is ``ezdxf.units.M``, metres, so this path shipped a 1000x lie under
+    a test whose NAME said millimetres. The sibling assertion on the drawing-sheet path
+    (``test_drawings_dxf_model_scale.py``) made the identical mistake, which is why the
+    fix had to be one shared document factory rather than a patch to whichever writer
+    was in front of us. Expected value taken from ``ezdxf.units`` — the library that
+    writes the header — rather than restated as a literal.
+    """
     sheet = compose_flat_pattern("l-bracket", "L-Bracket Flat Pattern")
     doc = read_dxf(serialize_flat_pattern_dxf(sheet))
-    assert doc.header["$INSUNITS"] == 6
+    assert doc.header["$INSUNITS"] == ezdxf_units.MM
+    assert ezdxf_units.decode(doc.header["$INSUNITS"]) == "mm"
 
 
 # --- 1:1 by construction ----------------------------------------------------------
