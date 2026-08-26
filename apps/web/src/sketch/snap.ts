@@ -737,3 +737,135 @@ export function inferredCoincidents(
   }
   return out;
 }
+
+// ---------------------------------------------------------------------------
+// Draw → axis inference (SNAP-5)
+// ---------------------------------------------------------------------------
+
+/**
+ * The widest angle off an axis that still reads as "the user drew this
+ * horizontal". It is a CEILING on the deviation rule below, not the rule
+ * itself, and it exists for one case only: a stub so short that a deviation
+ * measured in millimetres says nothing about its direction (a 3 mm line at 40°
+ * deviates less than a 300 mm line at 0.5°). Three degrees is derived, not
+ * chosen by taste: with the default 1 mm grid the SHORTEST edge of the
+ * reference profile SNAP-5 was filed against (6 mm, the flanged-coupling
+ * staircase) can express a deliberate slope of one grid step over its run —
+ * `atan(1/6)` = 9.46° — so the ceiling sits at a third of the smallest slope
+ * anyone can draw on purpose there. It also agrees, to the order, with what
+ * the deviation rule yields unaided at working zoom: 12 px (the snap radius)
+ * across a 30 mm edge that spans ~200 px is 3.4°.
+ */
+export const AXIS_INFERENCE_MAX_DEG = 3;
+
+const AXIS_INFERENCE_MAX_TAN = Math.tan(
+  (AXIS_INFERENCE_MAX_DEG * Math.PI) / 180,
+);
+
+/**
+ * Coordinates this close to the axis ARE on it. Same role as {@link ANCHOR_MM}:
+ * the placement copies its coordinate verbatim, so an axis-locked or
+ * grid-landed line is bit-exact and this only absorbs arithmetic. It is also
+ * the floor of the deviation limit, so an exactly-drawn line is inferred even
+ * where the caller reports no tolerance at all.
+ */
+const AXIS_EXACT_MM = 1e-9;
+
+/** What the placement knew about the click that ended the line. */
+export interface AxisInferenceInput {
+  /** Live grid step in mm; 0 when the grid is off (G). */
+  gridStepMm: number;
+  /** The snap radius in plane mm at this zoom ({@link SNAP_TOLERANCE_PX}). */
+  toleranceMm: number;
+  /** Ctrl/Cmd was held — every snap off, this inference with them. */
+  suppressed: boolean;
+}
+
+/**
+ * The horizontal / vertical constraints a freshly-drawn line EARNED (SNAP-5).
+ *
+ * WHY THE ORDINARY GESTURE NEEDED THIS. `shapeRigidity` gives a rectangle two
+ * horizontals and two verticals because a rectangle IS axis-aligned by
+ * construction; a line drawn line-by-line — the way anything that is not a
+ * rectangle gets drawn — carried nothing at all. So an L-bracket outline that
+ * LOOKS axis-aligned solved with every edge free to rotate: measured on the
+ * six-edge staircase profile of the SOLVE-1 report, 12 DOF undimensioned and 8
+ * with four driving dimensions, where the same shape with its axes stated
+ * solves at 6 and 2. SOLVE-1 holds those free DOF at the author's input on an
+ * edit, which keeps the sketch from wandering, but a safety net for looseness
+ * is not the same thing as not being loose.
+ *
+ * THE RULE, and both halves are measured rather than taken from taste:
+ *
+ * · DEVIATION — the rise must be under `limit`, and the run over it. With the
+ *   grid ON the limit is one grid step, because a grid-snapped placement can
+ *   only land on multiples of it: a deviation of a whole step is a decision,
+ *   and anything smaller than a step is exactly zero. With the grid OFF there
+ *   is no quantum, so the limit is the snap radius the same click was aimed
+ *   with — the distance inside which this module already treats two points as
+ *   the same point. Requiring the RUN to clear the same limit is what keeps a
+ *   near-degenerate stub from claiming an axis it does not have.
+ * · CEILING — {@link AXIS_INFERENCE_MAX_DEG}, for the short-line case above.
+ *
+ * WHY IT LIVES HERE, beside {@link inferredCoincidents}, and not in
+ * `shapeRigidity`: this is an inference from what the user AIMED — it depends
+ * on the live tolerance and it stops when the user suppresses snapping —
+ * whereas rigidity is a fact about the shape that is the same at every zoom.
+ * Putting a tolerance inside `shapeRigidity` would make a rectangle's
+ * rectangularity depend on the camera. One mechanism, one place: a rectangle's
+ * four edges pass through here too and are deduped against the rigidity set by
+ * `sameConstraint`, exactly as SNAP-3 dedupes against the explicit verb, so no
+ * fact is ever authored twice (which would report an ordinary sketch as
+ * OVER-CONSTRAINED — the RECT-1 lesson).
+ *
+ * THE OPT-OUT ALREADY EXISTED: Ctrl/Cmd. `resolveAim` refuses every snap while
+ * it is held on the principle that an escape hatch has to be a whole one, and
+ * an inferred constraint is the other half of a snap — so it is honoured here
+ * too rather than a second gesture being invented for it.
+ */
+export function inferredAxisConstraints(
+  emitted: readonly SketchEntity[],
+  input: AxisInferenceInput,
+  existing: readonly SketchConstraint[] = [],
+): SketchConstraint[] {
+  if (input.suppressed) return [];
+  const limit = Math.max(
+    input.gridStepMm > 0 ? input.gridStepMm : input.toleranceMm,
+    AXIS_EXACT_MM,
+  );
+  const out: SketchConstraint[] = [];
+  for (const entity of emitted) {
+    if (entity.kind !== "line") continue;
+    const run = Math.abs(entity.end.x - entity.start.x);
+    const rise = Math.abs(entity.end.y - entity.start.y);
+    const kind = alignedAxis(run, rise, limit);
+    if (kind === null) continue;
+    const constraint: SketchConstraint = { kind, entity: entity.id };
+    if (
+      !existing.some((c) => sameConstraint(c, constraint)) &&
+      !out.some((c) => sameConstraint(c, constraint))
+    ) {
+      out.push(constraint);
+    }
+  }
+  return out;
+}
+
+/**
+ * Which axis a run/rise pair claims, or null. The two tests are mutually
+ * exclusive by construction — each demands its own span clear the limit the
+ * other must stay under — so a line can never claim both.
+ */
+function alignedAxis(
+  run: number,
+  rise: number,
+  limit: number,
+): "horizontal" | "vertical" | null {
+  if (rise < limit && run > limit && rise <= run * AXIS_INFERENCE_MAX_TAN) {
+    return "horizontal";
+  }
+  if (run < limit && rise > limit && run <= rise * AXIS_INFERENCE_MAX_TAN) {
+    return "vertical";
+  }
+  return null;
+}

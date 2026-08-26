@@ -30,7 +30,7 @@ const SOLVE_TOLERANCE_MM = 1e-3;
  * an index into the constraint array, so this offset is the difference between
  * addressing the dimension under test and addressing something the tool wrote.
  *
- * Two features author at placement, and WHICH of them applies depends on the
+ * Three features author at placement, and WHICH of them applies depends on the
  * shape, so the count is per-fixture rather than per-file — the two tests below
  * genuinely differ:
  *   · RECT-1 — a rectangle's rigidity set: 4 corner coincidences + 2 horizontal
@@ -38,6 +38,11 @@ const SOLVE_TOLERANCE_MM = 1e-3;
  *   · SNAP-3 — the coincident grounding a corner snapped to the origin, plus
  *     the `fixed` pin `groundDatums` adds behind it = 2. Both fixtures start on
  *     the origin, so both pay this.
+ *   · SNAP-5 — the axis a drawn line states: the LINE fixture is drawn
+ *     horizontal, so it carries one more. The rectangle's four edges are
+ *     already horizontal/vertical from its rigidity set and are deduped
+ *     against it, so the rect fixture is unchanged — which is the property
+ *     that keeps the two counts genuinely different rather than parallel.
  *
  * Note the pin is deliberately GLYPH-SUPPRESSED (the user authored none of it),
  * so its slot renders nothing: the glyph ids have a HOLE in them, and a wrong
@@ -45,7 +50,7 @@ const SOLVE_TOLERANCE_MM = 1e-3;
  * never authored rather than like an off-by-one.
  */
 const RECT_PLACEMENT_SLOTS = 8 + 2;
-const LINE_PLACEMENT_SLOTS = 2;
+const LINE_PLACEMENT_SLOTS = 2 + 1;
 
 /** The n-th constraint THIS SPEC authored, past what the placement wrote. */
 const glyph = (page: Page, index: number, placementSlots: number) =>

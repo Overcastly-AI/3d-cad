@@ -269,11 +269,37 @@ export interface DimensionCommit {
 export type ConstraintActionResult =
   | { outcome: "added"; constraints: SketchConstraint[] }
   | { outcome: "editor"; target: DimensionEditorTarget }
-  | { outcome: "hint"; hint: string };
+  | {
+      outcome: "hint";
+      hint: string;
+      /**
+       * The verb was refused because the relation IS ALREADY THERE, as opposed
+       * to the selection being wrong for it. The two read the same on screen
+       * and are not the same event: the second is a mistake, the first is the
+       * user stating something true that the tool had already inferred.
+       *
+       * SNAP-5 made that distinction load-bearing. Before it, pressing H on a
+       * line you drew horizontal AUTHORED the constraint and bound the sketch;
+       * after it, the draw has usually inferred the same fact already, so the
+       * keystroke fell through to "Already horizontal." and the sketch stayed
+       * unbound — the user's explicit act producing no effect at all, which is
+       * the dead-end class CLAUDE.md's flow rule forbids. The store adopts
+       * this flag as intent (`userConstrained`); nothing else consumes it, and
+       * a consumer that ignores it behaves exactly as before.
+       */
+      already?: true;
+    };
 
 const hint = (text: string): ConstraintActionResult => ({
   outcome: "hint",
   hint: text,
+});
+
+/** A refusal whose cause is "you already have this" — see `already`. */
+const alreadyHint = (text: string): ConstraintActionResult => ({
+  outcome: "hint",
+  hint: text,
+  already: true,
 });
 
 /**
@@ -448,7 +474,7 @@ export function applyConstraintAction(
           added.push(constraint);
         }
       }
-      if (added.length === 0) return hint(`Already ${action}.`);
+      if (added.length === 0) return alreadyHint(`Already ${action}.`);
       return { outcome: "added", constraints: added };
     }
     case "distance": {
@@ -520,7 +546,7 @@ export function applyConstraintAction(
           added.push(constraint);
         }
       }
-      if (added.length === 0) return hint("Already fixed.");
+      if (added.length === 0) return alreadyHint("Already fixed.");
       return { outcome: "added", constraints: added };
     }
     case "coincident": {
@@ -538,7 +564,7 @@ export function applyConstraintAction(
         b: { entity: b.entity, point: b.point },
       };
       if (constraints.some((c) => sameConstraint(c, constraint))) {
-        return hint("Already coincident.");
+        return alreadyHint("Already coincident.");
       }
       return { outcome: "added", constraints: [constraint] };
     }
@@ -551,7 +577,7 @@ export function applyConstraintAction(
       }
       const constraint: SketchConstraint = { kind: action, a, b };
       if (constraints.some((c) => sameConstraint(c, constraint))) {
-        return hint(`Already ${action}.`);
+        return alreadyHint(`Already ${action}.`);
       }
       return { outcome: "added", constraints: [constraint] };
     }
@@ -574,7 +600,7 @@ export function applyConstraintAction(
         b: b.id,
       };
       if (constraints.some((c) => sameConstraint(c, constraint))) {
-        return hint("Already tangent.");
+        return alreadyHint("Already tangent.");
       }
       return { outcome: "added", constraints: [constraint] };
     }
@@ -596,7 +622,7 @@ export function applyConstraintAction(
       }
       const constraint: SketchConstraint = { kind: "equal", a: a.id, b: b.id };
       if (constraints.some((c) => sameConstraint(c, constraint))) {
-        return hint("Already equal.");
+        return alreadyHint("Already equal.");
       }
       return { outcome: "added", constraints: [constraint] };
     }
@@ -614,7 +640,7 @@ export function applyConstraintAction(
         b: b.id,
       };
       if (constraints.some((c) => sameConstraint(c, constraint))) {
-        return hint("Already concentric.");
+        return alreadyHint("Already concentric.");
       }
       return { outcome: "added", constraints: [constraint] };
     }
@@ -643,7 +669,7 @@ export function applyConstraintAction(
         line,
       };
       if (constraints.some((c) => sameConstraint(c, constraint))) {
-        return hint("Already symmetric about that line.");
+        return alreadyHint("Already symmetric about that line.");
       }
       return { outcome: "added", constraints: [constraint] };
     }

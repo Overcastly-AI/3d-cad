@@ -78,6 +78,7 @@ import {
   type SketchPick,
 } from "./pick";
 import {
+  inferredAxisConstraints,
   inferredCoincidents,
   resolveSnap,
   snapAnchorOf,
@@ -113,6 +114,41 @@ export const DIMENSION_PICK_HINT: Readonly<
 > = {
   distance: "Click a line to dimension it.",
   radius: "Click a circle or arc to dimension it.",
+};
+
+/**
+ * SNAP-5 — AN INFERRED CONSTRAINT THE USER CANNOT SEE IS A TRAP, so the draw
+ * that earns one SAYS so, in the same `hint` line every other automatic
+ * decision in this store speaks through (`constraint-hint`, `role="status"`,
+ * so it is announced rather than merely drawn). Two things are named because
+ * both are actions the user may want in the next second: how to DROP it (the
+ * glyph is live in the viewport the instant it is authored — select it, press
+ * Delete, the ordinary constraint-removal path) and how to have avoided it
+ * (Ctrl/Cmd, which was already the "no snapping" modifier and is honoured by
+ * the inference for the same reason `resolveAim` honours it).
+ *
+ * This is the distinction between INFERRED and AUTHORED that the product owes
+ * the user, made where it is cheapest and truest — at the moment of the draw.
+ * A permanent per-glyph tone would be better still, and it is a viewport change
+ * rather than a sketch-model one: `SketchConstraint` is the GENERATED client
+ * type (DRY rule), so provenance cannot ride on the constraint itself without
+ * a contract change nobody needs yet.
+ */
+const axisInferenceHint = (
+  added: readonly SketchConstraint[],
+): string | null => {
+  const axes = added.filter(
+    (constraint) =>
+      constraint.kind === "horizontal" || constraint.kind === "vertical",
+  );
+  if (axes.length === 0) return null;
+  const named =
+    axes.length === 1
+      ? axes[0]?.kind === "horizontal"
+        ? "Horizontal"
+        : "Vertical"
+      : "Horizontal and vertical";
+  return `${named} inferred from the line you drew — select the glyph and press Delete to drop it, or hold Ctrl/Cmd while drawing to place freehand.`;
 };
 
 /** How a picked entity is named back to the user ("That is a circle."). */
@@ -950,6 +986,10 @@ const createSketchState = (
       revision,
       snapCandidate,
       datumFrameHalfMm,
+      snapEnabled,
+      snapStepMm,
+      snapSuppressed,
+      aimToleranceMm,
     } = get();
     const result = placePoint(tool, pending, point, nextIdIndex);
     const drawn = result.entities.length > 0;
@@ -1009,6 +1049,23 @@ const createSketchState = (
             result.entities.map((entity) => entity.id),
           )
         : [];
+    // SNAP-5 — a line drawn along an axis SAYS so. Line-by-line drawing is how
+    // every profile that is not a rectangle gets made, and until this landed it
+    // authored no axis constraint at all: the shape looked orthogonal and
+    // solved with every edge free to rotate. Deduped against the rigidity set
+    // just authored, so a rectangle's four edges (already H/V by construction)
+    // pass through without stating anything twice.
+    const axis = drawn
+      ? inferredAxisConstraints(
+          result.entities,
+          {
+            gridStepMm: snapEnabled ? snapStepMm : 0,
+            toleranceMm: aimToleranceMm,
+            suppressed: snapSuppressed,
+          },
+          [...constraints, ...rigidity],
+        )
+      : [];
     /** The snap's inferred coincidents plus whatever datum they had to ground. */
     const authored =
       grounded === null ? [] : [...inferred, ...grounded.constraints];
@@ -1018,22 +1075,29 @@ const createSketchState = (
       snapAnchors: drawn ? [] : anchors,
       nextIdIndex: result.nextIdIndex,
       entities: grounded?.entities ?? placed,
-      // TWO authors, ONE order, and it is deliberate: the shape's own rigidity
-      // (RECT-1) describes what the thing IS, the inferred coincident (SNAP-3)
+      // THREE authors, ONE order, and it is deliberate: the shape's own
+      // rigidity (RECT-1) describes what the thing IS, the inferred axis
+      // (SNAP-5) says how the user drew it, the inferred coincident (SNAP-3)
       // relates it to what was already there, and the datum pins ride last
       // because they are the frame's bookkeeping rather than anybody's intent.
-      // Neither author can produce what the other does, so they compose rather
-      // than compete — and each still has exactly one call site.
+      // No author can produce what another does, so they compose rather than
+      // compete — and each still has exactly one call site.
       constraints:
-        rigidity.length + authored.length === 0
+        rigidity.length + axis.length + authored.length === 0
           ? constraints
-          : [...constraints, ...rigidity, ...authored],
-      // `userConstrained` is deliberately NOT set by either author: this is the
-      // tool recording the shape it drew and the target the user aimed at, not
-      // the user asking for a relation. Binding the sketch here would retire
-      // the unsaved-work exit confirm at a moment the user did not choose (see
-      // the field).
+          : [...constraints, ...rigidity, ...axis, ...authored],
+      // `userConstrained` is deliberately NOT set by any of the three authors:
+      // this is the tool recording the shape it drew and the target the user
+      // aimed at, not the user asking for a relation. Binding the sketch here
+      // would retire the unsaved-work exit confirm at a moment the user did not
+      // choose (see the field).
       revision: drawn ? revision + 1 : revision,
+      // Say what was inferred, at the moment it is inferred (see
+      // `axisInferenceHint`). A draw that infers nothing clears the line rather
+      // than leaving the previous draw's notice standing over new geometry;
+      // an armed dimension verb re-states its own prompt through
+      // `withArmedPrompt`, so nothing is left silently armed.
+      ...(drawn ? { hint: axisInferenceHint(axis) } : {}),
       drawDimension:
         drawn && shape !== null && from !== undefined
           ? {
@@ -1279,7 +1343,18 @@ const createSketchState = (
           });
           return;
         }
-        set({ hint: result.hint });
+        // A verb refused BECAUSE THE RELATION IS ALREADY THERE is still the
+        // user asking for it (`already`, see the field). Since SNAP-5 the tool
+        // usually gets there first — pressing H on a line drawn horizontal now
+        // meets an inferred horizontal — and without this the keystroke would
+        // do nothing whatsoever: no constraint (correctly, it exists) and no
+        // binding, so the live-save loop the user expected to start would not.
+        // The sketch is bound; the relation is not restated (no duplicate, no
+        // false over-constrained report).
+        set({
+          hint: result.hint,
+          ...(result.already === true ? { userConstrained: true } : {}),
+        });
         return;
     }
   },

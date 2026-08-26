@@ -129,6 +129,10 @@ async function calibratePlane(
   });
 }
 
+/** One constraint glyph addressed by KIND — see the note at the FIX assertion. */
+const kindGlyph = (page: Page, kind: string) =>
+  page.locator(`[data-testid^="glyph-"][data-kind="${kind}"]`);
+
 async function clickPlane(page: Page, at: (pt: Pt) => Pt, pt: Pt) {
   const px = at(pt);
   await page.mouse.click(px.x, px.y);
@@ -172,7 +176,11 @@ async function buildLineAndSpline(
   await expect(page.getByTestId("selection-readout")).toContainText("1 pt");
   await page.keyboard.press("x");
   expect((await created).status()).toBe(201);
-  await expect(page.getByTestId("glyph-0")).toHaveText("FIX");
+  // Addressed BY KIND, not by array index: the vertical line states its own
+  // axis at the draw now (SNAP-5), so it holds slot 0 and every index below it
+  // would be off by one. A kind locator cannot drift when a neighbouring
+  // feature authors something.
+  await expect(kindGlyph(page, "fixed")).toHaveText("FIX");
 
   // The spline e2: an open S-curve, fit0 far off at (−25, 0).
   await page.keyboard.press("s");
@@ -232,7 +240,7 @@ test.describe("spline fit-point constraints", () => {
     await addPlane(page, at, { x: 30, y: -10 });
     await expect(page.getByTestId("selection-readout")).toContainText("2 pts");
     await page.keyboard.press("c");
-    await expect(page.getByTestId("glyph-1")).toHaveText("C");
+    await expect(kindGlyph(page, "coincident")).toHaveText("C");
 
     // The DOF readout reflects the now-constrained fit point.
     await expect(page.getByTestId("dro-solve")).toContainText(/DOF \d+/);
@@ -289,7 +297,7 @@ test.describe("spline fit-point constraints — small laptop (1280×800)", () =>
     await addPlane(page, at, { x: 30, y: -10 });
     await expect(page.getByTestId("selection-readout")).toContainText("2 pts");
     await page.keyboard.press("c");
-    await expect(page.getByTestId("glyph-1")).toHaveText("C");
+    await expect(kindGlyph(page, "coincident")).toHaveText("C");
 
     await expect
       .poll(

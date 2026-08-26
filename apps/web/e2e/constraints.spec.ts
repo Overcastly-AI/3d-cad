@@ -515,21 +515,31 @@ test.describe("sketcher constraints", () => {
     // OVER-CONSTRAINED and the recovery below unreachable. That interaction is
     // real and is filed as SNAP-4; this test is about the CONFLICT diagnostic,
     // so it keeps its subject by staying away from the frame.
+    //
+    // AND DRAWN AT A SLOPE, for the same reason one rung down (SNAP-5): a line
+    // drawn horizontal now arrives WITH a horizontal constraint, and two fixed
+    // endpoints already determine the line completely, so that inference is
+    // redundant with them — again OVER-CONSTRAINED, again with the recovery
+    // unreachable. The subject here is the conflict between two DIMENSIONS, and
+    // 2 mm of rise over 30 mm (3.8 deg, outside the inference ceiling) keeps it
+    // that way. The line is no longer exactly 30 mm long, which nothing here
+    // asserts on.
     await page.keyboard.press("l");
     await clickPlane(page, at, { x: 5, y: 8 });
-    await clickPlane(page, at, { x: 35, y: 8 });
+    await clickPlane(page, at, { x: 35, y: 10 });
     await page.keyboard.press("Escape");
 
     await clickPlane(page, at, { x: 5, y: 8 });
     await expect(page.getByTestId("selection-readout")).toContainText("1 pt");
     await page.keyboard.press("x");
     await expect(glyphShowing(page, "FIX")).toHaveCount(1);
-    await clickPlane(page, at, { x: 35, y: 8 });
+    await clickPlane(page, at, { x: 35, y: 10 });
     await page.keyboard.press("x");
     await expect(glyphShowing(page, "FIX")).toHaveCount(2);
 
-    // …then a 60 mm driving dimension: mutually unsatisfiable.
-    await clickPlane(page, at, { x: 20, y: 8 });
+    // …then a 60 mm driving dimension: mutually unsatisfiable. (Mid-span of
+    // the sloped line, so the pick lands on the body.)
+    await clickPlane(page, at, { x: 20, y: 9 });
     await page.keyboard.press("d");
     const input = page.getByTestId("dimension-input");
     await expect(input).toBeVisible();

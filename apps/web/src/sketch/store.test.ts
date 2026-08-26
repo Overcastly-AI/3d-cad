@@ -2377,7 +2377,11 @@ describe("a snap authors the constraint it meant (SNAP-3, and SNAP-2 with it)", 
     store().placeAt(store().aim({ x: 50, y: 10 }, 1, held));
     store().placeAt(store().aim({ x: 80, y: 19 }, 1, held));
     expect(store().entities).toHaveLength(2);
-    expect(store().constraints).toEqual([]);
+    // e1's own horizontal is SNAP-5 reading the line it was drawn as, and it
+    // was authored back in `firstLine()` — the leak this guards against would
+    // name e2, which carries nothing at all: a suppressed aim banks no anchor
+    // and infers no axis.
+    expect(store().constraints).toEqual([{ kind: "horizontal", entity: "e1" }]);
   });
 
   it("leaves `userConstrained` false — an inferred relation must not bind", () => {
@@ -2419,5 +2423,186 @@ describe("a snap authors the constraint it meant (SNAP-3, and SNAP-2 with it)", 
     expect(coincidents()).toHaveLength(0);
     store().redo();
     expect(coincidents()).toHaveLength(1);
+  });
+});
+
+describe("line-by-line drawing states its axes (SNAP-5)", () => {
+  const store = useSketchStore.getState;
+  const NONE = { suppressed: false, axisLock: false };
+  const HELD = { suppressed: true, axisLock: false };
+
+  const aimAndPlace = (
+    x: number,
+    y: number,
+    modifiers: { suppressed: boolean; axisLock: boolean } = NONE,
+  ) => store().placeAt(store().aim({ x, y }, 1, modifiers));
+
+  const drawLines = () => {
+    store().begin();
+    store().choosePlane("XY");
+    store().setTool("line");
+  };
+
+  /** Draw the closed outline `points` describes, one two-click line per edge. */
+  const drawOutline = (points: readonly Point2D[]) => {
+    drawLines();
+    for (let i = 0; i < points.length; i += 1) {
+      const from = points[i] as Point2D;
+      const to = points[(i + 1) % points.length] as Point2D;
+      aimAndPlace(from.x, from.y);
+      aimAndPlace(to.x, to.y);
+    }
+  };
+
+  const axes = () =>
+    store().constraints.filter(
+      (c) => c.kind === "horizontal" || c.kind === "vertical",
+    );
+
+  beforeEach(() => {
+    useSketchStore.setState({ snapEnabled: true, snapStepMm: 1 });
+  });
+
+  /**
+   * THE PROFILE SNAP-5 WAS FILED AGAINST — the auditor's flanged-coupling
+   * outline from the SOLVE-1 report: an axis-aligned staircase whose six edges
+   * are 27, 8, 21, 22, 6 and 30 mm. It is the ordinary way anything that is
+   * not a rectangle gets drawn, and until this landed it carried no axis
+   * constraint whatsoever.
+   *
+   * WHAT THE CONSTRAINT SET IS WORTH, measured against the real solver
+   * (`PlanegcsSketchSolver`, the one the geometry service runs) rather than
+   * asserted here — this test pins the SET, that measurement pins its
+   * consequence:
+   *
+   *     coincidents only .................. dof 12   (before)
+   *     coincidents + inferred H/V ........  dof 6
+   *     + four independent driving dims ...  dof 2   (translation only)
+   *     four dims WITHOUT the H/V .........  dof 8
+   *
+   * i.e. the same twelve clicks now leave a shape whose only freedom is where
+   * it sits, instead of one whose every edge is still free to rotate.
+   */
+  const STAIRCASE: readonly Point2D[] = [
+    { x: 0, y: 0 },
+    { x: 27, y: 0 },
+    { x: 27, y: 8 },
+    { x: 6, y: 8 },
+    { x: 6, y: 30 },
+    { x: 0, y: 30 },
+  ];
+
+  it("gives every edge of an axis-aligned profile its axis", () => {
+    drawOutline(STAIRCASE);
+    expect(store().entities.filter((e) => e.kind === "line")).toHaveLength(6);
+    expect(axes()).toEqual([
+      { kind: "horizontal", entity: "e1" },
+      { kind: "vertical", entity: "e2" },
+      { kind: "horizontal", entity: "e3" },
+      { kind: "vertical", entity: "e4" },
+      { kind: "horizontal", entity: "e5" },
+      { kind: "vertical", entity: "e6" },
+    ]);
+    // The corners still come from SNAP-3, one per snapped click: six edges,
+    // six joins, plus the ground SNAP-2 gives the corner drawn ON the origin.
+    // Axis plus join is what makes this a closed orthogonal profile rather
+    // than six numerically-agreeable lines.
+    const coincidents = store().constraints.filter(
+      (c) => c.kind === "coincident",
+    );
+    expect(coincidents).toHaveLength(7);
+    expect(
+      coincidents.filter(
+        (c) =>
+          c.kind === "coincident" &&
+          (c.a.entity === "origin" || c.b.entity === "origin"),
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("says nothing about the edge a profile is drawn on the diagonal", () => {
+    // A gusset: two axis edges and a hypotenuse. The slope IS the shape.
+    drawOutline([
+      { x: 0, y: 0 },
+      { x: 30, y: 0 },
+      { x: 0, y: 20 },
+    ]);
+    expect(axes()).toEqual([
+      { kind: "horizontal", entity: "e1" },
+      { kind: "vertical", entity: "e3" },
+    ]);
+  });
+
+  it("tells the user what it inferred, and how to be rid of it", () => {
+    drawLines();
+    aimAndPlace(0, 0);
+    aimAndPlace(40, 0);
+    // The hint is the `constraint-hint` line in the strip (role="status"), so
+    // an inferred constraint is announced rather than silently applied.
+    expect(store().hint).toContain("Horizontal inferred");
+    expect(store().hint).toContain("Delete");
+    // …and it does not stand over the NEXT line, which inferred nothing.
+    aimAndPlace(40, 0);
+    aimAndPlace(70, 12);
+    expect(store().hint).toBeNull();
+  });
+
+  it("stands down while snapping is suppressed — the opt-out already existed", () => {
+    drawLines();
+    aimAndPlace(0, 0, HELD);
+    aimAndPlace(40, 0, HELD);
+    expect(axes()).toEqual([]);
+    expect(store().hint).toBeNull();
+  });
+
+  it("does not bind the sketch: the tool inferred it, the user did not ask", () => {
+    drawLines();
+    aimAndPlace(0, 0);
+    aimAndPlace(40, 0);
+    expect(axes()).toHaveLength(1);
+    expect(store().userConstrained).toBe(false);
+  });
+
+  it("lets the user ADOPT an inferred axis by pressing the verb", () => {
+    // Pressing H on a line the draw already inferred horizontal must not be a
+    // dead end: the relation is not restated (no duplicate, no false
+    // over-constrained report) but the sketch IS bound, which is what the
+    // keystroke was for.
+    drawLines();
+    aimAndPlace(0, 0);
+    aimAndPlace(40, 0);
+    store().setTool("select");
+    store().selectAt({ x: 20, y: 0 }, 2);
+    store().applyConstraint("horizontal");
+    expect(axes()).toHaveLength(1);
+    expect(store().hint).toBe("Already horizontal.");
+    expect(store().userConstrained).toBe(true);
+  });
+
+  it("undo takes the inferred axis back with its line", () => {
+    drawLines();
+    aimAndPlace(0, 0);
+    aimAndPlace(40, 0);
+    expect(axes()).toHaveLength(1);
+    store().undo();
+    expect(store().entities.filter((e) => e.kind === "line")).toHaveLength(0);
+    expect(axes()).toHaveLength(0);
+    store().redo();
+    expect(axes()).toHaveLength(1);
+  });
+
+  it("leaves a rectangle exactly as RECT-1 made it — one author per fact", () => {
+    store().begin();
+    store().choosePlane("XY");
+    store().setTool("rect");
+    aimAndPlace(0, 0);
+    aimAndPlace(40, 25);
+    // Two horizontals and two verticals, not four of each: the rigidity set
+    // authored them and the inference deduped against it.
+    expect(axes()).toEqual(
+      shapeRigidity("rect", ["e1", "e2", "e3", "e4"]).filter(
+        (c) => c.kind === "horizontal" || c.kind === "vertical",
+      ),
+    );
   });
 });

@@ -194,6 +194,10 @@ async function clickPlane(page: Page, at: Mapper, pt: Point): Promise<void> {
   await page.mouse.click(px.x, px.y);
 }
 
+/** The corner glyphs alone — see the note at the "before" assertion (SNAP-5). */
+const coincidentGlyph = (page: Page) =>
+  page.locator('[data-testid^="glyph-"][data-kind="coincident"]');
+
 /** Click with Ctrl held — freehand: every snap suppressed (the UI-W5 polarity). */
 async function clickFreehand(page: Page, at: Mapper, pt: Point): Promise<void> {
   await page.keyboard.down("Control");
@@ -572,7 +576,12 @@ test.describe("SNAP-3 — a snap records the intent, not just the coordinate", (
     await clickFreehand(page, at, { x: 50.4, y: 12.4 }); // same point, no snap
     await clickFreehand(page, at, { x: 50.4, y: 44.4 });
     await page.keyboard.press("Escape");
-    await expect(page.getByTestId(/^glyph-/)).toHaveCount(0);
+    // COUNTED BY KIND, not by grand total. The subject is the corner — whether
+    // the join was recorded — and since SNAP-5 the horizontal line also arrives
+    // with its axis stated, which is a different fact authored by a different
+    // feature. A total would redden here every time a neighbour authors
+    // anything and would say nothing about the corner when it did.
+    await expect(coincidentGlyph(page)).toHaveCount(0);
 
     await page.mouse.move(1400, 900); // park the cursor off the sheet
     await page.screenshot({
@@ -594,8 +603,8 @@ test.describe("SNAP-3 — a snap records the intent, not just the coordinate", (
     await clickPlane(page, at, { x: 50.7, y: -18.2 }); // snapped
     await clickPlane(page, at, { x: 50.4, y: 8.4 });
     await page.keyboard.press("Escape");
-    await expect(page.getByTestId(/^glyph-/)).toHaveCount(1);
-    await expect(page.getByTestId("glyph-0")).toHaveText("C");
+    await expect(coincidentGlyph(page)).toHaveCount(1);
+    await expect(coincidentGlyph(page)).toHaveText("C");
 
     await page.mouse.move(1400, 900);
     await page.screenshot({

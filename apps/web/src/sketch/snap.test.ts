@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  AXIS_INFERENCE_MAX_DEG,
+  inferredAxisConstraints,
   inferredCoincidents,
   intersectEntities,
   perpendicularFoot,
@@ -772,5 +774,118 @@ describe("inferredCoincidents — one path, every tool (SNAP-3 / SNAP-2)", () =>
 
   it("authors nothing at all when no click was snapped", () => {
     expect(inferredCoincidents([], [line("e2", 1, 1, 9, 9)])).toEqual([]);
+  });
+});
+
+describe("inferredAxisConstraints — line-by-line drawing states its axes (SNAP-5)", () => {
+  /** The default sketcher: 1 mm grid, snap radius 1 mm, nothing suppressed. */
+  const GRID = { gridStepMm: 1, toleranceMm: 1, suppressed: false };
+  /** Grid off (G), so the placement is continuous and the radius governs. */
+  const FREE = { gridStepMm: 0, toleranceMm: 1.5, suppressed: false };
+
+  /** A line of `run` mm rising by `rise` mm — the shape of every case here. */
+  const sloped = (run: number, rise: number): SketchEntity =>
+    line("e1", 10, 10, 10 + run, 10 + rise);
+
+  it("reads a horizontal line as horizontal, and a vertical one as vertical", () => {
+    expect(inferredAxisConstraints([line("e1", 0, 0, 27, 0)], GRID)).toEqual([
+      { kind: "horizontal", entity: "e1" },
+    ]);
+    expect(inferredAxisConstraints([line("e2", 27, 0, 27, 8)], GRID)).toEqual([
+      { kind: "vertical", entity: "e2" },
+    ]);
+  });
+
+  it("says nothing about a line drawn at an angle", () => {
+    // 45 deg, and a shallow-but-deliberate 10 deg — neither is a near miss.
+    expect(inferredAxisConstraints([sloped(30, 30)], GRID)).toEqual([]);
+    expect(inferredAxisConstraints([sloped(30, 5.3)], GRID)).toEqual([]);
+  });
+
+  it("leaves ONE grid step of rise alone — that is a slope somebody chose", () => {
+    // With the grid on, a placement lands on multiples of the step, so the
+    // smallest rise anyone can draw IS one step. Treating it as a near miss
+    // would rewrite geometry the user deliberately made (RECT-1 in reverse).
+    expect(inferredAxisConstraints([sloped(60, 1)], GRID)).toEqual([]);
+    // …however long the run, where a bare angular threshold would have caved:
+    // atan(1/60) is 0.95 deg, well inside the ceiling.
+    expect(Math.atan2(1, 60) * (180 / Math.PI)).toBeLessThan(
+      AXIS_INFERENCE_MAX_DEG,
+    );
+  });
+
+  it("catches the near miss the grid cannot express, once the grid is off", () => {
+    // Grid off: the aim is continuous, so a hand-drawn "horizontal" lands a
+    // fraction out. Inside the snap radius AND inside the ceiling -> inferred.
+    expect(inferredAxisConstraints([sloped(60, 1)], FREE)).toEqual([
+      { kind: "horizontal", entity: "e1" },
+    ]);
+    // Same deviation, a third of the run: 2.9 deg is still inside the ceiling.
+    expect(inferredAxisConstraints([sloped(20, 1)], FREE)).toEqual([
+      { kind: "horizontal", entity: "e1" },
+    ]);
+    // Same deviation again, over a run short enough to make it a real slope
+    // (4.3 deg): the ceiling is what refuses this, not the radius.
+    expect(inferredAxisConstraints([sloped(13, 1)], FREE)).toEqual([]);
+  });
+
+  it("refuses a stub, where millimetres say nothing about direction", () => {
+    // 2 mm x 1.4 mm is 35 deg and it is INSIDE the snap radius on both axes —
+    // a deviation rule alone would call it horizontal. The run has to clear
+    // the same limit the rise stays under, and the ceiling backs it up.
+    expect(inferredAxisConstraints([sloped(2, 1.4)], FREE)).toEqual([]);
+    expect(inferredAxisConstraints([sloped(1, 1)], FREE)).toEqual([]);
+  });
+
+  it("never claims both axes for one line", () => {
+    for (const [run, rise] of [
+      [0, 0],
+      [1, 1],
+      [30, 0],
+      [0, 30],
+      [1.4, 1.4],
+    ] as const) {
+      expect(
+        inferredAxisConstraints([sloped(run, rise)], FREE).length,
+      ).toBeLessThan(2);
+    }
+  });
+
+  it("stands down while the user suppresses snapping (Ctrl/Cmd)", () => {
+    expect(
+      inferredAxisConstraints([line("e1", 0, 0, 27, 0)], {
+        ...GRID,
+        suppressed: true,
+      }),
+    ).toEqual([]);
+  });
+
+  it("never restates an axis the sketch already carries", () => {
+    // A rectangle's four edges pass through here too; `rectangleRigidity` has
+    // already said this, and saying it twice reports an ordinary sketch as
+    // OVER-CONSTRAINED.
+    expect(
+      inferredAxisConstraints([line("e1", 0, 0, 27, 0)], GRID, [
+        { kind: "horizontal", entity: "e1" },
+      ]),
+    ).toEqual([]);
+  });
+
+  it("has nothing to say about a circle, an arc or a point", () => {
+    expect(
+      inferredAxisConstraints([circle("e1", 0, 0, 10), quarterArc], GRID),
+    ).toEqual([]);
+  });
+
+  it("infers an axis for an exactly-drawn line even with no tolerance at all", () => {
+    // The axis lock (Shift) and a grid landing are both bit-exact, so the
+    // inference must not depend on the caller reporting a radius.
+    expect(
+      inferredAxisConstraints([line("e1", 0, 0, 27, 0)], {
+        gridStepMm: 0,
+        toleranceMm: 0,
+        suppressed: false,
+      }),
+    ).toEqual([{ kind: "horizontal", entity: "e1" }]);
   });
 });
