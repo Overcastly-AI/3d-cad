@@ -183,6 +183,12 @@ function glyphAria(glyph: ConstraintGlyph): string {
       return "Symmetric constraint";
     case "concentric":
       return "Concentric constraint";
+    // The kernel gained the `angle` dimension (SKETCH-VOCAB-1); its glyph,
+    // editor and dimension-type chooser are the frontend half of that item, and
+    // `buildGlyphs` emits nothing for it yet — so this arm exists to keep the
+    // switch total, and the label is the plain degrees the solver reports.
+    case "angle":
+      return `Angle${glyph.driven ? " reference" : ""} ${glyph.label} degrees`;
   }
 }
 

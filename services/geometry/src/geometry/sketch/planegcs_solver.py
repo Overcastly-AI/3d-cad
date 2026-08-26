@@ -75,12 +75,20 @@ from planegcs import Sketch as GcsSystem
 from planegcs import SolveStatus as GcsSolveStatus
 from py_kit.schemas.sketch import spline_fit_index
 
+from geometry.sketch.angles import (
+    AngleFrame,
+    angle_frames,
+    coincidence_classes,
+    solver_target_rad,
+)
 from geometry.sketch.expression import (
     evaluate_driving_dimensions,
+    measure_angle,
     measure_dimension,
 )
 from geometry.sketch.residual import geometric_residuals, worst_residual
 from geometry.sketch.schemas import (
+    AngleConstraint,
     CoincidentConstraint,
     ConcentricConstraint,
     DimensionConstraint,
@@ -102,6 +110,7 @@ from geometry.sketch.schemas import (
     SketchPoint,
     SketchSolveStatus,
     SketchSpline,
+    SolvedAngle,
     SolvedDimension,
     SolvedSketch,
     SymmetricConstraint,
@@ -212,7 +221,9 @@ class PlanegcsSketchSolver:
         # like every other conflicting solve — returns the input geometry
         # untouched rather than a silent least-squares compromise.
         violated = (
-            _violated_constraints(sketch, entities, driving_values) if solved else []
+            _violated_constraints(sketch, entities, driving_values, system.angle_frames)
+            if solved
+            else []
         )
         if violated:
             status = "conflicting"
@@ -220,6 +231,9 @@ class PlanegcsSketchSolver:
             conflicting = sorted(set(conflicting) | set(violated))
 
         dimensions = _dimension_readouts(sketch.constraints, entities, driving_values)
+        angles = _angle_readouts(
+            sketch.constraints, entities, driving_values, system.angle_frames
+        )
         return SolvedSketch(
             status=status,
             entities=entities,
@@ -227,6 +241,7 @@ class PlanegcsSketchSolver:
             conflicting_constraints=conflicting,
             redundant_constraints=redundant,
             dimensions=dimensions,
+            angles=angles,
         )
 
 
@@ -245,6 +260,7 @@ def _violated_constraints(
     sketch: SketchDefinition,
     entities: list[SketchEntity],
     driving_values: dict[int, float],
+    frames: dict[int, AngleFrame],
 ) -> list[int]:
     """Indices of the constraints the solved geometry does not satisfy.
 
@@ -277,6 +293,7 @@ def _violated_constraints(
             # entities — against those it would be trivially satisfied.
             _submitted_points(sketch.entities),
             driving_values,
+            frames,
         )
         if residual > SATISFIED_TOL_MM
     ]
@@ -309,6 +326,8 @@ def _dimension_readouts(
     for index, constraint in enumerate(constraints):
         if not isinstance(constraint, DimensionConstraint):
             continue
+        if isinstance(constraint, AngleConstraint):
+            continue  # degrees — reported on `angles`, never under an `_mm` name
         measured = measure_dimension(constraint, entities_by_id)
         requested = driving_values.get(index)
         value = (
@@ -322,6 +341,54 @@ def _dimension_readouts(
                 name=constraint.name,
                 driving=constraint.is_driving,
                 value_mm=value,
+                expression=constraint.expression,
+            )
+        )
+    return readouts
+
+
+def _angle_readouts(
+    constraints: list[SketchConstraint],
+    entities: list[SketchEntity],
+    driving_values: dict[int, float],
+    frames: dict[int, AngleFrame],
+) -> list[SolvedAngle]:
+    """Per-angle computed values (degrees) for the solved payload.
+
+    The angular half of :func:`_dimension_readouts`, and it carries that
+    function's invariant unchanged: **no readout disagrees with the geometry
+    beside it in the same payload**. A driving angle's requested value is
+    VERIFIED against the solved lines before it is reported, and where it does
+    not describe them the MEASURED angle is reported instead — the same rule
+    that stopped the service claiming a 12 mm dimension on an 8 mm line
+    (docs/AUDIT-ENGINEERING.md Pass 8 N1), applied before an angle dimension
+    could ever make the equivalent claim.
+
+    The comparison is made in DEGREES against a degree-scaled tolerance:
+    :data:`SATISFIED_TOL_MM` is read on the constraint's own scale (radians for
+    the angular kinds), so the readout check converts once here rather than
+    letting a millimetre-named constant leak into a degree comparison.
+    """
+    entities_by_id = {entity.id: entity for entity in entities}
+    readouts: list[SolvedAngle] = []
+    for index, constraint in enumerate(constraints):
+        if not isinstance(constraint, AngleConstraint):
+            continue
+        frame = frames.get(index)
+        measured = measure_angle(constraint, entities_by_id, frame)
+        requested = driving_values.get(index)
+        tolerance_deg = math.degrees(SATISFIED_TOL_MM)
+        value = (
+            requested
+            if requested is not None and abs(measured - requested) <= tolerance_deg
+            else measured
+        )
+        readouts.append(
+            SolvedAngle(
+                constraint_index=index,
+                name=constraint.name,
+                driving=constraint.is_driving,
+                value_deg=value,
                 expression=constraint.expression,
             )
         )
@@ -367,6 +434,7 @@ def _constraint_point_refs(constraint: SketchConstraint) -> tuple[EntityPointRef
             | VerticalConstraint()
             | DistanceConstraint()
             | RadiusConstraint()
+            | AngleConstraint()
             | ParallelConstraint()
             | PerpendicularConstraint()
             | TangentConstraint()
@@ -391,54 +459,6 @@ def _referenced_fit_points(constraints: list[SketchConstraint]) -> set[tuple[str
             if spline_fit_index(ref.point) is not None:
                 referenced.add((ref.entity, ref.point))
     return referenced
-
-
-def _coincidence_classes(
-    constraints: list[SketchConstraint],
-) -> dict[tuple[str, str], tuple[str, str]]:
-    """``(entity id, point name)`` → the representative of its coincidence class.
-
-    Two points joined by ``coincident`` (or two centres joined by ``concentric``,
-    which :meth:`_GcsBuild._add_concentric` translates to exactly that) are ONE
-    location in every solution the caller's constraints admit. The settle uses
-    that to reason about pins it has already tried: pinning either member at the
-    same target is the same demand, so a refusal for one is a refusal for both
-    (:meth:`_GcsBuild._known_infeasible`). In a closed outline every corner is
-    shared by two entities, so this halves the questions the settle has to put to
-    the solver — before any of the other savings.
-
-    Union-find, merged in input constraint order, and the representative is the
-    smallest member by ``(entity id, point name)`` — so the map is a function of
-    the sketch alone, never of iteration order (RESEARCH §9).
-    """
-    parent: dict[tuple[str, str], tuple[str, str]] = {}
-
-    def find(key: tuple[str, str]) -> tuple[str, str]:
-        root = parent.setdefault(key, key)
-        while root != parent[root]:
-            root = parent[root]
-        while parent[key] != root:  # path compression
-            parent[key], key = root, parent[key]
-        return root
-
-    def union(a: tuple[str, str], b: tuple[str, str]) -> None:
-        root_a, root_b = find(a), find(b)
-        if root_a != root_b:
-            low, high = sorted((root_a, root_b))
-            parent[high] = low
-
-    for constraint in constraints:  # input order — deterministic (RESEARCH §9)
-        match constraint:
-            case CoincidentConstraint():
-                union(
-                    (constraint.a.entity, constraint.a.point),
-                    (constraint.b.entity, constraint.b.point),
-                )
-            case ConcentricConstraint():
-                union((constraint.a, "center"), (constraint.b, "center"))
-            case _:
-                pass
-    return {key: find(key) for key in parent}
 
 
 def _directions(entities: list[SketchEntity]) -> dict[str, tuple[float, float]]:
@@ -540,6 +560,14 @@ class _GcsBuild:
         #: spline fit points are added to the constraint system; unreferenced fit
         #: points stay out of it (zero DOF, preserved bitwise).
         self._referenced_fit_points = _referenced_fit_points(sketch.constraints)
+        #: constraint index -> the angle convention that constraint was authored
+        #: under (:mod:`geometry.sketch.angles`). Derived ONCE, from the
+        #: SUBMITTED coordinates, because it records the angle the author drew:
+        #: re-deriving it mid-settle would let the sign follow the solver instead
+        #: of the intent, and would put a union-find on the per-trial hot path.
+        self.angle_frames = angle_frames(
+            sketch.constraints, _submitted_points(sketch.entities)
+        )
         #: planegcs constraint tag → index into ``sketch.constraints``.
         self.tag_to_index: dict[int, int] = {}
         for entity in sketch.entities:  # input order — deterministic
@@ -558,7 +586,7 @@ class _GcsBuild:
         #: no-solve acceptance path may not be taken without it.
         self._baseline_holds = False
         #: ``(entity id, point name)`` → coincidence-class representative.
-        self._point_class = _coincidence_classes(sketch.constraints)
+        self._point_class = coincidence_classes(sketch.constraints)
         #: Every ``(class, axes, target)`` demand a trial has already refused —
         #: see :meth:`_known_infeasible`.
         self._refused: set[
@@ -729,6 +757,25 @@ class _GcsBuild:
                 self.tag_to_index[fix_x] = index
                 self.tag_to_index[fix_y] = index
                 return
+            case AngleConstraint():
+                if index not in self.driving_values:
+                    return  # DRIVEN — not fed to the solver (measured post-solve)
+                frame = self.angle_frames.get(index)
+                # Both ids must be lines; the frame is None exactly when one is
+                # not, so the kind check and the convention share one answer.
+                self._resolve_line(constraint.a, "angle")
+                self._resolve_line(constraint.b, "angle")
+                if frame is None:  # pragma: no cover — the two checks agree
+                    raise SketchDefinitionError(
+                        "Constraint 'angle' relates two line entities; "
+                        f"{constraint.a!r} and {constraint.b!r} do not both "
+                        "resolve to lines"
+                    )
+                tag = gcs.set_l2l_angle(
+                    self._lines[constraint.a],
+                    self._lines[constraint.b],
+                    solver_target_rad(frame, self.driving_values[index]),
+                )
             case ParallelConstraint():
                 tag = gcs.parallel(
                     self._resolve_line(constraint.a, "parallel"),
@@ -917,6 +964,7 @@ class _GcsBuild:
                 self.read_back(),
                 self._input_points(),
                 self.driving_values,
+                self.angle_frames,
             )
             <= SATISFIED_TOL_MM
         )
@@ -1184,6 +1232,7 @@ class _GcsBuild:
                 self.sketch.entities,
                 self._input_points(),
                 self.driving_values,
+                self.angle_frames,
             )
             > SATISFIED_TOL_MM
         ):

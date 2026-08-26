@@ -297,34 +297,51 @@ DimensionName = Annotated[
 
 
 class DimensionConstraint(BaseModel):
-    """Shared fields of a **dimension** (distance, radius, …): value, optional
-    expression, optional reference name, and the driving/driven flag.
+    """Shared fields of a **dimension** (distance, radius, angle, …): the
+    optional expression, the optional reference name, and the driving/driven
+    flag. The VALUE itself lives on the subclass, because dimensions do not all
+    speak the same unit — see :attr:`value`.
 
-    A dimension's value is EITHER a literal ``value_mm`` OR a math
-    ``expression`` over other dimensions' names; when ``expression`` is present
-    it SUPERSEDES ``value_mm`` (which then holds the last resolved value, kept
-    for display before the next solve). ``name`` gives the dimension a stable
-    handle other expressions can reference. ``driving`` distinguishes a DRIVING
-    dimension (its value is fed to the solver) from a DRIVEN one (excluded from
-    the constraint system; its value is measured back from the solved geometry
-    for read-only display — the solver never sees it, so it cannot
-    over-constrain).
+    A dimension's value is EITHER a literal (``value_mm`` on a
+    :class:`LinearDimensionConstraint`, ``value_deg`` on an
+    :class:`AngleConstraint`) OR a math ``expression`` over other dimensions'
+    names; when ``expression`` is present it SUPERSEDES the literal (which then
+    holds the last resolved value, kept for display before the next solve).
+    ``name`` gives the dimension a stable handle other expressions can
+    reference. ``driving`` distinguishes a DRIVING dimension (its value is fed
+    to the solver) from a DRIVEN one (excluded from the constraint system; its
+    value is measured back from the solved geometry for read-only display — the
+    solver never sees it, so it cannot over-constrain).
 
     Additive optional fields (docs/design/feature-tree.md §1.3 — NO
     ``param_version`` bump): a dimension persisted before these fields lacks the
     keys and reads as ``expression=None``, ``name=None``, ``driving=True`` — a
     plain literal driving dimension, exactly its former meaning. Totality holds:
     every stored sketch still parses and, since a literal driving dimension
-    feeds the solver its ``value_mm`` unchanged, solves byte-identically.
+    feeds the solver its value unchanged, solves byte-identically.
+
+    **Why the value is not on this base.** A distance and a radius are lengths
+    in mm; an angle is degrees. Carrying an angle in a field called ``value_mm``
+    would hand every consumer a number whose name lies about its unit — the
+    class of defect that produced a "12 mm dimension on an 8 mm line"
+    (docs/AUDIT-ENGINEERING.md Pass 8 N1) in a different disguise. Instead each
+    subclass declares its own unit-named field and exposes it through
+    :attr:`value`, so unit-agnostic machinery (expression evaluation, the
+    driving/driven split) reads one property while nothing ever prints a
+    degree-valued number under an ``_mm`` label.
     """
 
-    value_mm: float = Field(
-        gt=0,
-        description="Resolved dimension value (mm). The literal value when "
-        "`expression` is None; otherwise the last solved/resolved value (the "
-        "expression supersedes it on the next solve, but a positive placeholder "
-        "is still required so a pre-solve read has a value).",
-    )
+    @property
+    def value(self) -> float:
+        """The authored literal, in this dimension's OWN unit.
+
+        mm for :class:`LinearDimensionConstraint`, degrees for
+        :class:`AngleConstraint`. Read by the expression evaluator and the
+        solver wiring, which care about the number and not the unit; anything
+        that DISPLAYS the number must know which subclass it came from.
+        """
+        raise NotImplementedError  # pragma: no cover — every subclass overrides
+
     expression: str | None = Field(
         default=None,
         max_length=256,
@@ -372,7 +389,29 @@ class DimensionConstraint(BaseModel):
         return self.driving is not False
 
 
-class DistanceConstraint(DimensionConstraint):
+class LinearDimensionConstraint(DimensionConstraint):
+    """A dimension whose value is a LENGTH in mm (distance, radius, diameter).
+
+    Splits off :class:`DimensionConstraint` so that the angular dimension can
+    sit beside these without inheriting a millimetre-named field (see that
+    class's note). Every field a linear dimension had before the split is
+    unchanged and in the same place on the wire.
+    """
+
+    value_mm: float = Field(
+        gt=0,
+        description="Resolved dimension value (mm). The literal value when "
+        "`expression` is None; otherwise the last solved/resolved value (the "
+        "expression supersedes it on the next solve, but a positive placeholder "
+        "is still required so a pre-solve read has a value).",
+    )
+
+    @property
+    def value(self) -> float:
+        return self.value_mm
+
+
+class DistanceConstraint(LinearDimensionConstraint):
     """Dimension: the length of a line (mm). Driving by default; see
     :class:`DimensionConstraint` for the expression/name/driving fields."""
 
@@ -380,12 +419,63 @@ class DistanceConstraint(DimensionConstraint):
     entity: EntityId
 
 
-class RadiusConstraint(DimensionConstraint):
+class RadiusConstraint(LinearDimensionConstraint):
     """Dimension: the radius of a circle or arc (mm). Driving by default; see
     :class:`DimensionConstraint` for the expression/name/driving fields."""
 
     kind: Literal["radius"]
     entity: EntityId
+
+
+class AngleConstraint(DimensionConstraint):
+    """Dimension: the angle between two lines (DEGREES, not mm).
+
+    The dimension every non-orthogonal feature needs — a gusset at 30°, a
+    dovetail, a draft face — and the one whose absence meant such geometry could
+    be *drawn* but never *driven*, so it drifted on every edit
+    (docs/AUDIT-PRODUCT.md T-5). ``a`` and ``b`` are whole line entities by id,
+    like :class:`ParallelConstraint`; both must be lines. Removes one rotational
+    degree of freedom.
+
+    **Which angle: the one at the shared corner.** Two lines subtend two
+    supplementary angles, and picking the wrong one is the difference between an
+    acute gusset and an obtuse one. The convention, which the solver and the
+    readout both apply and the UI should display verbatim from
+    :class:`SolvedAngle`:
+
+    * If ``a`` and ``b`` are joined at an endpoint by ``coincident`` constraints
+      (the ordinary case — two edges of a profile meeting at a corner), the
+      angle is measured between the two lines' directions taken **away from that
+      shared corner**. That is the INTERIOR angle a user sees and would type.
+      The join is read from the sketch's coincidence constraints, symbolically —
+      never from a coordinate-proximity test, which would need an epsilon
+      (CLAUDE.md) and would silently change meaning as geometry moved.
+    * Otherwise the lines' authored ``start -> end`` directions are used as-is.
+
+    ``value_deg`` is unsigned and strictly between 0 and 180: 0 and 180 are the
+    degenerate ends where the lines are parallel (use ``parallel``), and a
+    single unsigned number cannot say which side of ``a`` the line ``b`` sits
+    on. The SIDE is taken from the geometry as drawn — the solver holds the
+    angle the author already has and only resizes it — so typing a number never
+    flips a profile inside out.
+    """
+
+    kind: Literal["angle"]
+    a: EntityId
+    b: EntityId
+    value_deg: float = Field(
+        gt=0,
+        lt=180,
+        description="Resolved angle between the two lines, in DEGREES, "
+        "measured at their shared corner when they have one. Strictly within "
+        "(0, 180): the open ends are the parallel/anti-parallel degeneracies, "
+        "which are the `parallel` constraint's job. The literal value when "
+        "`expression` is None; otherwise the last resolved value.",
+    )
+
+    @property
+    def value(self) -> float:
+        return self.value_deg
 
 
 class FixedConstraint(BaseModel):
@@ -490,6 +580,7 @@ SketchConstraint = Annotated[
     | VerticalConstraint
     | DistanceConstraint
     | RadiusConstraint
+    | AngleConstraint
     | FixedConstraint
     | ParallelConstraint
     | PerpendicularConstraint
@@ -572,21 +663,17 @@ SketchSolveStatus = Literal[
 ]
 
 
-class SolvedDimension(BaseModel):
-    """The computed value of one dimension constraint in a solved sketch.
-
-    Reported per dimension so the sketcher can show the number next to each
-    dimension WITHOUT re-parsing expressions itself:
-
-    * **driving** — ``value_mm`` is the evaluated literal/expression value that
-      was fed to the solver (e.g. ``height="width/2"`` with ``width=20`` reports
-      ``value_mm=10``).
-    * **driven** — ``value_mm`` is the value MEASURED back from the solved
-      geometry (a line's length / a circle-or-arc's radius): the read-only
-      readout that updates as the geometry it dimensions moves.
+class SolvedDimensionBase(BaseModel):
+    """Fields shared by every per-dimension readout, whatever its unit.
 
     ``constraint_index`` points into the sketch's input constraint list, so the
     UI can line each readout up with the constraint the user authored.
+    ``driving`` says where the number came from:
+
+    * **driving** — the evaluated literal/expression value that was fed to the
+      solver (e.g. ``height="width/2"`` with ``width=20`` reports ``10``).
+    * **driven** — the value MEASURED back from the solved geometry: the
+      read-only readout that updates as the geometry it dimensions moves.
     """
 
     constraint_index: int = Field(
@@ -599,14 +686,46 @@ class SolvedDimension(BaseModel):
         description="True = driving (value fed to the solver); False = driven "
         "(value measured back from the solved geometry)."
     )
-    value_mm: float = Field(
-        description="Computed value (mm): the evaluated expression/literal for a "
-        "driving dimension, or the measured geometry value for a driven one."
-    )
     expression: str | None = Field(
         default=None,
         description="The dimension's source expression, echoed for the UI "
         "(None for a bare literal dimension).",
+    )
+
+
+class SolvedDimension(SolvedDimensionBase):
+    """The computed value of one LINEAR dimension (distance/radius/diameter).
+
+    Reported per dimension so the sketcher can show the number next to each
+    dimension WITHOUT re-parsing expressions itself. Angular dimensions are
+    reported separately, on :attr:`SolvedSketch.angles`, so that no consumer can
+    read a degree value out of a field named ``value_mm``.
+    """
+
+    value_mm: float = Field(
+        description="Computed value (mm): the evaluated expression/literal for a "
+        "driving dimension, or the measured geometry value for a driven one."
+    )
+
+
+class SolvedAngle(SolvedDimensionBase):
+    """The computed value of one ANGULAR dimension, in degrees.
+
+    The angle counterpart of :class:`SolvedDimension`, kept as its own list on
+    :class:`SolvedSketch` rather than widened into that one: ``value_mm`` is a
+    required field of the linear readout that every existing consumer reads
+    unconditionally, and there is no honest millimetre value for an angle. A
+    separate list is purely ADDITIVE (a caller that never looks at ``angles``
+    behaves exactly as before) and leaves both numbers named after their real
+    unit. Keyed by the same ``constraint_index`` space, so a UI that wants one
+    readout per constraint merges the two lists by index.
+    """
+
+    value_deg: float = Field(
+        description="Computed value (DEGREES): the evaluated expression/literal "
+        "for a driving angle, or the angle measured back from the solved "
+        "geometry for a driven one — measured at the two lines' shared corner "
+        "when they have one (see AngleConstraint)."
     )
 
 
@@ -645,10 +764,18 @@ class SolvedSketch(BaseModel):
     )
     dimensions: list[SolvedDimension] = Field(
         default_factory=list["SolvedDimension"],
-        description="Per-dimension computed values (driving = evaluated "
-        "expression/literal; driven = measured from the solved geometry). One "
-        "entry per dimension constraint, in input order. Empty for a sketch with "
-        "no dimensions; additive (pre-expression callers ignore it).",
+        description="Per-dimension computed values for the LINEAR dimensions "
+        "(driving = evaluated expression/literal; driven = measured from the "
+        "solved geometry). One entry per distance/radius/diameter constraint, in "
+        "input order. Empty for a sketch with no linear dimensions; additive "
+        "(pre-expression callers ignore it).",
+    )
+    angles: list[SolvedAngle] = Field(
+        default_factory=list["SolvedAngle"],
+        description="Per-dimension computed values for the ANGULAR dimensions, "
+        "in DEGREES. One entry per angle constraint, in input order — the same "
+        "`constraint_index` space as `dimensions`, so a UI merges the two lists "
+        "by index. Empty for a sketch with no angle dimensions; additive.",
     )
 
 

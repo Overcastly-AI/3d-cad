@@ -1200,6 +1200,76 @@ export interface components {
             kind: "all_edges";
         };
         /**
+         * AngleConstraint
+         * @description Dimension: the angle between two lines (DEGREES, not mm).
+         *
+         *     The dimension every non-orthogonal feature needs — a gusset at 30°, a
+         *     dovetail, a draft face — and the one whose absence meant such geometry could
+         *     be *drawn* but never *driven*, so it drifted on every edit
+         *     (docs/AUDIT-PRODUCT.md T-5). ``a`` and ``b`` are whole line entities by id,
+         *     like :class:`ParallelConstraint`; both must be lines. Removes one rotational
+         *     degree of freedom.
+         *
+         *     **Which angle: the one at the shared corner.** Two lines subtend two
+         *     supplementary angles, and picking the wrong one is the difference between an
+         *     acute gusset and an obtuse one. The convention, which the solver and the
+         *     readout both apply and the UI should display verbatim from
+         *     :class:`SolvedAngle`:
+         *
+         *     * If ``a`` and ``b`` are joined at an endpoint by ``coincident`` constraints
+         *       (the ordinary case — two edges of a profile meeting at a corner), the
+         *       angle is measured between the two lines' directions taken **away from that
+         *       shared corner**. That is the INTERIOR angle a user sees and would type.
+         *       The join is read from the sketch's coincidence constraints, symbolically —
+         *       never from a coordinate-proximity test, which would need an epsilon
+         *       (CLAUDE.md) and would silently change meaning as geometry moved.
+         *     * Otherwise the lines' authored ``start -> end`` directions are used as-is.
+         *
+         *     ``value_deg`` is unsigned and strictly between 0 and 180: 0 and 180 are the
+         *     degenerate ends where the lines are parallel (use ``parallel``), and a
+         *     single unsigned number cannot say which side of ``a`` the line ``b`` sits
+         *     on. The SIDE is taken from the geometry as drawn — the solver holds the
+         *     angle the author already has and only resizes it — so typing a number never
+         *     flips a profile inside out.
+         */
+        AngleConstraint: {
+            /**
+             * A
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            a: string;
+            /**
+             * B
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            b: string;
+            /**
+             * Driving
+             * @description Driving/driven flag. None (absent, the default) or True = DRIVING: the value is fed to the solver. False = DRIVEN: excluded from the constraint system; the value is measured back from the solved geometry for display (read-only, never fed as a constraint, so a driven dimension cannot over-constrain). Nullable+None-default (rather than a bare `bool`) keeps it an ADDITIVE optional field: a sketch persisted before it reads as None = driving, and the generated TS client leaves it optional. Read it through `is_driving`, never the raw tri-state.
+             */
+            driving?: boolean | null;
+            /**
+             * Expression
+             * @description Optional math expression over other dimension NAMES (`+ - * / ( )`, unary minus, decimals), e.g. `"width/2"`. When present it SUPERSEDES `value_mm` and the geometry service re-evaluates it each solve. A bare literal dimension leaves this None. Only *driving* dimensions may be referenced; a bad expression / unknown or driven reference / cycle / division-by-zero is a clean `sketch_invalid` error, never a crash. Capped at 256 chars: an expression is a short formula over dimension names (`(width+gap)/2`), never prose, and the cap bounds parser paren-depth (<=128) and evaluator AST-depth (<=128) well under Python's recursion limit, so a hostile deeply-nested / very-long string 422s at request validation BEFORE the recursive-descent parser runs — it can never reach the kernel as an uncaught RecursionError. The parser also carries its own depth guard (defense in depth) should this cap ever be raised.
+             */
+            expression?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "angle";
+            /**
+             * Name
+             * @description Optional stable name so another dimension's `expression` can reference this one. Unique within a sketch (enforced on SketchDefinition). None = unnamed: still solves, just not referenceable.
+             */
+            name?: string | null;
+            /**
+             * Value Deg
+             * @description Resolved angle between the two lines, in DEGREES, measured at their shared corner when they have one. Strictly within (0, 180): the open ends are the parallel/anti-parallel degeneracies, which are the `parallel` constraint's job. The literal value when `expression` is None; otherwise the last resolved value.
+             */
+            value_deg: number;
+        };
+        /**
          * AngleMate
          * @description Two planar faces held at a fixed angle (fast-follow, design §5).
          *
@@ -5939,7 +6009,7 @@ export interface components {
              * Constraints
              * @description The sketch's constraints, bounded by MAX_SKETCH_CONSTRAINTS (work bound, audit G2)
              */
-            constraints: (components["schemas"]["CoincidentConstraint"] | components["schemas"]["HorizontalConstraint"] | components["schemas"]["VerticalConstraint"] | components["schemas"]["DistanceConstraint"] | components["schemas"]["RadiusConstraint"] | components["schemas"]["FixedConstraint"] | components["schemas"]["ParallelConstraint"] | components["schemas"]["PerpendicularConstraint"] | components["schemas"]["TangentConstraint"] | components["schemas"]["EqualConstraint"] | components["schemas"]["SymmetricConstraint"] | components["schemas"]["ConcentricConstraint"])[];
+            constraints: (components["schemas"]["CoincidentConstraint"] | components["schemas"]["HorizontalConstraint"] | components["schemas"]["VerticalConstraint"] | components["schemas"]["DistanceConstraint"] | components["schemas"]["RadiusConstraint"] | components["schemas"]["AngleConstraint"] | components["schemas"]["FixedConstraint"] | components["schemas"]["ParallelConstraint"] | components["schemas"]["PerpendicularConstraint"] | components["schemas"]["TangentConstraint"] | components["schemas"]["EqualConstraint"] | components["schemas"]["SymmetricConstraint"] | components["schemas"]["ConcentricConstraint"])[];
             /**
              * Entities
              * @description The sketch's entities, bounded by MAX_SKETCH_ENTITIES (work bound, audit G2)

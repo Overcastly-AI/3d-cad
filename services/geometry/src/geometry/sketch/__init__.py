@@ -16,11 +16,13 @@ from geometry.sketch.edit import (
 from geometry.sketch.expression import (
     SketchExpressionError,
     evaluate_driving_dimensions,
+    measure_angle,
     measure_dimension,
     parse_expression,
 )
 from geometry.sketch.planegcs_solver import PlanegcsSketchSolver
 from geometry.sketch.schemas import (
+    AngleConstraint,
     CoincidentConstraint,
     ConcentricConstraint,
     DimensionConstraint,
@@ -54,6 +56,7 @@ from geometry.sketch.schemas import (
     SketchPoint,
     SketchSolveStatus,
     SketchSpline,
+    SolvedAngle,
     SolvedDimension,
     SolvedSketch,
     SymmetricConstraint,
@@ -63,6 +66,7 @@ from geometry.sketch.schemas import (
 from geometry.sketch.solver import SketchDefinitionError, SketchSolver
 
 __all__ = [
+    "AngleConstraint",
     "CoincidentConstraint",
     "ConcentricConstraint",
     "DimensionConstraint",
@@ -101,6 +105,7 @@ __all__ = [
     "SketchSolveStatus",
     "SketchSolver",
     "SketchSpline",
+    "SolvedAngle",
     "SolvedDimension",
     "SolvedSketch",
     "SymmetricConstraint",
@@ -110,6 +115,7 @@ __all__ = [
     "evaluate_driving_dimensions",
     "extend_sketch",
     "fillet_sketch",
+    "measure_angle",
     "measure_dimension",
     "mirror_sketch",
     "offset_sketch",

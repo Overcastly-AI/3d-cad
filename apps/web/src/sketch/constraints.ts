@@ -132,6 +132,11 @@ export function constraintEntityRefs(constraint: SketchConstraint): string[] {
     case "tangent":
     case "equal":
     case "concentric":
+    case "angle":
+      // `angle` relates two whole lines by id like the rest of this group; its
+      // VALUE lives on the constraint, not in the reference set. Listed here so
+      // a deleted line takes its angle dimension with it — an angle whose line
+      // is gone is a dangling reference the solver rejects.
       return [constraint.a, constraint.b];
     case "symmetric":
       return [constraint.a.entity, constraint.b.entity, constraint.line];
@@ -350,7 +355,12 @@ export function sameConstraint(
     case "perpendicular":
     case "tangent":
     case "equal":
-    case "concentric": {
+    case "concentric":
+    case "angle": {
+      // An `angle` on the same (unordered) pair is the same DIMENSION whatever
+      // number it carries — dedupe by the pair, exactly as `distance` dedupes
+      // by its entity rather than by its value. Two angles on one pair is the
+      // over-constraint, not two different constraints.
       const other = b as typeof a;
       return (
         (a.a === other.a && a.b === other.b) ||

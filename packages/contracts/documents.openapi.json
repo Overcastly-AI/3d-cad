@@ -16,6 +16,82 @@
         "title": "AllEdgesSelector",
         "type": "object"
       },
+      "AngleConstraint": {
+        "description": "Dimension: the angle between two lines (DEGREES, not mm).\n\nThe dimension every non-orthogonal feature needs \u2014 a gusset at 30\u00b0, a\ndovetail, a draft face \u2014 and the one whose absence meant such geometry could\nbe *drawn* but never *driven*, so it drifted on every edit\n(docs/AUDIT-PRODUCT.md T-5). ``a`` and ``b`` are whole line entities by id,\nlike :class:`ParallelConstraint`; both must be lines. Removes one rotational\ndegree of freedom.\n\n**Which angle: the one at the shared corner.** Two lines subtend two\nsupplementary angles, and picking the wrong one is the difference between an\nacute gusset and an obtuse one. The convention, which the solver and the\nreadout both apply and the UI should display verbatim from\n:class:`SolvedAngle`:\n\n* If ``a`` and ``b`` are joined at an endpoint by ``coincident`` constraints\n  (the ordinary case \u2014 two edges of a profile meeting at a corner), the\n  angle is measured between the two lines' directions taken **away from that\n  shared corner**. That is the INTERIOR angle a user sees and would type.\n  The join is read from the sketch's coincidence constraints, symbolically \u2014\n  never from a coordinate-proximity test, which would need an epsilon\n  (CLAUDE.md) and would silently change meaning as geometry moved.\n* Otherwise the lines' authored ``start -> end`` directions are used as-is.\n\n``value_deg`` is unsigned and strictly between 0 and 180: 0 and 180 are the\ndegenerate ends where the lines are parallel (use ``parallel``), and a\nsingle unsigned number cannot say which side of ``a`` the line ``b`` sits\non. The SIDE is taken from the geometry as drawn \u2014 the solver holds the\nangle the author already has and only resizes it \u2014 so typing a number never\nflips a profile inside out.",
+        "properties": {
+          "a": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "A",
+            "type": "string"
+          },
+          "b": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "B",
+            "type": "string"
+          },
+          "driving": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Driving/driven flag. None (absent, the default) or True = DRIVING: the value is fed to the solver. False = DRIVEN: excluded from the constraint system; the value is measured back from the solved geometry for display (read-only, never fed as a constraint, so a driven dimension cannot over-constrain). Nullable+None-default (rather than a bare `bool`) keeps it an ADDITIVE optional field: a sketch persisted before it reads as None = driving, and the generated TS client leaves it optional. Read it through `is_driving`, never the raw tri-state.",
+            "title": "Driving"
+          },
+          "expression": {
+            "anyOf": [
+              {
+                "maxLength": 256,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional math expression over other dimension NAMES (`+ - * / ( )`, unary minus, decimals), e.g. `\"width/2\"`. When present it SUPERSEDES `value_mm` and the geometry service re-evaluates it each solve. A bare literal dimension leaves this None. Only *driving* dimensions may be referenced; a bad expression / unknown or driven reference / cycle / division-by-zero is a clean `sketch_invalid` error, never a crash. Capped at 256 chars: an expression is a short formula over dimension names (`(width+gap)/2`), never prose, and the cap bounds parser paren-depth (<=128) and evaluator AST-depth (<=128) well under Python's recursion limit, so a hostile deeply-nested / very-long string 422s at request validation BEFORE the recursive-descent parser runs \u2014 it can never reach the kernel as an uncaught RecursionError. The parser also carries its own depth guard (defense in depth) should this cap ever be raised.",
+            "title": "Expression"
+          },
+          "kind": {
+            "const": "angle",
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "description": "Dimension reference name: identifier-like, unique per sketch.",
+                "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional stable name so another dimension's `expression` can reference this one. Unique within a sketch (enforced on SketchDefinition). None = unnamed: still solves, just not referenceable.",
+            "title": "Name"
+          },
+          "value_deg": {
+            "description": "Resolved angle between the two lines, in DEGREES, measured at their shared corner when they have one. Strictly within (0, 180): the open ends are the parallel/anti-parallel degeneracies, which are the `parallel` constraint's job. The literal value when `expression` is None; otherwise the last resolved value.",
+            "exclusiveMaximum": 180.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Value Deg",
+            "type": "number"
+          }
+        },
+        "required": [
+          "kind",
+          "a",
+          "b",
+          "value_deg"
+        ],
+        "title": "AngleConstraint",
+        "type": "object"
+      },
       "AngleMate": {
         "description": "Two planar faces held at a fixed angle (fast-follow, design \u00a75).\n\nThe angular sibling of :class:`DistanceMate`: the coincident residual with\nthe angle between the two normals targeted at ``angle_deg`` (\u00a72.3). In the\nschema now; not v1-solver scope.",
         "properties": {
@@ -6411,6 +6487,7 @@
             "items": {
               "discriminator": {
                 "mapping": {
+                  "angle": "#/components/schemas/AngleConstraint",
                   "coincident": "#/components/schemas/CoincidentConstraint",
                   "concentric": "#/components/schemas/ConcentricConstraint",
                   "distance": "#/components/schemas/DistanceConstraint",
@@ -6441,6 +6518,9 @@
                 },
                 {
                   "$ref": "#/components/schemas/RadiusConstraint"
+                },
+                {
+                  "$ref": "#/components/schemas/AngleConstraint"
                 },
                 {
                   "$ref": "#/components/schemas/FixedConstraint"

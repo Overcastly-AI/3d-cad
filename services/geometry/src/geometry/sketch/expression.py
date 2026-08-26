@@ -38,6 +38,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from py_kit.schemas.sketch import (
+    AngleConstraint,
     DimensionConstraint,
     DistanceConstraint,
     RadiusConstraint,
@@ -48,9 +49,11 @@ from py_kit.schemas.sketch import (
     SketchLine,
 )
 
+from geometry.sketch.angles import AngleFrame, measured_angle_deg
 from geometry.sketch.solver import SketchDefinitionError
 
-#: Resolves a referenced dimension name to its evaluated value (mm).
+#: Resolves a referenced dimension name to its evaluated value, in that
+#: dimension's own unit (mm for a length, degrees for an angle).
 Resolver = Callable[[str], float]
 
 #: Maximum nesting/recursion depth the parser and evaluator will descend before
@@ -313,13 +316,31 @@ def parse_expression(text: str) -> _Node:
 # ---------------------------------------------------------------------------
 
 
-def _check_value(value: float, who: str) -> float:
-    """A dimension (distance/radius) must resolve to a finite, positive value."""
+def _check_value(
+    value: float, who: str, constraint: DimensionConstraint | None = None
+) -> float:
+    """A dimension must resolve to a finite value inside its own kind's range.
+
+    Every dimension is positive (a distance, a radius, a diameter and an angle
+    are all > 0). An ANGLE additionally has an upper bound: 180 degrees and
+    beyond is the parallel degeneracy the ``parallel`` constraint owns, and the
+    unsigned authored value cannot say which side of the first line the second
+    sits on there. The literal case is already refused by the field bounds on
+    :class:`~py_kit.schemas.sketch.AngleConstraint`; this is the EXPRESSION case,
+    which those bounds cannot see (``expression="base*4"`` is a valid string
+    holding an invalid angle) — without it the out-of-range value would reach
+    planegcs and come back as a silently reinterpreted, wrapped angle.
+    """
     if not math.isfinite(value):
         raise SketchExpressionError(f"dimension {who} evaluates to a non-finite value")
     if value <= 0.0:
         raise SketchExpressionError(
-            f"dimension {who} evaluates to {value}; a distance/radius must be > 0"
+            f"dimension {who} evaluates to {value}; a dimension must be > 0"
+        )
+    if isinstance(constraint, AngleConstraint) and value >= 180.0:
+        raise SketchExpressionError(
+            f"dimension {who} evaluates to {value} degrees; an angle dimension "
+            "must be < 180 (0 and 180 are the parallel degeneracies)"
         )
     return value
 
@@ -327,12 +348,18 @@ def _check_value(value: float, who: str) -> float:
 def evaluate_driving_dimensions(
     constraints: Sequence[SketchConstraint],
 ) -> dict[int, float]:
-    """Evaluate every **driving** dimension to a concrete value (mm).
+    """Evaluate every **driving** dimension to a concrete value.
+
+    Each value is in its OWN dimension's unit — mm for distance/radius/diameter,
+    DEGREES for an angle. An expression is plain arithmetic over other
+    dimensions' names and carries no units, so a cross-unit reference
+    (``angle="width/2"``) is arithmetic the author asked for, not an error this
+    layer can diagnose.
 
     Returns a mapping ``constraint index -> value`` covering exactly the
     driving dimension constraints (driven dimensions are excluded — they are
-    never fed to the solver). A literal driving dimension maps to its
-    ``value_mm`` unchanged (so a literal-only sketch feeds the solver bitwise
+    never fed to the solver). A literal driving dimension maps to its authored
+    value unchanged (so a literal-only sketch feeds the solver bitwise
     what it always did); an expression dimension maps to its evaluated value.
 
     References resolve to other **driving** named dimensions; the resolver is
@@ -390,10 +417,10 @@ def evaluate_driving_dimensions(
             )
         node = node_for(index, constraint)
         if node is None:
-            value = constraint.value_mm
+            value = constraint.value
         else:
             value = node.evaluate(lambda inner: resolve(inner, (*stack, name)))
-        value = _check_value(value, repr(name))
+        value = _check_value(value, repr(name), constraint)
         value_cache[name] = value
         return value
 
@@ -408,10 +435,10 @@ def evaluate_driving_dimensions(
             continue
         node = node_for(index, constraint)
         if node is None:
-            result[index] = _check_value(constraint.value_mm, f"#{index}")
+            result[index] = _check_value(constraint.value, f"#{index}", constraint)
         else:
             value = node.evaluate(lambda inner: resolve(inner, ()))
-            result[index] = _check_value(value, f"#{index}")
+            result[index] = _check_value(value, f"#{index}", constraint)
     return result
 
 
@@ -451,7 +478,43 @@ def measure_dimension(
                 f"Driven 'radius' dimension requires a circle or arc entity; "
                 f"{constraint.entity!r} is neither"
             )
-        case _:  # pragma: no cover — only distance/radius dimensions exist today
+        case _:
             raise SketchDefinitionError(
                 f"Cannot measure driven dimension of kind {constraint!r}"
             )
+
+
+def measure_angle(
+    constraint: AngleConstraint,
+    entities_by_id: dict[str, SketchEntity],
+    frame: AngleFrame | None,
+) -> float:
+    """Measure an angle dimension from solved geometry, in DEGREES.
+
+    The angular twin of :func:`measure_dimension`, kept separate because its
+    unit is not millimetres and because it needs the authoring convention
+    (:class:`~geometry.sketch.angles.AngleFrame`) that says WHICH of the two
+    supplementary angles the constraint names — a fact about the sketch as
+    DRAWN, which solved geometry alone cannot supply.
+
+    Both ids must be lines: an angle dimension on anything else is a malformed
+    definition (:class:`SketchDefinitionError`, mapped to ``sketch_invalid``),
+    the same treatment a radius dimension on a line gets.
+    """
+    a = entities_by_id.get(constraint.a)
+    b = entities_by_id.get(constraint.b)
+    if not isinstance(a, SketchLine) or not isinstance(b, SketchLine):
+        raise SketchDefinitionError(
+            f"'angle' dimension requires two line entities; {constraint.a!r} "
+            f"and {constraint.b!r} are not both known lines"
+        )
+    if frame is None:  # pragma: no cover — a two-line constraint always frames
+        raise SketchDefinitionError(
+            f"'angle' dimension between {constraint.a!r} and {constraint.b!r} "
+            "has no measurable frame in the submitted sketch"
+        )
+    return measured_angle_deg(
+        frame,
+        (a.end.x - a.start.x, a.end.y - a.start.y),
+        (b.end.x - b.start.x, b.end.y - b.start.y),
+    )

@@ -69,7 +69,9 @@ from typing import assert_never
 
 from py_kit.schemas.sketch import spline_fit_index
 
+from geometry.sketch.angles import AngleFrame, angle_frames, oriented_angle_rad
 from geometry.sketch.schemas import (
+    AngleConstraint,
     CoincidentConstraint,
     ConcentricConstraint,
     DimensionConstraint,
@@ -221,12 +223,51 @@ def entity_residual(entity: SketchEntity) -> float:
     return 0.0
 
 
+def _angle_residual(
+    constraint: AngleConstraint,
+    entities_by_id: dict[str, SketchEntity],
+    requested_deg: float,
+    frame: AngleFrame | None,
+) -> float:
+    """``|solved angle - requested|`` in RADIANS — planegcs's own angular scale.
+
+    ``ConstraintL2LAngle``'s error is the difference between the two lines'
+    directed angles and the target, wrapped by ``atan2`` into ``(-pi, pi]``; this
+    is that quantity re-derived from the solved DTOs. Radians, not degrees,
+    because :data:`~geometry.sketch.planegcs_solver.SATISFIED_TOL_MM` is
+    documented to be read on the constraint's OWN scale, and degrees would make
+    this opinion ~57x more permissive than the solver's.
+
+    ``frame is None`` means the constraint's own references did not resolve to
+    two lines in the SUBMITTED sketch, which is not a state a built system can
+    reach — so, like every other unresolvable reference here, it refuses.
+    """
+    if frame is None:
+        return UNRESOLVABLE
+    a_dir = _direction(entities_by_id.get(constraint.a))
+    b_dir = _direction(entities_by_id.get(constraint.b))
+    if a_dir is None or b_dir is None:
+        return UNRESOLVABLE
+    if math.hypot(*a_dir) == 0.0 or math.hypot(*b_dir) == 0.0:
+        # A degenerate line has no direction; planegcs's own error is undefined
+        # there and this opinion declines to be the rejecter (same posture as
+        # `_unit_cross`).
+        return 0.0
+    error = oriented_angle_rad(frame, a_dir, b_dir) - math.radians(
+        frame.sense * requested_deg
+    )
+    return abs(math.remainder(error, math.tau))
+
+
 def _dimension_residual(
     constraint: DimensionConstraint,
     entities_by_id: dict[str, SketchEntity],
     requested: float,
+    frame: AngleFrame | None,
 ) -> float:
     match constraint:
+        case AngleConstraint():
+            return _angle_residual(constraint, entities_by_id, requested, frame)
         case DistanceConstraint():
             direction = _direction(entities_by_id.get(constraint.entity))
             if direction is None:
@@ -237,7 +278,7 @@ def _dimension_residual(
             if radius is None:
                 return UNRESOLVABLE
             return abs(radius - requested)
-        case _:  # pragma: no cover — only distance/radius dimensions exist today
+        case _:  # pragma: no cover — the dimension kinds above are exhaustive
             return UNRESOLVABLE
 
 
@@ -329,6 +370,7 @@ def constraint_residual(
     entities_by_id: dict[str, SketchEntity],
     input_points: dict[tuple[str, str], _Vec],
     requested: float | None,
+    frame: AngleFrame | None = None,
 ) -> float | None:
     """This constraint's residual against the SOLVED entities, or ``None``.
 
@@ -336,15 +378,19 @@ def constraint_residual(
     a DRIVEN dimension (``requested is None``): its value is measured back from
     the geometry, so it constrains nothing and cannot be violated.
 
-    ``requested`` is the evaluated value of a DRIVING dimension;
-    ``input_points`` supplies the author's submitted coordinates, which are what
-    a ``fixed`` constraint pins to (``fix_point`` reads the pre-solve position).
+    ``requested`` is the evaluated value of a DRIVING dimension, in that
+    dimension's own unit; ``input_points`` supplies the author's submitted
+    coordinates, which are what a ``fixed`` constraint pins to (``fix_point``
+    reads the pre-solve position). ``frame`` is the angle convention for an
+    ``angle`` dimension (:mod:`geometry.sketch.angles`) — the one piece of state
+    that cannot be re-derived here, because it records the angle the author DREW
+    and this function sees only the solved geometry.
     """
     match constraint:
         case DimensionConstraint():
             if requested is None:
                 return None
-            return _dimension_residual(constraint, entities_by_id, requested)
+            return _dimension_residual(constraint, entities_by_id, requested, frame)
         case CoincidentConstraint():
             a = _point_of(constraint.a, entities_by_id)
             b = _point_of(constraint.b, entities_by_id)
@@ -396,17 +442,31 @@ def geometric_residuals(
     entities: list[SketchEntity],
     input_points: dict[tuple[str, str], _Vec],
     driving_values: dict[int, float],
+    frames: dict[int, AngleFrame] | None = None,
 ) -> list[tuple[int, float]]:
     """``(constraint index, residual)`` for every constraint in the system.
 
     In input order — deterministic, like every other pass over a sketch
     (RESEARCH §9). Driven dimensions are absent (they constrain nothing).
+
+    ``frames`` are the angle conventions (:func:`~geometry.sketch.angles.
+    angle_frames`), derived from ``input_points`` when not supplied. The settle
+    passes its cached map: this runs once per trial solve, and re-deriving there
+    would put a per-constraint union-find on the one path whose cost must not
+    grow with sketch size (SETTLE-PERF-1). Deriving is free for a sketch with no
+    angle dimension, which is every sketch authored before they existed.
     """
+    if frames is None:
+        frames = angle_frames(constraints, input_points)
     entities_by_id = {entity.id: entity for entity in entities}
     residuals: list[tuple[int, float]] = []
     for index, constraint in enumerate(constraints):
         residual = constraint_residual(
-            constraint, entities_by_id, input_points, driving_values.get(index)
+            constraint,
+            entities_by_id,
+            input_points,
+            driving_values.get(index),
+            frames.get(index),
         )
         if residual is not None:
             residuals.append((index, residual))
@@ -418,6 +478,7 @@ def worst_residual(
     entities: list[SketchEntity],
     input_points: dict[tuple[str, str], _Vec],
     driving_values: dict[int, float],
+    frames: dict[int, AngleFrame] | None = None,
 ) -> float:
     """The largest residual over every constraint AND every entity's own form.
 
@@ -428,7 +489,7 @@ def worst_residual(
     for entity in entities:
         worst = max(worst, entity_residual(entity))
     for _, residual in geometric_residuals(
-        constraints, entities, input_points, driving_values
+        constraints, entities, input_points, driving_values, frames
     ):
         worst = max(worst, residual)
     return worst

@@ -33,6 +33,7 @@ admits the INTERNAL branch; ``tangent_circle_circle`` exposes no flag saying so)
 import math
 
 from geometry.sketch import (
+    AngleConstraint,
     CoincidentConstraint,
     ConcentricConstraint,
     DistanceConstraint,
@@ -56,6 +57,8 @@ from geometry.sketch import (
     TangentConstraint,
     VerticalConstraint,
 )
+from geometry.sketch.angles import angle_frames
+from geometry.sketch.expression import evaluate_driving_dimensions
 from geometry.sketch.planegcs_solver import (
     SATISFIED_TOL_MM,
     _GcsBuild,  # pyright: ignore[reportPrivateUsage]
@@ -181,6 +184,24 @@ OFF_SOLUTION: dict[str, SketchDefinition] = {
         entities=[_circle("c1", (0, 0), 10.0), _arc("a2", (3, 2), (10, 2), (3, 9))],
         constraints=[ConcentricConstraint(kind="concentric", a="c1", b="a2")],
     ),
+    # Two angle fixtures, because the convention has two branches. The first
+    # pair shares no corner, so the frame is the authored directions; the second
+    # meets at a corner, so both legs are re-oriented away from it and the
+    # comparison covers the reversal arithmetic that maps the DTO's unsigned
+    # number onto planegcs's signed one.
+    "angle-free": SketchDefinition(
+        entities=[_line("l1", (0, 0), (40, 0)), _line("l2", (0, 12), (35, -3))],
+        constraints=[AngleConstraint(kind="angle", a="l1", b="l2", value_deg=55.0)],
+    ),
+    "angle-corner": SketchDefinition(
+        entities=[_line("l1", (0, 0), (40, 0)), _line("l2", (43, 2), (10, 20))],
+        constraints=[
+            CoincidentConstraint(
+                kind="coincident", a=_ref("l1", "end"), b=_ref("l2", "start")
+            ),
+            AngleConstraint(kind="angle", a="l1", b="l2", value_deg=110.0),
+        ],
+    ),
     "symmetric": SketchDefinition(
         entities=[
             _line("axis", (0, 0), (50, 0)),
@@ -230,11 +251,20 @@ def _both_opinions(
     No solve is run: the constraint system is built and both witnesses are asked
     about the configuration the author submitted, which is the only place the
     two can meaningfully be compared (after a converged solve both read zero).
+
+    The build is given the sketch's DRIVING dimension values rather than an empty
+    map, so dimensions are in the system and get compared like every relational
+    kind. With an empty map every dimension reads as DRIVEN, is never added, has
+    no tag, and silently drops out of the comparison — so ``distance``/``radius``
+    had fixtures here that proved nothing, and an ``angle`` would have joined
+    them.
     """
-    build = _GcsBuild(sketch, {})
+    driving = evaluate_driving_dimensions(sketch.constraints)
+    build = _GcsBuild(sketch, driving)
     entities = build.read_back()
     by_id = {entity.id: entity for entity in entities}
     inputs = build._input_points()  # pyright: ignore[reportPrivateUsage]
+    frames = angle_frames(sketch.constraints, inputs)
     by_index: dict[int, list[int]] = {}
     for tag, index in build.tag_to_index.items():
         by_index.setdefault(index, []).append(tag)
@@ -242,7 +272,9 @@ def _both_opinions(
     for index, tags in sorted(by_index.items()):
         constraint = sketch.constraints[index]
         planegcs = max(abs(build.gcs.solver.constraint_error(tag)) for tag in tags)
-        mine = constraint_residual(constraint, by_id, inputs, None)
+        mine = constraint_residual(
+            constraint, by_id, inputs, driving.get(index), frames.get(index)
+        )
         assert mine is not None, f"{constraint.kind} is in the system but reports None"
         rows.append((constraint.kind, index, planegcs, mine))
     return rows
@@ -256,6 +288,7 @@ def test_every_constraint_kind_is_covered_by_a_fixture() -> None:
         for kind in (c.kind for c in sketch.constraints)
     }
     assert covered == {
+        "angle",
         "coincident",
         "concentric",
         "distance",

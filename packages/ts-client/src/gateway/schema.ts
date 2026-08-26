@@ -1766,6 +1766,76 @@ export interface components {
             kind: "all_edges";
         };
         /**
+         * AngleConstraint
+         * @description Dimension: the angle between two lines (DEGREES, not mm).
+         *
+         *     The dimension every non-orthogonal feature needs — a gusset at 30°, a
+         *     dovetail, a draft face — and the one whose absence meant such geometry could
+         *     be *drawn* but never *driven*, so it drifted on every edit
+         *     (docs/AUDIT-PRODUCT.md T-5). ``a`` and ``b`` are whole line entities by id,
+         *     like :class:`ParallelConstraint`; both must be lines. Removes one rotational
+         *     degree of freedom.
+         *
+         *     **Which angle: the one at the shared corner.** Two lines subtend two
+         *     supplementary angles, and picking the wrong one is the difference between an
+         *     acute gusset and an obtuse one. The convention, which the solver and the
+         *     readout both apply and the UI should display verbatim from
+         *     :class:`SolvedAngle`:
+         *
+         *     * If ``a`` and ``b`` are joined at an endpoint by ``coincident`` constraints
+         *       (the ordinary case — two edges of a profile meeting at a corner), the
+         *       angle is measured between the two lines' directions taken **away from that
+         *       shared corner**. That is the INTERIOR angle a user sees and would type.
+         *       The join is read from the sketch's coincidence constraints, symbolically —
+         *       never from a coordinate-proximity test, which would need an epsilon
+         *       (CLAUDE.md) and would silently change meaning as geometry moved.
+         *     * Otherwise the lines' authored ``start -> end`` directions are used as-is.
+         *
+         *     ``value_deg`` is unsigned and strictly between 0 and 180: 0 and 180 are the
+         *     degenerate ends where the lines are parallel (use ``parallel``), and a
+         *     single unsigned number cannot say which side of ``a`` the line ``b`` sits
+         *     on. The SIDE is taken from the geometry as drawn — the solver holds the
+         *     angle the author already has and only resizes it — so typing a number never
+         *     flips a profile inside out.
+         */
+        AngleConstraint: {
+            /**
+             * A
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            a: string;
+            /**
+             * B
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            b: string;
+            /**
+             * Driving
+             * @description Driving/driven flag. None (absent, the default) or True = DRIVING: the value is fed to the solver. False = DRIVEN: excluded from the constraint system; the value is measured back from the solved geometry for display (read-only, never fed as a constraint, so a driven dimension cannot over-constrain). Nullable+None-default (rather than a bare `bool`) keeps it an ADDITIVE optional field: a sketch persisted before it reads as None = driving, and the generated TS client leaves it optional. Read it through `is_driving`, never the raw tri-state.
+             */
+            driving?: boolean | null;
+            /**
+             * Expression
+             * @description Optional math expression over other dimension NAMES (`+ - * / ( )`, unary minus, decimals), e.g. `"width/2"`. When present it SUPERSEDES `value_mm` and the geometry service re-evaluates it each solve. A bare literal dimension leaves this None. Only *driving* dimensions may be referenced; a bad expression / unknown or driven reference / cycle / division-by-zero is a clean `sketch_invalid` error, never a crash. Capped at 256 chars: an expression is a short formula over dimension names (`(width+gap)/2`), never prose, and the cap bounds parser paren-depth (<=128) and evaluator AST-depth (<=128) well under Python's recursion limit, so a hostile deeply-nested / very-long string 422s at request validation BEFORE the recursive-descent parser runs — it can never reach the kernel as an uncaught RecursionError. The parser also carries its own depth guard (defense in depth) should this cap ever be raised.
+             */
+            expression?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "angle";
+            /**
+             * Name
+             * @description Optional stable name so another dimension's `expression` can reference this one. Unique within a sketch (enforced on SketchDefinition). None = unnamed: still solves, just not referenceable.
+             */
+            name?: string | null;
+            /**
+             * Value Deg
+             * @description Resolved angle between the two lines, in DEGREES, measured at their shared corner when they have one. Strictly within (0, 180): the open ends are the parallel/anti-parallel degeneracies, which are the `parallel` constraint's job. The literal value when `expression` is None; otherwise the last resolved value.
+             */
+            value_deg: number;
+        };
+        /**
          * AngleMate
          * @description Two planar faces held at a fixed angle (fast-follow, design §5).
          *
@@ -8791,7 +8861,7 @@ export interface components {
              * Constraints
              * @description The sketch's constraints, bounded by MAX_SKETCH_CONSTRAINTS (work bound, audit G2)
              */
-            constraints: (components["schemas"]["CoincidentConstraint"] | components["schemas"]["HorizontalConstraint"] | components["schemas"]["VerticalConstraint"] | components["schemas"]["DistanceConstraint"] | components["schemas"]["RadiusConstraint"] | components["schemas"]["FixedConstraint"] | components["schemas"]["ParallelConstraint"] | components["schemas"]["PerpendicularConstraint"] | components["schemas"]["TangentConstraint"] | components["schemas"]["EqualConstraint"] | components["schemas"]["SymmetricConstraint"] | components["schemas"]["ConcentricConstraint"])[];
+            constraints: (components["schemas"]["CoincidentConstraint"] | components["schemas"]["HorizontalConstraint"] | components["schemas"]["VerticalConstraint"] | components["schemas"]["DistanceConstraint"] | components["schemas"]["RadiusConstraint"] | components["schemas"]["AngleConstraint"] | components["schemas"]["FixedConstraint"] | components["schemas"]["ParallelConstraint"] | components["schemas"]["PerpendicularConstraint"] | components["schemas"]["TangentConstraint"] | components["schemas"]["EqualConstraint"] | components["schemas"]["SymmetricConstraint"] | components["schemas"]["ConcentricConstraint"])[];
             /**
              * Entities
              * @description The sketch's entities, bounded by MAX_SKETCH_ENTITIES (work bound, audit G2)
@@ -8889,21 +8959,53 @@ export interface components {
             points: components["schemas"]["Point2D"][];
         };
         /**
+         * SolvedAngle
+         * @description The computed value of one ANGULAR dimension, in degrees.
+         *
+         *     The angle counterpart of :class:`SolvedDimension`, kept as its own list on
+         *     :class:`SolvedSketch` rather than widened into that one: ``value_mm`` is a
+         *     required field of the linear readout that every existing consumer reads
+         *     unconditionally, and there is no honest millimetre value for an angle. A
+         *     separate list is purely ADDITIVE (a caller that never looks at ``angles``
+         *     behaves exactly as before) and leaves both numbers named after their real
+         *     unit. Keyed by the same ``constraint_index`` space, so a UI that wants one
+         *     readout per constraint merges the two lists by index.
+         */
+        SolvedAngle: {
+            /**
+             * Constraint Index
+             * @description Index into the sketch's input constraint list.
+             */
+            constraint_index: number;
+            /**
+             * Driving
+             * @description True = driving (value fed to the solver); False = driven (value measured back from the solved geometry).
+             */
+            driving: boolean;
+            /**
+             * Expression
+             * @description The dimension's source expression, echoed for the UI (None for a bare literal dimension).
+             */
+            expression?: string | null;
+            /**
+             * Name
+             * @description The dimension's reference name, if it has one.
+             */
+            name?: string | null;
+            /**
+             * Value Deg
+             * @description Computed value (DEGREES): the evaluated expression/literal for a driving angle, or the angle measured back from the solved geometry for a driven one — measured at the two lines' shared corner when they have one (see AngleConstraint).
+             */
+            value_deg: number;
+        };
+        /**
          * SolvedDimension
-         * @description The computed value of one dimension constraint in a solved sketch.
+         * @description The computed value of one LINEAR dimension (distance/radius/diameter).
          *
          *     Reported per dimension so the sketcher can show the number next to each
-         *     dimension WITHOUT re-parsing expressions itself:
-         *
-         *     * **driving** — ``value_mm`` is the evaluated literal/expression value that
-         *       was fed to the solver (e.g. ``height="width/2"`` with ``width=20`` reports
-         *       ``value_mm=10``).
-         *     * **driven** — ``value_mm`` is the value MEASURED back from the solved
-         *       geometry (a line's length / a circle-or-arc's radius): the read-only
-         *       readout that updates as the geometry it dimensions moves.
-         *
-         *     ``constraint_index`` points into the sketch's input constraint list, so the
-         *     UI can line each readout up with the constraint the user authored.
+         *     dimension WITHOUT re-parsing expressions itself. Angular dimensions are
+         *     reported separately, on :attr:`SolvedSketch.angles`, so that no consumer can
+         *     read a degree value out of a field named ``value_mm``.
          */
         SolvedDimension: {
             /**
@@ -8940,6 +9042,11 @@ export interface components {
          */
         SolvedSketchData: {
             /**
+             * Angles
+             * @description Per-dimension computed values for the ANGULAR dimensions, in DEGREES. One entry per angle constraint, in input order — the same `constraint_index` space as `dimensions`, so a UI merges the two lists by index. Empty for a sketch with no angle dimensions; additive.
+             */
+            angles?: components["schemas"]["SolvedAngle"][];
+            /**
              * Conflicting Constraints
              * @description Indices into the input constraint list that conflict.
              */
@@ -8948,7 +9055,7 @@ export interface components {
             diagnosis?: components["schemas"]["SketchConstraintDiagnosis"] | null;
             /**
              * Dimensions
-             * @description Per-dimension computed values (driving = evaluated expression/literal; driven = measured from the solved geometry). One entry per dimension constraint, in input order. Empty for a sketch with no dimensions; additive (pre-expression callers ignore it).
+             * @description Per-dimension computed values for the LINEAR dimensions (driving = evaluated expression/literal; driven = measured from the solved geometry). One entry per distance/radius/diameter constraint, in input order. Empty for a sketch with no linear dimensions; additive (pre-expression callers ignore it).
              */
             dimensions?: components["schemas"]["SolvedDimension"][];
             /**
