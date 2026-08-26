@@ -14,6 +14,11 @@
 #               key their push concurrency group per COMMIT — CI-2) and
 #               scripts/check-mutation-markers.py (no mutation/ablation/debug
 #               marker labels committed source — docs/RETRO.md §4b)
+#   doc-tick  — scripts/check-doc-tick.py over the pushed commit range: a commit
+#               that lands product code under a feat/fix/perf subject must tick
+#               docs/ROADMAP.md or docs/BACKLOG.md, or declare the deferral with
+#               a `Doc-tick:` trailer (DOCTICK-GATE). Own job: it is the only
+#               gate that needs history, hence fetch-depth 50.
 #   licences  — scripts/check-licences.py over the shared objects in the synced
 #               environment (LIC-3), plus a self-test that PROVES the gate
 #               fails on the GPL library the OCP wheel vendors
@@ -196,6 +201,54 @@ jobs:
         run: |
           python3 scripts/check-mutation-markers.py --self-test
           python3 scripts/check-mutation-markers.py
+
+  doc-tick:
+    # DOCTICK-GATE — CLAUDE.md calls it NON-NEGOTIABLE that "every commit that
+    # lands a feature/fix MUST, in the same commit, update docs/ROADMAP.md and
+    # docs/BACKLOG.md". Nothing checked it, so it was a preference, and three
+    # independent audit passes measured the same collapse: pass 7 found ZERO of
+    # 11 feature/fix commits touched either doc, pass 9 found 22 of the last 24.
+    #
+    # It is its OWN job rather than a step in `compose` because it is the only
+    # gate here that reads a COMMIT RANGE, and that needs a deeper checkout
+    # than every other job wants to pay for.
+    #
+    # The escape hatch is the load-bearing design decision, not a compromise:
+    # parallel builders are deliberately told NOT to tick the board (one writer
+    # per batch — the backlog-groomer — because two classes of writer on those
+    # two files is what the whole stage-doc-hunks.py apparatus exists to
+    # mitigate). A gate with no sanctioned way to say "the groomer owns this
+    # one" would fail nearly every builder commit and be deleted within a day.
+    # So a commit may instead carry `Doc-tick: groomer` or
+    # `Doc-tick: none — <reason>` in its message. Both are COUNTED and the
+    # ratio is printed on every run, which is the point: a deferral anyone can
+    # grep is a decision, an omission nobody records is a leak.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # NOT the default fetch-depth: 1. This gate reads a range, and with a
+          # depth-1 checkout $BEFORE does not resolve, so the range collapses
+          # to nothing and the job goes green forever while measuring zero
+          # commits — the exact vacuous-green shape this repo has shipped four
+          # times. The script ALSO refuses an empty range (count floor), so
+          # this is belt and braces; 50 covers any realistic push and the
+          # script announces it in the log if it has to fall back.
+          fetch-depth: 50
+      - name: Doc-tick over the pushed range (+ prove the gate can fail)
+        env:
+          # Right end is HEAD in both cases because it always resolves: on a PR
+          # the checkout is the merge commit (itself exempt), on a push it is
+          # github.sha. A left end that does not resolve degrades to "the head
+          # commit alone", loudly, rather than to silence.
+          RANGE: >-
+            ${{ github.event_name == 'pull_request'
+                && format('{0}..HEAD', github.event.pull_request.base.sha)
+                || format('{0}..HEAD', github.event.before) }}
+        run: |
+          python3 scripts/check-doc-tick.py --self-test
+          python3 scripts/check-doc-tick.py --range "$RANGE" --verbose
 
   licences:
     # LIC-3 — the no-GPL rule, enforced by reading the BINARIES we ship.

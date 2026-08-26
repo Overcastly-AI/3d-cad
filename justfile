@@ -93,6 +93,17 @@ lint:
     # to the end of BACKLOG.md while printing success (2026-08-01, found by the
     # dogfooding pass). A tool that guards commits needs its own guard.
     python3 scripts/stage-doc-hunks.py --self-test
+    # ~1s. DOCTICK-GATE: CLAUDE.md's "every commit that lands a feature/fix
+    # ticks ROADMAP/BACKLOG in the same commit" was NON-NEGOTIABLE in prose and
+    # unchecked in fact, which three audit passes measured as 22 of the last 24
+    # commits missing the tick. Locally it can only ever be ADVISORY — the
+    # commit you are about to write does not exist yet — so it reports on the
+    # commits you have not pushed and never fails your lint. CI's `doc-tick`
+    # job enforces it over the pushed range, where a real commit exists to
+    # judge. The self-test IS a hard gate here, same as its four neighbours
+    # above: it builds the failing case and demands a failure.
+    python3 scripts/check-doc-tick.py --self-test
+    python3 scripts/check-doc-tick.py --warn-only
 
 # Unit tests: pytest across the uv workspace + vitest via pnpm (recursive)
 test:
