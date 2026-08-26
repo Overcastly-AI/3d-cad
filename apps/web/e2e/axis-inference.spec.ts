@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "./fixtures";
 
-import { createPartViaApi, seedSession } from "./support";
+import { createPartViaApi, SCREENSHOT_DIR, seedSession } from "./support";
 
 /**
  * SNAP-5 — a line drawn along an axis SAYS so, through the real solver.
@@ -234,5 +234,79 @@ test.describe("SNAP-5 — line-by-line drawing states its axes", () => {
     await expect(glyph(page, "horizontal")).toHaveCount(1);
     await expect(glyph(page, "vertical")).toHaveCount(0);
     await expect(page.getByTestId("constraint-hint")).toHaveCount(0);
+  });
+
+  test("founder shots: the same profile, stated and silent", async ({
+    page,
+  }) => {
+    // BEFORE / AFTER inside ONE run, which is the only honest way to shoot
+    // this (the same argument `sketch-snap-coincident.spec.ts` makes for the
+    // corner glyph): the two profiles are the same gesture and differ only in
+    // whether the axes were recorded. The "before" is drawn with Ctrl held —
+    // every snap suppressed, which is precisely what every line-by-line profile
+    // in the product looked like until this landed.
+    const account = await seedSession(page);
+    const part = await createPartViaApi(page, account.token, "Axis shots");
+    await page.goto(`/parts/${part.id}`);
+    await enterSketch(page, "XY");
+    const map = await calibratePlane(
+      page,
+      { x: 700, y: 620 },
+      { x: 1000, y: 420 },
+    );
+
+    const before: Plane2D[] = [
+      { x: -46, y: 4 },
+      { x: -16, y: 4 },
+      { x: -16, y: 34 },
+    ];
+    for (let i = 0; i < before.length - 1; i += 1) {
+      await page.keyboard.press("l");
+      await page.keyboard.down("Control");
+      await clickPlane(page, map, before[i] as Plane2D);
+      await clickPlane(page, map, before[i + 1] as Plane2D);
+      await page.keyboard.up("Control");
+      await page.keyboard.press("Escape");
+    }
+    await expect(glyph(page, "horizontal")).toHaveCount(0);
+    await expect(glyph(page, "vertical")).toHaveCount(0);
+    await page.mouse.move(1400, 900); // park the cursor off the sheet
+    await page.screenshot({
+      path: `${SCREENSHOT_DIR}/sketch-axis-inference-before-1600.png`,
+    });
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.screenshot({
+      path: `${SCREENSHOT_DIR}/sketch-axis-inference-before-1280.png`,
+    });
+    await page.setViewportSize({ width: 1600, height: 1000 });
+
+    // AFTER: the identical gesture with snapping live. One H and one V appear
+    // on geometry no rectangle tool ever touched, and the strip says which was
+    // inferred — no new chrome was added for either, because the constraint
+    // layer and the hint line already had truthful ways to say it.
+    const after: Plane2D[] = [
+      { x: 10, y: 4 },
+      { x: 40, y: 4 },
+      { x: 40, y: 34 },
+    ];
+    for (let i = 0; i < after.length - 1; i += 1) {
+      await page.keyboard.press("l");
+      await clickPlane(page, map, after[i] as Plane2D);
+      await clickPlane(page, map, after[i + 1] as Plane2D);
+      if (i < after.length - 2) await page.keyboard.press("Escape");
+    }
+    await expect(glyph(page, "horizontal")).toHaveCount(1);
+    await expect(glyph(page, "vertical")).toHaveCount(1);
+    await expect(page.getByTestId("constraint-hint")).toContainText(
+      "Vertical inferred",
+    );
+    await page.mouse.move(1400, 900);
+    await page.screenshot({
+      path: `${SCREENSHOT_DIR}/sketch-axis-inference-after-1600.png`,
+    });
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.screenshot({
+      path: `${SCREENSHOT_DIR}/sketch-axis-inference-after-1280.png`,
+    });
   });
 });
