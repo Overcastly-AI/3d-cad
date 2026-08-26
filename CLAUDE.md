@@ -730,6 +730,22 @@ recipe here in the same commit as the fix.**
   the same moment were 1–3 commits behind, i.e. just normally trailing — so this
   is an occasional seeding fault, not a standing condition, which is exactly what
   makes it easy to stop checking for.
+- **PARAMS MODELS ARE PYDANTIC-DEFAULT `extra="ignore"`, so a payload that
+  MISSPELLS a field validates, evaluates, and silently gives the OLD reading —
+  and every gate agrees with it.** Found 2026-08-26 by the PATTERN-1 agent, in
+  its own first draft: spelling the new selection `params.features` instead of
+  `params.scope` returned 2xx, evaluated happily, and produced the legacy
+  whole-body behaviour, with **seven tests passing against the wrong scope**.
+  There is no server-side guard and there cannot easily be one — `extra="ignore"`
+  is what makes the DTOs forward-compatible. Two consequences. (a) A contract
+  test for a new param MUST assert on the RESULT (the geometry, the row, the
+  bytes), never on the status code; a 2xx proves the request parsed, not that it
+  meant anything. (b) When you add a field to a params model, the UI-side test
+  that exercises it is the only thing standing between a typo and a silently
+  ignored feature — write it in the same commit as the DTO, not with the UI.
+  This is the `gen-check`-measuring-the-wrong-input trap in a third costume: the
+  pipeline was healthy, the input was wrong, and everything downstream
+  self-consistently confirmed it.
 - OCP/OCCT wheels are large; in CI cache the uv environment keyed on the
   lockfile.
 - **To test swapping an auditwheel-vendored library WITHOUT touching the shared

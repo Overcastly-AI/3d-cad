@@ -203,10 +203,22 @@ const STANDARD = `
 HOW THIS REPO JUDGES WORK:
 * An assertion never SEEN to fail is not a gate. For any gate you add or change,
   build the mutation that should redden it, RUN it, quote the red output, revert,
-  confirm green. Four gates that could not fail have shipped here: a CI grep
+  confirm green. FIVE gates that could not fail have shipped here: a CI grep
   matching its own prose, a unit test whose helper did the cleanup it asserted,
-  a self_test returning 0 with zero checks because all([]) is True, and a loop
-  guard tested against a fixture built at the depth its own code expected.
+  a self_test returning 0 with zero checks because all([]) is True, a loop
+  guard tested against a fixture built at the depth its own code expected, and
+  — the one caught only because its author ran the mutation and it PASSED — an
+  ordering test whose fixture used DISJOINT features. Disjoint booleans commute,
+  so applying the selection in array order instead of tree order produced the
+  identical solid and the test was green with the ordering deliberately broken.
+  Generalise it: a fixture cannot test ORDER unless its elements INTERACT, and
+  the same trap wears other clothes — a commutative operation, an idempotent
+  one, a set where you meant a sequence. Ask what property your fixture would
+  have to violate for the assertion to be able to fail at all.
+* TOPOLOGY COUNTS DO NOT DISCRIMINATE GEOMETRY. In the same task the WRONG body
+  and the right one both had 26 faces, 60 edges and 1 shell. Assert on volume,
+  bounding box and WHERE the material is (intersect a probe against the result),
+  never on face/edge counts alone.
 * The NEGATIVE control is where the second bug lives, and it has to be sized to
   the failure — three fixture files let a broken probe pass where two thousand
   failed it every time.
@@ -538,8 +550,11 @@ elements.
 
 THEN THE TWO THAT MATTER MOST HERE:
 1. VERIFY THE MUTATION EVIDENCE YOURSELF on anything load-bearing. Re-run it.
-   This project has shipped four gates that could not fail, and a builder
+   This project has shipped FIVE gates that could not fail, and a builder
    reporting "mutation-verified" is exactly the claim worth spot-checking.
+   Note the fifth was found by its own author, whose mutation PASSED — so the
+   question to ask is not "did they run it" but "could this fixture have
+   reddened at all", which is a different and harder question.
    Revert anything you change.
 2. CHECK EVERY FACTUAL CLAIM the diff adds to the durable record. A wrong number
    in a comment is a defect; the last two reviews found four between them.
