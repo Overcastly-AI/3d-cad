@@ -4767,6 +4767,37 @@ export interface components {
             vertices: number;
         };
         /**
+         * MidpointConstraint
+         * @description A point sits at the MIDDLE of a line.
+         *
+         *     The constraint that places a hole on the centre of an edge, and one of the
+         *     four an incumbent sketcher has that this one did not
+         *     (docs/AUDIT-PRODUCT.md T-5). ``point`` names a single point — a point
+         *     entity's ``position``, a line's endpoint, a circle's or arc's ``center``, a
+         *     spline fit point — exactly as :class:`CoincidentConstraint`'s ``a``/``b`` do;
+         *     ``line`` is the whole line entity it is centred on.
+         *
+         *     It is NOT the same as coincident-to-a-midpoint-vertex: a line has no
+         *     midpoint vertex to reference, and the whole value of the constraint is that
+         *     the point TRACKS the middle as the line's ends move. Removes two degrees of
+         *     freedom (the point is fully determined by the line), which is why it takes
+         *     two planegcs constraints — on the line, and on its perpendicular bisector —
+         *     whose intersection is the midpoint exactly.
+         */
+        MidpointConstraint: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "midpoint";
+            /**
+             * Line
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            line: string;
+            point: components["schemas"]["EntityPointRef"];
+        };
+        /**
          * MirrorAxisEntity
          * @description Mirror axis named by an existing **line** entity id.
          *
@@ -6703,7 +6734,7 @@ export interface components {
              * Constraints
              * @description The sketch's constraints, bounded by MAX_SKETCH_CONSTRAINTS (work bound, audit G2)
              */
-            constraints: (components["schemas"]["CoincidentConstraint"] | components["schemas"]["HorizontalConstraint"] | components["schemas"]["VerticalConstraint"] | components["schemas"]["DistanceConstraint"] | components["schemas"]["RadiusConstraint"] | components["schemas"]["DiameterConstraint"] | components["schemas"]["AngleConstraint"] | components["schemas"]["FixedConstraint"] | components["schemas"]["ParallelConstraint"] | components["schemas"]["PerpendicularConstraint"] | components["schemas"]["TangentConstraint"] | components["schemas"]["EqualConstraint"] | components["schemas"]["SymmetricConstraint"] | components["schemas"]["ConcentricConstraint"])[];
+            constraints: (components["schemas"]["CoincidentConstraint"] | components["schemas"]["HorizontalConstraint"] | components["schemas"]["VerticalConstraint"] | components["schemas"]["DistanceConstraint"] | components["schemas"]["RadiusConstraint"] | components["schemas"]["DiameterConstraint"] | components["schemas"]["AngleConstraint"] | components["schemas"]["FixedConstraint"] | components["schemas"]["ParallelConstraint"] | components["schemas"]["PerpendicularConstraint"] | components["schemas"]["TangentConstraint"] | components["schemas"]["EqualConstraint"] | components["schemas"]["SymmetricConstraint"] | components["schemas"]["ConcentricConstraint"] | components["schemas"]["MidpointConstraint"])[];
             /**
              * Entities
              * @description The sketch's entities, bounded by MAX_SKETCH_ENTITIES (work bound, audit G2)

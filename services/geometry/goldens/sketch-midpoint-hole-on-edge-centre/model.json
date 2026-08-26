@@ -1,0 +1,82 @@
+{
+  "part_id": "00000000-0000-0000-0000-0000000000c1",
+  "tree_version": 2,
+  "features": [
+    {
+      "id": "00000000-0000-0000-0000-00000000caca",
+      "feature": {
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "plane": { "kind": "datum_plane", "plane": "XY" },
+          "entities": [
+            {
+              "id": "e1",
+              "kind": "line",
+              "start": { "x": 0.0, "y": 0.0 },
+              "end": { "x": 40.0, "y": 0.0 }
+            },
+            {
+              "id": "e2",
+              "kind": "line",
+              "start": { "x": 40.0, "y": 0.0 },
+              "end": { "x": 40.0, "y": 25.0 }
+            },
+            {
+              "id": "e3",
+              "kind": "line",
+              "start": { "x": 40.0, "y": 25.0 },
+              "end": { "x": 0.0, "y": 25.0 }
+            },
+            {
+              "id": "e4",
+              "kind": "line",
+              "start": { "x": 0.0, "y": 25.0 },
+              "end": { "x": 0.0, "y": 0.0 }
+            },
+            {
+              "id": "cl",
+              "kind": "line",
+              "construction": true,
+              "start": { "x": 0.0, "y": 0.0 },
+              "end": { "x": 40.0, "y": 25.0 }
+            },
+            {
+              "id": "h1",
+              "kind": "circle",
+              "center": { "x": 14.0, "y": 8.0 },
+              "radius": 6.0
+            }
+          ],
+          "constraints": [
+            { "kind": "fixed", "point": { "entity": "cl", "point": "start" } },
+            { "kind": "fixed", "point": { "entity": "cl", "point": "end" } },
+            { "kind": "radius", "entity": "h1", "value_mm": 6.0 },
+            {
+              "kind": "midpoint",
+              "point": { "entity": "h1", "point": "center" },
+              "line": "cl"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-00000000cbcb",
+      "feature": {
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "00000000-0000-0000-0000-00000000caca"
+          },
+          "distance_mm": 10.0,
+          "operation": "add",
+          "direction": "normal"
+        }
+      }
+    }
+  ],
+  "linear_deflection": 0.1
+}

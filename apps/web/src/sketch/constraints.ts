@@ -141,6 +141,8 @@ export function constraintEntityRefs(constraint: SketchConstraint): string[] {
       return [constraint.a, constraint.b];
     case "symmetric":
       return [constraint.a.entity, constraint.b.entity, constraint.line];
+    case "midpoint":
+      return [constraint.point.entity, constraint.line];
   }
 }
 
@@ -372,6 +374,11 @@ export function sameConstraint(
         (a.a === other.a && a.b === other.b) ||
         (a.a === other.b && a.b === other.a)
       );
+    }
+    // midpoint ties ONE point to one line: same point, same line.
+    case "midpoint": {
+      const other = b as typeof a;
+      return sameRef(a.point, other.point) && a.line === other.line;
     }
     // symmetric ties two points about a line: same axis, and the same
     // (unordered) point pair.

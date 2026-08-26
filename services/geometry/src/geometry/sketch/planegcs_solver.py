@@ -98,6 +98,7 @@ from geometry.sketch.schemas import (
     EqualConstraint,
     FixedConstraint,
     HorizontalConstraint,
+    MidpointConstraint,
     ParallelConstraint,
     PerpendicularConstraint,
     Point2D,
@@ -428,7 +429,7 @@ def _constraint_point_refs(constraint: SketchConstraint) -> tuple[EntityPointRef
     match constraint:
         case CoincidentConstraint() | SymmetricConstraint():
             return (constraint.a, constraint.b)
-        case FixedConstraint():
+        case FixedConstraint() | MidpointConstraint():
             return (constraint.point,)
         case (
             HorizontalConstraint()
@@ -813,6 +814,20 @@ class _GcsBuild:
                     self._resolve_point(constraint.b),
                     self._resolve_line(constraint.line, "symmetric"),
                 )
+            case MidpointConstraint():
+                # planegcs has no midpoint-of-line constraint, and the two it
+                # does have intersect in exactly the midpoint: the line itself,
+                # and the perpendicular bisector of its two endpoints. Two tags,
+                # both mapped to this one constraint index (as `fixed` does with
+                # its x/y pair) so a diagnosis on either reports the constraint
+                # the author actually wrote.
+                point_id = self._resolve_point(constraint.point)
+                line_id = self._resolve_line(constraint.line, "midpoint")
+                on_line = gcs.point_on_line(point_id, line_id)
+                on_bisector = gcs.point_on_perp_bisector(point_id, line_id)
+                self.tag_to_index[on_line] = index
+                self.tag_to_index[on_bisector] = index
+                return
             case ConcentricConstraint():
                 tag = self._add_concentric(constraint)
             case _:  # pragma: no cover — unreachable via the DTO union

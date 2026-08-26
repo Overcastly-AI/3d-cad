@@ -580,6 +580,29 @@ class SymmetricConstraint(BaseModel):
     line: EntityId
 
 
+class MidpointConstraint(BaseModel):
+    """A point sits at the MIDDLE of a line.
+
+    The constraint that places a hole on the centre of an edge, and one of the
+    four an incumbent sketcher has that this one did not
+    (docs/AUDIT-PRODUCT.md T-5). ``point`` names a single point — a point
+    entity's ``position``, a line's endpoint, a circle's or arc's ``center``, a
+    spline fit point — exactly as :class:`CoincidentConstraint`'s ``a``/``b`` do;
+    ``line`` is the whole line entity it is centred on.
+
+    It is NOT the same as coincident-to-a-midpoint-vertex: a line has no
+    midpoint vertex to reference, and the whole value of the constraint is that
+    the point TRACKS the middle as the line's ends move. Removes two degrees of
+    freedom (the point is fully determined by the line), which is why it takes
+    two planegcs constraints — on the line, and on its perpendicular bisector —
+    whose intersection is the midpoint exactly.
+    """
+
+    kind: Literal["midpoint"]
+    point: EntityPointRef
+    line: EntityId
+
+
 class ConcentricConstraint(BaseModel):
     """Two circles/arcs share a center point.
 
@@ -608,7 +631,8 @@ SketchConstraint = Annotated[
     | TangentConstraint
     | EqualConstraint
     | SymmetricConstraint
-    | ConcentricConstraint,
+    | ConcentricConstraint
+    | MidpointConstraint,
     Field(discriminator="kind"),
 ]
 

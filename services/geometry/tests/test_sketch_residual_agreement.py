@@ -42,6 +42,7 @@ from geometry.sketch import (
     EqualConstraint,
     FixedConstraint,
     HorizontalConstraint,
+    MidpointConstraint,
     ParallelConstraint,
     PerpendicularConstraint,
     PlanegcsSketchSolver,
@@ -217,6 +218,18 @@ OFF_SOLUTION: dict[str, SketchDefinition] = {
             AngleConstraint(kind="angle", a="l1", b="l2", value_deg=110.0),
         ],
     ),
+    # Off-solution in BOTH of the midpoint constraint's parts at once: the point
+    # is 30 mm clear of the line AND 10 mm past its middle, so neither witness
+    # reads zero and the two can actually disagree.
+    "midpoint": SketchDefinition(
+        entities=[
+            _line("l1", (0, 0), (40, 0)),
+            SketchPoint(id="p1", kind="point", position=_p(30, 30)),
+        ],
+        constraints=[
+            MidpointConstraint(kind="midpoint", point=_ref("p1", "position"), line="l1")
+        ],
+    ),
     "symmetric": SketchDefinition(
         entities=[
             _line("axis", (0, 0), (50, 0)),
@@ -311,6 +324,7 @@ def test_every_constraint_kind_is_covered_by_a_fixture() -> None:
         "equal",
         "fixed",
         "horizontal",
+        "midpoint",
         "parallel",
         "perpendicular",
         "radius",

@@ -4489,6 +4489,32 @@
         "title": "MaterialLibraryResponse",
         "type": "object"
       },
+      "MidpointConstraint": {
+        "description": "A point sits at the MIDDLE of a line.\n\nThe constraint that places a hole on the centre of an edge, and one of the\nfour an incumbent sketcher has that this one did not\n(docs/AUDIT-PRODUCT.md T-5). ``point`` names a single point \u2014 a point\nentity's ``position``, a line's endpoint, a circle's or arc's ``center``, a\nspline fit point \u2014 exactly as :class:`CoincidentConstraint`'s ``a``/``b`` do;\n``line`` is the whole line entity it is centred on.\n\nIt is NOT the same as coincident-to-a-midpoint-vertex: a line has no\nmidpoint vertex to reference, and the whole value of the constraint is that\nthe point TRACKS the middle as the line's ends move. Removes two degrees of\nfreedom (the point is fully determined by the line), which is why it takes\ntwo planegcs constraints \u2014 on the line, and on its perpendicular bisector \u2014\nwhose intersection is the midpoint exactly.",
+        "properties": {
+          "kind": {
+            "const": "midpoint",
+            "title": "Kind",
+            "type": "string"
+          },
+          "line": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "Line",
+            "type": "string"
+          },
+          "point": {
+            "$ref": "#/components/schemas/EntityPointRef"
+          }
+        },
+        "required": [
+          "kind",
+          "point",
+          "line"
+        ],
+        "title": "MidpointConstraint",
+        "type": "object"
+      },
       "MirrorBodyScope": {
         "description": "``scope: {\"kind\": \"body\"}`` \u2014 reflect the CURRENT BODY (the v1 reading).\n\nThe v1 semantic, NAMED rather than implied (design \u00a73.1): the mirror reflects\nthe body that exists at its point in the tree, cut-aware \u2014 when the active body\ncarries a recorded cut whose reflected tool still reaches it the mirror reflects\nthat REMOVAL, otherwise it reflects and unions the whole body. Kept verbatim\n(\u00a76.1): the shipped goldens' byte identity is STRUCTURAL, not measured, because\nthis scope dispatches to code the v2 work did not touch.",
         "properties": {
@@ -6563,6 +6589,7 @@
                   "equal": "#/components/schemas/EqualConstraint",
                   "fixed": "#/components/schemas/FixedConstraint",
                   "horizontal": "#/components/schemas/HorizontalConstraint",
+                  "midpoint": "#/components/schemas/MidpointConstraint",
                   "parallel": "#/components/schemas/ParallelConstraint",
                   "perpendicular": "#/components/schemas/PerpendicularConstraint",
                   "radius": "#/components/schemas/RadiusConstraint",
@@ -6614,6 +6641,9 @@
                 },
                 {
                   "$ref": "#/components/schemas/ConcentricConstraint"
+                },
+                {
+                  "$ref": "#/components/schemas/MidpointConstraint"
                 }
               ]
             },

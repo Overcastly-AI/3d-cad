@@ -6959,6 +6959,32 @@
         "title": "MeshStats",
         "type": "object"
       },
+      "MidpointConstraint": {
+        "description": "A point sits at the MIDDLE of a line.\n\nThe constraint that places a hole on the centre of an edge, and one of the\nfour an incumbent sketcher has that this one did not\n(docs/AUDIT-PRODUCT.md T-5). ``point`` names a single point \u2014 a point\nentity's ``position``, a line's endpoint, a circle's or arc's ``center``, a\nspline fit point \u2014 exactly as :class:`CoincidentConstraint`'s ``a``/``b`` do;\n``line`` is the whole line entity it is centred on.\n\nIt is NOT the same as coincident-to-a-midpoint-vertex: a line has no\nmidpoint vertex to reference, and the whole value of the constraint is that\nthe point TRACKS the middle as the line's ends move. Removes two degrees of\nfreedom (the point is fully determined by the line), which is why it takes\ntwo planegcs constraints \u2014 on the line, and on its perpendicular bisector \u2014\nwhose intersection is the midpoint exactly.",
+        "properties": {
+          "kind": {
+            "const": "midpoint",
+            "title": "Kind",
+            "type": "string"
+          },
+          "line": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "Line",
+            "type": "string"
+          },
+          "point": {
+            "$ref": "#/components/schemas/EntityPointRef"
+          }
+        },
+        "required": [
+          "kind",
+          "point",
+          "line"
+        ],
+        "title": "MidpointConstraint",
+        "type": "object"
+      },
       "MirrorAxisEntity": {
         "description": "Mirror axis named by an existing **line** entity id.\n\nThe cleanest \"mirror about this construction centerline\" case: ``entity``\nmust resolve to a :class:`SketchLine` in the request's ``entities`` (else\n``sketch_target_not_found``; a non-line axis entity is\n``sketch_mirror_axis_not_line``). The line's start/end define the axis.",
         "properties": {
@@ -9999,6 +10025,7 @@
                   "equal": "#/components/schemas/EqualConstraint",
                   "fixed": "#/components/schemas/FixedConstraint",
                   "horizontal": "#/components/schemas/HorizontalConstraint",
+                  "midpoint": "#/components/schemas/MidpointConstraint",
                   "parallel": "#/components/schemas/ParallelConstraint",
                   "perpendicular": "#/components/schemas/PerpendicularConstraint",
                   "radius": "#/components/schemas/RadiusConstraint",
@@ -10050,6 +10077,9 @@
                 },
                 {
                   "$ref": "#/components/schemas/ConcentricConstraint"
+                },
+                {
+                  "$ref": "#/components/schemas/MidpointConstraint"
                 }
               ]
             },

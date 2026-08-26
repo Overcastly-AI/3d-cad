@@ -81,6 +81,7 @@ from geometry.sketch.schemas import (
     EqualConstraint,
     FixedConstraint,
     HorizontalConstraint,
+    MidpointConstraint,
     ParallelConstraint,
     PerpendicularConstraint,
     RadiusConstraint,
@@ -378,6 +379,50 @@ def _symmetric_residual(
     return max(perpendicular, bisector)
 
 
+def _midpoint_residual(
+    constraint: MidpointConstraint, entities_by_id: dict[str, SketchEntity]
+) -> float:
+    """The WORSE of planegcs's two parts, which share this constraint's index.
+
+    ``midpoint`` is a point-on-line (perpendicular distance, mm) plus a
+    point-on-perpendicular-bisector, and taking the worst of the two cannot make
+    this opinion more permissive than asking each tag separately — the same
+    posture as :func:`_symmetric_residual`, built from the same two ideas.
+
+    **The bisector part is PROBED, not inferred.** The natural reading of "point
+    on the perpendicular bisector" is ``| |p - l1| - |p - l2| |``, and that is
+    NOT what planegcs reports: measured against a 40 mm line, its error is
+    ``(|p - l1|^2 - |p - l2|^2) / L`` — which is twice the point's signed offset
+    ALONG the line from the midpoint, and so grows without bound where the
+    length difference saturates. At ``p = (140, 0)`` on ``(0,0)-(40,0)`` it reads
+    **240** where the length difference reads 40, a factor of six. Writing the
+    obvious formula would not have been *stricter* (the forbidden direction) but
+    it would have made this witness six times blinder than the one it is meant
+    to double-check, which is nearly as bad and much harder to notice: both
+    formulas have the same zero set, so every converged solve would agree.
+    That is the same trap the parallel residual fell into, caught the same way —
+    by comparing the two opinions AWAY from a solution.
+    """
+    point = _point_of(constraint.point, entities_by_id)
+    line = entities_by_id.get(constraint.line)
+    if point is None or not isinstance(line, SketchLine):
+        return UNRESOLVABLE
+    start = (line.start.x, line.start.y)
+    end = (line.end.x, line.end.y)
+    length = math.hypot(end[0] - start[0], end[1] - start[1])
+    perpendicular = _point_to_line(point, start, (end[0] - start[0], end[1] - start[1]))
+    if perpendicular is None or length == 0.0:
+        # A degenerate line defines neither a perpendicular nor a bisector;
+        # planegcs's own error is undefined there and rejects the hold on its
+        # own (same posture as `_unit_cross`). This opinion declines to be the
+        # rejecter on account of its own blindness.
+        return 0.0
+    to_start = math.hypot(point[0] - start[0], point[1] - start[1])
+    to_end = math.hypot(point[0] - end[0], point[1] - end[1])
+    bisector = abs(to_start * to_start - to_end * to_end) / length
+    return max(perpendicular, bisector)
+
+
 def constraint_residual(
     constraint: SketchConstraint,
     entities_by_id: dict[str, SketchEntity],
@@ -446,6 +491,8 @@ def constraint_residual(
             return _equal_residual(constraint, entities_by_id)
         case SymmetricConstraint():
             return _symmetric_residual(constraint, entities_by_id)
+        case MidpointConstraint():
+            return _midpoint_residual(constraint, entities_by_id)
         case _:  # pragma: no cover — the constraint union is closed
             assert_never(constraint)
 
