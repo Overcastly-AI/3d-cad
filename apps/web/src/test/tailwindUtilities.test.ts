@@ -60,6 +60,12 @@ describe("tailwind utility resolution", () => {
           "h-band",
           "h-timeline",
           "w-inspector",
+          // The bounded page-level sheet (SIGNIN-1). A dead class here would
+          // silently un-bound the sign-in composition and restore the exact
+          // "card adrift in an empty frame" the audit filed four times — and it
+          // would photograph as a design choice, which is this guard's whole
+          // reason for existing.
+          "max-w-sheet",
           "w-editor",
           "left-editor",
           "bottom-hud-lane",

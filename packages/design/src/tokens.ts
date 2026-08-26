@@ -812,6 +812,29 @@ export const layout = {
   commandBandHeight: 56,
   inspectorWidth: 320,
   /**
+   * THE BOUNDED SHEET — the widest a page-level "sheet" composition may grow
+   * (`max-w-sheet`), shared by the sign-in plate and the document registers.
+   *
+   * It exists because SIGNIN-1 was, underneath the visual complaint, a units
+   * problem. The sign-in's thesis is a drawing sheet with the auth form as its
+   * title block, and a title block belongs in the sheet's bottom-right corner —
+   * but the "sheet" was the browser WINDOW, which has no edges. At 1600x1000
+   * that put a 320x260 card at (1233, 692) with 94.8 % of the frame empty, and
+   * it read as a CSS fault rather than as the corner of anything
+   * (docs/AUDIT-PRODUCT.md R-1, S-1, T-1 — filed four times, at P3 twice "on the
+   * assumption it was a minute's work"). Bounding the sheet is what makes a
+   * corner a corner.
+   *
+   * 1120 is a measured fit, not a round number: at the 1280 floor the mandate
+   * holds every surface to it leaves 80 px of ground either side — enough that
+   * the sheet reads as an object ON the bench rather than as the bench — and at
+   * 1600 it centres inside a 240 px margin, which is a mount rather than a void.
+   * The registers share it (they were capped at `max-w-5xl` = 1024, a Tailwind
+   * default nobody chose), so the two surfaces an evaluating engineer meets
+   * before modelling anything are one width instead of two accidents.
+   */
+  sheetWidth: 1120,
+  /**
    * Fixed width of a HUD feature-editor card (the datum/extrude/… panels that
    * hang top-left over the viewport). A real, token-driven width so the card
    * wraps its own copy instead of shrink-wrapping to its longest line — the

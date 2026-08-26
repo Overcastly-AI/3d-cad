@@ -124,6 +124,10 @@ export const loftPreset = {
          */
         "view-cube": px(viewCube.inset),
       },
+      maxWidth: {
+        /** The bounded page-level sheet — see `layout.sheetWidth`. */
+        sheet: px(layout.sheetWidth),
+      },
       maxHeight: {
         /**
          * Clamp for a card anchored at `top-3`: capped so the bottom HUD lane
