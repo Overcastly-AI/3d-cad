@@ -17,6 +17,7 @@ import {
 } from "react";
 
 import { childFolders, folderPath, type FolderResponse } from "../api/folders";
+import { registerHealthReadout } from "../features/partBuild";
 import type {
   PartEvalScope,
   PartEvalState,
@@ -441,7 +442,57 @@ export function DocumentRegister<T extends RegisterDocument>({
     return [...seen];
   }, [documents]);
   const showUnits = unitsInDrawer.length > 1;
-  const showHealth = documents.some((d) => d.eval_state !== undefined);
+  /**
+   * REBUILD, BY THE SAME RULE UNITS ALREADY OBEYS: "a column of one repeated
+   * value is not a column" (see `unitsInDrawer` above). That rule was written
+   * here and applied to exactly one column, and REBUILD is the column that
+   * needed it most — measured on a real five-part drawer at 1600x1000, every
+   * cell in it read the same em dash, so ~9 % of the table's width and one of
+   * six column headings carried no information at all. Same for a drawer where
+   * every part is evaluated and clean, which is the OTHER common shape.
+   *
+   * The verdict is keyed on the whole triple the readout is derived from
+   * (`registerHealthReadout` reads all three), not on `eval_state` alone: two
+   * parts can share a state and still report differently — a clean WHOLE tree
+   * and a clean ROLLED-BACK prefix are the distinction `eval_scope` exists to
+   * preserve, and collapsing across it would hide it.
+   *
+   * When it collapses the fact is not lost, it is stated ONCE on the header
+   * rule, exactly as the drawer's unit is. Nothing is hidden either way.
+   */
+  const healthVerdicts = useMemo(() => {
+    const seen = new Set<string>();
+    for (const entry of documents) {
+      if (entry.eval_state === undefined) continue;
+      seen.add(
+        `${entry.eval_state}|${entry.eval_scope ?? ""}|${entry.last_eval_status ?? ""}`,
+      );
+    }
+    return seen;
+  }, [documents]);
+  /**
+   * IT TAKES TWO ROWS TO REPEAT. A drawer holding ONE document keeps its
+   * column: that single cell is the only report of the verdict there is, and
+   * moving it to the header would be strictly less information in exchange for
+   * nothing — there is no repetition to remove. The rule is "a column of one
+   * repeated value is not a column", and repetition needs a second row.
+   *
+   * (UNITS, above, collapses at one document too. The difference is real and not
+   * an inconsistency: a unit is a stable ATTRIBUTE, and "this drawer is in mm"
+   * is a true and useful drawer-level statement however many documents are in
+   * it. Health is a per-document VERDICT that changes under the user's hands,
+   * and a drawer-level claim about it is only honest while they all agree.)
+   */
+  const collapseHealth = documents.length > 1 && healthVerdicts.size === 1;
+  const showHealth = healthVerdicts.size > 0 && !collapseHealth;
+  /** The drawer's single verdict, when the column has collapsed into it. */
+  const drawerHealth = useMemo(
+    () =>
+      collapseHealth
+        ? (documents.find((d) => d.eval_state !== undefined) ?? null)
+        : null,
+    [documents, collapseHealth],
+  );
 
   return (
     <section
@@ -475,6 +526,12 @@ export function DocumentRegister<T extends RegisterDocument>({
           >
             {unitsInDrawer[0]}
           </span>
+        )}
+        {/* The drawer's REBUILD verdict, said once, when every document in it
+            reports the same one and the column has therefore collapsed. Same
+            grammar and same place as the unit above — one rule, two readouts. */}
+        {empty || isLoading || isError || drawerHealth === null ? null : (
+          <DrawerHealth idPlural={idPlural} document={drawerHealth} />
         )}
         {isError ? null : (
           <span
@@ -608,6 +665,42 @@ export function DocumentRegister<T extends RegisterDocument>({
         </div>
       )}
     </section>
+  );
+}
+
+/**
+ * The whole drawer's REBUILD verdict, stated once on the header rule because
+ * every document in it agrees (see `healthVerdicts`). It reads the SAME
+ * `registerHealthReadout` the per-row cell does, so the collapsed statement and
+ * the expanded column can never word the same verdict two different ways — the
+ * failure a second, hand-written summary string would invite.
+ *
+ * `data-health` carries the state for QA exactly as the row cell does, so a spec
+ * that asserts a drawer's health does not have to know which of the two shapes
+ * it is looking at.
+ */
+function DrawerHealth({
+  idPlural,
+  document,
+}: {
+  idPlural: string;
+  document: RegisterDocument;
+}) {
+  const readout = registerHealthReadout({
+    state: document.eval_state,
+    scope: document.eval_scope ?? null,
+    lastStatus: document.last_eval_status,
+    age: "",
+  });
+  return (
+    <span
+      className="font-display text-2xs uppercase tracking-[0.16em] text-gauge"
+      data-testid={`${idPlural}-drawer-health`}
+      data-health={readout.state}
+      title={`Every document in this drawer reports the same rebuild state. ${readout.title}`}
+    >
+      {readout.label}
+    </span>
   );
 }
 

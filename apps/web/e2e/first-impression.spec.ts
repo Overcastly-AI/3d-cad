@@ -1,5 +1,6 @@
 import { expect, test } from "./fixtures";
 
+import { createFeature, SQUARE_20 } from "./partSeed";
 import { createPartViaApi, SCREENSHOT_DIR, seedSession } from "./support";
 
 /**
@@ -92,9 +93,78 @@ for (const { label, width, height } of WIDTHS) {
       }
       await page.goto("/");
       await expect(page.getByTestId("part-row")).toHaveCount(SEED_PARTS.length);
+      /**
+       * The flow assertion, and the one this page had no answer to before: the
+       * landing surface must PROPOSE the next step, not merely list what is
+       * filed. These parts are all freshly created stubs, so the band is in its
+       * "start here" branch and must say so rather than claim work to resume —
+       * asserting the caption, not just the band's presence, is what stops a
+       * regression from silently telling a first-run user to resume nothing.
+       */
+      await expect(page.getByTestId("parts-resume")).toBeVisible();
+      await expect(page.getByTestId("parts-resume-caption")).toHaveText(
+        "Named, not drawn yet — open it and pick a plane.",
+      );
+      await expect(page.getByTestId("parts-resume-open")).toHaveAttribute(
+        "aria-label",
+        /^Open /,
+      );
       await page.screenshot({
         path: `${SCREENSHOT_DIR}/first-impression/parts-${label}.png`,
       });
+    });
+
+    /**
+     * The OTHER branch, exercised against the real gateway rather than only in
+     * `ResumeBand.test.ts`: a part that has actually been worked on must be
+     * offered by name with the age of its last edit. This is the case the
+     * landing surface exists for, and it depends on a server fact the client
+     * cannot fake — that a tree write bumps `updated_at` — so a unit test with
+     * hand-written stamps cannot stand in for it.
+     */
+    test(`a worked part is offered by name to resume (${label})`, async ({
+      page,
+    }) => {
+      const account = await seedSession(page);
+      await createPartViaApi(page, account.token, "Cover panel");
+      const worked = await createPartViaApi(
+        page,
+        account.token,
+        "Spindle housing",
+      );
+      /*
+       * The wait is load-bearing, not flake padding, and it is the SUBJECT of
+       * the test as much as the setup. `lib/activity.ts` treats a document whose
+       * two stamps are within `CREATION_SKEW_MS` (250 ms) as never edited,
+       * because a fresh INSERT writes `created_at` and `updated_at` from
+       * separate `datetime.now()` calls and they differ by microseconds. A spec
+       * that creates a part and writes to its tree in the same breath lands
+       * INSIDE that window — measured here at first attempt: the band correctly
+       * refused to say "resume", which is the window doing its job on input no
+       * human can produce. 700 ms is ~3x the threshold and still far below any
+       * real edit, so the two writes are two distinct actions the way a person's
+       * would be.
+       */
+      await page.waitForTimeout(700);
+      // A real tree write, which is what bumps `updated_at` — the server fact
+      // the whole "last worked" readout rests on.
+      await createFeature(page, account.token, worked.id, {
+        name: "Sketch1",
+        feature: { type: "sketch", version: 1, params: SQUARE_20 },
+        expected_tree_version: 0,
+      });
+
+      await page.goto("/");
+      await expect(page.getByTestId("parts-resume-name")).toHaveText(
+        "Spindle housing",
+      );
+      await expect(page.getByTestId("parts-resume-caption")).toContainText(
+        "Last edited",
+      );
+      // And it opens what it names — a proposal that goes somewhere else is
+      // worse than no proposal.
+      await page.getByTestId("parts-resume-open").click();
+      await expect(page).toHaveURL(new RegExp(`/parts/${worked.id}$`));
     });
 
     test(`parts register on a first run (${label})`, async ({ page }) => {

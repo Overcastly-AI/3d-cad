@@ -14,6 +14,7 @@ import {
   DocumentRegister,
   type RegisterCopy,
 } from "../components/DocumentRegister";
+import { ResumeBand } from "../components/ResumeBand";
 import { SheetGrid } from "../components/SheetGrid";
 import { TopBar } from "../components/TopBar";
 import { useRegisterFiling } from "../components/useRegisterFiling";
@@ -76,8 +77,20 @@ export function PartsPage() {
           className="pointer-events-none absolute inset-3 border border-hairline"
           aria-hidden="true"
         />
-        <div className="relative mx-auto flex h-full w-full max-w-5xl flex-col px-4 py-6 sm:px-8">
+        {/* `max-w-sheet`, not `max-w-5xl`. The old cap was a Tailwind default
+            (1024) nobody chose, and it left 288 px of bare grid down each side
+            of a 1600 px frame — the same "content adrift in an empty frame"
+            read SIGNIN-1 was filed for, at the second of the two surfaces an
+            evaluating engineer meets before modelling anything. Both now share
+            ONE token (`layout.sheetWidth`), so they cannot drift apart. */}
+        <div className="relative mx-auto flex h-full w-full max-w-sheet flex-col px-4 py-6 sm:px-8">
           <WorkspaceNav active="parts" />
+          {/* WHERE YOU WERE, before WHAT YOU HAVE. The register answers the
+              second question well and never answered the first — see
+              `ResumeBand` for the measurement and the reasoning. It reads the
+              same list the drawer below renders, so it cannot disagree with it,
+              and it draws nothing at all for an empty drawer. */}
+          <ResumeBand parts={parts.data ?? []} />
           <DocumentRegister
             idPlural="parts"
             idSingular="part"

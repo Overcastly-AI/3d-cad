@@ -30,9 +30,22 @@ import {
  * column` does not.
  */
 
-/** Long enough to overrun even the widened NAME column — the ellipsis case. */
+/**
+ * Long enough to overrun even the widened NAME column — the ellipsis case.
+ *
+ * LENGTHENED 2026-08-26, and the reason is the interesting part: this spec went
+ * red at `scrollWidth (449) > clientWidth (449)` when the register moved to
+ * `max-w-sheet` and the REBUILD column learned to collapse. Nothing about
+ * ellipsising broke — NAME simply got wide enough to fit the old fixture
+ * exactly, which is the outcome REGISTER-1 was chasing. A fixture sized to a
+ * layout is a gate that quietly stops testing its subject the moment the layout
+ * improves, so this one now clears the widest column the drawer can offer with
+ * room to spare rather than by a handful of pixels. (200 chars is the ceiling —
+ * `MAX_PART_NAME_LENGTH`.)
+ */
 const OVERLONG =
-  "Left-hand outboard motor mount adapter plate, revision C, as machined";
+  "Left-hand outboard motor mount adapter plate, revision C, as machined — " +
+  "do not scale from this drawing, dimensions in millimetres unless stated";
 
 const NAMES = [
   OVERLONG,
@@ -146,6 +159,18 @@ test.describe("parts register — the identifying column", () => {
     expect(report.textOverflow).toBe("ellipsis");
     expect(report.display).toBe("block");
     expect(report.scrollWidth).toBeGreaterThan(report.clientWidth);
+    /**
+     * …and by a MARGIN, which is an assertion about the fixture rather than the
+     * product, deliberately. Twice now this spec has gone red at
+     * `scrollWidth === clientWidth` because the NAME column got wider — the
+     * outcome the surrounding test is celebrating — and each time the failure
+     * looked like an ellipsis regression. The symmetric and much worse outcome
+     * is the one nobody would have noticed: a fixture that overruns by a single
+     * pixel passes while testing almost nothing. This fails loudly when the name
+     * stops being comfortably too long, so the next widening is a fixture edit
+     * with an obvious cause instead of a hunt.
+     */
+    expect(report.scrollWidth).toBeGreaterThan(report.clientWidth * 1.25);
 
     await page.setViewportSize({ width: 1600, height: 1000 });
     await expect(link).toHaveAttribute("title", OVERLONG);
