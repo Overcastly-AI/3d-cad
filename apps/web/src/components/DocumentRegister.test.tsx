@@ -331,39 +331,30 @@ describe("DocumentRegister — what it reports", () => {
   });
 
   /**
-   * The REBUILD column obeying the rule UNITS already obeyed: "a column of one
-   * repeated value is not a column". Measured on a real five-part drawer before
-   * this landed, every cell in it read the same em dash — one of six headings
-   * carrying nothing. Both directions are pinned, because the dangerous failure
-   * is not the column staying: it is the column vanishing while the rows
-   * actually DISAGREE, which would hide a broken part behind a clean drawer.
+   * EVERY ROW KEEPS ITS OWN CELL, even when the whole drawer agrees.
+   *
+   * A short-lived change (cb2e43e) collapsed this column into a single header
+   * readout whenever every document reported the same verdict, by analogy with
+   * the UNITS column. The analogy does not hold — see the long note at
+   * `showHealth` — and the concrete cost was that `part-health` disappeared for
+   * a UNIFORM drawer, which is exactly the shape `workspace.spec.ts`'s duplicate
+   * case produces: an unevaluated part copied to another unevaluated part.
+   *
+   * The uniform case is the one pinned here, deliberately. The non-uniform case
+   * was never at risk, and a test that only covered it would have gone green
+   * against the broken build.
    */
-  it("collapses REBUILD to a header readout when every document agrees", () => {
+  it("keeps a per-row cell even when every document reports the same verdict", () => {
     renderRegister([
       { ...worked, eval_state: "never" },
       { ...unstarted, eval_state: "never" },
     ]);
-    expect(screen.queryByText("Rebuild")).toBeNull();
-    expect(screen.queryAllByTestId("part-health")).toHaveLength(0);
-    const readout = screen.getByTestId("parts-drawer-health");
-    expect(readout).toHaveTextContent("Not evaluated");
-    expect(readout).toHaveAttribute("data-health", "never");
-  });
-
-  it("keeps the column the moment two documents disagree", () => {
-    renderRegister([
-      { ...worked, eval_state: "ok", last_eval_status: "ok" },
-      { ...unstarted, eval_state: "failed", last_eval_status: "failed" },
-    ]);
     expect(screen.getByText("Rebuild")).toBeInTheDocument();
-    expect(screen.queryAllByTestId("part-health")).toHaveLength(2);
-    expect(screen.queryByTestId("parts-drawer-health")).toBeNull();
-  });
-
-  it("keeps the column for a drawer of ONE — a single row repeats nothing", () => {
-    renderRegister([{ ...worked, eval_state: "never" }]);
-    expect(screen.getByTestId("part-health")).toBeInTheDocument();
-    expect(screen.queryByTestId("parts-drawer-health")).toBeNull();
+    const cells = screen.getAllByTestId("part-health");
+    expect(cells).toHaveLength(2);
+    for (const cell of cells) {
+      expect(cell).toHaveAttribute("data-health", "never");
+    }
   });
 
   it("drops the column for document kinds that have no feature tree", () => {
