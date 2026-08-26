@@ -15,6 +15,23 @@ import { createPartViaApi, SCREENSHOT_DIR, seedSession } from "./support";
 /** Assertion bound for solved coordinates (mm) — the solver benchmark's. */
 const SOLVE_TOLERANCE_MM = 1e-6;
 
+/**
+ * Headroom for the steps gated on a SERVER round-trip — persist, re-solve,
+ * re-render — as opposed to anything this spec can observe sooner.
+ *
+ * Playwright's 5 s default is a bet on the CPU being free, and this suite runs
+ * beside four other agents. Measured at load 14.3 on 4 cores: the 40→60
+ * re-solve landed its "60" glyph just AFTER the sixth and last poll, and the
+ * failure snapshot Playwright captured already contained the very element it
+ * had given up on — a green/red decided by the scheduler.
+ *
+ * This is headroom for a value that is on its way; it is NOT a substitute for
+ * asserting the settled one. Every assertion carrying it names the exact value
+ * it waits for, so a wrong answer still fails — it just fails for being wrong
+ * rather than for being late.
+ */
+const SETTLE_TIMEOUT_MS = 30_000;
+
 interface SolvedPoint {
   x: number;
   y: number;
@@ -298,9 +315,16 @@ test.describe("sketcher constraints", () => {
     await input.fill("40");
     await input.press("Enter");
     expect((await created).status()).toBe(201);
-    await expect(glyphShowing(page, "40")).toHaveCount(1);
-    await expect(page.getByTestId("dro-solve")).toContainText(
-      "UNDER-CONSTRAINED",
+    await expect(glyphShowing(page, "40")).toHaveCount(1, {
+      timeout: SETTLE_TIMEOUT_MS,
+    });
+    // The whole DOF, not the word: "UNDER-CONSTRAINED" alone is satisfied by
+    // any mid-solve reading too, so it could never have told a settled DOF 1
+    // from a passing DOF 3. One dimension against the rectangle's rigidity set
+    // and the pinned origin leaves exactly one freedom.
+    await expect(page.getByTestId("dro-solve")).toHaveText(
+      "DOF 1 · UNDER-CONSTRAINED",
+      { timeout: SETTLE_TIMEOUT_MS },
     );
 
     // 5) Distance 25 on the right line.
@@ -309,34 +333,65 @@ test.describe("sketcher constraints", () => {
     await expect(input).toBeVisible();
     await input.fill("25");
     await input.press("Enter");
-    await expect(glyphShowing(page, "25")).toHaveCount(1);
+    await expect(glyphShowing(page, "25")).toHaveCount(1, {
+      timeout: SETTLE_TIMEOUT_MS,
+    });
     // 11 = RECT-1's eight, SNAP-3's origin coincident from the first corner,
     // and the user's two dimensions.
     await expect(page.getByTestId("selection-readout")).toContainText(
       "11 applied",
+      { timeout: SETTLE_TIMEOUT_MS },
     );
 
-    // The solved payload: all five constraints hold at the §6 coordinates.
+    // The SETTLED solve — payload and readout asserted TOGETHER (SPEC-10).
+    //
+    // This used to be two assertions and both were about a value the system
+    // was still computing. The first polled the newest evaluate body for
+    // `status: "underconstrained"`, which the body from the PREVIOUS step
+    // already satisfies: the rectangle is drawn at exactly 40 × 25, so e1 and
+    // e2 measure 40 and 25 before the 25 mm dimension is applied at all. It
+    // therefore returned true without ever waiting for the constraint this
+    // step adds. The second then read `dro-solve` and expected
+    // UNDER-CONSTRAINED — but the settled answer here is `DOF 0 · CONVERGED`,
+    // and it is arithmetically right: 18 DOF (four lines plus the materialised
+    // origin) minus 8 coincident + 2 horizontal + 2 vertical + 2 for SNAP-3's
+    // origin coincident + 2 for the pin + 2 distances = 0. So the old spec
+    // passed only when it sampled the readout mid-flight (measured: the call
+    // log showed SOLVING… twice, then CONVERGED) — a green there was evidence
+    // of a slow machine, not of a working product.
+    //
+    // Asserting the payload and the DOM in ONE poll is what makes this
+    // settled rather than merely later: the readout is rendered FROM the
+    // newest evaluation, so requiring them to agree means the round-trip has
+    // landed AND been painted. Values are named, not matched by shape, so a
+    // wrong DOF or a lost dimension fails instead of pattern-matching.
     await expect
-      .poll(() => {
-        const sketch = latestSketch(evaluations);
-        if (sketch?.data === null || sketch?.data === undefined) return null;
-        return {
-          constraintsHold:
-            Math.abs((lineLength(sketch.data.entities, "e1") ?? 0) - 40) <
-              SOLVE_TOLERANCE_MM &&
-            Math.abs((lineLength(sketch.data.entities, "e2") ?? 0) - 25) <
+      .poll(
+        async () => {
+          const sketch = latestSketch(evaluations);
+          if (sketch?.data === null || sketch?.data === undefined) return null;
+          return {
+            e1IsForty:
+              Math.abs((lineLength(sketch.data.entities, "e1") ?? 0) - 40) <
               SOLVE_TOLERANCE_MM,
-          status: sketch.data.status,
-        };
-      })
-      .toEqual({ constraintsHold: true, status: "underconstrained" });
+            e2IsTwentyFive:
+              Math.abs((lineLength(sketch.data.entities, "e2") ?? 0) - 25) <
+              SOLVE_TOLERANCE_MM,
+            status: sketch.data.status,
+            readout: (await page.getByTestId("dro-solve").innerText()).trim(),
+          };
+        },
+        { timeout: SETTLE_TIMEOUT_MS },
+      )
+      .toEqual({
+        e1IsForty: true,
+        e2IsTwentyFive: true,
+        status: "converged",
+        readout: "DOF 0 · CONVERGED",
+      });
     const before = latestSketch(evaluations)?.data?.entities;
     const cornerBefore = before?.find((e) => e.id === "e1")?.end;
     expect(cornerBefore).toBeDefined();
-    await expect(page.getByTestId("dro-solve")).toContainText(
-      /DOF \d+ · UNDER-CONSTRAINED/,
-    );
 
     // Founder screenshot: the constrained rectangle with its annotation
     // glyphs and the DRO SOLVE cell (desktop).
@@ -352,14 +407,27 @@ test.describe("sketcher constraints", () => {
     await expect(input).toHaveValue("40");
     await input.fill("60");
     await input.press("Enter");
-    await expect(glyphShowing(page, "60")).toHaveCount(1);
+    await expect(glyphShowing(page, "60")).toHaveCount(1, {
+      timeout: SETTLE_TIMEOUT_MS,
+    });
+    // Settled again, and still cross-checked against the readout: the edit
+    // must land in the payload AND leave the sketch fully constrained, not
+    // merely produce one body somewhere that measured 60.
     await expect
-      .poll(() => {
-        const sketch = latestSketch(evaluations);
-        if (sketch?.data === null || sketch?.data === undefined) return null;
-        return Math.abs((lineLength(sketch.data.entities, "e1") ?? 0) - 60);
-      })
-      .toBeLessThan(SOLVE_TOLERANCE_MM);
+      .poll(
+        async () => {
+          const sketch = latestSketch(evaluations);
+          if (sketch?.data === null || sketch?.data === undefined) return null;
+          return {
+            e1IsSixty:
+              Math.abs((lineLength(sketch.data.entities, "e1") ?? 0) - 60) <
+              SOLVE_TOLERANCE_MM,
+            readout: (await page.getByTestId("dro-solve").innerText()).trim(),
+          };
+        },
+        { timeout: SETTLE_TIMEOUT_MS },
+      )
+      .toEqual({ e1IsSixty: true, readout: "DOF 0 · CONVERGED" });
     const after = latestSketch(evaluations)?.data?.entities;
     const cornerAfter = after?.find((e) => e.id === "e1")?.end;
     expect(cornerAfter).toBeDefined();
@@ -380,10 +448,12 @@ test.describe("sketcher constraints", () => {
 
     // Finish; everything persisted (5 constraints on the feature).
     await page.getByTestId("sketch-save").click();
-    await expect(page.getByTestId("sketch-strip")).toHaveCount(0);
+    await expect(page.getByTestId("sketch-strip")).toHaveCount(0, {
+      timeout: SETTLE_TIMEOUT_MS,
+    });
     await page.reload();
     await expect(page.getByTestId("eval-status")).toHaveText("Solved", {
-      timeout: 30_000,
+      timeout: SETTLE_TIMEOUT_MS,
     });
     const treeResponse = await page.request.get(
       `/api/v1/parts/${part.id}/features`,
