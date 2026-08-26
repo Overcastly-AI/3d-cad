@@ -28,10 +28,12 @@ The hatch is therefore a REQUIRED, ENUMERATED commit trailer:
                                  mandatory and free-text
 
 That converts "silently forgot" into "explicitly deferred, by name, in the
-permanent record". The gate counts both and prints the ratio on every run, so
-`--report` (or `git log --grep='^Doc-tick: groomer'`) answers "is the hatch
-load-bearing or is it a bypass?" with a number instead of an opinion. That
-question is the whole point: a hatch nobody can count is a hole.
+permanent record". The gate counts both and prints the ratio on EVERY run (no
+flag needed), so the run log — or `git log --grep='^Doc-tick: groomer'` —
+answers "is the hatch load-bearing or is it a bypass?" with a number instead
+of an opinion. That question is the whole point: a hatch nobody can count is
+a hole. `--max-deferred-ratio` turns that number into a gate when an auditor
+wants one.
 
 WHAT BINDS AND WHAT DOES NOT — see `classify()`; each exemption carries its
 one-line defence there, because an exemption whose reasoning is not written
