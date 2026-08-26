@@ -63,6 +63,7 @@ from geometry.sketch.schemas import (
     SolvedDimension,
     SolvedSketch,
     SymmetricConstraint,
+    SymmetricLinesConstraint,
     TangentConstraint,
     VerticalConstraint,
 )
@@ -115,6 +116,7 @@ __all__ = [
     "SolvedDimension",
     "SolvedSketch",
     "SymmetricConstraint",
+    "SymmetricLinesConstraint",
     "TangentConstraint",
     "VerticalConstraint",
     "chamfer_sketch",

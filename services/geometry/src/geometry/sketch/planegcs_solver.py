@@ -86,7 +86,11 @@ from geometry.sketch.expression import (
     measure_angle,
     measure_dimension,
 )
-from geometry.sketch.residual import geometric_residuals, worst_residual
+from geometry.sketch.residual import (
+    geometric_residuals,
+    symmetric_lines_pairs,
+    worst_residual,
+)
 from geometry.sketch.schemas import (
     AngleConstraint,
     CoincidentConstraint,
@@ -117,6 +121,7 @@ from geometry.sketch.schemas import (
     SolvedDimension,
     SolvedSketch,
     SymmetricConstraint,
+    SymmetricLinesConstraint,
     TangentConstraint,
     VerticalConstraint,
 )
@@ -445,6 +450,7 @@ def _constraint_point_refs(constraint: SketchConstraint) -> tuple[EntityPointRef
             | EqualConstraint()
             | ConcentricConstraint()
             | CollinearConstraint()
+            | SymmetricLinesConstraint()
         ):
             return ()
         case _:
@@ -843,6 +849,27 @@ class _GcsBuild:
                 on_bisector = gcs.point_on_perp_bisector(point_id, line_id)
                 self.tag_to_index[on_line] = index
                 self.tag_to_index[on_bisector] = index
+                return
+            case SymmetricLinesConstraint():
+                # Two lines mirrored about an axis is two mirrored POINT pairs,
+                # so it is two `symmetric_line` constraints — the same primitive
+                # the point form uses, which is why the two forms reach the same
+                # geometry. Both tags map to this constraint index (as `midpoint`
+                # and `collinear` do). WHICH end pairs with which comes from the
+                # submitted coordinates (`symmetric_lines_pairs`), shared with
+                # the residual so both measure the relation the solver holds.
+                axis = self._resolve_line(constraint.line, "symmetric_lines")
+                self._resolve_line(constraint.a, "symmetric_lines")  # kind check
+                self._resolve_line(constraint.b, "symmetric_lines")  # kind check
+                for a_point, b_point in symmetric_lines_pairs(
+                    constraint, self._input_points()
+                ):
+                    tag_n = gcs.symmetric_line(
+                        self._points[(constraint.a, a_point)],
+                        self._points[(constraint.b, b_point)],
+                        axis,
+                    )
+                    self.tag_to_index[tag_n] = index
                 return
             case ConcentricConstraint():
                 tag = self._add_concentric(constraint)

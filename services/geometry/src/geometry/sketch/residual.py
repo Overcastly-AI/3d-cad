@@ -37,8 +37,13 @@ disagree rather than that two conventions were compared. Same posture as
 ``scripts/check-build-context.py`` re-implementing moby's ignore matcher and
 diffing it against the real one. Two small departures remain: a coincidence is
 the point distance rather than planegcs's RMS over its two component
-constraints (``sqrt(2)`` times larger), and a multi-part constraint (symmetric)
-reports its WORST part rather than their RMS.
+constraints (``sqrt(2)`` times larger), and the POINT form of ``symmetric``
+reports its WORST part rather than their RMS (also ``sqrt(2)``). Both sit
+exactly ON ``MAX_STRICTER_RATIO``, which is why a constraint that aggregates
+SEVERAL such parts — ``symmetric_lines``, which holds two mirrored pairs — uses
+planegcs's RMS within each pair instead: two ``sqrt(2)`` departures compounding
+is how the invariant gets broken, and it was, measurably
+(:func:`_symmetric_lines_residual`).
 
 **Being STRICTER than the solver is a defect here, not a safety margin.** Both
 opinions must hold for a settle to keep a hold, so an over-strict residual does
@@ -94,6 +99,7 @@ from geometry.sketch.schemas import (
     SketchPoint,
     SketchSpline,
     SymmetricConstraint,
+    SymmetricLinesConstraint,
     TangentConstraint,
     VerticalConstraint,
 )
@@ -106,6 +112,7 @@ from geometry.sketch.schemas import (
 UNRESOLVABLE = math.inf
 
 _Vec = tuple[float, float]
+_PointKey = tuple[str, str]
 
 
 def _point_of(
@@ -358,26 +365,154 @@ def _equal_residual(
     return abs(ra - rb)
 
 
+def _symmetric_pair_parts(a: _Vec, b: _Vec, line: SketchLine) -> tuple[float, float]:
+    """planegcs's two parts of "these two points mirror about ``line``".
+
+    A perpendicular (the ``a -> b`` segment against the mirror line,
+    unit-normalised) and a point-on-perpendicular-bisector (``|l1 - a|`` vs
+    ``|l1 - b|``, mm). planegcs carries both under ONE tag and reports their RMS.
+    """
+    lx, ly = line.start.x, line.start.y
+    dx, dy = line.end.x - lx, line.end.y - ly
+    perpendicular = _unit_dot((b[0] - a[0], b[1] - a[1]), (dx, dy))
+    bisector = abs(math.hypot(a[0] - lx, a[1] - ly) - math.hypot(b[0] - lx, b[1] - ly))
+    return perpendicular, bisector
+
+
+def _symmetric_pair_residual(a: _Vec, b: _Vec, line: SketchLine) -> float:
+    """The WORSE of the two parts — the point form's long-standing convention."""
+    return max(_symmetric_pair_parts(a, b, line))
+
+
+def _symmetric_pair_rms(a: _Vec, b: _Vec, line: SketchLine) -> float:
+    """planegcs's OWN aggregation of the two parts: their root-mean-square.
+
+    Used where a constraint holds more than one mirrored pair, so that the max
+    ACROSS pairs does not compound with a max WITHIN each pair — see
+    :func:`_symmetric_lines_residual`, where that compounding measurably broke
+    the "never the stricter witness" invariant.
+    """
+    perpendicular, bisector = _symmetric_pair_parts(a, b, line)
+    return math.sqrt((perpendicular * perpendicular + bisector * bisector) / 2.0)
+
+
 def _symmetric_residual(
     constraint: SymmetricConstraint, entities_by_id: dict[str, SketchEntity]
 ) -> float:
     """The WORSE of planegcs's two parts, which share one tag.
 
-    ``addConstraintSymmetric`` is a perpendicular (the ``a -> b`` segment against
-    the mirror line, mm^2) plus a point-on-perpendicular-bisector (``|l1 - a|``
-    vs ``|l1 - b|``, mm). planegcs reports their RMS; taking the worst instead
-    cannot make this opinion more permissive than that one.
+    ``addConstraintSymmetric`` is a perpendicular plus a
+    point-on-perpendicular-bisector; planegcs reports their RMS, and taking the
+    worst instead cannot make this opinion more permissive than that one.
     """
     a = _point_of(constraint.a, entities_by_id)
     b = _point_of(constraint.b, entities_by_id)
     line = entities_by_id.get(constraint.line)
     if a is None or b is None or not isinstance(line, SketchLine):
         return UNRESOLVABLE
-    lx, ly = line.start.x, line.start.y
-    dx, dy = line.end.x - lx, line.end.y - ly
-    perpendicular = _unit_dot((b[0] - a[0], b[1] - a[1]), (dx, dy))
-    bisector = abs(math.hypot(a[0] - lx, a[1] - ly) - math.hypot(b[0] - lx, b[1] - ly))
-    return max(perpendicular, bisector)
+    return _symmetric_pair_residual(a, b, line)
+
+
+def _reflect(point: _Vec, line_start: _Vec, direction: _Vec) -> _Vec | None:
+    """``point`` mirrored in the infinite line; ``None`` if the line is degenerate."""
+    length_sq = direction[0] ** 2 + direction[1] ** 2
+    if length_sq == 0.0:
+        return None
+    vx, vy = point[0] - line_start[0], point[1] - line_start[1]
+    scale = 2.0 * (vx * direction[0] + vy * direction[1]) / length_sq
+    return (
+        line_start[0] + scale * direction[0] - vx,
+        line_start[1] + scale * direction[1] - vy,
+    )
+
+
+def symmetric_lines_crossed(
+    constraint: SymmetricLinesConstraint, points: dict[_PointKey, _Vec]
+) -> bool:
+    """Does ``a``'s START pair with ``b``'s END rather than with its start?
+
+    The one authoring decision a ``symmetric_lines`` constraint carries, made
+    from the SUBMITTED coordinates so it is a function of the sketch alone
+    (RESEARCH §9) and identical for the solver wiring and for the residual —
+    which must measure the same pairing the solver is holding or it would report
+    a violation on a correct solve.
+
+    Reflect ``a``'s two endpoints in the axis and compare the total squared
+    distance to ``b``'s under each pairing; the closer one wins, and a tie keeps
+    the straight (start-to-start) pairing so the answer is total. A missing or
+    degenerate reference also falls back to the straight pairing — the constraint
+    is malformed either way, and the solver's own kind checks are what report
+    that.
+    """
+    keys = ("start", "end")
+    try:
+        a_points = [points[(constraint.a, key)] for key in keys]
+        b_points = [points[(constraint.b, key)] for key in keys]
+        axis = [points[(constraint.line, key)] for key in keys]
+    except KeyError:
+        return False
+    direction = (axis[1][0] - axis[0][0], axis[1][1] - axis[0][1])
+    mirrored = [_reflect(point, axis[0], direction) for point in a_points]
+    if any(point is None for point in mirrored):
+        return False
+
+    def cost(pairs: list[tuple[_Vec, _Vec]]) -> float:
+        return sum((p[0] - q[0]) ** 2 + (p[1] - q[1]) ** 2 for p, q in pairs)
+
+    straight = cost([(mirrored[0], b_points[0]), (mirrored[1], b_points[1])])  # pyright: ignore[reportArgumentType]
+    crossed = cost([(mirrored[0], b_points[1]), (mirrored[1], b_points[0])])  # pyright: ignore[reportArgumentType]
+    return crossed < straight
+
+
+def symmetric_lines_pairs(
+    constraint: SymmetricLinesConstraint, points: dict[_PointKey, _Vec]
+) -> tuple[tuple[str, str], tuple[str, str]]:
+    """The two ``(a point name, b point name)`` pairs this constraint relates."""
+    if symmetric_lines_crossed(constraint, points):
+        return (("start", "end"), ("end", "start"))
+    return (("start", "start"), ("end", "end"))
+
+
+def _symmetric_lines_residual(
+    constraint: SymmetricLinesConstraint,
+    entities_by_id: dict[str, SketchEntity],
+    input_points: dict[_PointKey, _Vec],
+) -> float:
+    """The worst of the two mirrored point pairs, under the authored pairing.
+
+    The max ACROSS the two pairs, because planegcs holds them as two separate
+    tags and the settle asks each of them separately.
+
+    **Within each pair the quantity is planegcs's own RMS, not the worse part,
+    and that was forced by the agreement suite rather than chosen.** The point
+    form of ``symmetric`` reports the worse of its two parts, which is up to
+    ``sqrt(2)`` stricter than the RMS planegcs reports for the same tag — and
+    ``sqrt(2)`` is exactly ``MAX_STRICTER_RATIO``, so one tag sits ON the ceiling
+    and a max over two of them steps over it. Measured on the two-legs fixture:
+    the worst-part form read **2.093** against planegcs's **1.419**, a ratio of
+    1.47 where 1.414 is the bound, and the suite refused it. That is the module
+    docstring's rule biting for real — a second opinion that refuses holds the
+    solver accepts silently disables the settle — and the fix is to match the
+    witness's aggregation, not to widen the bound.
+    """
+    a = entities_by_id.get(constraint.a)
+    b = entities_by_id.get(constraint.b)
+    line = entities_by_id.get(constraint.line)
+    if (
+        not isinstance(a, SketchLine)
+        or not isinstance(b, SketchLine)
+        or not isinstance(line, SketchLine)
+    ):
+        return UNRESOLVABLE
+
+    def end(entity: SketchLine, name: str) -> _Vec:
+        point = entity.start if name == "start" else entity.end
+        return (point.x, point.y)
+
+    worst = 0.0
+    for a_point, b_point in symmetric_lines_pairs(constraint, input_points):
+        worst = max(worst, _symmetric_pair_rms(end(a, a_point), end(b, b_point), line))
+    return worst
 
 
 def _midpoint_residual(
@@ -527,6 +662,8 @@ def constraint_residual(
             return _equal_residual(constraint, entities_by_id)
         case SymmetricConstraint():
             return _symmetric_residual(constraint, entities_by_id)
+        case SymmetricLinesConstraint():
+            return _symmetric_lines_residual(constraint, entities_by_id, input_points)
         case MidpointConstraint():
             return _midpoint_residual(constraint, entities_by_id)
         case CollinearConstraint():

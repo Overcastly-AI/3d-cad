@@ -630,6 +630,43 @@ class MidpointConstraint(BaseModel):
     line: EntityId
 
 
+class SymmetricLinesConstraint(BaseModel):
+    """Two LINES are mirror images of each other about a third line.
+
+    The selection an engineer makes first — two edges and a centreline — which
+    :class:`SymmetricConstraint` refuses with "select two points and a line"
+    (docs/AUDIT-PRODUCT.md T-5). SolidWorks and Onshape both accept it, and a
+    symmetric profile is the commonest thing anyone draws about a centreline.
+
+    ``a`` and ``b`` are whole line entities by id; ``line`` is the axis, cleanest
+    as a construction centreline but any line works. Removes four degrees of
+    freedom: ``b`` is completely determined by ``a`` and the axis.
+
+    **Which end pairs with which is read off the geometry as DRAWN**, not from
+    the order the ids happen to be in: ``a``'s endpoints are reflected in the
+    axis and matched to ``b``'s by whichever of the two pairings is already the
+    closer fit. A mirror reverses orientation, so an author tracing a profile
+    around a loop draws the second edge running the OTHER way as often as not,
+    and pairing by name would demand the line be flipped end-for-end — a jump
+    across the solution manifold, not a refinement. The choice is a function of
+    the submitted coordinates alone, so it is deterministic (RESEARCH §9), and
+    it is made once and shared with the residual so both measure the same
+    relation.
+
+    Kept as its own ``kind`` rather than widening :class:`SymmetricConstraint`'s
+    ``a``/``b`` to a point-or-entity union: the union would put a
+    ``string | object`` on the wire and leave three of its four combinations to
+    be rejected at solve time, where two exhaustive kinds are checked by the
+    type system on both sides. A UI's single "Symmetric" button chooses between
+    them from the selection, which is one branch.
+    """
+
+    kind: Literal["symmetric_lines"]
+    a: EntityId
+    b: EntityId
+    line: EntityId
+
+
 class ConcentricConstraint(BaseModel):
     """Two circles/arcs share a center point.
 
@@ -658,6 +695,7 @@ SketchConstraint = Annotated[
     | TangentConstraint
     | EqualConstraint
     | SymmetricConstraint
+    | SymmetricLinesConstraint
     | ConcentricConstraint
     | MidpointConstraint
     | CollinearConstraint,

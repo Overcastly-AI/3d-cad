@@ -181,6 +181,8 @@ function glyphAria(glyph: ConstraintGlyph): string {
       return "Equal constraint";
     case "symmetric":
       return "Symmetric constraint";
+    case "symmetric_lines":
+      return "Symmetric constraint";
     case "concentric":
       return "Concentric constraint";
     case "midpoint":

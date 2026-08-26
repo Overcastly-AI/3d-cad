@@ -6665,6 +6665,7 @@
                   "perpendicular": "#/components/schemas/PerpendicularConstraint",
                   "radius": "#/components/schemas/RadiusConstraint",
                   "symmetric": "#/components/schemas/SymmetricConstraint",
+                  "symmetric_lines": "#/components/schemas/SymmetricLinesConstraint",
                   "tangent": "#/components/schemas/TangentConstraint",
                   "vertical": "#/components/schemas/VerticalConstraint"
                 },
@@ -6709,6 +6710,9 @@
                 },
                 {
                   "$ref": "#/components/schemas/SymmetricConstraint"
+                },
+                {
+                  "$ref": "#/components/schemas/SymmetricLinesConstraint"
                 },
                 {
                   "$ref": "#/components/schemas/ConcentricConstraint"
@@ -7013,6 +7017,42 @@
           "line"
         ],
         "title": "SymmetricConstraint",
+        "type": "object"
+      },
+      "SymmetricLinesConstraint": {
+        "description": "Two LINES are mirror images of each other about a third line.\n\nThe selection an engineer makes first \u2014 two edges and a centreline \u2014 which\n:class:`SymmetricConstraint` refuses with \"select two points and a line\"\n(docs/AUDIT-PRODUCT.md T-5). SolidWorks and Onshape both accept it, and a\nsymmetric profile is the commonest thing anyone draws about a centreline.\n\n``a`` and ``b`` are whole line entities by id; ``line`` is the axis, cleanest\nas a construction centreline but any line works. Removes four degrees of\nfreedom: ``b`` is completely determined by ``a`` and the axis.\n\n**Which end pairs with which is read off the geometry as DRAWN**, not from\nthe order the ids happen to be in: ``a``'s endpoints are reflected in the\naxis and matched to ``b``'s by whichever of the two pairings is already the\ncloser fit. A mirror reverses orientation, so an author tracing a profile\naround a loop draws the second edge running the OTHER way as often as not,\nand pairing by name would demand the line be flipped end-for-end \u2014 a jump\nacross the solution manifold, not a refinement. The choice is a function of\nthe submitted coordinates alone, so it is deterministic (RESEARCH \u00a79), and\nit is made once and shared with the residual so both measure the same\nrelation.\n\nKept as its own ``kind`` rather than widening :class:`SymmetricConstraint`'s\n``a``/``b`` to a point-or-entity union: the union would put a\n``string | object`` on the wire and leave three of its four combinations to\nbe rejected at solve time, where two exhaustive kinds are checked by the\ntype system on both sides. A UI's single \"Symmetric\" button chooses between\nthem from the selection, which is one branch.",
+        "properties": {
+          "a": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "A",
+            "type": "string"
+          },
+          "b": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "B",
+            "type": "string"
+          },
+          "kind": {
+            "const": "symmetric_lines",
+            "title": "Kind",
+            "type": "string"
+          },
+          "line": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "Line",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "a",
+          "b",
+          "line"
+        ],
+        "title": "SymmetricLinesConstraint",
         "type": "object"
       },
       "TangentConstraint": {

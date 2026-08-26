@@ -6175,7 +6175,7 @@ export interface components {
              * Constraints
              * @description The sketch's constraints, bounded by MAX_SKETCH_CONSTRAINTS (work bound, audit G2)
              */
-            constraints: (components["schemas"]["CoincidentConstraint"] | components["schemas"]["HorizontalConstraint"] | components["schemas"]["VerticalConstraint"] | components["schemas"]["DistanceConstraint"] | components["schemas"]["RadiusConstraint"] | components["schemas"]["DiameterConstraint"] | components["schemas"]["AngleConstraint"] | components["schemas"]["FixedConstraint"] | components["schemas"]["ParallelConstraint"] | components["schemas"]["PerpendicularConstraint"] | components["schemas"]["TangentConstraint"] | components["schemas"]["EqualConstraint"] | components["schemas"]["SymmetricConstraint"] | components["schemas"]["ConcentricConstraint"] | components["schemas"]["MidpointConstraint"] | components["schemas"]["CollinearConstraint"])[];
+            constraints: (components["schemas"]["CoincidentConstraint"] | components["schemas"]["HorizontalConstraint"] | components["schemas"]["VerticalConstraint"] | components["schemas"]["DistanceConstraint"] | components["schemas"]["RadiusConstraint"] | components["schemas"]["DiameterConstraint"] | components["schemas"]["AngleConstraint"] | components["schemas"]["FixedConstraint"] | components["schemas"]["ParallelConstraint"] | components["schemas"]["PerpendicularConstraint"] | components["schemas"]["TangentConstraint"] | components["schemas"]["EqualConstraint"] | components["schemas"]["SymmetricConstraint"] | components["schemas"]["SymmetricLinesConstraint"] | components["schemas"]["ConcentricConstraint"] | components["schemas"]["MidpointConstraint"] | components["schemas"]["CollinearConstraint"])[];
             /**
              * Entities
              * @description The sketch's entities, bounded by MAX_SKETCH_ENTITIES (work bound, audit G2)
@@ -6433,6 +6433,59 @@ export interface components {
              * @enum {string}
              */
             kind: "symmetric";
+            /**
+             * Line
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            line: string;
+        };
+        /**
+         * SymmetricLinesConstraint
+         * @description Two LINES are mirror images of each other about a third line.
+         *
+         *     The selection an engineer makes first — two edges and a centreline — which
+         *     :class:`SymmetricConstraint` refuses with "select two points and a line"
+         *     (docs/AUDIT-PRODUCT.md T-5). SolidWorks and Onshape both accept it, and a
+         *     symmetric profile is the commonest thing anyone draws about a centreline.
+         *
+         *     ``a`` and ``b`` are whole line entities by id; ``line`` is the axis, cleanest
+         *     as a construction centreline but any line works. Removes four degrees of
+         *     freedom: ``b`` is completely determined by ``a`` and the axis.
+         *
+         *     **Which end pairs with which is read off the geometry as DRAWN**, not from
+         *     the order the ids happen to be in: ``a``'s endpoints are reflected in the
+         *     axis and matched to ``b``'s by whichever of the two pairings is already the
+         *     closer fit. A mirror reverses orientation, so an author tracing a profile
+         *     around a loop draws the second edge running the OTHER way as often as not,
+         *     and pairing by name would demand the line be flipped end-for-end — a jump
+         *     across the solution manifold, not a refinement. The choice is a function of
+         *     the submitted coordinates alone, so it is deterministic (RESEARCH §9), and
+         *     it is made once and shared with the residual so both measure the same
+         *     relation.
+         *
+         *     Kept as its own ``kind`` rather than widening :class:`SymmetricConstraint`'s
+         *     ``a``/``b`` to a point-or-entity union: the union would put a
+         *     ``string | object`` on the wire and leave three of its four combinations to
+         *     be rejected at solve time, where two exhaustive kinds are checked by the
+         *     type system on both sides. A UI's single "Symmetric" button chooses between
+         *     them from the selection, which is one branch.
+         */
+        SymmetricLinesConstraint: {
+            /**
+             * A
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            a: string;
+            /**
+             * B
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            b: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "symmetric_lines";
             /**
              * Line
              * @description Sketch-local entity id, e.g. 'e1'

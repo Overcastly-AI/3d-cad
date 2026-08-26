@@ -54,6 +54,7 @@ from py_kit.schemas.sketch import (
     SolvedDimension,
     SolvedSketch,
     SymmetricConstraint,
+    SymmetricLinesConstraint,
     TangentConstraint,
     VerticalConstraint,
 )
@@ -104,6 +105,7 @@ __all__ = [
     "SolvedDimension",
     "SolvedSketch",
     "SymmetricConstraint",
+    "SymmetricLinesConstraint",
     "TangentConstraint",
     "VerticalConstraint",
 ]

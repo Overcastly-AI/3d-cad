@@ -57,6 +57,7 @@ from geometry.sketch import (
     SketchPoint,
     SketchSolver,
     SymmetricConstraint,
+    SymmetricLinesConstraint,
     TangentConstraint,
     VerticalConstraint,
 )
@@ -239,6 +240,19 @@ OFF_SOLUTION: dict[str, SketchDefinition] = {
             MidpointConstraint(kind="midpoint", point=_ref("p1", "position"), line="l1")
         ],
     ),
+    # Two legs about a vertical axis, the LEFT one drawn well out of place and
+    # traced the other way round the loop — so the fixture exercises the CROSSED
+    # pairing as well as the residual, and both mirrored pairs are off-solution.
+    "symmetric-lines": SketchDefinition(
+        entities=[
+            _line("ax", (20, -5), (20, 30)),
+            _line("r1", (40, 0), (30, 25)),
+            _line("l1", (6, 21), (2, 3)),
+        ],
+        constraints=[
+            SymmetricLinesConstraint(kind="symmetric_lines", a="r1", b="l1", line="ax")
+        ],
+    ),
     "symmetric": SketchDefinition(
         entities=[
             _line("axis", (0, 0), (50, 0)),
@@ -339,6 +353,7 @@ def test_every_constraint_kind_is_covered_by_a_fixture() -> None:
         "perpendicular",
         "radius",
         "symmetric",
+        "symmetric_lines",
         "tangent",
         "vertical",
     }
