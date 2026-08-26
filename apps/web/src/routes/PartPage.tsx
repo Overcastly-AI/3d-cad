@@ -1390,6 +1390,23 @@ export function PartPage() {
   // distance before Save. Cleared the moment the editor closes.
   const [extrudePreview, setExtrudePreview] =
     useState<ExtrudePreviewState | null>(null);
+  /**
+   * The depth the viewport's drag handle is asserting (T-23). It flows the
+   * OTHER way from the ghost: the gauge reports a distance, the editor's form
+   * takes it, and the ghost redraws from that form — one value, two ways in
+   * (drag and type), never two states to keep in step.
+   *
+   * Boxed rather than a bare number so dragging back to a value you already
+   * had still reaches the editor: the identity changes even when the number
+   * does not.
+   */
+  const [extrudeDragDepth, setExtrudeDragDepth] = useState<{
+    mm: number;
+  } | null>(null);
+  const handleExtrudeDrag = useCallback(
+    (mm: number) => setExtrudeDragDepth({ mm }),
+    [],
+  );
 
   // Earlier datum features offered to the datum editor as references (the
   // offset-from base + the midplane sides). Create authors at the tip, so every
@@ -2548,6 +2565,7 @@ export function PartPage() {
     setEditor(null);
     setEditorError(null);
     setExtrudePreview(null);
+    setExtrudeDragDepth(null);
   }, []);
 
   // Global cancel for an open feature editor (FINDINGS #11). The command band
@@ -4320,6 +4338,7 @@ export function PartPage() {
                         saving={editorSaving}
                         error={editorError}
                         onPreviewChange={setExtrudePreview}
+                        depthOverride={extrudeDragDepth}
                       />
                     ) : editor.kind === "revolve" ? (
                       <RevolveEditor
@@ -4694,6 +4713,7 @@ export function PartPage() {
                   distanceMm={extrudePreview.distanceMm}
                   direction={extrudePreview.direction}
                   operation={extrudePreview.operation}
+                  onDepthChange={handleExtrudeDrag}
                 />
               ) : null}
               <MeasureOverlay />

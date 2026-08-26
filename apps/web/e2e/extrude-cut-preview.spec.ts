@@ -22,9 +22,21 @@ const SHOT_TAG = process.env["SHOT_TAG"] ?? "after";
  * Count the canvas pixels that read as warm metal (brass-tinted): red clearly
  * ahead of blue, and bright enough not to be the blued-steel bench. The add
  * ghost is exactly this; a void must not be.
+ *
+ * THE DEPTH GAUGE IS EXCLUDED, and it has to be (T-23). The extrude handle is a
+ * brass arrow standing on the profile whenever the editor is open, in BOTH
+ * operations — it is the manipulator, not the material, and Fusion's is the
+ * same colour whatever the operation. Left in the count it puts a constant
+ * brass floor under both readings, which is not a wrong picture but is a wrong
+ * MEASUREMENT: this test's question is what the swept volume reads as. The
+ * gauge occupies a narrow column on the profile's centre, so the column is
+ * skipped, in both states equally — the comparison keeps its power because the
+ * ghost is far wider than the shaft.
  */
+const GAUGE_COLUMN_HALF_PX = 40;
+
 async function warmPixels(page: Page): Promise<number> {
-  return page.evaluate(() => {
+  return page.evaluate((halfPx: number) => {
     const canvas = document.querySelector<HTMLCanvasElement>(
       '[data-testid="viewport"] canvas',
     );
@@ -36,14 +48,29 @@ async function warmPixels(page: Page): Promise<number> {
     if (!ctx) return -1;
     ctx.drawImage(canvas, 0, 0);
     const { data } = ctx.getImageData(0, 0, probe.width, probe.height);
+    // The gauge's column, in CANVAS pixels (the canvas may be scaled).
+    const canvasRect = canvas.getBoundingClientRect();
+    const scale = canvasRect.width > 0 ? probe.width / canvasRect.width : 1;
+    const gripRect = document
+      .querySelector('[data-testid="extrude-depth-handle"]')
+      ?.getBoundingClientRect();
+    const columnX =
+      gripRect === undefined
+        ? null
+        : (gripRect.x + gripRect.width / 2 - canvasRect.x) * scale;
+    const columnHalf = halfPx * scale;
     let warm = 0;
     for (let i = 0; i < data.length; i += 16) {
+      if (columnX !== null) {
+        const x = (i >> 2) % probe.width;
+        if (Math.abs(x - columnX) < columnHalf) continue;
+      }
       const r = data[i] ?? 0;
       const b = data[i + 2] ?? 0;
       if (r > 110 && r - b > 30) warm++;
     }
     return warm;
-  });
+  }, GAUGE_COLUMN_HALF_PX);
 }
 
 /**

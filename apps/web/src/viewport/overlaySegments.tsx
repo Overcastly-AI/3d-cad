@@ -27,6 +27,13 @@ export interface SegmentsProps {
   color: string;
   depthTest?: boolean;
   renderOrder?: number;
+  /**
+   * Line opacity. Defaults to solid, which is what every highlight wants; the
+   * extrude gauge's graduations want half strength, and a token-held opacity
+   * belongs on the shared primitive rather than as a second `lineSegments` in
+   * the one component that needed it.
+   */
+  opacity?: number;
 }
 
 /** One un-tonemapped line layer with GPU-resource disposal. */
@@ -35,6 +42,7 @@ export function Segments({
   color,
   depthTest = true,
   renderOrder = 0,
+  opacity = 1,
 }: SegmentsProps) {
   const geometry = useMemo(() => {
     const g = new BufferGeometry();
@@ -55,6 +63,7 @@ export function Segments({
         depthTest={depthTest}
         depthWrite={false}
         transparent
+        opacity={opacity}
       />
     </lineSegments>
   );

@@ -238,6 +238,40 @@ export const viewport = {
       edgeOpacity: 0.8,
     },
   },
+  /**
+   * DIRECT-MANIPULATION HANDLES (T-23) — the depth gauge you pull to set an
+   * extrude, and the language every handle after it inherits.
+   *
+   * The design mandate calls the missing drag affordance "the single biggest
+   * 'does not feel like a modeling tool' gap we have", and the fifth product
+   * audit found the product carried none at all. The read had to be decided
+   * once, here, because there will be more of these (revolve angle, fillet
+   * radius, pattern spacing) and four hand-tuned gizmos would be four dialects.
+   *
+   * It is the WORKING BRASS, deliberately the same accent as the ghost it
+   * pulls: the handle and the volume it is sizing are one pending edit, and
+   * giving the manipulator its own colour would say they were two things. What
+   * separates them is FORM, not hue — the ghost is a translucent solid, the
+   * gauge is a scribed line with graduations, exactly as a drawing separates
+   * material from dimensioning.
+   *
+   * The graduations are the signature. A plain arrow says "you may pull this";
+   * a RULED arrow says what you are pulling against, which is the difference
+   * between a generic gizmo and a machinist's depth gauge. They are held quiet
+   * (about half strength) and appear only once the grip is taken or focused —
+   * boldness spent in one place, and nothing extra painted while you are just
+   * looking at the model.
+   */
+  manipulator: {
+    /** The pull axis, the arrow, and the grip at rest — working brass. */
+    axis: color.brass,
+    /** Grabbed, hovered or keyboard-focused. */
+    active: color.brassHover,
+    /** Axis + arrow opacity. Solid enough to aim at, short of committed metal. */
+    axisOpacity: 0.92,
+    /** Graduation opacity — present, never competing with the ink beneath. */
+    ladderOpacity: 0.5,
+  },
 } as const;
 
 /**

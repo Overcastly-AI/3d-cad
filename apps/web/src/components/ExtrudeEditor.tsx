@@ -32,6 +32,7 @@ import {
 import { type KeyboardEvent, useCallback, useEffect, useState } from "react";
 
 import { useCommandBridge } from "../features/commandActions";
+import { lengthInputValue } from "../units/length";
 import { useDocumentLengthUnit } from "../units/documentUnit";
 import type { ExtrudeParams } from "../api/parts";
 import {
@@ -72,6 +73,19 @@ export interface ExtrudeEditorProps {
    * incomplete form and once on unmount (the ghost never lingers past close).
    */
   onPreviewChange?: (preview: ExtrudePreviewState | null) => void;
+  /**
+   * A distance set by DIRECT MANIPULATION — the viewport's depth gauge (T-23).
+   *
+   * The drag and the field are ONE value, and this is the seam that makes that
+   * true rather than approximately true: the handle reports millimetres, the
+   * form takes them, and the ghost redraws from the form. There is no second
+   * copy of the depth anywhere, so the two controls cannot disagree.
+   *
+   * Boxed (`{ mm }`) so dragging back to a number the field already holds still
+   * arrives — a bare number would compare equal and the update would be
+   * swallowed.
+   */
+  depthOverride?: { mm: number } | null;
 }
 
 // No `icon` on these four: they render in a DENSE segmented control, which
@@ -137,11 +151,24 @@ export function ExtrudeEditor({
   saving,
   error,
   onPreviewChange,
+  depthOverride = null,
 }: ExtrudeEditorProps) {
   const unit = useDocumentLengthUnit();
   const [form, setForm] = useState<ExtrudeForm>(initial);
   // Re-seed when the editor is retargeted at a different feature.
   useEffect(() => setForm(initial), [initial]);
+
+  // The viewport gauge writes the field. Deliberately written in the DOCUMENT
+  // unit through the same formatter the seed uses, so a dragged value and a
+  // typed one are indistinguishable afterwards — including on an inch part,
+  // where the stored millimetres are not what the field shows.
+  useEffect(() => {
+    if (depthOverride === null) return;
+    setForm((f) => ({
+      ...f,
+      distanceInput: lengthInputValue(depthOverride.mm, unit),
+    }));
+  }, [depthOverride, unit]);
 
   // Feed the live ghost: every form/unit change re-projects the preview; the
   // cleanup clears it so closing the editor (unmount) never leaves a ghost.
