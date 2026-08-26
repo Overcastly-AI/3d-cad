@@ -121,10 +121,25 @@ def plane_point_to_local(plane: Plane, point: Vector) -> tuple[float, float, flo
     (:func:`geometry.kernel.revolve.resolve_revolve_axis`).
     """
     offset = point - plane.origin
+    return plane_vector_to_local(plane, offset)
+
+
+def plane_vector_to_local(plane: Plane, vector: Vector) -> tuple[float, float, float]:
+    """Resolve a world DIRECTION into *plane*'s frame: ``(du, dv, dw)``.
+
+    The vector sibling of :func:`plane_point_to_local` — same orthonormal
+    projection, but WITHOUT subtracting the plane origin, because a direction
+    has no position. Keeping the two apart matters: routing a direction through
+    the point mapping silently adds the plane's own offset to ``dw``, so "does
+    this direction lie in the plane?" would answer differently for the same
+    direction depending on where the plane sits. ``dw`` alone is the sine of the
+    angle between *vector* and the plane, which is what a coplanarity test on a
+    direction actually needs.
+    """
     return (
-        offset.dot(plane.x_dir),
-        offset.dot(plane.y_dir),
-        offset.dot(plane.z_dir),
+        vector.dot(plane.x_dir),
+        vector.dot(plane.y_dir),
+        vector.dot(plane.z_dir),
     )
 
 

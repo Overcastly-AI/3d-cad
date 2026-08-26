@@ -37,7 +37,10 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from build123d import Vector
 from fastapi.testclient import TestClient
+from geometry.kernel.datum import DATUM_PLANES, offset_plane
+from geometry.kernel.extrude import plane_point_to_local, plane_vector_to_local
 from geometry.main import app
 from py_kit.schemas.features import EvaluateTreeResult
 
@@ -154,6 +157,41 @@ def _error_code(result: EvaluateTreeResult, index: int) -> str:
     assert feature.status == "error", f"expected an error, got {feature.status}"
     assert feature.error is not None
     return feature.error.code
+
+
+# --- The frame mapping the coplanarity test rests on ---------------------------
+
+
+def test_a_direction_in_the_plane_is_in_the_plane_wherever_the_plane_SITS() -> None:
+    """A DIRECTION's out-of-plane component must not depend on the plane's origin.
+
+    This is the property that keeps the two halves of the coplanarity test
+    independent, and it is invisible from the API — with both halves present the
+    point test fires first, so a direction routed through the POINT mapping
+    (``origin + unit``, which silently adds the plane's own offset) still refuses
+    every real input, just for the wrong reason and with the wrong message. The
+    only place the difference is observable is here, one level down.
+
+    Measured on the exact configuration that caught it: the XY datum slid to
+    z = 5, and the world X axis, which LIES IN a plane parallel to that one and
+    is 5 mm away from this one. The direction is in-plane (dw = 0) no matter
+    where the plane sits; the point is 5 mm out. Two different facts, two
+    different numbers — and the conflated form returns -5 for both.
+    """
+    plane = offset_plane(DATUM_PLANES["XY"], 5.0, flip=False)
+    axis_point = Vector(0.0, 0.0, 0.0)
+    axis_direction = Vector(1.0, 0.0, 0.0)
+
+    _, _, direction_out_of_plane = plane_vector_to_local(plane, axis_direction)
+    _, _, point_out_of_plane = plane_point_to_local(plane, axis_point)
+    conflated = plane_point_to_local(plane, axis_point + axis_direction)[2]
+
+    assert direction_out_of_plane == pytest.approx(0.0, abs=REVOLVE_TOL)
+    assert point_out_of_plane == pytest.approx(-5.0, abs=REVOLVE_TOL)
+    # The trap, pinned so it cannot come back unnoticed: the point mapping of
+    # `origin + unit` answers the POINT's question, not the direction's.
+    assert conflated == pytest.approx(-5.0, abs=REVOLVE_TOL)
+    assert conflated != pytest.approx(direction_out_of_plane, abs=REVOLVE_TOL)
 
 
 # --- The capability: a plain closed profile, no construction geometry ---------

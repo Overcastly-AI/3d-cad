@@ -82,6 +82,7 @@ from geometry.kernel.extrude import (
     build_profile_face,
     plane_point_to_local,
     plane_point_to_world,
+    plane_vector_to_local,
 )
 from geometry.kernel.healing import clean_shape
 
@@ -235,6 +236,17 @@ def _world_axis_to_sketch_line(
     Both use :data:`AXIS_CLEARANCE_TOL`: the point test in mm, the direction
     test on a UNIT vector's normal component, which is the sine of the angle
     between the axis and the plane and so is already dimensionless.
+
+    The two halves go through DIFFERENT mappings on purpose —
+    :func:`plane_point_to_local` for the point, :func:`plane_vector_to_local`
+    for the direction — so each measures only its own thing. Resolving the
+    direction as the POINT ``origin + unit`` instead would fold the plane's own
+    offset into the direction's answer, which is wrong twice over: the two tests
+    stop being independent, and the direction test starts reporting "points out
+    of the plane" for an axis that is merely offset from it. Found 2026-08-26 by
+    the mutation that deletes the point test — under the conflated form that
+    mutation still refused, with the wrong message; under this form it builds a
+    body, which is the honest measure of what the point test is holding up.
     """
     length = direction.length
     if length <= AXIS_CLEARANCE_TOL:
@@ -244,7 +256,7 @@ def _world_axis_to_sketch_line(
         )
     unit = direction / length
 
-    _, _, point_out_of_plane = plane_point_to_local(plane, origin)
+    base_u, base_v, point_out_of_plane = plane_point_to_local(plane, origin)
     if abs(point_out_of_plane) > AXIS_CLEARANCE_TOL:
         raise AxisNotInSketchPlaneError(
             f"{subject} is {abs(point_out_of_plane):.6g} mm away from the "
@@ -253,7 +265,7 @@ def _world_axis_to_sketch_line(
             "the sketch plane, or draw a construction centerline in the sketch."
         )
 
-    tip_u, tip_v, direction_out_of_plane = plane_point_to_local(plane, origin + unit)
+    du, dv, direction_out_of_plane = plane_vector_to_local(plane, unit)
     if abs(direction_out_of_plane) > AXIS_CLEARANCE_TOL:
         raise AxisNotInSketchPlaneError(
             f"{subject} points out of the profile's sketch plane, so revolving "
@@ -262,13 +274,12 @@ def _world_axis_to_sketch_line(
             "or draw a construction centerline in the sketch."
         )
 
-    base_u, base_v, _ = plane_point_to_local(plane, origin)
     return SketchLine(
         id="__axis__",
         kind="line",
         construction=True,
         start=Point2D(x=base_u, y=base_v),
-        end=Point2D(x=tip_u, y=tip_v),
+        end=Point2D(x=base_u + du, y=base_v + dv),
     )
 
 
