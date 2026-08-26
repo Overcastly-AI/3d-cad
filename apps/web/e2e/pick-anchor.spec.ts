@@ -449,7 +449,23 @@ test.describe("PICK-1 — a subshape pick is anchored to its own body, not the t
               },
             },
           },
-          position: { x: 500, y: 500, z: 500 },
+          // The lost thing is the face IDENTITY, not the placement: this is a
+          // real drill point a modeller authored, at face-frame (3, 3) — the
+          // +Z frame is origin-at-part-origin with X→+X and Y→+Y, so it reads
+          // as (3, 3) in the editor's cells and lands on metal on the 20 mm
+          // cube's top face, clear of the Ø5 bore's 2.5 mm radius on every
+          // side. `z` sits on the bogus face's plane because that is where the
+          // stored world point WAS; re-anchoring moves it to the new face's.
+          //
+          // It used to be `500, 500, 500` — a point on no body at all. That was
+          // harmless only because adopting a re-picked face RE-SEEDED the
+          // position to its centroid, so this test's "the feature rebuilds" bar
+          // was met by the very behaviour T-22 (`repick-face.spec.ts`) removed:
+          // a repair that silently overwrote the feature's own parameters. With
+          // the placement correctly preserved, `500, 500` re-anchors onto the
+          // top face's plane and the kernel rightly answers `hole_off_body`.
+          // The fixture, not the fix, was encoding the old behaviour.
+          position: { x: 3, y: 3, z: 500 },
           diameter_mm: 5,
           depth: { kind: "through_all" },
         },
@@ -477,6 +493,14 @@ test.describe("PICK-1 — a subshape pick is anchored to its own body, not the t
       "aria-pressed",
       "false",
     );
+
+    // The repair changes the ANCHOR and nothing else (T-22): the drill point the
+    // hole was authored at is still the drill point. Asserted HERE, before the
+    // write, so this spec can never again be satisfied by a repair that throws
+    // the feature's own placement away and re-seeds it to the new face's centre
+    // — which is how it used to pass, and why it broke when that was fixed.
+    await expect(page.getByTestId("hole-position-x")).toHaveValue("3");
+    await expect(page.getByTestId("hole-position-y")).toHaveValue("3");
 
     const patch = await capturePatch(page, fx.partId, async () => {
       await page.getByTestId("hole-submit").click();

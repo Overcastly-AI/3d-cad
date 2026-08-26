@@ -289,4 +289,67 @@ test.describe("re-pick repair — a lost face reference is re-attachable", () =>
       path: `${SCREENSHOT_DIR}/repick-face-preserved-desktop.png`,
     });
   });
+
+  /**
+   * The other half of T-22, and the case its sibling `pick-anchor.spec.ts` used
+   * to exercise BY ACCIDENT: preserving the placement is right, and a preserved
+   * placement can still miss the face the user just picked (they re-attached the
+   * hole to a face the point was never over). The two ways to make that go away
+   * are both defects — silently re-seeding the point destroys the feature's own
+   * parameters (the audit T-22 fixed), and silently writing it builds a part
+   * with no hole in it. So the tool SAYS SO, twice and in the user's terms:
+   *
+   * - before the write, the live material check on the face calls it out, with
+   *   the fix in the message ("move it onto the face") and the coordinates still
+   *   sitting there in the X/Y cells to be corrected;
+   * - if they save anyway, the rebuild names `hole_off_body` on the row rather
+   *   than pretending the hole exists.
+   *
+   * The check WARNS and never blocks (see `features/facePlacement`): the kernel
+   * is the authority on what is on the body, and the client's coplanar-edge
+   * approximation must not be able to veto a hole the kernel would accept.
+   */
+  test("a preserved placement that misses the re-picked face is called out, not silently written", async ({
+    page,
+  }) => {
+    // A stored point on no body at all — face-frame (500, 500) once re-anchored
+    // onto the cube's top face, which is 20 mm across.
+    const partId = await seedUnresolvableHole(page, { x: 500, y: 500, z: 500 });
+    await page.goto(`/parts/${partId}`);
+
+    await expect(page.getByTestId("eval-status")).toHaveText("Failed", {
+      timeout: 30_000,
+    });
+    await expect(page.getByTestId("feature-error-2")).toContainText(
+      "subshape_unresolved",
+    );
+
+    await page.getByTestId("feature-repick-face-2").click();
+    await expect(page.getByTestId("hole-editor")).toBeVisible();
+    await clickTopFaceNode(page);
+
+    // The placement is PRESERVED — the repair did not quietly move the hole.
+    await expect(page.getByTestId("hole-position-x")).toHaveValue("500");
+    await expect(page.getByTestId("hole-position-y")).toHaveValue("500");
+
+    // And the editor says, in place, that it no longer lands on the face.
+    const check = page.getByTestId("hole-position-check");
+    await expect(check).toHaveAttribute("data-verdict", "outside");
+    await expect(check).toContainText("Off the face outline");
+
+    // Advisory, not a veto: the write is still offered (the kernel decides).
+    const submit = page.getByTestId("hole-submit");
+    await expect(submit).toBeEnabled();
+
+    // Saving anyway is honest about the outcome — a named, actionable rebuild
+    // error on the row, never a silent "solved" over a part with no hole in it.
+    // The row's error CODE is what is asserted, not `eval-status`: the tree was
+    // already Failed on `subshape_unresolved`, so "still Failed" would pass
+    // without the write ever landing. The code CHANGING is the state change.
+    await submit.click();
+    await expect(page.getByTestId("hole-editor")).toHaveCount(0);
+    const errorRow = page.getByTestId("feature-error-2");
+    await expect(errorRow).toContainText("hole_off_body", { timeout: 30_000 });
+    await expect(errorRow).toContainText("Move the point onto solid material");
+  });
 });
