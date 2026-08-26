@@ -5,6 +5,48 @@ section each grooming pass (one-line-per-entry there; detail preserved
 here). Newest first. Evidence for shipped items also lives in the Done
 archive (`BACKLOG.md`) and per-item commits.
 
+## 2026-08-26 (groom pass 13 — closed nine in-flight items, re-scoped MATE-1)
+
+- **Groom pass 13 (backlog-groomer).** Ten commits landed since pass 12,
+  all reconciled: SETTLE-PERF-1 (`eed8729`, 883x speedup + removed the
+  90s-timeout DoS route), DXF-4 (`b226ee4`, flat pattern carries holes),
+  DXF-5/T-16 (`cc35629`, units + scale fixed both export paths), PICK-2
+  (`8384f1e`, refuse to arm with nothing to pick), FB-21 (`b505efe`, axis
+  glyph frame fixed), FB-9 (`92da971`, verified already-fixed, gated),
+  NAME-2/T-21/T-8 (`c2700ee`, durable edge tier — kernel side fully
+  closes), EDGEFLANGE-1 (`3fba5fd`, thickness-edge flange refused), and
+  T-22/REPICK-1's e2e regression (`b036acd` — fixture was asserting the
+  old reset behaviour; T-22 stands). **MATE-1 re-scoped, not closed:**
+  `287510f` gated the kernel mate-pick seam clean (0 bad of 14 offered
+  faces) — S-15 is UI-side; re-filed as UI-only, but BLOCKED this batch
+  behind T-23/DRAG-1 which occupies `apps/web/src/viewport/**` (ORTHO-1
+  shares that territory and queues behind MATE-1 too). Filed NAME-2b (P2,
+  client-facing re-anchor surface). Folded the standalone "promote durable
+  edge tier" P2 item into NAME-2's closure. Noted `docs/design/
+  pattern-scope.md` (`b7f1407`) against PATTERN-1. Re-derived Ready queue,
+  excluding in-flight/reserved items (T-23/DRAG-1, MATE-1(UI), ORTHO-1,
+  SNAP-5, SKETCH-VOCAB-1 kernel half, PATTERN-1 kernel half, SIGNIN-1):
+  SPEC-10 → SPEC-9 → DOCTICK-GATE → EXPORT-3 → SKETCH-VOCAB-1(FE) →
+  PATTERN-1(FE) → REVOLVE-1 → SNAP-4. Also reconciled ROADMAP.md's
+  "Current focus" and pruned its pass-11/12 detail here.
+
+## 2026-08-24 (groom pass 12 — ROADMAP "Current focus" detail, pruned pass 13)
+
+- **Groom pass 12 (backlog-groomer).** No new commits since pass 11
+  (`8dcd0c3` still HEAD); the same five builders (NAME-2, DXF-4, DXF-5,
+  EDGEFLANGE-1, LAYOUT-1/T-18) still in flight. Found an UNCOMMITTED
+  `docs/AUDIT-ENGINEERING.md` "Pass 10" on disk measuring SOLVE-1's
+  `settle()` at 1,560x slower than the pre-SOLVE-1 solver on a 48-line
+  dimension edit (8.3ms→12,944ms) and 230s on a 96-line one, against a
+  gateway that gives up at 90s and never cancels the upstream — DoS-shaped,
+  fires on the commonest sketcher interaction. Elevated SETTLE-BENCH-1
+  P1→P0 (renamed SETTLE-PERF-1), top of Ready. Filed SPEC-10
+  (`constraints.spec.ts:240` asserts a pre-settle transient, same class as
+  SPEC-9/CI-4(d)). Corrected two stale framings rather than re-filing:
+  "snap points don't work" was reproduced and closed (SNAP-1→SNAP-2/
+  SNAP-3, `c233a5b`); trackpad orbit-while-sketching shipped as VP-1a
+  (`32e5b87`).
+
 ## 2026-08-24 (groom pass 11 — reconciled SETTLE batch, filed audit passes 4-5, marked six items in flight)
 
 - **Groom pass 11 (backlog-groomer):** ticked SETTLE-2 (`4fef60a`, a settle

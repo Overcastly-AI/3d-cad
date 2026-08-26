@@ -2,54 +2,31 @@
 
 Status legend: ✅ done · 🚧 in progress · ⬜ planned
 
-**Current focus, corrected 2026-08-24 (backlog-groomer pass 12).** No new
-commits landed since pass 11 (`8dcd0c3` still HEAD); the same five builders
-(NAME-2, DXF-4, DXF-5, EDGEFLANGE-1, LAYOUT-1/T-18) are still in flight.
-What changed: an UNCOMMITTED `docs/AUDIT-ENGINEERING.md` "Pass 10" found on
-disk mid-groom measured SOLVE-1's `settle()` at **1,560x slower** than the
-pre-SOLVE-1 solver on a 48-line dimension edit (8.3ms→12,944ms) and **230
-seconds** on a 96-line one — against a gateway that gives up at 90s and
-never cancels the upstream (DoS-shaped, fires on the single commonest
-sketcher interaction). Filed as `docs/BACKLOG.md` **SETTLE-PERF-1** (was
-SETTLE-BENCH-1, P1→P0), now top of the Ready queue ahead of PICK-2. Also
-filed **SPEC-10** (`constraints.spec.ts:240` asserts a pre-settle
-transient, same class as SPEC-9/CI-4(d)). Two stale framings in the
-grooming brief corrected against evidence already on the board rather than
-re-filed: "snap points don't work" was reproduced and closed
-(SNAP-1→SNAP-2/SNAP-3, `c233a5b`); trackpad orbit-while-sketching shipped
-as VP-1a (`32e5b87`).
-
-**Prior focus, corrected 2026-08-24 (backlog-groomer pass 11).**
-SOLVE-1 (pass 10) shipped clean; the same day it shipped two of its own
-regressions were caught and fixed — **SETTLE-2** (`4fef60a`, a settle could
-reflect a rigid shape across its own symmetry axis) and **SETTLE-3**
-(`8b239e5`, a settle could sacrifice a circle's radius while pinning its
-centre, plus a second independently-derived residual witness after a
-400-sketch sweep found `status=Success` on a relationally-contradictory
-sketch 7/155 times) — alongside an unrelated e2e fix for EXPORT-1's sixth
-command-band group (`ae1cea0`). The vision-steward's fifteenth pass
-(`fc5cf41`) then flipped `Sketching & constraints` ➖→✅ on that chain and
-`Assemblies` + `Sheet metal` ➖→❌ on MATE-1/DXF-4 (both still open).
-**Two more audit passes landed same-day** (`8b16b21` engineering Pass 9 +
-product pass 4; `a547a6d` product pass 5) and were reconciled this groom
-pass: NAME-2 widened by T-21/T-8 (a topology-preserving extrude-depth or
-resize edit orphans features anchored by coordinate, not identity — a
-FIRST ordinary edit is enough, not just a second) and DXF-5 widened by
-T-16 (the unit defect is on the standard drawing DXF too, plus a silent
-1:2 scale error). **Five builders were dispatched from pass 10's queue and
-are still in flight as of this groom pass:** NAME-2, DXF-4, DXF-5,
-EDGEFLANGE-1, LAYOUT-1/T-18 — a sixth, REPICK-1/T-22 (`4c98ee0`, the
-`Re-pick face` repair path resetting a feature's own parameters), shipped
-while this groom pass was running and is reconciled into the Done archive
-already. See `docs/BACKLOG.md` Ready section for the re-derived dispatch
-order once the five land: PICK-2 → MATE-1 → PATTERN-1/SNAP-5/
-SKETCH-VOCAB-1 → FB-21/FB-9 → DOCTICK-GATE. **Hygiene note for the next
-groom pass:** this section has accumulated detailed per-pass history back
-to the licensing work (LIC-2/LIC-4, 2026-08-01) — a proper archive sweep
-into `docs/CHANGELOG.md` (one paragraph per closed item, matching what
-this pass did for `docs/BACKLOG.md`'s Scorecard-gaps section) is overdue
-and was deliberately NOT attempted this pass to keep the reconciliation
-focused; budget a dedicated pass for it.
+**Current focus, corrected 2026-08-26 (backlog-groomer pass 13).** Ten items
+from pass 11/12's in-flight batch shipped and are ticked in `docs/BACKLOG.md`
+Done archive: **SETTLE-PERF-1** (883x speedup, and removed a 90s-timeout
+resource-exhaustion route), **DXF-4** (flat pattern now carries its holes),
+**DXF-5/T-16** (DXF units + the silent scale error fixed on both export
+paths), **PICK-2** (a pick mode refuses to arm with nothing to pick),
+**FB-21** (axis glyph now points where the part's Z actually goes),
+**FB-9** (verified already fixed by FB-7c, now gated end-to-end),
+**NAME-2/T-21/T-8** (durable edge re-match added; the face tier was already
+durable since M17/GEOM-3 — kernel side fully closes), **EDGEFLANGE-1**
+(thickness-edge flange now refused with a typed error), and
+**T-22/REPICK-1** (re-pick preserves the anchor) plus the e2e regression it
+exposed (`b036acd` — the fixture was asserting the OLD reset behaviour
+without saying so; T-22 is correct and stands). **MATE-1 RE-SCOPED, not
+closed:** `287510f` gated the kernel mate-pick seam and measured 0 bad of 14
+offered faces, worst round-trip deviation exactly 0.0 — the S-15
+face-unreachable repro is NOT kernel-side. The remaining UI raycast/
+hover-highlight half is re-filed, **blocked** on `apps/web/src/viewport/**`
+— T-23/DRAG-1 (the extrude drag handle) is in flight there now; ORTHO-1
+shares the territory and queues behind MATE-1 once it clears. Re-derived
+Ready queue (top: SPEC-10 → SPEC-9 → DOCTICK-GATE → EXPORT-3 →
+SKETCH-VOCAB-1(FE) → PATTERN-1(FE) → REVOLVE-1 → SNAP-4) in
+`docs/BACKLOG.md`. Full pass-11/12 narrative moved to `docs/CHANGELOG.md`
+(hygiene sweep still owed for pre-pass-9 history — deferred again to keep
+this pass mechanical).
 
 **Prior focus, corrected 2026-08-21 (backlog-groomer pass 8): the
 2026-08-17 founder file-page/export directive is fully SHIPPED.** EXPORT-1
