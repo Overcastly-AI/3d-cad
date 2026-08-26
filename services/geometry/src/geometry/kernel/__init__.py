@@ -138,11 +138,14 @@ from geometry.kernel.provenance import (
 from geometry.kernel.removal import removal_reaches_body
 from geometry.kernel.revolve import (
     AxisIntersectsProfileError,
+    AxisNotInSketchPlaneError,
     NoAxisError,
+    ResolvedRevolveAxis,
     RevolveError,
     build_revolve_profile_face,
     check_axis_clears_profile,
     resolve_axis_line,
+    resolve_revolve_axis,
     revolve_face,
 )
 from geometry.kernel.shapes import build_box, build_cylinder
@@ -188,6 +191,7 @@ __all__ = [
     "ISO_METRIC_PITCHES",
     "AssemblyComponent",
     "AxisIntersectsProfileError",
+    "AxisNotInSketchPlaneError",
     "BooleanDisjointError",
     "BooleanEmptyError",
     "BooleanError",
@@ -235,6 +239,7 @@ __all__ = [
     "ProfileUnsupportedError",
     "ReadProduct",
     "ResolvedEdge",
+    "ResolvedRevolveAxis",
     "ResolvedThread",
     "RevolveError",
     "ShellError",
@@ -321,6 +326,7 @@ __all__ = [
     "resolve_face_plane",
     "resolve_faces",
     "resolve_iso_metric_thread",
+    "resolve_revolve_axis",
     "revolve_face",
     "select_edges",
     "selection_overlay",

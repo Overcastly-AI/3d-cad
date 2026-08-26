@@ -4646,6 +4646,42 @@ export interface components {
             type: "note";
         };
         /**
+         * OriginAxis
+         * @description ``kind: "origin_axis"`` — one of the three WORLD origin axes (X, Y, Z).
+         *
+         *     The always-available axis (REVOLVE-1): a part that has no construction
+         *     centerline drawn still has X, Y and Z through the world origin, so a plain
+         *     closed profile can be turned without first learning the centerline idiom.
+         *     The reference is a pure enum — no sketch entity, no picked sub-geometry —
+         *     so it is the most rebuild-stable axis there is: nothing upstream can move,
+         *     rename or delete it, and it is wholly independent of topological naming (#1).
+         *
+         *     The axis must LIE IN the profile's sketch plane, exactly as a sketch-line
+         *     axis does by construction. Revolving a planar profile about an axis that
+         *     leaves its plane sweeps material out of the profile's own cross-section, so
+         *     an out-of-plane pick is the per-feature ``axis_not_in_sketch_plane`` error,
+         *     never a silently wrong solid. Concretely: a sketch on the ``XY`` origin
+         *     datum turns about ``X`` or ``Y`` and REFUSES ``Z`` (its normal); ``XZ``
+         *     turns about ``X`` or ``Z`` and refuses ``Y``; ``YZ`` turns about ``Y`` or
+         *     ``Z`` and refuses ``X``. A sketch on an OFFSET datum refuses every origin
+         *     axis that its offset has lifted the plane away from (RESEARCH §12 — the
+         *     plane slides along its own normal), which is honest: the origin axis is no
+         *     longer in that plane.
+         */
+        OriginAxis: {
+            /**
+             * Axis
+             * @description World origin axis (through 0,0,0) to revolve about. It must lie in the profile's sketch plane — an out-of-plane choice (e.g. Z for a sketch on the XY datum) is an `axis_not_in_sketch_plane` rebuild error.
+             * @enum {string}
+             */
+            axis: "X" | "Y" | "Z";
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "origin_axis";
+        };
+        /**
          * ParallelConstraint
          * @description Two lines have equal direction.
          *
@@ -5207,35 +5243,6 @@ export interface components {
             type: "radius";
         };
         /**
-         * RevolveAxis
-         * @description The axis of revolution: a straight LINE entity of the profile's sketch.
-         *
-         *     v1 references a line entity by its sketch-local id (design §2.4 entity ids)
-         *     within the SAME sketch the profile comes from. A **construction** line is
-         *     the natural choice — a centerline is reference-only (excluded from the
-         *     closed-wire profile) and is exactly what an axis of revolution is — but any
-         *     line entity resolves; the axis is defined by the line's two solved
-         *     endpoints, mapped to world space through the profile's datum plane.
-         *
-         *     The ``kind`` discriminator seeds a future additive ``datum_axis`` variant
-         *     (the §2.1 ``GeomRef`` pattern) without forcing a ``param_version`` bump: a
-         *     persisted axis is always ``{"kind": "sketch_line", "entity": ...}`` today,
-         *     and a later datum-axis reference joins as ``kind: "datum_axis"``.
-         */
-        RevolveAxis: {
-            /**
-             * Entity
-             * @description Sketch-local id of a LINE entity in the profile's sketch (a construction centerline is ideal) used as the axis of revolution
-             */
-            entity: string;
-            /**
-             * Kind
-             * @default sketch_line
-             * @constant
-             */
-            kind: "sketch_line";
-        };
-        /**
          * RevolveFeature
          * @description ``{"type": "revolve", "version": 1, "params": {...}}`` envelope.
          */
@@ -5259,18 +5266,26 @@ export interface components {
         };
         /**
          * RevolveParamsV1
-         * @description Revolution of an earlier sketch feature's profile about a sketch-line axis.
+         * @description Revolution of an earlier sketch feature's profile about an axis.
          *
          *     The revolve sibling of :class:`ExtrudeParamsV1` (design §4.3, second core
          *     body-affecting feature): it consumes the SAME ``profile`` FeatureRef to an
          *     earlier sketch and the SAME ``add``/``cut`` boolean against the body chain,
          *     swapping the linear prism for a swept revolution. The ``axis`` is a
-         *     :class:`RevolveAxis` (a line entity of that same sketch — no picked
-         *     sub-geometry reference, so this is independent of topological naming), and
-         *     ``angle_deg`` is the sweep (full 360° by default). The profile must clear
-         *     the axis: a profile the axis crosses would revolve into self-intersecting
-         *     material and is a per-feature ``axis_intersects_profile`` error (design
-         *     §4.3), never a silent bad body.
+         *     :data:`RevolveAxis` — a line entity of that same sketch
+         *     (:class:`SketchLineAxis`) or a world origin axis (:class:`OriginAxis`);
+         *     neither is a picked sub-geometry reference, so revolve remains independent
+         *     of topological naming — and ``angle_deg`` is the sweep (full 360° by
+         *     default).
+         *
+         *     Two conditions are typed refusals rather than bad solids (design §4.3):
+         *
+         *     * the axis must lie IN the profile's sketch plane, or
+         *       ``axis_not_in_sketch_plane``; and
+         *     * the profile must clear the axis — a profile the axis CROSSES would
+         *       revolve into self-intersecting material, so it is
+         *       ``axis_intersects_profile``. A profile that merely TOUCHES the axis is
+         *       valid: that is the ordinary solid of revolution about its own centerline.
          */
         RevolveParamsV1: {
             /**
@@ -5279,8 +5294,11 @@ export interface components {
              * @default 360
              */
             angle_deg: number;
-            /** @description Axis of revolution — a line entity of the profile's sketch */
-            axis: components["schemas"]["RevolveAxis"];
+            /**
+             * Axis
+             * @description Axis of revolution — a line entity of the profile's sketch or a world origin axis; it must lie in the profile's sketch plane
+             */
+            axis: components["schemas"]["SketchLineAxis"] | components["schemas"]["OriginAxis"];
             /**
              * Direction
              * @description Sweep sense about the axis for a partial revolution (irrelevant at a full 360°): 'reverse' sweeps the opposite way
@@ -6064,6 +6082,36 @@ export interface components {
              */
             kind: "line";
             start: components["schemas"]["Point2D"];
+        };
+        /**
+         * SketchLineAxis
+         * @description ``kind: "sketch_line"`` — a LINE entity of the profile's own sketch.
+         *
+         *     The v1 axis reference, and still the most direct one: a line entity named by
+         *     its sketch-local id (design §2.4 entity ids) within the SAME sketch the
+         *     profile comes from. A **construction** line is the natural choice — a
+         *     centerline is reference-only (excluded from the closed-wire profile) and is
+         *     exactly what an axis of revolution is — but any line entity resolves; the
+         *     axis is defined by the line's two solved endpoints, mapped to world space
+         *     through the profile's datum plane.
+         *
+         *     This variant alone can also CLOSE a half-profile: a three-sided L or
+         *     rectangle whose fourth side is the centerline builds the face the
+         *     revolution needs (see :func:`geometry.kernel.revolve.build_revolve_profile_face`).
+         *     An :class:`OriginAxis` is not a sketch entity, so it cannot close anything —
+         *     a profile revolved about an origin axis must already be a closed loop.
+         */
+        SketchLineAxis: {
+            /**
+             * Entity
+             * @description Sketch-local id of a LINE entity in the profile's sketch (a construction centerline is ideal) used as the axis of revolution
+             */
+            entity: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "sketch_line";
         };
         /**
          * SketchParamsV1

@@ -800,20 +800,22 @@ class ExtrudeParamsV1(BaseModel):
     merge: bool = MERGE_FIELD
 
 
-class RevolveAxis(BaseModel):
-    """The axis of revolution: a straight LINE entity of the profile's sketch.
+class SketchLineAxis(BaseModel):
+    """``kind: "sketch_line"`` — a LINE entity of the profile's own sketch.
 
-    v1 references a line entity by its sketch-local id (design §2.4 entity ids)
-    within the SAME sketch the profile comes from. A **construction** line is
-    the natural choice — a centerline is reference-only (excluded from the
-    closed-wire profile) and is exactly what an axis of revolution is — but any
-    line entity resolves; the axis is defined by the line's two solved
-    endpoints, mapped to world space through the profile's datum plane.
+    The v1 axis reference, and still the most direct one: a line entity named by
+    its sketch-local id (design §2.4 entity ids) within the SAME sketch the
+    profile comes from. A **construction** line is the natural choice — a
+    centerline is reference-only (excluded from the closed-wire profile) and is
+    exactly what an axis of revolution is — but any line entity resolves; the
+    axis is defined by the line's two solved endpoints, mapped to world space
+    through the profile's datum plane.
 
-    The ``kind`` discriminator seeds a future additive ``datum_axis`` variant
-    (the §2.1 ``GeomRef`` pattern) without forcing a ``param_version`` bump: a
-    persisted axis is always ``{"kind": "sketch_line", "entity": ...}`` today,
-    and a later datum-axis reference joins as ``kind: "datum_axis"``.
+    This variant alone can also CLOSE a half-profile: a three-sided L or
+    rectangle whose fourth side is the centerline builds the face the
+    revolution needs (see :func:`geometry.kernel.revolve.build_revolve_profile_face`).
+    An :class:`OriginAxis` is not a sketch entity, so it cannot close anything —
+    a profile revolved about an origin axis must already be a closed loop.
     """
 
     kind: Literal["sketch_line"] = "sketch_line"
@@ -823,26 +825,77 @@ class RevolveAxis(BaseModel):
     )
 
 
+class OriginAxis(BaseModel):
+    """``kind: "origin_axis"`` — one of the three WORLD origin axes (X, Y, Z).
+
+    The always-available axis (REVOLVE-1): a part that has no construction
+    centerline drawn still has X, Y and Z through the world origin, so a plain
+    closed profile can be turned without first learning the centerline idiom.
+    The reference is a pure enum — no sketch entity, no picked sub-geometry —
+    so it is the most rebuild-stable axis there is: nothing upstream can move,
+    rename or delete it, and it is wholly independent of topological naming (#1).
+
+    The axis must LIE IN the profile's sketch plane, exactly as a sketch-line
+    axis does by construction. Revolving a planar profile about an axis that
+    leaves its plane sweeps material out of the profile's own cross-section, so
+    an out-of-plane pick is the per-feature ``axis_not_in_sketch_plane`` error,
+    never a silently wrong solid. Concretely: a sketch on the ``XY`` origin
+    datum turns about ``X`` or ``Y`` and REFUSES ``Z`` (its normal); ``XZ``
+    turns about ``X`` or ``Z`` and refuses ``Y``; ``YZ`` turns about ``Y`` or
+    ``Z`` and refuses ``X``. A sketch on an OFFSET datum refuses every origin
+    axis that its offset has lifted the plane away from (RESEARCH §12 — the
+    plane slides along its own normal), which is honest: the origin axis is no
+    longer in that plane.
+    """
+
+    kind: Literal["origin_axis"]
+    axis: Literal["X", "Y", "Z"] = Field(
+        description="World origin axis (through 0,0,0) to revolve about. It "
+        "must lie in the profile's sketch plane — an out-of-plane choice (e.g. "
+        "Z for a sketch on the XY datum) is an `axis_not_in_sketch_plane` "
+        "rebuild error."
+    )
+
+
+#: Discriminated axis-of-revolution union (the :data:`DatumParams` /
+#: :data:`PatternGeometry` idiom). ``origin_axis`` joined ADDITIVELY (REVOLVE-1)
+#: with **no** ``param_version`` bump: every persisted axis is
+#: ``{"kind": "sketch_line", "entity": ...}``, which still validates unchanged,
+#: and :meth:`RevolveParamsV1._legacy_sketch_line_kind` supplies the
+#: discriminator for the older rows that omit it entirely. A future
+#: ``datum_axis`` or ``model_edge`` variant joins the same way.
+RevolveAxis = Annotated[SketchLineAxis | OriginAxis, Field(discriminator="kind")]
+
+
 class RevolveParamsV1(BaseModel):
-    """Revolution of an earlier sketch feature's profile about a sketch-line axis.
+    """Revolution of an earlier sketch feature's profile about an axis.
 
     The revolve sibling of :class:`ExtrudeParamsV1` (design §4.3, second core
     body-affecting feature): it consumes the SAME ``profile`` FeatureRef to an
     earlier sketch and the SAME ``add``/``cut`` boolean against the body chain,
     swapping the linear prism for a swept revolution. The ``axis`` is a
-    :class:`RevolveAxis` (a line entity of that same sketch — no picked
-    sub-geometry reference, so this is independent of topological naming), and
-    ``angle_deg`` is the sweep (full 360° by default). The profile must clear
-    the axis: a profile the axis crosses would revolve into self-intersecting
-    material and is a per-feature ``axis_intersects_profile`` error (design
-    §4.3), never a silent bad body.
+    :data:`RevolveAxis` — a line entity of that same sketch
+    (:class:`SketchLineAxis`) or a world origin axis (:class:`OriginAxis`);
+    neither is a picked sub-geometry reference, so revolve remains independent
+    of topological naming — and ``angle_deg`` is the sweep (full 360° by
+    default).
+
+    Two conditions are typed refusals rather than bad solids (design §4.3):
+
+    * the axis must lie IN the profile's sketch plane, or
+      ``axis_not_in_sketch_plane``; and
+    * the profile must clear the axis — a profile the axis CROSSES would
+      revolve into self-intersecting material, so it is
+      ``axis_intersects_profile``. A profile that merely TOUCHES the axis is
+      valid: that is the ordinary solid of revolution about its own centerline.
     """
 
     profile: FeatureRef = Field(
         description="Must resolve to an EARLIER sketch feature (design §2.2)"
     )
     axis: RevolveAxis = Field(
-        description="Axis of revolution — a line entity of the profile's sketch"
+        description="Axis of revolution — a line entity of the profile's sketch "
+        "or a world origin axis; it must lie in the profile's sketch plane"
     )
     angle_deg: float = Field(
         default=360.0,
@@ -858,6 +911,36 @@ class RevolveParamsV1(BaseModel):
         "(irrelevant at a full 360°): 'reverse' sweeps the opposite way",
     )
     merge: bool = MERGE_FIELD
+
+    @model_validator(mode="before")
+    @classmethod
+    def _legacy_sketch_line_kind(cls, data: Any) -> Any:
+        """Read a kind-less ``axis`` blob as a :class:`SketchLineAxis`.
+
+        The pre-REVOLVE-1 ``RevolveAxis`` was a single model whose ``kind``
+        carried a DEFAULT, so a params blob persisted as
+        ``{"axis": {"entity": "axis"}}`` was valid. Widening ``axis`` into a
+        discriminated union makes the discriminator mandatory, which would make
+        exactly those rows unreadable. Injecting ``kind: "sketch_line"`` when it
+        is absent keeps them valid with no stored-shape change and no
+        ``param_version`` bump — the same additive migration
+        :meth:`DatumFeature._legacy_offset_kind` performs for kind-less offset
+        datums. An axis that states its ``kind`` is untouched.
+        """
+        if not isinstance(data, dict):
+            return data
+        fields = cast("dict[str, Any]", data)
+        axis = fields.get("axis")
+        if not isinstance(axis, dict):
+            return fields
+        axis_dict = cast("dict[str, Any]", axis)
+        if "kind" in axis_dict:
+            return fields
+        new_axis = dict(axis_dict)
+        new_axis["kind"] = "sketch_line"
+        new_fields = dict(fields)
+        new_fields["axis"] = new_axis
+        return new_fields
 
 
 class SweepParamsV1(BaseModel):
@@ -3158,9 +3241,11 @@ def feature_references(feature: FeatureEnvelope) -> tuple[FeatureReference, ...]
                     )
                 )
         case ExtrudeFeature() | RevolveFeature():
-            # Both take a single sketch profile ref; revolve's axis is a
-            # sketch-LOCAL entity id (a line within that same sketch), NOT a
-            # FeatureRef, so it never appears in the FeatureRef walk below.
+            # Both take a single sketch profile ref; revolve's axis is either a
+            # sketch-LOCAL entity id (a line within that same sketch) or a world
+            # origin-axis ENUM — neither is a FeatureRef, so the axis never
+            # appears in the FeatureRef walk below and a revolve's only
+            # dependency is its profile sketch.
             references.append(
                 FeatureReference(
                     "profile", feature.params.profile, frozenset({"sketch"})

@@ -122,6 +122,7 @@ from py_kit.schemas.sketch import classify_overconstraint
 from geometry.kernel import (
     DATUM_PLANES,
     AxisIntersectsProfileError,
+    AxisNotInSketchPlaneError,
     BooleanDisjointError,
     BooleanEmptyError,
     BooleanError,
@@ -202,11 +203,11 @@ from geometry.kernel import (
     offset_plane,
     reflect_tools,
     removal_reaches_body,
-    resolve_axis_line,
     resolve_edge_durable,
     resolve_face_plane,
     resolve_faces,
     resolve_iso_metric_thread,
+    resolve_revolve_axis,
     revolve_face,
     select_edges,
     shell_body,
@@ -1541,17 +1542,21 @@ def _evaluate_sheet_metal_corner_relief(
 def _evaluate_revolve(
     item: EvaluatedFeatureInput, state: EvaluationState
 ) -> FeatureError | None:
-    """Revolve an earlier sketch's profile about a sketch-line axis (§4.3).
+    """Revolve an earlier sketch's profile about a sketch-plane axis (§4.3).
 
     The revolve sibling of :func:`_evaluate_extrude`: it shares the profile
     resolution + closed-wire check (:func:`_resolve_profile_face`) and the
     ``add``/``cut`` boolean (:func:`combine_body`), swapping the linear prism
-    for a swept revolution about a LINE entity of the SAME sketch. Kernel
-    failures surface as design error codes pinned to this feature —
+    for a swept revolution. The axis is a LINE entity of the SAME sketch or a
+    world ORIGIN axis (REVOLVE-1); :func:`resolve_revolve_axis` reduces either
+    to one sketch-plane line, so everything after it is axis-kind-agnostic.
+    Kernel failures surface as design error codes pinned to this feature —
     ``profile_not_closed``/``profile_unsupported`` (upstream sketch),
-    ``no_axis`` (bad axis reference), ``axis_intersects_profile`` (the axis
-    crosses the profile → self-intersecting body), ``no_prior_body`` (cut with
-    nothing to cut), ``revolve_failed``, ``boolean_failed``. the active body is
+    ``no_axis`` (bad axis reference), ``axis_not_in_sketch_plane`` (a world axis
+    that is not in the profile's plane, so the revolution would not sweep the
+    profile's own cross-section), ``axis_intersects_profile`` (the axis crosses
+    the profile → self-intersecting body), ``no_prior_body`` (cut with nothing
+    to cut), ``revolve_failed``, ``boolean_failed``. the active body is
     only replaced on success (strict-prefix rule tessellates the last-good
     body, §4.3).
     """
@@ -1570,21 +1575,27 @@ def _evaluate_revolve(
     plane, solved = resolved
 
     try:
-        axis_line = resolve_axis_line(solved.entities, params.axis.entity)
+        axis = resolve_revolve_axis(params.axis, plane, solved.entities)
     except NoAxisError as exc:
         return FeatureError(
             code="no_axis",
             message=str(exc),
             upstream_feature_id=params.profile.feature_id,
         )
+    except AxisNotInSketchPlaneError as exc:
+        return FeatureError(
+            code="axis_not_in_sketch_plane",
+            message=str(exc),
+            upstream_feature_id=params.profile.feature_id,
+        )
 
     try:
-        face = build_revolve_profile_face(plane, solved.entities, axis_line)
+        face = build_revolve_profile_face(plane, solved.entities, axis)
     except (ProfileNotClosedError, ProfileUnsupportedError) as exc:
         return _profile_build_error(exc, params.profile.feature_id)
 
     try:
-        check_axis_clears_profile(axis_line, solved.entities)
+        check_axis_clears_profile(axis, solved.entities)
     except AxisIntersectsProfileError as exc:
         return FeatureError(
             code="axis_intersects_profile",
@@ -1604,7 +1615,7 @@ def _evaluate_revolve(
     try:
         tool = revolve_face(
             face,
-            axis_line,
+            axis,
             plane,
             params.angle_deg,
             params.direction == "reverse",

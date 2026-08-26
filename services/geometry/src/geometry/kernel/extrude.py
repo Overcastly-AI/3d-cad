@@ -107,6 +107,27 @@ def plane_point_to_world(plane: Plane, point: Point2D) -> Vector:
     return _to_world(plane, point)
 
 
+def plane_point_to_local(plane: Plane, point: Vector) -> tuple[float, float, float]:
+    """Map a WORLD point into *plane*'s frame: ``(u, v, w)`` mm.
+
+    The exact algebraic inverse of :func:`plane_point_to_world` and its single
+    public entry (CLAUDE.md DRY rule): ``(x_dir, y_dir, z_dir)`` is an
+    orthonormal frame, so projecting ``point - origin`` onto each axis undoes
+    ``origin + x_dir * u + y_dir * v`` exactly. ``u``/``v`` are the sketch-plane
+    coordinates a :class:`~py_kit.schemas.sketch.Point2D` carries and ``w`` is
+    the signed distance OUT of the plane along its normal — so ``w == 0`` is
+    precisely "this world point lies in the sketch plane", the test a revolve
+    axis that is not a sketch entity has to pass
+    (:func:`geometry.kernel.revolve.resolve_revolve_axis`).
+    """
+    offset = point - plane.origin
+    return (
+        offset.dot(plane.x_dir),
+        offset.dot(plane.y_dir),
+        offset.dot(plane.z_dir),
+    )
+
+
 def entity_edges(plane: Plane, entity: SketchEntity) -> list[Edge]:
     """The kernel edge(s) contributed by one solved sketch entity.
 

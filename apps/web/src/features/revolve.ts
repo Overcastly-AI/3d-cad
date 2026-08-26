@@ -71,11 +71,22 @@ export function defaultRevolveForm(
   };
 }
 
-/** Seed the form from an existing revolve feature for editing. */
+/**
+ * Seed the form from an existing revolve feature for editing.
+ *
+ * `axis` is a discriminated union as of REVOLVE-1's kernel half — a sketch line
+ * OR a world origin axis — and this form only speaks the sketch-line half, so a
+ * revolve authored about an origin axis seeds with an empty axis id and the
+ * editor's existing `axisEntityId === ""` guard keeps Create disabled until one
+ * is chosen. That is deliberate degradation for the window before the axis
+ * picker lands: the alternative reads a missing field and edits the feature
+ * into a different axis than the one it has. Kernel-side the origin axis works
+ * today (goldens/revolve-vbelt-pulley-od100-bore16).
+ */
 export function formFromRevolveParams(params: RevolveParams): RevolveForm {
   return {
     profileFeatureId: params.profile.feature_id,
-    axisEntityId: params.axis.entity,
+    axisEntityId: params.axis.kind === "sketch_line" ? params.axis.entity : "",
     angleInput: formatAngleInput(params.angle_deg),
     operation: params.operation,
     direction: params.direction,
