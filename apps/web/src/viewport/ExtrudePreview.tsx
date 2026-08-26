@@ -177,7 +177,7 @@ export function ExtrudePreview({
 
   if (geometries.length === 0) return null;
   return (
-    <group position={position} quaternion={quaternion}>
+    <group name="extrude-ghost" position={position} quaternion={quaternion}>
       {geometries.map((geometry, i) => (
         <mesh key={i} geometry={geometry} material={surfaceMaterial} />
       ))}

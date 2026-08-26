@@ -776,6 +776,11 @@ export function ModelMesh({
   return (
     <group>
       <mesh
+        // QA hook, scene-graph side: the committed body's own node, so a spec
+        // can measure WHERE it is drawn rather than what it looks like (FB-9 —
+        // "the extruded is not on the same plane" is a claim about placement,
+        // and a pixel test cannot distinguish it from a camera move).
+        name="model-body"
         geometry={geometry}
         material={
           // Index order is FIXED (base 0, feature 1, ghost 2, hidden 3, hover
