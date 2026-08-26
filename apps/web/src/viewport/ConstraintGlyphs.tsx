@@ -189,15 +189,12 @@ function glyphAria(glyph: ConstraintGlyph): string {
       return "Midpoint constraint";
     case "collinear":
       return "Collinear constraint";
-    // The kernel gained the `angle` dimension (SKETCH-VOCAB-1); its glyph,
-    // editor and dimension-type chooser are the frontend half of that item, and
-    // `buildGlyphs` emits nothing for it yet — so this arm exists to keep the
-    // switch total, and the label is the plain degrees the solver reports.
+    // Angle and diameter are DIMENSIONS — clicking either opens the editor, so
+    // both names end in "edit" like distance/radius. The label carries the
+    // drawing sign (30 degrees / diameter ring); the accessible name spells the
+    // unit out instead, because a screen reader has no drawing to read it in.
     case "angle":
-      return `Angle${glyph.driven ? " reference" : ""} ${glyph.label} degrees`;
-    // Same note as `angle`: the kernel gained the DIAMETER dimension
-    // (SKETCH-VOCAB-1) and `buildGlyphs` does not emit one yet, so this arm
-    // keeps the switch total. The drawing convention is a leading diameter sign.
+      return `Angle${glyph.driven ? " reference" : ""} ${glyph.label.replace(/[()\u00b0]/g, "")} degrees — edit`;
     case "diameter": {
       const bare = glyph.label.replace(/[()\u2300]/g, "");
       return `Diameter${glyph.driven ? " reference" : ""} ${bare} mm — edit`;
@@ -217,6 +214,9 @@ function glyphAria(glyph: ConstraintGlyph): string {
 function DimensionEditor({ basis }: { basis: PlaneBasis }) {
   const target = useSketchStore((state) => state.dimensionEdit);
   const entities = useSketchStore((state) => state.entities);
+  // An angle's editor sits on the bisector of the corner its two lines SHARE,
+  // and that corner is read from the sketch's own coincident constraints.
+  const constraints = useSketchStore((state) => state.constraints);
   const solvedDimensions = useSketchStore((state) => state.solvedDimensions);
   const commitDimension = useSketchStore((state) => state.commitDimension);
   const cancelDimension = useSketchStore((state) => state.cancelDimension);
@@ -226,8 +226,13 @@ function DimensionEditor({ basis }: { basis: PlaneBasis }) {
     () =>
       target === null
         ? null
-        : dimensionEditorAnchor(target, entities, sketch.glyphOffsetMm),
-    [target, entities],
+        : dimensionEditorAnchor(
+            target,
+            entities,
+            sketch.glyphOffsetMm,
+            constraints,
+          ),
+    [target, entities, constraints],
   );
 
   // The last solved readout for this dimension — the resolved value an
@@ -249,14 +254,18 @@ function DimensionEditor({ basis }: { basis: PlaneBasis }) {
     editKey,
     target === null
       ? ""
-      : (target.initialExpression ?? formatDimensionMm(target.initialMm)),
+      : (target.initialExpression ?? formatDimensionMm(target.initialValue)),
   );
   const nameField = useTypedField(editKey, target?.initialName ?? "");
   const [driving, setDriving] = useRetargetedDraft<boolean>(editKey);
 
   if (target === null || anchor === null) return null;
 
-  const noun = target.kind === "distance" ? "Distance" : "Radius";
+  // Noun and unit ride the TARGET (`sketch/constraints.ts`), because there are
+  // now four dimension verbs and two units: an angle's cell must read
+  // "Angle · deg", never "Radius · mm". Re-deriving them here would be a
+  // second place for that mapping to be wrong.
+  const noun = target.noun;
   const isDriving = driving ?? target.initialDriving;
   const valueText = valueField.text;
   const nameText = nameField.text;
@@ -272,8 +281,8 @@ function DimensionEditor({ basis }: { basis: PlaneBasis }) {
   const placeholderMm =
     solved?.value_mm && solved.value_mm > 0
       ? solved.value_mm
-      : target.initialMm > 0
-        ? target.initialMm
+      : target.initialValue > 0
+        ? target.initialValue
         : 1;
 
   const resolved =
@@ -304,7 +313,7 @@ function DimensionEditor({ basis }: { basis: PlaneBasis }) {
     }
     const trimmedName = typedName.trim();
     commitDimension({
-      valueMm:
+      value:
         isDriving && parsed.kind === "literal" ? parsed.valueMm : placeholderMm,
       expression:
         isDriving && parsed.kind === "expression" ? parsed.expression : null,
@@ -340,7 +349,7 @@ function DimensionEditor({ basis }: { basis: PlaneBasis }) {
               // dimension's text sitting in the second one's cell.
               key={`value:${editKey ?? ""}`}
               label={noun}
-              unit="mm"
+              unit={target.unit}
               ref={valueField.ref}
               defaultValue={valueField.defaultValue}
               error={valueError}
@@ -357,8 +366,8 @@ function DimensionEditor({ basis }: { basis: PlaneBasis }) {
             // value; committing keeps it as the placeholder `value_mm`.
             <NumberField
               label={`${noun} · reference`}
-              unit="mm"
-              value={formatDimensionMm(solved?.value_mm ?? target.initialMm)}
+              unit={target.unit}
+              value={formatDimensionMm(solved?.value_mm ?? target.initialValue)}
               readOnly
               data-testid="dimension-input"
               aria-label={`${noun} reference value (measured)`}

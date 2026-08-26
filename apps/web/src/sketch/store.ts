@@ -37,6 +37,7 @@ import { create, type StateCreator } from "zustand";
 import {
   applyConstraintAction,
   constraintEntityRefs,
+  dimensionEditorTarget,
   reconcileConstraints,
   toggleConstruction,
   type ConstraintAction,
@@ -1653,39 +1654,50 @@ const createSketchState = (
 
   editDimension: (constraintIndex) => {
     const constraint = get().constraints[constraintIndex];
-    if (constraint?.kind !== "distance" && constraint?.kind !== "radius") {
-      return;
-    }
-    set({
-      dimensionEdit: {
-        kind: constraint.kind,
-        entity: constraint.entity,
-        initialMm: constraint.value_mm,
-        initialExpression: constraint.expression ?? null,
-        initialName: constraint.name ?? null,
-        initialDriving: constraint.driving !== false,
-        constraintIndex,
-      },
-      selectedConstraint: null,
-      hint: null,
-    });
+    if (constraint === undefined) return;
+    const target = dimensionEditorTarget(constraint, constraintIndex);
+    if (target === null) return;
+    set({ dimensionEdit: target, selectedConstraint: null, hint: null });
   },
 
   commitDimension: (commit) => {
     const { dimensionEdit, constraints, revision } = get();
-    if (dimensionEdit === null || !(commit.valueMm > 0)) return;
+    if (dimensionEdit === null || !(commit.value > 0)) return;
+    // An angle's domain is the solver's, not the cell's: `AngleConstraint`
+    // requires 0 < value_deg < 180, so a 200° typo is refused HERE, in the
+    // user's own words, instead of travelling to the server and coming back a
+    // 422 with the sketch left unsolved. The editor stays open on the value.
+    if (dimensionEdit.kind === "angle" && commit.value >= 180) {
+      set({ hint: "An angle is between 0 and 180 degrees." });
+      return;
+    }
     // Fully specify every additive field (null = default/unset) so an edit that
     // clears a name/expression, or flips driving↔driven, replaces cleanly —
     // `driving: null` means driving (the wire default), `false` means driven; an
     // expression only rides a DRIVING dim (a driven dim is measured, not fed).
-    const constraint: SketchConstraint = {
-      kind: dimensionEdit.kind,
-      entity: dimensionEdit.entity,
-      value_mm: commit.valueMm,
+    const shared = {
       expression: commit.driving ? commit.expression : null,
       name: commit.name,
       driving: commit.driving ? null : false,
     };
+    // Degrees ride `value_deg`, millimetres `value_mm`. The unit lives in the
+    // field NAME on the wire, so the branch is here, once, rather than in a
+    // caller that might reach for the wrong one.
+    const constraint: SketchConstraint =
+      dimensionEdit.kind === "angle"
+        ? {
+            kind: "angle",
+            a: dimensionEdit.entity,
+            b: dimensionEdit.entityB ?? dimensionEdit.entity,
+            value_deg: commit.value,
+            ...shared,
+          }
+        : {
+            kind: dimensionEdit.kind,
+            entity: dimensionEdit.entity,
+            value_mm: commit.value,
+            ...shared,
+          };
     const next =
       dimensionEdit.constraintIndex === null
         ? [...constraints, constraint]

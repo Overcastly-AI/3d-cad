@@ -11,10 +11,13 @@
  *
  * One keyboard, two vocabularies survives untouched: the global key handler
  * still arms tools (L/R/C/A) with nothing selected and fires constraint verbs
- * (H/V/D/R/X/C/P/L/T/E/S/O + N) with a selection. The toolbar is the
- * DISCOVERABLE surface — every icon's tooltip engraves its accelerator — but
- * the letters remain the fast path. Quiet chrome; the viewport keeps the
- * pixels.
+ * (H/V/D/R/A/X/C/P/L/I/T/E/S/M/O + N) with a selection. The flyouts are the
+ * BROWSABLE surface — every icon's tooltip engraves its accelerator — but the
+ * letters remain the fast path, and the status cell's OFFER RAIL is what makes
+ * a verb findable at the moment it applies: it proposes only the verbs the
+ * CURRENT selection unlocks, keycap first, and each cap is clickable. A
+ * catalogue tells you what exists; the rail tells you what is available now.
+ * Quiet chrome; the viewport keeps the pixels.
  */
 import {
   ArcIcon,
@@ -63,8 +66,8 @@ import { undoRedoStep } from "../lib/undoRedoShortcut";
 import {
   authoredConstraintCount,
   describeSelection,
-  dimensionVerbHint,
   selectionAllConstruction,
+  selectionVerbHints,
   type ConstraintAction,
 } from "../sketch/constraints";
 import { withoutDatums } from "../sketch/datum";
@@ -825,13 +828,11 @@ export function SketchStrip({
   const [confirmingDiscard, setConfirmingDiscard] = useState(false);
   const discardArmed = confirmingDiscard && !bound && entityCount > 0;
 
-  // The dimension verb the current selection unlocks (select-then-D was
-  // undiscoverable — FINDINGS #12). Only while drawing, and only when the key
-  // would truly open the editor, so the affordance is never a dead promise.
-  const verbHint =
-    mode === "draw"
-      ? dimensionVerbHint(selection, entities, constraints)
-      : null;
+  // The verbs the current selection unlocks. Only while drawing, and only
+  // where the key would truly do something, so the rail is never a dead
+  // promise (`selectionVerbHints`).
+  const verbHints =
+    mode === "draw" ? selectionVerbHints(selection, entities, constraints) : [];
 
   if (mode === "off") return null;
 
@@ -860,10 +861,13 @@ export function SketchStrip({
                 {describeSelection(selection)}
                 {constraintCount > 0 ? ` · ${constraintCount} applied` : ""}
               </span>
-              {/* Contextual verb hint — the selection's next likely move,
-                  keyboard-first. Quiet: a stamped key + plain verb, brass only
-                  on the keycap, so it reads as instrument guidance not a banner. */}
-              {verbHint ? (
+              {/* THE OFFER RAIL — the selection's next moves, keyboard-first.
+                  Quiet by construction: stamped keycaps and plain verbs, brass
+                  only on the cap, sitting in the readout's own row so it reads
+                  as instrument guidance and not a banner. Each cap is a real
+                  button, so the same affordance serves the keyboard and the
+                  pointer — press the letter, or click the letter. */}
+              {verbHints.length > 0 ? (
                 <>
                   <span aria-hidden className="text-etch">
                     ·
@@ -871,10 +875,22 @@ export function SketchStrip({
                   <span
                     role="status"
                     data-testid="dimension-hint"
-                    className="flex items-center gap-1 text-gauge"
+                    className="flex items-center gap-2 text-gauge"
                   >
-                    <Kbd>{verbHint.key}</Kbd>
-                    <span>{verbHint.label}</span>
+                    {verbHints.map((verb) => (
+                      <button
+                        key={verb.action}
+                        type="button"
+                        data-testid={`verb-hint-${verb.action}`}
+                        aria-label={`${verb.label} — press ${verb.key}`}
+                        title={`${verb.label} (${verb.key})`}
+                        onClick={() => applyConstraint(verb.action)}
+                        className="flex items-center gap-1 rounded-sm hover:text-mist focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brass motion-safe:transition-colors"
+                      >
+                        <Kbd>{verb.key}</Kbd>
+                        <span>{verb.label}</span>
+                      </button>
+                    ))}
                   </span>
                 </>
               ) : null}

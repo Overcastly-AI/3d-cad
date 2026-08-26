@@ -302,12 +302,12 @@ describe("constraints", () => {
     expect(store().dimensionEdit).toMatchObject({
       kind: "distance",
       entity: "e1",
-      initialMm: 40,
+      initialValue: 40,
       constraintIndex: null,
     });
     const revision = store().revision;
     store().commitDimension({
-      valueMm: 60,
+      value: 60,
       expression: null,
       name: null,
       driving: true,
@@ -332,19 +332,19 @@ describe("constraints", () => {
     store().selectAt({ x: 20, y: 0.5 }, 2);
     store().applyConstraint("distance");
     store().commitDimension({
-      valueMm: 40,
+      value: 40,
       expression: null,
       name: null,
       driving: true,
     });
     store().editDimension(RECT_RIGIDITY);
     expect(store().dimensionEdit).toMatchObject({
-      initialMm: 40,
+      initialValue: 40,
       initialDriving: true,
       constraintIndex: RECT_RIGIDITY,
     });
     store().commitDimension({
-      valueMm: 60,
+      value: 60,
       expression: null,
       name: null,
       driving: true,
@@ -367,7 +367,7 @@ describe("constraints", () => {
     store().selectAt({ x: 20, y: 0.5 }, 2);
     store().applyConstraint("distance");
     store().commitDimension({
-      valueMm: 20,
+      value: 20,
       expression: "width/2",
       name: "half",
       driving: true,
@@ -390,7 +390,7 @@ describe("constraints", () => {
     store().selectAt({ x: 20, y: 0.5 }, 2);
     store().applyConstraint("distance");
     store().commitDimension({
-      valueMm: 40,
+      value: 40,
       expression: "width/2",
       name: null,
       driving: false,
@@ -414,7 +414,7 @@ describe("constraints", () => {
     store().applyConstraint("distance");
     const revision = store().revision;
     store().commitDimension({
-      valueMm: 0,
+      value: 0,
       expression: null,
       name: null,
       driving: true,
@@ -479,7 +479,7 @@ describe("dimension verb with nothing selected — arms instead of refusing", ()
     expect(store().dimensionEdit).toMatchObject({
       kind: "distance",
       entity: "e1",
-      initialMm: 40,
+      initialValue: 40,
       constraintIndex: null,
     });
     expect(store().dimensionPick).toBeNull();
@@ -497,7 +497,11 @@ describe("dimension verb with nothing selected — arms instead of refusing", ()
     expect(store().dimensionEdit).toBeNull();
   });
 
-  it("a wrong-kind pick says so and stays armed (circle under Distance)", () => {
+  it("an armed D on a circle gives its DIAMETER, not a wrong-kind refusal", () => {
+    // SKETCH-VOCAB-1: D is "dimension", and the click says which dimension.
+    // This used to answer "That is a circle. Click a line to dimension it." —
+    // a refusal aimed at someone who had just pointed at the thing they wanted
+    // dimensioned, and the reason `diameter` shipped unreachable.
     useSketchStore.getState().begin();
     useSketchStore.getState().choosePlane("XY");
     useSketchStore.getState().setTool("circle");
@@ -506,15 +510,13 @@ describe("dimension verb with nothing selected — arms instead of refusing", ()
     const store = useSketchStore.getState;
     store().applyConstraint("distance");
     store().selectAt({ x: 10, y: 0 }, 2); // on the circle
-    expect(store().dimensionEdit).toBeNull();
-    expect(store().dimensionPick).toBe("distance");
-    // It names what was picked (DIM-3). This assertion used to read
-    // `/one line/i`, which passed on "Select one line to dimension." — the
-    // selection-first refusal this whole verb exists to eliminate, and false
-    // while armed besides: the user clicked, they did not select.
-    expect(store().hint).toBe(
-      "That is a circle. Click a line to dimension it.",
-    );
+    expect(store().dimensionEdit).toMatchObject({
+      kind: "diameter",
+      entity: "e1",
+      unit: "mm",
+      initialValue: 20, // twice the 10 mm radius
+    });
+    expect(store().dimensionPick).toBeNull(); // consumed, not still asking
   });
 
   it("radius arms the same way, and picks the circle", () => {
@@ -531,7 +533,7 @@ describe("dimension verb with nothing selected — arms instead of refusing", ()
     expect(store().dimensionEdit).toMatchObject({
       kind: "radius",
       entity: "e1",
-      initialMm: 10,
+      initialValue: 10,
     });
   });
 
@@ -646,9 +648,10 @@ describe("DIM-3 — an armed verb is never silent, and never answers with the re
       useSketchStore.getState().placeAt({ x: 90, y: 0 });
       useSketchStore.getState().setTool("select");
     };
-    // Each pair is a verb and a point on geometry of the kind it CANNOT take.
+    // A verb and a point on geometry it CANNOT take. Only Radius has one now:
+    // D on a round is the diameter (SKETCH-VOCAB-1), so a circle is no longer
+    // the wrong kind for Distance — R on a line still is.
     const wrongKind = [
-      { verb: "distance", at: { x: 90, y: 0 } }, // the circle
       { verb: "radius", at: { x: 20, y: 0.5 } }, // a line of the rectangle
     ] as const;
 
