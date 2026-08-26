@@ -221,15 +221,21 @@ test.describe("extrude drag handle", () => {
     await grip.focus();
     await expect(grip).toBeFocused();
 
+    // POLLED, not sampled. A key press returns as soon as the event is
+    // dispatched, while the value travels handle -> editor form -> field, so a
+    // bare read races the round trip: this test failed twice in a full run and
+    // passed alone, reporting 11 where 16 was expected — the value BEFORE the
+    // third press had landed, which reads exactly like a swallowed key. `poll`
+    // retries the read; `expect(await …)` cannot.
     await grip.press("ArrowUp");
     await grip.press("ArrowUp");
-    expect(await distance(page)).toBeCloseTo(11, 6);
+    await expect.poll(() => distance(page)).toBeCloseTo(11, 6);
 
     await grip.press("Shift+ArrowUp");
-    expect(await distance(page)).toBeCloseTo(16, 6);
+    await expect.poll(() => distance(page)).toBeCloseTo(16, 6);
 
     await grip.press("ArrowDown");
-    expect(await distance(page)).toBeCloseTo(15.5, 6);
+    await expect.poll(() => distance(page)).toBeCloseTo(15.5, 6);
 
     // No dead end: the editor's own commit key still works from the handle.
     await grip.press("Enter");
