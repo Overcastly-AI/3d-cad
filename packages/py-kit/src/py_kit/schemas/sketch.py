@@ -427,6 +427,26 @@ class RadiusConstraint(LinearDimensionConstraint):
     entity: EntityId
 
 
+class DiameterConstraint(LinearDimensionConstraint):
+    """Dimension: the DIAMETER of a circle or arc (mm).
+
+    Holes are specified by diameter on every drawing, every fastener table and
+    every drill chart, so a sketcher that offers only a radius forces the
+    engineer to halve the number they were given — and the number on screen then
+    never matches the number on the drawing (docs/AUDIT-PRODUCT.md T-5).
+
+    Internally this drives the SAME radius parameter a
+    :class:`RadiusConstraint` does (planegcs's ``circle_diameter`` /
+    ``arc_diameter`` constrain the radius against half the value), so the two are
+    interchangeable as constraints and differ only in the number the user reads
+    and types. That also means a diameter and a radius on one circle are
+    redundant with each other, exactly as two radii would be.
+    """
+
+    kind: Literal["diameter"]
+    entity: EntityId
+
+
 class AngleConstraint(DimensionConstraint):
     """Dimension: the angle between two lines (DEGREES, not mm).
 
@@ -580,6 +600,7 @@ SketchConstraint = Annotated[
     | VerticalConstraint
     | DistanceConstraint
     | RadiusConstraint
+    | DiameterConstraint
     | AngleConstraint
     | FixedConstraint
     | ParallelConstraint

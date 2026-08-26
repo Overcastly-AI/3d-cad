@@ -36,6 +36,7 @@ from geometry.sketch import (
     AngleConstraint,
     CoincidentConstraint,
     ConcentricConstraint,
+    DiameterConstraint,
     DistanceConstraint,
     EntityPointRef,
     EqualConstraint,
@@ -129,6 +130,20 @@ OFF_SOLUTION: dict[str, SketchDefinition] = {
         constraints=[
             DistanceConstraint(kind="distance", entity="l1", value_mm=25.0),
             RadiusConstraint(kind="radius", entity="c1", value_mm=13.0),
+        ],
+    ),
+    # The diameter fixture is deliberately the SAME circle and the SAME miss as
+    # the radius one above, doubled: r=10 asked d=26 is r=10 asked r=13. planegcs
+    # reports 3.0 for both — its diameter error is on the RADIUS scale — so a
+    # residual written in diameter units would read 6.0 here and be exactly 2x
+    # stricter than the witness it is checking. That is the parallel bug's shape,
+    # and `test_the_second_opinion_is_never_the_stricter_witness` is what catches
+    # it: MAX_STRICTER_RATIO is sqrt(2), so a factor of 2 cannot slip through.
+    "diameter": SketchDefinition(
+        entities=[_circle("c1", (0, 0), 10.0), _arc("a1", (30, 0), (37, 0), (30, 7))],
+        constraints=[
+            DiameterConstraint(kind="diameter", entity="c1", value_mm=26.0),
+            DiameterConstraint(kind="diameter", entity="a1", value_mm=30.0),
         ],
     ),
     "fixed": SketchDefinition(
@@ -291,6 +306,7 @@ def test_every_constraint_kind_is_covered_by_a_fixture() -> None:
         "angle",
         "coincident",
         "concentric",
+        "diameter",
         "distance",
         "equal",
         "fixed",

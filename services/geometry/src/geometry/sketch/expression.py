@@ -39,6 +39,7 @@ from dataclasses import dataclass
 
 from py_kit.schemas.sketch import (
     AngleConstraint,
+    DiameterConstraint,
     DimensionConstraint,
     DistanceConstraint,
     RadiusConstraint,
@@ -450,7 +451,8 @@ def measure_dimension(
     A driven dimension is excluded from the constraint system, so its displayed
     value is read back from the geometry it dimensions: a distance is the solved
     line's length; a radius is the solved circle's radius or the arc's
-    ``|start - center|``. A driven dimension on the wrong entity kind (or an
+    ``|start - center|``; a diameter is twice that radius, so the readout is in
+    the same unit the user typed. A driven dimension on the wrong entity kind (or an
     unknown entity) is a malformed definition — :class:`SketchDefinitionError`,
     mapped to ``sketch_invalid`` like any other bad reference.
     """
@@ -476,6 +478,19 @@ def measure_dimension(
                 )
             raise SketchDefinitionError(
                 f"Driven 'radius' dimension requires a circle or arc entity; "
+                f"{constraint.entity!r} is neither"
+            )
+        case DiameterConstraint():
+            entity = entities_by_id.get(constraint.entity)
+            if isinstance(entity, SketchCircle):
+                return 2.0 * entity.radius
+            if isinstance(entity, SketchArc):
+                return 2.0 * math.hypot(
+                    entity.start.x - entity.center.x,
+                    entity.start.y - entity.center.y,
+                )
+            raise SketchDefinitionError(
+                f"Driven 'diameter' dimension requires a circle or arc entity; "
                 f"{constraint.entity!r} is neither"
             )
         case _:

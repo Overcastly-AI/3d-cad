@@ -1176,6 +1176,74 @@
         "title": "DatumPlaneRef",
         "type": "object"
       },
+      "DiameterConstraint": {
+        "description": "Dimension: the DIAMETER of a circle or arc (mm).\n\nHoles are specified by diameter on every drawing, every fastener table and\nevery drill chart, so a sketcher that offers only a radius forces the\nengineer to halve the number they were given \u2014 and the number on screen then\nnever matches the number on the drawing (docs/AUDIT-PRODUCT.md T-5).\n\nInternally this drives the SAME radius parameter a\n:class:`RadiusConstraint` does (planegcs's ``circle_diameter`` /\n``arc_diameter`` constrain the radius against half the value), so the two are\ninterchangeable as constraints and differ only in the number the user reads\nand types. That also means a diameter and a radius on one circle are\nredundant with each other, exactly as two radii would be.",
+        "properties": {
+          "driving": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Driving/driven flag. None (absent, the default) or True = DRIVING: the value is fed to the solver. False = DRIVEN: excluded from the constraint system; the value is measured back from the solved geometry for display (read-only, never fed as a constraint, so a driven dimension cannot over-constrain). Nullable+None-default (rather than a bare `bool`) keeps it an ADDITIVE optional field: a sketch persisted before it reads as None = driving, and the generated TS client leaves it optional. Read it through `is_driving`, never the raw tri-state.",
+            "title": "Driving"
+          },
+          "entity": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "Entity",
+            "type": "string"
+          },
+          "expression": {
+            "anyOf": [
+              {
+                "maxLength": 256,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional math expression over other dimension NAMES (`+ - * / ( )`, unary minus, decimals), e.g. `\"width/2\"`. When present it SUPERSEDES `value_mm` and the geometry service re-evaluates it each solve. A bare literal dimension leaves this None. Only *driving* dimensions may be referenced; a bad expression / unknown or driven reference / cycle / division-by-zero is a clean `sketch_invalid` error, never a crash. Capped at 256 chars: an expression is a short formula over dimension names (`(width+gap)/2`), never prose, and the cap bounds parser paren-depth (<=128) and evaluator AST-depth (<=128) well under Python's recursion limit, so a hostile deeply-nested / very-long string 422s at request validation BEFORE the recursive-descent parser runs \u2014 it can never reach the kernel as an uncaught RecursionError. The parser also carries its own depth guard (defense in depth) should this cap ever be raised.",
+            "title": "Expression"
+          },
+          "kind": {
+            "const": "diameter",
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "description": "Dimension reference name: identifier-like, unique per sketch.",
+                "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional stable name so another dimension's `expression` can reference this one. Unique within a sketch (enforced on SketchDefinition). None = unnamed: still solves, just not referenceable.",
+            "title": "Name"
+          },
+          "value_mm": {
+            "description": "Resolved dimension value (mm). The literal value when `expression` is None; otherwise the last solved/resolved value (the expression supersedes it on the next solve, but a positive placeholder is still required so a pre-solve read has a value).",
+            "exclusiveMinimum": 0.0,
+            "title": "Value Mm",
+            "type": "number"
+          }
+        },
+        "required": [
+          "value_mm",
+          "kind",
+          "entity"
+        ],
+        "title": "DiameterConstraint",
+        "type": "object"
+      },
       "DiameterDimensionParams": {
         "description": "A diameter dimension on a circular model edge (design \u00a73.1).\n\n``edge`` must resolve to a CIRCULAR edge (``curve == \"circle\"``) \u2014 the\nidentical reuse a ``concentric`` mate makes for its axis (design \u00a73.3), so one\nsignature names a hole for both mating and dimensioning. The measured value\n(2\u00b7radius) is computed geometry-side.",
         "properties": {
@@ -6490,6 +6558,7 @@
                   "angle": "#/components/schemas/AngleConstraint",
                   "coincident": "#/components/schemas/CoincidentConstraint",
                   "concentric": "#/components/schemas/ConcentricConstraint",
+                  "diameter": "#/components/schemas/DiameterConstraint",
                   "distance": "#/components/schemas/DistanceConstraint",
                   "equal": "#/components/schemas/EqualConstraint",
                   "fixed": "#/components/schemas/FixedConstraint",
@@ -6518,6 +6587,9 @@
                 },
                 {
                   "$ref": "#/components/schemas/RadiusConstraint"
+                },
+                {
+                  "$ref": "#/components/schemas/DiameterConstraint"
                 },
                 {
                   "$ref": "#/components/schemas/AngleConstraint"

@@ -122,6 +122,7 @@ export function constraintEntityRefs(constraint: SketchConstraint): string[] {
     case "vertical":
     case "distance":
     case "radius":
+    case "diameter":
       return [constraint.entity];
     case "fixed":
       return [constraint.point.entity];
@@ -338,6 +339,11 @@ export function sameConstraint(
       return a.entity === (b as typeof a).entity;
     case "distance":
     case "radius":
+    case "diameter":
+      // A diameter and a radius on one circle are the SAME dimension in two
+      // units and are mutually redundant, but they are different `kind`s, so
+      // the early `a.kind !== b.kind` guard already keeps them apart here; the
+      // solver reports the redundancy.
       return a.entity === (b as typeof a).entity;
     case "fixed":
       return sameRef(a.point, (b as typeof a).point);

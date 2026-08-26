@@ -189,6 +189,13 @@ function glyphAria(glyph: ConstraintGlyph): string {
     // switch total, and the label is the plain degrees the solver reports.
     case "angle":
       return `Angle${glyph.driven ? " reference" : ""} ${glyph.label} degrees`;
+    // Same note as `angle`: the kernel gained the DIAMETER dimension
+    // (SKETCH-VOCAB-1) and `buildGlyphs` does not emit one yet, so this arm
+    // keeps the switch total. The drawing convention is a leading diameter sign.
+    case "diameter": {
+      const bare = glyph.label.replace(/[()\u2300]/g, "");
+      return `Diameter${glyph.driven ? " reference" : ""} ${bare} mm — edit`;
+    }
   }
 }
 

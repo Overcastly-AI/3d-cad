@@ -2159,6 +2159,54 @@ export interface components {
             plane: "XY" | "XZ" | "YZ";
         };
         /**
+         * DiameterConstraint
+         * @description Dimension: the DIAMETER of a circle or arc (mm).
+         *
+         *     Holes are specified by diameter on every drawing, every fastener table and
+         *     every drill chart, so a sketcher that offers only a radius forces the
+         *     engineer to halve the number they were given — and the number on screen then
+         *     never matches the number on the drawing (docs/AUDIT-PRODUCT.md T-5).
+         *
+         *     Internally this drives the SAME radius parameter a
+         *     :class:`RadiusConstraint` does (planegcs's ``circle_diameter`` /
+         *     ``arc_diameter`` constrain the radius against half the value), so the two are
+         *     interchangeable as constraints and differ only in the number the user reads
+         *     and types. That also means a diameter and a radius on one circle are
+         *     redundant with each other, exactly as two radii would be.
+         */
+        DiameterConstraint: {
+            /**
+             * Driving
+             * @description Driving/driven flag. None (absent, the default) or True = DRIVING: the value is fed to the solver. False = DRIVEN: excluded from the constraint system; the value is measured back from the solved geometry for display (read-only, never fed as a constraint, so a driven dimension cannot over-constrain). Nullable+None-default (rather than a bare `bool`) keeps it an ADDITIVE optional field: a sketch persisted before it reads as None = driving, and the generated TS client leaves it optional. Read it through `is_driving`, never the raw tri-state.
+             */
+            driving?: boolean | null;
+            /**
+             * Entity
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            entity: string;
+            /**
+             * Expression
+             * @description Optional math expression over other dimension NAMES (`+ - * / ( )`, unary minus, decimals), e.g. `"width/2"`. When present it SUPERSEDES `value_mm` and the geometry service re-evaluates it each solve. A bare literal dimension leaves this None. Only *driving* dimensions may be referenced; a bad expression / unknown or driven reference / cycle / division-by-zero is a clean `sketch_invalid` error, never a crash. Capped at 256 chars: an expression is a short formula over dimension names (`(width+gap)/2`), never prose, and the cap bounds parser paren-depth (<=128) and evaluator AST-depth (<=128) well under Python's recursion limit, so a hostile deeply-nested / very-long string 422s at request validation BEFORE the recursive-descent parser runs — it can never reach the kernel as an uncaught RecursionError. The parser also carries its own depth guard (defense in depth) should this cap ever be raised.
+             */
+            expression?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "diameter";
+            /**
+             * Name
+             * @description Optional stable name so another dimension's `expression` can reference this one. Unique within a sketch (enforced on SketchDefinition). None = unnamed: still solves, just not referenceable.
+             */
+            name?: string | null;
+            /**
+             * Value Mm
+             * @description Resolved dimension value (mm). The literal value when `expression` is None; otherwise the last solved/resolved value (the expression supersedes it on the next solve, but a positive placeholder is still required so a pre-solve read has a value).
+             */
+            value_mm: number;
+        };
+        /**
          * DiameterDimensionParams
          * @description A diameter dimension on a circular model edge (design §3.1).
          *
@@ -6009,7 +6057,7 @@ export interface components {
              * Constraints
              * @description The sketch's constraints, bounded by MAX_SKETCH_CONSTRAINTS (work bound, audit G2)
              */
-            constraints: (components["schemas"]["CoincidentConstraint"] | components["schemas"]["HorizontalConstraint"] | components["schemas"]["VerticalConstraint"] | components["schemas"]["DistanceConstraint"] | components["schemas"]["RadiusConstraint"] | components["schemas"]["AngleConstraint"] | components["schemas"]["FixedConstraint"] | components["schemas"]["ParallelConstraint"] | components["schemas"]["PerpendicularConstraint"] | components["schemas"]["TangentConstraint"] | components["schemas"]["EqualConstraint"] | components["schemas"]["SymmetricConstraint"] | components["schemas"]["ConcentricConstraint"])[];
+            constraints: (components["schemas"]["CoincidentConstraint"] | components["schemas"]["HorizontalConstraint"] | components["schemas"]["VerticalConstraint"] | components["schemas"]["DistanceConstraint"] | components["schemas"]["RadiusConstraint"] | components["schemas"]["DiameterConstraint"] | components["schemas"]["AngleConstraint"] | components["schemas"]["FixedConstraint"] | components["schemas"]["ParallelConstraint"] | components["schemas"]["PerpendicularConstraint"] | components["schemas"]["TangentConstraint"] | components["schemas"]["EqualConstraint"] | components["schemas"]["SymmetricConstraint"] | components["schemas"]["ConcentricConstraint"])[];
             /**
              * Entities
              * @description The sketch's entities, bounded by MAX_SKETCH_ENTITIES (work bound, audit G2)

@@ -74,6 +74,7 @@ from geometry.sketch.schemas import (
     AngleConstraint,
     CoincidentConstraint,
     ConcentricConstraint,
+    DiameterConstraint,
     DimensionConstraint,
     DistanceConstraint,
     EntityPointRef,
@@ -278,6 +279,18 @@ def _dimension_residual(
             if radius is None:
                 return UNRESOLVABLE
             return abs(radius - requested)
+        case DiameterConstraint():
+            # MEASURED, not assumed: planegcs's ``circle_diameter`` error is
+            # ``r - d/2`` — the RADIUS-scale miss, not the diameter one. Probed
+            # at r=10 asking d=26 it reports 3.0, the same number
+            # ``set_circle_radius(13)`` reports, where ``|2r - d|`` would be 6.0.
+            # Writing the diameter difference here would make this opinion
+            # exactly 2x stricter than the solver's, which is the parallel bug's
+            # shape: a second opinion that refuses holds the solver accepts.
+            radius = _radius_of(entities_by_id.get(constraint.entity))
+            if radius is None:
+                return UNRESOLVABLE
+            return abs(radius - requested / 2.0)
         case _:  # pragma: no cover — the dimension kinds above are exhaustive
             return UNRESOLVABLE
 

@@ -91,6 +91,7 @@ from geometry.sketch.schemas import (
     AngleConstraint,
     CoincidentConstraint,
     ConcentricConstraint,
+    DiameterConstraint,
     DimensionConstraint,
     DistanceConstraint,
     EntityPointRef,
@@ -434,6 +435,7 @@ def _constraint_point_refs(constraint: SketchConstraint) -> tuple[EntityPointRef
             | VerticalConstraint()
             | DistanceConstraint()
             | RadiusConstraint()
+            | DiameterConstraint()
             | AngleConstraint()
             | ParallelConstraint()
             | PerpendicularConstraint()
@@ -748,6 +750,21 @@ class _GcsBuild:
                 else:
                     raise SketchDefinitionError(
                         "Constraint 'radius' requires a circle or arc entity; "
+                        f"{constraint.entity!r} is neither"
+                    )
+            case DiameterConstraint():
+                if index not in self.driving_values:
+                    return  # DRIVEN — not fed to the solver (measured post-solve)
+                diameter = self.driving_values[index]
+                if constraint.entity in self._circles:
+                    tag = gcs.set_circle_diameter(
+                        self._circles[constraint.entity], diameter
+                    )
+                elif constraint.entity in self._arcs:
+                    tag = gcs.set_arc_diameter(self._arcs[constraint.entity], diameter)
+                else:
+                    raise SketchDefinitionError(
+                        "Constraint 'diameter' requires a circle or arc entity; "
                         f"{constraint.entity!r} is neither"
                     )
             case FixedConstraint():
