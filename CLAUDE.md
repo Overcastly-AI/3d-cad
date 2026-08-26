@@ -712,6 +712,24 @@ recipe here in the same commit as the fix.**
   outside your diff is a claim about YOUR environment until you have proved
   otherwise on committed bytes. Do not report it as a colleague's regression —
   that costs two agents' time and starts a hunt for a defect that does not exist.
+- **A WORKTREE IS NOT NECESSARILY SEEDED FROM THE BRANCH TIP — check `git log -1`
+  before you trust anything you read in it.** Found 2026-08-25 by the PICK-1
+  agent, which was handed a worktree checked out at `3b0b29e` — a merge into
+  `main`, **76 commits behind** `claude/branch-review-development-hkbbnb`. It
+  noticed only because the spec its brief named (`apps/web/e2e/pick-anchor.spec.ts`)
+  did not exist at all, reset to the remote tip, and went on to finish the job.
+  **That detection was luck, and the luck does not generalise**: a MISSING file is
+  loud, but a file that merely predates the branch by 76 commits reads as
+  perfectly ordinary source, and an agent would then diagnose a bug that was
+  fixed weeks ago, or build against an API that has since changed, and its
+  eventual rebase would look like an unrelated conflict. Two rules: (a) the first
+  action in any worktree is `git rev-list --count HEAD..origin/<branch>` — nonzero
+  means reset before reading anything; (b) auditing this after a batch is cheap
+  and worth doing, since the same command over every live worktree costs one
+  shell call. Note the ordinary case is fine — the other four worktrees live at
+  the same moment were 1–3 commits behind, i.e. just normally trailing — so this
+  is an occasional seeding fault, not a standing condition, which is exactly what
+  makes it easy to stop checking for.
 - OCP/OCCT wheels are large; in CI cache the uv environment keyed on the
   lockfile.
 - **To test swapping an auditwheel-vendored library WITHOUT touching the shared
