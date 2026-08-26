@@ -109,6 +109,14 @@ MAX_SELECTOR_REFS = 500
 #: bounded. Over the ceiling is a parse-time 422, never a kernel blow-up.
 MAX_MIRROR_SCOPE_FEATURES = 500
 
+#: Ceiling on the features one `features`-scope PATTERN may name
+#: (docs/design/pattern-scope.md §2). The mirror's twin, and deliberately the same
+#: number: each selected feature costs `count - 1` rigid placements plus one
+#: boolean at rebuild, so a pattern's fan-out is ALREADY bounded by
+#: MAX_PATTERN_COUNT on the other axis and this bounds the product's second
+#: factor. Over the ceiling is a parse-time 422, never a kernel blow-up.
+MAX_PATTERN_SCOPE_FEATURES = 500
+
 #: Non-empty (post-strip), bounded feature name.
 FeatureName = Annotated[
     str,
@@ -1553,21 +1561,160 @@ PatternGeometry = Annotated[
 ]
 
 
+# v2 — THE SCOPE (docs/design/pattern-scope.md, 2026-08-26). The v1 contract is ONE
+# field (`pattern`) and the SEED is INFERRED from the body chain, in two places:
+# `_pattern_cut_tools` (array the previous feature's removal tool only if that cut
+# is the IMMEDIATE predecessor) and the kernel's VACUOUS-CUT FALLBACK (array the
+# whole body when no placed tool copy can reach it). Each rule is individually
+# defensible; together they mean the same dialog with the same numbers in it
+# produces two different KINDS of result and reports `ok` either way. §1 of that
+# design measures both flips: an unrelated fillet between the hole and the pattern
+# turns 28984.0710 (three holes) into 50040.1770 (three PLATES, bbox X 40 -> 64),
+# and moving `spacing_mm` from 8 to 12 on a hole near the +X face turns
+# 30798.1512 into 40594.6904. Three product-audit passes have reported this.
+#
+# The ambiguity is in the INPUT, so `scope` removes it there — the SAME two-member
+# `kind`-discriminated union :data:`MirrorScope` uses, with the words changed:
+# `body` (the v1 reading, now NAMED) and `features` (an explicit, non-empty,
+# TREE-ORDERED selection). SolidWorks ("Features to Pattern"), Fusion (Pattern ->
+# Type: Features) and Onshape all ask exactly this question.
+#
+# Additive under feature-tree §1.4 (`param_version` stays 1): a persisted pattern
+# with no `scope` key normalises to `{"kind": "body"}` through
+# :meth:`PatternParamsV1._legacy_body_scope`, so every existing row and all four
+# shipped pattern goldens validate AND evaluate on the unchanged v1 code path.
+# There is deliberately NO "default to the tip" in the DTO (§2.2): the tip is not
+# knowable here, and a default that rewrote the meaning of persisted rows would
+# reintroduce the very property this removes. Pre-selecting the tip is the DIALOG's
+# job, and the dialog sends `scope` explicitly.
+
+
+class PatternBodyScope(BaseModel):
+    """``scope: {"kind": "body"}`` — repeat the CURRENT BODY (the v1 reading).
+
+    The v1 semantic, NAMED rather than implied (design §2): both inference rules
+    above run verbatim, on the same code path, producing the same bytes — so the
+    shipped pattern goldens' byte identity is STRUCTURAL, not measured. This scope
+    still flips as §1 measures; that is what "additive" costs, and the flip is now a
+    documented property of a legacy reading the UI never authors rather than the
+    only available spelling.
+    """
+
+    kind: Literal["body"] = "body"
+
+
+class PatternFeaturesScope(BaseModel):
+    """``scope: {"kind": "features", "features": [...]}`` — repeat these features.
+
+    The v2 reading (design §2/§3): each selected feature's RECORDED RIGID TOOL
+    SOLID(S) are PLACED at the pattern's ``k = 1 .. count-1`` placements and that
+    feature's OWN operation (``fuse``/``cut``) is re-applied to the active body, in
+    TREE order — never array order (§6: array order is UI-incidental, so honouring
+    it would make identical models tessellate to different bytes). The placements
+    come from the SAME kernel helpers the ``body`` path calls, so what a selection
+    repeats can never drift from what a pattern applies.
+
+    ``features`` names :class:`FeatureRef`s rather than bare UUIDs so each selection
+    materialises into ``feature_dependencies`` for free (feature-tree §2.3): deleting
+    a patterned feature is a 409-with-dependents, a reorder re-checks the
+    strict-backward rule, and a forward/self reference is a write-time 422. A
+    non-body-affecting or non-repeatable kind (``sketch``/``datum``, and every
+    MODIFIER — fillet/chamfer/shell/draft and the sheet-metal family, which have a
+    RESULT and no tool) is refused with the typed per-feature
+    ``pattern_feature_unsupported`` at rebuild.
+
+    ``min_length=1`` because an empty selection is authoring nonsense, not a no-op
+    pattern, and duplicate ids are a 422 rather than silently deduplicated — naming
+    a feature twice leaves the intent (twice? once?) unstated, which is the mistake
+    v1 made.
+    """
+
+    kind: Literal["features"]
+    features: list[FeatureRef] = Field(
+        min_length=1,
+        max_length=MAX_PATTERN_SCOPE_FEATURES,
+        description="The features to repeat, each a `FeatureRef` to an earlier "
+        "body-affecting feature of this tree. Applied in TREE order (the array "
+        "order is ignored — design §6); at least one, at most "
+        "MAX_PATTERN_SCOPE_FEATURES (work bound); duplicates are a 422.",
+    )
+
+    @model_validator(mode="after")
+    def _reject_duplicate_features(self) -> Self:
+        """Duplicate selected ids are a 422 (design §2), never deduplicated."""
+        seen: set[uuid.UUID] = set()
+        for ref in self.features:
+            if ref.feature_id in seen:
+                raise ValueError(
+                    f"Pattern scope names feature {ref.feature_id} more than once; "
+                    "a feature is repeated exactly once per instance, so a "
+                    "duplicate leaves the intent unstated. Remove the repeat."
+                )
+            seen.add(ref.feature_id)
+        return self
+
+
+#: The pattern's SCOPE union (design §2), discriminated on ``kind``: `body` (v1) or
+#: `features` (v2) — the :data:`MirrorScope` idiom, and a discriminated union rather
+#: than ``features: list[FeatureRef] | None`` for the same reason: ``None`` and
+#: "repeat the body" would be two spellings of one meaning, the exact smell that
+#: made v1's semantic implicit. A future third reading (``kind: "bodies"``,
+#: multi-body selection) joins additively with no ``param_version`` bump.
+PatternScope = Annotated[
+    PatternBodyScope | PatternFeaturesScope, Field(discriminator="kind")
+]
+
+
 class PatternParamsV1(BaseModel):
     """Repeat the current single body into a linear row or circular ring.
 
     Wraps the discriminated :data:`PatternGeometry` under ``pattern`` (the
-    nested-discriminator idiom of :class:`RevolveParamsV1`'s ``axis``). Like a
-    fillet/chamfer, a pattern carries NO ``FeatureRef``: it operates on the
-    implicit single body chain that exists at its point in the tree (design
-    §7.6), so its dependency on the prior body-affecting feature is tree order,
-    not a reference. See the module-level DESIGN DECISION note for the v1
-    "pattern the whole body + union" semantics and its stated limitations.
+    nested-discriminator idiom of :class:`RevolveParamsV1`'s ``axis``). In the
+    ``body`` scope a pattern carries NO ``FeatureRef``: it operates on the implicit
+    single body chain that exists at its point in the tree (design §7.6), so its
+    dependency on the prior body-affecting feature is tree order, not a reference.
+    See the module-level DESIGN DECISION note for the v1 "pattern the whole body +
+    union" semantics and its stated limitations.
+
+    ``scope`` (v2, docs/design/pattern-scope.md) states WHAT is repeated — the whole
+    ``body`` (the reading above, kept verbatim) or an explicit selection of
+    ``features``, which DOES materialise ``feature_dependencies``. It defaults to
+    ``body`` and a persisted params blob with no ``scope`` key reads as ``body``
+    (:meth:`_legacy_body_scope`), so every pattern authored before v2 evaluates on
+    unchanged code.
     """
 
     pattern: PatternGeometry = Field(
         description="Linear or circular pattern geometry (discriminated on `kind`)"
     )
+    scope: PatternScope = Field(
+        default_factory=PatternBodyScope,
+        description="WHAT to repeat (discriminated on `kind`): `body` repeats the "
+        "current body (the v1 reading — cut-aware, with the vacuous-cut fallback), "
+        "`features` places the recorded tool solids of an explicit tree-ordered "
+        "selection and re-applies each feature's own boolean. Absent reads `body`, "
+        "so pre-v2 patterns are unchanged (design §2.1).",
+        json_schema_extra=_drop_schema_default,
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _legacy_body_scope(cls, data: Any) -> Any:
+        """Read a scope-less (or explicitly null) params blob as the ``body`` scope.
+
+        The v2 additive migration (design §2.1), the SAME idiom
+        :meth:`MirrorParamsV1._legacy_body_scope` uses: params persisted before
+        ``scope`` existed carry only ``{pattern}``, so normalising the missing key to
+        ``{"kind": "body"}`` keeps them valid with NO stored-shape change and NO
+        ``param_version`` bump. ``scope: null`` is normalised too, so a client that
+        round-trips an omitted optional as an explicit null is not a 422.
+        """
+        if not isinstance(data, dict):
+            return data
+        fields = cast("dict[str, Any]", data)
+        if fields.get("scope") is not None:
+            return fields
+        return {**fields, "scope": {"kind": "body"}}
 
 
 # --- Mirror params — reflect the current body about a plane + union it -----------
@@ -3101,10 +3248,29 @@ def feature_references(feature: FeatureEnvelope) -> tuple[FeatureReference, ...]
                 )
             )
         case PatternFeature():
-            # A pattern replicates the implicit body about world-space direction/
-            # axis vectors (no picked sub-geometry — independent of #1); its
-            # dependency on the prior body-affecting feature is tree order.
-            pass
+            # A `body`-scope pattern replicates the implicit body about world-space
+            # direction/axis vectors (no picked sub-geometry — independent of #1);
+            # its dependency on the prior body-affecting feature is tree order, so
+            # it carries no refs.
+            #
+            # v2 `features` scope (pattern-scope.md §2): each selected feature IS a
+            # real dependency — the pattern places that feature's recorded tools —
+            # so every ref materialises into feature_dependencies with the
+            # BODY-AFFECTING allowed-target rule, exactly as a `features`-scope
+            # mirror does. Bought for free at write time: deleting a patterned
+            # feature is a 409-with-dependents, a reorder re-checks strict-backward,
+            # a forward/self reference is a 422, and a `sketch`/`datum` selection is
+            # a 422 long before it could be an evaluation-time
+            # `pattern_feature_unsupported`.
+            if isinstance(feature.params.scope, PatternFeaturesScope):
+                for index, ref in enumerate(feature.params.scope.features):
+                    references.append(
+                        FeatureReference(
+                            f"scope.features[{index}]",
+                            ref,
+                            BODY_AFFECTING_FEATURE_TYPES,
+                        )
+                    )
         case MirrorFeature():
             # A mirror reflects the implicit body about a plane and unions it
             # (design §7.6) — no source FeatureRef, tree order is its dependency

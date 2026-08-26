@@ -97,6 +97,7 @@ from py_kit.schemas.features import (
     MirrorFeature,
     MirrorFeaturesScope,
     PatternFeature,
+    PatternFeaturesScope,
     PatternGeometry,
     RevolveFeature,
     SheetMetalBaseFlangeFeature,
@@ -150,6 +151,7 @@ from geometry.kernel import (
     PatternDisjointError,
     PatternError,
     PatternSpacingError,
+    PatternUnreachableError,
     ProfileNotClosedError,
     ProfileUnsupportedError,
     RevolveError,
@@ -171,6 +173,7 @@ from geometry.kernel import (
     build_revolve_profile_face,
     chamfer_body,
     check_axis_clears_profile,
+    check_pattern_count,
     check_tap_drill_bore,
     circular_pattern,
     circular_pattern_cut,
@@ -181,10 +184,12 @@ from geometry.kernel import (
     countersink_tool,
     cut_counterbore,
     cut_countersink,
+    cut_placed_tools,
     cut_reflected_tools,
     draft_body,
     extrude_face,
     fillet_body,
+    fuse_placed_tools,
     fuse_reflected_tools,
     linear_pattern,
     linear_pattern_cut,
@@ -450,11 +455,14 @@ class EvaluationState:
     #: be active, so a cut on body A can never be replicated into body B (§MB-0).
     last_cut_feature_id: uuid.UUID | None = None
     last_cut_body_id: uuid.UUID | None = None
-    #: The ids named by any ``features``-scope mirror in this request — the OPT-IN
-    #: capture set (:func:`_mirror_scope_ids`, mirror-semantics §9). Only these
-    #: features retain their tools in :attr:`feature_tools`, so a tree with no such
-    #: mirror pays nothing. Set once by :func:`evaluate_tree`; never mutated after.
-    mirror_scope_ids: frozenset[uuid.UUID] = frozenset()
+    #: The ids named by any ``features``-scope mirror OR PATTERN in this request —
+    #: the OPT-IN capture set (:func:`_tool_scope_ids`, mirror-semantics §9,
+    #: pattern-scope §5). Only these features retain their tools in
+    #: :attr:`feature_tools`, so a tree with no such verb pays nothing. Named
+    #: ``tool_scope_ids`` rather than ``mirror_scope_ids`` since the pattern joined:
+    #: a slot holding pattern ids under a mirror's name is the kind of small lie the
+    #: next reader pays for. Set once by :func:`evaluate_tree`; never mutated after.
+    tool_scope_ids: frozenset[uuid.UUID] = frozenset()
     #: The reflectable contribution of each CAPTURED ok feature, keyed by feature id
     #: and INSERTION-ORDERED BY EVALUATION ORDER — which is what makes a
     #: ``features``-scope mirror apply its reflected tools in TREE order rather than
@@ -506,7 +514,7 @@ class EvaluationState:
         """Record ONE feature's reflectable contribution (mirror-semantics §2b).
 
         A no-op unless *feature_id* is in the opt-in capture set
-        (:attr:`mirror_scope_ids`), so an ordinary rebuild retains nothing extra.
+        (:attr:`tool_scope_ids`), so an ordinary rebuild retains nothing extra.
         Called by every mirrorable verb AFTER its body op succeeded, so the record
         always describes material actually applied to :attr:`active_body_id`.
         """
@@ -521,7 +529,7 @@ class EvaluationState:
         sequence of (op, reflected tools) it applied, which a nested mirror replays
         per group (§4.6).
         """
-        if feature_id not in self.mirror_scope_ids:
+        if feature_id not in self.tool_scope_ids:
             return
         self.feature_tools[feature_id] = RecordedFeatureTools(
             body_id=self.active_body_id, groups=groups
@@ -629,8 +637,8 @@ class EvaluationState:
 FeatureHandler = Callable[[EvaluatedFeatureInput, EvaluationState], FeatureError | None]
 
 
-def _mirror_scope_ids(request: EvaluateTreeRequest) -> frozenset[uuid.UUID]:
-    """Every feature id named by a ``features``-scope mirror in *request*.
+def _tool_scope_ids(request: EvaluateTreeRequest) -> frozenset[uuid.UUID]:
+    """Every feature id named by a ``features``-scope mirror OR PATTERN in *request*.
 
     The OPT-IN pre-pass of docs/design/mirror-semantics.md §9, the same posture
     ``record_history`` took for per-face provenance (audit H4: only the caller that
@@ -638,19 +646,26 @@ def _mirror_scope_ids(request: EvaluateTreeRequest) -> frozenset[uuid.UUID]:
     (the most recent cut); v2 must retain a tool list for every feature some mirror
     might name, which without a gate would grow with tree length x tool complexity
     for the whole evaluation. The selection is known BEFORE evaluation starts, so
-    only these ids retain their tools — a tree with no ``features``-scope mirror
+    only these ids retain their tools — a tree with no ``features``-scope verb
     pays ZERO additional memory, which is also why the widening cannot regress an
     existing document's rebuild cost.
 
-    Suppressed mirrors are included deliberately: unsuppressing one must not need a
-    different capture set (a rebuild is a pure function of the tree, and this keeps
-    the captured set independent of evaluation outcomes).
+    The pattern joined the mirror here unchanged (pattern-scope §5): both verbs read
+    the SAME per-feature store, so one pre-pass funds both and a tree that uses
+    neither still pays nothing. Suppressed features are included deliberately:
+    unsuppressing one must not need a different capture set (a rebuild is a pure
+    function of the tree, and this keeps the captured set independent of evaluation
+    outcomes).
     """
     ids: set[uuid.UUID] = set()
     for item in request.features:
         feature = item.feature
-        if isinstance(feature, MirrorFeature) and isinstance(
-            feature.params.scope, MirrorFeaturesScope
+        if (
+            isinstance(feature, MirrorFeature)
+            and isinstance(feature.params.scope, MirrorFeaturesScope)
+        ) or (
+            isinstance(feature, PatternFeature)
+            and isinstance(feature.params.scope, PatternFeaturesScope)
         ):
             ids.update(ref.feature_id for ref in feature.params.scope.features)
     return frozenset(ids)
@@ -2302,6 +2317,154 @@ def _pattern_contribution(
     return RecordedToolGroup("fuse", _pattern_placements([body], geometry))
 
 
+def _pattern_count(geometry: PatternGeometry) -> int:
+    """The pattern's TOTAL instance count, whichever geometry kind it is.
+
+    Only the error messages of :func:`cut_placed_tools` / :func:`fuse_placed_tools`
+    need it; both members carry ``count``, so this is the one place that says so.
+    """
+    return geometry.count
+
+
+def _evaluate_pattern_features(
+    scope: PatternFeaturesScope,
+    state: EvaluationState,
+    active: BodyShape,
+    geometry: PatternGeometry,
+) -> FeatureError | list[RecordedToolGroup]:
+    """Repeat the RECORDED TOOLS of an explicit feature selection (v2, §3).
+
+    The v2 mechanism, and deliberately the mirror's mechanism with ``place``
+    substituted for ``reflect`` (docs/design/pattern-scope.md §3, the sibling of
+    mirror-semantics §4): for each selected feature in TREE order (§6), take the
+    rigid tool solid(s) it recorded at its OWN evaluation, place a copy of each at
+    this pattern's ``k = 1 .. count-1`` placements, and re-apply THAT feature's own
+    boolean — ``fuse`` for an additive contributor, ``cut`` for a subtractive one.
+    Parameters are never re-derived, and the placements come from the SAME kernel
+    helpers the ``body`` path calls, so what a selection repeats can never drift
+    from what a pattern applies.
+
+    This is where §1's coin flip dies. Neither inference of the v1 pattern runs on
+    this path: the seed is not read off ``prev_body_feature_id`` (so an unrelated
+    fillet between the hole and the pattern changes NOTHING — flip A), and there is
+    no vacuous-cut fallback (so a removal that lands off the part is
+    ``pattern_feature_unreachable``, not a silently doubled body — flip B).
+
+    Typed per-feature refusals (§4), each pinned to the offending SELECTED feature
+    via ``upstream_feature_id`` so the UI can name the true cause:
+
+    * ``reference_unresolved`` — the id is not a feature of this evaluated prefix
+      (documents 422s a forward/self/missing ref at write time; this is the backstop);
+    * ``pattern_feature_unsupported`` — the named kind has no repeatable
+      contribution: a MODIFIER, a ``sketch``/``datum``, a ``boolean``, or a
+      ``body``-scope mirror/pattern (§3);
+    * ``pattern_feature_other_body`` — the tools were recorded against a different
+      body than the active one (§MB-0);
+    * ``pattern_feature_unreachable`` — a placed cut removes nothing (§4);
+    * ``pattern_feature_not_evaluated`` — nothing was recorded for any selected
+      feature, so the pattern would be a silent no-op.
+
+    ``count == 1`` is a documented no-op in BOTH scopes, so it returns an empty
+    group list with the body untouched rather than the "not evaluated" refusal — it
+    is a no-op pattern, not an empty selection.
+
+    Returns the PLACED groups it applied (in application order) so the caller can
+    record them for an outer ``features``-scope mirror or pattern to repeat in turn.
+    The active body is replaced only after EVERY selected feature applied, so a
+    mid-sequence failure leaves the last-good body untouched (§4.3).
+    """
+    for ref in scope.features:
+        if ref.feature_id not in state.scoped_feature_types:
+            return FeatureError(
+                code="reference_unresolved",
+                message=(
+                    "Pattern scope must reference features of this evaluated tree "
+                    "prefix; the named feature is missing, defined later, "
+                    "rolled back, or did not evaluate."
+                ),
+                upstream_feature_id=ref.feature_id,
+            )
+
+    count = _pattern_count(geometry)
+    check_pattern_count(count)
+    applied: list[RecordedToolGroup] = []
+    body = active
+    for feature_id in _selection_in_tree_order(scope.features, state):
+        record = state.feature_tools.get(feature_id)
+        if record is None:
+            kind = state.scoped_feature_types[feature_id]
+            return FeatureError(
+                code="pattern_feature_unsupported",
+                message=(
+                    f"A '{kind}' feature cannot be patterned: it has no rigid tool "
+                    "to repeat, only a result. Modifiers (fillet, chamfer, shell, "
+                    "draft, sheet-metal folds), booleans and whole-body "
+                    "mirrors/patterns are not selectable — repeating an "
+                    "approximation of one would produce a plausible but wrong body."
+                ),
+                upstream_feature_id=feature_id,
+            )
+        if record.body_id != state.active_body_id:
+            return FeatureError(
+                code="pattern_feature_other_body",
+                message=(
+                    "The selected feature contributed to a different body than the "
+                    "one this pattern acts on, so repeating it would move material "
+                    "between bodies. Pattern it while its own body is active."
+                ),
+                upstream_feature_id=feature_id,
+            )
+        for group in record.groups:
+            if not group.tools:
+                continue
+            placed = _pattern_placements(list(group.tools), geometry)
+            if not placed:
+                continue  # count == 1 — the documented no-op, not a refusal
+            try:
+                if group.op == "cut":
+                    body = cut_placed_tools(body, placed, count)
+                else:
+                    body = fuse_placed_tools(body, placed, count)
+            except PatternUnreachableError as exc:
+                return FeatureError(
+                    code="pattern_feature_unreachable",
+                    message=(
+                        f"{exc} The selected feature's removal repeats clear of the "
+                        "body — check the spacing/angle and the selection."
+                    ),
+                    upstream_feature_id=feature_id,
+                )
+            except PatternDisjointError as exc:
+                return FeatureError(
+                    code="pattern_disjoint",
+                    message=str(exc),
+                    upstream_feature_id=feature_id,
+                )
+            except PatternError as exc:
+                return FeatureError(
+                    code="pattern_failed",
+                    message=str(exc),
+                    upstream_feature_id=feature_id,
+                )
+            # The PLACED solids, not the sources: a nested pattern/mirror repeats
+            # what THIS one placed, never the inner feature's own tool.
+            applied.append(RecordedToolGroup(group.op, placed))
+
+    if count > 1 and not applied:
+        return FeatureError(
+            code="pattern_feature_not_evaluated",
+            message=(
+                "None of the selected features recorded any geometry to repeat, so "
+                "this pattern would do nothing. Check the selection (a count-1 "
+                "inner pattern contributes no instances)."
+            ),
+        )
+
+    if applied:
+        state.set_active_body(body)
+    return applied
+
+
 def _evaluate_pattern(
     item: EvaluatedFeatureInput, state: EvaluationState
 ) -> FeatureError | None:
@@ -2322,12 +2485,22 @@ def _evaluate_pattern(
     * otherwise the copies of the WHOLE current body are UNIONED into the chain
       (the original add-pattern, unchanged — BACKLOG #7).
 
+    v2 (docs/design/pattern-scope.md): ``params.scope`` states WHAT is repeated, so
+    neither inference above is consulted when the tree says. ``scope.kind ==
+    "features"`` dispatches to :func:`_evaluate_pattern_features`; ``scope.kind ==
+    "body"`` — which is also what a persisted pre-v2 pattern with no ``scope`` key
+    normalises to — runs the v1 body below VERBATIM. That is why the four shipped
+    pattern goldens' byte identity is STRUCTURAL rather than measured (§2.1): the
+    ``body`` branch dispatches to code this work did not touch.
+
     Every pattern value is validated in :mod:`geometry.kernel.pattern` and mapped
     1:1 to a per-feature ``pattern_*`` code — bad count/spacing/direction/axis/
     angle, ``pattern_disjoint`` (instances do not merge into / the cut severs one
     solid), or the kernel ``pattern_failed`` (incl. a cut that removes the whole
-    body). the active body is only replaced on success (strict-prefix rule
-    tessellates the last-good body, §4.3).
+    body). Both scopes are validated by the SAME guards, which is the reason the
+    ``features`` branch sits inside this ``try`` rather than owning a second copy.
+    The active body is only replaced on success (strict-prefix rule tessellates the
+    last-good body, §4.3).
     """
     feature = item.feature
     assert isinstance(feature, PatternFeature), "registry dispatches on type='pattern'"
@@ -2343,8 +2516,21 @@ def _evaluate_pattern(
             ),
         )
 
-    tools = _pattern_cut_tools(state)
+    scope = feature.params.scope
+    tools = (
+        None if isinstance(scope, PatternFeaturesScope) else _pattern_cut_tools(state)
+    )
     try:
+        if isinstance(scope, PatternFeaturesScope):
+            applied = _evaluate_pattern_features(
+                scope, state, active, feature.params.pattern
+            )
+            if isinstance(applied, FeatureError):
+                return applied
+            # Record what this pattern applied so an OUTER `features`-scope pattern
+            # or mirror can repeat/reflect it. Opt-in (no-op unless selected).
+            state.record_feature_tool_groups(item.id, applied)
+            return None
         patterned = _apply_pattern(active, feature.params.pattern, tools)
     except PatternCountError as exc:
         return FeatureError(code="pattern_bad_count", message=str(exc))
@@ -2364,7 +2550,7 @@ def _evaluate_pattern(
     # PRE-pattern body (the source the placements were made from), exactly as a cut
     # records its tools from the pre-cut body (FINDINGS #1/#3). Opt-in, so an
     # unreferenced pattern pays neither the placement rebuild nor the retention.
-    if item.id in state.mirror_scope_ids:
+    if item.id in state.tool_scope_ids:
         contribution = _pattern_contribution(active, feature.params.pattern, tools)
         state.set_active_body(patterned)
         state.record_feature_tool_groups(item.id, [contribution])
@@ -2392,8 +2578,8 @@ _MIRROR_REFLECTABLE_TYPES: frozenset[str] = frozenset(
 )
 
 
-def _mirror_selection_in_tree_order(
-    scope: MirrorFeaturesScope, state: EvaluationState
+def _selection_in_tree_order(
+    refs: Sequence[FeatureRef], state: EvaluationState
 ) -> list[uuid.UUID]:
     """The selected ids in EVALUATION order, ignoring the array order (§8.1).
 
@@ -2404,8 +2590,12 @@ def _mirror_selection_in_tree_order(
     reflects as cut-then-fuse, matching the original). ``scoped_feature_types`` is
     insertion-ordered by evaluation, so filtering it IS tree order — a total order
     derived from the tree, hence a pure function of it (RESEARCH §9).
+
+    Takes the refs rather than a scope object so the mirror and the pattern share
+    ONE definition of "tree order" (pattern-scope §6) — the determinism rule is the
+    same rule, and two copies of it could drift.
     """
-    selected = {ref.feature_id for ref in scope.features}
+    selected = {ref.feature_id for ref in refs}
     return [fid for fid in state.scoped_feature_types if fid in selected]
 
 
@@ -2468,7 +2658,7 @@ def _evaluate_mirror_features(
 
     applied: list[RecordedToolGroup] = []
     body = active
-    for feature_id in _mirror_selection_in_tree_order(scope, state):
+    for feature_id in _selection_in_tree_order(scope.features, state):
         record = state.feature_tools.get(feature_id)
         if record is None:
             kind = state.scoped_feature_types[feature_id]
@@ -3221,7 +3411,7 @@ def _dispatch_prefix(
             # (reference_unresolved) from "in the prefix but not reflectable"
             # (mirror_feature_unsupported), and the insertion order IS the tree order
             # its reflected tools are applied in (mirror-semantics §8.1).
-            if item.id in state.mirror_scope_ids:
+            if item.id in state.tool_scope_ids:
                 state.scoped_feature_types[item.id] = item.feature.type
             # Advance the last ok body-affecting feature id so the NEXT feature (a
             # pattern) can tell whether the recorded cut tools came from its
@@ -3344,7 +3534,7 @@ def warm_rebuild_cache(
 
     keys = prefix_keys(
         request,
-        capture_scope=_mirror_scope_ids(request),
+        capture_scope=_tool_scope_ids(request),
         record_history=record_history,
     )
     resume = _REBUILD_CACHE.take(keys[: target + 1])
@@ -3353,7 +3543,7 @@ def warm_rebuild_cache(
     if checkpoint is None:
         state = EvaluationState(
             linear_deflection=request.linear_deflection,
-            mirror_scope_ids=_mirror_scope_ids(request),
+            tool_scope_ids=_tool_scope_ids(request),
         )
         results: list[FeatureResult] = []
         last_good: uuid.UUID | None = None
@@ -3522,7 +3712,7 @@ def _evaluate_tree(
     """
     keys = prefix_keys(
         request,
-        capture_scope=_mirror_scope_ids(request),
+        capture_scope=_tool_scope_ids(request),
         record_history=record_history,
     )
     resume = _REBUILD_CACHE.take(keys)
@@ -3534,7 +3724,7 @@ def _evaluate_tree(
             # OPT-IN tool capture (mirror-semantics §9): only features some
             # `features`-scope mirror names retain their reflectable tools, so a
             # tree without one pays zero extra memory and zero extra work.
-            mirror_scope_ids=_mirror_scope_ids(request),
+            tool_scope_ids=_tool_scope_ids(request),
         )
         results: list[FeatureResult] = []
         last_good_feature_id: uuid.UUID | None = None

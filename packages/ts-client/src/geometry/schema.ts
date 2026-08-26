@@ -4974,6 +4974,24 @@ export interface components {
             kind: "parallel";
         };
         /**
+         * PatternBodyScope
+         * @description ``scope: {"kind": "body"}`` — repeat the CURRENT BODY (the v1 reading).
+         *
+         *     The v1 semantic, NAMED rather than implied (design §2): both inference rules
+         *     above run verbatim, on the same code path, producing the same bytes — so the
+         *     shipped pattern goldens' byte identity is STRUCTURAL, not measured. This scope
+         *     still flips as §1 measures; that is what "additive" costs, and the flip is now a
+         *     documented property of a legacy reading the UI never authors rather than the
+         *     only available spelling.
+         */
+        PatternBodyScope: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "body";
+        };
+        /**
          * PatternFeature
          * @description ``{"type": "pattern", "version": 1, "params": {...}}`` envelope.
          */
@@ -4996,16 +5014,61 @@ export interface components {
             version: 1;
         };
         /**
+         * PatternFeaturesScope
+         * @description ``scope: {"kind": "features", "features": [...]}`` — repeat these features.
+         *
+         *     The v2 reading (design §2/§3): each selected feature's RECORDED RIGID TOOL
+         *     SOLID(S) are PLACED at the pattern's ``k = 1 .. count-1`` placements and that
+         *     feature's OWN operation (``fuse``/``cut``) is re-applied to the active body, in
+         *     TREE order — never array order (§6: array order is UI-incidental, so honouring
+         *     it would make identical models tessellate to different bytes). The placements
+         *     come from the SAME kernel helpers the ``body`` path calls, so what a selection
+         *     repeats can never drift from what a pattern applies.
+         *
+         *     ``features`` names :class:`FeatureRef`s rather than bare UUIDs so each selection
+         *     materialises into ``feature_dependencies`` for free (feature-tree §2.3): deleting
+         *     a patterned feature is a 409-with-dependents, a reorder re-checks the
+         *     strict-backward rule, and a forward/self reference is a write-time 422. A
+         *     non-body-affecting or non-repeatable kind (``sketch``/``datum``, and every
+         *     MODIFIER — fillet/chamfer/shell/draft and the sheet-metal family, which have a
+         *     RESULT and no tool) is refused with the typed per-feature
+         *     ``pattern_feature_unsupported`` at rebuild.
+         *
+         *     ``min_length=1`` because an empty selection is authoring nonsense, not a no-op
+         *     pattern, and duplicate ids are a 422 rather than silently deduplicated — naming
+         *     a feature twice leaves the intent (twice? once?) unstated, which is the mistake
+         *     v1 made.
+         */
+        PatternFeaturesScope: {
+            /**
+             * Features
+             * @description The features to repeat, each a `FeatureRef` to an earlier body-affecting feature of this tree. Applied in TREE order (the array order is ignored — design §6); at least one, at most MAX_PATTERN_SCOPE_FEATURES (work bound); duplicates are a 422.
+             */
+            features: components["schemas"]["FeatureRef"][];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "features";
+        };
+        /**
          * PatternParamsV1
          * @description Repeat the current single body into a linear row or circular ring.
          *
          *     Wraps the discriminated :data:`PatternGeometry` under ``pattern`` (the
-         *     nested-discriminator idiom of :class:`RevolveParamsV1`'s ``axis``). Like a
-         *     fillet/chamfer, a pattern carries NO ``FeatureRef``: it operates on the
-         *     implicit single body chain that exists at its point in the tree (design
-         *     §7.6), so its dependency on the prior body-affecting feature is tree order,
-         *     not a reference. See the module-level DESIGN DECISION note for the v1
-         *     "pattern the whole body + union" semantics and its stated limitations.
+         *     nested-discriminator idiom of :class:`RevolveParamsV1`'s ``axis``). In the
+         *     ``body`` scope a pattern carries NO ``FeatureRef``: it operates on the implicit
+         *     single body chain that exists at its point in the tree (design §7.6), so its
+         *     dependency on the prior body-affecting feature is tree order, not a reference.
+         *     See the module-level DESIGN DECISION note for the v1 "pattern the whole body +
+         *     union" semantics and its stated limitations.
+         *
+         *     ``scope`` (v2, docs/design/pattern-scope.md) states WHAT is repeated — the whole
+         *     ``body`` (the reading above, kept verbatim) or an explicit selection of
+         *     ``features``, which DOES materialise ``feature_dependencies``. It defaults to
+         *     ``body`` and a persisted params blob with no ``scope`` key reads as ``body``
+         *     (:meth:`_legacy_body_scope`), so every pattern authored before v2 evaluates on
+         *     unchanged code.
          */
         PatternParamsV1: {
             /**
@@ -5013,6 +5076,11 @@ export interface components {
              * @description Linear or circular pattern geometry (discriminated on `kind`)
              */
             pattern: components["schemas"]["LinearPatternParamsV1"] | components["schemas"]["CircularPatternParamsV1"];
+            /**
+             * Scope
+             * @description WHAT to repeat (discriminated on `kind`): `body` repeats the current body (the v1 reading — cut-aware, with the vacuous-cut fallback), `features` places the recorded tool solids of an explicit tree-ordered selection and re-applies each feature's own boolean. Absent reads `body`, so pre-v2 patterns are unchanged (design §2.1).
+             */
+            scope?: components["schemas"]["PatternBodyScope"] | components["schemas"]["PatternFeaturesScope"];
         };
         /**
          * PerpendicularConstraint

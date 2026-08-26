@@ -1,6 +1,14 @@
 # Pattern Scope — Design
 
-Status: **DESIGNED** (kernel-architect, 2026-08-26) at HEAD `eed8729`. Scope: the
+Status: **IMPLEMENTED** (kernel-architect, 2026-08-26) — designed and shipped at
+HEAD `eed8729`, as specified, with **two recorded divergences**: §7 gained a
+warning the implementation surfaced (params models `extra="ignore"`, so a
+misplaced `scope` key is silently the `body` reading), and §8's golden became
+`pattern-features-pocket-3x-boss-40x40x20` — a pocket + boss rather than a hole +
+fillet, so every expectation is hand-derivable in closed form AND the wrong body
+turns out to have identical topology counts, which is a better fixture than the
+one designed. Evidence, measured numbers and the mutation runs live in
+`services/geometry/tests/test_pattern_scope.py`. Scope: the
 **pattern feature's input contract** — what a pattern names as the thing it
 repeats. This is the pattern's half of the decision
 [`mirror-semantics.md`](./mirror-semantics.md) already made for the mirror, and it
@@ -259,6 +267,14 @@ seam, so that half lands on top of this one without a schema change.
 
 1. **Send `scope` explicitly on every NEW pattern.** Omitting it means "body
    scope" forever (§2.1). A dialog that omits it is authoring the §1 defect.
+   **And put it at `params.scope`, not `params.features`** — every params model in
+   this repo is pydantic-default `extra="ignore"`, so a payload that spells the
+   selection at the wrong level validates, evaluates, and silently gives the
+   `body` reading. Measured while writing this: the first draft of
+   `test_pattern_scope.py` did exactly that and seven tests passed against the
+   wrong scope. There is no server-side guard against it (tightening `extra` is a
+   repo-wide decision that would reject persisted blobs carrying stale keys), so
+   the contract test on the UI side should assert on the RESULT, not the 2xx.
 2. **Pre-fill the selection with the tip body-affecting feature** (§2.2) and show
    it as a removable chip, exactly as the mirror dialog's "features to mirror"
    list does. The user disposes; the tool proposes.
@@ -283,12 +299,20 @@ seam, so that half lands on top of this one without a schema change.
 
 ## 8. Goldens (new capability ⇒ new golden, same commit)
 
-`pattern-features-hole-3x-plate-40x40x20` — the 40 x 40 x 20 plate of §1.1 with a
-Ø8 through-hole and a fillet BETWEEN the hole and the pattern, patterned
-`features: [hole]`, `spacing_mm: 12`, `count: 3`. It is §1.1's flip-A tree with the
-scope stated, and it locks the number the user asked for on the tree where v1
-silently gives them a tripled plate. Hand-derived; tolerance is the reviewed
-CURVED tier (1e-8 — it carries cylindrical bores), never a new epsilon.
+`pattern-features-pocket-3x-boss-40x40x20` — a 40 x 40 x 20 plate, a 4 x 20 x 10
+pocket extrude-CUT at x in [4,8], an 8 x 8 x 5 BOSS on the top face (the unrelated
+feature), then `features: [pocket]`, `spacing_mm: 12`, `count: 3`. **29920.0 mm³,
+bbox X 0..40.** Delete the `scope` key and the identical tree evaluates to
+**51359.99999999999 with bbox X 0..64**, every feature `ok` — it is §1.1's defect
+with the seed stated. All-planar, so every expectation is hand-derived in closed
+form and the tolerance is the reviewed PLANAR tier (1e-9), never a new epsilon.
+
+The fixture turned out to carry a lesson worth the change from the designed
+hole+fillet version: **the wrong body has the SAME face, edge and shell counts
+(26 / 60 / 1) as the right one.** Topology does not discriminate them. Volume, the
+bounding box and the material positions do, which is why the golden and
+`test_pattern_scope.py` assert all three and why "topology counts are exact-match"
+is a necessary gate and never a sufficient one.
 
 The four shipped pattern goldens are unchanged and their byte identity is the
 §2.1 structural guarantee.

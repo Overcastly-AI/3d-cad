@@ -7444,6 +7444,19 @@
         "title": "PartUpdate",
         "type": "object"
       },
+      "PatternBodyScope": {
+        "description": "``scope: {\"kind\": \"body\"}`` \u2014 repeat the CURRENT BODY (the v1 reading).\n\nThe v1 semantic, NAMED rather than implied (design \u00a72): both inference rules\nabove run verbatim, on the same code path, producing the same bytes \u2014 so the\nshipped pattern goldens' byte identity is STRUCTURAL, not measured. This scope\nstill flips as \u00a71 measures; that is what \"additive\" costs, and the flip is now a\ndocumented property of a legacy reading the UI never authors rather than the\nonly available spelling.",
+        "properties": {
+          "kind": {
+            "const": "body",
+            "default": "body",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "title": "PatternBodyScope",
+        "type": "object"
+      },
       "PatternFeature": {
         "description": "``{\"type\": \"pattern\", \"version\": 1, \"params\": {...}}`` envelope.",
         "properties": {
@@ -7474,8 +7487,34 @@
         "title": "PatternFeature",
         "type": "object"
       },
+      "PatternFeaturesScope": {
+        "description": "``scope: {\"kind\": \"features\", \"features\": [...]}`` \u2014 repeat these features.\n\nThe v2 reading (design \u00a72/\u00a73): each selected feature's RECORDED RIGID TOOL\nSOLID(S) are PLACED at the pattern's ``k = 1 .. count-1`` placements and that\nfeature's OWN operation (``fuse``/``cut``) is re-applied to the active body, in\nTREE order \u2014 never array order (\u00a76: array order is UI-incidental, so honouring\nit would make identical models tessellate to different bytes). The placements\ncome from the SAME kernel helpers the ``body`` path calls, so what a selection\nrepeats can never drift from what a pattern applies.\n\n``features`` names :class:`FeatureRef`s rather than bare UUIDs so each selection\nmaterialises into ``feature_dependencies`` for free (feature-tree \u00a72.3): deleting\na patterned feature is a 409-with-dependents, a reorder re-checks the\nstrict-backward rule, and a forward/self reference is a write-time 422. A\nnon-body-affecting or non-repeatable kind (``sketch``/``datum``, and every\nMODIFIER \u2014 fillet/chamfer/shell/draft and the sheet-metal family, which have a\nRESULT and no tool) is refused with the typed per-feature\n``pattern_feature_unsupported`` at rebuild.\n\n``min_length=1`` because an empty selection is authoring nonsense, not a no-op\npattern, and duplicate ids are a 422 rather than silently deduplicated \u2014 naming\na feature twice leaves the intent (twice? once?) unstated, which is the mistake\nv1 made.",
+        "properties": {
+          "features": {
+            "description": "The features to repeat, each a `FeatureRef` to an earlier body-affecting feature of this tree. Applied in TREE order (the array order is ignored \u2014 design \u00a76); at least one, at most MAX_PATTERN_SCOPE_FEATURES (work bound); duplicates are a 422.",
+            "items": {
+              "$ref": "#/components/schemas/FeatureRef"
+            },
+            "maxItems": 500,
+            "minItems": 1,
+            "title": "Features",
+            "type": "array"
+          },
+          "kind": {
+            "const": "features",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "features"
+        ],
+        "title": "PatternFeaturesScope",
+        "type": "object"
+      },
       "PatternParamsV1": {
-        "description": "Repeat the current single body into a linear row or circular ring.\n\nWraps the discriminated :data:`PatternGeometry` under ``pattern`` (the\nnested-discriminator idiom of :class:`RevolveParamsV1`'s ``axis``). Like a\nfillet/chamfer, a pattern carries NO ``FeatureRef``: it operates on the\nimplicit single body chain that exists at its point in the tree (design\n\u00a77.6), so its dependency on the prior body-affecting feature is tree order,\nnot a reference. See the module-level DESIGN DECISION note for the v1\n\"pattern the whole body + union\" semantics and its stated limitations.",
+        "description": "Repeat the current single body into a linear row or circular ring.\n\nWraps the discriminated :data:`PatternGeometry` under ``pattern`` (the\nnested-discriminator idiom of :class:`RevolveParamsV1`'s ``axis``). In the\n``body`` scope a pattern carries NO ``FeatureRef``: it operates on the implicit\nsingle body chain that exists at its point in the tree (design \u00a77.6), so its\ndependency on the prior body-affecting feature is tree order, not a reference.\nSee the module-level DESIGN DECISION note for the v1 \"pattern the whole body +\nunion\" semantics and its stated limitations.\n\n``scope`` (v2, docs/design/pattern-scope.md) states WHAT is repeated \u2014 the whole\n``body`` (the reading above, kept verbatim) or an explicit selection of\n``features``, which DOES materialise ``feature_dependencies``. It defaults to\n``body`` and a persisted params blob with no ``scope`` key reads as ``body``\n(:meth:`_legacy_body_scope`), so every pattern authored before v2 evaluates on\nunchanged code.",
         "properties": {
           "pattern": {
             "description": "Linear or circular pattern geometry (discriminated on `kind`)",
@@ -7495,6 +7534,25 @@
               }
             ],
             "title": "Pattern"
+          },
+          "scope": {
+            "description": "WHAT to repeat (discriminated on `kind`): `body` repeats the current body (the v1 reading \u2014 cut-aware, with the vacuous-cut fallback), `features` places the recorded tool solids of an explicit tree-ordered selection and re-applies each feature's own boolean. Absent reads `body`, so pre-v2 patterns are unchanged (design \u00a72.1).",
+            "discriminator": {
+              "mapping": {
+                "body": "#/components/schemas/PatternBodyScope",
+                "features": "#/components/schemas/PatternFeaturesScope"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PatternBodyScope"
+              },
+              {
+                "$ref": "#/components/schemas/PatternFeaturesScope"
+              }
+            ],
+            "title": "Scope"
           }
         },
         "required": [
