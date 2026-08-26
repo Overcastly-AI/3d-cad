@@ -580,6 +580,33 @@ class SymmetricConstraint(BaseModel):
     line: EntityId
 
 
+class CollinearConstraint(BaseModel):
+    """Two lines lie on ONE infinite line.
+
+    How a stepped profile's faces are kept flush (docs/AUDIT-PRODUCT.md T-5):
+    two edges that must read as one straight face, with a feature between them.
+    Relates two WHOLE line entities by id like :class:`ParallelConstraint`, and
+    is strictly stronger than one — parallel fixes only the direction, leaving
+    the offset free, which is precisely the gap that lets a step reappear on the
+    next edit.
+
+    Removes two degrees of freedom (the direction and the offset), which is why
+    it takes two planegcs constraints: ``b``'s two endpoints are each put on
+    ``a``'s infinite line. That is deliberately asymmetric in the WIRING and
+    symmetric in MEANING — two lines on one infinite line is the same relation
+    read either way — so ``a``/``b`` order is immaterial to the solution.
+
+    Both entities must be lines. A zero-length ``b`` is degenerate: its two
+    endpoints are one point, so a single constraint is doing the work of two and
+    the pair is underconstrained rather than collinear. The solver's own
+    diagnosis reports that as the remaining degree of freedom it is.
+    """
+
+    kind: Literal["collinear"]
+    a: EntityId
+    b: EntityId
+
+
 class MidpointConstraint(BaseModel):
     """A point sits at the MIDDLE of a line.
 
@@ -632,7 +659,8 @@ SketchConstraint = Annotated[
     | EqualConstraint
     | SymmetricConstraint
     | ConcentricConstraint
-    | MidpointConstraint,
+    | MidpointConstraint
+    | CollinearConstraint,
     Field(discriminator="kind"),
 ]
 

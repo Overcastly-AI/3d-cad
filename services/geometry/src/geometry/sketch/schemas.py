@@ -11,6 +11,7 @@ solver/evaluator/test imports stable (same pattern as :mod:`geometry.schemas`).
 from py_kit.schemas.sketch import (
     AngleConstraint,
     CoincidentConstraint,
+    CollinearConstraint,
     ConcentricConstraint,
     DiameterConstraint,
     DimensionConstraint,
@@ -60,6 +61,7 @@ from py_kit.schemas.sketch import (
 __all__ = [
     "AngleConstraint",
     "CoincidentConstraint",
+    "CollinearConstraint",
     "ConcentricConstraint",
     "DiameterConstraint",
     "DimensionConstraint",

@@ -90,6 +90,7 @@ from geometry.sketch.residual import geometric_residuals, worst_residual
 from geometry.sketch.schemas import (
     AngleConstraint,
     CoincidentConstraint,
+    CollinearConstraint,
     ConcentricConstraint,
     DiameterConstraint,
     DimensionConstraint,
@@ -443,6 +444,7 @@ def _constraint_point_refs(constraint: SketchConstraint) -> tuple[EntityPointRef
             | TangentConstraint()
             | EqualConstraint()
             | ConcentricConstraint()
+            | CollinearConstraint()
         ):
             return ()
         case _:
@@ -814,6 +816,20 @@ class _GcsBuild:
                     self._resolve_point(constraint.b),
                     self._resolve_line(constraint.line, "symmetric"),
                 )
+            case CollinearConstraint():
+                # planegcs has no collinear constraint. Two lines share one
+                # infinite line exactly when BOTH of one line's endpoints lie on
+                # the other's, so that is the pair added — two tags, both mapped
+                # to this constraint index (as `midpoint` and `fixed` do), so a
+                # diagnosis names the constraint the author wrote.
+                a_line = self._resolve_line(constraint.a, "collinear")
+                self._resolve_line(constraint.b, "collinear")  # kind check
+                for point in ("start", "end"):
+                    tag_n = gcs.point_on_line(
+                        self._points[(constraint.b, point)], a_line
+                    )
+                    self.tag_to_index[tag_n] = index
+                return
             case MidpointConstraint():
                 # planegcs has no midpoint-of-line constraint, and the two it
                 # does have intersect in exactly the midpoint: the line itself,

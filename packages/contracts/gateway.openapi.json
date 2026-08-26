@@ -1149,6 +1149,35 @@
         "title": "CoincidentMate",
         "type": "object"
       },
+      "CollinearConstraint": {
+        "description": "Two lines lie on ONE infinite line.\n\nHow a stepped profile's faces are kept flush (docs/AUDIT-PRODUCT.md T-5):\ntwo edges that must read as one straight face, with a feature between them.\nRelates two WHOLE line entities by id like :class:`ParallelConstraint`, and\nis strictly stronger than one \u2014 parallel fixes only the direction, leaving\nthe offset free, which is precisely the gap that lets a step reappear on the\nnext edit.\n\nRemoves two degrees of freedom (the direction and the offset), which is why\nit takes two planegcs constraints: ``b``'s two endpoints are each put on\n``a``'s infinite line. That is deliberately asymmetric in the WIRING and\nsymmetric in MEANING \u2014 two lines on one infinite line is the same relation\nread either way \u2014 so ``a``/``b`` order is immaterial to the solution.\n\nBoth entities must be lines. A zero-length ``b`` is degenerate: its two\nendpoints are one point, so a single constraint is doing the work of two and\nthe pair is underconstrained rather than collinear. The solver's own\ndiagnosis reports that as the remaining degree of freedom it is.",
+        "properties": {
+          "a": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "A",
+            "type": "string"
+          },
+          "b": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "B",
+            "type": "string"
+          },
+          "kind": {
+            "const": "collinear",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "a",
+          "b"
+        ],
+        "title": "CollinearConstraint",
+        "type": "object"
+      },
       "ComposedArrow": {
         "description": "A filled arrowhead triangle \u2014 tip + two barb wings, in order (SVG space).",
         "properties": {
@@ -10060,6 +10089,7 @@
                 "mapping": {
                   "angle": "#/components/schemas/AngleConstraint",
                   "coincident": "#/components/schemas/CoincidentConstraint",
+                  "collinear": "#/components/schemas/CollinearConstraint",
                   "concentric": "#/components/schemas/ConcentricConstraint",
                   "diameter": "#/components/schemas/DiameterConstraint",
                   "distance": "#/components/schemas/DistanceConstraint",
@@ -10121,6 +10151,9 @@
                 },
                 {
                   "$ref": "#/components/schemas/MidpointConstraint"
+                },
+                {
+                  "$ref": "#/components/schemas/CollinearConstraint"
                 }
               ]
             },

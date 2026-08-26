@@ -73,6 +73,7 @@ from geometry.sketch.angles import AngleFrame, angle_frames, oriented_angle_rad
 from geometry.sketch.schemas import (
     AngleConstraint,
     CoincidentConstraint,
+    CollinearConstraint,
     ConcentricConstraint,
     DiameterConstraint,
     DimensionConstraint,
@@ -423,6 +424,41 @@ def _midpoint_residual(
     return max(perpendicular, bisector)
 
 
+def _collinear_residual(
+    constraint: CollinearConstraint, entities_by_id: dict[str, SketchEntity]
+) -> float:
+    """The WORSE of the two point-on-line distances planegcs is actually holding.
+
+    Exactly the two witnesses, in their own units: ``collinear`` is wired as
+    ``b``'s two endpoints on ``a``'s infinite line, and ``point_on_line``'s error
+    IS that perpendicular distance in mm (measured). So this is the max of the
+    two tag errors rather than a re-derivation of "collinear" from some other
+    definition, and it cannot be stricter than either.
+
+    Note it deliberately does NOT also measure ``a``'s endpoints against ``b``.
+    That would be a relation the solver is not holding, and where ``b`` is short
+    or degenerate it reads a violation planegcs does not — a second opinion
+    refusing on its own authority, which is the defect this module's docstring
+    is about.
+    """
+    a = entities_by_id.get(constraint.a)
+    b = entities_by_id.get(constraint.b)
+    if not isinstance(a, SketchLine) or not isinstance(b, SketchLine):
+        return UNRESOLVABLE
+    start = (a.start.x, a.start.y)
+    direction = (a.end.x - a.start.x, a.end.y - a.start.y)
+    worst = 0.0
+    for point in ((b.start.x, b.start.y), (b.end.x, b.end.y)):
+        distance = _point_to_line(point, start, direction)
+        if distance is None:
+            # ``a`` is degenerate and defines no line; planegcs's own error is
+            # undefined there and refuses the hold on its own (same posture as
+            # `_unit_cross`). This opinion declines to be the rejecter.
+            return 0.0
+        worst = max(worst, distance)
+    return worst
+
+
 def constraint_residual(
     constraint: SketchConstraint,
     entities_by_id: dict[str, SketchEntity],
@@ -493,6 +529,8 @@ def constraint_residual(
             return _symmetric_residual(constraint, entities_by_id)
         case MidpointConstraint():
             return _midpoint_residual(constraint, entities_by_id)
+        case CollinearConstraint():
+            return _collinear_residual(constraint, entities_by_id)
         case _:  # pragma: no cover — the constraint union is closed
             assert_never(constraint)
 

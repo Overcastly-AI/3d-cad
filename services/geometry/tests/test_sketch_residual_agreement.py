@@ -35,6 +35,7 @@ import math
 from geometry.sketch import (
     AngleConstraint,
     CoincidentConstraint,
+    CollinearConstraint,
     ConcentricConstraint,
     DiameterConstraint,
     DistanceConstraint,
@@ -218,6 +219,14 @@ OFF_SOLUTION: dict[str, SketchDefinition] = {
             AngleConstraint(kind="angle", a="l1", b="l2", value_deg=110.0),
         ],
     ),
+    # ``b`` is off ``a``'s line by DIFFERENT amounts at its two ends (5 and 9),
+    # so the two point-on-line witnesses disagree with each other and the
+    # residual's "worst of the two" is doing real work rather than reading one
+    # number twice.
+    "collinear": SketchDefinition(
+        entities=[_line("l1", (0, 0), (40, 0)), _line("l2", (10, 5), (30, 9))],
+        constraints=[CollinearConstraint(kind="collinear", a="l1", b="l2")],
+    ),
     # Off-solution in BOTH of the midpoint constraint's parts at once: the point
     # is 30 mm clear of the line AND 10 mm past its middle, so neither witness
     # reads zero and the two can actually disagree.
@@ -318,6 +327,7 @@ def test_every_constraint_kind_is_covered_by_a_fixture() -> None:
     assert covered == {
         "angle",
         "coincident",
+        "collinear",
         "concentric",
         "diameter",
         "distance",

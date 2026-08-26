@@ -1425,6 +1425,45 @@ export interface components {
             type: "coincident";
         };
         /**
+         * CollinearConstraint
+         * @description Two lines lie on ONE infinite line.
+         *
+         *     How a stepped profile's faces are kept flush (docs/AUDIT-PRODUCT.md T-5):
+         *     two edges that must read as one straight face, with a feature between them.
+         *     Relates two WHOLE line entities by id like :class:`ParallelConstraint`, and
+         *     is strictly stronger than one — parallel fixes only the direction, leaving
+         *     the offset free, which is precisely the gap that lets a step reappear on the
+         *     next edit.
+         *
+         *     Removes two degrees of freedom (the direction and the offset), which is why
+         *     it takes two planegcs constraints: ``b``'s two endpoints are each put on
+         *     ``a``'s infinite line. That is deliberately asymmetric in the WIRING and
+         *     symmetric in MEANING — two lines on one infinite line is the same relation
+         *     read either way — so ``a``/``b`` order is immaterial to the solution.
+         *
+         *     Both entities must be lines. A zero-length ``b`` is degenerate: its two
+         *     endpoints are one point, so a single constraint is doing the work of two and
+         *     the pair is underconstrained rather than collinear. The solver's own
+         *     diagnosis reports that as the remaining degree of freedom it is.
+         */
+        CollinearConstraint: {
+            /**
+             * A
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            a: string;
+            /**
+             * B
+             * @description Sketch-local entity id, e.g. 'e1'
+             */
+            b: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "collinear";
+        };
+        /**
          * ComposeDrawingRequest
          * @description Compose a drawing into a placed sheet + serialized artifact (design §4.2).
          *
@@ -6782,7 +6821,7 @@ export interface components {
              * Constraints
              * @description The sketch's constraints, bounded by MAX_SKETCH_CONSTRAINTS (work bound, audit G2)
              */
-            constraints: (components["schemas"]["CoincidentConstraint"] | components["schemas"]["HorizontalConstraint"] | components["schemas"]["VerticalConstraint"] | components["schemas"]["DistanceConstraint"] | components["schemas"]["RadiusConstraint"] | components["schemas"]["DiameterConstraint"] | components["schemas"]["AngleConstraint"] | components["schemas"]["FixedConstraint"] | components["schemas"]["ParallelConstraint"] | components["schemas"]["PerpendicularConstraint"] | components["schemas"]["TangentConstraint"] | components["schemas"]["EqualConstraint"] | components["schemas"]["SymmetricConstraint"] | components["schemas"]["ConcentricConstraint"] | components["schemas"]["MidpointConstraint"])[];
+            constraints: (components["schemas"]["CoincidentConstraint"] | components["schemas"]["HorizontalConstraint"] | components["schemas"]["VerticalConstraint"] | components["schemas"]["DistanceConstraint"] | components["schemas"]["RadiusConstraint"] | components["schemas"]["DiameterConstraint"] | components["schemas"]["AngleConstraint"] | components["schemas"]["FixedConstraint"] | components["schemas"]["ParallelConstraint"] | components["schemas"]["PerpendicularConstraint"] | components["schemas"]["TangentConstraint"] | components["schemas"]["EqualConstraint"] | components["schemas"]["SymmetricConstraint"] | components["schemas"]["ConcentricConstraint"] | components["schemas"]["MidpointConstraint"] | components["schemas"]["CollinearConstraint"])[];
             /**
              * Entities
              * @description The sketch's entities, bounded by MAX_SKETCH_ENTITIES (work bound, audit G2)

@@ -1,0 +1,139 @@
+{
+  "part_id": "00000000-0000-0000-0000-0000000000f1",
+  "tree_version": 2,
+  "features": [
+    {
+      "id": "00000000-0000-0000-0000-00000000fafa",
+      "feature": {
+        "type": "sketch",
+        "version": 1,
+        "params": {
+          "plane": { "kind": "datum_plane", "plane": "XY" },
+          "entities": [
+            {
+              "id": "e1",
+              "kind": "line",
+              "start": { "x": 0.0, "y": 0.0 },
+              "end": { "x": 40.0, "y": 0.0 }
+            },
+            {
+              "id": "e2",
+              "kind": "line",
+              "start": { "x": 40.0, "y": 0.0 },
+              "end": { "x": 40.0, "y": 25.0 }
+            },
+            {
+              "id": "e3",
+              "kind": "line",
+              "start": { "x": 40.0, "y": 25.0 },
+              "end": { "x": 28.0, "y": 25.0 }
+            },
+            {
+              "id": "e4",
+              "kind": "line",
+              "start": { "x": 28.0, "y": 25.0 },
+              "end": { "x": 28.0, "y": 18.0 }
+            },
+            {
+              "id": "e5",
+              "kind": "line",
+              "start": { "x": 28.0, "y": 18.0 },
+              "end": { "x": 12.0, "y": 18.0 }
+            },
+            {
+              "id": "e6",
+              "kind": "line",
+              "start": { "x": 12.0, "y": 18.0 },
+              "end": { "x": 12.0, "y": 21.0 }
+            },
+            {
+              "id": "e7",
+              "kind": "line",
+              "start": { "x": 12.0, "y": 21.0 },
+              "end": { "x": 0.0, "y": 21.0 }
+            },
+            {
+              "id": "e8",
+              "kind": "line",
+              "start": { "x": 0.0, "y": 21.0 },
+              "end": { "x": 0.0, "y": 0.0 }
+            }
+          ],
+          "constraints": [
+            {
+              "kind": "coincident",
+              "a": { "entity": "e1", "point": "end" },
+              "b": { "entity": "e2", "point": "start" }
+            },
+            {
+              "kind": "coincident",
+              "a": { "entity": "e2", "point": "end" },
+              "b": { "entity": "e3", "point": "start" }
+            },
+            {
+              "kind": "coincident",
+              "a": { "entity": "e3", "point": "end" },
+              "b": { "entity": "e4", "point": "start" }
+            },
+            {
+              "kind": "coincident",
+              "a": { "entity": "e4", "point": "end" },
+              "b": { "entity": "e5", "point": "start" }
+            },
+            {
+              "kind": "coincident",
+              "a": { "entity": "e5", "point": "end" },
+              "b": { "entity": "e6", "point": "start" }
+            },
+            {
+              "kind": "coincident",
+              "a": { "entity": "e6", "point": "end" },
+              "b": { "entity": "e7", "point": "start" }
+            },
+            {
+              "kind": "coincident",
+              "a": { "entity": "e7", "point": "end" },
+              "b": { "entity": "e8", "point": "start" }
+            },
+            {
+              "kind": "coincident",
+              "a": { "entity": "e8", "point": "end" },
+              "b": { "entity": "e1", "point": "start" }
+            },
+            { "kind": "fixed", "point": { "entity": "e1", "point": "start" } },
+            { "kind": "horizontal", "entity": "e1" },
+            { "kind": "distance", "entity": "e1", "value_mm": 40.0 },
+            { "kind": "vertical", "entity": "e2" },
+            { "kind": "distance", "entity": "e2", "value_mm": 25.0 },
+            { "kind": "horizontal", "entity": "e3" },
+            { "kind": "distance", "entity": "e3", "value_mm": 12.0 },
+            { "kind": "vertical", "entity": "e4" },
+            { "kind": "distance", "entity": "e4", "value_mm": 7.0 },
+            { "kind": "horizontal", "entity": "e5" },
+            { "kind": "distance", "entity": "e5", "value_mm": 16.0 },
+            { "kind": "vertical", "entity": "e6" },
+            { "kind": "vertical", "entity": "e8" },
+            { "kind": "collinear", "a": "e3", "b": "e7" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "00000000-0000-0000-0000-00000000fbfb",
+      "feature": {
+        "type": "extrude",
+        "version": 1,
+        "params": {
+          "profile": {
+            "kind": "feature",
+            "feature_id": "00000000-0000-0000-0000-00000000fafa"
+          },
+          "distance_mm": 10.0,
+          "operation": "add",
+          "direction": "normal"
+        }
+      }
+    }
+  ],
+  "linear_deflection": 0.1
+}

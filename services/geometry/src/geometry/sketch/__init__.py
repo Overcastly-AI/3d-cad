@@ -24,6 +24,7 @@ from geometry.sketch.planegcs_solver import PlanegcsSketchSolver
 from geometry.sketch.schemas import (
     AngleConstraint,
     CoincidentConstraint,
+    CollinearConstraint,
     ConcentricConstraint,
     DiameterConstraint,
     DimensionConstraint,
@@ -70,6 +71,7 @@ from geometry.sketch.solver import SketchDefinitionError, SketchSolver
 __all__ = [
     "AngleConstraint",
     "CoincidentConstraint",
+    "CollinearConstraint",
     "ConcentricConstraint",
     "DiameterConstraint",
     "DimensionConstraint",

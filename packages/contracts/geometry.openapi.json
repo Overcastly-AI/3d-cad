@@ -692,6 +692,35 @@
         "title": "CoincidentMate",
         "type": "object"
       },
+      "CollinearConstraint": {
+        "description": "Two lines lie on ONE infinite line.\n\nHow a stepped profile's faces are kept flush (docs/AUDIT-PRODUCT.md T-5):\ntwo edges that must read as one straight face, with a feature between them.\nRelates two WHOLE line entities by id like :class:`ParallelConstraint`, and\nis strictly stronger than one \u2014 parallel fixes only the direction, leaving\nthe offset free, which is precisely the gap that lets a step reappear on the\nnext edit.\n\nRemoves two degrees of freedom (the direction and the offset), which is why\nit takes two planegcs constraints: ``b``'s two endpoints are each put on\n``a``'s infinite line. That is deliberately asymmetric in the WIRING and\nsymmetric in MEANING \u2014 two lines on one infinite line is the same relation\nread either way \u2014 so ``a``/``b`` order is immaterial to the solution.\n\nBoth entities must be lines. A zero-length ``b`` is degenerate: its two\nendpoints are one point, so a single constraint is doing the work of two and\nthe pair is underconstrained rather than collinear. The solver's own\ndiagnosis reports that as the remaining degree of freedom it is.",
+        "properties": {
+          "a": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "A",
+            "type": "string"
+          },
+          "b": {
+            "description": "Sketch-local entity id, e.g. 'e1'",
+            "minLength": 1,
+            "title": "B",
+            "type": "string"
+          },
+          "kind": {
+            "const": "collinear",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "a",
+          "b"
+        ],
+        "title": "CollinearConstraint",
+        "type": "object"
+      },
       "ComposeDrawingRequest": {
         "description": "Compose a drawing into a placed sheet + serialized artifact (design \u00a74.2).\n\nExtends :class:`EvaluateDrawingViewsRequest` (the evaluate INPUTS \u2014 ``part_id``\n/ ``tree_version`` / ``features`` / ``views`` / ``scale`` / ``dimensions`` are\ninherited VERBATIM, so composition reuses ``evaluate_drawing_views`` as its\nsole geometry source, no re-projection) with the ``layout`` (sheet + placed\nviews) and the requested ``format``. The geometry service evaluates the part\nONCE, places the sheet (``place_sheet``), and serializes to the requested\nartifact \u2014 deterministic (RESEARCH \u00a79): same request \u21d2 byte-identical artifact.\n\n**Assembly source (design \u00a77, Drawings #4).** A view referencing an ASSEMBLY\n(not a single part) carries the resolved assembly graph in ``assembly`` \u2014 the\nreused :class:`~py_kit.schemas.assemblies.EvaluateAssemblyRequest` (instances +\nmates + version) documents resolves for the referenced assembly document. When\n``assembly`` is set the geometry service projects the SOLVED assembly compound\n(``evaluate_assembly_drawing_views`` \u2014 the ``/drawing/assembly/evaluate``\nmachinery) INSTEAD of a single part body, then folds the resulting per-view HLR\nedges into the sheet exactly as a part view (the SAME ``place_sheet``); the\ninherited part fields (``part_id`` / ``tree_version`` / ``features``) then carry\nthe assembly's echoed id/version + an empty feature list and are not evaluated.\n``None`` (the default) is a PART compose, byte-identical to the pre-assembly\ncontract \u2014 the additive posture the ``section_params`` / notes fields carry.",
         "properties": {
@@ -7681,6 +7710,7 @@
                 "mapping": {
                   "angle": "#/components/schemas/AngleConstraint",
                   "coincident": "#/components/schemas/CoincidentConstraint",
+                  "collinear": "#/components/schemas/CollinearConstraint",
                   "concentric": "#/components/schemas/ConcentricConstraint",
                   "diameter": "#/components/schemas/DiameterConstraint",
                   "distance": "#/components/schemas/DistanceConstraint",
@@ -7742,6 +7772,9 @@
                 },
                 {
                   "$ref": "#/components/schemas/MidpointConstraint"
+                },
+                {
+                  "$ref": "#/components/schemas/CollinearConstraint"
                 }
               ]
             },

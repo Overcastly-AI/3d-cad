@@ -185,6 +185,8 @@ function glyphAria(glyph: ConstraintGlyph): string {
       return "Concentric constraint";
     case "midpoint":
       return "Midpoint constraint";
+    case "collinear":
+      return "Collinear constraint";
     // The kernel gained the `angle` dimension (SKETCH-VOCAB-1); its glyph,
     // editor and dimension-type chooser are the frontend half of that item, and
     // `buildGlyphs` emits nothing for it yet — so this arm exists to keep the
