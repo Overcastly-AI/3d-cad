@@ -311,29 +311,28 @@ rotational-part audit that produced SOLVE-1/PICK-2 above:
       `ExportToolGroup.tsx` (export gate condition), gateway export route if
       the gate is server-side. agentType: frontend-builder.
 
-- [ ] (P1, M) **REVOLVE-1 — the revolve axis list offers only edges INSIDE
-      the profile sketch, defaults to the wrong one with no preview, and
-      hovering an option highlights nothing.** kind: capability (no origin/
-      datum/model-edge axis exists at all). MEASURED (`docs/AUDIT-PRODUCT.md`
-      R-2): `revolve-axis`'s `<select>` lists only profile edges
-      (`Horizontal · 27 mm · profile edge (e1)`, etc.) — no origin X/Y/Z, no
-      datum axis, no picked model edge. With no construction geometry drawn,
-      the tool silently defaults to `e1` and builds a DISC, not the intended
-      revolve, with no preview to warn you. The correct workaround (draw a
-      construction line, `L` then `N`) exists, ranks first once drawn, and
-      is undiscoverable — nothing in the empty-part hint or the revolve form
-      mentions it. FIX: add origin X/Y/Z axes and picked model edges to the
-      axis list; default to a sketch's construction centreline when one
-      exists rather than the first profile edge; preview the swept body
-      before Create. ACCEPTANCE: a profile with no construction geometry and
-      an origin axis selected revolves correctly with a live preview; the
-      axis list includes at least one origin axis by default; hovering an
-      axis option highlights the corresponding geometry in the viewport.
+- [ ] (P1, M) **REVOLVE-1 — kernel half SHIPPED (`88b6074`): the revolve
+      axis is now a discriminated union (`SketchLineAxis` | `OriginAxis`)
+      with three world origin axes always available. Frontend half still
+      open: the UI never offers them.** kind: capability. MEASURED
+      (`docs/AUDIT-PRODUCT.md` R-2): `revolve-axis`'s `<select>` lists only
+      profile edges (`Horizontal · 27 mm · profile edge (e1)`, etc.) — no
+      origin X/Y/Z, no datum axis, no picked model edge. With no
+      construction geometry drawn, the tool silently defaults to `e1` and
+      builds a DISC, not the intended revolve, with no preview to warn you.
+      FIX: add the three origin axes (now real `OriginAxis` requests, per
+      `88b6074`) and picked model edges to the axis list; default to a
+      sketch's construction centreline when one exists rather than the
+      first profile edge; preview the swept body before Create. ACCEPTANCE:
+      a profile with no construction geometry and an origin axis selected
+      revolves correctly with a live preview; the axis list includes at
+      least one origin axis by default; hovering an axis option highlights
+      the corresponding geometry in the viewport.
       [src: docs/AUDIT-PRODUCT.md "Pass 2026-08-21" R-2, filed by
-      backlog-groomer pass 8]
+      backlog-groomer pass 8; kernel half closed pass 14]
       TERRITORY: `apps/web/src/routes/PartPage.tsx` (revolve axis form/
       preview), `apps/web/src/sketch/**` (construction-centreline default).
-      agentType: frontend-builder.
+      agentType: frontend-builder only now — kernel work is done.
 
 - [ ] (P1, S) **SEL-8 — armed edge picks (Fillet's `PICK EDGES` mode) are 21
       floating DOM proxy diamonds with NO hover highlight on the real edge —
@@ -361,9 +360,12 @@ rotational-part audit that produced SOLVE-1/PICK-2 above:
       with FB-21/FB-9/PICK-2 — sequence after those land.** agentType:
       frontend-builder.
 
-- [ ] (P2, S) **A11Y-TOOLBTN-1 — `ToolButton` only wires `aria-describedby`
+- [ ] (P1, S) **A11Y-TOOLBTN-1 — `ToolButton` only wires `aria-describedby`
       to its caption while DISABLED, so an enabled-but-QUALIFIED state is
-      hover-only for a screen-reader user.** kind: defect. Found by the
+      hover-only for a screen-reader user.** kind: defect. **BUMPED P2→P1,
+      groom pass 14: CORROBORATED a second time, more severely — REACH-2-FLOW
+      P1-1 (above) hit the SAME gate hiding an entire proposed verb's label,
+      not just a qualifier.** Found by the
       EXPORT-1 builder (`3a7c4ca`) while wiring `ExportToolGroup` and
       reported rather than fixed — correctly: the fix touches a shared
       primitive mid-batch and would change accessible descriptions for
@@ -630,6 +632,70 @@ rotational-part audit that produced SOLVE-1/PICK-2 above:
       TERRITORY: `apps/web/src/sketch/**`, `apps/web/src/viewport/ConstraintGlyphs.tsx`,
       `apps/web/e2e/qa-reach-batch.spec.ts`. agentType: frontend-builder.
 
+- [ ] (P1, M) **REACH-3-FLOW — the projection-convention feature `5438b73`
+      shipped is reachable exactly once per drawing, and orientation is a
+      dead end once flipped.** kind: defect (flow — the convention half
+      genuinely flows; the orientation half does not survive contact with
+      the product). MEASURED (`docs/UI-REVIEW.md` 2026-08-27 REACH-3
+      spot-check, real stack, 1280×800/1024×768, a deliberately tall
+      40×40×150 mm column):
+      (a) **P1-1** the orientation proposal never fires on Sheet 1 — the
+      only sheet most drawings have. All four Sheet-1 create paths
+      (`DrawingPage.tsx` ≈468/568/638, `PartPage.tsx:2312`) hardcode
+      `orientation: "landscape"`; `orientationFit` is computed and unused
+      at all four. Only `handleAddSheet` (the SECOND sheet) consults it.
+      (b) **P1-2** flipping orientation from the header cell delivers a
+      WORSE drawing than the cell promised and there is no way back:
+      `viewBox` changes but the views never re-fit, so a sheet promised
+      "portrait (1:2)" comes back portrait, still at 1:5, emptier than the
+      landscape it replaced — and once a sheet has a layout, Scale becomes
+      a read-only `Readout`, so the wrong scale cannot be corrected.
+      FIX: (a) one `sheetHeaderForNewSheet()` derivation every create path
+      calls (proposal + inherited convention + orientation-earned scale)
+      instead of four hardcoded literals and one smart call site.
+      (b) `reheadSheet` must re-fit and re-place at
+      `orientationFit.scaleByOrientation[next]` — the same reading
+      `handleAddSheet` already applies — or the cell must stop promising a
+      scale it will not deliver.
+      ACCEPTANCE: creating Sheet 1 on a part whose extents fit portrait
+      better proposes portrait at the correct scale (not just Sheet 2+);
+      flipping orientation on a laid-out sheet re-fits the views and the
+      title block's stated scale matches the fit actually produced.
+      Also flags (P2, roll into the same fix if convenient): both header
+      cells scroll off-screen at 1024×768 with 11+ sheets (no `max-w`, no
+      scroll region); absent from the pre-layout setup screen that is the
+      only place they'd prevent the problem in the first place; the Size
+      readout still states landscape extents (`297×210`) on a portrait
+      sheet.
+      [src: docs/UI-REVIEW.md 2026-08-27 REACH-3 spot-check (frontend-qa) on
+      `5438b73`, filed by backlog-groomer pass 14]
+      TERRITORY: `apps/web/src/routes/DrawingPage.tsx`,
+      `apps/web/src/routes/PartPage.tsx` (Sheet-1 create paths),
+      `apps/web/src/drawing/layout.ts` (Size readout),
+      `apps/web/src/components/DrawingCommandBand.tsx`. agentType:
+      frontend-builder.
+
+- [ ] (P2, XS) **TITLEBLOCK-STAMP-1 — the projection-convention symbol
+      `5438b73` shipped appears on screen and vanishes from every print.**
+      kind: capability (deliberate, documented deviation — not a defect in
+      what shipped). `5438b73`'s own commit message: the plan put the
+      convention cell in the sheet's TITLE BLOCK (a drafter's actual reading
+      location, and the right long-term home) but `ComposedTitleBlock` is
+      composed SERVER-side, so a DOM-only cone symbol there would be worse
+      than absent — present on screen, gone from every exported SVG/PDF/DXF.
+      The cell was placed in the sheet header instead, correctly, as an
+      interim step. FIX: stamp the ISO cone symbol (mirrored by
+      `right_sx`'s sign, per the header cell's own derivation) into the
+      geometry service's composed title block so it reaches every export
+      format, not just the screen. ACCEPTANCE: an exported SVG/PDF/DXF of a
+      first-angle sheet carries the 1ST-angle cone in its title block;
+      third-angle carries the mirrored symbol; the on-screen header cell and
+      the exported stamp never disagree (shared derivation, not two).
+      [src: `5438b73` commit message's own deviation note, filed by
+      backlog-groomer pass 14]
+      TERRITORY: `services/geometry/src/geometry/drawings/` (title block
+      composition). agentType: kernel-architect.
+
 ## Next (P2)
 
 - [ ] (P2, M) **QA-R3 — on touch, four of REACH-1's five new verbs cannot be
@@ -745,63 +811,57 @@ rotational-part audit that produced SOLVE-1/PICK-2 above:
       TERRITORY: `apps/web/src/routes/PartPage.tsx` (feature-tree SOLVE
       cell). agentType: frontend-builder.
 
-- [ ] (P1, M) **PATTERN-1 — Bumped P2→P1 this pass: Pattern repeats the
-      whole BODY with no seed selector; there is no way to say "pattern
-      this hole/boss," which is the majority of pattern use in mechanical
-      CAD.** kind: capability. MEASURED (`docs/AUDIT-PRODUCT.md` R-7,
-      2026-08-21 pass): the form is Count/Axis/Axis-point/Angle only, no
-      seed field. A whole-body-repeat circular pattern on a subtractive
-      seed (a bolt-circle of holes) happened to produce the CORRECT result
-      (union takes care of it), but the vocabulary doesn't describe what
-      happened and the same logic on an ADDITIVE seed (a boss, a rib) is
-      untested and its correctness is unknown from the UI.
-      **CORROBORATED a second time** (`docs/AUDIT-PRODUCT.md` "Pass
-      2026-08-21 (second pass today)" S-7): the SAME command gave TWO
-      structurally different results on consecutive uses in the same
-      session — patterned the hole CUT when the tip feature was `Hole1`
-      (volume fell by exactly the hole's swept volume), then patterned the
-      WHOLE BODY when the tip was `Pattern1` (bounding box grew) —
-      selected by an invisible rule (implicit seed = previous feature),
-      contradicting the form's own note ("Includes the seed body — a count
-      of 3 makes 2 more") either way. Practical cost measured directly:
-      **there is no way to pattern a hole once any other feature sits on
-      top of it**, so the audit had to author `Hole1..Hole4` as four
-      separate hand-placed features (~6.8 s each) to get 4 mounting holes
-      on a bracket — the single commonest pattern use in mechanical CAD,
-      with no path today.
-      FIX: let Pattern take a feature (hole/cut/boss) as the seed, name it
-      in the form ("Pattern: Hole1"); add "about a picked cylindrical
-      face/axis" beyond the six signed global axis directions; make the
-      form's note describe what will actually happen given the current
-      seed rule (or replace the rule with an explicit picker).
-      ACCEPTANCE: patterning a named feature (not just the body) produces
-      the same numeric result the whole-body path does today on the
-      audit's bolt-circle fixture (regression); an additive-seed circular
-      pattern (a boss patterned 4x) produces 4 non-overlapping bosses, not
-      a union — new golden; patterning a hole with ANOTHER feature already
-      on top of it (S-7's exact blocker) now succeeds.
-      [src: docs/AUDIT-PRODUCT.md "Pass 2026-08-21" R-7 (original filing),
-      "Pass 2026-08-21 (second pass today)" S-7 (corroboration), filed by
-      backlog-groomer pass 8, bumped pass 9]
-      **CORROBORATED A THIRD TIME, groom pass 11 (2026-08-24, T-11):**
-      the exact same coin-flip reproduced with a two-case ladder on a fresh
-      part — tip `Hole2` patterned the hole (correct, useful); tip
-      `Pattern1` patterned the whole BODY, fusing a second plate 47mm away
-      and slicing the bore into a crescent, with `STATUS` still reading
-      **`Up to date`** on the wrong result. No seed field, no preview, no
-      warning — discovered only by reading the bounding box afterward.
-      [src: docs/AUDIT-PRODUCT.md "Pass 2026-08-24 (fourth pass)" T-11]
-      **DESIGN DECIDED, groom pass 13 (2026-08-26): `docs/design/
-      pattern-scope.md` (`b7f1407`, kernel half now in flight) settles the
-      seed question this ticket left open — `PatternParamsV1.scope` is
-      `body` (today's whole-body reading, byte-identical, the default) or
-      `features` (an explicit, tree-ordered, non-empty selection whose
-      recorded rigid tools are placed at the pattern's placements). The
-      frontend half (seed picker + honest status text, per the FIX above)
-      builds against that contract once the kernel half lands.**
-      TERRITORY: `services/geometry/src/geometry/kernel/pattern.py` (or
-      equivalent), `apps/web` pattern form. agentType: kernel-architect
-      (backend seed semantics) with frontend-builder for the form.
+**PATTERN-1 is SHIPPED (`ec9c569`) — see Done archive for evidence/gates.**
+Its own design review found four flow gaps the builder did not catch; filed
+below as REACH-2-FLOW rather than reopening PATTERN-1 itself.
+
+- [ ] (P1, M) **REACH-2-FLOW — the pattern-scope proposal PATTERN-1 shipped
+      is reachable and not yet discoverable: shed at 1280, destroyed by
+      Cancel/Escape, and names a subject nothing in the frame echoes.**
+      kind: defect (flow, not capability — `ec9c569` genuinely made
+      `params.scope` authorable; this is the "reachable but does not flow"
+      class CLAUDE.md's design mandate calls out by name). MEASURED
+      (`docs/UI-REVIEW.md` 2026-08-27 REACH-2 spot-check, real stack,
+      1280×800 and 1600×1000):
+      (a) **P1-1** at 1280×800 the Create/Modify band's MODIFY verb is in
+      the icon tier, so `verbLabel()`'s "Repeat Hole1" — the entire visible
+      payload of the proposal — is shed; only a hover tooltip survives, and
+      `aria-describedby` does NOT route it (`ToolButton.tsx:117` gates the
+      id on `isDisabled && Boolean(caption)`, same root cause A11Y-TOOLBTN-1
+      already tickets — this is its second, more severe reproduction: here
+      it hides an entire feature, not just a qualifier).
+      (b) **P1-2** the Pattern/Mirror editor names the seed (`HOLE1`) but
+      nothing echoes it — no tree-row highlight, no timeline chip, no
+      viewport highlight — on a part with two visually identical holes.
+      (c) **P1-3** pressing Cancel calls `setSelectedFeatureId(null)`
+      (`PartPage.tsx:2063`), destroying the very selection that made the
+      proposal possible; the user must repeat the whole click/Escape/press
+      sequence to try again.
+      (d) **P1-4** the advertised gesture ("select Hole1, press Pattern")
+      actually requires opening and abandoning an edit dialog nobody asked
+      for first (clicking a tree row opens its editor before Pattern can be
+      pressed), and that dialog locks the command band while open.
+      FIX: (a) give `CommandBand`/`ToolGroup` a proposal channel that
+      survives the icon tier (a scribe/subject chip, or the status rail
+      already at top-left) — fix in the primitive; separately, route
+      `aria-describedby` whenever a caption exists, not only while disabled.
+      (b) mark the scoped feature in the tree/timeline and highlight its
+      faces in the viewport with the existing selection token while a
+      command holds that scope. (c)/(d) stop clearing selection on
+      Cancel/Escape; give the tree single-click-selects / double-click-edits
+      (Fusion's model) so selecting a seed doesn't require opening and
+      dismissing its editor first.
+      ACCEPTANCE: at 1280×800 the proposed verb's subject is legible without
+      a hover (screenshot); the scoped feature is visibly marked in tree +
+      viewport while the pattern/mirror editor is open; Cancel/Escape leaves
+      the triggering selection intact; selecting a tree row for a pattern
+      seed does not open that feature's own editor first.
+      [src: docs/UI-REVIEW.md 2026-08-27 REACH-2 spot-check (frontend-qa) on
+      `ec9c569`, filed by backlog-groomer pass 14]
+      TERRITORY: `apps/web/src/routes/PartPage.tsx` (`openCreatePattern`/
+      `openCreateMirror`, tree row activation), `packages/design/src/
+      primitives/ToolButton.tsx`, `apps/web/src/components/ScopeRow.tsx`.
+      agentType: frontend-builder.
 
 - [ ] (P1, M) **ORTHO-1 — no orthographic projection exists; named views
       (Front/Top/Right) are all perspective, so they cannot be used to
@@ -828,9 +888,9 @@ rotational-part audit that produced SOLVE-1/PICK-2 above:
       view-right, view-iso`, all perspective. [src: docs/AUDIT-PRODUCT.md
       "Pass 2026-08-24 (fourth pass)" T-20]
       TERRITORY: `apps/web/src/viewport/**` (camera projection, view bar).
-      agentType: frontend-builder. **BLOCKED this batch — T-23/DRAG-1 is
-      in flight in this territory; MATE-1's UI half (P0) also queues ahead
-      of this once it clears.**
+      agentType: frontend-builder. **UNBLOCKED groom pass 14 — T-23/DRAG-1
+      (`35027ef`) landed in this territory. MATE-1's UI half (P0) is also
+      unblocked and outranks this; sequence rather than parallelize.**
 
 - [ ] (P1, S) **HEM-1 — "Closed hem" builds an OPEN hem (6 mm air gap on
       2 mm sheet), and repairing one after an unrelated edit hits a
@@ -962,29 +1022,7 @@ rotational-part audit that produced SOLVE-1/PICK-2 above:
       TERRITORY: `services/geometry/src/geometry/kernel/` STEP export path
       (assembly writer). agentType: kernel-architect.
 
-- [ ] (P1, XS) **BUMPED P2→P1, groom pass 11 — FOURTH consecutive audit
-      pass (T-1). SIGNIN-1 — the sign-in card is still 5.2% of the frame,
-      pinned bottom-right of an empty grid — and it is the FIRST thing any
-      evaluating engineer sees.** kind: defect. MEASURED (`docs/
-      AUDIT-PRODUCT.md` "Pass 2026-08-21 (second pass today)" S-1, repeat of
-      R-1): 1600x1000 frame, card ~317x260 px at (1233, 692), 94.8% of the
-      viewport empty grid. Reads as a CSS layout fault, not a design
-      choice. No incumbent's sign-in is off-centre. FIX: centre the card on
-      a branded field (viewport background can stay — see the design
-      mandate's atmosphere requirement). ACCEPTANCE: screenshot at
-      1600x1000 shows the card centred or otherwise intentionally composed,
-      not corner-pinned; before/after sent to the founder per the design
-      mandate.
-      [src: docs/AUDIT-PRODUCT.md R-1 (prior passes), S-1 ("second pass
-      today"), filed by backlog-groomer pass 9]
-      **T-1, groom pass 11 (2026-08-24): "reported at P3 in the previous
-      two passes on the assumption it was a minute's work; it has now
-      survived three grooms" — re-filed at P1 by the auditor itself. Not
-      because the fix got harder — first-run impression is the entire top
-      of the adoption funnel this product's thesis depends on.** [src:
-      docs/AUDIT-PRODUCT.md "Pass 2026-08-24 (fourth pass)" T-1]
-      TERRITORY: apps/web sign-in/auth page layout. agentType:
-      frontend-builder.
+**SIGNIN-1 is SHIPPED (`bf65ddc`) — see Done archive for evidence/gates.**
 
 - [ ] (P2/P3, S) **SM-POLISH-1 — remaining sheet-metal/assembly polish from
       the fabrication-handoff audit, bucketed rather than individually
@@ -3035,6 +3073,61 @@ so it is the pre-`5bd4c46` camera snap or a stale Codespace bundle (see FB-11).
       Pass 7 M6(a); docs/RETRO.md §1.1]
 
 ## Done — archive
+
+### Groom pass 14 closures (2026-08-27, backlog-groomer)
+
+All verified against `git log`, not assumed from commit subjects alone.
+
+- **SPEC-9** (`e8702d5`) — waits for `draw-dimensions`'s armed state before
+  the first keystroke; **SPEC-10** (`42f6bbd`) — asserts the settled solve,
+  not a pre-settle transient. Both retire the CI-4(d) defect class in a
+  second/third file.
+- **DOCTICK-GATE** (`bd09f5b`, docstring fix `53e62b0`) — `scripts/
+  check-doc-tick.py` now judges a commit range for feat/fix commits missing
+  a ROADMAP/BACKLOG tick, wired into CI.
+- **SNAP-5** (`ecdf9ad`, screenshots `31ba716`) — a line drawn near-axis-
+  aligned now authors horizontal/vertical at placement, closing the
+  DOF-6-vs-DOF-2 gap SOLVE-1's report identified.
+- **SIGNIN-1** (`bf65ddc`) — the sign-in sheet is now a bounded, centred
+  object (45% of frame vs. the prior 5.2%) instead of a card pinned to a
+  corner of the unbounded browser window. Filed/reported four times since
+  2026-08-14.
+- **T-23/DRAG-1** (`35027ef`) — extrude gets a draggable depth gauge (grip +
+  graduated ladder), closing the design mandate's named "biggest gap"
+  (`apps/web/src/viewport/**`). Unblocks MATE-1's UI half and ORTHO-1.
+- **PATTERN-1's frontend half** (`ec9c569`) — tree-row selection seeds
+  `PatternParamsV1.scope`; `docs/design/pattern-scope.md`'s `body`/
+  `features` contract from pass 13 fully built. Independent design review
+  found four flow gaps (icon-tier proposal, no seed echo, Cancel destroys
+  selection, click-opens-editor) — filed as REACH-2-FLOW, not a reopen.
+- **REVOLVE-1 kernel half** (`88b6074`) — `RevolveAxis` is now a
+  discriminated union with three always-available world origin axes.
+  Frontend half (axis list, default, preview) stays open in Ready.
+- **SKETCH-VOCAB-1 kernel half** — five commits, all kernel-only (verified
+  by diff): **angle** (`e46bf0c`), **diameter** (`eabbd36`), **midpoint**
+  (`fead5bd`), **collinear** (`00c9d22`), **symmetric-two-lines-and-an-axis**
+  (`5fbf5d8`). `apps/web` gained only exhaustive-switch stub arms in each —
+  no authoring UI for any of the five. Frontend half stays open in Ready.
+- **Parts register resume band** (`cb2e43e`) — the register now proposes
+  "resume what you were doing" instead of only listing contents; had no
+  prior backlog entry (founder-direct). Its REBUILD-column collapse
+  (analogy to the UNITS column) broke `workspace.spec.ts` because a health
+  VERDICT is volatile per-row data, not a stable attribute like a unit —
+  reverted same-night in `d0b55b2`, which is the fix, not a regression to
+  re-file. The reasoning lives in-source at `showHealth` for the next
+  person tempted by the same analogy.
+
+**Filed this pass, not yet built:** REACH-2-FLOW, REACH-3-FLOW,
+TITLEBLOCK-STAMP-1 (Ready/Next — see full tickets in place). QA-R1/QA-R2/
+QA-R3 were filed by the qa-tester before this pass and already cover
+REACH-1's flow gaps — no duplicate filed.
+
+**Noted, not filed:** `scripts/check-ui-parity.py` +
+`.claude/workflows/loft-frontend-loop.js` (`e9d31af`, subtree fix `4e41eb4`)
+mechanically re-derive the reachable-vs-displayable gap every batch (39
+gaps measured at filing time, of 120 request-side capability literals). The
+gap list is intentionally NOT frozen onto this board — it would go stale
+immediately; triage it from the tool.
 
 ### SETTLE-PERF-1 CLOSED (`eed8729`, groom pass 13, 2026-08-26, kernel-architect)
 
