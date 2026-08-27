@@ -110,6 +110,27 @@ describe("linearGhost", () => {
   it("is null for a degenerate span", () => {
     expect(linearGhost(A, A, ANCHOR, 12)).toBeNull();
   });
+
+  it("carries its own READING, seated past the dimension line", () => {
+    // Before this, the ghost's `<g>` held four `<line>`s and zero `<text>`, so
+    // at the moment of placement the paper showed a line with no number and
+    // the number was 372 px away at the foot of the window (P1-C).
+    const ghost = linearGhost(A, B, ANCHOR, 12);
+    expect(ghost?.figure?.text).toBe("12.00");
+    // Centred on the rule (x = the span's midpoint) and standing off BEYOND
+    // the dimension line, in the direction the placement is being pushed.
+    expect(ghost?.figure?.at.x).toBeCloseTo(10, 9);
+    expect(ghost?.figure?.at.y).toBeGreaterThan(22);
+
+    // A negative offset takes the figure to the other side WITH the line.
+    const near = linearGhost(A, B, ANCHOR, -12);
+    expect(near?.figure?.text).toBe("-12.00");
+    expect(near?.figure?.at.y).toBeLessThan(-2);
+  });
+
+  it("never prints a negative zero on the paper", () => {
+    expect(linearGhost(A, B, ANCHOR, -0.001)?.figure?.text).toBe("0.00");
+  });
 });
 
 describe("perpendicularFoot", () => {
@@ -138,5 +159,8 @@ describe("ghostFor", () => {
     expect(ghost?.target).toEqual({ x: 60, y: 20 });
     expect(ghost?.lines).toHaveLength(1);
     expect(ghost?.lines[0]?.role).toBe("leader");
+    // …and NO figure: a text seat is a point, not a scalar, so a coordinate
+    // pair floated beside the crosshair would decorate rather than read.
+    expect(ghost?.figure).toBeNull();
   });
 });

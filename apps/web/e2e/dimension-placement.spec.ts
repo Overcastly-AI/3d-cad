@@ -247,6 +247,31 @@ test("drag a linear dimension onto the side of the paper you want", async ({
   // The field TRACKS the pointer — the number is live, not a label.
   await expect(offset).toHaveValue("-33.00");
 
+  // AND THE READING IS ON THE PAPER, beside the rule that is setting it. The
+  // ghost used to carry four `<line>`s and zero `<text>`, with the only number
+  // 372 px away at the foot of the window, so you could not watch the paper and
+  // read the value at once (frontend-QA 2026-08-27, P1-C).
+  const figure = page.getByTestId("dimension-ghost-offset");
+  await expect(figure).toHaveText("-33.00");
+  const gap = await page.evaluate(() => {
+    const box = (sel: string) =>
+      document.querySelector(sel)?.getBoundingClientRect() ?? null;
+    const fig = box('[data-testid="dimension-ghost-offset"]');
+    const line = box(
+      '[data-testid="dimension-ghost"] line[data-ghost-role="dimension"]',
+    );
+    const chip = box('[data-testid="dimension-offset-field"]');
+    if (!fig || !line || !chip) throw new Error("missing ghost chrome");
+    return {
+      toLine: Math.abs(fig.y + fig.height / 2 - (line.y + line.height / 2)),
+      toChip: Math.abs(fig.y + fig.height / 2 - (chip.y + chip.height / 2)),
+    };
+  });
+  // Within a couple of text heights of the line it describes, and hundreds of
+  // pixels from the chip that used to be the only place it appeared.
+  expect(gap.toLine).toBeLessThan(40);
+  expect(gap.toChip).toBeGreaterThan(300);
+
   await page.screenshot({
     path: `${SCREENSHOT_DIR}/drawings-dimension-placing-1280.png`,
   });

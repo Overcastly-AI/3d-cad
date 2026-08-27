@@ -56,7 +56,11 @@ import {
   type SvgEdge,
 } from "../drawing/layout";
 import { BANNER_TEXT_MM, bannerLines } from "../drawing/layoutIssues";
-import { GHOST_TARGET_MM, type PlacementGhost } from "../drawing/placement";
+import {
+  GHOST_FIGURE_MM,
+  GHOST_TARGET_MM,
+  type PlacementGhost,
+} from "../drawing/placement";
 import { titleBlockFields } from "../drawing/titleBlock";
 import { viewRowsByProjection } from "../drawing/views";
 
@@ -1870,6 +1874,42 @@ function PlacementGhostLayer({ ghost }: { ghost: PlacementGhost }) {
           />
         </g>
       ) : null}
+      {/* THE READING, ON THE PAPER. Set upright rather than along the dimension
+          line: a placed value stamp rotates with its rule, and a ghost figure
+          that does the same would read as ink already laid down. This one is
+          the draughtsman's own pencilled note beside the rule — blueprint blue,
+          never graphite, on a paper halo so the ghost's own lines cannot cross
+          the digits. */}
+      {ghost.figure
+        ? (() => {
+            const w = ghost.figure.text.length * GHOST_FIGURE_MM * 0.62 + 2;
+            const h = GHOST_FIGURE_MM + 1.6;
+            return (
+              <g data-testid="dimension-ghost-offset">
+                <rect
+                  x={ghost.figure.at.x - w / 2}
+                  y={ghost.figure.at.y - h / 2}
+                  width={w}
+                  height={h}
+                  fill={drawing.paper}
+                  opacity={0.92}
+                />
+                <text
+                  x={ghost.figure.at.x}
+                  y={ghost.figure.at.y}
+                  textAnchor="middle"
+                  dominantBaseline="central"
+                  fill={drawing.pickSelected}
+                  fontFamily={font.data}
+                  fontSize={GHOST_FIGURE_MM}
+                  letterSpacing={0.1}
+                >
+                  {ghost.figure.text}
+                </text>
+              </g>
+            );
+          })()
+        : null}
     </g>
   );
 }

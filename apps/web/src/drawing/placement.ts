@@ -154,12 +154,39 @@ export interface GhostArrow {
   points: readonly Point2D[];
 }
 
+/**
+ * The live reading, ON THE PAPER, beside the rule that is setting it.
+ *
+ * The number used to live only in the pick-hint chip at the foot of the window
+ * — measured at 1280x800, the ghost sat at y≈378 and the number at y=750, so
+ * you could not watch the paper and read the value at the same time, and the
+ * ghost itself carried **no text at all**: four `<line>`s and zero `<text>`.
+ * That is the difference between "a form moved earlier" and direct
+ * manipulation; every tool this one is benchmarked against (Fusion,
+ * SolidWorks, Plasticity) puts the live figure at the cursor for exactly this
+ * reason (frontend-QA 2026-08-27, P1-C).
+ *
+ * It is the SIGNED offset, printed to the same two decimals the field shows and
+ * the server stores — one number with one meaning, in the two places the eye
+ * uses. Deliberately absent from a TEXT placement: `text_pos` is a point, not a
+ * scalar, and a coordinate pair floated beside a crosshair would be decoration
+ * rather than a reading (mandate 3a: chrome that only decorates is a defect).
+ */
+export interface GhostFigure {
+  /** Where the figure is seated (sheet mm) — its centre. */
+  at: Point2D;
+  /** The reading, formatted. */
+  text: string;
+}
+
 /** Everything the sheet draws for an in-progress placement. */
 export interface PlacementGhost {
   lines: readonly GhostLine[];
   arrows: readonly GhostArrow[];
   /** A crosshair marking the text seat (text mode only). */
   target: Point2D | null;
+  /** The live reading beside the rule, or null when there is no scalar to read. */
+  figure: GhostFigure | null;
 }
 
 /** An arrowhead triangle: tip at `tip`, barb pointing `direction`. */
@@ -222,7 +249,37 @@ export function linearGhost(
     ],
     arrows: [arrow(dimA, neg(d)), arrow(dimB, d)],
     target: null,
+    // Seated just BEYOND the dimension line, on the outer end of the rule: the
+    // eye is already there (it is watching the line move), and it is the one
+    // place on the paper that cannot collide with the geometry being measured
+    // or with the value stamp the committed dimension will take.
+    figure: {
+      at: add(mid(dimA, dimB), mul(n, FIGURE_STANDOFF_MM)),
+      text: formatOffset(offsetMm),
+    },
   };
+}
+
+/**
+ * Height (sheet mm) of the ghost's reading — deliberately a third LARGER than
+ * the value stamp a placed dimension gets.
+ *
+ * A printed dimension obeys the print's type scale; this is not print, it is an
+ * instrument reading you have to be able to take at a glance mid-drag, and at
+ * the stamp's own 3.2 mm it lands near 9 px on an A4 sheet at 1280. Being
+ * visibly bigger than drafting ink is also the second cue (after the blueprint
+ * blue) that what you are looking at is not yet on the drawing.
+ */
+export const GHOST_FIGURE_MM = drawing.dimensionTextMm * 1.35;
+
+/** How far past the dimension line the ghost's reading sits (sheet mm). */
+const FIGURE_STANDOFF_MM = GHOST_FIGURE_MM * 1.1;
+
+/** The reading, to the 0.01 mm the placement is actually stored at. */
+export function formatOffset(offsetMm: number): string {
+  // `-0.00` is a real output of toFixed and it is nonsense on paper.
+  const fixed = offsetMm.toFixed(2);
+  return fixed === "-0.00" ? "0.00" : fixed;
 }
 
 /**
@@ -238,6 +295,9 @@ export function textGhost(
     lines: [line(leaderFrom, textPos, "leader")],
     arrows: [],
     target: textPos,
+    // No scalar is being set here — the crosshair IS the reading. See
+    // {@link GhostFigure}.
+    figure: null,
   };
 }
 
