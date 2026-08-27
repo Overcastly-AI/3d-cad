@@ -223,11 +223,11 @@ test("drag a linear dimension onto the side of the paper you want", async ({
   // The pick has become a PLACEMENT: same chip, next sentence.
   const hint = page.getByTestId("dimension-pick-hint");
   await expect(hint).toContainText("Click to place the dimension");
-  const readout = page.getByTestId("dimension-offset-readout");
+  const offset = page.getByTestId("dimension-offset-field");
   // The ghost opens at the composer's own auto offset — the BASELINE this
   // spec measures the hand placement against. The user adjusts a real
   // proposal rather than starting from nothing.
-  await expect(readout).toHaveAttribute("data-offset-mm", "11.00");
+  await expect(offset).toHaveAttribute("data-offset-mm", "11.00");
   const baselineMm = 11;
 
   // --- Drag it 33 mm onto the OTHER side of the geometry. ------------------
@@ -244,8 +244,8 @@ test("drag a linear dimension onto the side of the paper you want", async ({
   };
   const aimPx = await sheetToClient(page, aim);
   await page.mouse.move(aimPx.x, aimPx.y);
-  // The readout TRACKS the pointer — the number is live, not a label.
-  await expect(readout).toHaveText("-33.0 mm");
+  // The field TRACKS the pointer — the number is live, not a label.
+  await expect(offset).toHaveValue("-33.00");
 
   await page.screenshot({
     path: `${SCREENSHOT_DIR}/drawings-dimension-placing-1280.png`,
@@ -298,17 +298,17 @@ test("place a linear dimension from the keyboard alone", async ({ page }) => {
   await expect(page.getByTestId("dimension-author-menu")).toBeVisible();
   await page.getByTestId("dimension-type-linear").click();
 
-  const readout = page.getByTestId("dimension-offset-readout");
-  await expect(readout).toHaveAttribute("data-offset-mm", "11.00");
+  const offset = page.getByTestId("dimension-offset-field");
+  await expect(offset).toHaveAttribute("data-offset-mm", "11.00");
   const rule = await lineMm(page, ghostRule);
   const edgeMid = { x: rule.x1, y: rule.y1 };
 
   // Five presses of the 1 mm nudge — no pointer involved at any point.
   for (let i = 0; i < 5; i += 1) await page.keyboard.press("ArrowUp");
-  await expect(readout).toHaveText("16.0 mm");
+  await expect(offset).toHaveValue("16.00");
   // And it goes back down again, so the keyboard is a two-way control.
   await page.keyboard.press("ArrowDown");
-  await expect(readout).toHaveText("15.0 mm");
+  await expect(offset).toHaveValue("15.00");
 
   await page.keyboard.press("Enter");
   await expect(
@@ -325,6 +325,68 @@ test("place a linear dimension from the keyboard alone", async ({ page }) => {
     15,
     1,
   );
+});
+
+test("land on an exact round offset — by nudging, and by typing", async ({
+  page,
+}) => {
+  const account = await seedSession(page);
+  const drawingId = await layOutPlateDrawing(page, account.token);
+
+  const longEdge = await longestHorizontalEdge(page, "top");
+  await longEdge.click();
+  await page.getByTestId("dimension-type-linear").click();
+  const offset = page.getByTestId("dimension-offset-field");
+
+  // --- Drag to the exact fraction the review measured. ---------------------
+  const rule = await lineMm(page, ghostRule);
+  const edgeMid = { x: rule.x1, y: rule.y1 };
+  const outward = { x: rule.x2 - rule.x1, y: rule.y2 - rule.y1 };
+  const aim = {
+    x: edgeMid.x + (outward.x / 11) * -23.71,
+    y: edgeMid.y + (outward.y / 11) * -23.71,
+  };
+  const aimPx = await sheetToClient(page, aim);
+  await page.mouse.move(aimPx.x, aimPx.y);
+  await expect(offset).toHaveValue("-23.71");
+
+  // ONE press and the answer is exactly -25.00. It used to read -24.71, and
+  // -25.00 was not reachable by any sequence of presses at all: the nudge
+  // added to the fraction instead of quantising to the step, so two
+  // hand-placed dimensions could never be given the same offset and a chain
+  // of them could not be lined up (frontend-QA 2026-08-27, P1-D).
+  await page.keyboard.press("ArrowDown");
+  await expect(offset).toHaveValue("-25.00");
+  await page.keyboard.press("ArrowDown");
+  await expect(offset).toHaveValue("-26.00");
+
+  // --- And the typed route: no mouse, no arrows, just the number. ----------
+  // Typing a digit anywhere on the sheet claims the field, so the precision
+  // fallback costs no hunting.
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("dimension-ghost")).toHaveCount(0);
+  await page.getByTestId("dimension-type-linear").click();
+  await expect(offset).toHaveValue("11.00");
+  await page.keyboard.press("-");
+  await expect(offset).toBeFocused();
+  await page.keyboard.type("25");
+  await expect(offset).toHaveValue("-25");
+  await page.keyboard.press("Enter");
+
+  await expect(
+    page.locator(
+      '[data-testid="drawing-dimension"][data-dimension-value="40.000"]',
+    ),
+  ).toHaveCount(1, { timeout: 30_000 });
+
+  // The exact number reaches the SERVER, not just the screen — a 2xx proves a
+  // request parsed, never that it meant anything (CLAUDE.md).
+  const stored = await storedDimensions(page, account.token, drawingId);
+  expect(stored).toHaveLength(1);
+  expect(stored[0]!.dimension.placement!.offset_mm).toBe(-25);
+  // …and the paper agrees: the dimension line is exactly 25 mm off the edge.
+  const placed = await lineMm(page, placedLine);
+  expect(distanceToLine(edgeMid, placed)).toBeCloseTo(25, 2);
 });
 
 test("escape backs out of the placement without losing the pick", async ({
@@ -373,7 +435,7 @@ test("drag a diameter's value off the hole and it stays there", async ({
   await expect(page.getByTestId("dimension-pick-hint")).toContainText(
     "Click to place the value",
   );
-  await expect(page.getByTestId("dimension-offset-readout")).toHaveCount(0);
+  await expect(page.getByTestId("dimension-offset-field")).toHaveCount(0);
   const leader = await lineMm(
     page,
     '[data-testid="dimension-ghost"] line[data-ghost-role="leader"]',

@@ -1996,6 +1996,25 @@ export function DrawingSheet({
                 clientPointToSvg(svg, event.clientX, event.clientY),
               );
             }}
+            // The SAME report on pointer DOWN, and it is load-bearing rather
+            // than redundant: React treats `pointermove` as a continuous event,
+            // so the placement it schedules need not have flushed by the time
+            // the discrete `click` after it is handled — and when the move in
+            // question was the first one, the commit then read `moved: false`
+            // and sent no placement at all, so the composer auto-placed a
+            // dimension the user had just dragged somewhere. Measured under
+            // load on 2026-08-27: a diameter's value stamp landed 11.76 mm from
+            // where it was dropped. `pointerdown` IS discrete, so it flushes
+            // before the click, and it carries the same fractional coordinate
+            // the ghost was last drawn at — so what commits is what was on the
+            // paper, to the sub-pixel.
+            onPointerDown={(event) => {
+              const svg = event.currentTarget.ownerSVGElement;
+              if (!svg || !onPlacePointer) return;
+              onPlacePointer(
+                clientPointToSvg(svg, event.clientX, event.clientY),
+              );
+            }}
             onClick={() => onPlaceCommit?.()}
           />
           <PlacementGhostLayer ghost={dimensionGhost} />

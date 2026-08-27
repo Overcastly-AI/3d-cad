@@ -516,11 +516,35 @@ export function movePlacement(
   return { ...state, target, moved: true };
 }
 
+/** Kill floating-point dust so a quantised value is the value it prints. */
+const clean = (n: number): number => Math.round(n * 1e6) / 1e6;
+
+/**
+ * The nearest multiple of `step` to `value` — the drafting grid a nudge lands
+ * on.
+ *
+ * The nudge used to ADD the step to whatever fraction the drag had left behind,
+ * which is a different and much weaker promise: from a real drag it measured
+ * `-23.71 -> -22.71 -> -17.71`, so **-25.00 was not reachable at all**. The
+ * damage is not the ugly number, it is that two dimensions placed by hand could
+ * never be given the SAME offset, so a chain of them could not be lined up —
+ * which is most of what drafting is (frontend-QA 2026-08-27, P1-D). Quantising
+ * first means the first press lands on the grid and every press after it stays
+ * there, at whatever step the modifier chose.
+ */
+export function quantise(value: number, step: number): number {
+  if (!Number.isFinite(step) || step <= 0) return value;
+  return clean(Math.round(value / step) * step);
+}
+
 /**
  * Nudge the live placement by one keyboard step — the keyboard parity for the
  * drag. `dx`/`dy` are the arrow-key direction (-1/0/+1) in SCREEN sense (up is
  * -y, as on the sheet); an offset placement reads the vertical axis as
  * "further out / further in" because that is the only degree of freedom it has.
+ *
+ * The value is QUANTISED to `step` before the step is applied, so the grid is
+ * the same one whatever the pointer left behind (see {@link quantise}).
  */
 export function nudgePlacement(
   state: AuthoringState,
@@ -536,17 +560,47 @@ export function nudgePlacement(
     if (sense === 0) return state;
     return {
       ...state,
-      target: { ...t, offsetMm: t.offsetMm + sense * step },
+      target: {
+        ...t,
+        offsetMm: clean(quantise(t.offsetMm, step) + sense * step),
+      },
       moved: true,
     };
   }
   if (dx === 0 && dy === 0) return state;
+  // BOTH axes quantise, not only the one being moved: a text seat nudged only
+  // sideways would otherwise keep a fractional y for ever, and two value stamps
+  // that cannot share a y cannot be lined up.
   return {
     ...state,
     target: {
       ...t,
-      textPos: { x: t.textPos.x + dx * step, y: t.textPos.y + dy * step },
+      textPos: {
+        x: clean(quantise(t.textPos.x, step) + dx * step),
+        y: clean(quantise(t.textPos.y, step) + dy * step),
+      },
     },
+    moved: true,
+  };
+}
+
+/**
+ * Set the live offset to an exact typed value — the precision fallback the
+ * mandate asks for beside the direct manipulation ("Fusion's extrude is a
+ * draggable arrow; the numeric field is the precision fallback").
+ *
+ * Not applicable to a text placement: `text_pos` is a POINT, and its precision
+ * route is the quantised nudge above rather than one scalar field.
+ */
+export function setPlacementOffset(
+  state: AuthoringState,
+  offsetMm: number,
+): AuthoringState {
+  if (state.kind !== "placing" || state.target.mode !== "offset") return state;
+  if (!Number.isFinite(offsetMm)) return state;
+  return {
+    ...state,
+    target: { ...state.target, offsetMm: clean(offsetMm) },
     moved: true,
   };
 }

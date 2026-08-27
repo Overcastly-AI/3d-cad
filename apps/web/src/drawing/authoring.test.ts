@@ -23,6 +23,8 @@ import {
   placementOffsetMm,
   placementTarget,
   placementTextPos,
+  quantise,
+  setPlacementOffset,
   withPlacement,
 } from "./authoring";
 
@@ -213,6 +215,25 @@ const CIRCLE_GEOM = {
   viewAnchor: { x: 20, y: 100 },
 };
 
+describe("quantise", () => {
+  it("snaps to the nearest multiple of the step, in both signs", () => {
+    expect(quantise(-23.71, 1)).toBe(-24);
+    expect(quantise(23.71, 1)).toBe(24);
+    expect(quantise(-23.71, 5)).toBe(-25);
+    expect(quantise(0.4, 1)).toBe(0);
+    // Already on the grid stays put — a nudge must never cost a dead press.
+    expect(quantise(-25, 1)).toBe(-25);
+    // And the result is CLEAN: 3 * 0.1 must not read 0.30000000000000004 in a
+    // field a user is about to trust.
+    expect(quantise(0.31, 0.1)).toBe(0.3);
+  });
+
+  it("is the identity for a step that is not a step", () => {
+    expect(quantise(-23.71, 0)).toBe(-23.71);
+    expect(quantise(-23.71, Number.NaN)).toBe(-23.71);
+  });
+});
+
 describe("dimension placement", () => {
   it("arms an offset placement from a straight-edge linear pick", () => {
     const picked = pickEdge(IDLE, placedEdge(lineSig(), "line", LINE_GEOM));
@@ -267,8 +288,88 @@ describe("dimension placement", () => {
     let state = beginPlacement(picked, built!.viewId, built!.params, target!);
     state = nudgePlacement(state, 0, -1); // ArrowUp — further out
     expect(placementOffsetMm(state)).toBeCloseTo(11 + PLACE_NUDGE_MM, 9);
-    state = nudgePlacement(state, 0, 1, PLACE_NUDGE_MM * 5); // Shift+ArrowDown
-    expect(placementOffsetMm(state)).toBeCloseTo(11 - PLACE_NUDGE_MM * 4, 9);
+    // Shift coarsens to a 5 mm step, and the value quantises to THAT grid
+    // first: 12 is not on it, so Shift+ArrowDown lands on 10 - 5 = 5, not on
+    // 12 - 5 = 7. A coarse step that preserves a fine remainder is not a
+    // coarse step at all.
+    state = nudgePlacement(state, 0, 1, PLACE_NUDGE_MM * 5);
+    expect(placementOffsetMm(state)).toBeCloseTo(5, 9);
+  });
+
+  it("a nudge QUANTISES, so a round offset is always one press away", () => {
+    // The exact sequence frontend-QA measured on 2026-08-27 (P1-D): a drag
+    // left -23.71 behind and the nudge ADDED to it —
+    //     -23.71 -> -22.71 -> -17.71
+    // so -25.00 was not reachable at all, and two hand-placed dimensions could
+    // never be given the same offset. This is the negative control for that.
+    const picked = pickEdge(IDLE, placedEdge(lineSig(), "line", LINE_GEOM));
+    const built = buildDimension(picked, "linear");
+    const target = placementTarget(picked, "linear");
+    let state = beginPlacement(picked, built!.viewId, built!.params, target!);
+    state = setPlacementOffset(state, -23.71);
+    expect(placementOffsetMm(state)).toBeCloseTo(-23.71, 9);
+
+    // One press DOWN and the answer is exactly -25.00, not -24.71.
+    state = nudgePlacement(state, 0, 1);
+    expect(placementOffsetMm(state)).toBe(-25);
+    // And it STAYS on the grid from there, in both directions.
+    state = nudgePlacement(state, 0, 1);
+    expect(placementOffsetMm(state)).toBe(-26);
+    state = nudgePlacement(state, 0, -1);
+    expect(placementOffsetMm(state)).toBe(-25);
+    // …so a second dimension dragged to a different fraction reaches the SAME
+    // offset — which is what lining a chain up actually requires.
+    let other = beginPlacement(picked, built!.viewId, built!.params, target!);
+    other = setPlacementOffset(other, -24.38);
+    other = nudgePlacement(other, 0, 1);
+    expect(placementOffsetMm(other)).toBe(placementOffsetMm(state));
+  });
+
+  it("takes an exact typed offset, and sends it verbatim", () => {
+    const picked = pickEdge(IDLE, placedEdge(lineSig(), "line", LINE_GEOM));
+    const built = buildDimension(picked, "linear");
+    const target = placementTarget(picked, "linear");
+    let state = beginPlacement(picked, built!.viewId, built!.params, target!);
+    state = setPlacementOffset(state, -25);
+    expect(placementOffsetMm(state)).toBe(-25);
+    const params = withPlacement(
+      (state as { base: DimensionParams }).base,
+      (state as { target: PlaceTarget }).target,
+    );
+    // -30.48 is what the review found persisted from a hand placement; -25.00
+    // is what a precision tool has to be able to store.
+    expect(params.placement).toEqual({ offset_mm: -25 });
+
+    // A half-typed value never moves the ghost to nowhere.
+    expect(placementOffsetMm(setPlacementOffset(state, Number.NaN))).toBe(-25);
+    // And a TEXT placement has no scalar to set — it is left untouched.
+    const circle = pickEdge(
+      IDLE,
+      placedEdge(circleSig(), "circle", CIRCLE_GEOM),
+    );
+    const textBuilt = buildDimension(circle, "diameter");
+    const textTarget = placementTarget(circle, "diameter");
+    const textState = beginPlacement(
+      circle,
+      textBuilt!.viewId,
+      textBuilt!.params,
+      textTarget!,
+    );
+    expect(setPlacementOffset(textState, -25)).toBe(textState);
+  });
+
+  it("quantises BOTH axes of a text seat, so two stamps can line up", () => {
+    const picked = pickEdge(
+      IDLE,
+      placedEdge(circleSig(), "circle", CIRCLE_GEOM),
+    );
+    const built = buildDimension(picked, "diameter");
+    const target = placementTarget(picked, "diameter");
+    let state = beginPlacement(picked, built!.viewId, built!.params, target!);
+    state = movePlacement(state, { x: 62.345, y: 41.111 });
+    // Nudging sideways used to leave y fractional for ever.
+    state = nudgePlacement(state, 1, 0);
+    expect(placementTextPos(state)).toEqual({ x_mm: 63, y_mm: 41 });
   });
 
   it("commits a text placement as text_pos, verbatim in sheet mm", () => {

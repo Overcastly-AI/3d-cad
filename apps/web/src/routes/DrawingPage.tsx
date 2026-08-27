@@ -8,7 +8,7 @@ import {
   useState,
 } from "react";
 
-import { Button, Stamp, TextField, drawing } from "@loft/design";
+import { Button, NumberField, Stamp, TextField, drawing } from "@loft/design";
 
 import {
   type AnnotationResponse,
@@ -74,6 +74,7 @@ import {
   placementOffsetMm,
   placementTarget,
   selectedEndpoints,
+  setPlacementOffset,
 } from "../drawing/authoring";
 import { type DrawingExportFormat, exportDrawing } from "../api/exportDrawing";
 import { downloadBlob } from "../api/exportPart";
@@ -1119,13 +1120,44 @@ export function DrawingPage() {
     setAuthoring((state) => movePlacement(state, at));
   }, []);
 
-  /** Commit the live placement — the click that puts the dimension down. */
+  /**
+   * Commit the live placement — the click that puts the dimension down.
+   *
+   * Safe to read `authoring` from the closure ONLY because the sheet reports the
+   * pointer on `pointerdown` as well as on `pointermove`: a discrete event
+   * flushes before the click that follows it, so this sees the placement the
+   * user is looking at. See the `onPointerDown` note on the place surface for
+   * what went wrong when it did not.
+   */
   const handlePlaceCommit = useCallback(() => {
     if (dimBusy) return;
     const commit = commitParams(authoring);
     if (commit === null) return;
     persistDimension(commit.viewId, commit.params);
   }, [authoring, dimBusy, persistDimension]);
+
+  // --- the typed route to the offset (P1-D) -------------------------------
+  // The offset field is CONTROLLED by the placement (the pointer moves it at
+  // pointer rate) except while the user has it focused, when the text is
+  // theirs: a controlled field rewritten mid-keystroke eats characters. A
+  // non-null draft means "the user is typing; leave their text alone".
+  const [offsetDraft, setOffsetDraft] = useState<string | null>(null);
+  const offsetFieldRef = useRef<HTMLInputElement | null>(null);
+  const offsetText =
+    offsetDraft ?? (placingOffsetMm !== null ? placingOffsetMm.toFixed(2) : "");
+  useEffect(() => {
+    if (authoring.kind !== "placing") setOffsetDraft(null);
+  }, [authoring.kind]);
+
+  const handleOffsetTyped = useCallback((text: string) => {
+    setOffsetDraft(text);
+    const value = Number(text);
+    // A half-typed "-" or "1." parses to NaN; hold the placement where it is
+    // and let the digits arrive rather than snapping the ghost to nothing.
+    if (text.trim() !== "" && Number.isFinite(value)) {
+      setAuthoring((state) => setPlacementOffset(state, value));
+    }
+  }, []);
 
   // The window key handler below must see the CURRENT placement without being
   // re-registered on every pointer move (a placement changes state at pointer
@@ -1308,6 +1340,25 @@ export function DrawingPage() {
       // Claimed BEFORE the single-letter commands so an arrow/Enter mid-place
       // can never fire an export instead.
       if (placingRef.current) {
+        // TYPE A NUMBER AND YOU ARE SETTING IT. A digit (or a leading minus)
+        // hands the keystroke to the offset field and focuses it, so the
+        // precision route costs no hunting and no mouse — the same reflex a
+        // modeller already has from every other CAD tool. Intent captured
+        // where it forms (CLAUDE.md flow rule), not recovered afterwards.
+        const field = offsetFieldRef.current;
+        if (field && /^[0-9.-]$/.test(event.key)) {
+          event.preventDefault();
+          // FOCUS FIRST, then seed. `focus()` fires the field's own onFocus
+          // synchronously, which opens a draft from the CURRENT value — so
+          // seeding before focusing hands the user "11.0025" instead of "-25".
+          field.focus();
+          setOffsetDraft(event.key);
+          const seed = Number(event.key);
+          if (Number.isFinite(seed)) {
+            setAuthoring((state) => setPlacementOffset(state, seed));
+          }
+          return;
+        }
         const step = event.shiftKey ? PLACE_NUDGE_MM * 5 : PLACE_NUDGE_MM;
         const delta: Record<string, [number, number]> = {
           ArrowUp: [0, -1],
@@ -1641,27 +1692,64 @@ export function DrawingPage() {
           <div
             role="status"
             data-testid="dimension-pick-hint"
-            className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 border border-brass/60 bg-anvil px-3 py-1.5 shadow-float"
+            className="pointer-events-none absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-2 border border-brass/60 bg-anvil px-3 py-1.5 shadow-float"
           >
-            <span className="font-display text-2xs uppercase tracking-[0.16em] text-brass">
+            <span className="font-display text-2xs whitespace-nowrap uppercase tracking-[0.16em] text-brass">
               {hint}
             </span>
-            {/* The live offset, in the data face the rest of the product uses
-                for numbers you are actively setting. Sheet millimetres: this is
-                a distance on the PAPER, not in the model, so it is unit-free by
-                nature — an A3 sheet is 420 mm whatever the part is drawn in. */}
+            {/* THE PRECISION FALLBACK, not the live reading. The number you are
+                watching rides the ghost on the paper (see PlacementGhostLayer);
+                this is the field you reach for when the answer is exactly -25.
+                Sheet millimetres: a distance on the PAPER, not in the model, so
+                it is unit-free by nature — an A3 sheet is 420 mm whatever the
+                part is drawn in. The chip stays pointer-transparent so it can
+                never swallow a placement click; only the cell takes input. */}
             {placingOffsetMm !== null ? (
-              <span
-                data-testid="dimension-offset-readout"
+              <NumberField
+                layout="inline"
+                label="Offset"
+                unit="mm"
+                className="pointer-events-auto w-[13rem] shrink-0"
+                ref={offsetFieldRef}
+                data-testid="dimension-offset-field"
                 data-offset-mm={placingOffsetMm.toFixed(2)}
-                className="ml-2 font-data text-2xs tabular-nums text-mist"
-              >
-                {placingOffsetMm.toFixed(1)} mm
-              </span>
+                aria-label="Dimension offset in sheet millimetres"
+                value={offsetText}
+                onChange={(event) => handleOffsetTyped(event.target.value)}
+                onFocus={() => setOffsetDraft(offsetText)}
+                onBlur={() => setOffsetDraft(null)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    commitPlacementRef.current();
+                    return;
+                  }
+                  // Up/Down keep nudging while the caret is in the cell (the
+                  // numeric-field convention); Left/Right stay caret motion.
+                  const sense =
+                    event.key === "ArrowUp"
+                      ? 1
+                      : event.key === "ArrowDown"
+                        ? -1
+                        : 0;
+                  if (sense !== 0) {
+                    event.preventDefault();
+                    const step = event.shiftKey
+                      ? PLACE_NUDGE_MM * 5
+                      : PLACE_NUDGE_MM;
+                    setOffsetDraft(null);
+                    setAuthoring((state) =>
+                      nudgePlacement(state, 0, -sense, step),
+                    );
+                  }
+                }}
+              />
             ) : null}
-            <span className="ml-2 font-body text-2xs text-gauge">
+            <span className="font-body text-2xs whitespace-nowrap text-gauge">
               {authoring.kind === "placing"
-                ? "Arrows nudge · Enter places · Esc back"
+                ? placingOffsetMm !== null
+                  ? "Type a value · arrows nudge · Enter places · Esc back"
+                  : "Arrows nudge · Enter places · Esc back"
                 : "Esc to cancel"}
             </span>
           </div>
