@@ -739,6 +739,29 @@ recipe here in the same commit as the fix.**
   it at CREATION, not after. The signature is a HEAD that is not an ancestor of
   the branch (both occurrences were seeded at `3b0b29e`, a merge into `main`),
   not a HEAD that is merely behind.
+- **`click({ force: true })` DISABLES THE ONLY CHECK THAT ASKS WHETHER A USER
+  COULD HAVE CLICKED IT — so a target no real mouse can hit passes a 4/4-green
+  spec.** Found 2026-08-27 by the frontend-qa pass on REACH-3.
+  `dimension-placement.spec.ts` picked its edge with `force: true`; scanning 18
+  points along the same 40 mm edge with `elementFromPoint` found **11 of 18
+  clickable**, and the central run — exactly where a user aims — returns the
+  `drawing-view` polyline, because **the view's own drawn outline sits above its
+  own pick target**. A real `page.mouse.click` at the midpoint does nothing,
+  silently, and every spec stayed green. There are **26 such calls across 8 spec
+  files**; treat each as an unproven pick until checked.
+  `force` is legitimate for a target deliberately covered (a modal scrim you mean
+  to click through) — it is a lie when used to make a flaky pick stop failing,
+  which is the usual reason it gets added.
+  **This is the THIRD member of one family and the family is the lesson:** an
+  assertion that cannot observe the failure mode. `toBeVisible()` is a box
+  property, so it passed a SAVE control shoved outside the frame; `toHaveText
+  ("Solved")` after a submit was already true, so it read the pre-edit body; and
+  `force: true` skips actionability, so it hit an occluded target. In every case
+  the suite was green, the product was broken, and the gap was invisible until
+  someone measured the thing the assertion was standing in for. When a spec
+  proves a USER can do something, assert with the user's own mechanism — a real
+  `page.mouse.click` at the control's centre, or `elementFromPoint` resolving to
+  the control — never a proxy that skips the step you are claiming works.
 - **`git add <my file> && git commit` IN ONE COMMAND IS THE SWEEP, and chaining
   them is what defeats the protocol's own check.** Done by the ORCHESTRATOR on
   2026-08-27, hours after quoting the rule at three separate agents: `4e41eb4`
