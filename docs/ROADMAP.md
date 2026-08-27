@@ -2,31 +2,37 @@
 
 Status legend: ✅ done · 🚧 in progress · ⬜ planned
 
-**Current focus, corrected 2026-08-26 (backlog-groomer pass 13).** Ten items
-from pass 11/12's in-flight batch shipped and are ticked in `docs/BACKLOG.md`
-Done archive: **SETTLE-PERF-1** (883x speedup, and removed a 90s-timeout
-resource-exhaustion route), **DXF-4** (flat pattern now carries its holes),
-**DXF-5/T-16** (DXF units + the silent scale error fixed on both export
-paths), **PICK-2** (a pick mode refuses to arm with nothing to pick),
-**FB-21** (axis glyph now points where the part's Z actually goes),
-**FB-9** (verified already fixed by FB-7c, now gated end-to-end),
-**NAME-2/T-21/T-8** (durable edge re-match added; the face tier was already
-durable since M17/GEOM-3 — kernel side fully closes), **EDGEFLANGE-1**
-(thickness-edge flange now refused with a typed error), and
-**T-22/REPICK-1** (re-pick preserves the anchor) plus the e2e regression it
-exposed (`b036acd` — the fixture was asserting the OLD reset behaviour
-without saying so; T-22 is correct and stands). **MATE-1 RE-SCOPED, not
-closed:** `287510f` gated the kernel mate-pick seam and measured 0 bad of 14
-offered faces, worst round-trip deviation exactly 0.0 — the S-15
-face-unreachable repro is NOT kernel-side. The remaining UI raycast/
-hover-highlight half is re-filed, **blocked** on `apps/web/src/viewport/**`
-— T-23/DRAG-1 (the extrude drag handle) is in flight there now; ORTHO-1
-shares the territory and queues behind MATE-1 once it clears. Re-derived
-Ready queue (top: SPEC-10 → SPEC-9 → DOCTICK-GATE → EXPORT-3 →
-SKETCH-VOCAB-1(FE) → PATTERN-1(FE) → REVOLVE-1 → SNAP-4) in
-`docs/BACKLOG.md`. Full pass-11/12 narrative moved to `docs/CHANGELOG.md`
-(hygiene sweep still owed for pre-pass-9 history — deferred again to keep
-this pass mechanical).
+**Current focus, corrected 2026-08-27 (backlog-groomer pass 14) — founder
+has switched focus to the frontend; Ready is now ranked frontend-first.**
+Shipped since pass 13, verified against `git log` and ticked in
+`docs/BACKLOG.md` Done archive: **SPEC-9**/**SPEC-10** (e2e assertion
+fixes), **DOCTICK-GATE** (the doc-tick rule now has a CI gate), **SNAP-5**
+(line-by-line drawing infers H/V), **SIGNIN-1** (sign-in sheet bounded and
+centred), **T-23/DRAG-1** (extrude gets a draggable depth gauge — the
+design mandate's named "biggest gap"), and **PATTERN-1's frontend half**
+(tree selection seeds the pattern scope). T-23/DRAG-1 landing clears
+`apps/web/src/viewport/**`, so **MATE-1's UI half and ORTHO-1 are now
+UNBLOCKED**, not queued. Kernel-only halves shipped for **REVOLVE-1**
+(world origin axes) and **SKETCH-VOCAB-1** (angle/diameter/midpoint/
+collinear/symmetric-two-lines all solve server-side) — both frontend
+halves stay open, tickets shrunk accordingly. Independent design reviews of
+PATTERN-1's and the sheet-projection-convention feature each found flow
+gaps the builders didn't catch (icon-tier proposal shed, no seed echo,
+Cancel destroys selection; orientation proposal never fires on Sheet 1,
+flip-to-portrait unrecoverable) — filed as **REACH-2-FLOW** and
+**REACH-3-FLOW** (P1). Re-derived Ready queue (top: QA-R1 → QA-R2 →
+MATE-1(UI) → REACH-2-FLOW → REVOLVE-1(FE) → SKETCH-VOCAB-1(FE) → ORTHO-1)
+in `docs/BACKLOG.md`. `scripts/check-ui-parity.py` +
+`.claude/workflows/loft-frontend-loop.js` now mechanically re-derive the
+reachable-vs-displayable gap every batch — 39 gaps measured at filing time;
+triaged from the tool, not frozen onto the board. Still owed:
+`docs/GEOMETRY-QA.md`/`docs/UI-REVIEW.md` refresh against the last three
+batches, and the vision-steward's Sheet metal/Performance scorecard
+re-check (carried forward from pass 13, still not done). Pass-13's own
+narrative (superseded by this paragraph) has full evidence already in
+`docs/BACKLOG.md`'s Done archive, not duplicated here (hygiene sweep for the
+pre-pass-9 history below still owed — deferred again to keep this pass
+mechanical).
 
 **Prior focus, corrected 2026-08-21 (backlog-groomer pass 8): the
 2026-08-17 founder file-page/export directive is fully SHIPPED.** EXPORT-1
