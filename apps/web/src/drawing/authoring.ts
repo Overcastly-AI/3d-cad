@@ -19,13 +19,43 @@
  * meant thickness and clicked "Angle" is one item away rather than restarting.
  * This module is the single source of truth for that progression; the component
  * only renders the state and dispatches picks.
+ *
+ * The progression ends in a PLACE stage (REACH-3). Choosing a type used to POST
+ * immediately and let the auto engine decide which side of the geometry the
+ * dimension sat on — the authored `DimensionPlacement` the contract has always
+ * carried was never sent, so a user could not put a dimension anywhere. Now the
+ * type choice arms {@link AuthoringState} `placing`: the ghost tracks the
+ * pointer, the perpendicular distance becomes `offset_mm` (or the pointer itself
+ * becomes `text_pos`), and click/Enter commits. Escape returns to the state the
+ * placement began from, so backing out of the PLACEMENT never destroys the PICK.
  */
+import { drawing } from "@loft/design";
+
 import type {
   DimensionParams,
   EdgeSignature,
   ProjectedViewEdge,
+  SheetPoint,
   ViewProjection,
 } from "../api/drawings";
+import type { Point2D } from "./layout";
+import { offsetAt, perpendicularFoot, type PlaceTarget } from "./placement";
+
+export type { PlaceTarget };
+
+/**
+ * The composed sheet-mm geometry of a picked edge, carried on the pick so the
+ * PLACE stage can measure against the SAME coordinates the composer placed
+ * (`ComposedView` is already in final sheet-SVG space — no transform needed).
+ */
+export interface PickGeometry {
+  /** Composed endpoints in start→end order (a straight edge only). */
+  line: { a: Point2D; b: Point2D } | null;
+  /** Composed centre + radius (a circle / arc only). */
+  circle: { center: Point2D; radius: number } | null;
+  /** The view's composed centre — the composer's `view_center`, mapped. */
+  viewAnchor: Point2D;
+}
 
 /** One picked, dimensionable straight/circular edge. */
 export interface EdgeTarget {
@@ -35,6 +65,13 @@ export interface EdgeTarget {
   primitive: ProjectedViewEdge["primitive"];
   clientX: number;
   clientY: number;
+  /**
+   * Where this edge sits on the composed sheet. OPTIONAL on purpose: a pick
+   * that cannot supply it (a caller with no composed geometry to hand) simply
+   * skips the PLACE stage and authors at auto placement — byte-identical to the
+   * pre-REACH-3 flow, so no pick path can regress into a dead end.
+   */
+  geometry?: PickGeometry;
 }
 
 /** One picked edge endpoint (a vertex named through an edge — design §3.3). */
@@ -45,6 +82,10 @@ export interface EndpointTarget {
   endpoint: "end_a" | "end_b";
   clientX: number;
   clientY: number;
+  /** This endpoint's composed sheet position (see {@link EdgeTarget.geometry}). */
+  at?: Point2D;
+  /** The view's composed centre. */
+  viewAnchor?: Point2D;
 }
 
 /** Which two-edge dimension the user reached for — it ORDERS the ready menu. */
@@ -53,7 +94,9 @@ export type PairIntent = "angular" | "edge_to_edge";
 /**
  * The authoring progression. `single-edge` / `pair-ready` / `p2p-ready`
  * show the gated type menu (`anchor` positions it); `arming-pair` /
- * `one-endpoint` show a "pick the second …" hint and keep the sheet live.
+ * `one-endpoint` show a "pick the second …" hint and keep the sheet live;
+ * `placing` is the final stage — the measurement is settled and the user is
+ * putting it on the paper.
  */
 export type AuthoringState =
   | { kind: "idle" }
@@ -66,7 +109,23 @@ export type AuthoringState =
       intent: PairIntent;
     }
   | { kind: "one-endpoint"; a: EndpointTarget }
-  | { kind: "p2p-ready"; a: EndpointTarget; b: EndpointTarget };
+  | { kind: "p2p-ready"; a: EndpointTarget; b: EndpointTarget }
+  | {
+      kind: "placing";
+      viewId: string;
+      /** The authored params WITHOUT placement; folded in on commit. */
+      base: DimensionParams;
+      target: PlaceTarget;
+      /**
+       * Has the user actually MOVED the placement? Until they have, committing
+       * sends no placement at all and the composer auto-places exactly as it
+       * always did — so "pick, choose, Enter" is byte-identical to the flow
+       * before this stage existed, and the new control costs nobody anything.
+       */
+      moved: boolean;
+      /** The state Escape returns to — the pick survives a cancelled placement. */
+      from: AuthoringState;
+    };
 
 /** The idle start state. */
 export const IDLE: AuthoringState = { kind: "idle" };
@@ -202,6 +261,13 @@ export function pickHint(state: AuthoringState): string | null {
         : "Pick the second edge for the angle";
     case "one-endpoint":
       return "Pick the second point";
+    case "placing":
+      // The pick is done; the sentence changes to the next thing to DO, in the
+      // same chip, so the flow reads as one continued gesture rather than a new
+      // mode the user has to notice they are in.
+      return state.target.mode === "offset"
+        ? "Click to place the dimension"
+        : "Click to place the value";
     default:
       return null;
   }
@@ -237,6 +303,10 @@ export function armedSignatures(
           sourceEdge: state.edgeB.sourceEdge,
         },
       ];
+    // The picked geometry stays lit while you place against it — losing the
+    // highlight the moment you start placing would read as a lost pick.
+    case "placing":
+      return armedSignatures(state.from);
     default:
       return [];
   }
@@ -249,6 +319,8 @@ export function selectedEndpoints(state: AuthoringState): EndpointTarget[] {
       return [state.a];
     case "p2p-ready":
       return [state.a, state.b];
+    case "placing":
+      return selectedEndpoints(state.from);
     default:
       return [];
   }
@@ -320,4 +392,225 @@ export function buildDimension(
     };
   }
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// The PLACE stage (REACH-3)
+// ---------------------------------------------------------------------------
+
+/** Sheet-mm step an arrow key moves a placement — the sheet's nudge token. */
+export const PLACE_NUDGE_MM = drawing.placementNudgeMm;
+
+/** Seat a text ghost this far off the feature before the pointer first moves. */
+const TEXT_SEAT_MM = drawing.dimensionOffsetMm;
+
+/**
+ * Where the chosen `action` would be PLACED against the current pick, or null
+ * when this state/action pair cannot be placed by hand — either it does not
+ * author at all (a `start_*` arming choice) or the pick carried no composed
+ * geometry, in which case the caller authors at auto placement as before.
+ *
+ * The initial offset/seat is the composer's own default (`dimensionOffsetMm`),
+ * so the ghost appears exactly where the dimension would have landed without
+ * this stage: the user is adjusting a real proposal, not starting from nothing.
+ */
+export function placementTarget(
+  state: AuthoringState,
+  action: DimensionAction,
+): PlaceTarget | null {
+  if (state.kind === "single-edge") {
+    const geom = state.target.geometry;
+    if (geom === undefined) return null;
+    if (action === "linear" && geom.line) {
+      return {
+        mode: "offset",
+        span: geom.line,
+        viewAnchor: geom.viewAnchor,
+        offsetMm: TEXT_SEAT_MM,
+      };
+    }
+    if ((action === "diameter" || action === "radius") && geom.circle) {
+      const { center, radius } = geom.circle;
+      return {
+        mode: "text",
+        leaderFrom: center,
+        // Seated ABOVE the hole (sheet space is y-down) and clear of its rim.
+        textPos: { x: center.x, y: center.y - radius - TEXT_SEAT_MM },
+      };
+    }
+    return null;
+  }
+  if (state.kind === "pair-ready") {
+    const a = state.edgeA.geometry;
+    const b = state.edgeB.geometry;
+    if (a === undefined || b === undefined) return null;
+    if (action === "edge_to_edge" && a.line && b.line) {
+      // Across the wall: from the first edge's midpoint, square onto the
+      // second edge's supporting line — the composer's own span.
+      const p = {
+        x: (a.line.a.x + a.line.b.x) / 2,
+        y: (a.line.a.y + a.line.b.y) / 2,
+      };
+      const q = perpendicularFoot(p, b.line.a, b.line.b);
+      if (q === null) return null;
+      return {
+        mode: "offset",
+        span: { a: p, b: q },
+        viewAnchor: a.viewAnchor,
+        offsetMm: TEXT_SEAT_MM,
+      };
+    }
+    if (action === "angular" && a.line && b.line) {
+      const seat = {
+        x: (a.line.a.x + a.line.b.x + b.line.a.x + b.line.b.x) / 4,
+        y: (a.line.a.y + a.line.b.y + b.line.a.y + b.line.b.y) / 4,
+      };
+      return {
+        mode: "text",
+        leaderFrom: seat,
+        textPos: { x: seat.x, y: seat.y - TEXT_SEAT_MM },
+      };
+    }
+    return null;
+  }
+  if (state.kind === "p2p-ready" && action === "point_to_point") {
+    const { at: a, viewAnchor } = state.a;
+    const { at: b } = state.b;
+    if (a === undefined || b === undefined || viewAnchor === undefined) {
+      return null;
+    }
+    return {
+      mode: "offset",
+      span: { a, b },
+      viewAnchor,
+      offsetMm: TEXT_SEAT_MM,
+    };
+  }
+  return null;
+}
+
+/** Enter the PLACE stage for an authored dimension (see {@link placementTarget}). */
+export function beginPlacement(
+  state: AuthoringState,
+  viewId: string,
+  base: DimensionParams,
+  target: PlaceTarget,
+): AuthoringState {
+  return { kind: "placing", viewId, base, target, moved: false, from: state };
+}
+
+/** Track the pointer (composed sheet mm) into the live placement. */
+export function movePlacement(
+  state: AuthoringState,
+  pointer: Point2D,
+): AuthoringState {
+  if (state.kind !== "placing") return state;
+  const t = state.target;
+  const target: PlaceTarget =
+    t.mode === "offset"
+      ? {
+          ...t,
+          offsetMm: offsetAt(t.span.a, t.span.b, t.viewAnchor, pointer),
+        }
+      : { ...t, textPos: pointer };
+  return { ...state, target, moved: true };
+}
+
+/**
+ * Nudge the live placement by one keyboard step — the keyboard parity for the
+ * drag. `dx`/`dy` are the arrow-key direction (-1/0/+1) in SCREEN sense (up is
+ * -y, as on the sheet); an offset placement reads the vertical axis as
+ * "further out / further in" because that is the only degree of freedom it has.
+ */
+export function nudgePlacement(
+  state: AuthoringState,
+  dx: number,
+  dy: number,
+  step: number = PLACE_NUDGE_MM,
+): AuthoringState {
+  if (state.kind !== "placing") return state;
+  const t = state.target;
+  if (t.mode === "offset") {
+    // Up / Right push the dimension line further onto the `away` side.
+    const sense = dy !== 0 ? -dy : dx;
+    if (sense === 0) return state;
+    return {
+      ...state,
+      target: { ...t, offsetMm: t.offsetMm + sense * step },
+      moved: true,
+    };
+  }
+  if (dx === 0 && dy === 0) return state;
+  return {
+    ...state,
+    target: {
+      ...t,
+      textPos: { x: t.textPos.x + dx * step, y: t.textPos.y + dy * step },
+    },
+    moved: true,
+  };
+}
+
+/** Back out of the PLACE stage, keeping the pick that led to it. */
+export function cancelPlacement(state: AuthoringState): AuthoringState {
+  return state.kind === "placing" ? state.from : state;
+}
+
+/** The live offset (mm) of an offset placement — the sheet's readout. */
+export function placementOffsetMm(state: AuthoringState): number | null {
+  if (state.kind !== "placing" || state.target.mode !== "offset") return null;
+  return state.target.offsetMm;
+}
+
+/** The live text seat of a text placement — the sheet's readout. */
+export function placementTextPos(state: AuthoringState): SheetPoint | null {
+  if (state.kind !== "placing" || state.target.mode !== "text") return null;
+  return {
+    x_mm: state.target.textPos.x,
+    y_mm: state.target.textPos.y,
+  };
+}
+
+/** Round a placement coordinate to 0.01 mm — finer than the paper can show. */
+const mm = (n: number): number => Math.round(n * 100) / 100;
+
+/**
+ * What a commit sends: the view and the params, placement folded in — or the
+ * bare params when the user never moved the placement, so an untouched
+ * "pick, choose, Enter" is the pre-REACH-3 auto-placed dimension exactly.
+ */
+export function commitParams(
+  state: AuthoringState,
+): { viewId: string; params: DimensionParams } | null {
+  if (state.kind !== "placing") return null;
+  return {
+    viewId: state.viewId,
+    params: state.moved ? withPlacement(state.base, state.target) : state.base,
+  };
+}
+
+/**
+ * Fold the live placement into the params the create call sends.
+ *
+ * An offset that rounds to exactly 0 is sent WITHOUT a placement: `offset_mm ==
+ * 0` is the composer's own "auto-place me" sentinel (`_build_dimension_
+ * annotation_auto`), so pinning a dimension to zero offset is not expressible —
+ * omitting the field says the same thing honestly instead of encoding a value
+ * the server will ignore.
+ */
+export function withPlacement(
+  base: DimensionParams,
+  target: PlaceTarget,
+): DimensionParams {
+  if (target.mode === "offset") {
+    const offset_mm = mm(target.offsetMm);
+    return offset_mm === 0 ? base : { ...base, placement: { offset_mm } };
+  }
+  return {
+    ...base,
+    placement: {
+      offset_mm: 0,
+      text_pos: { x_mm: mm(target.textPos.x), y_mm: mm(target.textPos.y) },
+    },
+  };
 }

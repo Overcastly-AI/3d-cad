@@ -267,6 +267,10 @@ test("dimension a shell wall thickness edge to edge", async ({ page }) => {
   await expect(page.getByTestId("dimension-author-menu")).toBeVisible();
   await expect(page.getByTestId("dimension-type-angular")).toBeVisible();
   await page.getByTestId("dimension-type-edge_to_edge").click();
+  // REACH-3: choosing the type now opens the PLACE stage (the ghost tracks
+  // the pointer). Enter commits it UNMOVED, which sends no placement at all —
+  // so this flow is the auto-placed dimension it has always been.
+  await page.keyboard.press("Enter");
 
   // THE NUMBER: the re-evaluate measures the perpendicular distance off the 3D
   // model and stamps the authored wall thickness exactly.
@@ -323,6 +327,7 @@ test("refuse an edge-to-edge dimension between non-parallel edges", async ({
   await pickEdge(page, "top", horizontals[0]!.index).click({ force: true });
   await expect(page.getByTestId("dimension-author-menu")).toBeVisible();
   await page.getByTestId("dimension-type-edge_to_edge").click();
+  await page.keyboard.press("Enter");
 
   // THE REFUSAL: a typed marker on the sheet, in the machinist's words, and NO
   // measured value anywhere.

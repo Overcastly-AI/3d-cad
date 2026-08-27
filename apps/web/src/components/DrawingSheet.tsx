@@ -47,6 +47,7 @@ import type {
   ViewProjection,
   ViewResponse,
 } from "../api/drawings";
+import type { PickGeometry } from "../drawing/authoring";
 import { edgeSignatureKey } from "../drawing/dimensions";
 import {
   VIEW_LABEL,
@@ -55,6 +56,7 @@ import {
   type SvgEdge,
 } from "../drawing/layout";
 import { BANNER_TEXT_MM, bannerLines } from "../drawing/layoutIssues";
+import { GHOST_TARGET_MM, type PlacementGhost } from "../drawing/placement";
 import { titleBlockFields } from "../drawing/titleBlock";
 import { viewRowsByProjection } from "../drawing/views";
 
@@ -69,6 +71,9 @@ export interface EdgePickEvent {
   /** Pointer position (viewport px) so the author menu opens by the edge. */
   clientX: number;
   clientY: number;
+  /** Where this edge sits on the COMPOSED sheet (mm) — the PLACE stage measures
+   * the authored `offset_mm` / `text_pos` against these coordinates. */
+  geometry: PickGeometry;
 }
 
 /** A pick on a straight edge's endpoint handle — the seed of a point-to-point
@@ -82,6 +87,10 @@ export interface EndpointPickEvent {
   endpoint: "end_a" | "end_b";
   clientX: number;
   clientY: number;
+  /** This endpoint's composed sheet position (mm). */
+  at: Point2D;
+  /** The view's composed centre (mm) — the PLACE stage's outward reference. */
+  viewAnchor: Point2D;
 }
 
 /** A stable key for a projected edge — `projection:signature`. */
@@ -137,6 +146,14 @@ export interface DrawingSheetProps {
   onResetView?: (viewId: string) => void;
   /** A placement write is in flight — suspend further drag/nudge/reset. */
   placementBusy?: boolean;
+  /** The in-progress dimension placement to draw, or null when not placing.
+   * While it is non-null the sheet takes ALL pointer input (a placement is a
+   * modal gesture — an edge pick underneath would end it by accident). */
+  dimensionGhost?: PlacementGhost | null;
+  /** Pointer moved during a placement — reports the sheet-mm point under it. */
+  onPlacePointer?: (at: Point2D) => void;
+  /** The placement was clicked down onto the paper — commit it. */
+  onPlaceCommit?: () => void;
   /** Handle on the root `<svg>` so the editor can serialize it to a file (#5). */
   svgRef?: Ref<SVGSVGElement>;
 }
@@ -347,6 +364,25 @@ function HitShape({ edge }: { edge: SvgEdge }) {
   );
 }
 
+/**
+ * The composed sheet-mm geometry a pick carries into the PLACE stage. Read
+ * straight off the drawn primitive, so the placement is measured against the
+ * pixels the user is pointing at rather than a re-derivation of them.
+ */
+function composedGeometry(edge: SvgEdge, viewAnchor: Point2D): PickGeometry {
+  return {
+    line:
+      edge.kind === "line"
+        ? { a: { x: edge.x1, y: edge.y1 }, b: { x: edge.x2, y: edge.y2 } }
+        : null,
+    circle:
+      edge.kind === "circle"
+        ? { center: { x: edge.cx, y: edge.cy }, radius: edge.r }
+        : null,
+    viewAnchor,
+  };
+}
+
 /** One projected edge — solid/dashed, and interactive when dimensionable.
  * Hover/focus of a dimensionable straight edge REVEALS its endpoint handles
  * (via `onReveal`, keyed on the edge) — the Fusion/Plasticity proximity idiom,
@@ -355,6 +391,7 @@ function PickableEdge({
   edge,
   projection,
   viewId,
+  viewAnchor,
   selected,
   bendIndex = -1,
   onReveal,
@@ -363,6 +400,8 @@ function PickableEdge({
   edge: SvgEdge;
   projection: ViewProjection;
   viewId: string | null;
+  /** This view's composed centre (sheet mm) — carried on the pick for placement. */
+  viewAnchor: Point2D;
   selected: boolean;
   /** Positional bend-table key for a fold line (-1 for a body edge). */
   bendIndex?: number;
@@ -400,6 +439,7 @@ function PickableEdge({
       primitive: edge.edgePrimitive,
       clientX,
       clientY,
+      geometry: composedGeometry(edge, viewAnchor),
     });
   };
 
@@ -463,6 +503,7 @@ function VertexHandle({
   at,
   projection,
   viewId,
+  viewAnchor,
   sourceEdge,
   endpoint,
   selected,
@@ -472,6 +513,8 @@ function VertexHandle({
   at: Point2D;
   projection: ViewProjection;
   viewId: string;
+  /** This view's composed centre (sheet mm) — carried on the pick for placement. */
+  viewAnchor: Point2D;
   sourceEdge: EdgeSignature;
   endpoint: "end_a" | "end_b";
   selected: boolean;
@@ -500,6 +543,8 @@ function VertexHandle({
       endpoint,
       clientX,
       clientY,
+      at,
+      viewAnchor,
     });
   return (
     <g
@@ -654,6 +699,10 @@ function DimensionGlyph({ dim }: { dim: ComposedDimension }) {
       {lines.map((l, i) => (
         <line
           key={i}
+          // The composer's own role, exposed so a test (and anyone inspecting
+          // the sheet) can tell the dimension line from its witness lines —
+          // which is what "the dimension landed HERE" is measured against.
+          data-dim-line-role={l.role}
           x1={l.x1}
           y1={l.y1}
           x2={l.x2}
@@ -1088,6 +1137,12 @@ function SheetView({
   };
 
   const failed = composedView.failed;
+  // The composer's `view_center` mapped into sheet space — the reference the
+  // authored `offset_mm` sign is measured against (`_place_linear_between`).
+  const viewAnchorPoint: Point2D = {
+    x: composedView.anchor.x_mm,
+    y: composedView.anchor.y_mm,
+  };
   const composedEdges = composedView.edges ?? [];
   const composedDims = composedView.dimensions ?? [];
   const evalEdges = result?.edges ?? [];
@@ -1227,6 +1282,7 @@ function SheetView({
                 edge={edge}
                 projection={projection}
                 viewId={viewId}
+                viewAnchor={viewAnchorPoint}
                 bendIndex={bendIndexByEdge[i] ?? -1}
                 selected={
                   key !== null &&
@@ -1247,6 +1303,7 @@ function SheetView({
                   at={h.at}
                   projection={projection}
                   viewId={viewId}
+                  viewAnchor={viewAnchorPoint}
                   sourceEdge={h.sourceEdge}
                   endpoint={h.endpoint}
                   selected={selectedVertexKeys.includes(h.key)}
@@ -1702,6 +1759,75 @@ function SheetBanner({ composed }: { composed: ComposedSheet }) {
   );
 }
 
+/**
+ * The in-progress dimension — where it will land if you click here.
+ *
+ * Drawn in the pick blue the edge under it is already wearing, never the
+ * graphite of a placed dimension: a ghost must be unmistakably not-yet-ink. The
+ * `rule` tick from the measured midpoint out to the dimension line is the mark
+ * that says "you are setting this distance" — the draughtsman's rule on the
+ * paper, and the only thing here a finished dimension does not have.
+ */
+function PlacementGhostLayer({ ghost }: { ghost: PlacementGhost }) {
+  return (
+    <g
+      data-testid="dimension-ghost"
+      // Editor-only, exactly like the drag frame: an export taken mid-gesture
+      // must carry drafting geometry, never an un-committed proposal.
+      data-placement-chrome="ghost"
+      pointerEvents="none"
+    >
+      {ghost.lines.map((l, i) => (
+        <line
+          key={i}
+          data-ghost-role={l.role}
+          x1={l.x1}
+          y1={l.y1}
+          x2={l.x2}
+          y2={l.y2}
+          stroke={drawing.pickSelected}
+          strokeWidth={
+            l.role === "dimension"
+              ? drawing.dimensionWeightMm
+              : drawing.extensionWeightMm
+          }
+          strokeDasharray={
+            l.role === "rule" || l.role === "leader" ? "1.2 1.2" : undefined
+          }
+          opacity={l.role === "rule" ? 0.65 : 0.9}
+        />
+      ))}
+      {ghost.arrows.map((a, i) => (
+        <polygon
+          key={i}
+          points={a.points.map((p) => `${p.x},${p.y}`).join(" ")}
+          fill={drawing.pickSelected}
+          opacity={0.9}
+        />
+      ))}
+      {ghost.target ? (
+        <g
+          stroke={drawing.pickSelected}
+          strokeWidth={drawing.dimensionWeightMm}
+        >
+          <line
+            x1={ghost.target.x - GHOST_TARGET_MM}
+            y1={ghost.target.y}
+            x2={ghost.target.x + GHOST_TARGET_MM}
+            y2={ghost.target.y}
+          />
+          <line
+            x1={ghost.target.x}
+            y1={ghost.target.y - GHOST_TARGET_MM}
+            x2={ghost.target.x}
+            y2={ghost.target.y + GHOST_TARGET_MM}
+          />
+        </g>
+      ) : null}
+    </g>
+  );
+}
+
 export function DrawingSheet({
   composed,
   views,
@@ -1711,9 +1837,12 @@ export function DrawingSheet({
   selectedVertexKeys,
   endpointPickActive,
   placementBusy,
+  dimensionGhost,
   onPickEdge,
   onPickEndpoint,
   onPlaceView,
+  onPlacePointer,
+  onPlaceCommit,
   onResetView,
   svgRef,
 }: DrawingSheetProps) {
@@ -1793,6 +1922,33 @@ export function DrawingSheet({
       {/* Stamped LAST, exactly as the server serializers order it — the banner
           reads over anything it lands on. */}
       <SheetBanner composed={composed} />
+      {/* The placement gesture: a full-sheet capture plate that owns the pointer
+          for as long as the ghost is up, with the ghost painted over it. Nothing
+          underneath can take the click — the next click means "here", full
+          stop, which is the whole point of the stage. */}
+      {dimensionGhost ? (
+        <>
+          <rect
+            data-testid="dimension-place-surface"
+            data-placement-chrome="place-surface"
+            x={0}
+            y={0}
+            width={width}
+            height={height}
+            fill="transparent"
+            style={{ cursor: "crosshair" }}
+            onPointerMove={(event) => {
+              const svg = event.currentTarget.ownerSVGElement;
+              if (!svg || !onPlacePointer) return;
+              onPlacePointer(
+                clientPointToSvg(svg, event.clientX, event.clientY),
+              );
+            }}
+            onClick={() => onPlaceCommit?.()}
+          />
+          <PlacementGhostLayer ghost={dimensionGhost} />
+        </>
+      ) : null}
     </svg>
   );
 }

@@ -212,6 +212,10 @@ test.describe("drawings — a resized part, said on screen", () => {
     await edge.click({ force: true });
     await expect(page.getByTestId("dimension-author-menu")).toBeVisible();
     await page.getByTestId("dimension-type-linear").click();
+    // REACH-3: choosing the type now opens the PLACE stage (the ghost tracks
+    // the pointer). Enter commits it UNMOVED, which sends no placement at all —
+    // so this flow is the auto-placed dimension it has always been.
+    await page.keyboard.press("Enter");
     await expect(
       page.locator(
         '[data-testid="drawing-dimension"][data-dimension-value="100.000"]',

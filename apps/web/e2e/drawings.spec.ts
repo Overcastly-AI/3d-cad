@@ -468,6 +468,10 @@ test("author a diameter on the hole and a linear on the 40 mm edge", async ({
 
   await expect(page.getByTestId("dimension-author-menu")).toBeVisible();
   await page.getByTestId("dimension-type-diameter").click();
+  // REACH-3: choosing the type now opens the PLACE stage (the ghost tracks
+  // the pointer). Enter commits it UNMOVED, which sends no placement at all —
+  // so this flow is the auto-placed dimension it has always been.
+  await page.keyboard.press("Enter");
 
   // The re-evaluate measures it off the model and stamps Ø10.000 on the sheet.
   await expect(
@@ -487,6 +491,7 @@ test("author a diameter on the hole and a linear on the 40 mm edge", async ({
   await longEdge.click({ force: true });
   await expect(page.getByTestId("dimension-author-menu")).toBeVisible();
   await page.getByTestId("dimension-type-linear").click();
+  await page.keyboard.press("Enter");
 
   await expect(
     page.locator(
@@ -541,6 +546,7 @@ test("author an angular dimension between two perpendicular edges", async ({
   await vertical.click({ force: true });
   await expect(page.getByTestId("dimension-author-menu")).toBeVisible();
   await page.getByTestId("dimension-type-angular").click();
+  await page.keyboard.press("Enter");
 
   // The re-evaluate measures the true 3D angle (a rectangle corner ⇒ 90.0°) and
   // stamps the degree value on the sheet as an arc annotation.
@@ -585,6 +591,7 @@ test("author a point-to-point linear between two picked vertices", async ({
   await vertices.nth(2).click({ force: true });
   await expect(page.getByTestId("dimension-author-menu")).toBeVisible();
   await page.getByTestId("dimension-type-point_to_point").click();
+  await page.keyboard.press("Enter");
 
   // The re-evaluate measures the model-true distance between the two vertices
   // and stamps it (a plain linear value, three decimals) on the sheet.
@@ -673,6 +680,7 @@ test("export the laid-out sheet as a standalone .svg", async ({ page }) => {
   await topCircle.click({ force: true });
   await expect(page.getByTestId("dimension-author-menu")).toBeVisible();
   await page.getByTestId("dimension-type-diameter").click();
+  await page.keyboard.press("Enter");
   await expect(
     page.locator(
       '[data-testid="drawing-dimension"][data-dimension-value="Ø10.000"]',
@@ -732,6 +740,7 @@ test("export the laid-out sheet as a server-composed .pdf", async ({
   await topCircle.click({ force: true });
   await expect(page.getByTestId("dimension-author-menu")).toBeVisible();
   await page.getByTestId("dimension-type-diameter").click();
+  await page.keyboard.press("Enter");
   await expect(
     page.locator(
       '[data-testid="drawing-dimension"][data-dimension-value="Ø10.000"]',
@@ -797,6 +806,7 @@ test("export the laid-out sheet as a server-composed .dxf", async ({
   await topCircle.click({ force: true });
   await expect(page.getByTestId("dimension-author-menu")).toBeVisible();
   await page.getByTestId("dimension-type-diameter").click();
+  await page.keyboard.press("Enter");
   await expect(
     page.locator(
       '[data-testid="drawing-dimension"][data-dimension-value="Ø10.000"]',

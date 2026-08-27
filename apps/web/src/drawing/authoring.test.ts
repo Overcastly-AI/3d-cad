@@ -1,17 +1,29 @@
 import { describe, expect, it } from "vitest";
 
-import type { EdgeSignature } from "../api/drawings";
+import type { DimensionParams, EdgeSignature } from "../api/drawings";
 import {
   IDLE,
+  PLACE_NUDGE_MM,
   type EdgeTarget,
   type EndpointTarget,
+  type PlaceTarget,
   armPair,
+  armedSignatures,
+  beginPlacement,
   buildDimension,
+  cancelPlacement,
+  commitParams,
   menuActions,
   menuAnchor,
+  movePlacement,
+  nudgePlacement,
   pickEdge,
   pickEndpoint,
   pickHint,
+  placementOffsetMm,
+  placementTarget,
+  placementTextPos,
+  withPlacement,
 } from "./authoring";
 
 const vec = (x: number, y: number, z: number) => ({ x, y, z });
@@ -172,5 +184,170 @@ describe("authoring pick model", () => {
     const one = pickEndpoint(IDLE, endpoint(lineSig(), "end_b"));
     const switched = pickEdge(one, edge(circleSig(), "circle"));
     expect(switched.kind).toBe("single-edge");
+  });
+});
+
+// --- the PLACE stage (REACH-3) --------------------------------------------
+// `DimensionPlacement` shipped in the contract and was honoured by the composer
+// from day one, and the app never sent it — so a user could not put a dimension
+// anywhere. These cover the seam that changed that: the type choice now arms a
+// placement, the pointer (or the arrow keys) sets it, and the committed params
+// carry it.
+
+/** A pick that knows where it landed on the composed sheet. */
+const placedEdge = (
+  sig: EdgeSignature,
+  primitive: EdgeTarget["primitive"],
+  geometry: NonNullable<EdgeTarget["geometry"]>,
+): EdgeTarget => ({ ...edge(sig, primitive), geometry });
+
+/** A 40 mm horizontal edge 10 mm BELOW its view centre (sheet space is y-down). */
+const LINE_GEOM = {
+  line: { a: { x: 0, y: 110 }, b: { x: 40, y: 110 } },
+  circle: null,
+  viewAnchor: { x: 20, y: 100 },
+};
+const CIRCLE_GEOM = {
+  line: null,
+  circle: { center: { x: 20, y: 100 }, radius: 5 },
+  viewAnchor: { x: 20, y: 100 },
+};
+
+describe("dimension placement", () => {
+  it("arms an offset placement from a straight-edge linear pick", () => {
+    const picked = pickEdge(IDLE, placedEdge(lineSig(), "line", LINE_GEOM));
+    const target = placementTarget(picked, "linear");
+    expect(target?.mode).toBe("offset");
+    // Seeded at the composer's own auto offset, so the ghost opens exactly
+    // where the dimension would have landed without this stage.
+    expect(target && "offsetMm" in target && target.offsetMm).toBe(11);
+  });
+
+  it("arms a TEXT placement from a circle pick (offset_mm is linear-only)", () => {
+    const picked = pickEdge(
+      IDLE,
+      placedEdge(circleSig(), "circle", CIRCLE_GEOM),
+    );
+    const target = placementTarget(picked, "diameter");
+    expect(target?.mode).toBe("text");
+    // Seated clear of the rim, above the hole (sheet space is y-down).
+    expect(target && "textPos" in target && target.textPos).toEqual({
+      x: 20,
+      y: 84,
+    });
+  });
+
+  it("declines to place a pick that carried no composed geometry", () => {
+    // The pre-REACH-3 path: no geometry to measure against, so the caller
+    // authors at auto placement rather than opening a stage it cannot draw.
+    const picked = pickEdge(IDLE, edge(lineSig(), "line"));
+    expect(placementTarget(picked, "linear")).toBeNull();
+  });
+
+  it("tracks the pointer into offset_mm and says so in the hint", () => {
+    const picked = pickEdge(IDLE, placedEdge(lineSig(), "line", LINE_GEOM));
+    const target = placementTarget(picked, "linear");
+    const built = buildDimension(picked, "linear");
+    let state = beginPlacement(picked, built!.viewId, built!.params, target!);
+    expect(pickHint(state)).toBe("Click to place the dimension");
+    // 24 mm below the edge, on the side away from the view centre.
+    state = movePlacement(state, { x: 20, y: 134 });
+    expect(placementOffsetMm(state)).toBeCloseTo(24, 9);
+    const params = withPlacement(
+      (state as { base: DimensionParams }).base,
+      (state as { target: PlaceTarget }).target,
+    );
+    expect(params.placement).toEqual({ offset_mm: 24 });
+  });
+
+  it("nudges the offset by the keyboard step, coarse on Shift", () => {
+    const picked = pickEdge(IDLE, placedEdge(lineSig(), "line", LINE_GEOM));
+    const built = buildDimension(picked, "linear");
+    const target = placementTarget(picked, "linear");
+    let state = beginPlacement(picked, built!.viewId, built!.params, target!);
+    state = nudgePlacement(state, 0, -1); // ArrowUp — further out
+    expect(placementOffsetMm(state)).toBeCloseTo(11 + PLACE_NUDGE_MM, 9);
+    state = nudgePlacement(state, 0, 1, PLACE_NUDGE_MM * 5); // Shift+ArrowDown
+    expect(placementOffsetMm(state)).toBeCloseTo(11 - PLACE_NUDGE_MM * 4, 9);
+  });
+
+  it("commits a text placement as text_pos, verbatim in sheet mm", () => {
+    const picked = pickEdge(
+      IDLE,
+      placedEdge(circleSig(), "circle", CIRCLE_GEOM),
+    );
+    const built = buildDimension(picked, "diameter");
+    const target = placementTarget(picked, "diameter");
+    let state = beginPlacement(picked, built!.viewId, built!.params, target!);
+    state = movePlacement(state, { x: 62.345, y: 41.111 });
+    expect(placementTextPos(state)).toEqual({ x_mm: 62.345, y_mm: 41.111 });
+    const params = withPlacement(
+      (state as { base: DimensionParams }).base,
+      (state as { target: PlaceTarget }).target,
+    );
+    expect(params.placement).toEqual({
+      offset_mm: 0,
+      text_pos: { x_mm: 62.35, y_mm: 41.11 },
+    });
+  });
+
+  it("sends NO placement at a zero offset — 0 is the composer's auto sentinel", () => {
+    const picked = pickEdge(IDLE, placedEdge(lineSig(), "line", LINE_GEOM));
+    const built = buildDimension(picked, "linear");
+    const target = placementTarget(picked, "linear");
+    let state = beginPlacement(picked, built!.viewId, built!.params, target!);
+    state = movePlacement(state, { x: 20, y: 110 }); // right on the edge
+    const params = withPlacement(
+      (state as { base: DimensionParams }).base,
+      (state as { target: PlaceTarget }).target,
+    );
+    expect(params.placement).toBeUndefined();
+  });
+
+  it("commits with NO placement until the user actually moves it", () => {
+    // The compatibility promise: pick, choose, Enter is the pre-REACH-3
+    // auto-placed dimension, byte for byte. The new control costs nobody
+    // anything who does not reach for it.
+    const picked = pickEdge(IDLE, placedEdge(lineSig(), "line", LINE_GEOM));
+    const built = buildDimension(picked, "linear");
+    const target = placementTarget(picked, "linear");
+    const untouched = beginPlacement(
+      picked,
+      built!.viewId,
+      built!.params,
+      target!,
+    );
+    expect(commitParams(untouched)?.params.placement).toBeUndefined();
+    // …and the moment it IS moved, the placement goes with it.
+    const nudged = nudgePlacement(untouched, 0, -1);
+    expect(commitParams(nudged)?.params.placement).toEqual({ offset_mm: 12 });
+  });
+
+  it("Escape from a placement keeps the pick that led to it", () => {
+    const picked = pickEdge(IDLE, placedEdge(lineSig(), "line", LINE_GEOM));
+    const built = buildDimension(picked, "linear");
+    const target = placementTarget(picked, "linear");
+    const state = beginPlacement(picked, built!.viewId, built!.params, target!);
+    expect(cancelPlacement(state)).toEqual(picked);
+    // …and the edge stays lit while placing, so the pick never looks lost.
+    expect(armedSignatures(state)).toEqual(armedSignatures(picked));
+  });
+
+  it("places an edge-to-edge wall thickness across the two picked walls", () => {
+    const wallA = placedEdge(lineSig(), "line", LINE_GEOM);
+    const wallB = placedEdge(vertSig(), "line", {
+      line: { a: { x: 0, y: 96 }, b: { x: 40, y: 96 } },
+      circle: null,
+      viewAnchor: { x: 20, y: 100 },
+    });
+    const armed = armPair(pickEdge(IDLE, wallA), "edge_to_edge");
+    const ready = pickEdge(armed, wallB);
+    const target = placementTarget(ready, "edge_to_edge");
+    expect(target?.mode).toBe("offset");
+    // Squared from wall A's midpoint onto wall B's supporting line.
+    expect(target && "span" in target && target.span).toEqual({
+      a: { x: 20, y: 110 },
+      b: { x: 20, y: 96 },
+    });
   });
 });

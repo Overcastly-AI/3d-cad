@@ -13,6 +13,7 @@ import { Button, Stamp, TextField, drawing } from "@loft/design";
 import {
   type AnnotationResponse,
   type BendTableRow,
+  type DimensionParams,
   type DimensionResponse,
   type DrawingDimensionInput,
   type DrawingViewResult,
@@ -54,16 +55,24 @@ import { TopBar } from "../components/TopBar";
 import { TopToolbar } from "../components/TopToolbar";
 import {
   IDLE,
+  PLACE_NUDGE_MM,
   type AuthoringState,
   type DimensionAction,
   armPair,
   armedSignatures,
+  beginPlacement,
   buildDimension,
+  cancelPlacement,
+  commitParams,
   menuActions,
   menuAnchor,
+  movePlacement,
+  nudgePlacement,
   pickEdge,
   pickEndpoint,
   pickHint,
+  placementOffsetMm,
+  placementTarget,
   selectedEndpoints,
 } from "../drawing/authoring";
 import { type DrawingExportFormat, exportDrawing } from "../api/exportDrawing";
@@ -71,6 +80,7 @@ import { downloadBlob } from "../api/exportPart";
 import { healDimensionParams, reanchoredAnchor } from "../drawing/anchorHeal";
 import { formatDimensionLabel } from "../drawing/dimensions";
 import { exportSheetSvg } from "../drawing/exportSvg";
+import { ghostFor } from "../drawing/placement";
 import {
   SCALE_OPTIONS,
   STANDARD_VIEWS,
@@ -1013,6 +1023,10 @@ export function DrawingPage() {
   const menuActionList = menuActions(authoring);
   const anchor = menuAnchor(authoring);
   const hint = pickHint(authoring);
+  // The live placement: the ghost the sheet draws and the offset it reads out.
+  const placingGhost =
+    authoring.kind === "placing" ? ghostFor(authoring.target) : null;
+  const placingOffsetMm = placementOffsetMm(authoring);
 
   const handlePickEdge = useCallback((event: EdgePickEvent) => {
     setAuthoring((state) =>
@@ -1023,6 +1037,7 @@ export function DrawingPage() {
         primitive: event.primitive,
         clientX: event.clientX,
         clientY: event.clientY,
+        geometry: event.geometry,
       }),
     );
   }, []);
@@ -1036,28 +1051,21 @@ export function DrawingPage() {
         endpoint: event.endpoint,
         clientX: event.clientX,
         clientY: event.clientY,
+        at: event.at,
+        viewAnchor: event.viewAnchor,
       }),
     );
   }, []);
 
-  const handleChooseAction = useCallback(
-    (action: DimensionAction) => {
-      if (dimBusy) return;
-      // "Angle" / "Distance to edge" arm a second-edge pick rather than
-      // authoring immediately; the intent orders the menu that follows.
-      if (action === "start_angular" || action === "start_edge_to_edge") {
-        const intent = action === "start_angular" ? "angular" : "edge_to_edge";
-        setAuthoring((state) => armPair(state, intent));
-        return;
-      }
-      const built = buildDimension(authoring, action);
-      if (built === null) return;
+  /** POST the authored dimension (with whatever placement it carries) + refresh. */
+  const persistDimension = useCallback(
+    (viewId: string, params: DimensionParams) => {
       setDimBusy(true);
       setActionError(null);
       void (async () => {
         try {
-          await createDimension(drawingId, built.viewId, {
-            dimension: built.params,
+          await createDimension(drawingId, viewId, {
+            dimension: params,
             expected_version: docVersion,
           });
           await queryClient.invalidateQueries({
@@ -1075,8 +1083,59 @@ export function DrawingPage() {
         }
       })();
     },
-    [authoring, dimBusy, drawingId, docVersion, queryClient],
+    [drawingId, docVersion, queryClient],
   );
+
+  const handleChooseAction = useCallback(
+    (action: DimensionAction) => {
+      if (dimBusy) return;
+      // "Angle" / "Distance to edge" arm a second-edge pick rather than
+      // authoring immediately; the intent orders the menu that follows.
+      if (action === "start_angular" || action === "start_edge_to_edge") {
+        const intent = action === "start_angular" ? "angular" : "edge_to_edge";
+        setAuthoring((state) => armPair(state, intent));
+        return;
+      }
+      const built = buildDimension(authoring, action);
+      if (built === null) return;
+      // The measurement is settled — now say WHERE it goes. The ghost tracks the
+      // pointer from the auto-placement default, so the user is adjusting a real
+      // proposal (REACH-3). A pick that carried no composed geometry has nothing
+      // to place against and authors straight away, exactly as it always did.
+      const target = placementTarget(authoring, action);
+      if (target !== null) {
+        setAuthoring((state) =>
+          beginPlacement(state, built.viewId, built.params, target),
+        );
+        return;
+      }
+      persistDimension(built.viewId, built.params);
+    },
+    [authoring, dimBusy, persistDimension],
+  );
+
+  /** Track the pointer across the paper while a placement is live. */
+  const handlePlacePointer = useCallback((at: { x: number; y: number }) => {
+    setAuthoring((state) => movePlacement(state, at));
+  }, []);
+
+  /** Commit the live placement — the click that puts the dimension down. */
+  const handlePlaceCommit = useCallback(() => {
+    if (dimBusy) return;
+    const commit = commitParams(authoring);
+    if (commit === null) return;
+    persistDimension(commit.viewId, commit.params);
+  }, [authoring, dimBusy, persistDimension]);
+
+  // The window key handler below must see the CURRENT placement without being
+  // re-registered on every pointer move (a placement changes state at pointer
+  // rate), so the two things it needs live in refs.
+  const placingRef = useRef(false);
+  const commitPlacementRef = useRef(handlePlaceCommit);
+  useEffect(() => {
+    placingRef.current = authoring.kind === "placing";
+    commitPlacementRef.current = handlePlaceCommit;
+  }, [authoring, handlePlaceCommit]);
 
   const handleDeleteDimension = useCallback(
     (dimensionId: string) => {
@@ -1234,12 +1293,42 @@ export function DrawingPage() {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        setAuthoring(IDLE);
+        // Escape during a placement backs out ONE stage: the pick that led here
+        // survives, so a mis-drag never costs you the geometry you selected
+        // (CLAUDE.md flow rule — no ambiguous exits).
+        setAuthoring((state) =>
+          state.kind === "placing" ? cancelPlacement(state) : IDLE,
+        );
         setSectionOpen(false);
         return;
       }
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       if (isTypingTarget(event.target)) return;
+      // Keyboard parity for the placement drag: arrows nudge, Enter commits.
+      // Claimed BEFORE the single-letter commands so an arrow/Enter mid-place
+      // can never fire an export instead.
+      if (placingRef.current) {
+        const step = event.shiftKey ? PLACE_NUDGE_MM * 5 : PLACE_NUDGE_MM;
+        const delta: Record<string, [number, number]> = {
+          ArrowUp: [0, -1],
+          ArrowDown: [0, 1],
+          ArrowLeft: [-1, 0],
+          ArrowRight: [1, 0],
+        };
+        const move = delta[event.key];
+        if (move) {
+          event.preventDefault();
+          setAuthoring((state) =>
+            nudgePlacement(state, move[0], move[1], step),
+          );
+          return;
+        }
+        if (event.key === "Enter") {
+          event.preventDefault();
+          commitPlacementRef.current();
+          return;
+        }
+      }
       if (event.key.toLowerCase() === "l") {
         event.preventDefault();
         if (hasLayout) handleReproject();
@@ -1438,9 +1527,12 @@ export function DrawingPage() {
                 selectedVertexKeys={selectedVertexKeys}
                 endpointPickActive={endpointPickActive}
                 placementBusy={placingView}
+                dimensionGhost={placingGhost}
                 onPickEdge={handlePickEdge}
                 onPickEndpoint={handlePickEndpoint}
                 onPlaceView={handlePlaceView}
+                onPlacePointer={handlePlacePointer}
+                onPlaceCommit={handlePlaceCommit}
                 onResetView={handleResetView}
               />
             </div>
@@ -1540,9 +1632,11 @@ export function DrawingPage() {
           </FloatingPanel>
         ) : null}
 
-        {/* A "pick the second …" hint while a two-pick dimension is in progress
-            (angular / point-to-point). Non-modal so the sheet stays live for the
-            second pick; Esc cancels. */}
+        {/* One chip for the whole authoring gesture: the "pick the second …"
+            hint while a two-pick dimension is in progress, then "click to
+            place" once the measurement is settled. Same chip, next sentence —
+            placing is a continuation of the pick, not a new mode. Non-modal so
+            the sheet stays live; Esc steps back one stage. */}
         {hint ? (
           <div
             role="status"
@@ -1552,8 +1646,23 @@ export function DrawingPage() {
             <span className="font-display text-2xs uppercase tracking-[0.16em] text-brass">
               {hint}
             </span>
+            {/* The live offset, in the data face the rest of the product uses
+                for numbers you are actively setting. Sheet millimetres: this is
+                a distance on the PAPER, not in the model, so it is unit-free by
+                nature — an A3 sheet is 420 mm whatever the part is drawn in. */}
+            {placingOffsetMm !== null ? (
+              <span
+                data-testid="dimension-offset-readout"
+                data-offset-mm={placingOffsetMm.toFixed(2)}
+                className="ml-2 font-data text-2xs tabular-nums text-mist"
+              >
+                {placingOffsetMm.toFixed(1)} mm
+              </span>
+            ) : null}
             <span className="ml-2 font-body text-2xs text-gauge">
-              Esc to cancel
+              {authoring.kind === "placing"
+                ? "Arrows nudge · Enter places · Esc back"
+                : "Esc to cancel"}
             </span>
           </div>
         ) : null}
